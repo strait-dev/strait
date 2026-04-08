@@ -8,7 +8,15 @@ import {
 } from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
+import { Switch } from "@strait/ui/components/switch";
 import {
   Table,
   TableBody,
@@ -48,6 +56,15 @@ export const Route = createFileRoute("/app/notify/providers")({
   component: NotifyProvidersPage,
 });
 
+const providerChannelOptions = ["email"] as const;
+const providerTypeOptions = ["ses"] as const;
+
+const toKnownChannel = (value: string | undefined) =>
+  providerChannelOptions.find((option) => option === value) ?? "email";
+
+const toKnownProvider = (value: string | undefined) =>
+  providerTypeOptions.find((option) => option === value) ?? "ses";
+
 const defaultConfig = {
   region: "us-east-1",
   from_email: "noreply@example.com",
@@ -68,8 +85,10 @@ function NotifyProvidersPage() {
 
   const [selected, setSelected] = useState<NotificationProvider | null>(null);
 
-  const [channel, setChannel] = useState("email");
-  const [provider, setProvider] = useState("ses");
+  const [channel, setChannel] =
+    useState<(typeof providerChannelOptions)[number]>("email");
+  const [provider, setProvider] =
+    useState<(typeof providerTypeOptions)[number]>("ses");
   const [name, setName] = useState("");
   const [configJSON, setConfigJSON] = useState(
     JSON.stringify(defaultConfig, null, 2)
@@ -101,6 +120,19 @@ function NotifyProvidersPage() {
     }
   };
 
+  const parseRateLimit = () => {
+    if (!rateLimit.trim()) {
+      return undefined;
+    }
+
+    const parsed = Number(rateLimit);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return null;
+    }
+
+    return parsed;
+  };
+
   const resetForm = () => {
     setSelected(null);
     setChannel("email");
@@ -111,6 +143,16 @@ function NotifyProvidersPage() {
     setRateLimit("");
   };
 
+  const loadProviderForEdit = (item: NotificationProvider) => {
+    setSelected(item);
+    setChannel(toKnownChannel(item.channel));
+    setProvider(toKnownProvider(item.provider));
+    setName(item.name);
+    setIsDefault(item.is_default);
+    setRateLimit(item.rate_limit ? String(item.rate_limit) : "");
+    setConfigJSON(JSON.stringify(item.config ?? defaultConfig, null, 2));
+  };
+
   const upsert = async () => {
     const config = parseConfig();
     if (!config) {
@@ -118,13 +160,19 @@ function NotifyProvidersPage() {
       return;
     }
 
+    const parsedRateLimit = parseRateLimit();
+    if (parsedRateLimit === null) {
+      toast.error("Rate limit must be a non-negative number");
+      return;
+    }
+
     const payload = {
       channel,
       provider,
-      name: name.trim() || `${provider} ${channel}`,
+      name: name.trim() || `${provider.toUpperCase()} ${channel}`,
       config,
       is_default: isDefault,
-      rate_limit: rateLimit ? Number(rateLimit) : undefined,
+      rate_limit: parsedRateLimit,
     };
 
     if (selected) {
@@ -173,26 +221,46 @@ function NotifyProvidersPage() {
               {selected ? "Update provider" : "Create provider"}
             </CardTitle>
             <CardDescription>
-              Notify currently supports SES for email channel delivery.
+              Notify currently supports SES for email delivery.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="provider-channel">Channel</Label>
-                <Input
-                  id="provider-channel"
-                  onChange={(event) => setChannel(event.target.value)}
+                <Select
+                  onValueChange={(value) => setChannel(value as "email")}
                   value={channel}
-                />
+                >
+                  <SelectTrigger id="provider-channel">
+                    <SelectValue placeholder="Choose channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providerChannelOptions.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="provider-name">Provider</Label>
-                <Input
-                  id="provider-name"
-                  onChange={(event) => setProvider(event.target.value)}
+                <Select
+                  onValueChange={(value) => setProvider(value as "ses")}
                   value={provider}
-                />
+                >
+                  <SelectTrigger id="provider-name">
+                    <SelectValue placeholder="Choose provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providerTypeOptions.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -225,16 +293,14 @@ function NotifyProvidersPage() {
               />
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="provider-default">Default provider</Label>
-              <Input
-                id="provider-default"
-                onChange={(event) =>
-                  setIsDefault(event.target.value.toLowerCase() !== "false")
-                }
-                placeholder="true"
-                value={String(isDefault)}
-              />
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="font-medium text-sm">Default provider</p>
+                <p className="text-muted-foreground text-xs">
+                  Used when no provider is explicitly selected.
+                </p>
+              </div>
+              <Switch checked={isDefault} onCheckedChange={setIsDefault} />
             </div>
 
             <div className="flex gap-2">
@@ -283,16 +349,7 @@ function NotifyProvidersPage() {
                     <TableRow
                       className="cursor-pointer"
                       key={item.id}
-                      onClick={() => {
-                        setSelected(item);
-                        setChannel(item.channel);
-                        setProvider(item.provider);
-                        setName(item.name);
-                        setIsDefault(item.is_default);
-                        setRateLimit(
-                          item.rate_limit ? String(item.rate_limit) : ""
-                        );
-                      }}
+                      onClick={() => loadProviderForEdit(item)}
                     >
                       <TableCell>{item.name}</TableCell>
                       <TableCell>{item.channel}</TableCell>

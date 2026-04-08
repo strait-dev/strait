@@ -280,6 +280,7 @@ export type NotificationProvider = {
   channel: string;
   provider: string;
   name: string;
+  config?: Record<string, object>;
   is_default: boolean;
   fallback_id?: string;
   health: string;

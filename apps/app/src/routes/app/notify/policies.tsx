@@ -8,7 +8,15 @@ import {
 } from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
+import { Switch } from "@strait/ui/components/switch";
 import {
   Table,
   TableBody,
@@ -47,6 +55,16 @@ export const Route = createFileRoute("/app/notify/policies")({
   component: NotifyPoliciesPage,
 });
 
+const scopeTypeOptions = ["project", "category", "workflow_step"] as const;
+const digestOptions = ["instant", "hourly", "daily"] as const;
+const channelOptions = ["*", "email", "inbox"] as const;
+
+const toKnownChannel = (value: string | undefined) =>
+  channelOptions.find((option) => option === value) ?? "*";
+
+const toKnownDigest = (value: string | undefined) =>
+  digestOptions.find((option) => option === value) ?? "instant";
+
 function NotifyPoliciesPage() {
   const { hasProject, session } = Route.useLoaderData();
 
@@ -61,12 +79,13 @@ function NotifyPoliciesPage() {
 
   const [selected, setSelected] = useState<NotifyPolicyOverride | null>(null);
 
-  const [scopeType, setScopeType] = useState<
-    "project" | "category" | "workflow_step"
-  >("project");
+  const [scopeType, setScopeType] =
+    useState<(typeof scopeTypeOptions)[number]>("project");
   const [scopeKey, setScopeKey] = useState("project");
-  const [channel, setChannel] = useState("email");
-  const [digestPolicy, setDigestPolicy] = useState("instant");
+  const [channel, setChannel] =
+    useState<(typeof channelOptions)[number]>("email");
+  const [digestPolicy, setDigestPolicy] =
+    useState<(typeof digestOptions)[number]>("instant");
   const [retryAttempts, setRetryAttempts] = useState("");
   const [retryBaseDelay, setRetryBaseDelay] = useState("");
   const [retryMaxDelay, setRetryMaxDelay] = useState("");
@@ -95,8 +114,8 @@ function NotifyPoliciesPage() {
       return undefined;
     }
     const parsed = Number(value);
-    if (Number.isNaN(parsed)) {
-      return undefined;
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return null;
     }
     return parsed;
   };
@@ -121,13 +140,30 @@ function NotifyPoliciesPage() {
       return;
     }
 
+    const parsedRetryAttempts = toNumber(retryAttempts);
+    const parsedRetryBaseDelay = toNumber(retryBaseDelay);
+    const parsedRetryMaxDelay = toNumber(retryMaxDelay);
+    const parsedEscalationTiers = toNumber(escalationTiers);
+    const parsedEscalationMinInterval = toNumber(escalationMinInterval);
+
+    if (
+      parsedRetryAttempts === null ||
+      parsedRetryBaseDelay === null ||
+      parsedRetryMaxDelay === null ||
+      parsedEscalationTiers === null ||
+      parsedEscalationMinInterval === null
+    ) {
+      toast.error("Numeric fields must be non-negative numbers");
+      return;
+    }
+
     const payload = {
-      digest_policy: digestPolicy as "instant" | "hourly" | "daily",
-      retry_max_attempts: toNumber(retryAttempts),
-      retry_base_delay_secs: toNumber(retryBaseDelay),
-      retry_max_delay_secs: toNumber(retryMaxDelay),
-      escalation_tiers: toNumber(escalationTiers),
-      escalation_min_interval_secs: toNumber(escalationMinInterval),
+      digest_policy: digestPolicy,
+      retry_max_attempts: parsedRetryAttempts,
+      retry_base_delay_secs: parsedRetryBaseDelay,
+      retry_max_delay_secs: parsedRetryMaxDelay,
+      escalation_tiers: parsedEscalationTiers,
+      escalation_min_interval_secs: parsedEscalationMinInterval,
       enabled,
     };
 
@@ -148,7 +184,7 @@ function NotifyPoliciesPage() {
         createPolicy.mutateAsync({
           scope_type: scopeType,
           scope_key: scopeKey.trim(),
-          channel: channel.trim() || undefined,
+          channel: channel === "*" ? undefined : channel,
           ...payload,
         }),
         {
@@ -180,8 +216,8 @@ function NotifyPoliciesPage() {
     setSelected(item);
     setScopeType(item.scope_type);
     setScopeKey(item.scope_key);
-    setChannel(item.channel || "");
-    setDigestPolicy(item.digest_policy || "instant");
+    setChannel(toKnownChannel(item.channel));
+    setDigestPolicy(toKnownDigest(item.digest_policy));
     setRetryAttempts(
       item.retry_max_attempts ? String(item.retry_max_attempts) : ""
     );
@@ -218,20 +254,25 @@ function NotifyPoliciesPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="policy-scope-type">Scope type</Label>
-                <Input
-                  disabled={!!selected}
-                  id="policy-scope-type"
-                  onChange={(event) =>
-                    setScopeType(
-                      (event.target.value || "project") as
-                        | "project"
-                        | "category"
-                        | "workflow_step"
-                    )
+                <Select
+                  onValueChange={(value) =>
+                    setScopeType(value as (typeof scopeTypeOptions)[number])
                   }
                   value={scopeType}
-                />
+                >
+                  <SelectTrigger disabled={!!selected} id="policy-scope-type">
+                    <SelectValue placeholder="Choose scope" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {scopeTypeOptions.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-scope-key">Scope key</Label>
                 <Input
@@ -241,23 +282,49 @@ function NotifyPoliciesPage() {
                   value={scopeKey}
                 />
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-channel">Channel</Label>
-                <Input
-                  disabled={!!selected}
-                  id="policy-channel"
-                  onChange={(event) => setChannel(event.target.value)}
+                <Select
+                  onValueChange={(value) =>
+                    setChannel(value as (typeof channelOptions)[number])
+                  }
                   value={channel}
-                />
+                >
+                  <SelectTrigger disabled={!!selected} id="policy-channel">
+                    <SelectValue placeholder="Choose channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {channelOptions.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value === "*" ? "all channels" : value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-digest">Digest policy</Label>
-                <Input
-                  id="policy-digest"
-                  onChange={(event) => setDigestPolicy(event.target.value)}
+                <Select
+                  onValueChange={(value) =>
+                    setDigestPolicy(value as (typeof digestOptions)[number])
+                  }
                   value={digestPolicy}
-                />
+                >
+                  <SelectTrigger id="policy-digest">
+                    <SelectValue placeholder="Choose digest policy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {digestOptions.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-retry-attempts">
                   Retry max attempts
@@ -268,6 +335,7 @@ function NotifyPoliciesPage() {
                   value={retryAttempts}
                 />
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-retry-base">Retry base delay secs</Label>
                 <Input
@@ -276,6 +344,7 @@ function NotifyPoliciesPage() {
                   value={retryBaseDelay}
                 />
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-retry-max">Retry max delay secs</Label>
                 <Input
@@ -284,6 +353,7 @@ function NotifyPoliciesPage() {
                   value={retryMaxDelay}
                 />
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="policy-escalation-tiers">
                   Escalation tiers
@@ -294,6 +364,7 @@ function NotifyPoliciesPage() {
                   value={escalationTiers}
                 />
               </div>
+
               <div className="space-y-1 md:col-span-2">
                 <Label htmlFor="policy-escalation-interval">
                   Escalation min interval secs
@@ -306,17 +377,20 @@ function NotifyPoliciesPage() {
                   value={escalationMinInterval}
                 />
               </div>
-              <div className="space-y-1 md:col-span-2">
-                <Label htmlFor="policy-enabled">Enabled</Label>
-                <Input
-                  id="policy-enabled"
-                  onChange={(event) =>
-                    setEnabled(event.target.value.toLowerCase() !== "false")
-                  }
-                  value={String(enabled)}
-                />
+
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div>
+                    <p className="font-medium text-sm">Enabled</p>
+                    <p className="text-muted-foreground text-xs">
+                      Disable to ignore this override while keeping it stored.
+                    </p>
+                  </div>
+                  <Switch checked={enabled} onCheckedChange={setEnabled} />
+                </div>
               </div>
             </div>
+
             <div className="flex gap-2">
               <Button onClick={upsert}>{selected ? "Update" : "Create"}</Button>
               {selected ? (
