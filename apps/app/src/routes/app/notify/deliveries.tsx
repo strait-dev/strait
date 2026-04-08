@@ -20,7 +20,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
@@ -30,6 +30,7 @@ import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { NotificationMessage } from "@/hooks/api/types";
 import { notifyDeliveriesQueryOptions } from "@/hooks/api/use-notify";
+import { notifyCursorPageLimit, resolveNotifyNextCursor } from "@/lib/notify-cursor";
 import { FilterIcon, MailIcon, SearchIcon } from "@/lib/icons";
 import { NOTIFY_DELIVERY_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -45,7 +46,9 @@ export const Route = createFileRoute("/app/notify/deliveries")({
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(notifyDeliveriesQueryOptions());
+      await context.queryClient.ensureQueryData(
+        notifyDeliveriesQueryOptions({ limit: notifyCursorPageLimit })
+      );
     }
     return { hasProject, session };
   },
@@ -99,16 +102,26 @@ function NotifyDeliveriesPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
 
-  const { data } = useQuery({
-    ...notifyDeliveriesQueryOptions(),
-    enabled: hasProject,
-  });
+  const [cursor, setCursor] = useState<string>();
+  const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>(
+    []
+  );
 
   const selectedStatuses = search.status ?? [];
 
+  const deliveriesQuery = useQuery({
+    ...notifyDeliveriesQueryOptions({
+      limit: notifyCursorPageLimit,
+      cursor,
+    }),
+    enabled: hasProject,
+  });
+
+  const pageItems = deliveriesQuery.data ?? [];
+  const nextCursor = resolveNotifyNextCursor(pageItems, notifyCursorPageLimit);
+
   const filtered = useMemo(() => {
-    const items = data ?? [];
-    return items.filter((item) => {
+    return pageItems.filter((item) => {
       if (
         selectedStatuses.length > 0 &&
         !selectedStatuses.includes(item.status)
@@ -125,7 +138,7 @@ function NotifyDeliveriesPage() {
         item.channel.toLowerCase().includes(q)
       );
     });
-  }, [data, search.query, selectedStatuses]);
+  }, [pageItems, search.query, selectedStatuses]);
 
   const table = useReactTable({
     data: filtered,
@@ -145,6 +158,9 @@ function NotifyDeliveriesPage() {
   }
 
   const toggleStatus = (status: string) => {
+    setCursor(undefined);
+    setCursorHistory([]);
+
     const next = new Set(selectedStatuses);
     if (next.has(status)) {
       next.delete(status);
@@ -160,20 +176,44 @@ function NotifyDeliveriesPage() {
     });
   };
 
+  const goToNextPage = () => {
+    if (!nextCursor) {
+      return;
+    }
+
+    setCursorHistory((history) => [...history, cursor]);
+    setCursor(nextCursor);
+  };
+
+  const goToPreviousPage = () => {
+    setCursorHistory((history) => {
+      if (history.length === 0) {
+        return history;
+      }
+
+      const nextHistory = [...history];
+      const previousCursor = nextHistory.pop();
+      setCursor(previousCursor);
+      return nextHistory;
+    });
+  };
+
   return (
     <Shell>
       <div className="mb-3 flex items-center gap-3">
         <div className="relative w-full max-w-[420px]">
           <Input
             className="pl-9"
-            onChange={(event) =>
+            onChange={(event) => {
+              setCursor(undefined);
+              setCursorHistory([]);
               navigate({
                 search: (prev) => ({
                   ...prev,
                   query: event.target.value || undefined,
                 }),
-              })
-            }
+              });
+            }}
             placeholder="Search message or recipient"
             value={search.query ?? ""}
           />
@@ -222,6 +262,28 @@ function NotifyDeliveriesPage() {
         }
         table={table}
       />
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-xs">
+          Showing up to {notifyCursorPageLimit} deliveries per page.
+        </p>
+        <div className="flex gap-2">
+          <Button
+            disabled={cursorHistory.length === 0 || deliveriesQuery.isFetching}
+            onClick={goToPreviousPage}
+            variant="outline"
+          >
+            Previous page
+          </Button>
+          <Button
+            disabled={!nextCursor || deliveriesQuery.isFetching}
+            onClick={goToNextPage}
+            variant="outline"
+          >
+            Next page
+          </Button>
+        </div>
+      </div>
     </Shell>
   );
 }

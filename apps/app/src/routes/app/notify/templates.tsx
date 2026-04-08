@@ -34,6 +34,7 @@ import {
   useUpdateNotificationTemplate,
 } from "@/hooks/api/use-notify";
 import { SparklesIcon } from "@/lib/icons";
+import { notifyCursorPageLimit, resolveNotifyNextCursor } from "@/lib/notify-cursor";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/templates")({
@@ -41,7 +42,9 @@ export const Route = createFileRoute("/app/notify/templates")({
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(notifyTemplatesQueryOptions());
+      await context.queryClient.ensureQueryData(
+        notifyTemplatesQueryOptions({ limit: notifyCursorPageLimit })
+      );
     }
     return { hasProject, session };
   },
@@ -65,8 +68,16 @@ const defaultChannels = {
 function NotifyTemplatesPage() {
   const { hasProject, session } = Route.useLoaderData();
 
+  const [cursor, setCursor] = useState<string>();
+  const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>(
+    []
+  );
+
   const templatesQuery = useQuery({
-    ...notifyTemplatesQueryOptions(),
+    ...notifyTemplatesQueryOptions({
+      limit: notifyCursorPageLimit,
+      cursor,
+    }),
     enabled: hasProject,
   });
 
@@ -95,12 +106,16 @@ function NotifyTemplatesPage() {
   const [selectedTemplate, setSelectedTemplate] =
     useState<NotificationTemplate | null>(null);
 
-  const templates = templatesQuery.data ?? [];
+  const pageItems = templatesQuery.data ?? [];
 
   const sortedTemplates = useMemo(
     () =>
-      [...templates].sort((a, b) => b.created_at.localeCompare(a.created_at)),
-    [templates]
+      [...pageItems].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [pageItems]
+  );
+  const nextCursor = resolveNotifyNextCursor(
+    sortedTemplates,
+    notifyCursorPageLimit
   );
 
   if (!hasProject) {
@@ -186,6 +201,30 @@ function NotifyTemplatesPage() {
     );
 
     setPreviewResult(JSON.stringify(result, null, 2));
+  };
+
+  const goToNextPage = () => {
+    if (!nextCursor) {
+      return;
+    }
+
+    setCursorHistory((history) => [...history, cursor]);
+    setCursor(nextCursor);
+    setSelectedTemplate(null);
+  };
+
+  const goToPreviousPage = () => {
+    setCursorHistory((history) => {
+      if (history.length === 0) {
+        return history;
+      }
+
+      const nextHistory = [...history];
+      const previousCursor = nextHistory.pop();
+      setCursor(previousCursor);
+      setSelectedTemplate(null);
+      return nextHistory;
+    });
   };
 
   return (
@@ -341,6 +380,28 @@ function NotifyTemplatesPage() {
               )}
             </TableBody>
           </Table>
+
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className="text-muted-foreground text-xs">
+              Showing up to {notifyCursorPageLimit} templates per page.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                disabled={cursorHistory.length === 0 || templatesQuery.isFetching}
+                onClick={goToPreviousPage}
+                variant="outline"
+              >
+                Previous page
+              </Button>
+              <Button
+                disabled={!nextCursor || templatesQuery.isFetching}
+                onClick={goToNextPage}
+                variant="outline"
+              >
+                Next page
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </Shell>
