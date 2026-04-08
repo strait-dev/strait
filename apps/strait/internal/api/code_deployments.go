@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"strait/internal/build"
@@ -33,7 +34,7 @@ type createCodeDeploymentRequest struct {
 	Runtime   string `json:"runtime" validate:"required,oneof=python typescript ruby rust go"`
 	// SourceHash is the SHA-256 hex digest of the tarball the CLI will upload.
 	// The confirm endpoint verifies the uploaded object matches this hash.
-	SourceHash      string `json:"source_hash" validate:"required,len=64"`
+	SourceHash      string `json:"source_hash" validate:"required,len=64,hexadecimal"`
 	SourceSizeBytes int64  `json:"source_size_bytes" validate:"required,min=1"`
 }
 
@@ -408,7 +409,11 @@ func (s *Server) handleDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: log\ndata: %s\n\n", msg)
+			// Sanitize the message to prevent SSE protocol injection via embedded
+			// newlines. Raw CR or LF bytes in the data field would allow an attacker
+			// who can publish to the pub/sub channel to inject fake SSE events.
+			safe := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(string(msg))
+			fmt.Fprintf(w, "event: log\ndata: %s\n\n", safe)
 			flusher.Flush()
 			// Check for the done sentinel — builder sends {"done":true} when build ends.
 			if string(msg) == `{"done":true}` {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"time"
 
 	"strait/internal/api"
@@ -48,6 +49,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc/pool"
 )
+
+// validRegistryHostnameRe matches a Docker-style registry host[:port] key used in
+// BUILD_EXTRA_REGISTRY_AUTHS. Allows letters, digits, dots, hyphens, and an optional
+// colon-separated port. Rejects embedded credentials, path-traversal sequences, and
+// protocol prefixes that could be used to redirect auth to an attacker-controlled host.
+var validRegistryHostnameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*(:[0-9]{1,5})?$`)
 
 func shutdownReason(err error) string {
 	if err == nil {
@@ -905,8 +912,19 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 		var extraAuths map[string]string
 		if err := json.Unmarshal([]byte(cfg.BuildExtraRegistryAuths), &extraAuths); err != nil {
 			slog.Warn("failed to parse BUILD_EXTRA_REGISTRY_AUTHS, skipping extra registry auth", "error", err)
-		} else if len(extraAuths) > 0 {
-			builder = builder.WithExtraRegistryAuths(extraAuths)
+		} else {
+			// Validate each hostname key before passing to the builder. Reject entries
+			// whose host contains protocol prefixes, path-traversal sequences, embedded
+			// credentials, or other patterns that could redirect auth to a rogue registry.
+			for host := range extraAuths {
+				if !validRegistryHostnameRe.MatchString(host) {
+					slog.Warn("BUILD_EXTRA_REGISTRY_AUTHS: skipping entry with invalid hostname", "host", host)
+					delete(extraAuths, host)
+				}
+			}
+			if len(extraAuths) > 0 {
+				builder = builder.WithExtraRegistryAuths(extraAuths)
+			}
 		}
 	}
 	addrPool := build.NewAddressPool(cfg.BuildKitAddress, cfg.BuildKitAddresses)

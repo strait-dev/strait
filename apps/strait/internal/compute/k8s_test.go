@@ -685,6 +685,48 @@ func TestK8sRuntime_Create_OverrideNamespace(t *testing.T) {
 	}
 }
 
+// TestK8sRuntime_Create_InvalidNamespaceOverride_FallsBackToDefault verifies that
+// a malformed namespace override is rejected and the job is placed in the default
+// namespace. This prevents tenant isolation bypass via namespace injection.
+func TestK8sRuntime_Create_InvalidNamespaceOverride_FallsBackToDefault(t *testing.T) {
+	t.Parallel()
+
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	invalidNamespaces := []string{
+		"../other-ns",
+		"UPPER-CASE",
+		"-starts-with-dash",
+		"ends-with-dash-",
+		"has spaces",
+		"has/slash",
+		"has:colon",
+		"",
+	}
+
+	for _, ns := range invalidNamespaces {
+		if ns == "" {
+			continue // empty is handled as "use default", not an injection attempt
+		}
+		id, err := rt.Create(ctx, RunRequest{
+			ImageURI:      "alpine:3.19",
+			MachinePreset: "micro",
+			Namespace:     ns,
+		})
+		if err != nil {
+			// Some invalid namespaces may cause K8s API errors — that's fine.
+			continue
+		}
+
+		// Job must land in the default test namespace, not the invalid override.
+		_, defaultErr := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+		if defaultErr != nil {
+			t.Errorf("namespace=%q: job %q not found in default namespace: %v", ns, id, defaultErr)
+		}
+	}
+}
+
 func TestK8sRuntime_Create_NodeAffinity_AllPresets(t *testing.T) {
 	tests := []struct {
 		preset   string
