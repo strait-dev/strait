@@ -37,6 +37,7 @@ import {
   DashboardIcon,
   FileTextIcon,
   LayersIcon,
+  MailIcon,
   PlayActionIcon,
   TrendingUpIcon,
   WebhookIcon,
@@ -66,6 +67,7 @@ const mainNav: NavItem[] = [
   { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
   { title: "Schedules", url: "/app/schedules", icon: ClockIcon },
   { title: "Dead Letter", url: "/app/dlq", icon: AlertIcon },
+  { title: "Notify", url: "/app/notify", icon: MailIcon },
 ];
 
 const observabilityNav: NavItem[] = [

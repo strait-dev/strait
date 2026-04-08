@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import type {
+  ListParams,
   NotificationCategory,
   NotificationMessage,
   NotificationProvider,
@@ -16,7 +17,6 @@ import type {
   NotifySuppressionEvent,
   NotifyTopic,
   NotifyTriggerResponse,
-  ListParams,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
@@ -172,7 +172,9 @@ export const createNotifySubscriberFn = createServerFn({ method: "POST" })
   });
 
 export const updateNotifySubscriberFn = createServerFn({ method: "POST" })
-  .inputValidator((data: UpsertNotifySubscriberInput & { subscriberId: string }) => data)
+  .inputValidator(
+    (data: UpsertNotifySubscriberInput & { subscriberId: string }) => data
+  )
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotifySubscriber> => {
     const { subscriberId, ...body } = data;
@@ -334,7 +336,9 @@ export const createNotificationTemplateFn = createServerFn({ method: "POST" })
   });
 
 export const updateNotificationTemplateFn = createServerFn({ method: "POST" })
-  .inputValidator((data: UpsertNotifyTemplateInput & { templateKey: string }) => data)
+  .inputValidator(
+    (data: UpsertNotifyTemplateInput & { templateKey: string }) => data
+  )
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotificationTemplate> => {
     const { templateKey, ...body } = data;
@@ -390,7 +394,9 @@ export const createNotificationProviderFn = createServerFn({ method: "POST" })
   });
 
 export const updateNotificationProviderFn = createServerFn({ method: "POST" })
-  .inputValidator((data: UpsertNotifyProviderInput & { providerId: string }) => data)
+  .inputValidator(
+    (data: UpsertNotifyProviderInput & { providerId: string }) => data
+  )
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotificationProvider> => {
     const { providerId, ...body } = data;
@@ -444,7 +450,9 @@ export const createNotifyPolicyOverrideFn = createServerFn({ method: "POST" })
   });
 
 export const updateNotifyPolicyOverrideFn = createServerFn({ method: "POST" })
-  .inputValidator((data: UpdateNotifyPolicyInput & { policyId: string }) => data)
+  .inputValidator(
+    (data: UpdateNotifyPolicyInput & { policyId: string }) => data
+  )
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotifyPolicyOverride> => {
     const { policyId, ...body } = data;
@@ -539,7 +547,9 @@ export const acknowledgeNotifyEscalationFn = createServerFn({ method: "POST" })
   });
 
 export const completeNotifyEscalationFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { stepRunId: string; status?: "completed" | "failed" }) => data)
+  .inputValidator(
+    (data: { stepRunId: string; status?: "completed" | "failed" }) => data
+  )
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<Record<string, object>> => {
     return await runWithSentryReport(
@@ -562,7 +572,9 @@ export const notifyDeliveriesQueryOptions = (search?: NotifyDeliveriesSearch) =>
     placeholderData: keepPreviousData,
   });
 
-export const notifySubscribersQueryOptions = (search?: NotifySubscribersSearch) =>
+export const notifySubscribersQueryOptions = (
+  search?: NotifySubscribersSearch
+) =>
   queryOptions({
     queryKey: queryKeys.notify.subscribersList(search).queryKey,
     queryFn: () => fetchNotifySubscribers({ data: search ?? {} }),
@@ -587,7 +599,10 @@ export const notifySubscriberSuppressionsQueryOptions = (
   queryOptions({
     queryKey: queryKeys.notify.subscriberSuppressions(subscriberId, search)
       .queryKey,
-    queryFn: () => listNotifySuppressionEventsFn({ data: { subscriberId, ...(search ?? {}) } }),
+    queryFn: () =>
+      listNotifySuppressionEventsFn({
+        data: { subscriberId, ...(search ?? {}) },
+      }),
     enabled: !!subscriberId,
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
@@ -662,10 +677,14 @@ export const notifyEscalationQueryOptions = (stepRunId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-const invalidateNotifyQueries = async (queryClient: ReturnType<typeof useQueryClient>) => {
+const invalidateNotifyQueries = async (
+  queryClient: ReturnType<typeof useQueryClient>
+) => {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.notify._def }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.notify.subscribersList._def }),
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.notify.subscribersList._def,
+    }),
   ]);
 };
 
@@ -685,8 +704,9 @@ export const useUpdateNotifySubscriber = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["notify", "subscribers", "update"],
-    mutationFn: (data: UpsertNotifySubscriberInput & { subscriberId: string }) =>
-      updateNotifySubscriberFn({ data }),
+    mutationFn: (
+      data: UpsertNotifySubscriberInput & { subscriberId: string }
+    ) => updateNotifySubscriberFn({ data }),
     onSuccess: async (_data, variables) => {
       await Promise.all([
         invalidateNotifyQueries(queryClient),
@@ -906,7 +926,8 @@ export const useDeleteNotifyPolicyOverride = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["notify", "policies", "delete"],
-    mutationFn: (data: { policyId: string }) => deleteNotifyPolicyOverrideFn({ data }),
+    mutationFn: (data: { policyId: string }) =>
+      deleteNotifyPolicyOverrideFn({ data }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.notify.policiesList._def,
@@ -962,7 +983,8 @@ export const useAcknowledgeNotifyEscalation = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["notify", "escalations", "ack"],
-    mutationFn: (data: { stepRunId: string }) => acknowledgeNotifyEscalationFn({ data }),
+    mutationFn: (data: { stepRunId: string }) =>
+      acknowledgeNotifyEscalationFn({ data }),
     onSuccess: async (_data, variables) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.notify.escalationDetail(variables.stepRunId)
@@ -976,8 +998,10 @@ export const useCompleteNotifyEscalation = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["notify", "escalations", "complete"],
-    mutationFn: (data: { stepRunId: string; status?: "completed" | "failed" }) =>
-      completeNotifyEscalationFn({ data }),
+    mutationFn: (data: {
+      stepRunId: string;
+      status?: "completed" | "failed";
+    }) => completeNotifyEscalationFn({ data }),
     onSuccess: async (_data, variables) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.notify.escalationDetail(variables.stepRunId)

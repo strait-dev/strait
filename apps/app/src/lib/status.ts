@@ -57,6 +57,22 @@ export const ENABLED_STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 // Webhook status options
 export const WEBHOOK_STATUS_OPTIONS = ["Active", "Inactive"] as const;
 
+// Notify delivery and subscriber status options
+export const NOTIFY_DELIVERY_STATUS_OPTIONS = [
+  "scheduled",
+  "pending",
+  "processing",
+  "delivered",
+  "failed",
+  "bounced",
+] as const;
+
+export const NOTIFY_SUBSCRIBER_STATUS_OPTIONS = [
+  "active",
+  "unsubscribed",
+  "deleted",
+] as const;
+
 // DLQ error type options
 export const DLQ_ERROR_TYPES = [
   "timeout",

@@ -31,6 +31,7 @@ import { Route as AppWebhooksIndexRouteImport } from './routes/app/webhooks/inde
 import { Route as AppSettingsIndexRouteImport } from './routes/app/settings/index'
 import { Route as AppSchedulesIndexRouteImport } from './routes/app/schedules/index'
 import { Route as AppRunsIndexRouteImport } from './routes/app/runs/index'
+import { Route as AppNotifyIndexRouteImport } from './routes/app/notify/index'
 import { Route as AppLogsIndexRouteImport } from './routes/app/logs/index'
 import { Route as AppJobsIndexRouteImport } from './routes/app/jobs/index'
 import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
@@ -43,11 +44,14 @@ import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
+import { Route as AppNotifyDeliveriesRouteImport } from './routes/app/notify/deliveries'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as authOauthConsentRouteImport } from './routes/(auth)/oauth/consent'
+import { Route as AppNotifySubscribersIndexRouteImport } from './routes/app/notify/subscribers/index'
 import { Route as AppProjectsProjectIdSettingsRouteImport } from './routes/app/projects/$projectId/settings'
+import { Route as AppNotifySubscribersIdRouteImport } from './routes/app/notify/subscribers/$id'
 
 const AppLayoutRoute = AppLayoutRouteImport.update({
   id: '/app',
@@ -159,6 +163,11 @@ const AppRunsIndexRoute = AppRunsIndexRouteImport.update({
   path: '/runs/',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppNotifyIndexRoute = AppNotifyIndexRouteImport.update({
+  id: '/notify/',
+  path: '/notify/',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppLogsIndexRoute = AppLogsIndexRouteImport.update({
   id: '/logs/',
   path: '/logs/',
@@ -219,6 +228,11 @@ const AppOrgIdRoute = AppOrgIdRouteImport.update({
   path: '/org/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppNotifyDeliveriesRoute = AppNotifyDeliveriesRouteImport.update({
+  id: '/notify/deliveries',
+  path: '/notify/deliveries',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppJobsIdRoute = AppJobsIdRouteImport.update({
   id: '/jobs/$id',
   path: '/jobs/$id',
@@ -239,12 +253,23 @@ const authOauthConsentRoute = authOauthConsentRouteImport.update({
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppNotifySubscribersIndexRoute =
+  AppNotifySubscribersIndexRouteImport.update({
+    id: '/notify/subscribers/',
+    path: '/notify/subscribers/',
+    getParentRoute: () => AppLayoutRoute,
+  } as any)
 const AppProjectsProjectIdSettingsRoute =
   AppProjectsProjectIdSettingsRouteImport.update({
     id: '/projects/$projectId/settings',
     path: '/projects/$projectId/settings',
     getParentRoute: () => AppLayoutRoute,
   } as any)
+const AppNotifySubscribersIdRoute = AppNotifySubscribersIdRouteImport.update({
+  id: '/notify/subscribers/$id',
+  path: '/notify/subscribers/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -268,6 +293,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
@@ -280,12 +306,15 @@ export interface FileRoutesByFullPath {
   '/app/events/': typeof AppEventsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
   '/app/logs/': typeof AppLogsIndexRoute
+  '/app/notify/': typeof AppNotifyIndexRoute
   '/app/runs/': typeof AppRunsIndexRoute
   '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
+  '/app/notify/subscribers/$id': typeof AppNotifySubscribersIdRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
+  '/app/notify/subscribers/': typeof AppNotifySubscribersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -308,6 +337,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
@@ -320,12 +350,15 @@ export interface FileRoutesByTo {
   '/app/events': typeof AppEventsIndexRoute
   '/app/jobs': typeof AppJobsIndexRoute
   '/app/logs': typeof AppLogsIndexRoute
+  '/app/notify': typeof AppNotifyIndexRoute
   '/app/runs': typeof AppRunsIndexRoute
   '/app/schedules': typeof AppSchedulesIndexRoute
   '/app/settings': typeof AppSettingsIndexRoute
   '/app/webhooks': typeof AppWebhooksIndexRoute
   '/app/workflows': typeof AppWorkflowsIndexRoute
+  '/app/notify/subscribers/$id': typeof AppNotifySubscribersIdRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
+  '/app/notify/subscribers': typeof AppNotifySubscribersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -350,6 +383,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
@@ -362,12 +396,15 @@ export interface FileRoutesById {
   '/app/events/': typeof AppEventsIndexRoute
   '/app/jobs/': typeof AppJobsIndexRoute
   '/app/logs/': typeof AppLogsIndexRoute
+  '/app/notify/': typeof AppNotifyIndexRoute
   '/app/runs/': typeof AppRunsIndexRoute
   '/app/schedules/': typeof AppSchedulesIndexRoute
   '/app/settings/': typeof AppSettingsIndexRoute
   '/app/webhooks/': typeof AppWebhooksIndexRoute
   '/app/workflows/': typeof AppWorkflowsIndexRoute
+  '/app/notify/subscribers/$id': typeof AppNotifySubscribersIdRoute
   '/app/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsRoute
+  '/app/notify/subscribers/': typeof AppNotifySubscribersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -393,6 +430,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/jobs/$id'
+    | '/app/notify/deliveries'
     | '/app/org/$id'
     | '/app/pricing/compare'
     | '/app/runs/$id'
@@ -405,12 +443,15 @@ export interface FileRouteTypes {
     | '/app/events/'
     | '/app/jobs/'
     | '/app/logs/'
+    | '/app/notify/'
     | '/app/runs/'
     | '/app/schedules/'
     | '/app/settings/'
     | '/app/webhooks/'
     | '/app/workflows/'
+    | '/app/notify/subscribers/$id'
     | '/app/projects/$projectId/settings'
+    | '/app/notify/subscribers/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -433,6 +474,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/jobs/$id'
+    | '/app/notify/deliveries'
     | '/app/org/$id'
     | '/app/pricing/compare'
     | '/app/runs/$id'
@@ -445,12 +487,15 @@ export interface FileRouteTypes {
     | '/app/events'
     | '/app/jobs'
     | '/app/logs'
+    | '/app/notify'
     | '/app/runs'
     | '/app/schedules'
     | '/app/settings'
     | '/app/webhooks'
     | '/app/workflows'
+    | '/app/notify/subscribers/$id'
     | '/app/projects/$projectId/settings'
+    | '/app/notify/subscribers'
   id:
     | '__root__'
     | '/'
@@ -474,6 +519,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/jobs/$id'
+    | '/app/notify/deliveries'
     | '/app/org/$id'
     | '/app/pricing/compare'
     | '/app/runs/$id'
@@ -486,12 +532,15 @@ export interface FileRouteTypes {
     | '/app/events/'
     | '/app/jobs/'
     | '/app/logs/'
+    | '/app/notify/'
     | '/app/runs/'
     | '/app/schedules/'
     | '/app/settings/'
     | '/app/webhooks/'
     | '/app/workflows/'
+    | '/app/notify/subscribers/$id'
     | '/app/projects/$projectId/settings'
+    | '/app/notify/subscribers/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -668,6 +717,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIndexRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/notify/': {
+      id: '/app/notify/'
+      path: '/notify'
+      fullPath: '/app/notify/'
+      preLoaderRoute: typeof AppNotifyIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/logs/': {
       id: '/app/logs/'
       path: '/logs'
@@ -752,6 +808,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOrgIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/notify/deliveries': {
+      id: '/app/notify/deliveries'
+      path: '/notify/deliveries'
+      fullPath: '/app/notify/deliveries'
+      preLoaderRoute: typeof AppNotifyDeliveriesRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/jobs/$id': {
       id: '/app/jobs/$id'
       path: '/jobs/$id'
@@ -780,11 +843,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authOauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/notify/subscribers/': {
+      id: '/app/notify/subscribers/'
+      path: '/notify/subscribers'
+      fullPath: '/app/notify/subscribers/'
+      preLoaderRoute: typeof AppNotifySubscribersIndexRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/projects/$projectId/settings': {
       id: '/app/projects/$projectId/settings'
       path: '/projects/$projectId/settings'
       fullPath: '/app/projects/$projectId/settings'
       preLoaderRoute: typeof AppProjectsProjectIdSettingsRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/notify/subscribers/$id': {
+      id: '/app/notify/subscribers/$id'
+      path: '/notify/subscribers/$id'
+      fullPath: '/app/notify/subscribers/$id'
+      preLoaderRoute: typeof AppNotifySubscribersIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
   }
@@ -797,6 +874,7 @@ interface AppLayoutRouteChildren {
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
+  AppNotifyDeliveriesRoute: typeof AppNotifyDeliveriesRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
   AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
@@ -809,12 +887,15 @@ interface AppLayoutRouteChildren {
   AppEventsIndexRoute: typeof AppEventsIndexRoute
   AppJobsIndexRoute: typeof AppJobsIndexRoute
   AppLogsIndexRoute: typeof AppLogsIndexRoute
+  AppNotifyIndexRoute: typeof AppNotifyIndexRoute
   AppRunsIndexRoute: typeof AppRunsIndexRoute
   AppSchedulesIndexRoute: typeof AppSchedulesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
+  AppNotifySubscribersIdRoute: typeof AppNotifySubscribersIdRoute
   AppProjectsProjectIdSettingsRoute: typeof AppProjectsProjectIdSettingsRoute
+  AppNotifySubscribersIndexRoute: typeof AppNotifySubscribersIndexRoute
 }
 
 const AppLayoutRouteChildren: AppLayoutRouteChildren = {
@@ -824,6 +905,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,
+  AppNotifyDeliveriesRoute: AppNotifyDeliveriesRoute,
   AppOrgIdRoute: AppOrgIdRoute,
   AppPricingCompareRoute: AppPricingCompareRoute,
   AppRunsIdRoute: AppRunsIdRoute,
@@ -836,12 +918,15 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppEventsIndexRoute: AppEventsIndexRoute,
   AppJobsIndexRoute: AppJobsIndexRoute,
   AppLogsIndexRoute: AppLogsIndexRoute,
+  AppNotifyIndexRoute: AppNotifyIndexRoute,
   AppRunsIndexRoute: AppRunsIndexRoute,
   AppSchedulesIndexRoute: AppSchedulesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
+  AppNotifySubscribersIdRoute: AppNotifySubscribersIdRoute,
   AppProjectsProjectIdSettingsRoute: AppProjectsProjectIdSettingsRoute,
+  AppNotifySubscribersIndexRoute: AppNotifySubscribersIndexRoute,
 }
 
 const AppLayoutRouteWithChildren = AppLayoutRoute._addFileChildren(
