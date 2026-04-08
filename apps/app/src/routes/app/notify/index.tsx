@@ -237,6 +237,19 @@ function NotifyOverviewPage() {
             </Link>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Ops</CardTitle>
+            <CardDescription>
+              Incident triage, health checks, and SES callback diagnostics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link className="text-primary text-sm underline" to="/app/notify/ops">
+              Open ops
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     </Shell>
   );

@@ -48,6 +48,7 @@ import { Route as AppNotifyTopicsRouteImport } from './routes/app/notify/topics'
 import { Route as AppNotifyTemplatesRouteImport } from './routes/app/notify/templates'
 import { Route as AppNotifyProvidersRouteImport } from './routes/app/notify/providers'
 import { Route as AppNotifyPoliciesRouteImport } from './routes/app/notify/policies'
+import { Route as AppNotifyOpsRouteImport } from './routes/app/notify/ops'
 import { Route as AppNotifyEscalationsRouteImport } from './routes/app/notify/escalations'
 import { Route as AppNotifyDeliveriesRouteImport } from './routes/app/notify/deliveries'
 import { Route as AppNotifyComposeRouteImport } from './routes/app/notify/compose'
@@ -255,6 +256,11 @@ const AppNotifyPoliciesRoute = AppNotifyPoliciesRouteImport.update({
   path: '/notify/policies',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppNotifyOpsRoute = AppNotifyOpsRouteImport.update({
+  id: '/notify/ops',
+  path: '/notify/ops',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppNotifyEscalationsRoute = AppNotifyEscalationsRouteImport.update({
   id: '/notify/escalations',
   path: '/notify/escalations',
@@ -339,6 +345,7 @@ export interface FileRoutesByFullPath {
   '/app/notify/compose': typeof AppNotifyComposeRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
   '/app/notify/escalations': typeof AppNotifyEscalationsRoute
+  '/app/notify/ops': typeof AppNotifyOpsRoute
   '/app/notify/policies': typeof AppNotifyPoliciesRoute
   '/app/notify/providers': typeof AppNotifyProvidersRoute
   '/app/notify/templates': typeof AppNotifyTemplatesRoute
@@ -390,6 +397,7 @@ export interface FileRoutesByTo {
   '/app/notify/compose': typeof AppNotifyComposeRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
   '/app/notify/escalations': typeof AppNotifyEscalationsRoute
+  '/app/notify/ops': typeof AppNotifyOpsRoute
   '/app/notify/policies': typeof AppNotifyPoliciesRoute
   '/app/notify/providers': typeof AppNotifyProvidersRoute
   '/app/notify/templates': typeof AppNotifyTemplatesRoute
@@ -443,6 +451,7 @@ export interface FileRoutesById {
   '/app/notify/compose': typeof AppNotifyComposeRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
   '/app/notify/escalations': typeof AppNotifyEscalationsRoute
+  '/app/notify/ops': typeof AppNotifyOpsRoute
   '/app/notify/policies': typeof AppNotifyPoliciesRoute
   '/app/notify/providers': typeof AppNotifyProvidersRoute
   '/app/notify/templates': typeof AppNotifyTemplatesRoute
@@ -497,6 +506,7 @@ export interface FileRouteTypes {
     | '/app/notify/compose'
     | '/app/notify/deliveries'
     | '/app/notify/escalations'
+    | '/app/notify/ops'
     | '/app/notify/policies'
     | '/app/notify/providers'
     | '/app/notify/templates'
@@ -548,6 +558,7 @@ export interface FileRouteTypes {
     | '/app/notify/compose'
     | '/app/notify/deliveries'
     | '/app/notify/escalations'
+    | '/app/notify/ops'
     | '/app/notify/policies'
     | '/app/notify/providers'
     | '/app/notify/templates'
@@ -600,6 +611,7 @@ export interface FileRouteTypes {
     | '/app/notify/compose'
     | '/app/notify/deliveries'
     | '/app/notify/escalations'
+    | '/app/notify/ops'
     | '/app/notify/policies'
     | '/app/notify/providers'
     | '/app/notify/templates'
@@ -920,6 +932,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotifyPoliciesRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/notify/ops': {
+      id: '/app/notify/ops'
+      path: '/notify/ops'
+      fullPath: '/app/notify/ops'
+      preLoaderRoute: typeof AppNotifyOpsRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/notify/escalations': {
       id: '/app/notify/escalations'
       path: '/notify/escalations'
@@ -1011,6 +1030,7 @@ interface AppLayoutRouteChildren {
   AppNotifyComposeRoute: typeof AppNotifyComposeRoute
   AppNotifyDeliveriesRoute: typeof AppNotifyDeliveriesRoute
   AppNotifyEscalationsRoute: typeof AppNotifyEscalationsRoute
+  AppNotifyOpsRoute: typeof AppNotifyOpsRoute
   AppNotifyPoliciesRoute: typeof AppNotifyPoliciesRoute
   AppNotifyProvidersRoute: typeof AppNotifyProvidersRoute
   AppNotifyTemplatesRoute: typeof AppNotifyTemplatesRoute
@@ -1049,6 +1069,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppNotifyComposeRoute: AppNotifyComposeRoute,
   AppNotifyDeliveriesRoute: AppNotifyDeliveriesRoute,
   AppNotifyEscalationsRoute: AppNotifyEscalationsRoute,
+  AppNotifyOpsRoute: AppNotifyOpsRoute,
   AppNotifyPoliciesRoute: AppNotifyPoliciesRoute,
   AppNotifyProvidersRoute: AppNotifyProvidersRoute,
   AppNotifyTemplatesRoute: AppNotifyTemplatesRoute,

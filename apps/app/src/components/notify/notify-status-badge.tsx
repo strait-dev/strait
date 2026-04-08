@@ -16,6 +16,9 @@ const statusStyles = {
   deleted: "secondary-light",
   acknowledged: "warning-light",
   completed: "success-light",
+  healthy: "success-light",
+  degraded: "warning-light",
+  critical: "destructive-light",
 } as const;
 
 const formatStatus = (status: string) =>
