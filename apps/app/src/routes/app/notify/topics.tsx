@@ -101,8 +101,9 @@ function NotifyTopicsPage() {
     !topicKey.trim() ||
     !topicName.trim() ||
     !isNotifyScopedKey(topicKey);
-  const isMembershipSelectionMissing =
-    !(selectedTopicKey && selectedSubscriberID);
+  const isMembershipSelectionMissing = !(
+    selectedTopicKey && selectedSubscriberID
+  );
   const isMembershipPending =
     addSubscriber.isPending || removeSubscriber.isPending;
 

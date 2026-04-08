@@ -330,7 +330,12 @@ function NotifySubscribersPage() {
           <TableEmptyState
             description="No subscribers found for this project."
             hideButton
-            icon={<HugeiconsIcon className="size-6 text-foreground" icon={MailIcon} />}
+            icon={
+              <HugeiconsIcon
+                className="size-6 text-foreground"
+                icon={MailIcon}
+              />
+            }
             title="No subscribers"
           />
         }

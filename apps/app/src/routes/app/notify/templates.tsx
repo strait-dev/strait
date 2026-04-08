@@ -319,7 +319,11 @@ function NotifyTemplatesPage() {
                 {selectedTemplate ? "Update template" : "Create template"}
               </Button>
               {selectedTemplate ? (
-                <Button disabled={isWorking} onClick={resetForm} variant="outline">
+                <Button
+                  disabled={isWorking}
+                  onClick={resetForm}
+                  variant="outline"
+                >
                   Cancel edit
                 </Button>
               ) : null}

@@ -79,8 +79,9 @@ function NotifyComposePage() {
   const [recipientID, setRecipientID] = useState("");
   const [recipientKey, setRecipientKey] = useState("");
   const [templateKey, setTemplateKey] = useState("");
-  const [selectedChannels, setSelectedChannels] =
-    useState<NotifyDeliveryChannel[]>(["inbox", "email"]);
+  const [selectedChannels, setSelectedChannels] = useState<
+    NotifyDeliveryChannel[]
+  >(["inbox", "email"]);
   const [categoryKey, setCategoryKey] = useState("");
   const [payloadJSON, setPayloadJSON] = useState(
     JSON.stringify(

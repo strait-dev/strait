@@ -1,7 +1,4 @@
-import type {
-  NotifyDigestPolicy,
-  NotifyPreference,
-} from "@/hooks/api/types";
+import type { NotifyDigestPolicy, NotifyPreference } from "@/hooks/api/types";
 
 export const notifyDigestPolicyOptions: readonly NotifyDigestPolicy[] = [
   "instant",

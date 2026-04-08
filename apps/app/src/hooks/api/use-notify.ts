@@ -756,7 +756,9 @@ export const notifyProvidersQueryOptions = (channel?: NotifyDeliveryChannel) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-export const notifyPoliciesQueryOptions = (scope_type?: NotifyPolicyScopeType) =>
+export const notifyPoliciesQueryOptions = (
+  scope_type?: NotifyPolicyScopeType
+) =>
   queryOptions({
     queryKey: queryKeys.notify.policiesList({ scope_type }).queryKey,
     queryFn: () => fetchNotifyPolicyOverrides({ data: { scope_type } }),
