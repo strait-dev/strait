@@ -38,6 +38,7 @@ import {
   notifyCursorPageLimit,
   resolveNotifyNextCursor,
 } from "@/lib/notify-cursor";
+import { parseNotifyJSONRecord } from "@/lib/notify-form";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/templates")({
@@ -130,17 +131,17 @@ function NotifyTemplatesPage() {
   }
 
   const parseJSONRecord = (raw: string, fieldName: string) => {
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const parsed = parseNotifyJSONRecord(raw);
+    if (!parsed.ok) {
+      if (parsed.reason === "invalid_shape") {
         toast.error(`${fieldName} must be a JSON object`);
-        return null;
+      } else {
+        toast.error(`${fieldName} must be valid JSON`);
       }
-      return parsed as Record<string, object>;
-    } catch {
-      toast.error(`${fieldName} must be valid JSON`);
       return null;
     }
+
+    return parsed.data;
   };
 
   const resetForm = () => {

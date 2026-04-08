@@ -35,6 +35,7 @@ import {
   notifyCategoriesQueryOptions,
   useCreateNotificationCategory,
 } from "@/hooks/api/use-notify";
+import { isNotifyScopedKey } from "@/lib/notify-form";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const notifyCategoryTypeOptions = [
@@ -42,8 +43,6 @@ const notifyCategoryTypeOptions = [
   "transactional",
   "critical",
 ] as const;
-
-const notifyCategoryKeyPattern = /^[a-zA-Z0-9._-]+$/;
 
 export const Route = createFileRoute("/app/notify/categories")({
   loader: async ({ context }) => {
@@ -97,7 +96,7 @@ function NotifyCategoriesPage() {
       toast.error("Category key and name are required");
       return;
     }
-    if (!notifyCategoryKeyPattern.test(categoryKey.trim())) {
+    if (!isNotifyScopedKey(categoryKey)) {
       toast.error(
         "Category key can only include letters, numbers, dots, dashes, and underscores"
       );

@@ -38,9 +38,8 @@ import {
   useCreateNotifyTopic,
   useRemoveNotifyTopicSubscriber,
 } from "@/hooks/api/use-notify";
+import { isNotifyScopedKey } from "@/lib/notify-form";
 import type { AppRouteContext } from "@/routes/app/layout";
-
-const notifyTopicKeyPattern = /^[a-zA-Z0-9._-]+$/;
 
 export const Route = createFileRoute("/app/notify/topics")({
   loader: async ({ context }) => {
@@ -110,7 +109,7 @@ function NotifyTopicsPage() {
       toast.error("Topic key and name are required");
       return;
     }
-    if (!notifyTopicKeyPattern.test(topicKey.trim())) {
+    if (!isNotifyScopedKey(topicKey)) {
       toast.error(
         "Topic key can only include letters, numbers, dots, dashes, and underscores"
       );

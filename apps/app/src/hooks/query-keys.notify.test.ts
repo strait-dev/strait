@@ -4,11 +4,43 @@ import { queryKeys } from "./query-keys";
 describe("notify query keys", () => {
   it("builds deliveries key", () => {
     expect(
-      queryKeys.notify.deliveries({ status: "failed", limit: 20 }).queryKey
+      queryKeys.notify.deliveries({
+        status: "failed",
+        limit: 20,
+        cursor: "2026-01-01T00:00:00Z",
+      }).queryKey
     ).toEqual([
       "notify",
       "deliveries",
-      { search: { status: "failed", limit: 20 } },
+      {
+        search: {
+          status: "failed",
+          limit: 20,
+          cursor: "2026-01-01T00:00:00Z",
+        },
+      },
+    ]);
+  });
+
+  it("builds subscriber and template list keys", () => {
+    expect(
+      queryKeys.notify
+        .subscribersList({ limit: 25, cursor: "2026-01-02T00:00:00Z" })
+        .queryKey
+    ).toEqual([
+      "notify",
+      "subscribersList",
+      { search: { limit: 25, cursor: "2026-01-02T00:00:00Z" } },
+    ]);
+
+    expect(
+      queryKeys.notify
+        .templatesList({ limit: 25, cursor: "2026-01-03T00:00:00Z" })
+        .queryKey
+    ).toEqual([
+      "notify",
+      "templatesList",
+      { search: { limit: 25, cursor: "2026-01-03T00:00:00Z" } },
     ]);
   });
 
