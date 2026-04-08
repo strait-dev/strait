@@ -22,7 +22,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 					/>
 				</a>
 
-				<div class="hidden items-center gap-6 md:flex">
+				<div class="hidden items-center gap-6 lg:flex">
 					{NAV_ITEMS.map((item) => {
 						if (isNavGroup(item)) {
 							return <HeaderDropdown client:load group={item} />;
@@ -39,7 +39,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 					})}
 				</div>
 
-				<div class="hidden items-center gap-3 md:flex">
+				<div class="hidden items-center gap-3 lg:flex">
 					<a
 						class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
 						href={dashboardHref("/login")}
@@ -57,7 +57,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 					</a>
 				</div>
 
-				<div class="md:hidden">
+				<div class="lg:hidden">
 					<MobileNav client:load />
 				</div>
 			</div>
