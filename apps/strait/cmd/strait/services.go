@@ -132,7 +132,7 @@ func buildSingleRuntime(provider string, cfg *config.Config, metrics *telemetry.
 		slog.Info("container runtime enabled", "runtime", "docker")
 		return compute.NewDockerRuntime()
 	case "k8s":
-		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
+		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass, cfg.ImagePullPolicy)
 		if err != nil {
 			slog.Error("CRITICAL: k8s runtime init failed", "error", err)
 			return nil

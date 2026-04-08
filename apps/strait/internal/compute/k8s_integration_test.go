@@ -26,7 +26,7 @@ func requireKindCluster(t *testing.T) *K8sRuntime {
 		home, _ := os.UserHomeDir()
 		kubeconfig = filepath.Join(home, ".kube", "config")
 	}
-	rt, err := NewK8sRuntime(kubeconfig, "default", "")
+	rt, err := NewK8sRuntime(kubeconfig, "default", "", "")
 	if err != nil {
 		t.Skipf("cannot connect to k8s cluster: %v", err)
 	}

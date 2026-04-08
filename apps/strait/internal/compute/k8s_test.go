@@ -17,7 +17,7 @@ import (
 
 func newTestK8sRuntime() (*K8sRuntime, *fake.Clientset) {
 	cs := fake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "test-ns", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "test-ns", "strait-job", "")
 	return rt, cs
 }
 
@@ -189,7 +189,7 @@ func TestK8sRuntime_Create_APIError(t *testing.T) {
 	cs.PrependReactor("create", "jobs", func(_ k8stesting.Action) (bool, k8sruntime.Object, error) {
 		return true, nil, errors.New("api server unavailable")
 	})
-	rt := NewK8sRuntimeFromClient(cs, "test-ns", "")
+	rt := NewK8sRuntimeFromClient(cs, "test-ns", "", "")
 
 	_, err := rt.Create(context.Background(), RunRequest{
 		ImageURI:      "alpine:3.19",
@@ -234,7 +234,7 @@ func TestK8sRuntime_Create_UniqueNames(t *testing.T) {
 
 func TestK8sRuntime_Create_NoPriorityClass(t *testing.T) {
 	cs := fake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "test-ns", "")
+	rt := NewK8sRuntimeFromClient(cs, "test-ns", "", "")
 	ctx := context.Background()
 
 	id, _ := rt.Create(ctx, RunRequest{
@@ -768,6 +768,78 @@ func TestK8sRuntime_Create_TTLSecondsAfterFinished(t *testing.T) {
 	}
 	if *job.Spec.TTLSecondsAfterFinished != jobTTLAfterFinished {
 		t.Errorf("TTLSecondsAfterFinished = %d, want %d", *job.Spec.TTLSecondsAfterFinished, jobTTLAfterFinished)
+	}
+}
+
+func TestK8sRuntime_Create_SetsImagePullPolicyIfNotPresent(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", string(corev1.PullIfNotPresent))
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	got := job.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	if got != corev1.PullIfNotPresent {
+		t.Errorf("ImagePullPolicy = %q, want %q", got, corev1.PullIfNotPresent)
+	}
+}
+
+func TestK8sRuntime_Create_SetsImagePullPolicyAlways(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", string(corev1.PullAlways))
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	got := job.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	if got != corev1.PullAlways {
+		t.Errorf("ImagePullPolicy = %q, want %q", got, corev1.PullAlways)
+	}
+}
+
+func TestK8sRuntime_Create_EmptyPullPolicyLeavesDefault(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	got := job.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	if got != corev1.PullPolicy("") {
+		t.Errorf("ImagePullPolicy = %q, want empty (kubernetes default)", got)
 	}
 }
 

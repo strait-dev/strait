@@ -53,10 +53,11 @@ type K8sMetrics interface {
 
 // K8sRuntime implements ContainerRuntime using Kubernetes Jobs via client-go.
 type K8sRuntime struct {
-	clientset     kubernetes.Interface
-	namespace     string
-	priorityClass string
-	metrics       K8sMetrics // Optional, nil-safe.
+	clientset       kubernetes.Interface
+	namespace       string
+	priorityClass   string
+	imagePullPolicy corev1.PullPolicy
+	metrics         K8sMetrics // Optional, nil-safe.
 }
 
 // BuildK8sClientset creates a Kubernetes clientset from a kubeconfig path.
@@ -83,16 +84,19 @@ func BuildK8sClientset(kubeconfig string) (kubernetes.Interface, error) {
 
 // NewK8sRuntime creates a new Kubernetes runtime.
 // If kubeconfig is empty, falls back to in-cluster config.
-func NewK8sRuntime(kubeconfig, namespace, priorityClass string) (*K8sRuntime, error) {
+// imagePullPolicy should be a Kubernetes PullPolicy value ("Always", "IfNotPresent",
+// "Never"). An empty string leaves the field unset, deferring to Kubernetes defaults.
+func NewK8sRuntime(kubeconfig, namespace, priorityClass, imagePullPolicy string) (*K8sRuntime, error) {
 	clientset, err := BuildK8sClientset(kubeconfig)
 	if err != nil {
 		return nil, err
 	}
 
 	return &K8sRuntime{
-		clientset:     clientset,
-		namespace:     namespace,
-		priorityClass: priorityClass,
+		clientset:       clientset,
+		namespace:       namespace,
+		priorityClass:   priorityClass,
+		imagePullPolicy: corev1.PullPolicy(imagePullPolicy),
 	}, nil
 }
 
@@ -103,11 +107,14 @@ func (k *K8sRuntime) Clientset() kubernetes.Interface { return k.clientset }
 func (k *K8sRuntime) SetMetrics(m K8sMetrics) { k.metrics = m }
 
 // NewK8sRuntimeFromClient creates a K8sRuntime from an existing clientset (for testing).
-func NewK8sRuntimeFromClient(clientset kubernetes.Interface, namespace, priorityClass string) *K8sRuntime {
+// imagePullPolicy should be a Kubernetes PullPolicy value ("Always", "IfNotPresent",
+// "Never"). An empty string leaves the field unset, deferring to Kubernetes defaults.
+func NewK8sRuntimeFromClient(clientset kubernetes.Interface, namespace, priorityClass, imagePullPolicy string) *K8sRuntime {
 	return &K8sRuntime{
-		clientset:     clientset,
-		namespace:     namespace,
-		priorityClass: priorityClass,
+		clientset:       clientset,
+		namespace:       namespace,
+		priorityClass:   priorityClass,
+		imagePullPolicy: corev1.PullPolicy(imagePullPolicy),
 	}
 }
 
@@ -169,9 +176,10 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 						},
 						Containers: []corev1.Container{
 							{
-								Name:  "job",
-								Image: req.ImageURI,
-								Env:   mapToEnvVars(req.Env),
+								Name:            "job",
+								Image:           req.ImageURI,
+								ImagePullPolicy: k.imagePullPolicy,
+								Env:             mapToEnvVars(req.Env),
 								Resources: corev1.ResourceRequirements{
 									Requests: requests,
 									Limits:   limits,
