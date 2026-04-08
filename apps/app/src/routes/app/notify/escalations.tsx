@@ -111,7 +111,8 @@ function NotifyEscalationsPage() {
           <CardHeader>
             <CardTitle className="text-sm">Escalation lookup</CardTitle>
             <CardDescription>
-              Load escalation state by step run ID, then acknowledge or complete.
+              Load escalation state by step run ID, then acknowledge or
+              complete.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -126,7 +127,10 @@ function NotifyEscalationsPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => escalationQuery.refetch()} variant="outline">
+              <Button
+                onClick={() => escalationQuery.refetch()}
+                variant="outline"
+              >
                 Refresh state
               </Button>
               <Button onClick={() => runAction("ack")} variant="secondary">
@@ -143,7 +147,9 @@ function NotifyEscalationsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Current state</CardTitle>
-            <CardDescription>Live escalation state from the API lookup.</CardDescription>
+            <CardDescription>
+              Live escalation state from the API lookup.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {escalation ? (
