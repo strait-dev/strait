@@ -1,13 +1,20 @@
 import type { NotifyPreference } from "@/hooks/api/types";
 
-export const notifyDigestPolicyOptions = ["instant", "hourly", "daily"] as const;
+export const notifyDigestPolicyOptions = [
+  "instant",
+  "hourly",
+  "daily",
+] as const;
 
 export const parsePreferenceChannel = (
   preference: NotifyPreference | undefined,
   channel: "email" | "inbox",
   fallback: boolean
 ) => {
-  if (!preference?.channel_prefs || typeof preference.channel_prefs !== "object") {
+  if (
+    !preference?.channel_prefs ||
+    typeof preference.channel_prefs !== "object"
+  ) {
     return fallback;
   }
 
@@ -25,7 +32,9 @@ export const normalizePreferenceDigest = (
   preference: NotifyPreference | undefined
 ) => {
   const value = preference?.digest_policy;
-  return notifyDigestPolicyOptions.find((option) => option === value) ?? "instant";
+  return (
+    notifyDigestPolicyOptions.find((option) => option === value) ?? "instant"
+  );
 };
 
 export const listPreferenceScopes = (

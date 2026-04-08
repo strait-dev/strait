@@ -35,9 +35,9 @@ describe("notify preference helpers", () => {
   });
 
   it("normalizes digest policy", () => {
-    expect(normalizePreferenceDigest(makePreference({ digest_policy: "daily" }))).toBe(
-      "daily"
-    );
+    expect(
+      normalizePreferenceDigest(makePreference({ digest_policy: "daily" }))
+    ).toBe("daily");
     expect(
       normalizePreferenceDigest(makePreference({ digest_policy: "unknown" }))
     ).toBe("instant");
