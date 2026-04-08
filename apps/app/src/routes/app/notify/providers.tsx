@@ -25,13 +25,13 @@ import { useMemo, useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import type { NotificationProvider } from "@/hooks/api/types";
 import {
   notifyProvidersQueryOptions,
   useCreateNotificationProvider,
   useDeleteNotificationProvider,
   useUpdateNotificationProvider,
 } from "@/hooks/api/use-notify";
-import type { NotificationProvider } from "@/hooks/api/types";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/providers")({
@@ -80,7 +80,8 @@ function NotifyProvidersPage() {
   const providers = providersQuery.data ?? [];
 
   const sortedProviders = useMemo(
-    () => [...providers].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    () =>
+      [...providers].sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [providers]
   );
 
@@ -288,7 +289,9 @@ function NotifyProvidersPage() {
                         setProvider(item.provider);
                         setName(item.name);
                         setIsDefault(item.is_default);
-                        setRateLimit(item.rate_limit ? String(item.rate_limit) : "");
+                        setRateLimit(
+                          item.rate_limit ? String(item.rate_limit) : ""
+                        );
                       }}
                     >
                       <TableCell>{item.name}</TableCell>

@@ -24,13 +24,13 @@ import { useMemo, useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import type { NotifyPolicyOverride } from "@/hooks/api/types";
 import {
   notifyPoliciesQueryOptions,
   useCreateNotifyPolicyOverride,
   useDeleteNotifyPolicyOverride,
   useUpdateNotifyPolicyOverride,
 } from "@/hooks/api/use-notify";
-import type { NotifyPolicyOverride } from "@/hooks/api/types";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/policies")({
@@ -61,9 +61,9 @@ function NotifyPoliciesPage() {
 
   const [selected, setSelected] = useState<NotifyPolicyOverride | null>(null);
 
-  const [scopeType, setScopeType] = useState<"project" | "category" | "workflow_step">(
-    "project"
-  );
+  const [scopeType, setScopeType] = useState<
+    "project" | "category" | "workflow_step"
+  >("project");
   const [scopeKey, setScopeKey] = useState("project");
   const [channel, setChannel] = useState("email");
   const [digestPolicy, setDigestPolicy] = useState("instant");
@@ -77,7 +77,8 @@ function NotifyPoliciesPage() {
   const policies = policiesQuery.data ?? [];
 
   const sortedPolicies = useMemo(
-    () => [...policies].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+    () =>
+      [...policies].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
     [policies]
   );
 
@@ -181,12 +182,18 @@ function NotifyPoliciesPage() {
     setScopeKey(item.scope_key);
     setChannel(item.channel || "");
     setDigestPolicy(item.digest_policy || "instant");
-    setRetryAttempts(item.retry_max_attempts ? String(item.retry_max_attempts) : "");
+    setRetryAttempts(
+      item.retry_max_attempts ? String(item.retry_max_attempts) : ""
+    );
     setRetryBaseDelay(
       item.retry_base_delay_secs ? String(item.retry_base_delay_secs) : ""
     );
-    setRetryMaxDelay(item.retry_max_delay_secs ? String(item.retry_max_delay_secs) : "");
-    setEscalationTiers(item.escalation_tiers ? String(item.escalation_tiers) : "");
+    setRetryMaxDelay(
+      item.retry_max_delay_secs ? String(item.retry_max_delay_secs) : ""
+    );
+    setEscalationTiers(
+      item.escalation_tiers ? String(item.escalation_tiers) : ""
+    );
     setEscalationMinInterval(
       item.escalation_min_interval_secs
         ? String(item.escalation_min_interval_secs)
@@ -252,7 +259,9 @@ function NotifyPoliciesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="policy-retry-attempts">Retry max attempts</Label>
+                <Label htmlFor="policy-retry-attempts">
+                  Retry max attempts
+                </Label>
                 <Input
                   id="policy-retry-attempts"
                   onChange={(event) => setRetryAttempts(event.target.value)}
@@ -276,7 +285,9 @@ function NotifyPoliciesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="policy-escalation-tiers">Escalation tiers</Label>
+                <Label htmlFor="policy-escalation-tiers">
+                  Escalation tiers
+                </Label>
                 <Input
                   id="policy-escalation-tiers"
                   onChange={(event) => setEscalationTiers(event.target.value)}
@@ -289,7 +300,9 @@ function NotifyPoliciesPage() {
                 </Label>
                 <Input
                   id="policy-escalation-interval"
-                  onChange={(event) => setEscalationMinInterval(event.target.value)}
+                  onChange={(event) =>
+                    setEscalationMinInterval(event.target.value)
+                  }
                   value={escalationMinInterval}
                 />
               </div>

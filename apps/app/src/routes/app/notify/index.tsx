@@ -221,6 +221,22 @@ function NotifyOverviewPage() {
             </Link>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Escalations</CardTitle>
+            <CardDescription>
+              Lookup and control approval escalation states by step run.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/escalations"
+            >
+              Open escalations
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     </Shell>
   );

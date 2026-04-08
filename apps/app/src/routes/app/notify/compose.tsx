@@ -128,7 +128,8 @@ function NotifyComposePage() {
         template_key: templateKey.trim(),
         payload,
         channels: parseChannels(),
-        subscriber_id: recipientType === "subscriber" ? recipientID.trim() : undefined,
+        subscriber_id:
+          recipientType === "subscriber" ? recipientID.trim() : undefined,
         category_key: categoryKey.trim() || undefined,
       }),
       {
@@ -160,10 +161,12 @@ function NotifyComposePage() {
       category_key: categoryKey.trim() || undefined,
     };
 
-    const promise = mode === "test" ? testSend.mutateAsync(body) : trigger.mutateAsync(body);
+    const promise =
+      mode === "test" ? testSend.mutateAsync(body) : trigger.mutateAsync(body);
 
     const result = await toast.promise(promise, {
-      loading: mode === "test" ? "Sending test notify..." : "Triggering notify...",
+      loading:
+        mode === "test" ? "Sending test notify..." : "Triggering notify...",
       success: mode === "test" ? "Test notify sent" : "Notify triggered",
       error: mode === "test" ? "Test notify failed" : "Notify trigger failed",
     });
@@ -178,7 +181,8 @@ function NotifyComposePage() {
           <CardHeader>
             <CardTitle className="text-sm">Compose notify</CardTitle>
             <CardDescription>
-              Trigger or test send a notify payload through the standard API pipeline.
+              Trigger or test send a notify payload through the standard API
+              pipeline.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
