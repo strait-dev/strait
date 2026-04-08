@@ -8,6 +8,13 @@ import {
 } from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Table,
@@ -32,6 +39,8 @@ import {
   useRemoveNotifyTopicSubscriber,
 } from "@/hooks/api/use-notify";
 import type { AppRouteContext } from "@/routes/app/layout";
+
+const notifyTopicKeyPattern = /^[a-zA-Z0-9._-]+$/;
 
 export const Route = createFileRoute("/app/notify/topics")({
   loader: async ({ context }) => {
@@ -80,6 +89,13 @@ function NotifyTopicsPage() {
     () => [...topics].sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [topics]
   );
+  const sortedSubscribers = useMemo(
+    () =>
+      [...subscribers].sort((a, b) =>
+        a.external_id.localeCompare(b.external_id)
+      ),
+    [subscribers]
+  );
 
   if (!hasProject) {
     return (
@@ -92,6 +108,10 @@ function NotifyTopicsPage() {
   const create = async () => {
     if (!(topicKey.trim() && topicName.trim())) {
       toast.error("Topic key and name are required");
+      return;
+    }
+    if (!notifyTopicKeyPattern.test(topicKey.trim())) {
+      toast.error("Topic key can only include letters, numbers, dots, dashes, and underscores");
       return;
     }
 
@@ -191,7 +211,9 @@ function NotifyTopicsPage() {
                 value={topicDescription}
               />
             </div>
-            <Button onClick={create}>Create topic</Button>
+            <Button disabled={createTopic.isPending} onClick={create}>
+              Create topic
+            </Button>
           </CardContent>
         </Card>
 
@@ -205,41 +227,59 @@ function NotifyTopicsPage() {
           <CardContent className="space-y-3">
             <div className="space-y-1">
               <Label htmlFor="membership-topic">Topic key</Label>
-              <Input
-                id="membership-topic"
-                list="notify-topics"
-                onChange={(event) => setSelectedTopicKey(event.target.value)}
-                placeholder="workflow.approvals"
-                value={selectedTopicKey}
-              />
-              <datalist id="notify-topics">
-                {sortedTopics.map((topic) => (
-                  <option key={topic.id} value={topic.topic_key} />
-                ))}
-              </datalist>
+              <Select
+                onValueChange={(value) => setSelectedTopicKey(value ?? "")}
+                value={selectedTopicKey || undefined}
+              >
+                <SelectTrigger id="membership-topic">
+                  <SelectValue placeholder="Select topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedTopics.map((topic) => (
+                    <SelectItem key={topic.id} value={topic.topic_key}>
+                      {topic.topic_key}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="membership-subscriber">Subscriber ID</Label>
-              <Input
-                id="membership-subscriber"
-                list="notify-subscribers"
-                onChange={(event) =>
-                  setSelectedSubscriberID(event.target.value)
-                }
-                placeholder="subscriber id"
-                value={selectedSubscriberID}
-              />
-              <datalist id="notify-subscribers">
-                {subscribers.map((subscriber) => (
-                  <option key={subscriber.id} value={subscriber.id}>
-                    {subscriber.external_id}
-                  </option>
-                ))}
-              </datalist>
+              <Label htmlFor="membership-subscriber">Subscriber</Label>
+              <Select
+                onValueChange={(value) => setSelectedSubscriberID(value ?? "")}
+                value={selectedSubscriberID || undefined}
+              >
+                <SelectTrigger id="membership-subscriber">
+                  <SelectValue placeholder="Select subscriber" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedSubscribers.map((subscriber) => (
+                    <SelectItem key={subscriber.id} value={subscriber.id}>
+                      {subscriber.external_id}
+                      {subscriber.email ? ` (${subscriber.email})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex gap-2">
-              <Button onClick={add}>Add subscriber</Button>
-              <Button onClick={remove} variant="outline">
+              <Button
+                disabled={
+                  !(selectedTopicKey && selectedSubscriberID) ||
+                  addSubscriber.isPending
+                }
+                onClick={add}
+              >
+                Add subscriber
+              </Button>
+              <Button
+                disabled={
+                  !(selectedTopicKey && selectedSubscriberID) ||
+                  removeSubscriber.isPending
+                }
+                onClick={remove}
+                variant="outline"
+              >
                 Remove subscriber
               </Button>
             </div>

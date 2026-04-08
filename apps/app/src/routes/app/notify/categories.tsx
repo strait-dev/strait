@@ -8,6 +8,13 @@ import {
 } from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Table,
@@ -29,6 +36,14 @@ import {
   useCreateNotificationCategory,
 } from "@/hooks/api/use-notify";
 import type { AppRouteContext } from "@/routes/app/layout";
+
+const notifyCategoryTypeOptions = [
+  "product",
+  "transactional",
+  "critical",
+] as const;
+
+const notifyCategoryKeyPattern = /^[a-zA-Z0-9._-]+$/;
 
 export const Route = createFileRoute("/app/notify/categories")({
   loader: async ({ context }) => {
@@ -56,7 +71,9 @@ function NotifyCategoriesPage() {
   const [categoryKey, setCategoryKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [type, setType] = useState("product");
+  const [type, setType] = useState<(typeof notifyCategoryTypeOptions)[number]>(
+    "product"
+  );
 
   const categories = categoriesQuery.data ?? [];
 
@@ -79,6 +96,10 @@ function NotifyCategoriesPage() {
   const create = async () => {
     if (!(categoryKey.trim() && name.trim())) {
       toast.error("Category key and name are required");
+      return;
+    }
+    if (!notifyCategoryKeyPattern.test(categoryKey.trim())) {
+      toast.error("Category key can only include letters, numbers, dots, dashes, and underscores");
       return;
     }
 
@@ -142,15 +163,28 @@ function NotifyCategoriesPage() {
             </div>
             <div className="space-y-1 md:col-span-2">
               <Label htmlFor="category-type">Type</Label>
-              <Input
-                id="category-type"
-                onChange={(event) => setType(event.target.value)}
-                placeholder="product | transactional | critical"
+              <Select
+                onValueChange={(value) =>
+                  setType(value as (typeof notifyCategoryTypeOptions)[number])
+                }
                 value={type}
-              />
+              >
+                <SelectTrigger id="category-type">
+                  <SelectValue placeholder="Choose category type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {notifyCategoryTypeOptions.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <Button onClick={create}>Create category</Button>
+          <Button disabled={createCategory.isPending} onClick={create}>
+            Create category
+          </Button>
         </CardContent>
       </Card>
 

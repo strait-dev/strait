@@ -129,11 +129,17 @@ function NotifyTemplatesPage() {
     );
   }
 
-  const parseJSON = <T,>(raw: string, fallback: T): T => {
+  const parseJSONRecord = (raw: string, fieldName: string) => {
     try {
-      return JSON.parse(raw) as T;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        toast.error(`${fieldName} must be a JSON object`);
+        return null;
+      }
+      return parsed as Record<string, object>;
     } catch {
-      return fallback;
+      toast.error(`${fieldName} must be valid JSON`);
+      return null;
     }
   };
 
@@ -145,8 +151,20 @@ function NotifyTemplatesPage() {
     setSelectedTemplate(null);
   };
 
+  const loadTemplateForEdit = (template: NotificationTemplate) => {
+    setSelectedTemplate(template);
+    setTemplateKey(template.template_key);
+    setName(template.name);
+    setDescription(template.description || "");
+    setChannelsJSON(JSON.stringify(template.channels, null, 2));
+  };
+
   const upsertTemplate = async () => {
-    const channels = parseJSON<Record<string, object>>(channelsJSON, {});
+    const channels = parseJSONRecord(channelsJSON, "Channels JSON");
+    if (!channels) {
+      return;
+    }
+
     if (!(templateKey.trim() || selectedTemplate)) {
       toast.error("Template key is required");
       return;
@@ -189,7 +207,10 @@ function NotifyTemplatesPage() {
       return;
     }
 
-    const payload = parseJSON<Record<string, object>>(payloadJSON, {});
+    const payload = parseJSONRecord(payloadJSON, "Payload JSON");
+    if (!payload) {
+      return;
+    }
 
     const result = await toast.promise(
       previewTemplate.mutateAsync({
@@ -205,6 +226,9 @@ function NotifyTemplatesPage() {
 
     setPreviewResult(JSON.stringify(result, null, 2));
   };
+
+  const isWorking =
+    createTemplate.isPending || updateTemplate.isPending || previewTemplate.isPending;
 
   const goToNextPage = () => {
     if (!nextCursor) {
@@ -286,7 +310,7 @@ function NotifyTemplatesPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button onClick={upsertTemplate}>
+              <Button disabled={isWorking} onClick={upsertTemplate}>
                 {selectedTemplate ? "Update template" : "Create template"}
               </Button>
               {selectedTemplate ? (
@@ -317,7 +341,7 @@ function NotifyTemplatesPage() {
               />
             </div>
 
-            <Button onClick={preview} variant="outline">
+            <Button disabled={isWorking} onClick={preview} variant="outline">
               <HugeiconsIcon className="mr-1.5 size-4" icon={SparklesIcon} />
               Render preview
             </Button>
@@ -361,15 +385,15 @@ function NotifyTemplatesPage() {
                   <TableRow
                     className="cursor-pointer"
                     key={template.id}
-                    onClick={() => {
-                      setSelectedTemplate(template);
-                      setTemplateKey(template.template_key);
-                      setName(template.name);
-                      setDescription(template.description || "");
-                      setChannelsJSON(
-                        JSON.stringify(template.channels, null, 2)
-                      );
+                    onClick={() => loadTemplateForEdit(template)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        loadTemplateForEdit(template);
+                      }
                     }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <TableCell>{template.template_key}</TableCell>
                     <TableCell>{template.name}</TableCell>
@@ -391,7 +415,9 @@ function NotifyTemplatesPage() {
             <div className="flex gap-2">
               <Button
                 disabled={
-                  cursorHistory.length === 0 || templatesQuery.isFetching
+                  cursorHistory.length === 0 ||
+                  templatesQuery.isFetching ||
+                  isWorking
                 }
                 onClick={goToPreviousPage}
                 variant="outline"
@@ -399,7 +425,7 @@ function NotifyTemplatesPage() {
                 Previous page
               </Button>
               <Button
-                disabled={!nextCursor || templatesQuery.isFetching}
+                disabled={!nextCursor || templatesQuery.isFetching || isWorking}
                 onClick={goToNextPage}
                 variant="outline"
               >
