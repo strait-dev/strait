@@ -352,6 +352,7 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 
 // ListJobsInput is the typed input for listing jobs.
 type ListJobsInput struct {
+	Slug     string `query:"slug"`
 	TagKey   string `query:"tag_key"`
 	TagValue string `query:"tag_value"`
 	Limit    string `query:"limit"`
@@ -375,6 +376,25 @@ func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*Lis
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
+	}
+
+	// Slug lookup: return a single-item list when ?slug= is provided.
+	if input.Slug != "" {
+		emptyPage := func() *ListJobsOutput {
+			return &ListJobsOutput{Body: paginatedResult([]domain.Job{}, limit, func(j domain.Job) string {
+				return j.CreatedAt.Format(time.RFC3339Nano)
+			})}
+		}
+		job, jobErr := s.store.GetJobBySlug(ctx, projectID, input.Slug)
+		if jobErr != nil {
+			if errors.Is(jobErr, store.ErrJobNotFound) {
+				return emptyPage(), nil
+			}
+			return nil, huma.Error500InternalServerError("failed to look up job by slug")
+		}
+		return &ListJobsOutput{Body: paginatedResult([]domain.Job{*job}, limit, func(j domain.Job) string {
+			return j.CreatedAt.Format(time.RFC3339Nano)
+		})}, nil
 	}
 
 	var (
