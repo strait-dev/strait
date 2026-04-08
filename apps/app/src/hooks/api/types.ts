@@ -204,3 +204,151 @@ export type PerformanceAnalytics = {
   throughput: ThroughputStats;
   health_summary: HealthSummary;
 };
+
+export type NotifySubscriber = {
+  id: string;
+  project_id: string;
+  external_id: string;
+  email?: string;
+  phone?: string;
+  locale: string;
+  timezone: string;
+  push_tokens?: Record<string, object>;
+  attributes?: Record<string, object>;
+  tenant_id?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotifyTopic = {
+  id: string;
+  project_id: string;
+  topic_key: string;
+  name: string;
+  description?: string;
+  attributes?: Record<string, object>;
+  created_at: string;
+};
+
+export type NotificationTemplate = {
+  id: string;
+  project_id: string;
+  template_key: string;
+  name: string;
+  description?: string;
+  version: number;
+  channels: Record<string, object>;
+  variables?: Record<string, object>;
+  locale_templates?: Record<string, object>;
+  default_locale: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotificationCategory = {
+  id: string;
+  project_id: string;
+  category_key: string;
+  name: string;
+  description?: string;
+  type: string;
+  created_at: string;
+};
+
+export type NotifyPolicyOverride = {
+  id: string;
+  project_id: string;
+  scope_type: "project" | "category" | "workflow_step";
+  scope_key: string;
+  channel?: string;
+  digest_policy?: "instant" | "hourly" | "daily";
+  retry_max_attempts?: number | null;
+  retry_base_delay_secs?: number | null;
+  retry_max_delay_secs?: number | null;
+  escalation_tiers?: number | null;
+  escalation_min_interval_secs?: number | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotificationProvider = {
+  id: string;
+  project_id: string;
+  channel: string;
+  provider: string;
+  name: string;
+  is_default: boolean;
+  fallback_id?: string;
+  health: string;
+  rate_limit?: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotifySuppressionEvent = {
+  id: string;
+  project_id: string;
+  recipient_type: string;
+  recipient_id: string;
+  scope: string;
+  channel: string;
+  action: "suppressed" | "unsuppressed";
+  reason?: string;
+  source: string;
+  metadata?: Record<string, object>;
+  created_at: string;
+};
+
+export type NotificationMessage = {
+  id: string;
+  project_id: string;
+  recipient_type: string;
+  recipient_id: string;
+  tenant_id?: string;
+  workflow_run_id?: string;
+  step_run_id?: string;
+  template_id?: string;
+  category_key?: string;
+  channel: string;
+  provider_id?: string;
+  rendered_content?: Record<string, object>;
+  status: string;
+  attempts: number;
+  provider_response?: Record<string, object>;
+  delivered_at?: string;
+  read_at?: string;
+  clicked_at?: string;
+  bounced_at?: string;
+  suppression_reason?: string;
+  batch_id?: string;
+  scheduled_at?: string;
+  created_at: string;
+};
+
+export type NotifyEscalationState = {
+  id: string;
+  project_id: string;
+  step_run_id: string;
+  workflow_run_id: string;
+  current_tier: number;
+  total_tiers: number;
+  acknowledged: boolean;
+  acknowledged_by?: string;
+  acknowledged_at?: string;
+  next_escalation_at?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotifyTriggerResult = {
+  recipient_id: string;
+  message_ids: string[];
+};
+
+export type NotifyTriggerResponse = {
+  results: NotifyTriggerResult[];
+};

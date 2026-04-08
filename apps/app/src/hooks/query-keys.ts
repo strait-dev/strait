@@ -16,6 +16,13 @@ type ListEventsSearch = ListParams & {
   source_type?: string;
 };
 type ListDlqSearch = ListParams & { search?: string };
+type ListNotifyDeliveriesSearch = ListParams & { status?: string };
+type ListNotifySubscribersSearch = ListParams & {
+  status?: string;
+  tenant_id?: string;
+};
+type ListNotifyTemplatesSearch = ListParams & { status?: string };
+type ListNotifyPoliciesSearch = { scope_type?: string };
 
 /**
  * Centralized query key store for the entire application.
@@ -127,6 +134,25 @@ export const queryKeys = createQueryKeyStore({
 
   dlq: {
     list: (search?: ListDlqSearch) => [{ search }],
+  },
+
+  notify: {
+    deliveries: (search?: ListNotifyDeliveriesSearch) => [{ search }],
+    subscribersList: (search?: ListNotifySubscribersSearch) => [{ search }],
+    subscriberDetail: (subscriberId: string) => [subscriberId],
+    subscriberSuppressions: (subscriberId: string, search?: ListParams) => [
+      subscriberId,
+      { search },
+    ],
+    topics: null,
+    templatesList: (search?: ListNotifyTemplatesSearch) => [{ search }],
+    templateDetail: (templateKey: string) => [templateKey],
+    categories: null,
+    providers: (channel?: string) => [{ channel }],
+    policiesList: (search?: ListNotifyPoliciesSearch) => [{ search }],
+    policyDetail: (policyId: string) => [policyId],
+    escalationDetail: (stepRunId: string) => [stepRunId],
+    preview: null,
   },
 
   apiKeys: {
