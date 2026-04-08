@@ -722,3 +722,127 @@ func TestOrchestratorRunBuild_AddressPoolPassedToBuilder(t *testing.T) {
 		t.Error("expected a non-empty BuildKit address from the pool")
 	}
 }
+
+// dispatch branch coverage.
+
+// TestOrchestrator_Dispatch_ClaimError_SkipsAndContinues verifies that when
+// ClaimBuildingDeployment returns an error, dispatch breaks out of the loop
+// without panicking and releases the semaphore slot it had acquired.
+func TestOrchestrator_Dispatch_ClaimError_SkipsAndContinues(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockOrchestratorStore{
+		claimBuildingFn: func(_ context.Context, _ string) (*domain.CodeDeployment, error) {
+			return nil, errors.New("database connection lost")
+		},
+	}
+
+	o := NewOrchestrator(ms, nil,
+		WithPollInterval(1*time.Millisecond),
+		WithConcurrency(2),
+	)
+
+	sem := make(chan struct{}, 2)
+	// Must not panic and must not leak the semaphore slot.
+	o.dispatch(context.Background(), sem)
+
+	// After dispatch returns, the semaphore must be empty (no leaked slots).
+	if len(sem) != 0 {
+		t.Errorf("semaphore leaked: %d slots still held after dispatch error", len(sem))
+	}
+}
+
+// TestOrchestrator_Dispatch_SemaphoreFull_BreaksLoop verifies that when all
+// concurrency slots are already taken, dispatch breaks without calling
+// ClaimBuildingDeployment and returns immediately.
+func TestOrchestrator_Dispatch_SemaphoreFull_BreaksLoop(t *testing.T) {
+	t.Parallel()
+
+	var claimCalled bool
+	ms := &mockOrchestratorStore{
+		claimBuildingFn: func(_ context.Context, _ string) (*domain.CodeDeployment, error) {
+			claimCalled = true
+			return nil, nil
+		},
+	}
+
+	o := NewOrchestrator(ms, nil, WithConcurrency(1))
+
+	// Fill the semaphore completely before calling dispatch.
+	sem := make(chan struct{}, 1)
+	sem <- struct{}{} // slot is taken
+
+	o.dispatch(context.Background(), sem)
+
+	if claimCalled {
+		t.Error("ClaimBuildingDeployment must not be called when semaphore is full")
+	}
+}
+
+// releaseStale branch coverage.
+
+// TestOrchestrator_ReleaseStale_ZeroBuilderTimeout_UsesDefault30Min verifies
+// that when builderTimeout is 0 (no builder configured), the stale cutoff
+// defaults to 30 minutes.
+func TestOrchestrator_ReleaseStale_ZeroBuilderTimeout_UsesDefault30Min(t *testing.T) {
+	t.Parallel()
+
+	var capturedDuration time.Duration
+	ms := &mockOrchestratorStore{
+		releaseStaleClaimsFn: func(_ context.Context, olderThan time.Duration) (int64, error) {
+			capturedDuration = olderThan
+			return 0, nil
+		},
+	}
+
+	// builderTimeout == 0 because builder is nil.
+	o := NewOrchestrator(ms, nil)
+
+	o.releaseStale(context.Background())
+
+	if capturedDuration != 30*time.Minute {
+		t.Errorf("stale cutoff = %v, want 30m (default when no builder timeout)", capturedDuration)
+	}
+}
+
+// TestOrchestrator_ReleaseStale_NonzeroBuilderTimeout_UsesDoubled verifies that
+// when builderTimeout is set, the stale cutoff is builderTimeout * 2.
+func TestOrchestrator_ReleaseStale_NonzeroBuilderTimeout_UsesDoubled(t *testing.T) {
+	t.Parallel()
+
+	const builderTimeout = 10 * time.Minute
+
+	var capturedDuration time.Duration
+	ms := &mockOrchestratorStore{
+		releaseStaleClaimsFn: func(_ context.Context, olderThan time.Duration) (int64, error) {
+			capturedDuration = olderThan
+			return 0, nil
+		},
+	}
+
+	o := NewOrchestrator(ms, nil)
+	o.builderTimeout = builderTimeout // inject directly to bypass *Builder requirement
+
+	o.releaseStale(context.Background())
+
+	if capturedDuration != builderTimeout*2 {
+		t.Errorf("stale cutoff = %v, want %v (builderTimeout*2)", capturedDuration, builderTimeout*2)
+	}
+}
+
+// TestOrchestrator_ReleaseStale_StoreError_NoPanic verifies that a store error
+// during releaseStale is logged and the function returns without panicking.
+func TestOrchestrator_ReleaseStale_StoreError_NoPanic(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockOrchestratorStore{
+		releaseStaleClaimsFn: func(_ context.Context, _ time.Duration) (int64, error) {
+			return 0, errors.New("network timeout")
+		},
+	}
+
+	o := NewOrchestrator(ms, nil)
+
+	// Must not panic.
+	o.releaseStale(context.Background())
+}
