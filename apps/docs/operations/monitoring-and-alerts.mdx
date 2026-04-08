@@ -117,5 +117,7 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 
 - SES feedback queue + callback/suppression snapshot:
   - `cd apps/strait && go run ./scripts/notify-ses-feedback-check --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" --database-url "$DATABASE_URL"`
-- SES callback drilldown query pack:
-  - use the **SES Callback Drilldown Query Pack** section in [Notify Digest & Escalation Runbook](/operations/notify-digest-escalation-runbook)
+- SES callback error-budget gate check:
+  - `cd apps/strait && go run ./scripts/notify-ses-feedback-check --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" --prometheus-url "$PROMETHEUS_URL" --max-callback-error-rate 5 --max-callback-duplicate-ratio 20 --max-bounce-complaint-ratio 10`
+- SES callback drilldown query pack + DLQ triage workflow:
+  - use the **SES Callback Drilldown Query Pack** and **SES Feedback DLQ Triage** sections in [Notify Digest & Escalation Runbook](/operations/notify-digest-escalation-runbook)

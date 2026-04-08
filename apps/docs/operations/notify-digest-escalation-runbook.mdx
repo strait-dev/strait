@@ -146,6 +146,19 @@ go run ./scripts/notify-ses-feedback-check \
   --fail-on-backlog 200
 ```
 
+1a. Optional callback error-budget gates (requires Prometheus API access):
+
+```bash
+cd apps/strait
+go run ./scripts/notify-ses-feedback-check \
+  --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" \
+  --prometheus-url "$PROMETHEUS_URL" \
+  --prom-window 5m \
+  --max-callback-error-rate 5 \
+  --max-callback-duplicate-ratio 20 \
+  --max-bounce-complaint-ratio 10
+```
+
 2. Optional parser-path synthetic check (should increment `outcome="malformed"`):
 
 ```bash
@@ -239,6 +252,43 @@ WHERE channel = 'email'
 GROUP BY status
 ORDER BY COUNT(*) DESC;
 ```
+
+## SES Feedback DLQ Triage
+
+Use this when callback outcomes show sustained `*_error`/`malformed`, SQS backlog keeps growing, or callbacks stop updating delivery states.
+
+1. Verify primary queue depth and callback ratios with the script gates:
+
+```bash
+cd apps/strait
+go run ./scripts/notify-ses-feedback-check \
+  --queue-url "$NOTIFY_SES_FEEDBACK_SQS_URL" \
+  --prometheus-url "$PROMETHEUS_URL" \
+  --max-callback-error-rate 5 \
+  --max-callback-duplicate-ratio 20
+```
+
+2. Inspect DLQ attributes and latest payload samples:
+
+```bash
+aws sqs get-queue-attributes \
+  --queue-url "$NOTIFY_SES_FEEDBACK_DLQ_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible QueueArn
+
+aws sqs receive-message \
+  --queue-url "$NOTIFY_SES_FEEDBACK_DLQ_URL" \
+  --max-number-of-messages 5 \
+  --visibility-timeout 30
+```
+
+3. Classify DLQ samples with the query pack above:
+- malformed envelope / SNS wrapping mismatch
+- missing `strait_message_id` / `strait_project_id` tags
+- project mismatch or message-not-found due to stale ids
+
+4. Redrive only after root cause is fixed; monitor for regression:
+- callback `outcome` error rates return to baseline
+- no new sustained DLQ growth over two poll windows
 
 ## Safe Remediation Steps
 
