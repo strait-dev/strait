@@ -21,14 +21,14 @@ import (
 
 // mockObjectStore is a minimal stub for objectstore.ObjectStore.
 type mockObjectStore struct {
-	presignUploadFn func(ctx context.Context, key string, ttl time.Duration) (string, error)
+	presignUploadFn func(ctx context.Context, key string, ttl time.Duration, contentLength int64) (string, error)
 	headObjectFn    func(ctx context.Context, key string) (int64, error)
 	getObjectFn     func(ctx context.Context, key string) (io.ReadCloser, error)
 }
 
-func (m *mockObjectStore) PresignUpload(ctx context.Context, key string, ttl time.Duration) (string, error) {
+func (m *mockObjectStore) PresignUpload(ctx context.Context, key string, ttl time.Duration, contentLength int64) (string, error) {
 	if m.presignUploadFn != nil {
-		return m.presignUploadFn(ctx, key, ttl)
+		return m.presignUploadFn(ctx, key, ttl, contentLength)
 	}
 	return "https://example.com/upload", nil
 }
@@ -607,7 +607,7 @@ func TestHandleCreateCodeDeployment_PresignError(t *testing.T) {
 		},
 	}
 	mos := &mockObjectStore{
-		presignUploadFn: func(_ context.Context, _ string, _ time.Duration) (string, error) {
+		presignUploadFn: func(_ context.Context, _ string, _ time.Duration, _ int64) (string, error) {
 			return "", errors.New("object store unavailable")
 		},
 	}

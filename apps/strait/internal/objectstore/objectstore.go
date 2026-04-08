@@ -22,7 +22,9 @@ type ObjectStore interface {
 	// PresignUpload generates a time-limited URL that clients use to PUT an object
 	// directly to the store without routing through the Strait API. The key must
 	// be unique per deployment (e.g. "projects/{pid}/jobs/{jid}/deploys/{did}.tar.gz").
-	PresignUpload(ctx context.Context, key string, ttl time.Duration) (url string, err error)
+	// contentLength is included in the presigned signature so the server rejects
+	// any upload whose Content-Length header does not match exactly.
+	PresignUpload(ctx context.Context, key string, ttl time.Duration, contentLength int64) (url string, err error)
 
 	// HeadObject checks whether an object exists and returns its size in bytes.
 	// Returns ErrObjectNotFound if the key does not exist.

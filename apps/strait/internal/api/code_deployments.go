@@ -108,7 +108,7 @@ func (s *Server) handleCreateCodeDeployment(ctx context.Context, input *CreateCo
 		return nil, huma.Error500InternalServerError("failed to create deployment")
 	}
 
-	uploadURL, err := s.objectStore.PresignUpload(ctx, deployment.SourceURI, presignUploadTTL)
+	uploadURL, err := s.objectStore.PresignUpload(ctx, deployment.SourceURI, presignUploadTTL, deployment.SourceSizeBytes)
 	if err != nil {
 		slog.Error("failed to generate presigned upload URL",
 			"deployment_id", deployment.ID,

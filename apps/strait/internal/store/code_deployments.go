@@ -18,6 +18,87 @@ import (
 // belongs to a different project (treated identically for security).
 var ErrCodeDeploymentNotFound = errors.New("code deployment not found")
 
+// deploymentCols is the full column list for single-row lookups (includes build_logs).
+const deploymentCols = `id, job_id, project_id, version, status, runtime,
+	       source_hash, source_size_bytes, source_uri,
+	       built_image_uri, built_image_digest, build_logs, error_message,
+	       created_by, created_at, updated_at, finished_at`
+
+// deploymentColsSlim is the column list for list and claim queries.
+// build_logs is intentionally omitted: it can be up to 1 MB per row and is
+// not needed by list consumers. Callers that need logs use GetCodeDeployment.
+const deploymentColsSlim = `id, job_id, project_id, version, status, runtime,
+	       source_hash, source_size_bytes, source_uri,
+	       built_image_uri, built_image_digest, error_message,
+	       created_by, created_at, updated_at, finished_at`
+
+// scanDeployment scans a full row (including build_logs) into d.
+// Use with queries that SELECT deploymentCols.
+func scanDeployment(row interface {
+	Scan(dest ...any) error
+}, d *domain.CodeDeployment) error {
+	var status, runtime string
+	var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
+	if err := row.Scan(
+		&d.ID, &d.JobID, &d.ProjectID, &d.Version, &status, &runtime,
+		&d.SourceHash, &d.SourceSizeBytes, &d.SourceURI,
+		&builtImageURI, &builtImageDigest, &buildLogs, &errorMessage,
+		&createdBy, &d.CreatedAt, &d.UpdatedAt, &d.FinishedAt,
+	); err != nil {
+		return err
+	}
+	d.Status = domain.DeploymentBuildStatus(status)
+	d.Runtime = domain.Runtime(runtime)
+	if builtImageURI != nil {
+		d.BuiltImageURI = *builtImageURI
+	}
+	if builtImageDigest != nil {
+		d.BuiltImageDigest = *builtImageDigest
+	}
+	if buildLogs != nil {
+		d.BuildLogs = *buildLogs
+	}
+	if errorMessage != nil {
+		d.ErrorMessage = *errorMessage
+	}
+	if createdBy != nil {
+		d.CreatedBy = *createdBy
+	}
+	return nil
+}
+
+// scanDeploymentSlim scans a row that omits build_logs into d.
+// Use with queries that SELECT deploymentColsSlim.
+func scanDeploymentSlim(row interface {
+	Scan(dest ...any) error
+}, d *domain.CodeDeployment) error {
+	var status, runtime string
+	var builtImageURI, builtImageDigest, errorMessage, createdBy *string
+	if err := row.Scan(
+		&d.ID, &d.JobID, &d.ProjectID, &d.Version, &status, &runtime,
+		&d.SourceHash, &d.SourceSizeBytes, &d.SourceURI,
+		&builtImageURI, &builtImageDigest, &errorMessage,
+		&createdBy, &d.CreatedAt, &d.UpdatedAt, &d.FinishedAt,
+	); err != nil {
+		return err
+	}
+	d.Status = domain.DeploymentBuildStatus(status)
+	d.Runtime = domain.Runtime(runtime)
+	if builtImageURI != nil {
+		d.BuiltImageURI = *builtImageURI
+	}
+	if builtImageDigest != nil {
+		d.BuiltImageDigest = *builtImageDigest
+	}
+	if errorMessage != nil {
+		d.ErrorMessage = *errorMessage
+	}
+	if createdBy != nil {
+		d.CreatedBy = *createdBy
+	}
+	return nil
+}
+
 // CreateCodeDeployment inserts a new code deployment record with status "pending".
 // The caller must have already generated a presigned upload URL via the object store.
 func (q *Queries) CreateCodeDeployment(ctx context.Context, d *domain.CodeDeployment) error {
@@ -82,81 +163,35 @@ func (q *Queries) GetCodeDeployment(ctx context.Context, id, projectID string) (
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetCodeDeployment")
 	defer span.End()
 
-	query := `
-		SELECT id, job_id, project_id, version, status, runtime,
-		       source_hash, source_size_bytes, source_uri,
-		       built_image_uri, built_image_digest, build_logs, error_message,
-		       created_by, created_at, updated_at, finished_at
-		FROM code_deployments
-		WHERE id = $1 AND project_id = $2`
-
-	var d domain.CodeDeployment
-	var status, runtime string
-	var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
-
-	err := q.db.QueryRow(ctx, query, id, projectID).Scan(
-		&d.ID,
-		&d.JobID,
-		&d.ProjectID,
-		&d.Version,
-		&status,
-		&runtime,
-		&d.SourceHash,
-		&d.SourceSizeBytes,
-		&d.SourceURI,
-		&builtImageURI,
-		&builtImageDigest,
-		&buildLogs,
-		&errorMessage,
-		&createdBy,
-		&d.CreatedAt,
-		&d.UpdatedAt,
-		&d.FinishedAt,
+	row := q.db.QueryRow(ctx,
+		`SELECT `+deploymentCols+` FROM code_deployments WHERE id = $1 AND project_id = $2`,
+		id, projectID,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrCodeDeploymentNotFound
-	}
-	if err != nil {
+	var d domain.CodeDeployment
+	if err := scanDeployment(row, &d); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrCodeDeploymentNotFound
+		}
 		return nil, fmt.Errorf("get code deployment: %w", err)
-	}
-
-	d.Status = domain.DeploymentBuildStatus(status)
-	d.Runtime = domain.Runtime(runtime)
-	if builtImageURI != nil {
-		d.BuiltImageURI = *builtImageURI
-	}
-	if builtImageDigest != nil {
-		d.BuiltImageDigest = *builtImageDigest
-	}
-	if buildLogs != nil {
-		d.BuildLogs = *buildLogs
-	}
-	if errorMessage != nil {
-		d.ErrorMessage = *errorMessage
-	}
-	if createdBy != nil {
-		d.CreatedBy = *createdBy
 	}
 	return &d, nil
 }
 
 // ListCodeDeployments returns deployments for a job in descending creation order.
+// build_logs is not included; callers that need logs use GetCodeDeployment.
 func (q *Queries) ListCodeDeployments(ctx context.Context, jobID, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListCodeDeployments")
 	defer span.End()
 
-	query := `
-		SELECT id, job_id, project_id, version, status, runtime,
-		       source_hash, source_size_bytes, source_uri,
-		       built_image_uri, built_image_digest, build_logs, error_message,
-		       created_by, created_at, updated_at, finished_at
-		FROM code_deployments
-		WHERE job_id = $1 AND project_id = $2
-		  AND ($3::TIMESTAMPTZ IS NULL OR created_at < $3)
-		ORDER BY created_at DESC, id DESC
-		LIMIT $4`
-
-	rows, err := q.db.Query(ctx, query, jobID, projectID, cursor, limit)
+	rows, err := q.db.Query(ctx,
+		`SELECT `+deploymentColsSlim+`
+		 FROM code_deployments
+		 WHERE job_id = $1 AND project_id = $2
+		   AND ($3::TIMESTAMPTZ IS NULL OR created_at < $3)
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT $4`,
+		jobID, projectID, cursor, limit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list code deployments: %w", err)
 	}
@@ -165,47 +200,8 @@ func (q *Queries) ListCodeDeployments(ctx context.Context, jobID, projectID stri
 	var result []domain.CodeDeployment
 	for rows.Next() {
 		var d domain.CodeDeployment
-		var status, runtime string
-		var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
-
-		if err := rows.Scan(
-			&d.ID,
-			&d.JobID,
-			&d.ProjectID,
-			&d.Version,
-			&status,
-			&runtime,
-			&d.SourceHash,
-			&d.SourceSizeBytes,
-			&d.SourceURI,
-			&builtImageURI,
-			&builtImageDigest,
-			&buildLogs,
-			&errorMessage,
-			&createdBy,
-			&d.CreatedAt,
-			&d.UpdatedAt,
-			&d.FinishedAt,
-		); err != nil {
+		if err := scanDeploymentSlim(rows, &d); err != nil {
 			return nil, fmt.Errorf("list code deployments: scan: %w", err)
-		}
-
-		d.Status = domain.DeploymentBuildStatus(status)
-		d.Runtime = domain.Runtime(runtime)
-		if builtImageURI != nil {
-			d.BuiltImageURI = *builtImageURI
-		}
-		if builtImageDigest != nil {
-			d.BuiltImageDigest = *builtImageDigest
-		}
-		if buildLogs != nil {
-			d.BuildLogs = *buildLogs
-		}
-		if errorMessage != nil {
-			d.ErrorMessage = *errorMessage
-		}
-		if createdBy != nil {
-			d.CreatedBy = *createdBy
 		}
 		result = append(result, d)
 	}
@@ -348,22 +344,19 @@ func (q *Queries) RollbackToDeployment(ctx context.Context, jobID, deploymentID,
 
 // ListBuildingDeployments returns up to limit deployments currently in "building"
 // status, ordered by creation time ascending (oldest first so we process in order).
-// Called by the build orchestrator to find work.
+// Called by the build orchestrator to find work. build_logs is not included.
 func (q *Queries) ListBuildingDeployments(ctx context.Context, limit int) ([]domain.CodeDeployment, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListBuildingDeployments")
 	defer span.End()
 
-	query := `
-		SELECT id, job_id, project_id, version, status, runtime,
-		       source_hash, source_size_bytes, source_uri,
-		       built_image_uri, built_image_digest, build_logs, error_message,
-		       created_by, created_at, updated_at, finished_at
-		FROM code_deployments
-		WHERE status = 'building'
-		ORDER BY created_at ASC
-		LIMIT $1`
-
-	rows, err := q.db.Query(ctx, query, limit)
+	rows, err := q.db.Query(ctx,
+		`SELECT `+deploymentColsSlim+`
+		 FROM code_deployments
+		 WHERE status = 'building'
+		 ORDER BY created_at ASC
+		 LIMIT $1`,
+		limit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list building deployments: %w", err)
 	}
@@ -372,47 +365,8 @@ func (q *Queries) ListBuildingDeployments(ctx context.Context, limit int) ([]dom
 	var result []domain.CodeDeployment
 	for rows.Next() {
 		var d domain.CodeDeployment
-		var status, runtime string
-		var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
-
-		if err := rows.Scan(
-			&d.ID,
-			&d.JobID,
-			&d.ProjectID,
-			&d.Version,
-			&status,
-			&runtime,
-			&d.SourceHash,
-			&d.SourceSizeBytes,
-			&d.SourceURI,
-			&builtImageURI,
-			&builtImageDigest,
-			&buildLogs,
-			&errorMessage,
-			&createdBy,
-			&d.CreatedAt,
-			&d.UpdatedAt,
-			&d.FinishedAt,
-		); err != nil {
+		if err := scanDeploymentSlim(rows, &d); err != nil {
 			return nil, fmt.Errorf("list building deployments: scan: %w", err)
-		}
-
-		d.Status = domain.DeploymentBuildStatus(status)
-		d.Runtime = domain.Runtime(runtime)
-		if builtImageURI != nil {
-			d.BuiltImageURI = *builtImageURI
-		}
-		if builtImageDigest != nil {
-			d.BuiltImageDigest = *builtImageDigest
-		}
-		if buildLogs != nil {
-			d.BuildLogs = *buildLogs
-		}
-		if errorMessage != nil {
-			d.ErrorMessage = *errorMessage
-		}
-		if createdBy != nil {
-			d.CreatedBy = *createdBy
 		}
 		result = append(result, d)
 	}
@@ -426,11 +380,13 @@ func (q *Queries) ListBuildingDeployments(ctx context.Context, limit int) ([]dom
 // and marks it as owned by workerID. Uses SELECT … FOR UPDATE SKIP LOCKED so
 // concurrent orchestrator replicas each claim a different deployment with no
 // coordination beyond the database. Returns nil, nil when no work is available.
+// build_logs is not included in the RETURNING list; the orchestrator only needs
+// source and runtime metadata to start a build.
 func (q *Queries) ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimBuildingDeployment")
 	defer span.End()
 
-	query := `
+	row := q.db.QueryRow(ctx, `
 		WITH candidate AS (
 			SELECT id FROM code_deployments
 			WHERE status = 'building' AND build_node_id IS NULL
@@ -443,44 +399,15 @@ func (q *Queries) ClaimBuildingDeployment(ctx context.Context, workerID string) 
 		    build_node_claimed_at = NOW()
 		FROM candidate
 		WHERE code_deployments.id = candidate.id
-		RETURNING code_deployments.id, job_id, project_id, version, status, runtime,
-		          source_hash, source_size_bytes, source_uri,
-		          built_image_uri, built_image_digest, build_logs, error_message,
-		          created_by, created_at, updated_at, finished_at`
-
-	var d domain.CodeDeployment
-	var status, runtime string
-	var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
-
-	err := q.db.QueryRow(ctx, query, workerID).Scan(
-		&d.ID, &d.JobID, &d.ProjectID, &d.Version, &status, &runtime,
-		&d.SourceHash, &d.SourceSizeBytes, &d.SourceURI,
-		&builtImageURI, &builtImageDigest, &buildLogs, &errorMessage,
-		&createdBy, &d.CreatedAt, &d.UpdatedAt, &d.FinishedAt,
+		RETURNING code_deployments.`+deploymentColsSlim,
+		workerID,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil // nothing to claim
-	}
-	if err != nil {
+	var d domain.CodeDeployment
+	if err := scanDeploymentSlim(row, &d); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // nothing to claim
+		}
 		return nil, fmt.Errorf("claim building deployment: %w", err)
-	}
-
-	d.Status = domain.DeploymentBuildStatus(status)
-	d.Runtime = domain.Runtime(runtime)
-	if builtImageURI != nil {
-		d.BuiltImageURI = *builtImageURI
-	}
-	if builtImageDigest != nil {
-		d.BuiltImageDigest = *builtImageDigest
-	}
-	if buildLogs != nil {
-		d.BuildLogs = *buildLogs
-	}
-	if errorMessage != nil {
-		d.ErrorMessage = *errorMessage
-	}
-	if createdBy != nil {
-		d.CreatedBy = *createdBy
 	}
 	return &d, nil
 }
@@ -509,9 +436,17 @@ func (q *Queries) ReleaseStaleClaimedDeployments(ctx context.Context, olderThan 
 	return tag.RowsAffected(), nil
 }
 
-// deleteExpiredBatchSize is the maximum number of rows deleted per batch.
-// Batching prevents a single large DELETE from locking the table under load.
-const deleteExpiredBatchSize = 500
+const (
+	// deleteExpiredBatchSize is the maximum number of rows deleted per batch.
+	// Batching prevents a single large DELETE from locking the table under load.
+	deleteExpiredBatchSize = 500
+
+	// deleteExpiredMaxBatches caps the total number of batches per GC call.
+	// At 500 rows/batch × 200 batches = 100 000 rows max per invocation.
+	// If more rows qualify they will be cleaned up on the next GC tick.
+	// This prevents an unbounded loop if the termination condition misbehaves.
+	deleteExpiredMaxBatches = 200
+)
 
 // DeleteExpiredDeployments removes stale deployments that are no longer actionable:
 //   - pending deployments created before pendingBefore (presign TTL expired, never uploaded)
@@ -519,13 +454,15 @@ const deleteExpiredBatchSize = 500
 //
 // The active deployment for any job is never deleted, even if it would otherwise qualify.
 // Deletions are issued in batches of deleteExpiredBatchSize to avoid long table locks.
+// At most deleteExpiredMaxBatches batches are executed per call; any remaining rows
+// are left for the next GC invocation.
 // Returns the total number of rows deleted.
 func (q *Queries) DeleteExpiredDeployments(ctx context.Context, pendingBefore, failedBefore time.Time) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteExpiredDeployments")
 	defer span.End()
 
 	var total int64
-	for {
+	for range deleteExpiredMaxBatches {
 		tag, err := q.db.Exec(ctx, `
 			DELETE FROM code_deployments
 			WHERE id IN (
@@ -559,23 +496,26 @@ func (q *Queries) DeleteExpiredDeployments(ctx context.Context, pendingBefore, f
 // ListCodeDeploymentsByOrg returns code deployments across all projects that
 // belong to the given org, ordered newest-first, with cursor-based pagination.
 // Deployments are scoped strictly to the org — no cross-org data leaks.
+// build_logs is not included; callers that need logs use GetCodeDeployment.
 func (q *Queries) ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListCodeDeploymentsByOrg")
 	defer span.End()
 
-	query := `
+	// deploymentColsSlim uses unqualified column names; prefix each with "cd."
+	// for the join query so they resolve unambiguously.
+	rows, err := q.db.Query(ctx, `
 		SELECT cd.id, cd.job_id, cd.project_id, cd.version, cd.status, cd.runtime,
 		       cd.source_hash, cd.source_size_bytes, cd.source_uri,
-		       cd.built_image_uri, cd.built_image_digest, cd.build_logs, cd.error_message,
+		       cd.built_image_uri, cd.built_image_digest, cd.error_message,
 		       cd.created_by, cd.created_at, cd.updated_at, cd.finished_at
 		FROM code_deployments cd
 		JOIN projects p ON p.id = cd.project_id
 		WHERE p.org_id = $1
 		  AND ($2::TIMESTAMPTZ IS NULL OR cd.created_at < $2)
 		ORDER BY cd.created_at DESC, cd.id DESC
-		LIMIT $3`
-
-	rows, err := q.db.Query(ctx, query, orgID, cursor, limit)
+		LIMIT $3`,
+		orgID, cursor, limit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list code deployments by org: %w", err)
 	}
@@ -584,47 +524,8 @@ func (q *Queries) ListCodeDeploymentsByOrg(ctx context.Context, orgID string, li
 	var result []domain.CodeDeployment
 	for rows.Next() {
 		var d domain.CodeDeployment
-		var status, runtime string
-		var builtImageURI, builtImageDigest, buildLogs, errorMessage, createdBy *string
-
-		if err := rows.Scan(
-			&d.ID,
-			&d.JobID,
-			&d.ProjectID,
-			&d.Version,
-			&status,
-			&runtime,
-			&d.SourceHash,
-			&d.SourceSizeBytes,
-			&d.SourceURI,
-			&builtImageURI,
-			&builtImageDigest,
-			&buildLogs,
-			&errorMessage,
-			&createdBy,
-			&d.CreatedAt,
-			&d.UpdatedAt,
-			&d.FinishedAt,
-		); err != nil {
+		if err := scanDeploymentSlim(rows, &d); err != nil {
 			return nil, fmt.Errorf("list code deployments by org: scan: %w", err)
-		}
-
-		d.Status = domain.DeploymentBuildStatus(status)
-		d.Runtime = domain.Runtime(runtime)
-		if builtImageURI != nil {
-			d.BuiltImageURI = *builtImageURI
-		}
-		if builtImageDigest != nil {
-			d.BuiltImageDigest = *builtImageDigest
-		}
-		if buildLogs != nil {
-			d.BuildLogs = *buildLogs
-		}
-		if errorMessage != nil {
-			d.ErrorMessage = *errorMessage
-		}
-		if createdBy != nil {
-			d.CreatedBy = *createdBy
 		}
 		result = append(result, d)
 	}

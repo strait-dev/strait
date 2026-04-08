@@ -75,10 +75,14 @@ func NewS3Store(cfg S3StoreConfig) (*S3Store, error) {
 }
 
 // PresignUpload generates a time-limited PUT presigned URL.
-func (s *S3Store) PresignUpload(ctx context.Context, key string, ttl time.Duration) (string, error) {
+// contentLength is included in the signed request so S3/R2 rejects any upload
+// whose Content-Length header does not match, preventing clients from uploading
+// more data than they declared in source_size_bytes.
+func (s *S3Store) PresignUpload(ctx context.Context, key string, ttl time.Duration, contentLength int64) (string, error) {
 	req, err := s.presign.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(key),
+		ContentLength: aws.Int64(contentLength),
 	}, func(o *s3.PresignOptions) {
 		o.Expires = ttl
 	})
