@@ -8,7 +8,15 @@ import {
 } from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
+import { Switch } from "@strait/ui/components/switch";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
@@ -43,6 +51,9 @@ export const Route = createFileRoute("/app/notify/compose")({
   component: NotifyComposePage,
 });
 
+const recipientTypeOptions = ["subscriber", "topic"] as const;
+const channelOptions = ["inbox", "email"] as const;
+
 function NotifyComposePage() {
   const { hasProject, session } = Route.useLoaderData();
 
@@ -59,11 +70,15 @@ function NotifyComposePage() {
   const testSend = useNotifyTest();
   const preview = useNotifyPreview();
 
-  const [recipientType, setRecipientType] = useState("subscriber");
+  const [recipientType, setRecipientType] =
+    useState<(typeof recipientTypeOptions)[number]>("subscriber");
   const [recipientID, setRecipientID] = useState("");
   const [recipientKey, setRecipientKey] = useState("");
   const [templateKey, setTemplateKey] = useState("");
-  const [channelsCSV, setChannelsCSV] = useState("inbox,email");
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([
+    "inbox",
+    "email",
+  ]);
   const [categoryKey, setCategoryKey] = useState("");
   const [payloadJSON, setPayloadJSON] = useState(
     JSON.stringify(
@@ -99,16 +114,22 @@ function NotifyComposePage() {
     }
   };
 
-  const parseChannels = () =>
-    channelsCSV
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
+  const parseChannels = () => selectedChannels.filter(Boolean);
 
-  const recipient = () => {
+  const validateRecipient = () => {
     if (recipientType === "topic") {
+      if (!recipientKey.trim()) {
+        toast.error("Topic key is required");
+        return null;
+      }
       return { type: "topic" as const, key: recipientKey.trim() };
     }
+
+    if (!recipientID.trim()) {
+      toast.error("Subscriber ID is required");
+      return null;
+    }
+
     return { type: "subscriber" as const, id: recipientID.trim() };
   };
 
@@ -123,13 +144,23 @@ function NotifyComposePage() {
       return;
     }
 
+    const channels = parseChannels();
+    if (channels.length === 0) {
+      toast.error("Select at least one channel");
+      return;
+    }
+
+    const recipient = validateRecipient();
+    if (!recipient) {
+      return;
+    }
+
     const result = await toast.promise(
       preview.mutateAsync({
         template_key: templateKey.trim(),
         payload,
-        channels: parseChannels(),
-        subscriber_id:
-          recipientType === "subscriber" ? recipientID.trim() : undefined,
+        channels,
+        subscriber_id: recipient.type === "subscriber" ? recipient.id : undefined,
         category_key: categoryKey.trim() || undefined,
       }),
       {
@@ -153,11 +184,22 @@ function NotifyComposePage() {
       return;
     }
 
+    const recipient = validateRecipient();
+    if (!recipient) {
+      return;
+    }
+
+    const channels = parseChannels();
+    if (channels.length === 0) {
+      toast.error("Select at least one channel");
+      return;
+    }
+
     const body = {
-      to: recipient(),
+      to: recipient,
       template_key: templateKey.trim(),
       payload,
-      channels: parseChannels(),
+      channels,
       category_key: categoryKey.trim() || undefined,
     };
 
@@ -174,6 +216,8 @@ function NotifyComposePage() {
     setTriggerResult(JSON.stringify(result, null, 2));
   };
 
+  const isWorking = preview.isPending || testSend.isPending || trigger.isPending;
+
   return (
     <Shell>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -189,11 +233,25 @@ function NotifyComposePage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="recipient-type">Recipient type</Label>
-                <Input
-                  id="recipient-type"
-                  onChange={(event) => setRecipientType(event.target.value)}
+                <Select
+                  onValueChange={(value) =>
+                    setRecipientType(
+                      value as (typeof recipientTypeOptions)[number]
+                    )
+                  }
                   value={recipientType}
-                />
+                >
+                  <SelectTrigger id="recipient-type">
+                    <SelectValue placeholder="Choose recipient type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {recipientTypeOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="template-key">Template key</Label>
@@ -237,13 +295,31 @@ function NotifyComposePage() {
                 </div>
               )}
 
-              <div className="space-y-1 md:col-span-2">
-                <Label htmlFor="channels">Channels CSV</Label>
-                <Input
-                  id="channels"
-                  onChange={(event) => setChannelsCSV(event.target.value)}
-                  value={channelsCSV}
-                />
+              <div className="space-y-2 md:col-span-2">
+                <Label>Channels</Label>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {channelOptions.map((channel) => (
+                    <div
+                      className="flex items-center justify-between rounded-md border p-3"
+                      key={channel}
+                    >
+                      <div>
+                        <p className="font-medium text-sm">{channel}</p>
+                      </div>
+                      <Switch
+                        checked={selectedChannels.includes(channel)}
+                        onCheckedChange={(checked) => {
+                          setSelectedChannels((current) => {
+                            if (checked) {
+                              return Array.from(new Set([...current, channel]));
+                            }
+                            return current.filter((value) => value !== channel);
+                          });
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-1 md:col-span-2">
@@ -267,13 +343,19 @@ function NotifyComposePage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={runPreview} variant="outline">
+              <Button disabled={isWorking} onClick={runPreview} variant="outline">
                 Preview
               </Button>
-              <Button onClick={() => runTrigger("test")} variant="secondary">
+              <Button
+                disabled={isWorking}
+                onClick={() => runTrigger("test")}
+                variant="secondary"
+              >
                 Test send
               </Button>
-              <Button onClick={() => runTrigger("trigger")}>Trigger</Button>
+              <Button disabled={isWorking} onClick={() => runTrigger("trigger")}>
+                Trigger
+              </Button>
             </div>
           </CardContent>
         </Card>
