@@ -36,7 +36,6 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
-import type { NotifyPreference } from "@/hooks/api/types";
 import {
   createNotifySubscriberTokenFn,
   notifySubscriberPreferencesQueryOptions,
@@ -50,38 +49,12 @@ import {
   useUpdateNotifySubscriberPreference,
 } from "@/hooks/api/use-notify";
 import { CheckIcon, ChevronLeftIcon, KeyIcon } from "@/lib/icons";
-
-const digestPolicyOptions = ["instant", "hourly", "daily"] as const;
-
-const parseChannelPref = (
-  preference: NotifyPreference | undefined,
-  channel: "email" | "inbox",
-  fallback: boolean
-) => {
-  if (
-    !preference?.channel_prefs ||
-    typeof preference.channel_prefs !== "object"
-  ) {
-    return fallback;
-  }
-
-  const value = (
-    preference.channel_prefs as Record<
-      string,
-      object | string | number | boolean | null
-    >
-  )[channel];
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  return fallback;
-};
-
-const parseDigestPolicy = (preference: NotifyPreference | undefined) => {
-  const value = preference?.digest_policy;
-  return digestPolicyOptions.find((option) => option === value) ?? "instant";
-};
+import {
+  listPreferenceScopes,
+  normalizePreferenceDigest,
+  notifyDigestPolicyOptions,
+  parsePreferenceChannel,
+} from "@/lib/notify-preferences";
 
 export const Route = createFileRoute("/app/notify/subscribers/$id")({
   loader: async ({ context, params }) => {
@@ -131,7 +104,7 @@ function NotifySubscriberDetailPage() {
   const [prefInboxEnabled, setPrefInboxEnabled] = useState(true);
   const [prefTimezone, setPrefTimezone] = useState("");
   const [prefDigestPolicy, setPrefDigestPolicy] =
-    useState<(typeof digestPolicyOptions)[number]>("instant");
+    useState<(typeof notifyDigestPolicyOptions)[number]>("instant");
   const [prefCriticalOverride, setPrefCriticalOverride] = useState(true);
   const [prefRateLimit, setPrefRateLimit] = useState("");
 
@@ -150,13 +123,10 @@ function NotifySubscriberDetailPage() {
     [preferences, preferenceScope]
   );
 
-  const preferenceScopes = useMemo(() => {
-    const scopes = new Set<string>(["global", preferenceScope]);
-    for (const item of preferences) {
-      scopes.add(item.scope);
-    }
-    return Array.from(scopes);
-  }, [preferences, preferenceScope]);
+  const preferenceScopes = useMemo(
+    () => listPreferenceScopes(preferences, preferenceScope),
+    [preferences, preferenceScope]
+  );
 
   useEffect(() => {
     if (!selectedPreference) {
@@ -169,10 +139,14 @@ function NotifySubscriberDetailPage() {
       return;
     }
 
-    setPrefEmailEnabled(parseChannelPref(selectedPreference, "email", true));
-    setPrefInboxEnabled(parseChannelPref(selectedPreference, "inbox", true));
+    setPrefEmailEnabled(
+      parsePreferenceChannel(selectedPreference, "email", true)
+    );
+    setPrefInboxEnabled(
+      parsePreferenceChannel(selectedPreference, "inbox", true)
+    );
     setPrefTimezone(selectedPreference.timezone || "");
-    setPrefDigestPolicy(parseDigestPolicy(selectedPreference));
+    setPrefDigestPolicy(normalizePreferenceDigest(selectedPreference));
     setPrefCriticalOverride(selectedPreference.critical_override);
     setPrefRateLimit(
       selectedPreference.rate_limit_override
@@ -496,7 +470,7 @@ function NotifySubscriberDetailPage() {
                 <Select
                   onValueChange={(value) =>
                     setPrefDigestPolicy(
-                      value as (typeof digestPolicyOptions)[number]
+                      value as (typeof notifyDigestPolicyOptions)[number]
                     )
                   }
                   value={prefDigestPolicy}
@@ -505,7 +479,7 @@ function NotifySubscriberDetailPage() {
                     <SelectValue placeholder="Choose digest policy" />
                   </SelectTrigger>
                   <SelectContent>
-                    {digestPolicyOptions.map((option) => (
+                    {notifyDigestPolicyOptions.map((option) => (
                       <SelectItem key={option} value={option}>
                         {option}
                       </SelectItem>
