@@ -1,6 +1,9 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"testing"
 
 	"strait/internal/domain"
@@ -49,6 +52,59 @@ func FuzzGenerateDockerfile(f *testing.F) {
 		if len(result) == 0 {
 			t.Error("GenerateDockerfile returned empty string with nil error")
 		}
+	})
+}
+
+// FuzzValidateTarball_GzipCorruption creates a valid gzip+tar archive, then
+// corrupts it by flipping a byte at a fuzzer-chosen offset, and verifies that
+// ValidateTarball never panics regardless of the corruption site.
+// This exercises error-handling paths in the gzip and tar readers that are not
+// reachable from the normal valid-or-invalid seed corpus.
+func FuzzValidateTarball_GzipCorruption(f *testing.F) {
+	// Build a small but valid gzip+tar archive as the mutation base.
+	buildValidArchive := func() []byte {
+		var buf bytes.Buffer
+		gw := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gw)
+		body := []byte("hello world")
+		_ = tw.WriteHeader(&tar.Header{Name: "src/main.py", Size: int64(len(body)), Mode: 0o644})
+		_, _ = tw.Write(body)
+		_ = tw.Close()
+		_ = gw.Close()
+		return buf.Bytes()
+	}
+
+	valid := buildValidArchive()
+
+	// Seed 1: valid archive (fuzzer baseline — should return nil error).
+	f.Add(valid, 0)
+	// Seed 2: first gzip magic byte corrupted.
+	f.Add(valid, 1)
+	// Seed 3: middle of the stream.
+	f.Add(valid, len(valid)/2)
+	// Seed 4: last byte.
+	f.Add(valid, len(valid)-1)
+
+	f.Fuzz(func(t *testing.T, archive []byte, corruptOffset int) {
+		if len(archive) == 0 {
+			// No bytes to corrupt — just pass through to validate.
+			_ = ValidateTarball(bytes.NewReader(archive))
+			return
+		}
+
+		// Clamp the offset to the archive length.
+		offset := corruptOffset % len(archive)
+		if offset < 0 {
+			offset = -offset
+		}
+
+		// Flip the low bit of the byte at the chosen offset.
+		corrupted := make([]byte, len(archive))
+		copy(corrupted, archive)
+		corrupted[offset] ^= 0x01
+
+		// Must never panic — any error (including gzip/tar parse errors) is fine.
+		_ = ValidateTarball(bytes.NewReader(corrupted))
 	})
 }
 
