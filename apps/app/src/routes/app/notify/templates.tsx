@@ -34,7 +34,10 @@ import {
   useUpdateNotificationTemplate,
 } from "@/hooks/api/use-notify";
 import { SparklesIcon } from "@/lib/icons";
-import { notifyCursorPageLimit, resolveNotifyNextCursor } from "@/lib/notify-cursor";
+import {
+  notifyCursorPageLimit,
+  resolveNotifyNextCursor,
+} from "@/lib/notify-cursor";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/templates")({
@@ -387,7 +390,9 @@ function NotifyTemplatesPage() {
             </p>
             <div className="flex gap-2">
               <Button
-                disabled={cursorHistory.length === 0 || templatesQuery.isFetching}
+                disabled={
+                  cursorHistory.length === 0 || templatesQuery.isFetching
+                }
                 onClick={goToPreviousPage}
                 variant="outline"
               >

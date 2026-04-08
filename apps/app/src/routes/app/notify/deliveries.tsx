@@ -30,8 +30,11 @@ import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type { NotificationMessage } from "@/hooks/api/types";
 import { notifyDeliveriesQueryOptions } from "@/hooks/api/use-notify";
-import { notifyCursorPageLimit, resolveNotifyNextCursor } from "@/lib/notify-cursor";
 import { FilterIcon, MailIcon, SearchIcon } from "@/lib/icons";
+import {
+  notifyCursorPageLimit,
+  resolveNotifyNextCursor,
+} from "@/lib/notify-cursor";
 import { NOTIFY_DELIVERY_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 

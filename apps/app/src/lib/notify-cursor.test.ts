@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { notifyCursorPageLimit, resolveNotifyNextCursor } from "./notify-cursor";
+import {
+  notifyCursorPageLimit,
+  resolveNotifyNextCursor,
+} from "./notify-cursor";
 
 describe("notify cursor helpers", () => {
   it("returns undefined when page is not full", () => {

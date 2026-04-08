@@ -41,8 +41,11 @@ import {
   notifySubscribersQueryOptions,
   useCreateNotifySubscriber,
 } from "@/hooks/api/use-notify";
-import { notifyCursorPageLimit, resolveNotifyNextCursor } from "@/lib/notify-cursor";
 import { FilterIcon, MailIcon, PlusIcon, SearchIcon } from "@/lib/icons";
+import {
+  notifyCursorPageLimit,
+  resolveNotifyNextCursor,
+} from "@/lib/notify-cursor";
 import { NOTIFY_SUBSCRIBER_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
