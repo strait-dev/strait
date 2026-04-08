@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import type {
   NotificationMessage,
   NotificationProvider,
+  NotifyMessageStatus,
   NotifyPolicyOverride,
   NotifySubscriber,
+  NotifySubscriberStatus,
 } from "@/hooks/api/types";
 import { buildNotifyOpsSnapshot } from "./notify-ops";
 
 const delivery = (
-  status: string,
+  status: NotifyMessageStatus,
   suppressionReason?: string
 ): NotificationMessage => ({
   id: crypto.randomUUID(),
@@ -22,7 +24,9 @@ const delivery = (
   created_at: "2026-04-08T10:00:00Z",
 });
 
-const subscriber = (status = "active"): NotifySubscriber => ({
+const subscriber = (
+  status: NotifySubscriberStatus = "active"
+): NotifySubscriber => ({
   id: crypto.randomUUID(),
   project_id: "project_123",
   external_id: "ext_123",
@@ -103,7 +107,7 @@ describe("buildNotifyOpsSnapshot", () => {
         ...Array.from({ length: 4 }, () => delivery("delivered")),
       ],
       subscribers: [
-        ...Array.from({ length: 6 }, () => subscriber("inactive")),
+        ...Array.from({ length: 6 }, () => subscriber("unsubscribed")),
         ...Array.from({ length: 4 }, () => subscriber("active")),
       ],
       providers: [provider({ is_default: false, health: "down" })],

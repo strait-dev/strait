@@ -205,6 +205,24 @@ export type PerformanceAnalytics = {
   health_summary: HealthSummary;
 };
 
+export type NotifyDigestPolicy = "instant" | "hourly" | "daily";
+
+export type NotifyCategoryType = "product" | "transactional" | "critical";
+
+export type NotifySubscriberStatus = "active" | "unsubscribed" | "deleted";
+
+export type NotifyDeliveryChannel = "email" | "inbox";
+
+export type NotifyMessageStatus =
+  | "rendering"
+  | "scheduled"
+  | "pending"
+  | "processing"
+  | "delivered"
+  | "failed"
+  | "bounced"
+  | "cancelled";
+
 export type NotifySubscriber = {
   id: string;
   project_id: string;
@@ -216,7 +234,7 @@ export type NotifySubscriber = {
   push_tokens?: Record<string, object>;
   attributes?: Record<string, object>;
   tenant_id?: string;
-  status: string;
+  status: NotifySubscriberStatus;
   created_at: string;
   updated_at: string;
 };
@@ -253,7 +271,7 @@ export type NotificationCategory = {
   category_key: string;
   name: string;
   description?: string;
-  type: string;
+  type: NotifyCategoryType;
   created_at: string;
 };
 
@@ -263,7 +281,7 @@ export type NotifyPolicyOverride = {
   scope_type: "project" | "category" | "workflow_step";
   scope_key: string;
   channel?: string;
-  digest_policy?: "instant" | "hourly" | "daily";
+  digest_policy?: NotifyDigestPolicy;
   retry_max_attempts?: number | null;
   retry_base_delay_secs?: number | null;
   retry_max_delay_secs?: number | null;
@@ -277,7 +295,7 @@ export type NotifyPolicyOverride = {
 export type NotificationProvider = {
   id: string;
   project_id: string;
-  channel: string;
+  channel: NotifyDeliveryChannel;
   provider: string;
   name: string;
   config?: Record<string, object>;
@@ -312,7 +330,7 @@ export type NotifyPreference = {
   quiet_hours?: Record<string, object | string | number | boolean | null>;
   phone?: string;
   timezone?: string;
-  digest_policy?: string;
+  digest_policy?: NotifyDigestPolicy;
   critical_override: boolean;
   rate_limit_override?: number | null;
   created_at: string;
@@ -329,10 +347,10 @@ export type NotificationMessage = {
   step_run_id?: string;
   template_id?: string;
   category_key?: string;
-  channel: string;
+  channel: NotifyDeliveryChannel;
   provider_id?: string;
   rendered_content?: Record<string, object>;
-  status: string;
+  status: NotifyMessageStatus;
   attempts: number;
   provider_response?: Record<string, object>;
   delivered_at?: string;
