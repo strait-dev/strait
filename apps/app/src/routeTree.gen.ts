@@ -44,7 +44,10 @@ import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
 import { Route as AppRunsIdRouteImport } from './routes/app/runs/$id'
 import { Route as AppPricingCompareRouteImport } from './routes/app/pricing/compare'
 import { Route as AppOrgIdRouteImport } from './routes/app/org/$id'
+import { Route as AppNotifyTopicsRouteImport } from './routes/app/notify/topics'
+import { Route as AppNotifyTemplatesRouteImport } from './routes/app/notify/templates'
 import { Route as AppNotifyDeliveriesRouteImport } from './routes/app/notify/deliveries'
+import { Route as AppNotifyCategoriesRouteImport } from './routes/app/notify/categories'
 import { Route as AppJobsIdRouteImport } from './routes/app/jobs/$id'
 import { Route as ApiAuthJwksRouteImport } from './routes/api/auth/jwks'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -228,9 +231,24 @@ const AppOrgIdRoute = AppOrgIdRouteImport.update({
   path: '/org/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppNotifyTopicsRoute = AppNotifyTopicsRouteImport.update({
+  id: '/notify/topics',
+  path: '/notify/topics',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppNotifyTemplatesRoute = AppNotifyTemplatesRouteImport.update({
+  id: '/notify/templates',
+  path: '/notify/templates',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppNotifyDeliveriesRoute = AppNotifyDeliveriesRouteImport.update({
   id: '/notify/deliveries',
   path: '/notify/deliveries',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
+const AppNotifyCategoriesRoute = AppNotifyCategoriesRouteImport.update({
+  id: '/notify/categories',
+  path: '/notify/categories',
   getParentRoute: () => AppLayoutRoute,
 } as any)
 const AppJobsIdRoute = AppJobsIdRouteImport.update({
@@ -293,7 +311,10 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/notify/categories': typeof AppNotifyCategoriesRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
+  '/app/notify/templates': typeof AppNotifyTemplatesRoute
+  '/app/notify/topics': typeof AppNotifyTopicsRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
@@ -337,7 +358,10 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/notify/categories': typeof AppNotifyCategoriesRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
+  '/app/notify/templates': typeof AppNotifyTemplatesRoute
+  '/app/notify/topics': typeof AppNotifyTopicsRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
@@ -383,7 +407,10 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/jwks': typeof ApiAuthJwksRoute
   '/app/jobs/$id': typeof AppJobsIdRoute
+  '/app/notify/categories': typeof AppNotifyCategoriesRoute
   '/app/notify/deliveries': typeof AppNotifyDeliveriesRoute
+  '/app/notify/templates': typeof AppNotifyTemplatesRoute
+  '/app/notify/topics': typeof AppNotifyTopicsRoute
   '/app/org/$id': typeof AppOrgIdRoute
   '/app/pricing/compare': typeof AppPricingCompareRoute
   '/app/runs/$id': typeof AppRunsIdRoute
@@ -430,7 +457,10 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/jobs/$id'
+    | '/app/notify/categories'
     | '/app/notify/deliveries'
+    | '/app/notify/templates'
+    | '/app/notify/topics'
     | '/app/org/$id'
     | '/app/pricing/compare'
     | '/app/runs/$id'
@@ -474,7 +504,10 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/jobs/$id'
+    | '/app/notify/categories'
     | '/app/notify/deliveries'
+    | '/app/notify/templates'
+    | '/app/notify/topics'
     | '/app/org/$id'
     | '/app/pricing/compare'
     | '/app/runs/$id'
@@ -519,7 +552,10 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/jwks'
     | '/app/jobs/$id'
+    | '/app/notify/categories'
     | '/app/notify/deliveries'
+    | '/app/notify/templates'
+    | '/app/notify/topics'
     | '/app/org/$id'
     | '/app/pricing/compare'
     | '/app/runs/$id'
@@ -808,11 +844,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOrgIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/notify/topics': {
+      id: '/app/notify/topics'
+      path: '/notify/topics'
+      fullPath: '/app/notify/topics'
+      preLoaderRoute: typeof AppNotifyTopicsRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/notify/templates': {
+      id: '/app/notify/templates'
+      path: '/notify/templates'
+      fullPath: '/app/notify/templates'
+      preLoaderRoute: typeof AppNotifyTemplatesRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/notify/deliveries': {
       id: '/app/notify/deliveries'
       path: '/notify/deliveries'
       fullPath: '/app/notify/deliveries'
       preLoaderRoute: typeof AppNotifyDeliveriesRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
+    '/app/notify/categories': {
+      id: '/app/notify/categories'
+      path: '/notify/categories'
+      fullPath: '/app/notify/categories'
+      preLoaderRoute: typeof AppNotifyCategoriesRouteImport
       parentRoute: typeof AppLayoutRoute
     }
     '/app/jobs/$id': {
@@ -874,7 +931,10 @@ interface AppLayoutRouteChildren {
   AppUpgradeRoute: typeof AppUpgradeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppJobsIdRoute: typeof AppJobsIdRoute
+  AppNotifyCategoriesRoute: typeof AppNotifyCategoriesRoute
   AppNotifyDeliveriesRoute: typeof AppNotifyDeliveriesRoute
+  AppNotifyTemplatesRoute: typeof AppNotifyTemplatesRoute
+  AppNotifyTopicsRoute: typeof AppNotifyTopicsRoute
   AppOrgIdRoute: typeof AppOrgIdRoute
   AppPricingCompareRoute: typeof AppPricingCompareRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
@@ -905,7 +965,10 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppUpgradeRoute: AppUpgradeRoute,
   AppIndexRoute: AppIndexRoute,
   AppJobsIdRoute: AppJobsIdRoute,
+  AppNotifyCategoriesRoute: AppNotifyCategoriesRoute,
   AppNotifyDeliveriesRoute: AppNotifyDeliveriesRoute,
+  AppNotifyTemplatesRoute: AppNotifyTemplatesRoute,
+  AppNotifyTopicsRoute: AppNotifyTopicsRoute,
   AppOrgIdRoute: AppOrgIdRoute,
   AppPricingCompareRoute: AppPricingCompareRoute,
   AppRunsIdRoute: AppRunsIdRoute,

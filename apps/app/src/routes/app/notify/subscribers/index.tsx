@@ -20,12 +20,12 @@ import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  type ColumnDef,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  type ColumnDef,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
@@ -36,17 +36,12 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import { DataTable } from "@/components/ui/data-table/data-table";
+import type { NotifySubscriber } from "@/hooks/api/types";
 import {
   notifySubscribersQueryOptions,
   useCreateNotifySubscriber,
 } from "@/hooks/api/use-notify";
-import type { NotifySubscriber } from "@/hooks/api/types";
-import {
-  FilterIcon,
-  MailIcon,
-  PlusIcon,
-  SearchIcon,
-} from "@/lib/icons";
+import { FilterIcon, MailIcon, PlusIcon, SearchIcon } from "@/lib/icons";
 import { NOTIFY_SUBSCRIBER_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -61,7 +56,9 @@ export const Route = createFileRoute("/app/notify/subscribers/")({
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(notifySubscribersQueryOptions());
+      await context.queryClient.ensureQueryData(
+        notifySubscribersQueryOptions()
+      );
     }
     return { hasProject, session };
   },
@@ -294,7 +291,12 @@ function NotifySubscribersPage() {
             <TableEmptyState
               description="No subscribers found for this project."
               hideButton
-              icon={<HugeiconsIcon className="size-6 text-foreground" icon={MailIcon} />}
+              icon={
+                <HugeiconsIcon
+                  className="size-6 text-foreground"
+                  icon={MailIcon}
+                />
+              }
               title="No subscribers"
             />
           }

@@ -12,12 +12,12 @@ import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  type ColumnDef,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  type ColumnDef,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo } from "react";
@@ -28,8 +28,8 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import { notifyDeliveriesQueryOptions } from "@/hooks/api/use-notify";
 import type { NotificationMessage } from "@/hooks/api/types";
+import { notifyDeliveriesQueryOptions } from "@/hooks/api/use-notify";
 import { FilterIcon, MailIcon, SearchIcon } from "@/lib/icons";
 import { NOTIFY_DELIVERY_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -109,7 +109,10 @@ function NotifyDeliveriesPage() {
   const filtered = useMemo(() => {
     const items = data ?? [];
     return items.filter((item) => {
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(item.status)) {
+      if (
+        selectedStatuses.length > 0 &&
+        !selectedStatuses.includes(item.status)
+      ) {
         return false;
       }
       if (!search.query) {
@@ -208,7 +211,12 @@ function NotifyDeliveriesPage() {
           <TableEmptyState
             description="No notify deliveries found for this project yet."
             hideButton
-            icon={<HugeiconsIcon className="size-6 text-foreground" icon={MailIcon} />}
+            icon={
+              <HugeiconsIcon
+                className="size-6 text-foreground"
+                icon={MailIcon}
+              />
+            }
             title="No deliveries"
           />
         }

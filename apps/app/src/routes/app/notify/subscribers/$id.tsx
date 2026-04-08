@@ -25,23 +25,25 @@ import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import ErrorComponent from "@/components/common/error-component";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
+import ErrorComponent from "@/components/common/error-component";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import {
+  createNotifySubscriberTokenFn,
   notifySubscriberQueryOptions,
   notifySubscriberSuppressionsQueryOptions,
-  useNotifyUnsuppressSubscriber,
   updateNotifySubscriberFn,
-  createNotifySubscriberTokenFn,
+  useNotifyUnsuppressSubscriber,
 } from "@/hooks/api/use-notify";
 import { CheckIcon, ChevronLeftIcon, KeyIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/notify/subscribers/$id")({
   loader: async ({ context, params }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(notifySubscriberQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(
+        notifySubscriberQueryOptions(params.id)
+      ),
       context.queryClient.ensureQueryData(
         notifySubscriberSuppressionsQueryOptions(params.id)
       ),
@@ -56,7 +58,9 @@ function NotifySubscriberDetailPage() {
   const { id } = Route.useParams();
 
   const subscriberQuery = useQuery(notifySubscriberQueryOptions(id));
-  const suppressionsQuery = useQuery(notifySubscriberSuppressionsQueryOptions(id));
+  const suppressionsQuery = useQuery(
+    notifySubscriberSuppressionsQueryOptions(id)
+  );
 
   const [externalID, setExternalID] = useState("");
   const [email, setEmail] = useState("");
@@ -149,14 +153,20 @@ function NotifySubscriberDetailPage() {
   return (
     <Shell>
       <div className="mb-4 flex items-center gap-3">
-        <Button render={<Link to="/app/notify/subscribers" />} size="sm" variant="ghost">
+        <Button
+          render={<Link to="/app/notify/subscribers" />}
+          size="sm"
+          variant="ghost"
+        >
           <HugeiconsIcon icon={ChevronLeftIcon} size={16} />
         </Button>
         <div>
           <h1 className="font-semibold text-xl">{subscriber.external_id}</h1>
           <div className="mt-1 flex items-center gap-2">
             <NotifyStatusBadge status={subscriber.status} />
-            <span className="text-muted-foreground text-xs">{subscriber.id}</span>
+            <span className="text-muted-foreground text-xs">
+              {subscriber.id}
+            </span>
           </div>
         </div>
       </div>
@@ -165,7 +175,9 @@ function NotifySubscriberDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Subscriber profile</CardTitle>
-            <CardDescription>Update routing fields used by Notify APIs.</CardDescription>
+            <CardDescription>
+              Update routing fields used by Notify APIs.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2">
@@ -241,7 +253,8 @@ function NotifySubscriberDetailPage() {
           <CardHeader>
             <CardTitle className="text-sm">Suppression controls</CardTitle>
             <CardDescription>
-              Unsuppress email channel when policy allows. Use force for complaint/bounce cases.
+              Unsuppress email channel when policy allows. Use force for
+              complaint/bounce cases.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -260,7 +273,10 @@ function NotifySubscriberDetailPage() {
                   Required for complaint/bounce suppressions.
                 </p>
               </div>
-              <Switch checked={forceUnsuppress} onCheckedChange={setForceUnsuppress} />
+              <Switch
+                checked={forceUnsuppress}
+                onCheckedChange={setForceUnsuppress}
+              />
             </div>
             <Button onClick={unsuppress}>Unsuppress email</Button>
           </CardContent>
@@ -270,7 +286,9 @@ function NotifySubscriberDetailPage() {
       <Card className="mt-4">
         <CardHeader>
           <CardTitle className="text-sm">Suppression history</CardTitle>
-          <CardDescription>Latest suppression lifecycle events for this subscriber.</CardDescription>
+          <CardDescription>
+            Latest suppression lifecycle events for this subscriber.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -299,7 +317,9 @@ function NotifySubscriberDetailPage() {
                     <TableCell>{event.channel}</TableCell>
                     <TableCell>{event.reason || "-"}</TableCell>
                     <TableCell>{event.source}</TableCell>
-                    <TableCell>{new Date(event.created_at).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {new Date(event.created_at).toLocaleString()}
+                    </TableCell>
                   </TableRow>
                 ))
               )}

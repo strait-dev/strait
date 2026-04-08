@@ -8,9 +8,12 @@ import {
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import NoProjectState from "@/components/common/no-project-state";
 import ErrorComponent from "@/components/common/error-component";
-import { notifyDeliveriesQueryOptions, notifySubscribersQueryOptions } from "@/hooks/api/use-notify";
+import NoProjectState from "@/components/common/no-project-state";
+import {
+  notifyDeliveriesQueryOptions,
+  notifySubscribersQueryOptions,
+} from "@/hooks/api/use-notify";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/")({
@@ -52,7 +55,9 @@ function NotifyOverviewPage() {
   const deliveries = deliveriesQuery.data ?? [];
   const subscribers = subscribersQuery.data ?? [];
 
-  const deliveredCount = deliveries.filter((item) => item.status === "delivered").length;
+  const deliveredCount = deliveries.filter(
+    (item) => item.status === "delivered"
+  ).length;
   const failedCount = deliveries.filter(
     (item) => item.status === "failed" || item.status === "bounced"
   ).length;
@@ -70,27 +75,36 @@ function NotifyOverviewPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Delivered</CardTitle>
-            <CardDescription>Delivered notifications in current list window</CardDescription>
+            <CardDescription>
+              Delivered notifications in current list window
+            </CardDescription>
           </CardHeader>
           <CardContent className="text-2xl">{deliveredCount}</CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Failed/Bounced</CardTitle>
-            <CardDescription>Needs attention and possible suppression review</CardDescription>
+            <CardDescription>
+              Needs attention and possible suppression review
+            </CardDescription>
           </CardHeader>
           <CardContent className="text-2xl">{failedCount}</CardContent>
         </Card>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>Deliveries</CardTitle>
-            <CardDescription>Track notify message lifecycle and outcomes.</CardDescription>
+            <CardDescription>
+              Track notify message lifecycle and outcomes.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link className="text-primary text-sm underline" to="/app/notify/deliveries">
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/deliveries"
+            >
               Open deliveries
             </Link>
           </CardContent>
@@ -98,11 +112,61 @@ function NotifyOverviewPage() {
         <Card>
           <CardHeader>
             <CardTitle>Subscribers</CardTitle>
-            <CardDescription>Manage recipients, profiles, and suppression controls.</CardDescription>
+            <CardDescription>
+              Manage recipients, profiles, and suppression controls.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link className="text-primary text-sm underline" to="/app/notify/subscribers">
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/subscribers"
+            >
               Open subscribers
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Templates</CardTitle>
+            <CardDescription>
+              Create, update, and preview channel templates.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/templates"
+            >
+              Open templates
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Topics</CardTitle>
+            <CardDescription>
+              Group subscribers and manage topic memberships.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link className="text-primary text-sm underline" to="/app/notify/topics">
+              Open topics
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Categories</CardTitle>
+            <CardDescription>
+              Define policy semantics for notification groups.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/categories"
+            >
+              Open categories
             </Link>
           </CardContent>
         </Card>
