@@ -1265,6 +1265,254 @@ func TestUpdateCodeDeploymentStatus_ConcurrentTerminalIdempotent(t *testing.T) {
 	}
 }
 
+// --- ListBuildingDeployments ---
+
+// TestListBuildingDeployments_ReturnsOnlyBuildingStatus verifies that
+// ListBuildingDeployments returns only deployments with status="building",
+// ignoring pending and ready deployments.
+func TestListBuildingDeployments_ReturnsOnlyBuildingStatus(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-lbd-status-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	// Create a pending deployment (not confirmed — stays pending).
+	_ = mustCreateDeployment(t, ctx, q, job.ID, projectID)
+
+	// Create a building deployment (confirmed → building).
+	dBuilding := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+	if err := q.ConfirmCodeDeployment(ctx, dBuilding.ID); err != nil {
+		t.Fatalf("ConfirmCodeDeployment: %v", err)
+	}
+
+	// Create a ready deployment.
+	_ = mustCreateReadyDeployment(t, ctx, q, job.ID, projectID)
+
+	results, err := q.ListBuildingDeployments(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListBuildingDeployments: %v", err)
+	}
+
+	for _, d := range results {
+		if d.Status != domain.DeploymentStatusBuilding {
+			t.Errorf("ListBuildingDeployments returned deployment with status %q, want building", d.Status)
+		}
+	}
+
+	found := false
+	for _, d := range results {
+		if d.ID == dBuilding.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("building deployment %s not found in ListBuildingDeployments results", dBuilding.ID)
+	}
+}
+
+// TestListBuildingDeployments_EmptyResult verifies that ListBuildingDeployments
+// returns an empty (non-nil) slice when no building deployments exist.
+func TestListBuildingDeployments_EmptyResult(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	results, err := q.ListBuildingDeployments(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListBuildingDeployments on empty table: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty slice, got %d results", len(results))
+	}
+}
+
+// TestListBuildingDeployments_MultipleRows verifies that all building deployments
+// up to the limit are returned in ascending creation order (oldest first).
+func TestListBuildingDeployments_MultipleRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-lbd-multi-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	const count = 5
+	ids := make([]string, count)
+	for i := range count {
+		d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+		if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+			t.Fatalf("ConfirmCodeDeployment %d: %v", i, err)
+		}
+		ids[i] = d.ID
+	}
+
+	results, err := q.ListBuildingDeployments(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListBuildingDeployments: %v", err)
+	}
+	if len(results) < count {
+		t.Errorf("expected at least %d results, got %d", count, len(results))
+	}
+
+	// Verify ascending creation order (oldest first).
+	for i := 1; i < len(results); i++ {
+		if results[i].CreatedAt.Before(results[i-1].CreatedAt) {
+			t.Errorf("results not in ascending creation order at index %d", i)
+		}
+	}
+
+	// All created IDs must appear in results.
+	resultIDs := make(map[string]bool, len(results))
+	for _, d := range results {
+		resultIDs[d.ID] = true
+	}
+	for _, id := range ids {
+		if !resultIDs[id] {
+			t.Errorf("building deployment %s not found in ListBuildingDeployments results", id)
+		}
+	}
+}
+
+// TestListBuildingDeployments_LimitRespected verifies that the limit parameter
+// is honored and at most limit rows are returned.
+func TestListBuildingDeployments_LimitRespected(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-lbd-limit-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	// Create 5 building deployments.
+	for range 5 {
+		d := mustCreateDeployment(t, ctx, q, job.ID, projectID)
+		if err := q.ConfirmCodeDeployment(ctx, d.ID); err != nil {
+			t.Fatalf("ConfirmCodeDeployment: %v", err)
+		}
+	}
+
+	results, err := q.ListBuildingDeployments(ctx, 3)
+	if err != nil {
+		t.Fatalf("ListBuildingDeployments(limit=3): %v", err)
+	}
+	if len(results) > 3 {
+		t.Errorf("expected at most 3 results with limit=3, got %d", len(results))
+	}
+}
+
+// --- CreateCodeDeployment edge cases ---
+
+// TestCreateCodeDeployment_NilCreatedBy verifies that a deployment with an empty
+// CreatedBy field is stored with a NULL created_by in the database.
+func TestCreateCodeDeployment_NilCreatedBy(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-nil-creator-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	id := "deploy-nil-creator-" + newID()
+	d := &domain.CodeDeployment{
+		ID:              id,
+		JobID:           job.ID,
+		ProjectID:       projectID,
+		Runtime:         domain.RuntimePython,
+		SourceHash:      "hash" + id[:8],
+		SourceSizeBytes: 512,
+		SourceURI:       "projects/" + projectID + "/jobs/" + job.ID + "/deploys/" + id + ".tar.gz",
+		CreatedBy:       "", // nil equivalent
+	}
+	if err := q.CreateCodeDeployment(ctx, d); err != nil {
+		t.Fatalf("CreateCodeDeployment with empty CreatedBy: %v", err)
+	}
+
+	got, err := q.GetCodeDeployment(ctx, id, projectID)
+	if err != nil {
+		t.Fatalf("GetCodeDeployment: %v", err)
+	}
+	if got.CreatedBy != "" {
+		t.Errorf("expected empty CreatedBy (NULL), got %q", got.CreatedBy)
+	}
+}
+
+// TestCreateCodeDeployment_DefaultStatusIsPending verifies that when no Status is
+// set on the input struct, the created deployment has status="pending".
+func TestCreateCodeDeployment_DefaultStatusIsPending(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-default-status-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	id := "deploy-default-status-" + newID()
+	d := &domain.CodeDeployment{
+		ID:              id,
+		JobID:           job.ID,
+		ProjectID:       projectID,
+		Runtime:         domain.RuntimeGo,
+		SourceHash:      "hash" + id[:8],
+		SourceSizeBytes: 2048,
+		SourceURI:       "projects/" + projectID + "/jobs/" + job.ID + "/deploys/" + id + ".tar.gz",
+		// Status intentionally omitted — should default to "pending".
+	}
+	if err := q.CreateCodeDeployment(ctx, d); err != nil {
+		t.Fatalf("CreateCodeDeployment: %v", err)
+	}
+
+	// The struct itself should be mutated.
+	if d.Status != domain.DeploymentStatusPending {
+		t.Errorf("in-memory Status after create = %q, want pending", d.Status)
+	}
+
+	got, err := q.GetCodeDeployment(ctx, id, projectID)
+	if err != nil {
+		t.Fatalf("GetCodeDeployment: %v", err)
+	}
+	if got.Status != domain.DeploymentStatusPending {
+		t.Errorf("DB status = %q, want pending", got.Status)
+	}
+}
+
+// TestCreateCodeDeployment_AutoGeneratesIDWhenEmpty verifies that when the ID
+// field is empty the store generates a valid UUID and writes it back to the struct.
+func TestCreateCodeDeployment_AutoGeneratesIDWhenEmpty(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-auto-id-" + newID()
+	job := mustCreateJobForDeploy(t, ctx, q, projectID)
+
+	d := &domain.CodeDeployment{
+		// ID intentionally omitted — should be auto-generated.
+		JobID:           job.ID,
+		ProjectID:       projectID,
+		Runtime:         domain.RuntimeTypeScript,
+		SourceHash:      "hash-auto",
+		SourceSizeBytes: 1024,
+		SourceURI:       "projects/" + projectID + "/jobs/" + job.ID + "/deploys/auto.tar.gz",
+	}
+	if err := q.CreateCodeDeployment(ctx, d); err != nil {
+		t.Fatalf("CreateCodeDeployment with empty ID: %v", err)
+	}
+	if d.ID == "" {
+		t.Error("expected ID to be auto-populated after create, got empty string")
+	}
+
+	// Verify retrievable from DB using the generated ID.
+	got, err := q.GetCodeDeployment(ctx, d.ID, projectID)
+	if err != nil {
+		t.Fatalf("GetCodeDeployment with auto-generated ID: %v", err)
+	}
+	if got.ID != d.ID {
+		t.Errorf("DB ID = %q, want %q", got.ID, d.ID)
+	}
+}
+
 // --- Helpers ---
 
 // isNotFoundErr returns true if err is store.ErrCodeDeploymentNotFound.
