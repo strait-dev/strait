@@ -357,7 +357,7 @@ func (s *Server) handleDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	if !wantStream || !isBuilding || s.pubsub == nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(d.BuildLogs))
+		_, _ = w.Write([]byte(d.BuildLogs)) // #nosec G705 -- served as text/plain, not HTML
 		return
 	}
 
@@ -381,7 +381,7 @@ func (s *Server) handleDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 		// Fall back to stored logs.
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(d.BuildLogs))
+		_, _ = w.Write([]byte(d.BuildLogs)) // #nosec G705 -- served as text/plain, not HTML
 		return
 	}
 	defer sub.Close()

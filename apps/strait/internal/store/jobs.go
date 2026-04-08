@@ -37,6 +37,9 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	if job.CronOverlapPolicy == "" {
 		job.CronOverlapPolicy = domain.OverlapPolicyAllow
 	}
+	if job.SourceType == "" {
+		job.SourceType = "image"
+	}
 
 	query := `
 		INSERT INTO jobs (
