@@ -24,9 +24,10 @@ describe("notify query keys", () => {
 
   it("builds subscriber and template list keys", () => {
     expect(
-      queryKeys.notify
-        .subscribersList({ limit: 25, cursor: "2026-01-02T00:00:00Z" })
-        .queryKey
+      queryKeys.notify.subscribersList({
+        limit: 25,
+        cursor: "2026-01-02T00:00:00Z",
+      }).queryKey
     ).toEqual([
       "notify",
       "subscribersList",
@@ -34,9 +35,10 @@ describe("notify query keys", () => {
     ]);
 
     expect(
-      queryKeys.notify
-        .templatesList({ limit: 25, cursor: "2026-01-03T00:00:00Z" })
-        .queryKey
+      queryKeys.notify.templatesList({
+        limit: 25,
+        cursor: "2026-01-03T00:00:00Z",
+      }).queryKey
     ).toEqual([
       "notify",
       "templatesList",
