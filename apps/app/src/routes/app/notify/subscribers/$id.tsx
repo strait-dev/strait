@@ -10,6 +10,13 @@ import {
 } from "@strait/ui/components/card";
 import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
 import { Switch } from "@strait/ui/components/switch";
 import {
@@ -24,28 +31,61 @@ import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
+import type { NotifyPreference } from "@/hooks/api/types";
 import {
   createNotifySubscriberTokenFn,
+  notifySubscriberPreferencesQueryOptions,
   notifySubscriberQueryOptions,
   notifySubscriberSuppressionsQueryOptions,
   updateNotifySubscriberFn,
   useNotifyUnsuppressSubscriber,
+  useUpdateNotifySubscriberPreference,
 } from "@/hooks/api/use-notify";
 import { CheckIcon, ChevronLeftIcon, KeyIcon } from "@/lib/icons";
+
+const digestPolicyOptions = ["instant", "hourly", "daily"] as const;
+
+const parseChannelPref = (
+  preference: NotifyPreference | undefined,
+  channel: "email" | "inbox",
+  fallback: boolean
+) => {
+  if (!preference?.channel_prefs || typeof preference.channel_prefs !== "object") {
+    return fallback;
+  }
+
+  const value = (
+    preference.channel_prefs as Record<
+      string,
+      object | string | number | boolean | null
+    >
+  )[channel];
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return fallback;
+};
+
+const parseDigestPolicy = (preference: NotifyPreference | undefined) => {
+  const value = preference?.digest_policy;
+  return digestPolicyOptions.find((option) => option === value) ?? "instant";
+};
 
 export const Route = createFileRoute("/app/notify/subscribers/$id")({
   loader: async ({ context, params }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(
-        notifySubscriberQueryOptions(params.id)
-      ),
+      context.queryClient.ensureQueryData(notifySubscriberQueryOptions(params.id)),
       context.queryClient.ensureQueryData(
         notifySubscriberSuppressionsQueryOptions(params.id)
+      ),
+      context.queryClient.ensureQueryData(
+        notifySubscriberPreferencesQueryOptions(params.id)
       ),
     ]);
   },
@@ -58,9 +98,8 @@ function NotifySubscriberDetailPage() {
   const { id } = Route.useParams();
 
   const subscriberQuery = useQuery(notifySubscriberQueryOptions(id));
-  const suppressionsQuery = useQuery(
-    notifySubscriberSuppressionsQueryOptions(id)
-  );
+  const suppressionsQuery = useQuery(notifySubscriberSuppressionsQueryOptions(id));
+  const preferencesQuery = useQuery(notifySubscriberPreferencesQueryOptions(id));
 
   const [externalID, setExternalID] = useState("");
   const [email, setEmail] = useState("");
@@ -72,10 +111,57 @@ function NotifySubscriberDetailPage() {
   const [unsuppressReason, setUnsuppressReason] = useState("manual_unsuppress");
   const [forceUnsuppress, setForceUnsuppress] = useState(false);
 
+  const [preferenceScope, setPreferenceScope] = useState("global");
+  const [prefEmailEnabled, setPrefEmailEnabled] = useState(true);
+  const [prefInboxEnabled, setPrefInboxEnabled] = useState(true);
+  const [prefTimezone, setPrefTimezone] = useState("");
+  const [prefDigestPolicy, setPrefDigestPolicy] =
+    useState<(typeof digestPolicyOptions)[number]>("instant");
+  const [prefCriticalOverride, setPrefCriticalOverride] = useState(true);
+  const [prefRateLimit, setPrefRateLimit] = useState("");
+
   const unsuppressMutation = useNotifyUnsuppressSubscriber();
+  const updatePreferenceMutation = useUpdateNotifySubscriberPreference();
 
   const subscriber = subscriberQuery.data;
   const suppressions = suppressionsQuery.data ?? [];
+  const preferences = preferencesQuery.data ?? [];
+
+  const selectedPreference = useMemo(
+    () => preferences.find((item) => item.scope === preferenceScope),
+    [preferences, preferenceScope]
+  );
+
+  const preferenceScopes = useMemo(() => {
+    const scopes = new Set<string>(["global", preferenceScope]);
+    for (const item of preferences) {
+      scopes.add(item.scope);
+    }
+    return Array.from(scopes);
+  }, [preferences, preferenceScope]);
+
+  useEffect(() => {
+    if (!selectedPreference) {
+      setPrefEmailEnabled(true);
+      setPrefInboxEnabled(true);
+      setPrefTimezone("");
+      setPrefDigestPolicy("instant");
+      setPrefCriticalOverride(true);
+      setPrefRateLimit("");
+      return;
+    }
+
+    setPrefEmailEnabled(parseChannelPref(selectedPreference, "email", true));
+    setPrefInboxEnabled(parseChannelPref(selectedPreference, "inbox", true));
+    setPrefTimezone(selectedPreference.timezone || "");
+    setPrefDigestPolicy(parseDigestPolicy(selectedPreference));
+    setPrefCriticalOverride(selectedPreference.critical_override);
+    setPrefRateLimit(
+      selectedPreference.rate_limit_override
+        ? String(selectedPreference.rate_limit_override)
+        : ""
+    );
+  }, [selectedPreference]);
 
   if (!subscriber) {
     return (
@@ -115,6 +201,45 @@ function NotifySubscriberDetailPage() {
     );
 
     await subscriberQuery.refetch();
+  };
+
+  const savePreference = async () => {
+    if (!preferenceScope.trim()) {
+      toast.error("Preference scope is required");
+      return;
+    }
+
+    let parsedRateLimit: number | undefined;
+    if (prefRateLimit.trim()) {
+      const parsed = Number(prefRateLimit);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        toast.error("Rate limit override must be a non-negative number");
+        return;
+      }
+      parsedRateLimit = parsed;
+    }
+
+    await toast.promise(
+      updatePreferenceMutation.mutateAsync({
+        subscriberId: subscriber.id,
+        scope: preferenceScope.trim(),
+        channel_prefs: {
+          email: prefEmailEnabled,
+          inbox: prefInboxEnabled,
+        },
+        timezone: prefTimezone || undefined,
+        digest_policy: prefDigestPolicy,
+        critical_override: prefCriticalOverride,
+        rate_limit_override: parsedRateLimit,
+      }),
+      {
+        loading: "Updating preferences...",
+        success: "Preferences updated",
+        error: "Failed to update preferences",
+      }
+    );
+
+    await preferencesQuery.refetch();
   };
 
   const unsuppress = async () => {
@@ -164,9 +289,7 @@ function NotifySubscriberDetailPage() {
           <h1 className="font-semibold text-xl">{subscriber.external_id}</h1>
           <div className="mt-1 flex items-center gap-2">
             <NotifyStatusBadge status={subscriber.status} />
-            <span className="text-muted-foreground text-xs">
-              {subscriber.id}
-            </span>
+            <span className="text-muted-foreground text-xs">{subscriber.id}</span>
           </div>
         </div>
       </div>
@@ -251,6 +374,118 @@ function NotifySubscriberDetailPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-sm">Preference controls</CardTitle>
+            <CardDescription>
+              Manage per-scope channel and digest preferences for this subscriber.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="preference-scope">Scope</Label>
+              <Input
+                id="preference-scope"
+                list="notify-preference-scopes"
+                onChange={(event) => setPreferenceScope(event.target.value)}
+                placeholder="global"
+                value={preferenceScope}
+              />
+              <datalist id="notify-preference-scopes">
+                {preferenceScopes.map((scope) => (
+                  <option key={scope} value={scope} />
+                ))}
+              </datalist>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="font-medium text-sm">Email channel</p>
+                  <p className="text-muted-foreground text-xs">Enable email delivery</p>
+                </div>
+                <Switch
+                  checked={prefEmailEnabled}
+                  onCheckedChange={setPrefEmailEnabled}
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="font-medium text-sm">Inbox channel</p>
+                  <p className="text-muted-foreground text-xs">Enable inbox delivery</p>
+                </div>
+                <Switch
+                  checked={prefInboxEnabled}
+                  onCheckedChange={setPrefInboxEnabled}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="preference-timezone">Timezone override</Label>
+                <Input
+                  id="preference-timezone"
+                  onChange={(event) => setPrefTimezone(event.target.value)}
+                  placeholder="UTC"
+                  value={prefTimezone}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="preference-digest">Digest policy</Label>
+                <Select
+                  onValueChange={(value) =>
+                    setPrefDigestPolicy(
+                      value as (typeof digestPolicyOptions)[number]
+                    )
+                  }
+                  value={prefDigestPolicy}
+                >
+                  <SelectTrigger id="preference-digest">
+                    <SelectValue placeholder="Choose digest policy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {digestPolicyOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="font-medium text-sm">Critical override</p>
+                  <p className="text-muted-foreground text-xs">
+                    Allow critical notifications to bypass quieting rules
+                  </p>
+                </div>
+                <Switch
+                  checked={prefCriticalOverride}
+                  onCheckedChange={setPrefCriticalOverride}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="preference-rate-limit">Rate limit override</Label>
+                <Input
+                  id="preference-rate-limit"
+                  onChange={(event) => setPrefRateLimit(event.target.value)}
+                  placeholder="optional"
+                  value={prefRateLimit}
+                />
+              </div>
+            </div>
+
+            <Button onClick={savePreference}>Save preferences</Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-sm">Suppression controls</CardTitle>
             <CardDescription>
               Unsuppress email channel when policy allows. Use force for
@@ -317,9 +552,7 @@ function NotifySubscriberDetailPage() {
                     <TableCell>{event.channel}</TableCell>
                     <TableCell>{event.reason || "-"}</TableCell>
                     <TableCell>{event.source}</TableCell>
-                    <TableCell>
-                      {new Date(event.created_at).toLocaleString()}
-                    </TableCell>
+                    <TableCell>{new Date(event.created_at).toLocaleString()}</TableCell>
                   </TableRow>
                 ))
               )}

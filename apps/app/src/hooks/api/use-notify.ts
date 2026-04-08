@@ -13,6 +13,7 @@ import type {
   NotificationTemplate,
   NotifyEscalationState,
   NotifyPolicyOverride,
+  NotifyPreference,
   NotifySubscriber,
   NotifySuppressionEvent,
   NotifyTopic,
@@ -117,6 +118,62 @@ type NotifyTriggerInput = {
     delay?: string;
     at?: string;
   };
+};
+
+type UpdateNotifySubscriberPreferenceInput = {
+  subscriberId: string;
+  scope?: string;
+  channel_prefs?: Record<string, object | string | number | boolean | null>;
+  quiet_hours?: Record<string, object | string | number | boolean | null>;
+  phone?: string;
+  timezone?: string;
+  digest_policy?: string;
+  critical_override?: boolean;
+  rate_limit_override?: number;
+};
+
+const getNotifyAPIBaseURL = () =>
+  process.env.STRAIT_API_URL || "http://localhost:8080";
+
+const issueNotifySubscriberToken = async (subscriberId: string) => {
+  const tokenResponse = await runWithSentryReport(
+    apiEffect<{ token: string }>(`/v1/subscribers/${subscriberId}/token`, {
+      method: "POST",
+      body: { expires_in: "10m" },
+    })
+  );
+
+  return tokenResponse.token;
+};
+
+const callNotifySubscriberEndpoint = async <T>(
+  subscriberId: string,
+  path: string,
+  options?: {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    body?: unknown;
+  }
+): Promise<T> => {
+  const token = await issueNotifySubscriberToken(subscriberId);
+  const response = await fetch(`${getNotifyAPIBaseURL()}${path}`, {
+    method: options?.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: options?.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`notify subscriber request failed (${response.status}): ${text}`);
+  }
+
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  return (await response.json()) as T;
 };
 
 export const fetchNotifyDeliveries = createServerFn({ method: "GET" })
@@ -228,6 +285,33 @@ export const listNotifySuppressionEventsFn = createServerFn({ method: "GET" })
           },
         }
       )
+    );
+  });
+
+export const fetchNotifySubscriberPreferences = createServerFn({ method: "GET" })
+  .inputValidator((data: { subscriberId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }): Promise<NotifyPreference[]> => {
+    return await callNotifySubscriberEndpoint<NotifyPreference[]>(
+      data.subscriberId,
+      "/v1/preferences"
+    );
+  });
+
+export const updateNotifySubscriberPreferenceFn = createServerFn({ method: "POST" })
+  .inputValidator((data: UpdateNotifySubscriberPreferenceInput) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }): Promise<NotifyPreference[]> => {
+    const { subscriberId, scope, ...body } = data;
+    const targetScope = scope || "global";
+
+    return await callNotifySubscriberEndpoint<NotifyPreference[]>(
+      subscriberId,
+      `/v1/preferences/${targetScope}`,
+      {
+        method: "PUT",
+        body,
+      }
     );
   });
 
@@ -609,6 +693,15 @@ export const notifySubscriberSuppressionsQueryOptions = (
     placeholderData: keepPreviousData,
   });
 
+export const notifySubscriberPreferencesQueryOptions = (subscriberId: string) =>
+  queryOptions({
+    queryKey: queryKeys.notify.subscriberPreferences(subscriberId).queryKey,
+    queryFn: () => fetchNotifySubscriberPreferences({ data: { subscriberId } }),
+    enabled: !!subscriberId,
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
 export const notifyTopicsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.notify.topics.queryKey,
@@ -727,6 +820,21 @@ export const useDeleteNotifySubscriber = () => {
       deleteNotifySubscriberFn({ data }),
     onSuccess: async () => {
       await invalidateNotifyQueries(queryClient);
+    },
+  });
+};
+
+export const useUpdateNotifySubscriberPreference = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["notify", "subscribers", "preferences", "update"],
+    mutationFn: (data: UpdateNotifySubscriberPreferenceInput) =>
+      updateNotifySubscriberPreferenceFn({ data }),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.notify.subscriberPreferences(variables.subscriberId)
+          .queryKey,
+      });
     },
   });
 };

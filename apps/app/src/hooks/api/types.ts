@@ -303,6 +303,22 @@ export type NotifySuppressionEvent = {
   created_at: string;
 };
 
+export type NotifyPreference = {
+  id: string;
+  recipient_type: string;
+  recipient_id: string;
+  scope: string;
+  channel_prefs?: Record<string, object | string | number | boolean | null>;
+  quiet_hours?: Record<string, object | string | number | boolean | null>;
+  phone?: string;
+  timezone?: string;
+  digest_policy?: string;
+  critical_override: boolean;
+  rate_limit_override?: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type NotificationMessage = {
   id: string;
   project_id: string;

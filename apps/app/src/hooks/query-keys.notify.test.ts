@@ -35,4 +35,10 @@ describe("notify query keys", () => {
       "step-run-id",
     ]);
   });
+
+  it("builds subscriber preferences key", () => {
+    expect(
+      queryKeys.notify.subscriberPreferences("subscriber-id").queryKey
+    ).toEqual(["notify", "subscriberPreferences", "subscriber-id"]);
+  });
 });

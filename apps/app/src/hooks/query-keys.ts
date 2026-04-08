@@ -144,6 +144,7 @@ export const queryKeys = createQueryKeyStore({
       subscriberId,
       { search },
     ],
+    subscriberPreferences: (subscriberId: string) => [subscriberId],
     topics: null,
     templatesList: (search?: ListNotifyTemplatesSearch) => [{ search }],
     templateDetail: (templateKey: string) => [templateKey],
