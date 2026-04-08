@@ -160,7 +160,8 @@ function NotifyComposePage() {
         template_key: templateKey.trim(),
         payload,
         channels,
-        subscriber_id: recipient.type === "subscriber" ? recipient.id : undefined,
+        subscriber_id:
+          recipient.type === "subscriber" ? recipient.id : undefined,
         category_key: categoryKey.trim() || undefined,
       }),
       {
@@ -216,7 +217,8 @@ function NotifyComposePage() {
     setTriggerResult(JSON.stringify(result, null, 2));
   };
 
-  const isWorking = preview.isPending || testSend.isPending || trigger.isPending;
+  const isWorking =
+    preview.isPending || testSend.isPending || trigger.isPending;
 
   return (
     <Shell>
@@ -343,7 +345,11 @@ function NotifyComposePage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button disabled={isWorking} onClick={runPreview} variant="outline">
+              <Button
+                disabled={isWorking}
+                onClick={runPreview}
+                variant="outline"
+              >
                 Preview
               </Button>
               <Button
@@ -353,7 +359,10 @@ function NotifyComposePage() {
               >
                 Test send
               </Button>
-              <Button disabled={isWorking} onClick={() => runTrigger("trigger")}>
+              <Button
+                disabled={isWorking}
+                onClick={() => runTrigger("trigger")}
+              >
                 Trigger
               </Button>
             </div>

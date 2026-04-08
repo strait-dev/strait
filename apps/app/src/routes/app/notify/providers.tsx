@@ -350,6 +350,14 @@ function NotifyProvidersPage() {
                       className="cursor-pointer"
                       key={item.id}
                       onClick={() => loadProviderForEdit(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          loadProviderForEdit(item);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
                       <TableCell>{item.name}</TableCell>
                       <TableCell>{item.channel}</TableCell>

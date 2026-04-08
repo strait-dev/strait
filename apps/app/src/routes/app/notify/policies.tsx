@@ -438,6 +438,14 @@ function NotifyPoliciesPage() {
                       className="cursor-pointer"
                       key={item.id}
                       onClick={() => loadPolicyForEdit(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          loadPolicyForEdit(item);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
                       <TableCell>{item.scope_type}</TableCell>
                       <TableCell>{item.scope_key}</TableCell>
