@@ -166,7 +166,9 @@ const callNotifySubscriberEndpoint = async <T>(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`notify subscriber request failed (${response.status}): ${text}`);
+    throw new Error(
+      `notify subscriber request failed (${response.status}): ${text}`
+    );
   }
 
   if (response.status === 204) {
@@ -288,7 +290,9 @@ export const listNotifySuppressionEventsFn = createServerFn({ method: "GET" })
     );
   });
 
-export const fetchNotifySubscriberPreferences = createServerFn({ method: "GET" })
+export const fetchNotifySubscriberPreferences = createServerFn({
+  method: "GET",
+})
   .inputValidator((data: { subscriberId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotifyPreference[]> => {
@@ -298,7 +302,9 @@ export const fetchNotifySubscriberPreferences = createServerFn({ method: "GET" }
     );
   });
 
-export const updateNotifySubscriberPreferenceFn = createServerFn({ method: "POST" })
+export const updateNotifySubscriberPreferenceFn = createServerFn({
+  method: "POST",
+})
   .inputValidator((data: UpdateNotifySubscriberPreferenceInput) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotifyPreference[]> => {

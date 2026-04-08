@@ -42,8 +42,11 @@ import {
   notifySubscriberPreferencesQueryOptions,
   notifySubscriberQueryOptions,
   notifySubscriberSuppressionsQueryOptions,
+  notifyTopicsQueryOptions,
   updateNotifySubscriberFn,
+  useAddNotifyTopicSubscriber,
   useNotifyUnsuppressSubscriber,
+  useRemoveNotifyTopicSubscriber,
   useUpdateNotifySubscriberPreference,
 } from "@/hooks/api/use-notify";
 import { CheckIcon, ChevronLeftIcon, KeyIcon } from "@/lib/icons";
@@ -55,7 +58,10 @@ const parseChannelPref = (
   channel: "email" | "inbox",
   fallback: boolean
 ) => {
-  if (!preference?.channel_prefs || typeof preference.channel_prefs !== "object") {
+  if (
+    !preference?.channel_prefs ||
+    typeof preference.channel_prefs !== "object"
+  ) {
     return fallback;
   }
 
@@ -80,13 +86,16 @@ const parseDigestPolicy = (preference: NotifyPreference | undefined) => {
 export const Route = createFileRoute("/app/notify/subscribers/$id")({
   loader: async ({ context, params }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(notifySubscriberQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(
+        notifySubscriberQueryOptions(params.id)
+      ),
       context.queryClient.ensureQueryData(
         notifySubscriberSuppressionsQueryOptions(params.id)
       ),
       context.queryClient.ensureQueryData(
         notifySubscriberPreferencesQueryOptions(params.id)
       ),
+      context.queryClient.ensureQueryData(notifyTopicsQueryOptions()),
     ]);
   },
   pendingComponent: DetailPageSkeleton,
@@ -98,8 +107,13 @@ function NotifySubscriberDetailPage() {
   const { id } = Route.useParams();
 
   const subscriberQuery = useQuery(notifySubscriberQueryOptions(id));
-  const suppressionsQuery = useQuery(notifySubscriberSuppressionsQueryOptions(id));
-  const preferencesQuery = useQuery(notifySubscriberPreferencesQueryOptions(id));
+  const suppressionsQuery = useQuery(
+    notifySubscriberSuppressionsQueryOptions(id)
+  );
+  const preferencesQuery = useQuery(
+    notifySubscriberPreferencesQueryOptions(id)
+  );
+  const topicsQuery = useQuery(notifyTopicsQueryOptions());
 
   const [externalID, setExternalID] = useState("");
   const [email, setEmail] = useState("");
@@ -110,6 +124,7 @@ function NotifySubscriberDetailPage() {
 
   const [unsuppressReason, setUnsuppressReason] = useState("manual_unsuppress");
   const [forceUnsuppress, setForceUnsuppress] = useState(false);
+  const [topicMembershipKey, setTopicMembershipKey] = useState("");
 
   const [preferenceScope, setPreferenceScope] = useState("global");
   const [prefEmailEnabled, setPrefEmailEnabled] = useState(true);
@@ -122,10 +137,13 @@ function NotifySubscriberDetailPage() {
 
   const unsuppressMutation = useNotifyUnsuppressSubscriber();
   const updatePreferenceMutation = useUpdateNotifySubscriberPreference();
+  const addTopicSubscriberMutation = useAddNotifyTopicSubscriber();
+  const removeTopicSubscriberMutation = useRemoveNotifyTopicSubscriber();
 
   const subscriber = subscriberQuery.data;
   const suppressions = suppressionsQuery.data ?? [];
   const preferences = preferencesQuery.data ?? [];
+  const topics = topicsQuery.data ?? [];
 
   const selectedPreference = useMemo(
     () => preferences.find((item) => item.scope === preferenceScope),
@@ -242,6 +260,41 @@ function NotifySubscriberDetailPage() {
     await preferencesQuery.refetch();
   };
 
+  const updateTopicMembership = async (action: "add" | "remove") => {
+    if (!topicMembershipKey.trim()) {
+      toast.error("Topic key is required");
+      return;
+    }
+
+    const promise =
+      action === "add"
+        ? addTopicSubscriberMutation.mutateAsync({
+            topicKey: topicMembershipKey.trim(),
+            subscriber_id: subscriber.id,
+          })
+        : removeTopicSubscriberMutation.mutateAsync({
+            topicKey: topicMembershipKey.trim(),
+            subscriberId: subscriber.id,
+          });
+
+    await toast.promise(promise, {
+      loading:
+        action === "add"
+          ? "Adding subscriber to topic..."
+          : "Removing subscriber from topic...",
+      success:
+        action === "add"
+          ? "Subscriber added to topic"
+          : "Subscriber removed from topic",
+      error:
+        action === "add"
+          ? "Failed to add subscriber to topic"
+          : "Failed to remove subscriber from topic",
+    });
+
+    await topicsQuery.refetch();
+  };
+
   const unsuppress = async () => {
     await toast.promise(
       unsuppressMutation.mutateAsync({
@@ -289,7 +342,9 @@ function NotifySubscriberDetailPage() {
           <h1 className="font-semibold text-xl">{subscriber.external_id}</h1>
           <div className="mt-1 flex items-center gap-2">
             <NotifyStatusBadge status={subscriber.status} />
-            <span className="text-muted-foreground text-xs">{subscriber.id}</span>
+            <span className="text-muted-foreground text-xs">
+              {subscriber.id}
+            </span>
           </div>
         </div>
       </div>
@@ -376,7 +431,8 @@ function NotifySubscriberDetailPage() {
           <CardHeader>
             <CardTitle className="text-sm">Preference controls</CardTitle>
             <CardDescription>
-              Manage per-scope channel and digest preferences for this subscriber.
+              Manage per-scope channel and digest preferences for this
+              subscriber.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -400,7 +456,9 @@ function NotifySubscriberDetailPage() {
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
                   <p className="font-medium text-sm">Email channel</p>
-                  <p className="text-muted-foreground text-xs">Enable email delivery</p>
+                  <p className="text-muted-foreground text-xs">
+                    Enable email delivery
+                  </p>
                 </div>
                 <Switch
                   checked={prefEmailEnabled}
@@ -411,7 +469,9 @@ function NotifySubscriberDetailPage() {
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
                   <p className="font-medium text-sm">Inbox channel</p>
-                  <p className="text-muted-foreground text-xs">Enable inbox delivery</p>
+                  <p className="text-muted-foreground text-xs">
+                    Enable inbox delivery
+                  </p>
                 </div>
                 <Switch
                   checked={prefInboxEnabled}
@@ -470,7 +530,9 @@ function NotifySubscriberDetailPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="preference-rate-limit">Rate limit override</Label>
+                <Label htmlFor="preference-rate-limit">
+                  Rate limit override
+                </Label>
                 <Input
                   id="preference-rate-limit"
                   onChange={(event) => setPrefRateLimit(event.target.value)}
@@ -481,6 +543,44 @@ function NotifySubscriberDetailPage() {
             </div>
 
             <Button onClick={savePreference}>Save preferences</Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Topic membership</CardTitle>
+            <CardDescription>
+              Add or remove this subscriber from a notify topic.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="subscriber-topic-membership">Topic key</Label>
+              <Input
+                id="subscriber-topic-membership"
+                list="subscriber-topic-membership-options"
+                onChange={(event) => setTopicMembershipKey(event.target.value)}
+                placeholder="workflow.approvals"
+                value={topicMembershipKey}
+              />
+              <datalist id="subscriber-topic-membership-options">
+                {topics.map((topic) => (
+                  <option key={topic.id} value={topic.topic_key}>
+                    {topic.name}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={() => updateTopicMembership("add")}>Add</Button>
+              <Button
+                onClick={() => updateTopicMembership("remove")}
+                variant="outline"
+              >
+                Remove
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -552,7 +652,9 @@ function NotifySubscriberDetailPage() {
                     <TableCell>{event.channel}</TableCell>
                     <TableCell>{event.reason || "-"}</TableCell>
                     <TableCell>{event.source}</TableCell>
-                    <TableCell>{new Date(event.created_at).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {new Date(event.created_at).toLocaleString()}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
