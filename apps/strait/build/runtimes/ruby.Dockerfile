@@ -29,9 +29,10 @@ RUN groupadd -r strait && useradd -r -g strait -d /app strait
 WORKDIR /app
 RUN chown strait:strait /app
 
-# Pre-install the Strait SDK gem.
+# Pre-install the Strait SDK gem and bundler.
+# Falls back gracefully if the gem isn't on RubyGems yet.
 ARG STRAIT_SDK_VERSION=">= 0"
-RUN gem install strait-sdk --version "${STRAIT_SDK_VERSION}" --no-document \
+RUN gem install strait-sdk --version "${STRAIT_SDK_VERSION}" --no-document || true \
     && gem install bundler --no-document
 
 USER strait

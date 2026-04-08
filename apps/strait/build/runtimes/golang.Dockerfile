@@ -9,7 +9,7 @@
 # Published as: ghcr.io/strait-dev/runtime-go:{go-version}-{strait-version}
 # Latest alias: ghcr.io/strait-dev/runtime-go:latest
 
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.26
 
 # --- Builder stage ---
 FROM golang:${GO_VERSION}-bookworm AS builder

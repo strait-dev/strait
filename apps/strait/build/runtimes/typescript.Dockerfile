@@ -29,8 +29,9 @@ WORKDIR /app
 RUN chown strait:strait /app
 
 # Pre-install the Strait SDK so user bundles don't need to fetch it.
+# Falls back gracefully if the package isn't on npm yet.
 ARG STRAIT_SDK_VERSION=latest
-RUN bun add @strait/sdk@${STRAIT_SDK_VERSION:-latest} --global
+RUN bun add @strait/sdk@${STRAIT_SDK_VERSION:-latest} --global || true
 
 USER strait
 

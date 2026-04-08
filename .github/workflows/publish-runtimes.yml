@@ -6,6 +6,10 @@ on:
       - "runtime-v*"
     paths:
       - "apps/strait/build/runtimes/**"
+  pull_request:
+    paths:
+      - "apps/strait/build/runtimes/**"
+      - ".github/workflows/publish-runtimes.yml"
   workflow_dispatch:
     inputs:
       tag:
@@ -31,16 +35,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.value }}
+      push: ${{ steps.tag.outputs.push }}
     steps:
       - name: Determine tag
         id: tag
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.ref }}" == refs/tags/runtime-v* ]]; then
             echo "value=${GITHUB_REF_NAME#runtime-v}" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
           else
-            echo "value=dev" >> "$GITHUB_OUTPUT"
+            echo "value=pr-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -53,7 +61,7 @@ jobs:
         include:
           - runtime: python
             dockerfile: python.Dockerfile
-            base_version: "3.12"
+            base_version: "3.13"
             version_arg: PYTHON_VERSION
           - runtime: typescript
             dockerfile: typescript.Dockerfile
@@ -69,7 +77,7 @@ jobs:
             version_arg: RUST_VERSION
           - runtime: go
             dockerfile: golang.Dockerfile
-            base_version: "1.23"
+            base_version: "1.26"
             version_arg: GO_VERSION
 
     steps:
@@ -77,12 +85,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up QEMU
+        if: needs.resolve-tag.outputs.push == 'true'
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff9f0ee8754ca547a7 # v3.6.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5730f4a249498a9e5f11be9fe2bc1a06de2c9b4 # v3.10.0
 
       - name: Log in to GitHub Container Registry
+        if: needs.resolve-tag.outputs.push == 'true'
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -94,15 +104,28 @@ jobs:
         with:
           context: apps/strait/build/runtimes
           file: apps/strait/build/runtimes/${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: ${{ needs.resolve-tag.outputs.push == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ needs.resolve-tag.outputs.push == 'true' }}
+          load: ${{ needs.resolve-tag.outputs.push != 'true' }}
           build-args: |
             ${{ matrix.version_arg }}=${{ matrix.base_version }}
+            STRAIT_SDK_VERSION=
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:${{ needs.resolve-tag.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:latest
+            ${{ needs.resolve-tag.outputs.push == 'true' && format('{0}/{1}/runtime-{2}:latest', env.REGISTRY, env.IMAGE_ORG, matrix.runtime) || '' }}
           cache-from: type=gha,scope=runtime-${{ matrix.runtime }}
           cache-to: type=gha,mode=max,scope=runtime-${{ matrix.runtime }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Scan ${{ matrix.runtime }} for vulnerabilities
+        if: needs.resolve-tag.outputs.push == 'true'
+        uses: aquasecurity/trivy-action@18f2505d82f4a2a9f0f6fdcd4c73e20f6cf58827 # v0.29.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:${{ needs.resolve-tag.outputs.tag }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH

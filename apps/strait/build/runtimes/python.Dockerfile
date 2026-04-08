@@ -11,7 +11,7 @@
 # Published as: ghcr.io/strait-dev/runtime-python:{python-version}-{strait-version}
 # Latest alias: ghcr.io/strait-dev/runtime-python:latest
 
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.13
 
 FROM python:${PYTHON_VERSION}-slim-bookworm
 
@@ -36,14 +36,16 @@ RUN groupadd -r strait && useradd -r -g strait -d /app strait
 WORKDIR /app
 RUN chown strait:strait /app
 
-# Install strait Python SDK.
+# Pre-install the Strait Python SDK and common dependencies.
 # Version is pinned by the builder via --build-arg STRAIT_SDK_VERSION.
-ARG STRAIT_SDK_VERSION=latest
-RUN pip install --no-cache-dir \
-    "strait-sdk${STRAIT_SDK_VERSION:+==}${STRAIT_SDK_VERSION:-}" \
-    && pip install --no-cache-dir \
-    httpx \
-    pydantic
+# Defaults to empty (latest) so the build succeeds even before the SDK is
+# published to PyPI — SDK availability is a best-effort pre-warm.
+ARG STRAIT_SDK_VERSION=
+RUN if [ -n "${STRAIT_SDK_VERSION}" ]; then \
+        pip install --no-cache-dir "strait-sdk==${STRAIT_SDK_VERSION}" httpx pydantic; \
+    else \
+        pip install --no-cache-dir strait-sdk httpx pydantic || true; \
+    fi
 
 USER strait
 
