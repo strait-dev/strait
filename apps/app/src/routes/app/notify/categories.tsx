@@ -71,9 +71,8 @@ function NotifyCategoriesPage() {
   const [categoryKey, setCategoryKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [type, setType] = useState<(typeof notifyCategoryTypeOptions)[number]>(
-    "product"
-  );
+  const [type, setType] =
+    useState<(typeof notifyCategoryTypeOptions)[number]>("product");
 
   const categories = categoriesQuery.data ?? [];
 
@@ -99,7 +98,9 @@ function NotifyCategoriesPage() {
       return;
     }
     if (!notifyCategoryKeyPattern.test(categoryKey.trim())) {
-      toast.error("Category key can only include letters, numbers, dots, dashes, and underscores");
+      toast.error(
+        "Category key can only include letters, numbers, dots, dashes, and underscores"
+      );
       return;
     }
 

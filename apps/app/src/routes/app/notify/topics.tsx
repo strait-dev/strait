@@ -111,7 +111,9 @@ function NotifyTopicsPage() {
       return;
     }
     if (!notifyTopicKeyPattern.test(topicKey.trim())) {
-      toast.error("Topic key can only include letters, numbers, dots, dashes, and underscores");
+      toast.error(
+        "Topic key can only include letters, numbers, dots, dashes, and underscores"
+      );
       return;
     }
 

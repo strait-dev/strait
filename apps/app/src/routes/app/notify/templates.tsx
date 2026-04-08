@@ -228,7 +228,9 @@ function NotifyTemplatesPage() {
   };
 
   const isWorking =
-    createTemplate.isPending || updateTemplate.isPending || previewTemplate.isPending;
+    createTemplate.isPending ||
+    updateTemplate.isPending ||
+    previewTemplate.isPending;
 
   const goToNextPage = () => {
     if (!nextCursor) {
