@@ -916,3 +916,326 @@ func TestHandleListAdminOrgDeployments_WrongSecretRejected(t *testing.T) {
 		t.Fatalf("expected 401 for wrong secret, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// handleListCodeDeployments additional coverage.
+
+// TestHandleListCodeDeployments_StoreError_Returns500 verifies that a store
+// error during list is surfaced as 500 rather than panicking.
+func TestHandleListCodeDeployments_StoreError_Returns500(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_err"
+	jobID := "job_err"
+
+	ms := &APIStoreMock{
+		ListCodeDeploymentsFunc: func(_ context.Context, _, _ string, _ int, _ *time.Time) ([]domain.CodeDeployment, error) {
+			return nil, errors.New("database unavailable")
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedProjectRequest(http.MethodGet, "/v1/jobs/"+jobID+"/deployments", "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleListCodeDeployments_EmptyResult_Returns200 verifies that when no
+// deployments exist the response is 200 with an empty data array (not a 404).
+func TestHandleListCodeDeployments_EmptyResult_Returns200(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_empty"
+	jobID := "job_empty"
+
+	ms := &APIStoreMock{
+		ListCodeDeploymentsFunc: func(_ context.Context, _, _ string, _ int, _ *time.Time) ([]domain.CodeDeployment, error) {
+			return []domain.CodeDeployment{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedProjectRequest(http.MethodGet, "/v1/jobs/"+jobID+"/deployments", "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp PaginatedResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	var items []domain.CodeDeployment
+	raw, _ := json.Marshal(resp.Data)
+	if err := json.Unmarshal(raw, &items); err != nil {
+		t.Fatalf("decode items: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 deployments, got %d", len(items))
+	}
+}
+
+// handleRollbackCodeDeployment additional coverage.
+
+// TestHandleRollbackCodeDeployment_ProjectIDMismatch_Returns403 verifies that a
+// mismatch between the authenticated project and the request body project_id → 403.
+func TestHandleRollbackCodeDeployment_ProjectIDMismatch_Returns403(t *testing.T) {
+	t.Parallel()
+	jobID := "job_mismatch"
+	deploymentID := "deploy_mismatch"
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	// Authenticated as "proj_real" but body claims "proj_other".
+	body := `{"project_id": "proj_other"}`
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/rollback", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodPost, path, body, "proj_real")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleRollbackCodeDeployment_JobIDMismatch_Returns404 verifies that a
+// deployment whose JobID does not match the URL job returns 404.
+func TestHandleRollbackCodeDeployment_JobIDMismatch_Returns404(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_jobmatch"
+	jobID := "job_url"
+	deploymentID := "deploy_jobmatch"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, _ string, _ string) (*domain.CodeDeployment, error) {
+			// Returns a deployment that belongs to a *different* job.
+			return &domain.CodeDeployment{
+				ID:        deploymentID,
+				JobID:     "job_different",
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusReady,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/rollback", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodPost, path, body, projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleRollbackCodeDeployment_StoreError_Returns500 verifies that a store
+// error from RollbackToDeployment is surfaced as 500.
+func TestHandleRollbackCodeDeployment_StoreError_Returns500(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_rollerr"
+	jobID := "job_rollerr"
+	deploymentID := "deploy_rollerr"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, _ string, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        deploymentID,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusReady,
+			}, nil
+		},
+		RollbackToDeploymentFunc: func(_ context.Context, _, _, _ string) error {
+			return errors.New("unexpected rollback failure")
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	body := fmt.Sprintf(`{"project_id": %q}`, projectID)
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/rollback", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodPost, path, body, projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// handleListAdminOrgDeployments additional coverage.
+
+// TestHandleListAdminOrgDeployments_StoreError_Returns500 verifies that a store
+// error from ListCodeDeploymentsByOrg is surfaced as 500.
+func TestHandleListAdminOrgDeployments_StoreError_Returns500(t *testing.T) {
+	t.Parallel()
+	orgID := "org-store-err"
+
+	ms := &APIStoreMock{
+		ListCodeDeploymentsByOrgFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.CodeDeployment, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/internal/admin/orgs/"+orgID+"/deployments", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleListAdminOrgDeployments_EmptyResult_Returns200 verifies that an org
+// with no deployments returns 200 with an empty data array.
+func TestHandleListAdminOrgDeployments_EmptyResult_Returns200(t *testing.T) {
+	t.Parallel()
+	orgID := "org-empty"
+
+	ms := &APIStoreMock{
+		ListCodeDeploymentsByOrgFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.CodeDeployment, error) {
+			return []domain.CodeDeployment{}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	req := authedRequest(http.MethodGet, "/internal/admin/orgs/"+orgID+"/deployments", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// handleDeploymentLogs additional coverage.
+
+// TestHandleDeploymentLogs_NonBuildingStatus_Returns200WithStoredLogs verifies
+// that a terminal deployment (status=ready) returns stored logs as text/plain
+// rather than trying to open an SSE stream.
+func TestHandleDeploymentLogs_NonBuildingStatus_Returns200WithStoredLogs(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_term"
+	jobID := "job_term"
+	deploymentID := "deploy_term"
+	const storedLogs = "build succeeded\nimage pushed"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusReady,
+				BuildLogs: storedLogs,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	// stream=true is requested but status is ready, so SSE must NOT be opened.
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/logs?stream=true", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	ct := w.Header().Get("Content-Type")
+	if ct != "text/plain; charset=utf-8" {
+		t.Errorf("expected text/plain, got %q", ct)
+	}
+	if !strings.Contains(w.Body.String(), "build succeeded") {
+		t.Errorf("expected stored logs in body, got: %s", w.Body.String())
+	}
+}
+
+// TestHandleDeploymentLogs_SubscribeFails_FallsBackToStoredLogs verifies that
+// when pubsub.Subscribe returns an error the handler falls back to stored logs
+// rather than returning an error response.
+func TestHandleDeploymentLogs_SubscribeFails_FallsBackToStoredLogs(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_subfail"
+	jobID := "job_subfail"
+	deploymentID := "deploy_subfail"
+	const storedLogs = "partial build log"
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusBuilding,
+				BuildLogs: storedLogs,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return nil, errors.New("pubsub unavailable")
+		},
+	}
+	srv := newTestServer(t, ms, nil, pub)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/logs?stream=true", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 fallback, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), storedLogs) {
+		t.Errorf("expected fallback to stored logs, got: %s", w.Body.String())
+	}
+}
+
+// TestHandleDeploymentLogs_DoneSentinel_ClosesStream verifies that receiving a
+// {"done":true} sentinel message closes the SSE stream cleanly.
+func TestHandleDeploymentLogs_DoneSentinel_ClosesStream(t *testing.T) {
+	t.Parallel()
+	projectID := "proj_done"
+	jobID := "job_done"
+	deploymentID := "deploy_done"
+
+	logCh := make(chan []byte, 2)
+	logCh <- []byte(`{"chunk":"output\n"}`)
+	logCh <- []byte(`{"done":true}`)
+	close(logCh)
+
+	ms := &APIStoreMock{
+		GetCodeDeploymentFunc: func(_ context.Context, id, _ string) (*domain.CodeDeployment, error) {
+			return &domain.CodeDeployment{
+				ID:        id,
+				JobID:     jobID,
+				ProjectID: projectID,
+				Status:    domain.DeploymentStatusBuilding,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return pubsub.NewSubscription(logCh, func() {}), nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, pub)
+
+	path := fmt.Sprintf("/v1/jobs/%s/deployments/%s/logs?stream=true", jobID, deploymentID)
+	req := authedProjectRequest(http.MethodGet, path, "", projectID)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `{"done":true}`) {
+		t.Errorf("expected done sentinel in SSE output, got:\n%s", body)
+	}
+}
