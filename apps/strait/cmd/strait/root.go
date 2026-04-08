@@ -25,11 +25,6 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newServerCommand())
 	cmd.AddCommand(newMigrateCommand())
 	cmd.AddCommand(newVersionCommand())
-	cmd.AddCommand(newAuthCommand())
-	cmd.AddCommand(newDeployCommand())
-	cmd.AddCommand(newDeploymentsCommand())
-	cmd.AddCommand(newJobsCommand())
-	cmd.AddCommand(newInitCommand())
 
 	rawArgs := os.Args[1:]
 	cmd.SetArgs(normalizeLegacyArgs(rawArgs))
@@ -43,16 +38,11 @@ func normalizeLegacyArgs(args []string) []string {
 	}
 
 	subcommands := map[string]struct{}{
-		"serve":       {},
-		"server":      {},
-		"migrate":     {},
-		"version":     {},
-		"help":        {},
-		"auth":        {},
-		"deploy":      {},
-		"deployments": {},
-		"jobs":        {},
-		"init":        {},
+		"serve":   {},
+		"server":  {},
+		"migrate": {},
+		"version": {},
+		"help":    {},
 	}
 
 	first := args[0]
