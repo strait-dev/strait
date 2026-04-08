@@ -11,10 +11,15 @@ import type {
   NotificationMessage,
   NotificationProvider,
   NotificationTemplate,
+  NotifyCategoryType,
+  NotifyDeliveryChannel,
+  NotifyDigestPolicy,
   NotifyEscalationState,
+  NotifyMessageStatus,
   NotifyPolicyOverride,
   NotifyPreference,
   NotifySubscriber,
+  NotifySubscriberStatus,
   NotifySuppressionEvent,
   NotifyTopic,
   NotifyTriggerResponse,
@@ -24,12 +29,13 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-type NotifyDeliveriesSearch = ListParams & { status?: string };
+type NotifyDeliveriesSearch = ListParams & { status?: NotifyMessageStatus };
 type NotifySubscribersSearch = ListParams & {
-  status?: string;
+  status?: NotifySubscriberStatus;
   tenant_id?: string;
 };
 type NotifyTemplatesSearch = ListParams & { status?: string };
+type NotifyPolicyScopeType = NotifyPolicyOverride["scope_type"];
 
 type UpsertNotifySubscriberInput = {
   external_id: string;
@@ -63,11 +69,11 @@ type UpsertNotifyCategoryInput = {
   category_key: string;
   name: string;
   description?: string;
-  type?: string;
+  type?: NotifyCategoryType;
 };
 
 type UpsertNotifyProviderInput = {
-  channel: string;
+  channel: NotifyDeliveryChannel;
   provider: string;
   name: string;
   config: Record<string, object>;
@@ -79,8 +85,8 @@ type UpsertNotifyProviderInput = {
 type UpsertNotifyPolicyInput = {
   scope_type: "project" | "category" | "workflow_step";
   scope_key: string;
-  channel?: string;
-  digest_policy?: "instant" | "hourly" | "daily";
+  channel?: NotifyDeliveryChannel;
+  digest_policy?: NotifyDigestPolicy;
   retry_max_attempts?: number;
   retry_base_delay_secs?: number;
   retry_max_delay_secs?: number;
@@ -92,7 +98,7 @@ type UpsertNotifyPolicyInput = {
 type UpdateNotifyPolicyInput = Partial<
   Omit<UpsertNotifyPolicyInput, "scope_type" | "scope_key" | "channel">
 > & {
-  digest_policy?: "instant" | "hourly" | "daily";
+  digest_policy?: NotifyDigestPolicy;
 };
 
 type NotifyRecipientInput = {
@@ -105,7 +111,7 @@ type NotifyTriggerInput = {
   to: NotifyRecipientInput;
   template_key: string;
   payload?: Record<string, object>;
-  channels?: string[];
+  channels?: NotifyDeliveryChannel[];
   category_key?: string;
   workflow_run_id?: string;
   step_run_id?: string;
@@ -127,7 +133,7 @@ type UpdateNotifySubscriberPreferenceInput = {
   quiet_hours?: Record<string, object | string | number | boolean | null>;
   phone?: string;
   timezone?: string;
-  digest_policy?: string;
+  digest_policy?: NotifyDigestPolicy;
   critical_override?: boolean;
   rate_limit_override?: number;
 };
@@ -325,7 +331,7 @@ export const createNotifyUnsuppressFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
       subscriberId: string;
-      channel: string;
+      channel: NotifyDeliveryChannel;
       reason?: string;
       scope?: string;
       force?: boolean;
@@ -461,7 +467,7 @@ export const createNotificationCategoryFn = createServerFn({ method: "POST" })
   });
 
 export const fetchNotificationProviders = createServerFn({ method: "GET" })
-  .inputValidator((data: { channel?: string }) => data)
+  .inputValidator((data: { channel?: NotifyDeliveryChannel }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotificationProvider[]> => {
     return await runWithSentryReport(
@@ -508,7 +514,7 @@ export const deleteNotificationProviderFn = createServerFn({ method: "POST" })
   });
 
 export const fetchNotifyPolicyOverrides = createServerFn({ method: "GET" })
-  .inputValidator((data: { scope_type?: string }) => data)
+  .inputValidator((data: { scope_type?: NotifyPolicyScopeType }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data }): Promise<NotifyPolicyOverride[]> => {
     return await runWithSentryReport(
@@ -572,7 +578,7 @@ export const notifyPreviewFn = createServerFn({ method: "POST" })
       payload?: Record<string, object>;
       subscriber_id?: string;
       locale?: string;
-      channels?: string[];
+      channels?: NotifyDeliveryChannel[];
       category_key?: string;
       unsubscribe_scope?: string;
     }) => data
@@ -742,7 +748,7 @@ export const notifyCategoriesQueryOptions = () =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-export const notifyProvidersQueryOptions = (channel?: string) =>
+export const notifyProvidersQueryOptions = (channel?: NotifyDeliveryChannel) =>
   queryOptions({
     queryKey: queryKeys.notify.providers(channel).queryKey,
     queryFn: () => fetchNotificationProviders({ data: { channel } }),
@@ -750,7 +756,7 @@ export const notifyProvidersQueryOptions = (channel?: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-export const notifyPoliciesQueryOptions = (scope_type?: string) =>
+export const notifyPoliciesQueryOptions = (scope_type?: NotifyPolicyScopeType) =>
   queryOptions({
     queryKey: queryKeys.notify.policiesList({ scope_type }).queryKey,
     queryFn: () => fetchNotifyPolicyOverrides({ data: { scope_type } }),
@@ -851,7 +857,7 @@ export const useNotifyUnsuppressSubscriber = () => {
     mutationKey: ["notify", "subscribers", "unsuppress"],
     mutationFn: (data: {
       subscriberId: string;
-      channel: string;
+      channel: NotifyDeliveryChannel;
       reason?: string;
       scope?: string;
       force?: boolean;
@@ -1059,7 +1065,7 @@ export const useNotifyPreview = () => {
       payload?: Record<string, object>;
       subscriber_id?: string;
       locale?: string;
-      channels?: string[];
+      channels?: NotifyDeliveryChannel[];
       category_key?: string;
       unsubscribe_scope?: string;
     }) => notifyPreviewFn({ data }),

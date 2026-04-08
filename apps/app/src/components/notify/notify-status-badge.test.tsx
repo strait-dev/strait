@@ -11,9 +11,14 @@ describe("NotifyStatusBadge", () => {
     expect(screen.getByText("In Progress")).toBeTruthy();
   });
 
-  it("renders known delivery status", () => {
-    render(<NotifyStatusBadge status="delivered" />);
+  it("renders known delivery statuses", () => {
+    render(<NotifyStatusBadge status="rendering" />);
+    expect(screen.getByText("Rendering")).toBeTruthy();
 
+    render(<NotifyStatusBadge status="cancelled" />);
+    expect(screen.getByText("Cancelled")).toBeTruthy();
+
+    render(<NotifyStatusBadge status="delivered" />);
     expect(screen.getByText("Delivered")).toBeTruthy();
   });
 

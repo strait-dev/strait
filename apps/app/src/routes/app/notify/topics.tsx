@@ -96,6 +96,16 @@ function NotifyTopicsPage() {
     [subscribers]
   );
 
+  const isTopicCreateDisabled =
+    createTopic.isPending ||
+    !topicKey.trim() ||
+    !topicName.trim() ||
+    !isNotifyScopedKey(topicKey);
+  const isMembershipSelectionMissing =
+    !(selectedTopicKey && selectedSubscriberID);
+  const isMembershipPending =
+    addSubscriber.isPending || removeSubscriber.isPending;
+
   if (!hasProject) {
     return (
       <Shell>
@@ -212,7 +222,7 @@ function NotifyTopicsPage() {
                 value={topicDescription}
               />
             </div>
-            <Button disabled={createTopic.isPending} onClick={create}>
+            <Button disabled={isTopicCreateDisabled} onClick={create}>
               Create topic
             </Button>
           </CardContent>
@@ -265,19 +275,13 @@ function NotifyTopicsPage() {
             </div>
             <div className="flex gap-2">
               <Button
-                disabled={
-                  !(selectedTopicKey && selectedSubscriberID) ||
-                  addSubscriber.isPending
-                }
+                disabled={isMembershipSelectionMissing || isMembershipPending}
                 onClick={add}
               >
                 Add subscriber
               </Button>
               <Button
-                disabled={
-                  !(selectedTopicKey && selectedSubscriberID) ||
-                  removeSubscriber.isPending
-                }
+                disabled={isMembershipSelectionMissing || isMembershipPending}
                 onClick={remove}
                 variant="outline"
               >

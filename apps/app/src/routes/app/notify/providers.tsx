@@ -33,7 +33,10 @@ import { useMemo, useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
-import type { NotificationProvider } from "@/hooks/api/types";
+import type {
+  NotificationProvider,
+  NotifyDeliveryChannel,
+} from "@/hooks/api/types";
 import {
   notifyProvidersQueryOptions,
   useCreateNotificationProvider,
@@ -56,10 +59,12 @@ export const Route = createFileRoute("/app/notify/providers")({
   component: NotifyProvidersPage,
 });
 
-const providerChannelOptions = ["email"] as const;
+const providerChannelOptions: readonly NotifyDeliveryChannel[] = [
+  "email",
+] as const;
 const providerTypeOptions = ["ses"] as const;
 
-const toKnownChannel = (value: string | undefined) =>
+const toKnownChannel = (value: NotifyDeliveryChannel | undefined) =>
   providerChannelOptions.find((option) => option === value) ?? "email";
 
 const toKnownProvider = (value: string | undefined) =>
@@ -229,7 +234,9 @@ function NotifyProvidersPage() {
               <div className="space-y-1">
                 <Label htmlFor="provider-channel">Channel</Label>
                 <Select
-                  onValueChange={(value) => setChannel(value as "email")}
+                  onValueChange={(value) =>
+                    setChannel(value as NotifyDeliveryChannel)
+                  }
                   value={channel}
                 >
                   <SelectTrigger id="provider-channel">

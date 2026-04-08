@@ -25,6 +25,7 @@ import { useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import type { NotifyDeliveryChannel } from "@/hooks/api/types";
 import {
   notifySubscribersQueryOptions,
   notifyTemplatesQueryOptions,
@@ -52,7 +53,10 @@ export const Route = createFileRoute("/app/notify/compose")({
 });
 
 const recipientTypeOptions = ["subscriber", "topic"] as const;
-const channelOptions = ["inbox", "email"] as const;
+const channelOptions: readonly NotifyDeliveryChannel[] = [
+  "inbox",
+  "email",
+] as const;
 
 function NotifyComposePage() {
   const { hasProject, session } = Route.useLoaderData();
@@ -75,10 +79,8 @@ function NotifyComposePage() {
   const [recipientID, setRecipientID] = useState("");
   const [recipientKey, setRecipientKey] = useState("");
   const [templateKey, setTemplateKey] = useState("");
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([
-    "inbox",
-    "email",
-  ]);
+  const [selectedChannels, setSelectedChannels] =
+    useState<NotifyDeliveryChannel[]>(["inbox", "email"]);
   const [categoryKey, setCategoryKey] = useState("");
   const [payloadJSON, setPayloadJSON] = useState(
     JSON.stringify(
@@ -114,7 +116,7 @@ function NotifyComposePage() {
     }
   };
 
-  const parseChannels = () => selectedChannels.filter(Boolean);
+  const parseChannels = (): NotifyDeliveryChannel[] => [...selectedChannels];
 
   const validateRecipient = () => {
     if (recipientType === "topic") {

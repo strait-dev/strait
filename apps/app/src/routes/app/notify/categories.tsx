@@ -31,6 +31,7 @@ import { useMemo, useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import type { NotifyCategoryType } from "@/hooks/api/types";
 import {
   notifyCategoriesQueryOptions,
   useCreateNotificationCategory,
@@ -38,7 +39,7 @@ import {
 import { isNotifyScopedKey } from "@/lib/notify-form";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const notifyCategoryTypeOptions = [
+const notifyCategoryTypeOptions: readonly NotifyCategoryType[] = [
   "product",
   "transactional",
   "critical",
@@ -70,8 +71,7 @@ function NotifyCategoriesPage() {
   const [categoryKey, setCategoryKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [type, setType] =
-    useState<(typeof notifyCategoryTypeOptions)[number]>("product");
+  const [type, setType] = useState<NotifyCategoryType>("product");
 
   const categories = categoriesQuery.data ?? [];
 
@@ -82,6 +82,12 @@ function NotifyCategoriesPage() {
       ),
     [categories]
   );
+
+  const isCategoryCreateDisabled =
+    createCategory.isPending ||
+    !categoryKey.trim() ||
+    !name.trim() ||
+    !isNotifyScopedKey(categoryKey);
 
   if (!hasProject) {
     return (
@@ -164,9 +170,7 @@ function NotifyCategoriesPage() {
             <div className="space-y-1 md:col-span-2">
               <Label htmlFor="category-type">Type</Label>
               <Select
-                onValueChange={(value) =>
-                  setType(value as (typeof notifyCategoryTypeOptions)[number])
-                }
+                onValueChange={(value) => setType(value as NotifyCategoryType)}
                 value={type}
               >
                 <SelectTrigger id="category-type">
@@ -182,7 +186,7 @@ function NotifyCategoriesPage() {
               </Select>
             </div>
           </div>
-          <Button disabled={createCategory.isPending} onClick={create}>
+          <Button disabled={isCategoryCreateDisabled} onClick={create}>
             Create category
           </Button>
         </CardContent>

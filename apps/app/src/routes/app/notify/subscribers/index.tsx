@@ -18,7 +18,7 @@ import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -36,7 +36,10 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { NotifySubscriber } from "@/hooks/api/types";
+import type {
+  NotifySubscriber,
+  NotifySubscriberStatus,
+} from "@/hooks/api/types";
 import {
   notifySubscribersQueryOptions,
   useCreateNotifySubscriber,
@@ -96,6 +99,24 @@ const columns: ColumnDef<NotifySubscriber>[] = [
     accessorKey: "created_at",
     header: "Created",
     cell: ({ row }) => new Date(row.original.created_at).toLocaleString(),
+  },
+  {
+    id: "actions",
+    header: "Actions",
+    cell: ({ row }) => (
+      <Button
+        render={
+          <Link
+            params={{ id: row.original.id }}
+            to="/app/notify/subscribers/$id"
+          />
+        }
+        size="sm"
+        variant="outline"
+      >
+        View
+      </Button>
+    ),
   },
 ];
 
@@ -163,7 +184,7 @@ function NotifySubscribersPage() {
     );
   }
 
-  const toggleStatus = (status: string) => {
+  const toggleStatus = (status: NotifySubscriberStatus) => {
     setCursor(undefined);
     setCursorHistory([]);
 
@@ -226,6 +247,9 @@ function NotifySubscribersPage() {
     setNewEmail("");
   };
 
+  const isCreateSubscriberDisabled =
+    createSubscriber.isPending || !newExternalID.trim();
+
   return (
     <Shell>
       <Card className="mb-4">
@@ -247,7 +271,7 @@ function NotifySubscribersPage() {
               placeholder="email@example.com"
               value={newEmail}
             />
-            <Button disabled={createSubscriber.isPending} onClick={create}>
+            <Button disabled={isCreateSubscriberDisabled} onClick={create}>
               <HugeiconsIcon className="mr-1.5 size-4" icon={PlusIcon} />
               Create
             </Button>
@@ -301,49 +325,17 @@ function NotifySubscribersPage() {
         </DropdownMenu>
       </div>
 
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table rows */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(event) => {
-          const target = event.target as HTMLElement;
-          if (target.closest("a, button")) {
-            return;
-          }
-
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-
-          const index = Number(row.getAttribute("data-row-index"));
-          const subscriber = table.getRowModel().rows[index]?.original;
-          if (!subscriber) {
-            return;
-          }
-
-          navigate({
-            to: "/app/notify/subscribers/$id",
-            params: { id: subscriber.id },
-          });
-        }}
-      >
-        <DataTable
-          emptyState={
-            <TableEmptyState
-              description="No subscribers found for this project."
-              hideButton
-              icon={
-                <HugeiconsIcon
-                  className="size-6 text-foreground"
-                  icon={MailIcon}
-                />
-              }
-              title="No subscribers"
-            />
-          }
-          table={table}
-        />
-      </div>
+      <DataTable
+        emptyState={
+          <TableEmptyState
+            description="No subscribers found for this project."
+            hideButton
+            icon={<HugeiconsIcon className="size-6 text-foreground" icon={MailIcon} />}
+            title="No subscribers"
+          />
+        }
+        table={table}
+      />
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <p className="text-muted-foreground text-xs">
@@ -351,6 +343,7 @@ function NotifySubscribersPage() {
         </p>
         <div className="flex gap-2">
           <Button
+            aria-label="Go to previous subscribers page"
             disabled={cursorHistory.length === 0 || subscribersQuery.isFetching}
             onClick={goToPreviousPage}
             variant="outline"
@@ -358,6 +351,7 @@ function NotifySubscribersPage() {
             Previous page
           </Button>
           <Button
+            aria-label="Go to next subscribers page"
             disabled={!nextCursor || subscribersQuery.isFetching}
             onClick={goToNextPage}
             variant="outline"

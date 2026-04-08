@@ -1,3 +1,8 @@
+import type {
+  NotifyMessageStatus,
+  NotifySubscriberStatus,
+} from "@/hooks/api/types";
+
 /**
  * Centralized status styling and configuration for all entities.
  * Import from here instead of defining inline in routes/components.
@@ -58,20 +63,19 @@ export const ENABLED_STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 export const WEBHOOK_STATUS_OPTIONS = ["Active", "Inactive"] as const;
 
 // Notify delivery and subscriber status options
-export const NOTIFY_DELIVERY_STATUS_OPTIONS = [
+export const NOTIFY_DELIVERY_STATUS_OPTIONS: readonly NotifyMessageStatus[] = [
+  "rendering",
   "scheduled",
   "pending",
   "processing",
   "delivered",
   "failed",
   "bounced",
+  "cancelled",
 ] as const;
 
-export const NOTIFY_SUBSCRIBER_STATUS_OPTIONS = [
-  "active",
-  "unsubscribed",
-  "deleted",
-] as const;
+export const NOTIFY_SUBSCRIBER_STATUS_OPTIONS: readonly NotifySubscriberStatus[] =
+  ["active", "unsubscribed", "deleted"] as const;
 
 // DLQ error type options
 export const DLQ_ERROR_TYPES = [

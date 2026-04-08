@@ -280,7 +280,7 @@ export type NotifyPolicyOverride = {
   project_id: string;
   scope_type: "project" | "category" | "workflow_step";
   scope_key: string;
-  channel?: string;
+  channel?: NotifyDeliveryChannel;
   digest_policy?: NotifyDigestPolicy;
   retry_max_attempts?: number | null;
   retry_base_delay_secs?: number | null;
@@ -313,7 +313,7 @@ export type NotifySuppressionEvent = {
   recipient_type: string;
   recipient_id: string;
   scope: string;
-  channel: string;
+  channel: NotifyDeliveryChannel;
   action: "suppressed" | "unsuppressed";
   reason?: string;
   source: string;

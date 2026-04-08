@@ -28,7 +28,10 @@ import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
 import { DataTable } from "@/components/ui/data-table/data-table";
-import type { NotificationMessage } from "@/hooks/api/types";
+import type {
+  NotificationMessage,
+  NotifyMessageStatus,
+} from "@/hooks/api/types";
 import { notifyDeliveriesQueryOptions } from "@/hooks/api/use-notify";
 import { FilterIcon, MailIcon, SearchIcon } from "@/lib/icons";
 import {
@@ -160,7 +163,7 @@ function NotifyDeliveriesPage() {
     );
   }
 
-  const toggleStatus = (status: string) => {
+  const toggleStatus = (status: NotifyMessageStatus) => {
     setCursor(undefined);
     setCursorHistory([]);
 
@@ -272,6 +275,7 @@ function NotifyDeliveriesPage() {
         </p>
         <div className="flex gap-2">
           <Button
+            aria-label="Go to previous deliveries page"
             disabled={cursorHistory.length === 0 || deliveriesQuery.isFetching}
             onClick={goToPreviousPage}
             variant="outline"
@@ -279,6 +283,7 @@ function NotifyDeliveriesPage() {
             Previous page
           </Button>
           <Button
+            aria-label="Go to next deliveries page"
             disabled={!nextCursor || deliveriesQuery.isFetching}
             onClick={goToNextPage}
             variant="outline"

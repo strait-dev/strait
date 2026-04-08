@@ -232,6 +232,8 @@ function NotifyTemplatesPage() {
     createTemplate.isPending ||
     updateTemplate.isPending ||
     previewTemplate.isPending;
+  const isUpsertDisabled =
+    isWorking || !(selectedTemplate || templateKey.trim());
 
   const goToNextPage = () => {
     if (!nextCursor) {
@@ -313,11 +315,11 @@ function NotifyTemplatesPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button disabled={isWorking} onClick={upsertTemplate}>
+              <Button disabled={isUpsertDisabled} onClick={upsertTemplate}>
                 {selectedTemplate ? "Update template" : "Create template"}
               </Button>
               {selectedTemplate ? (
-                <Button onClick={resetForm} variant="outline">
+                <Button disabled={isWorking} onClick={resetForm} variant="outline">
                   Cancel edit
                 </Button>
               ) : null}
@@ -417,6 +419,7 @@ function NotifyTemplatesPage() {
             </p>
             <div className="flex gap-2">
               <Button
+                aria-label="Go to previous templates page"
                 disabled={
                   cursorHistory.length === 0 ||
                   templatesQuery.isFetching ||
@@ -428,6 +431,7 @@ function NotifyTemplatesPage() {
                 Previous page
               </Button>
               <Button
+                aria-label="Go to next templates page"
                 disabled={!nextCursor || templatesQuery.isFetching || isWorking}
                 onClick={goToNextPage}
                 variant="outline"

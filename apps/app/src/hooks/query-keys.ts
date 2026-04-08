@@ -1,5 +1,10 @@
 import { createQueryKeyStore } from "@lukemorales/query-key-factory";
-import type { ListParams } from "@/hooks/api/types";
+import type {
+  ListParams,
+  NotifyMessageStatus,
+  NotifyPolicyOverride,
+  NotifySubscriberStatus,
+} from "@/hooks/api/types";
 
 type ListJobsSearch = ListParams & { status?: string; search?: string };
 type ListRunsSearch = ListParams & {
@@ -16,13 +21,15 @@ type ListEventsSearch = ListParams & {
   source_type?: string;
 };
 type ListDlqSearch = ListParams & { search?: string };
-type ListNotifyDeliveriesSearch = ListParams & { status?: string };
+type ListNotifyDeliveriesSearch = ListParams & { status?: NotifyMessageStatus };
 type ListNotifySubscribersSearch = ListParams & {
-  status?: string;
+  status?: NotifySubscriberStatus;
   tenant_id?: string;
 };
 type ListNotifyTemplatesSearch = ListParams & { status?: string };
-type ListNotifyPoliciesSearch = { scope_type?: string };
+type ListNotifyPoliciesSearch = {
+  scope_type?: NotifyPolicyOverride["scope_type"];
+};
 
 /**
  * Centralized query key store for the entire application.

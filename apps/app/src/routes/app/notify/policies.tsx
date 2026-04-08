@@ -32,7 +32,11 @@ import { useMemo, useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
-import type { NotifyPolicyOverride } from "@/hooks/api/types";
+import type {
+  NotifyDeliveryChannel,
+  NotifyDigestPolicy,
+  NotifyPolicyOverride,
+} from "@/hooks/api/types";
 import {
   notifyPoliciesQueryOptions,
   useCreateNotifyPolicyOverride,
@@ -56,13 +60,21 @@ export const Route = createFileRoute("/app/notify/policies")({
 });
 
 const scopeTypeOptions = ["project", "category", "workflow_step"] as const;
-const digestOptions = ["instant", "hourly", "daily"] as const;
-const channelOptions = ["*", "email", "inbox"] as const;
+const digestOptions: readonly NotifyDigestPolicy[] = [
+  "instant",
+  "hourly",
+  "daily",
+] as const;
+const channelOptions: readonly (NotifyDeliveryChannel | "*")[] = [
+  "*",
+  "email",
+  "inbox",
+] as const;
 
-const toKnownChannel = (value: string | undefined) =>
+const toKnownChannel = (value: NotifyDeliveryChannel | undefined) =>
   channelOptions.find((option) => option === value) ?? "*";
 
-const toKnownDigest = (value: string | undefined) =>
+const toKnownDigest = (value: NotifyDigestPolicy | undefined) =>
   digestOptions.find((option) => option === value) ?? "instant";
 
 function NotifyPoliciesPage() {
