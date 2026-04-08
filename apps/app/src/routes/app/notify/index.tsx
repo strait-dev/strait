@@ -245,7 +245,10 @@ function NotifyOverviewPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link className="text-primary text-sm underline" to="/app/notify/ops">
+            <Link
+              className="text-primary text-sm underline"
+              to="/app/notify/ops"
+            >
               Open ops
             </Link>
           </CardContent>

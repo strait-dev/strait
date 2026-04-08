@@ -17,6 +17,12 @@ describe("NotifyStatusBadge", () => {
     expect(screen.getByText("Delivered")).toBeTruthy();
   });
 
+  it("renders ops health statuses", () => {
+    render(<NotifyStatusBadge status="critical" />);
+
+    expect(screen.getByText("Critical")).toBeTruthy();
+  });
+
   it("falls back to unknown label", () => {
     render(<NotifyStatusBadge status="" />);
 

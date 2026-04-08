@@ -36,7 +36,9 @@ export const Route = createFileRoute("/app/notify/ops")({
         context.queryClient.ensureQueryData(
           notifySubscribersQueryOptions({ limit: 200 })
         ),
-        context.queryClient.ensureQueryData(notifyProvidersQueryOptions("email")),
+        context.queryClient.ensureQueryData(
+          notifyProvidersQueryOptions("email")
+        ),
         context.queryClient.ensureQueryData(notifyPoliciesQueryOptions()),
       ]);
     }
@@ -124,7 +126,9 @@ function NotifyOpsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Error rate</CardTitle>
-            <CardDescription>Failed + bounced deliveries (last 200)</CardDescription>
+            <CardDescription>
+              Failed + bounced deliveries (last 200)
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-2xl">{(snapshot.errorRate * 100).toFixed(1)}%</p>
@@ -138,7 +142,9 @@ function NotifyOpsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Providers</CardTitle>
-            <CardDescription>Email provider health and defaults</CardDescription>
+            <CardDescription>
+              Email provider health and defaults
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-2xl">
@@ -155,7 +161,9 @@ function NotifyOpsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Suppression pressure</CardTitle>
-            <CardDescription>Suppressed messages in current window</CardDescription>
+            <CardDescription>
+              Suppressed messages in current window
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-2xl">{snapshot.suppressedDeliveries}</p>
@@ -205,7 +213,10 @@ function NotifyOpsPage() {
                 Open failed and bounced deliveries
               </Link>
               <div>
-                <Link className="text-primary underline" to="/app/notify/policies">
+                <Link
+                  className="text-primary underline"
+                  to="/app/notify/policies"
+                >
                   Review policy overrides
                 </Link>
               </div>

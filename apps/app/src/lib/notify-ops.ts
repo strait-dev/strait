@@ -53,7 +53,9 @@ export const buildNotifyOpsSnapshot = ({
   ).length;
   const pendingDeliveries = deliveries.filter((item) => {
     const status = item.status.toLowerCase();
-    return status === "pending" || status === "processing" || status === "scheduled";
+    return (
+      status === "pending" || status === "processing" || status === "scheduled"
+    );
   }).length;
 
   const inactiveSubscribers = subscribers.filter(
@@ -74,7 +76,9 @@ export const buildNotifyOpsSnapshot = ({
   const policyOverrides = policies.length;
 
   const errorRate =
-    totalDeliveries === 0 ? 0 : (failedDeliveries + bouncedDeliveries) / totalDeliveries;
+    totalDeliveries === 0
+      ? 0
+      : (failedDeliveries + bouncedDeliveries) / totalDeliveries;
 
   const reasons: string[] = [];
 
