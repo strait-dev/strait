@@ -4,7 +4,10 @@
     "uid": "strait-platform",
     "timezone": "browser",
     "refresh": "30s",
-    "tags": ["strait", "production"],
+    "tags": [
+      "strait",
+      "production"
+    ],
     "templating": {
       "list": [
         {
@@ -13,18 +16,40 @@
           "datasource": "Prometheus",
           "query": "label_values(kube_pod_info, namespace)",
           "refresh": 1,
-          "current": { "text": "strait", "value": "strait" }
+          "current": {
+            "text": "strait",
+            "value": "strait"
+          }
         },
         {
           "name": "interval",
           "type": "interval",
           "options": [
-            { "text": "1m", "value": "1m", "selected": false },
-            { "text": "5m", "value": "5m", "selected": true },
-            { "text": "15m", "value": "15m", "selected": false },
-            { "text": "1h", "value": "1h", "selected": false }
+            {
+              "text": "1m",
+              "value": "1m",
+              "selected": false
+            },
+            {
+              "text": "5m",
+              "value": "5m",
+              "selected": true
+            },
+            {
+              "text": "15m",
+              "value": "15m",
+              "selected": false
+            },
+            {
+              "text": "1h",
+              "value": "1h",
+              "selected": false
+            }
           ],
-          "current": { "text": "5m", "value": "5m" }
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          }
         },
         {
           "name": "pod",
@@ -42,16 +67,36 @@
         "title": "Health Score",
         "description": "Composite platform health score (0-5). Based on: job success rate, queue depth, dispatch error rate, HTTP P99 latency, and pod readiness. 5 = fully healthy, 0 = critical.",
         "type": "gauge",
-        "gridPos": { "h": 7, "w": 5, "x": 0, "y": 0 },
+        "gridPos": {
+          "h": 7,
+          "w": 5,
+          "x": 0,
+          "y": 0
+        },
         "fieldConfig": {
           "defaults": {
             "thresholds": {
               "steps": [
-                { "color": "red", "value": null },
-                { "color": "orange", "value": 1 },
-                { "color": "yellow", "value": 2 },
-                { "color": "#73BF69", "value": 3 },
-                { "color": "green", "value": 4 }
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 1
+                },
+                {
+                  "color": "yellow",
+                  "value": 2
+                },
+                {
+                  "color": "#73BF69",
+                  "value": 3
+                },
+                {
+                  "color": "green",
+                  "value": 4
+                }
               ]
             },
             "min": 0,
@@ -70,15 +115,32 @@
         "title": "Job Success Rate (North Star)",
         "description": "Percentage of runs completing successfully. The platform's north star metric.",
         "type": "gauge",
-        "gridPos": { "h": 7, "w": 4, "x": 5, "y": 0 },
+        "gridPos": {
+          "h": 7,
+          "w": 4,
+          "x": 5,
+          "y": 0
+        },
         "fieldConfig": {
           "defaults": {
             "thresholds": {
               "steps": [
-                { "color": "red", "value": null },
-                { "color": "orange", "value": 90 },
-                { "color": "yellow", "value": 95 },
-                { "color": "green", "value": 99 }
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 90
+                },
+                {
+                  "color": "yellow",
+                  "value": 95
+                },
+                {
+                  "color": "green",
+                  "value": 99
+                }
               ]
             },
             "unit": "percent",
@@ -97,464 +159,1202 @@
         "title": "Active Jobs",
         "description": "K8s job pods currently running managed execution.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 9, "y": 0 },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 9,
+          "y": 0
+        },
         "targets": [
-          { "expr": "strait_k8s_jobs_active", "legendFormat": "Active" }
+          {
+            "expr": "strait_k8s_jobs_active",
+            "legendFormat": "Active"
+          }
         ]
       },
       {
         "title": "Queue Depth",
         "description": "Jobs waiting to be dequeued and dispatched.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 12, "y": 0 },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 12,
+          "y": 0
+        },
         "targets": [
-          { "expr": "strait_queue_depth", "legendFormat": "Queued" }
+          {
+            "expr": "strait_queue_depth",
+            "legendFormat": "Queued"
+          }
         ]
       },
       {
         "title": "DLQ Depth",
-        "description": "Dead letter queue — jobs that failed all retries. Should be 0.",
+        "description": "Dead letter queue \u2014 jobs that failed all retries. Should be 0.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 15, "y": 0 },
-        "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 15,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        },
         "targets": [
-          { "expr": "strait_dlq_depth", "legendFormat": "Dead Letters" }
+          {
+            "expr": "strait_dlq_depth",
+            "legendFormat": "Dead Letters"
+          }
         ]
       },
       {
         "title": "HTTP req/s",
         "description": "Total API requests per second across all endpoints.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 18, "y": 0 },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 18,
+          "y": 0
+        },
         "targets": [
-          { "expr": "sum(rate(strait_http_request_duration_count[$interval]))", "legendFormat": "req/s" }
+          {
+            "expr": "sum(rate(strait_http_request_duration_count[$interval]))",
+            "legendFormat": "req/s"
+          }
         ]
       },
       {
         "title": "Worker Pool",
         "description": "Worker pool utilization. Above 90% = at risk of dropping tasks.",
         "type": "gauge",
-        "gridPos": { "h": 3, "w": 3, "x": 21, "y": 0 },
-        "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }] } } },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 21,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 70
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            }
+          }
+        },
         "targets": [
-          { "expr": "100 * strait_pool_running_workers / clamp_min(strait_pool_running_workers + strait_pool_waiting_tasks, 1)", "legendFormat": "%" }
+          {
+            "expr": "100 * strait_pool_running_workers / clamp_min(strait_pool_running_workers + strait_pool_waiting_tasks, 1)",
+            "legendFormat": "%"
+          }
         ]
       },
       {
         "title": "DB Pool",
         "description": "Active database connections out of the configured maximum.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 9, "y": 3 },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 9,
+          "y": 3
+        },
         "targets": [
-          { "expr": "strait_db_pool_acquired_conns", "legendFormat": "In Use" }
+          {
+            "expr": "strait_db_pool_acquired_conns",
+            "legendFormat": "In Use"
+          }
         ]
       },
       {
         "title": "Pod Ready",
         "description": "Strait pods in Ready state vs total desired replicas.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 12, "y": 3 },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 12,
+          "y": 3
+        },
         "targets": [
-          { "expr": "kube_deployment_status_replicas_available{deployment=\"strait\",namespace=\"strait\"}", "legendFormat": "Ready" }
+          {
+            "expr": "kube_deployment_status_replicas_available{deployment=\"strait\",namespace=\"strait\"}",
+            "legendFormat": "Ready"
+          }
         ]
       },
       {
         "title": "Restarts (1h)",
         "description": "Container restarts in the last hour. Non-zero indicates crash loops.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 15, "y": 3 },
-        "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 15,
+          "y": 3
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 1
+                },
+                {
+                  "color": "red",
+                  "value": 5
+                }
+              ]
+            }
+          }
+        },
         "targets": [
-          { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"strait\"}[1h]))", "legendFormat": "Restarts" }
+          {
+            "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"strait\"}[1h]))",
+            "legendFormat": "Restarts"
+          }
         ]
       },
       {
         "title": "HPA Replicas",
         "description": "Current vs max HPA replicas for the strait deployment.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 18, "y": 3 },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 18,
+          "y": 3
+        },
         "targets": [
-          { "expr": "kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=\"strait\"}", "legendFormat": "Current" }
+          {
+            "expr": "kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=\"strait\"}",
+            "legendFormat": "Current"
+          }
         ]
       },
       {
         "title": "Nodes Ready",
         "description": "Number of cluster nodes in Ready state.",
         "type": "stat",
-        "gridPos": { "h": 3, "w": 3, "x": 21, "y": 3 },
-        "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 2 }] } } },
+        "gridPos": {
+          "h": 3,
+          "w": 3,
+          "x": 21,
+          "y": 3
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 2
+                }
+              ]
+            }
+          }
+        },
         "targets": [
-          { "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})", "legendFormat": "Ready" }
+          {
+            "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})",
+            "legendFormat": "Ready"
+          }
         ]
       },
-
       {
         "title": "Run Transitions",
         "description": "Rate of run state transitions by target status (completed, failed, timed_out, cancelled).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 7 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 7
+        },
         "targets": [
-          { "expr": "sum(rate(strait_run_transitions[$interval])) by (to)", "legendFormat": "{{to}}" }
+          {
+            "expr": "sum(rate(strait_run_transitions[$interval])) by (to)",
+            "legendFormat": "{{to}}"
+          }
         ]
       },
       {
         "title": "Run Duration P50 / P99",
         "description": "Job execution duration percentiles. P99 spike = slow jobs or resource contention.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 7 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 7
+        },
         "targets": [
-          { "expr": "histogram_quantile(0.5, sum(rate(strait_run_duration_bucket[$interval])) by (le))", "legendFormat": "P50" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_run_duration_bucket[$interval])) by (le))", "legendFormat": "P99" }
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(strait_run_duration_bucket[$interval])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_run_duration_bucket[$interval])) by (le))",
+            "legendFormat": "P99"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
       },
       {
         "title": "Dispatch Duration + Errors",
         "description": "Time to dispatch jobs to containers. Errors indicate runtime failures.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 7 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 7
+        },
         "targets": [
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_dispatch_duration_bucket[$interval])) by (le))", "legendFormat": "Dispatch P99" },
-          { "expr": "sum(rate(strait_dispatch_errors[$interval]))", "legendFormat": "Errors" }
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_dispatch_duration_bucket[$interval])) by (le))",
+            "legendFormat": "Dispatch P99"
+          },
+          {
+            "expr": "sum(rate(strait_dispatch_errors[$interval]))",
+            "legendFormat": "Errors"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
       },
-
       {
         "title": "Job Create Rate (by preset)",
         "description": "K8s job creation rate grouped by machine preset (micro, small, medium, large).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 15
+        },
         "targets": [
-          { "expr": "sum(rate(strait_k8s_job_create_total[$interval])) by (preset)", "legendFormat": "{{preset}}" }
+          {
+            "expr": "sum(rate(strait_k8s_job_create_total[$interval])) by (preset)",
+            "legendFormat": "{{preset}}"
+          }
         ]
       },
       {
         "title": "Pod Scheduling Latency (Cold Start)",
         "description": "Time from job creation to pod running. High values = node autoscaling or image pull delays.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 15
+        },
         "targets": [
-          { "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "P50" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "P99" }
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "P99"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
       },
       {
         "title": "Job Wait + Create Duration",
         "description": "Total time from job creation to completion. Create duration = K8s API call time. Fallback rate = jobs routed to secondary runtime.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 15
+        },
         "targets": [
-          { "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Wait P50" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Wait P99" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_create_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "Create P99" },
-          { "expr": "sum(rate(strait_compute_fallback_total[$interval]))", "legendFormat": "Fallback/s" }
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "Wait P50"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "Wait P99"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_create_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "Create P99"
+          },
+          {
+            "expr": "sum(rate(strait_compute_fallback_total[$interval]))",
+            "legendFormat": "Fallback/s"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
       },
-
       {
         "title": "Webhook Delivery Rate",
         "description": "Webhook delivery attempts per second by status (success/failure).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 23
+        },
         "targets": [
-          { "expr": "sum(rate(strait_webhook_deliveries_total[$interval])) by (status)", "legendFormat": "{{status}}" }
+          {
+            "expr": "sum(rate(strait_webhook_deliveries_total[$interval])) by (status)",
+            "legendFormat": "{{status}}"
+          }
         ]
       },
       {
         "title": "Webhook Duration P50 / P99",
         "description": "Webhook delivery latency. High P99 indicates slow downstream endpoints.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 23
+        },
         "targets": [
-          { "expr": "histogram_quantile(0.5, sum(rate(strait_webhook_delivery_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "P50" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_webhook_delivery_duration_seconds_bucket[$interval])) by (le))", "legendFormat": "P99" }
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(strait_webhook_delivery_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_webhook_delivery_duration_seconds_bucket[$interval])) by (le))",
+            "legendFormat": "P99"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
       },
       {
         "title": "Circuit Breaker + Backlog",
         "description": "Webhook circuit breaker state (0=closed, 1=open) and delivery backlog depth.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 23
+        },
         "targets": [
-          { "expr": "strait_webhook_circuit_breaker_state", "legendFormat": "Circuit {{endpoint}}" },
-          { "expr": "strait_webhook_backlog_depth", "legendFormat": "Backlog" }
+          {
+            "expr": "strait_webhook_circuit_breaker_state",
+            "legendFormat": "Circuit {{endpoint}}"
+          },
+          {
+            "expr": "strait_webhook_backlog_depth",
+            "legendFormat": "Backlog"
+          }
         ]
       },
-
       {
         "title": "Workflow Triggers + Steps",
         "description": "Workflow trigger rate, step progressions, and stalled runs.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 31 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 31
+        },
         "targets": [
-          { "expr": "sum(rate(strait_workflow_triggers[$interval]))", "legendFormat": "Triggers" },
-          { "expr": "sum(rate(strait_workflow_step_progressions[$interval]))", "legendFormat": "Steps" },
-          { "expr": "sum(rate(strait_workflow_stalled_runs[$interval]))", "legendFormat": "Stalled" }
+          {
+            "expr": "sum(rate(strait_workflow_triggers[$interval]))",
+            "legendFormat": "Triggers"
+          },
+          {
+            "expr": "sum(rate(strait_workflow_step_progressions[$interval]))",
+            "legendFormat": "Steps"
+          },
+          {
+            "expr": "sum(rate(strait_workflow_stalled_runs[$interval]))",
+            "legendFormat": "Stalled"
+          }
         ]
       },
       {
         "title": "Event Triggers",
         "description": "Event trigger lifecycle: created, received, and timed out.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 31 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 31
+        },
         "targets": [
-          { "expr": "sum(rate(strait_event_triggers_created_total[$interval]))", "legendFormat": "Created" },
-          { "expr": "sum(rate(strait_event_triggers_received_total[$interval]))", "legendFormat": "Received" },
-          { "expr": "sum(rate(strait_event_triggers_timed_out_total[$interval]))", "legendFormat": "Timed Out" }
+          {
+            "expr": "sum(rate(strait_event_triggers_created_total[$interval]))",
+            "legendFormat": "Created"
+          },
+          {
+            "expr": "sum(rate(strait_event_triggers_received_total[$interval]))",
+            "legendFormat": "Received"
+          },
+          {
+            "expr": "sum(rate(strait_event_triggers_timed_out_total[$interval]))",
+            "legendFormat": "Timed Out"
+          }
         ]
       },
       {
         "title": "Cron Triggers",
         "description": "Cron scheduler trigger rate by status (success/failure/skipped).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 31 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 31
+        },
         "targets": [
-          { "expr": "sum(rate(strait_scheduler_cron_triggers_total[$interval])) by (status)", "legendFormat": "{{status}}" }
+          {
+            "expr": "sum(rate(strait_scheduler_cron_triggers_total[$interval])) by (status)",
+            "legendFormat": "{{status}}"
+          }
         ]
       },
-
       {
         "title": "Pod Status by Phase",
         "description": "K8s pod distribution: Running (healthy), Pending (waiting), Failed, Succeeded.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 39 },
-        "options": { "stacking": { "mode": "normal" } },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 39
+        },
+        "options": {
+          "stacking": {
+            "mode": "normal"
+          }
+        },
         "targets": [
-          { "expr": "sum(kube_pod_status_phase{namespace=~\"strait|default\"}) by (phase)", "legendFormat": "{{phase}}" }
+          {
+            "expr": "sum(kube_pod_status_phase{namespace=~\"strait|default\"}) by (phase)",
+            "legendFormat": "{{phase}}"
+          }
         ]
       },
       {
         "title": "Deployment Replicas",
         "description": "Desired vs available vs ready replicas for all deployments in the strait namespace.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 39 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 39
+        },
         "targets": [
-          { "expr": "kube_deployment_spec_replicas{namespace=\"strait\"}", "legendFormat": "Desired {{deployment}}" },
-          { "expr": "kube_deployment_status_replicas_available{namespace=\"strait\"}", "legendFormat": "Available {{deployment}}" }
+          {
+            "expr": "kube_deployment_spec_replicas{namespace=\"strait\"}",
+            "legendFormat": "Desired {{deployment}}"
+          },
+          {
+            "expr": "kube_deployment_status_replicas_available{namespace=\"strait\"}",
+            "legendFormat": "Available {{deployment}}"
+          }
         ]
       },
       {
         "title": "Container Restarts (by pod)",
         "description": "Container restart count per pod in the last hour. Crash loop detection.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 39 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 39
+        },
         "targets": [
-          { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"strait|default\"}[1h])) by (pod)", "legendFormat": "{{pod}}" }
+          {
+            "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"strait|default\"}[1h])) by (pod)",
+            "legendFormat": "{{pod}}"
+          }
         ]
       },
       {
         "title": "Node Status",
         "description": "Cluster node conditions: Ready, DiskPressure, MemoryPressure, PIDPressure.",
         "type": "table",
-        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 39 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 39
+        },
         "targets": [
-          { "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\"}", "format": "table", "instant": true }
+          {
+            "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\"}",
+            "format": "table",
+            "instant": true
+          }
         ],
         "transformations": [
-          { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "condition": true, "status": true }, "renameByName": { "node": "Node", "Value": "Ready" } } }
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "__name__": true,
+                "condition": true,
+                "status": true
+              },
+              "renameByName": {
+                "node": "Node",
+                "Value": "Ready"
+              }
+            }
+          }
         ]
       },
-
       {
         "title": "HTTP Request Duration",
         "description": "API request latency percentiles across all endpoints.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 47 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 47
+        },
         "targets": [
-          { "expr": "histogram_quantile(0.5, sum(rate(strait_http_request_duration_bucket[$interval])) by (le))", "legendFormat": "P50" },
-          { "expr": "histogram_quantile(0.99, sum(rate(strait_http_request_duration_bucket[$interval])) by (le))", "legendFormat": "P99" }
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(strait_http_request_duration_bucket[$interval])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_http_request_duration_bucket[$interval])) by (le))",
+            "legendFormat": "P99"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
       },
       {
         "title": "Worker Pool Detail",
         "description": "Worker pool breakdown: running tasks, waiting tasks, and dropped tasks per second.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 47 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 47
+        },
         "targets": [
-          { "expr": "strait_pool_running_workers", "legendFormat": "Running" },
-          { "expr": "strait_pool_waiting_tasks", "legendFormat": "Waiting" },
-          { "expr": "sum(rate(strait_pool_dropped_tasks[$interval]))", "legendFormat": "Dropped/s" }
+          {
+            "expr": "strait_pool_running_workers",
+            "legendFormat": "Running"
+          },
+          {
+            "expr": "strait_pool_waiting_tasks",
+            "legendFormat": "Waiting"
+          },
+          {
+            "expr": "sum(rate(strait_pool_dropped_tasks[$interval]))",
+            "legendFormat": "Dropped/s"
+          }
         ]
       },
       {
         "title": "DB Connection Pool",
         "description": "PostgreSQL connection pool: acquired (in use), idle (available), max (configured limit).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 47 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 47
+        },
         "targets": [
-          { "expr": "strait_db_pool_acquired_conns", "legendFormat": "Acquired" },
-          { "expr": "strait_db_pool_idle_conns", "legendFormat": "Idle" },
-          { "expr": "strait_db_pool_max_conns", "legendFormat": "Max" }
+          {
+            "expr": "strait_db_pool_acquired_conns",
+            "legendFormat": "Acquired"
+          },
+          {
+            "expr": "strait_db_pool_idle_conns",
+            "legendFormat": "Idle"
+          },
+          {
+            "expr": "strait_db_pool_max_conns",
+            "legendFormat": "Max"
+          }
         ]
       },
       {
         "title": "ClickHouse Exporter",
         "description": "ClickHouse analytics exporter: pending records in buffer and dropped records (data loss).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 47 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 47
+        },
         "targets": [
-          { "expr": "strait_clickhouse_exporter_pending", "legendFormat": "Pending" },
-          { "expr": "sum(rate(strait_clickhouse_dropped_records_total[$interval]))", "legendFormat": "Dropped/s" }
+          {
+            "expr": "strait_clickhouse_exporter_pending",
+            "legendFormat": "Pending"
+          },
+          {
+            "expr": "sum(rate(strait_clickhouse_dropped_records_total[$interval]))",
+            "legendFormat": "Dropped/s"
+          }
         ]
       },
-
       {
         "title": "Node CPU Utilization",
         "description": "CPU utilization per node. Sustained >80% triggers autoscaler.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 55 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 55
+        },
         "targets": [
-          { "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[$interval])) * 100)", "legendFormat": "{{instance}}" }
+          {
+            "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[$interval])) * 100)",
+            "legendFormat": "{{instance}}"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
       },
       {
         "title": "Node Memory Utilization",
         "description": "Memory utilization per node. Sustained >90% triggers OOM kills.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 55 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 55
+        },
         "targets": [
-          { "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "legendFormat": "{{instance}}" }
+          {
+            "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+            "legendFormat": "{{instance}}"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
       },
       {
         "title": "Disk I/O",
         "description": "Disk read/write throughput per node. High write I/O may indicate log pressure.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 55 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 55
+        },
         "targets": [
-          { "expr": "sum(rate(node_disk_read_bytes_total[$interval])) by (instance)", "legendFormat": "Read {{instance}}" },
-          { "expr": "sum(rate(node_disk_written_bytes_total[$interval])) by (instance)", "legendFormat": "Write {{instance}}" }
+          {
+            "expr": "sum(rate(node_disk_read_bytes_total[$interval])) by (instance)",
+            "legendFormat": "Read {{instance}}"
+          },
+          {
+            "expr": "sum(rate(node_disk_written_bytes_total[$interval])) by (instance)",
+            "legendFormat": "Write {{instance}}"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "Bps" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Bps"
+          }
+        }
       },
       {
         "title": "Network Traffic",
         "description": "Network receive/transmit throughput per node.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 55 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 55
+        },
         "targets": [
-          { "expr": "sum(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*\"}[$interval])) by (instance)", "legendFormat": "RX {{instance}}" },
-          { "expr": "sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*\"}[$interval])) by (instance)", "legendFormat": "TX {{instance}}" }
+          {
+            "expr": "sum(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*\"}[$interval])) by (instance)",
+            "legendFormat": "RX {{instance}}"
+          },
+          {
+            "expr": "sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*\"}[$interval])) by (instance)",
+            "legendFormat": "TX {{instance}}"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "Bps" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Bps"
+          }
+        }
       },
-
       {
         "title": "HTTP Request Latency Heatmap",
         "description": "Full latency distribution as a heatmap. Shows where most requests fall. Identify bimodal distributions and tail latency.",
         "type": "heatmap",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 63 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 63
+        },
         "targets": [
-          { "expr": "sum(rate(strait_http_request_duration_bucket[$interval])) by (le)", "format": "heatmap", "legendFormat": "{{le}}" }
+          {
+            "expr": "sum(rate(strait_http_request_duration_bucket[$interval])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}"
+          }
         ],
         "dataFormat": "tsbuckets",
-        "yAxis": { "format": "s" },
-        "options": { "calculate": false, "color": { "mode": "scheme", "scheme": "Spectral", "steps": 64 } }
+        "yAxis": {
+          "format": "s"
+        },
+        "options": {
+          "calculate": false,
+          "color": {
+            "mode": "scheme",
+            "scheme": "Spectral",
+            "steps": 64
+          }
+        }
       },
       {
         "title": "Run Duration Heatmap",
         "description": "Full job run duration distribution. Shows clustering of fast vs slow jobs. Useful for spotting preset misconfigurations.",
         "type": "heatmap",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 63 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 63
+        },
         "targets": [
-          { "expr": "sum(rate(strait_run_duration_bucket[$interval])) by (le)", "format": "heatmap", "legendFormat": "{{le}}" }
+          {
+            "expr": "sum(rate(strait_run_duration_bucket[$interval])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}"
+          }
         ],
         "dataFormat": "tsbuckets",
-        "yAxis": { "format": "s" },
-        "options": { "calculate": false, "color": { "mode": "scheme", "scheme": "Spectral", "steps": 64 } }
+        "yAxis": {
+          "format": "s"
+        },
+        "options": {
+          "calculate": false,
+          "color": {
+            "mode": "scheme",
+            "scheme": "Spectral",
+            "steps": 64
+          }
+        }
       },
-
       {
         "title": "Kyverno Policy Violations",
         "description": "Admission policy violations by policy name. Non-zero = pods rejected or audited by Kyverno.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 71 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 71
+        },
         "targets": [
-          { "expr": "sum(increase(kyverno_policy_results_total{rule_result=\"fail\"}[$interval])) by (policy_name)", "legendFormat": "{{policy_name}}" }
+          {
+            "expr": "sum(increase(kyverno_policy_results_total{rule_result=\"fail\"}[$interval])) by (policy_name)",
+            "legendFormat": "{{policy_name}}"
+          }
         ]
       },
       {
         "title": "Kyverno Admission Rate",
         "description": "Rate of admission requests processed by Kyverno by operation type (CREATE, UPDATE, DELETE).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 71 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 71
+        },
         "targets": [
-          { "expr": "sum(rate(kyverno_admission_requests_total[$interval])) by (resource_request_operation)", "legendFormat": "{{resource_request_operation}}" }
+          {
+            "expr": "sum(rate(kyverno_admission_requests_total[$interval])) by (resource_request_operation)",
+            "legendFormat": "{{resource_request_operation}}"
+          }
         ]
       },
       {
         "title": "Falco Security Alerts",
         "description": "Runtime security alerts from Falco. WARNING = suspicious activity. CRITICAL = active attack detected.",
         "type": "logs",
-        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 71 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 71
+        },
         "targets": [
-          { "expr": "{namespace=\"falco\"} | json | priority=~\"WARNING|CRITICAL\"", "datasource": "Loki" }
+          {
+            "expr": "{namespace=\"falco\"} | json | priority=~\"WARNING|CRITICAL\"",
+            "datasource": "Loki"
+          }
         ],
-        "options": { "showTime": true, "sortOrder": "Descending", "enableLogDetails": true }
+        "options": {
+          "showTime": true,
+          "sortOrder": "Descending",
+          "enableLogDetails": true
+        }
       },
       {
         "title": "K8s Audit Log (Write Operations)",
         "description": "Non-read K8s API operations from audit log. Shows secrets access, RBAC changes, pod create/delete.",
         "type": "logs",
-        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 71 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 71
+        },
         "targets": [
-          { "expr": "{job=\"k3s-audit\"} | json | verb!=\"get\" | verb!=\"list\" | verb!=\"watch\"", "datasource": "Loki" }
+          {
+            "expr": "{job=\"k3s-audit\"} | json | verb!=\"get\" | verb!=\"list\" | verb!=\"watch\"",
+            "datasource": "Loki"
+          }
         ],
-        "options": { "showTime": true, "sortOrder": "Descending", "enableLogDetails": true }
+        "options": {
+          "showTime": true,
+          "sortOrder": "Descending",
+          "enableLogDetails": true
+        }
       },
-
       {
         "title": "Estimated Monthly Cost",
         "description": "Infrastructure cost estimate based on node count and pricing. Master=$7, General=$7, Perf=$14, Heavy=$27.",
         "type": "stat",
-        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 79 },
-        "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 79
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        },
         "targets": [
-          { "expr": "(count(kube_node_info{node=~\".*general.*\"}) or vector(0)) * 7 + (count(kube_node_info{node=~\".*perf.*\"}) or vector(0)) * 14 + (count(kube_node_info{node=~\".*heavy.*\"}) or vector(0)) * 27 + 7", "legendFormat": "$/month" }
+          {
+            "expr": "(count(kube_node_info{node=~\".*general.*\"}) or vector(0)) * 7 + (count(kube_node_info{node=~\".*perf.*\"}) or vector(0)) * 14 + (count(kube_node_info{node=~\".*heavy.*\"}) or vector(0)) * 27 + 7",
+            "legendFormat": "$/month"
+          }
         ]
       },
       {
         "title": "Node Count by Pool",
         "description": "Current number of nodes per worker pool (general, performance, heavy) plus master.",
         "type": "bargauge",
-        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 79 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 79
+        },
         "targets": [
-          { "expr": "count(kube_node_info{node=~\".*general.*\"}) or vector(0)", "legendFormat": "General" },
-          { "expr": "count(kube_node_info{node=~\".*perf.*\"}) or vector(0)", "legendFormat": "Performance" },
-          { "expr": "count(kube_node_info{node=~\".*heavy.*\"}) or vector(0)", "legendFormat": "Heavy" },
-          { "expr": "count(kube_node_info{node=~\".*master.*\"}) or vector(0)", "legendFormat": "Master" }
+          {
+            "expr": "count(kube_node_info{node=~\".*general.*\"}) or vector(0)",
+            "legendFormat": "General"
+          },
+          {
+            "expr": "count(kube_node_info{node=~\".*perf.*\"}) or vector(0)",
+            "legendFormat": "Performance"
+          },
+          {
+            "expr": "count(kube_node_info{node=~\".*heavy.*\"}) or vector(0)",
+            "legendFormat": "Heavy"
+          },
+          {
+            "expr": "count(kube_node_info{node=~\".*master.*\"}) or vector(0)",
+            "legendFormat": "Master"
+          }
         ]
       },
       {
         "title": "Compute Cost Rate",
         "description": "Real-time job compute cost from the strait application metering system.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 79 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 79
+        },
         "targets": [
-          { "expr": "sum(rate(strait_compute_usage_cost_microcents[$interval])) / 100000", "legendFormat": "$/min" }
+          {
+            "expr": "sum(rate(strait_compute_usage_cost_microcents[$interval])) / 100000",
+            "legendFormat": "$/min"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
       },
       {
         "title": "Resource Utilization Efficiency",
         "description": "CPU and memory request vs actual usage. Low ratio = over-provisioned (wasting money).",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 79 },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 79
+        },
         "targets": [
-          { "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"strait\"}[$interval])) / sum(kube_pod_container_resource_requests{namespace=\"strait\",resource=\"cpu\"})", "legendFormat": "CPU %" },
-          { "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"strait\"}) / sum(kube_pod_container_resource_requests{namespace=\"strait\",resource=\"memory\"})", "legendFormat": "Memory %" }
+          {
+            "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"strait\"}[$interval])) / sum(kube_pod_container_resource_requests{namespace=\"strait\",resource=\"cpu\"})",
+            "legendFormat": "CPU %"
+          },
+          {
+            "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"strait\"}) / sum(kube_pod_container_resource_requests{namespace=\"strait\",resource=\"memory\"})",
+            "legendFormat": "Memory %"
+          }
         ],
-        "fieldConfig": { "defaults": { "unit": "percent" } }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "title": "Row: Code Deployments",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 87
+        }
+      },
+      {
+        "title": "Build Success Rate",
+        "description": "Percentage of builds that reached ready status in the last 10 minutes.",
+        "type": "stat",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 88
+        },
+        "options": {
+          "colorMode": "background",
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 90
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          }
+        },
+        "targets": [
+          {
+            "expr": "100 * rate(strait_code_deploy_total_total{status=\"ready\"}[10m]) / (rate(strait_code_deploy_total_total[10m]) + 0.001)",
+            "legendFormat": "Success %"
+          }
+        ]
+      },
+      {
+        "title": "Active Builds",
+        "description": "Builds currently in progress across all orchestrator replicas.",
+        "type": "stat",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 88
+        },
+        "targets": [
+          {
+            "expr": "strait_code_deploy_active",
+            "legendFormat": "Active"
+          }
+        ]
+      },
+      {
+        "title": "Queue Depth",
+        "description": "Building deployments waiting to be claimed.",
+        "type": "stat",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 88
+        },
+        "targets": [
+          {
+            "expr": "strait_code_deploy_queue_depth",
+            "legendFormat": "Queued"
+          }
+        ]
+      },
+      {
+        "title": "Build Duration P99",
+        "description": "99th percentile end-to-end build duration over the last 30 minutes.",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 7,
+          "w": 12,
+          "x": 12,
+          "y": 88
+        },
+        "options": {
+          "unit": "s"
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(strait_code_deploy_duration_seconds_bucket[30m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_code_deploy_duration_seconds_bucket[30m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ]
+      },
+      {
+        "title": "Build Throughput by Status",
+        "description": "Rate of build completions by terminal status.",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 7,
+          "w": 12,
+          "x": 0,
+          "y": 92
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(strait_code_deploy_total_total[5m])) by (status)",
+            "legendFormat": "{{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Tarball Size P95",
+        "description": "95th percentile of uploaded source tarball sizes.",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 4,
+          "x": 0,
+          "y": 99
+        },
+        "options": {
+          "unit": "bytes"
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(strait_code_deploy_tarball_bytes_bucket[30m])) by (le))",
+            "legendFormat": "P95"
+          }
+        ]
       }
     ],
-    "time": { "from": "now-1h", "to": "now" },
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
     "schemaVersion": 39
   }
 }
