@@ -110,9 +110,47 @@ function NotifyOpsPage() {
     toast.success("Copied SES feedback check command");
   };
 
+  const formatTrend = (trend: "up" | "down" | "flat") => {
+    if (trend === "up") {
+      return "worsening";
+    }
+    if (trend === "down") {
+      return "improving";
+    }
+    return "flat";
+  };
+
+  const buildRecommendationHref = (
+    search?: Record<string, string | string[] | undefined>,
+    to = ""
+  ) => {
+    if (!search) {
+      return to;
+    }
+
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(search)) {
+      if (typeof value === "undefined") {
+        continue;
+      }
+
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          params.append(key, entry);
+        }
+        continue;
+      }
+
+      params.set(key, value);
+    }
+
+    const query = params.toString();
+    return query ? `${to}?${query}` : to;
+  };
+
   return (
     <Shell>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Health</CardTitle>
@@ -135,6 +173,24 @@ function NotifyOpsPage() {
             <p className="text-muted-foreground text-xs">
               {snapshot.failedDeliveries + snapshot.bouncedDeliveries} /{" "}
               {snapshot.totalDeliveries || 0}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Latency & trends</CardTitle>
+            <CardDescription>
+              Delivery latency and error movement between half-windows
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl">
+              {snapshot.avgDeliveryLatencySecs.toFixed(1)}s
+            </p>
+            <p className="text-muted-foreground text-xs">
+              error {formatTrend(snapshot.errorRateTrend)} · latency{" "}
+              {formatTrend(snapshot.latencyTrend)}
             </p>
           </CardContent>
         </Card>
@@ -193,6 +249,14 @@ function NotifyOpsPage() {
             <p className="text-muted-foreground text-xs">
               Policy overrides configured: {snapshot.policyOverrides}
             </p>
+            <p className="text-muted-foreground text-xs">
+              Recent error rate {(snapshot.recentErrorRate * 100).toFixed(1)}% ·
+              Previous {(snapshot.previousErrorRate * 100).toFixed(1)}%
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Recent latency {snapshot.recentAvgLatencySecs.toFixed(1)}s ·
+              Previous {snapshot.previousAvgLatencySecs.toFixed(1)}s
+            </p>
           </CardContent>
         </Card>
 
@@ -205,27 +269,34 @@ function NotifyOpsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-1 text-sm">
-              <Link
-                className="text-primary underline"
-                search={{ status: ["failed", "bounced"] }}
-                to="/app/notify/deliveries"
-              >
-                Open failed and bounced deliveries
-              </Link>
+              {snapshot.recommendations.length === 0 ? (
+                <p className="text-muted-foreground text-xs">
+                  No active remediation actions for this snapshot.
+                </p>
+              ) : (
+                snapshot.recommendations.map((recommendation) => (
+                  <div className="space-y-0.5" key={recommendation.id}>
+                    <a
+                      className="text-primary underline"
+                      href={buildRecommendationHref(
+                        recommendation.search,
+                        recommendation.to
+                      )}
+                    >
+                      {recommendation.label}
+                    </a>
+                    <p className="text-muted-foreground text-xs">
+                      {recommendation.description}
+                    </p>
+                  </div>
+                ))
+              )}
               <div>
                 <Link
                   className="text-primary underline"
                   to="/app/notify/policies"
                 >
                   Review policy overrides
-                </Link>
-              </div>
-              <div>
-                <Link
-                  className="text-primary underline"
-                  to="/app/notify/subscribers"
-                >
-                  Review subscriber suppression state
                 </Link>
               </div>
             </div>

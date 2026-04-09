@@ -73,9 +73,13 @@ describe("buildNotifyOpsSnapshot", () => {
 
     expect(snapshot.health).toBe("healthy");
     expect(snapshot.errorRate).toBe(0);
+    expect(snapshot.avgDeliveryLatencySecs).toBe(0);
+    expect(snapshot.errorRateTrend).toBe("flat");
+    expect(snapshot.latencyTrend).toBe("flat");
     expect(snapshot.reasons).toEqual([
       "All notify operational checks are healthy.",
     ]);
+    expect(snapshot.recommendations).toEqual([]);
   });
 
   it("reports degraded for medium error rate and unhealthy provider", () => {
@@ -97,6 +101,12 @@ describe("buildNotifyOpsSnapshot", () => {
     );
     expect(snapshot.reasons).toContain(
       "At least one provider is reporting non-healthy state."
+    );
+    expect(snapshot.recommendations.map((item) => item.id)).toContain(
+      "triage_failed_deliveries"
+    );
+    expect(snapshot.recommendations.map((item) => item.id)).toContain(
+      "review_unhealthy_provider"
     );
   });
 
@@ -123,6 +133,12 @@ describe("buildNotifyOpsSnapshot", () => {
     );
     expect(snapshot.reasons).toContain(
       "More than half of subscribers are not active."
+    );
+    expect(snapshot.recommendations.map((item) => item.id)).toContain(
+      "configure_default_provider"
+    );
+    expect(snapshot.recommendations.map((item) => item.id)).toContain(
+      "review_subscriber_health"
     );
   });
 });
