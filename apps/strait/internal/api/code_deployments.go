@@ -20,6 +20,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // presignUploadTTL is how long the presigned upload URL remains valid.
@@ -194,6 +196,14 @@ func (s *Server) handleConfirmCodeDeployment(ctx context.Context, input *Confirm
 		}
 		if got := hex.EncodeToString(h.Sum(nil)); got != d.SourceHash {
 			return nil, huma.Error422UnprocessableEntity("tarball SHA-256 hash does not match declared source_hash — re-upload the tarball")
+		}
+
+		// Record the verified tarball size. Recorded here (after hash check) so only
+		// successfully validated tarballs contribute to the distribution.
+		if s.metrics != nil && d.SourceSizeBytes > 0 {
+			s.metrics.CodeDeployTarballBytes.Record(ctx, d.SourceSizeBytes,
+				otelmetric.WithAttributes(attribute.String("runtime", string(d.Runtime))),
+			)
 		}
 	}
 

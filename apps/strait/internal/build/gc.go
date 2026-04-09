@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+
+	"strait/internal/telemetry"
 )
 
 // GCStore is the subset of store operations required by the deployment GC worker.
@@ -24,6 +26,7 @@ type DeploymentGC struct {
 	pendingTTL time.Duration
 	failedAge  time.Duration
 	logger     *slog.Logger
+	metrics    *telemetry.Metrics
 }
 
 // GCOption configures a DeploymentGC.
@@ -47,6 +50,12 @@ func WithGCFailedAge(d time.Duration) GCOption {
 // WithGCLogger sets the structured logger.
 func WithGCLogger(l *slog.Logger) GCOption {
 	return func(g *DeploymentGC) { g.logger = l }
+}
+
+// WithGCMetrics wires Prometheus metrics into the GC worker so the number of
+// deployments collected per sweep is recorded.
+func WithGCMetrics(m *telemetry.Metrics) GCOption {
+	return func(g *DeploymentGC) { g.metrics = m }
 }
 
 // NewDeploymentGC creates a deployment GC worker with the given options.
@@ -99,5 +108,8 @@ func (g *DeploymentGC) collect(ctx context.Context) {
 			"pending_before", pendingBefore,
 			"failed_before", failedBefore,
 		)
+		if g.metrics != nil {
+			g.metrics.CodeDeployGCCollected.Add(ctx, deleted)
+		}
 	}
 }

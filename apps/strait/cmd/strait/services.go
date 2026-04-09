@@ -775,7 +775,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 
 	// Start build orchestrator for code-first deployments.
-	startBuildOrchestrator(g, cfg, queries, pub)
+	startBuildOrchestrator(g, cfg, queries, pub, metrics)
 
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
@@ -885,7 +885,7 @@ func buildContainerRegistry(cfg *config.Config) registry.ContainerRegistry {
 // startBuildOrchestrator starts the build orchestrator that picks up deployments
 // in "building" status and executes the BuildKit build pipeline.
 // No-ops if the worker mode is not enabled or if object store / registry are not configured.
-func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) {
+func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, metrics *telemetry.Metrics) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -931,6 +931,7 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 	orchOpts := []build.OrchestratorOption{
 		build.WithOrchestratorLogger(slog.Default()),
 		build.WithAddressPool(addrPool),
+		build.WithOrchestratorMetrics(metrics),
 	}
 	orch := build.NewOrchestrator(queries, builder, orchOpts...)
 
@@ -949,6 +950,7 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 			build.WithGCPendingTTL(cfg.DeploymentGCPendingTTL),
 			build.WithGCFailedAge(cfg.DeploymentGCFailedAge),
 			build.WithGCLogger(slog.Default()),
+			build.WithGCMetrics(metrics),
 		)
 		g.Go(func(ctx context.Context) error {
 			slog.Info("deployment GC started",

@@ -10,8 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 )
 
 // buildExecutor is the minimal interface the Orchestrator requires from a Builder.
@@ -53,6 +56,7 @@ type Orchestrator struct {
 	staleInterval  time.Duration
 	concurrency    int
 	logger         *slog.Logger
+	metrics        *telemetry.Metrics
 }
 
 // OrchestratorOption configures an Orchestrator.
@@ -77,6 +81,12 @@ func WithOrchestratorLogger(l *slog.Logger) OrchestratorOption {
 // Each dispatched build will call pool.Next() to pick an address in round-robin.
 func WithAddressPool(pool *AddressPool) OrchestratorOption {
 	return func(o *Orchestrator) { o.addrPool = pool }
+}
+
+// WithOrchestratorMetrics wires Prometheus metrics into the orchestrator so
+// build duration, queue depth, and failure counts are recorded on every dispatch cycle.
+func WithOrchestratorMetrics(m *telemetry.Metrics) OrchestratorOption {
+	return func(o *Orchestrator) { o.metrics = m }
 }
 
 // NewOrchestrator creates a new build orchestrator. Each instance gets a unique
@@ -134,6 +144,14 @@ func (o *Orchestrator) dispatch(ctx context.Context, sem chan struct{}) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "build.Orchestrator.dispatch")
 	defer span.End()
 
+	// Snapshot the current queue depth before claiming so the gauge reflects
+	// the number of deployments waiting at the start of this dispatch cycle.
+	if o.metrics != nil {
+		if pending, listErr := o.store.ListBuildingDeployments(ctx, 1000); listErr == nil {
+			o.metrics.CodeDeployQueueDepth.Record(ctx, int64(len(pending)))
+		}
+	}
+
 	var wg conc.WaitGroup
 
 dispatch:
@@ -190,6 +208,11 @@ func (o *Orchestrator) releaseStale(ctx context.Context) {
 // runBuild executes the full build pipeline for a single deployment and
 // persists the outcome (ready + activate, or failed with error message).
 func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
+	start := time.Now()
+	if o.metrics != nil {
+		o.metrics.CodeDeployActive.Add(ctx, 1)
+	}
+
 	ctx, span := otel.Tracer("strait").Start(ctx, "build.Orchestrator.runBuild")
 	defer span.End()
 
@@ -198,6 +221,7 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 
 	if o.builder == nil {
 		o.handleBuildFailure(ctx, d, errors.New("build orchestrator has no builder configured"), log)
+		o.recordBuildMetrics(ctx, string(d.Runtime), "failed", time.Since(start), time.Since(start))
 		return
 	}
 
@@ -209,9 +233,17 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 		bkAddr = o.addrPool.Next()
 	}
 
+	buildStart := time.Now()
 	result, err := o.builder.Build(ctx, d, bkAddr)
+	buildDuration := time.Since(buildStart)
+
 	if err != nil {
 		o.handleBuildFailure(ctx, d, err, log)
+		status := "failed"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			status = "timed_out"
+		}
+		o.recordBuildMetrics(ctx, string(d.Runtime), status, time.Since(start), buildDuration)
 		return
 	}
 
@@ -223,6 +255,7 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 	}
 	if updateErr := o.store.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusReady, fields); updateErr != nil {
 		log.Error("failed to mark deployment ready", "error", updateErr)
+		o.recordBuildMetrics(ctx, string(d.Runtime), "failed", time.Since(start), buildDuration)
 		return
 	}
 
@@ -234,6 +267,7 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 			"error", activateErr,
 			"image", result.ImageURI,
 		)
+		o.recordBuildMetrics(ctx, string(d.Runtime), "ready", time.Since(start), buildDuration)
 		return
 	}
 
@@ -241,6 +275,23 @@ func (o *Orchestrator) runBuild(ctx context.Context, d *domain.CodeDeployment) {
 		"image", result.ImageURI,
 		"digest", result.Digest,
 	)
+	o.recordBuildMetrics(ctx, string(d.Runtime), "ready", time.Since(start), buildDuration)
+}
+
+// recordBuildMetrics emits the three core build pipeline metrics at build completion.
+// It is a no-op when metrics are not configured.
+func (o *Orchestrator) recordBuildMetrics(ctx context.Context, runtime, status string, total, build time.Duration) {
+	if o.metrics == nil {
+		return
+	}
+	attrs := otelmetric.WithAttributes(
+		attribute.String("runtime", runtime),
+		attribute.String("status", status),
+	)
+	o.metrics.CodeDeployTotal.Add(ctx, 1, attrs)
+	o.metrics.CodeDeployDuration.Record(ctx, total.Seconds(), attrs)
+	o.metrics.CodeDeployBuildDuration.Record(ctx, build.Seconds(), attrs)
+	o.metrics.CodeDeployActive.Add(ctx, -1)
 }
 
 // handleBuildFailure marks the deployment as failed (or timed_out) and
