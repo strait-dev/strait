@@ -46,7 +46,9 @@ func runDispatcher(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// Background refresh loop.
-	go func() {
+	// G118: context.Background() is intentional — reload must not be cancelled
+	// by a server shutdown signal mid-flight.
+	go func() { //nolint:gosec
 		interval := cfg.DispatcherRefreshInterval
 		if interval <= 0 {
 			interval = 5 * time.Second
@@ -58,9 +60,14 @@ func runDispatcher(ctx context.Context, cfg *config.Config) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := registry.Reload(ctx); err != nil {
+				// Use a fresh context per reload so that a server shutdown
+				// (which cancels ctx) does not log a spurious "context
+				// cancelled" warning for the in-flight reload.
+				reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				if err := registry.Reload(reloadCtx); err != nil && ctx.Err() == nil {
 					slog.Warn("dispatcher: registry reload failed", "error", err)
 				}
+				reloadCancel()
 			}
 		}
 	}()

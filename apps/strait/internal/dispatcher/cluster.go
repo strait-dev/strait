@@ -112,15 +112,21 @@ func (r *ClusterRegistry) Reload(ctx context.Context) error {
 
 // validateEntries checks that every ClusterEntry is usable. Returns the first
 // validation error found. Validation rules:
-//   - Name must be non-empty
+//   - Name must be non-empty and unique within the registry
 //   - APIURL must be non-empty, parseable, and use https scheme
 //   - PrometheusURL, if set, must be parseable and use https scheme
 //   - Weight must be >= 0
 func validateEntries(clusters []ClusterEntry) error {
+	seen := make(map[string]struct{}, len(clusters))
 	for i, c := range clusters {
 		if c.Name == "" {
 			return fmt.Errorf("cluster[%d] missing name", i)
 		}
+		if _, dup := seen[c.Name]; dup {
+			return fmt.Errorf("cluster name %q appears more than once in registry", c.Name)
+		}
+		seen[c.Name] = struct{}{}
+
 		if err := validateClusterURL("api_url", c.Name, c.APIURL, true); err != nil {
 			return err
 		}
@@ -218,9 +224,18 @@ func queueDepth(ctx context.Context, prometheusURL string, client *http.Client) 
 	}
 
 	s, _ := result.Data.Result[0].Value[1].(string)
-	var depth int64
-	_, _ = fmt.Sscanf(s, "%d", &depth) // best-effort parse; zero on failure is fine
-	return depth
+	// Prometheus encodes instant values as float strings (e.g. "42", "42.0").
+	// Parse as float64 first to handle decimal notation and catch special
+	// values (+Inf, NaN) that %d silently converts to 0, making a broken
+	// metric look like an empty queue.
+	var f float64
+	if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
+		return math.MaxInt64
+	}
+	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
+		return math.MaxInt64
+	}
+	return int64(f)
 }
 
 // clusterWithDepth pairs a cluster with its current queue depth.

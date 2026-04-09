@@ -260,6 +260,69 @@ func TestQueueDepth_CancelledContextReturnsMaxInt(t *testing.T) {
 	}
 }
 
+func TestQueueDepth_PlusInfReturnsMaxInt(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"+Inf"]}]}}`))
+	}))
+	defer srv.Close()
+
+	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	if got != math.MaxInt64 {
+		t.Errorf("queueDepth() = %d, want MaxInt64 for +Inf value (broken metric, not empty queue)", got)
+	}
+}
+
+func TestQueueDepth_NaNReturnsMaxInt(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"NaN"]}]}}`))
+	}))
+	defer srv.Close()
+
+	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	if got != math.MaxInt64 {
+		t.Errorf("queueDepth() = %d, want MaxInt64 for NaN value", got)
+	}
+}
+
+func TestQueueDepth_NegativeValueReturnsMaxInt(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"-1"]}]}}`))
+	}))
+	defer srv.Close()
+
+	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	if got != math.MaxInt64 {
+		t.Errorf("queueDepth() = %d, want MaxInt64 for negative value (must not sort before healthy clusters)", got)
+	}
+}
+
+func TestQueueDepth_FloatValueTruncates(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"42.9"]}]}}`))
+	}))
+	defer srv.Close()
+
+	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	if got != 42 {
+		t.Errorf("queueDepth() = %d, want 42 (float truncated to int)", got)
+	}
+}
+
+func TestValidateEntries_RejectsDuplicateNames(t *testing.T) {
+	t.Parallel()
+	entries := []ClusterEntry{
+		{Name: "honolulu", APIURL: "https://api-a.strait.dev"},
+		{Name: "honolulu", APIURL: "https://api-b.strait.dev"},
+	}
+	if err := validateEntries(entries); err == nil {
+		t.Fatal("validateEntries() = nil, want error for duplicate cluster name")
+	}
+}
+
 func TestClusterRegistry_Pick_SelectsLowestDepth(t *testing.T) {
 	t.Parallel()
 
