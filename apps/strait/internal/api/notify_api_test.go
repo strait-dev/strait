@@ -36,6 +36,9 @@ type notifyStoreAdapter struct {
 	getNotificationProviderFunc                 func(ctx context.Context, id, projectID string) (*domain.NotificationProvider, error)
 	getNotifySubscriberFunc                     func(ctx context.Context, id, projectID string) (*domain.NotifySubscriber, error)
 	updateNotificationMessageStatusFunc         func(ctx context.Context, id, projectID, fromStatus, toStatus string, fields map[string]any) error
+	listNotificationMessagesByProjectFunc       func(ctx context.Context, projectID string, status, channel, categoryKey *string, from, to *time.Time, limit int, cursor *time.Time) ([]domain.NotificationMessage, error)
+	getNotifyTopicByKeyFunc                     func(ctx context.Context, projectID, topicKey string) (*domain.NotifyTopic, error)
+	listNotifySubscribersByTopicKeyFunc         func(ctx context.Context, projectID, topicKey string, tenantID *string, limit int) ([]domain.NotifySubscriber, error)
 }
 
 func (m *notifyStoreAdapter) GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
@@ -187,6 +190,27 @@ func (m *notifyStoreAdapter) UpdateNotificationMessageStatus(ctx context.Context
 		return nil
 	}
 	return m.updateNotificationMessageStatusFunc(ctx, id, projectID, fromStatus, toStatus, fields)
+}
+
+func (m *notifyStoreAdapter) ListNotificationMessagesByProject(ctx context.Context, projectID string, status, channel, categoryKey *string, from, to *time.Time, limit int, cursor *time.Time) ([]domain.NotificationMessage, error) {
+	if m.listNotificationMessagesByProjectFunc == nil {
+		return []domain.NotificationMessage{}, nil
+	}
+	return m.listNotificationMessagesByProjectFunc(ctx, projectID, status, channel, categoryKey, from, to, limit, cursor)
+}
+
+func (m *notifyStoreAdapter) GetNotifyTopicByKey(ctx context.Context, projectID, topicKey string) (*domain.NotifyTopic, error) {
+	if m.getNotifyTopicByKeyFunc == nil {
+		return nil, store.ErrNotifyTopicNotFound
+	}
+	return m.getNotifyTopicByKeyFunc(ctx, projectID, topicKey)
+}
+
+func (m *notifyStoreAdapter) ListNotifySubscribersByTopicKey(ctx context.Context, projectID, topicKey string, tenantID *string, limit int) ([]domain.NotifySubscriber, error) {
+	if m.listNotifySubscribersByTopicKeyFunc == nil {
+		return []domain.NotifySubscriber{}, nil
+	}
+	return m.listNotifySubscribersByTopicKeyFunc(ctx, projectID, topicKey, tenantID, limit)
 }
 
 type notifyAPIStore struct {
@@ -963,5 +987,154 @@ func TestCompleteNotifyEscalationByStepRun(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected CompleteActiveEscalationStateByStepRun to be called")
+	}
+}
+
+func TestListNotifyDeliveries_ForwardsAdvancedFilters(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ns := &notifyStoreAdapter{
+		listNotificationMessagesByProjectFunc: func(_ context.Context, projectID string, status, channel, categoryKey *string, from, to *time.Time, limit int, cursor *time.Time) ([]domain.NotificationMessage, error) {
+			called = true
+			if projectID != "proj_1" {
+				t.Fatalf("projectID = %q, want proj_1", projectID)
+			}
+			if status == nil || *status != "failed" {
+				t.Fatalf("status = %v, want failed", status)
+			}
+			if channel == nil || *channel != "email" {
+				t.Fatalf("channel = %v, want email", channel)
+			}
+			if categoryKey == nil || *categoryKey != "workflow.approvals" {
+				t.Fatalf("categoryKey = %v, want workflow.approvals", categoryKey)
+			}
+			if from == nil || from.UTC().Format(time.RFC3339) != "2026-04-01T10:00:00Z" {
+				t.Fatalf("from = %v, want 2026-04-01T10:00:00Z", from)
+			}
+			if to == nil || to.UTC().Format(time.RFC3339) != "2026-04-02T10:00:00Z" {
+				t.Fatalf("to = %v, want 2026-04-02T10:00:00Z", to)
+			}
+			if cursor == nil || cursor.UTC().Format(time.RFC3339) != "2026-04-02T09:59:59Z" {
+				t.Fatalf("cursor = %v, want 2026-04-02T09:59:59Z", cursor)
+			}
+			if limit != 20 {
+				t.Fatalf("limit = %d, want 20", limit)
+			}
+			return []domain.NotificationMessage{{ID: "msg_1", ProjectID: projectID, Status: "failed", Channel: "email"}}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(
+		http.MethodGet,
+		"/v1/notify/deliveries?status=failed&channel=email&category_key=workflow.approvals&from=2026-04-01T10:00:00Z&to=2026-04-02T10:00:00Z&limit=20&cursor=2026-04-02T09:59:59Z",
+		"",
+		"proj_1",
+	)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !called {
+		t.Fatal("expected ListNotificationMessagesByProject call")
+	}
+}
+
+func TestListNotifyDeliveries_RejectsInvalidFrom(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ns := &notifyStoreAdapter{
+		listNotificationMessagesByProjectFunc: func(_ context.Context, projectID string, status, channel, categoryKey *string, from, to *time.Time, limit int, cursor *time.Time) ([]domain.NotificationMessage, error) {
+			called = true
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/notify/deliveries?from=not-a-time", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if called {
+		t.Fatal("did not expect ListNotificationMessagesByProject call")
+	}
+}
+
+func TestListNotifyTopicSubscribers(t *testing.T) {
+	t.Parallel()
+
+	listCalled := false
+	ns := &notifyStoreAdapter{
+		getNotifyTopicByKeyFunc: func(_ context.Context, projectID, topicKey string) (*domain.NotifyTopic, error) {
+			if projectID != "proj_1" {
+				t.Fatalf("projectID = %q, want proj_1", projectID)
+			}
+			if topicKey != "workflow.approvals" {
+				t.Fatalf("topicKey = %q, want workflow.approvals", topicKey)
+			}
+			return &domain.NotifyTopic{ID: "topic_1", ProjectID: projectID, TopicKey: topicKey}, nil
+		},
+		listNotifySubscribersByTopicKeyFunc: func(_ context.Context, projectID, topicKey string, tenantID *string, limit int) ([]domain.NotifySubscriber, error) {
+			listCalled = true
+			if projectID != "proj_1" {
+				t.Fatalf("projectID = %q, want proj_1", projectID)
+			}
+			if topicKey != "workflow.approvals" {
+				t.Fatalf("topicKey = %q, want workflow.approvals", topicKey)
+			}
+			if tenantID == nil || *tenantID != "tenant_1" {
+				t.Fatalf("tenantID = %v, want tenant_1", tenantID)
+			}
+			if limit != 25 {
+				t.Fatalf("limit = %d, want 25", limit)
+			}
+			return []domain.NotifySubscriber{{ID: "sub_1", ProjectID: projectID, ExternalID: "user_1", Status: "active"}}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/topics/workflow.approvals/subscribers?tenant_id=tenant_1&limit=25", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !listCalled {
+		t.Fatal("expected ListNotifySubscribersByTopicKey call")
+	}
+}
+
+func TestListNotifyTopicSubscribers_TopicNotFound(t *testing.T) {
+	t.Parallel()
+
+	listCalled := false
+	ns := &notifyStoreAdapter{
+		getNotifyTopicByKeyFunc: func(_ context.Context, _, _ string) (*domain.NotifyTopic, error) {
+			return nil, store.ErrNotifyTopicNotFound
+		},
+		listNotifySubscribersByTopicKeyFunc: func(_ context.Context, _, _ string, _ *string, _ int) ([]domain.NotifySubscriber, error) {
+			listCalled = true
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/topics/workflow.approvals/subscribers", "", "proj_1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+	if listCalled {
+		t.Fatal("did not expect ListNotifySubscribersByTopicKey call")
 	}
 }

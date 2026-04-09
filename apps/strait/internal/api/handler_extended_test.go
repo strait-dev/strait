@@ -739,6 +739,7 @@ func TestOpenAPISpec_NotifyEndpoints_AreRegistered(t *testing.T) {
 		{"/v1/subscribers/{subscriberID}/token", "post"},
 		{"/v1/topics", "post"},
 		{"/v1/topics", "get"},
+		{"/v1/topics/{topicKey}/subscribers", "get"},
 		{"/v1/topics/{topicKey}/subscribers", "post"},
 		{"/v1/topics/{topicKey}/subscribers/{subscriberID}", "delete"},
 		{"/v1/templates", "post"},

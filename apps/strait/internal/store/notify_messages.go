@@ -119,7 +119,7 @@ func (q *Queries) GetNotificationMessageByID(ctx context.Context, id string) (*d
 	return msg, nil
 }
 
-func (q *Queries) ListNotificationMessagesByProject(ctx context.Context, projectID string, status *string, limit int, cursor *time.Time) ([]domain.NotificationMessage, error) {
+func (q *Queries) ListNotificationMessagesByProject(ctx context.Context, projectID string, status, channel, categoryKey *string, from, to *time.Time, limit int, cursor *time.Time) ([]domain.NotificationMessage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListNotificationMessagesByProject")
 	defer span.End()
 
@@ -134,20 +134,51 @@ func (q *Queries) ListNotificationMessagesByProject(ctx context.Context, project
 		FROM notification_messages
 		WHERE project_id = $1
 		  AND ($2::text IS NULL OR status = $2)
-		  AND ($3::timestamptz IS NULL OR created_at < $3)
+		  AND ($3::text IS NULL OR channel = $3)
+		  AND ($4::text IS NULL OR category_key = $4)
+		  AND ($5::timestamptz IS NULL OR created_at >= $5)
+		  AND ($6::timestamptz IS NULL OR created_at <= $6)
+		  AND ($7::timestamptz IS NULL OR created_at < $7)
 		ORDER BY created_at DESC
-		LIMIT $4`
+		LIMIT $8`
 
 	var statusValue any
 	if status != nil {
 		statusValue = *status
+	}
+	var channelValue any
+	if channel != nil {
+		channelValue = *channel
+	}
+	var categoryValue any
+	if categoryKey != nil {
+		categoryValue = *categoryKey
+	}
+	var fromValue any
+	if from != nil {
+		fromValue = *from
+	}
+	var toValue any
+	if to != nil {
+		toValue = *to
 	}
 	var cursorValue any
 	if cursor != nil {
 		cursorValue = *cursor
 	}
 
-	rows, err := q.db.Query(ctx, query, projectID, statusValue, cursorValue, limit)
+	rows, err := q.db.Query(
+		ctx,
+		query,
+		projectID,
+		statusValue,
+		channelValue,
+		categoryValue,
+		fromValue,
+		toValue,
+		cursorValue,
+		limit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list notification messages by project: %w", err)
 	}

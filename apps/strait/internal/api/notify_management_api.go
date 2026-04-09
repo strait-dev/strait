@@ -79,6 +79,52 @@ func (s *Server) handleListNotifyTopics(ctx context.Context, _ *ListNotifyTopics
 	return &ListNotifyTopicsOutput{Body: topics}, nil
 }
 
+type ListNotifyTopicSubscribersInput struct {
+	TopicKey string `path:"topicKey"`
+	TenantID string `query:"tenant_id"`
+	Limit    string `query:"limit"`
+}
+
+type ListNotifyTopicSubscribersOutput struct {
+	Body []domain.NotifySubscriber
+}
+
+func (s *Server) handleListNotifyTopicSubscribers(ctx context.Context, input *ListNotifyTopicSubscribersInput) (*ListNotifyTopicSubscribersOutput, error) {
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	ns, err := s.requireNotifyStore()
+	if err != nil {
+		return nil, err
+	}
+	if _, topicErr := ns.GetNotifyTopicByKey(ctx, projectID, input.TopicKey); topicErr != nil {
+		if errors.Is(topicErr, store.ErrNotifyTopicNotFound) {
+			return nil, huma.Error404NotFound("topic not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get topic")
+	}
+
+	limit := defaultPageLimit
+	if input.Limit != "" {
+		if parsed, parseErr := strconv.Atoi(input.Limit); parseErr == nil && parsed > 0 && parsed <= maxPageLimit {
+			limit = parsed
+		}
+	}
+
+	var tenantID *string
+	if input.TenantID != "" {
+		tenantID = &input.TenantID
+	}
+
+	subscribers, listErr := ns.ListNotifySubscribersByTopicKey(ctx, projectID, input.TopicKey, tenantID, limit)
+	if listErr != nil {
+		return nil, huma.Error500InternalServerError("failed to list topic subscribers")
+	}
+
+	return &ListNotifyTopicSubscribersOutput{Body: subscribers}, nil
+}
+
 type AddNotifyTopicSubscriberRequest struct {
 	SubscriberID string `json:"subscriber_id" validate:"required"`
 }
@@ -825,9 +871,13 @@ func (s *Server) handleDeleteNotificationProvider(ctx context.Context, input *De
 
 // Deliveries API.
 type ListNotifyDeliveriesInput struct {
-	Status string `query:"status"`
-	Limit  string `query:"limit"`
-	Cursor string `query:"cursor"`
+	Status      string `query:"status"`
+	Channel     string `query:"channel"`
+	CategoryKey string `query:"category_key"`
+	From        string `query:"from"`
+	To          string `query:"to"`
+	Limit       string `query:"limit"`
+	Cursor      string `query:"cursor"`
 }
 
 type ListNotifyDeliveriesOutput struct {
@@ -853,13 +903,40 @@ func (s *Server) handleListNotifyDeliveries(ctx context.Context, input *ListNoti
 	if input.Status != "" {
 		status = &input.Status
 	}
+	var channel *string
+	if input.Channel != "" {
+		channel = &input.Channel
+	}
+	var categoryKey *string
+	if input.CategoryKey != "" {
+		categoryKey = &input.CategoryKey
+	}
+	var from *time.Time
+	if input.From != "" {
+		ts, parseErr := time.Parse(time.RFC3339, input.From)
+		if parseErr != nil {
+			return nil, huma.Error400BadRequest("from must be RFC3339")
+		}
+		from = &ts
+	}
+	var to *time.Time
+	if input.To != "" {
+		ts, parseErr := time.Parse(time.RFC3339, input.To)
+		if parseErr != nil {
+			return nil, huma.Error400BadRequest("to must be RFC3339")
+		}
+		to = &ts
+	}
+	if from != nil && to != nil && to.Before(*from) {
+		return nil, huma.Error400BadRequest("to must be greater than or equal to from")
+	}
 	var cursor *time.Time
 	if input.Cursor != "" {
 		if ts, parseErr := time.Parse(time.RFC3339Nano, input.Cursor); parseErr == nil {
 			cursor = &ts
 		}
 	}
-	messages, err := ns.ListNotificationMessagesByProject(ctx, projectID, status, limit, cursor)
+	messages, err := ns.ListNotificationMessagesByProject(ctx, projectID, status, channel, categoryKey, from, to, limit, cursor)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list deliveries")
 	}

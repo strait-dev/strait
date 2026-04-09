@@ -405,6 +405,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/topics", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateNotifyTopic))
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListNotifyTopics))
+			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/{topicKey}/subscribers", TypedHandler(s, http.StatusOK, s.handleListNotifyTopicSubscribers))
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/{topicKey}/subscribers", TypedHandler(s, http.StatusNoContent, s.handleAddNotifyTopicSubscriber))
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/{topicKey}/subscribers/{subscriberID}", TypedHandler(s, http.StatusNoContent, s.handleRemoveNotifyTopicSubscriber))
 		})

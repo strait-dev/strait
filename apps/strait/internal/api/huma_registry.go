@@ -789,6 +789,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListNotifyTopics)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "list-notify-topic-subscribers", Method: http.MethodGet, Path: "/v1/topics/{topicKey}/subscribers",
+		Summary: "List topic subscribers", Description: "Returns current active subscribers in a notify topic.",
+		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListNotifyTopicSubscribers)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "add-notify-topic-subscriber", Method: http.MethodPost, Path: "/v1/topics/{topicKey}/subscribers",
 		Summary: "Add topic subscriber", Description: "Adds a subscriber to a notify topic.",
 		Tags: []string{"Notifications"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
