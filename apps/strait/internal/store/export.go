@@ -93,7 +93,7 @@ func (q *Queries) StreamRuns(ctx context.Context, projectID string, from, to tim
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
 		       workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags,
-		       job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id
+		       job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback
 		FROM job_runs
 		WHERE project_id = $1
 		  AND created_at >= $2

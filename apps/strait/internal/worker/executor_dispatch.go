@@ -644,8 +644,14 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 
 	// 9. Create the container using the preset resolved in step 4a.
+	// For code-first jobs the image was pinned at queue time; use it instead of
+	// job.ImageURI so retries always execute the same build.
+	imageURI := job.ImageURI
+	if run.PinnedImageURI != "" {
+		imageURI = run.PinnedImageURI
+	}
 	runReq := compute.RunRequest{
-		ImageURI:      job.ImageURI,
+		ImageURI:      imageURI,
 		MachinePreset: resolvedPreset,
 		Region:        region,
 		Env:           env,
@@ -664,7 +670,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 
 	// Try warm pool first (acquire stopped machine and Start with new env).
 	if !e.disableMachinePoolReuse && e.machinePool != nil {
-		if pooledID, ok := e.machinePool.Acquire(job.ProjectID, job.ImageURI, region); ok {
+		if pooledID, ok := e.machinePool.Acquire(job.ProjectID, imageURI, region); ok {
 			env["STRAIT_CLEAN_START"] = "true"
 			if startErr := e.containerRuntime.Start(ctx, pooledID, env); startErr != nil {
 				e.logger.Warn("pooled machine start failed, falling back to create",
@@ -842,7 +848,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 			e.logger.Info("managed run completed via SDK",
 				"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
 			if !e.disableMachinePoolReuse && e.machinePool != nil && result.ExitCode == 0 {
-				e.machinePool.Release(job.ProjectID, job.ImageURI, region, machineID)
+				e.machinePool.Release(job.ProjectID, imageURI, region, machineID)
 			}
 			e.recordManagedMetric(ctx, "success", dispatchStart)
 			return

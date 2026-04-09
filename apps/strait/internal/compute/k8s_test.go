@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -17,7 +18,7 @@ import (
 
 func newTestK8sRuntime() (*K8sRuntime, *fake.Clientset) {
 	cs := fake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "test-ns", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "test-ns", "strait-job", "")
 	return rt, cs
 }
 
@@ -189,7 +190,7 @@ func TestK8sRuntime_Create_APIError(t *testing.T) {
 	cs.PrependReactor("create", "jobs", func(_ k8stesting.Action) (bool, k8sruntime.Object, error) {
 		return true, nil, errors.New("api server unavailable")
 	})
-	rt := NewK8sRuntimeFromClient(cs, "test-ns", "")
+	rt := NewK8sRuntimeFromClient(cs, "test-ns", "", "")
 
 	_, err := rt.Create(context.Background(), RunRequest{
 		ImageURI:      "alpine:3.19",
@@ -234,7 +235,7 @@ func TestK8sRuntime_Create_UniqueNames(t *testing.T) {
 
 func TestK8sRuntime_Create_NoPriorityClass(t *testing.T) {
 	cs := fake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "test-ns", "")
+	rt := NewK8sRuntimeFromClient(cs, "test-ns", "", "")
 	ctx := context.Background()
 
 	id, _ := rt.Create(ctx, RunRequest{
@@ -684,6 +685,48 @@ func TestK8sRuntime_Create_OverrideNamespace(t *testing.T) {
 	}
 }
 
+// TestK8sRuntime_Create_InvalidNamespaceOverride_FallsBackToDefault verifies that
+// a malformed namespace override is rejected and the job is placed in the default
+// namespace. This prevents tenant isolation bypass via namespace injection.
+func TestK8sRuntime_Create_InvalidNamespaceOverride_FallsBackToDefault(t *testing.T) {
+	t.Parallel()
+
+	rt, cs := newTestK8sRuntime()
+	ctx := context.Background()
+
+	invalidNamespaces := []string{
+		"../other-ns",
+		"UPPER-CASE",
+		"-starts-with-dash",
+		"ends-with-dash-",
+		"has spaces",
+		"has/slash",
+		"has:colon",
+		"",
+	}
+
+	for _, ns := range invalidNamespaces {
+		if ns == "" {
+			continue // empty is handled as "use default", not an injection attempt
+		}
+		id, err := rt.Create(ctx, RunRequest{
+			ImageURI:      "alpine:3.19",
+			MachinePreset: "micro",
+			Namespace:     ns,
+		})
+		if err != nil {
+			// Some invalid namespaces may cause K8s API errors — that's fine.
+			continue
+		}
+
+		// Job must land in the default test namespace, not the invalid override.
+		_, defaultErr := cs.BatchV1().Jobs("test-ns").Get(ctx, id, metav1.GetOptions{})
+		if defaultErr != nil {
+			t.Errorf("namespace=%q: job %q not found in default namespace: %v", ns, id, defaultErr)
+		}
+	}
+}
+
 func TestK8sRuntime_Create_NodeAffinity_AllPresets(t *testing.T) {
 	tests := []struct {
 		preset   string
@@ -771,5 +814,514 @@ func TestK8sRuntime_Create_TTLSecondsAfterFinished(t *testing.T) {
 	}
 }
 
+func TestK8sRuntime_Create_SetsImagePullPolicyIfNotPresent(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", string(corev1.PullIfNotPresent))
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	got := job.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	if got != corev1.PullIfNotPresent {
+		t.Errorf("ImagePullPolicy = %q, want %q", got, corev1.PullIfNotPresent)
+	}
+}
+
+func TestK8sRuntime_Create_SetsImagePullPolicyAlways(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", string(corev1.PullAlways))
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	got := job.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	if got != corev1.PullAlways {
+		t.Errorf("ImagePullPolicy = %q, want %q", got, corev1.PullAlways)
+	}
+}
+
+func TestK8sRuntime_Create_EmptyPullPolicyLeavesDefault(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	got := job.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	if got != corev1.PullPolicy("") {
+		t.Errorf("ImagePullPolicy = %q, want empty (kubernetes default)", got)
+	}
+}
+
 // Suppress unused import warnings.
 var _ = (*batchv1.Job)(nil)
+
+// mockK8sMetricsUnit is used for unit testing K8sRuntime metrics paths.
+// Note: k8s_integration_test.go defines mockK8sMetrics; this uses a distinct name.
+
+type mockK8sMetricsUnit struct {
+	jobCreates      []string // "status:preset"
+	jobWaits        []string // "exitStatus"
+	podScheduling   []float64
+	jobsActiveDelta int64
+}
+
+func (m *mockK8sMetricsUnit) RecordJobCreate(status, preset string, _ float64) {
+	m.jobCreates = append(m.jobCreates, status+":"+preset)
+}
+func (m *mockK8sMetricsUnit) RecordJobWait(exitStatus string, _ float64) {
+	m.jobWaits = append(m.jobWaits, exitStatus)
+}
+func (m *mockK8sMetricsUnit) RecordPodScheduling(secs float64) {
+	m.podScheduling = append(m.podScheduling, secs)
+}
+func (m *mockK8sMetricsUnit) IncJobsActive(delta int64) {
+	m.jobsActiveDelta += delta
+}
+
+// handlePodPhase coverage.
+
+// TestHandlePodPhase_Succeeded_CompletesWithMetrics verifies that PodSucceeded
+// returns podActionComplete and records metrics.
+func TestHandlePodPhase_Succeeded_CompletesWithMetrics(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			Phase: corev1.PodSucceeded,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "job",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{ExitCode: 0},
+					},
+				},
+			},
+		},
+	}
+	ws := &waitState{result: &RunResult{MachineID: "strait-aabbcc001122"}}
+	action := rt.handlePodPhase(context.Background(), "strait-aabbcc001122", pod, ws)
+
+	if action != podActionComplete {
+		t.Errorf("handlePodPhase(Succeeded) = %v, want podActionComplete", action)
+	}
+	if len(m.jobWaits) == 0 || m.jobWaits[0] != "success" {
+		t.Errorf("expected RecordJobWait(success), got %v", m.jobWaits)
+	}
+}
+
+// TestHandlePodPhase_Failed_NonZeroExit_RecordsFailureMetric verifies that
+// PodFailed with a non-zero exit code records "failure" metric.
+func TestHandlePodPhase_Failed_NonZeroExit_RecordsFailureMetric(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			Phase: corev1.PodFailed,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "job",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{ExitCode: 1},
+					},
+				},
+			},
+		},
+	}
+	ws := &waitState{result: &RunResult{MachineID: "strait-aabbcc001123"}}
+	action := rt.handlePodPhase(context.Background(), "strait-aabbcc001123", pod, ws)
+
+	if action != podActionComplete {
+		t.Errorf("handlePodPhase(Failed) = %v, want podActionComplete", action)
+	}
+	if len(m.jobWaits) == 0 || m.jobWaits[0] != "failure" {
+		t.Errorf("expected RecordJobWait(failure), got %v", m.jobWaits)
+	}
+}
+
+// TestHandlePodPhase_Failed_OOMKilled_RecordsOOMMetric verifies that a pod
+// killed by OOM records "oom" metric.
+func TestHandlePodPhase_Failed_OOMKilled_RecordsOOMMetric(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			Phase: corev1.PodFailed,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "job",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							ExitCode: 137,
+							Reason:   "OOMKilled",
+						},
+					},
+				},
+			},
+		},
+	}
+	ws := &waitState{result: &RunResult{MachineID: "strait-aabbcc001124"}}
+	action := rt.handlePodPhase(context.Background(), "strait-aabbcc001124", pod, ws)
+
+	if action != podActionComplete {
+		t.Errorf("expected podActionComplete, got %v", action)
+	}
+	if !ws.result.OOMKilled {
+		t.Error("expected OOMKilled=true")
+	}
+	if len(m.jobWaits) == 0 || m.jobWaits[0] != "oom" {
+		t.Errorf("expected RecordJobWait(oom), got %v", m.jobWaits)
+	}
+}
+
+// TestHandlePodPhase_Running_FirstTime_RecordsScheduling verifies that the
+// first time a pod enters Running, podRunningAt is set and RecordPodScheduling
+// is called.
+func TestHandlePodPhase_Running_FirstTime_RecordsScheduling(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+	ws := &waitState{
+		result:    &RunResult{MachineID: "strait-aabbcc001125"},
+		waitStart: time.Now().Add(-5 * time.Second),
+		// podRunningAt is zero
+	}
+
+	action := rt.handlePodPhase(context.Background(), "strait-aabbcc001125", pod, ws)
+
+	if action != podActionContinue {
+		t.Errorf("expected podActionContinue, got %v", action)
+	}
+	if ws.podRunningAt.IsZero() {
+		t.Error("expected podRunningAt to be set on first Running observation")
+	}
+	if len(m.podScheduling) == 0 {
+		t.Error("expected RecordPodScheduling to be called on first Running")
+	}
+}
+
+// TestHandlePodPhase_Running_Subsequent_NoNewSchedulingRecord verifies that
+// subsequent Running observations do not call RecordPodScheduling again.
+func TestHandlePodPhase_Running_Subsequent_NoNewSchedulingRecord(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+	alreadyRunning := time.Now().Add(-10 * time.Second)
+	ws := &waitState{
+		result:       &RunResult{MachineID: "strait-aabbcc001126"},
+		waitStart:    alreadyRunning.Add(-5 * time.Second),
+		podRunningAt: alreadyRunning, // already set
+	}
+
+	rt.handlePodPhase(context.Background(), "strait-aabbcc001126", pod, ws)
+	rt.handlePodPhase(context.Background(), "strait-aabbcc001126", pod, ws)
+
+	if len(m.podScheduling) != 0 {
+		t.Errorf("expected RecordPodScheduling NOT called on subsequent Running, got %d calls", len(m.podScheduling))
+	}
+}
+
+// TestHandlePodPhase_Pending_WithFailureReason_ReturnsFatal verifies that a
+// pending pod with an unschedulable condition returns podActionFatal.
+func TestHandlePodPhase_Pending_WithFailureReason_ReturnsFatal(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			Conditions: []corev1.PodCondition{
+				{
+					Type:    corev1.PodScheduled,
+					Status:  corev1.ConditionFalse,
+					Reason:  "Unschedulable",
+					Message: "insufficient memory",
+				},
+			},
+		},
+	}
+	ws := &waitState{result: &RunResult{MachineID: "strait-aabbcc001127"}}
+	action := rt.handlePodPhase(context.Background(), "strait-aabbcc001127", pod, ws)
+
+	if action != podActionFatal {
+		t.Errorf("expected podActionFatal for unschedulable pod, got %v", action)
+	}
+}
+
+// TestHandlePodPhase_Pending_NoReason_ReturnsContinue verifies that a pending
+// pod without a failure reason returns podActionContinue.
+func TestHandlePodPhase_Pending_NoReason_ReturnsContinue(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+
+	pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodPending}}
+	ws := &waitState{result: &RunResult{MachineID: "strait-aabbcc001128"}}
+	action := rt.handlePodPhase(context.Background(), "strait-aabbcc001128", pod, ws)
+
+	if action != podActionContinue {
+		t.Errorf("expected podActionContinue for pending pod without failure, got %v", action)
+	}
+}
+
+// TestHandlePodPhase_NilMetrics_NoPanic verifies that handlePodPhase does not
+// panic when metrics is nil (default nil-safe path).
+func TestHandlePodPhase_NilMetrics_NoPanic(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	// metrics is nil by default
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			Phase: corev1.PodSucceeded,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "job", State: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{ExitCode: 0},
+				}},
+			},
+		},
+	}
+	ws := &waitState{result: &RunResult{MachineID: "strait-aabbcc001129"}}
+	// Must not panic.
+	_ = rt.handlePodPhase(context.Background(), "strait-aabbcc001129", pod, ws)
+}
+
+// extractExitInfo coverage.
+
+// TestExtractExitInfo_NoJobContainer_LeavesDefaults verifies that when no
+// container named "job" exists, RunResult fields stay at zero values.
+func TestExtractExitInfo_NoJobContainer_LeavesDefaults(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "sidecar", State: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{ExitCode: 1},
+				}},
+			},
+		},
+	}
+	result := &RunResult{}
+	rt.extractExitInfo(pod, result)
+
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0 (no job container)", result.ExitCode)
+	}
+}
+
+// TestExtractExitInfo_SignalTermination_SetsExitSignal verifies that a container
+// killed by signal > 0 sets ExitSignal.
+func TestExtractExitInfo_SignalTermination_SetsExitSignal(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "job", State: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						ExitCode: 137,
+						Signal:   9,
+					},
+				}},
+			},
+		},
+	}
+	result := &RunResult{}
+	rt.extractExitInfo(pod, result)
+
+	if result.ExitSignal == "" {
+		t.Error("expected ExitSignal to be set for signal termination")
+	}
+	if result.ExitCode != 137 {
+		t.Errorf("ExitCode = %d, want 137", result.ExitCode)
+	}
+}
+
+// TestExtractExitInfo_OOMKilled_SetsFlag verifies that OOMKilled reason sets
+// result.OOMKilled = true.
+func TestExtractExitInfo_OOMKilled_SetsFlag(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "job", State: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						ExitCode: 137,
+						Reason:   "OOMKilled",
+					},
+				}},
+			},
+		},
+	}
+	result := &RunResult{}
+	rt.extractExitInfo(pod, result)
+
+	if !result.OOMKilled {
+		t.Error("expected OOMKilled=true for OOMKilled reason")
+	}
+}
+
+// TestExtractExitInfo_TerminatedNil_LeavesDefaults verifies that when
+// cs.State.Terminated is nil the result fields stay at zero values.
+func TestExtractExitInfo_TerminatedNil_LeavesDefaults(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "job", State: corev1.ContainerState{
+					// Terminated is nil — container is still running or waiting.
+				}},
+			},
+		},
+	}
+	result := &RunResult{}
+	rt.extractExitInfo(pod, result)
+
+	if result.ExitCode != 0 || result.OOMKilled || result.ExitSignal != "" {
+		t.Errorf("expected zero values, got ExitCode=%d OOMKilled=%v ExitSignal=%q",
+			result.ExitCode, result.OOMKilled, result.ExitSignal)
+	}
+}
+
+// recordCreateError and recordWaitTimeout nil-metrics coverage.
+
+// TestRecordCreateError_NilMetrics_NoPanic verifies recordCreateError is nil-safe.
+func TestRecordCreateError_NilMetrics_NoPanic(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	// metrics is nil by default
+	// Must not panic.
+	rt.recordCreateError("small-1x", time.Now().Add(-time.Second))
+}
+
+// TestRecordCreateError_WithMetrics_RecordsCounter verifies that recordCreateError
+// calls RecordJobCreate with status="error".
+func TestRecordCreateError_WithMetrics_RecordsCounter(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	rt.recordCreateError("small-1x", time.Now().Add(-time.Second))
+
+	if len(m.jobCreates) == 0 {
+		t.Fatal("expected RecordJobCreate to be called")
+	}
+	if m.jobCreates[0] != "error:small-1x" {
+		t.Errorf("RecordJobCreate called with %q, want error:small-1x", m.jobCreates[0])
+	}
+}
+
+// TestRecordWaitTimeout_NilMetrics_NoPanic verifies recordWaitTimeout is nil-safe.
+func TestRecordWaitTimeout_NilMetrics_NoPanic(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	// metrics is nil by default
+	ws := &waitState{result: &RunResult{}, waitStart: time.Now().Add(-time.Second)}
+	// Must not panic.
+	rt.recordWaitTimeout(ws)
+}
+
+// TestRecordWaitTimeout_WithMetrics_RecordsTimeout verifies that recordWaitTimeout
+// calls RecordJobWait with exitStatus="timeout".
+func TestRecordWaitTimeout_WithMetrics_RecordsTimeout(t *testing.T) {
+	rt, _ := newTestK8sRuntime()
+	m := &mockK8sMetricsUnit{}
+	rt.SetMetrics(m)
+
+	ws := &waitState{result: &RunResult{}, waitStart: time.Now().Add(-5 * time.Second)}
+	rt.recordWaitTimeout(ws)
+
+	if len(m.jobWaits) == 0 || m.jobWaits[0] != "timeout" {
+		t.Errorf("expected RecordJobWait(timeout), got %v", m.jobWaits)
+	}
+}
+
+func TestK8sRuntime_Create_SetsRuntimeClassName(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
+	rt.SetRuntimeClass("gvisor")
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	if job.Spec.Template.Spec.RuntimeClassName == nil {
+		t.Fatal("RuntimeClassName is nil, want gvisor")
+	}
+	if got := *job.Spec.Template.Spec.RuntimeClassName; got != "gvisor" {
+		t.Errorf("RuntimeClassName = %q, want gvisor", got)
+	}
+}
+
+func TestK8sRuntime_Create_NoRuntimeClass_OmitsField(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	if job.Spec.Template.Spec.RuntimeClassName != nil {
+		t.Errorf("RuntimeClassName = %q, want nil", *job.Spec.Template.Spec.RuntimeClassName)
+	}
+}

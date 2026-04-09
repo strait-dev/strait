@@ -48,6 +48,9 @@ func TestGrafanaDashboard_AllPanelsHaveQueries(t *testing.T) {
 	for i, p := range panels {
 		panel := p.(map[string]any)
 		title := panel["title"].(string)
+		if panel["type"] == "row" {
+			continue // row panels are section dividers with no queries
+		}
 		targets, ok := panel["targets"].([]any)
 		if !ok || len(targets) == 0 {
 			t.Errorf("panel %d (%q) has no targets", i, title)

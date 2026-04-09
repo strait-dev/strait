@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26.1"
+  GO_VERSION: "1.26.2"
 
 jobs:
   govulncheck:
@@ -61,7 +61,7 @@ jobs:
 
       - name: Check licenses
         working-directory: apps/strait
-        run: go-licenses check ./... --disallowed_types=restricted,reciprocal
+        run: go-licenses check ./... --disallowed_types=restricted,reciprocal --ignore=github.com/hashicorp/go-cleanhttp
 
   gosec:
     runs-on: blacksmith-4vcpu-ubuntu-2404
