@@ -86,10 +86,10 @@ jobs:
 
       - name: Set up QEMU
         if: needs.resolve-tag.outputs.push == 'true'
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff9f0ee8754ca547a7 # v3.6.0
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5730f4a249498a9e5f11be9fe2bc1a06de2c9b4 # v3.10.0
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Log in to GitHub Container Registry
         if: needs.resolve-tag.outputs.push == 'true'
@@ -121,7 +121,7 @@ jobs:
 
       - name: Scan ${{ matrix.runtime }} for vulnerabilities
         if: needs.resolve-tag.outputs.push == 'true'
-        uses: aquasecurity/trivy-action@18f2505d82f4a2a9f0f6fdcd4c73e20f6cf58827 # v0.29.0
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:${{ needs.resolve-tag.outputs.tag }}
           format: table
