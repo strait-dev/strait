@@ -29,12 +29,22 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 
-type NotifyDeliveriesSearch = ListParams & { status?: NotifyMessageStatus };
+type NotifyDeliveriesSearch = ListParams & {
+  status?: NotifyMessageStatus;
+  channel?: NotifyDeliveryChannel;
+  category_key?: string;
+  from?: string;
+  to?: string;
+};
 type NotifySubscribersSearch = ListParams & {
   status?: NotifySubscriberStatus;
   tenant_id?: string;
 };
 type NotifyTemplatesSearch = ListParams & { status?: string };
+type NotifyTopicSubscribersSearch = ListParams & {
+  topicKey: string;
+  tenant_id?: string;
+};
 type NotifyPolicyScopeType = NotifyPolicyOverride["scope_type"];
 
 type UpsertNotifySubscriberInput = {
@@ -192,6 +202,10 @@ export const fetchNotifyDeliveries = createServerFn({ method: "GET" })
       apiEffect<NotificationMessage[]>("/v1/notify/deliveries", {
         params: {
           status: data.status,
+          channel: data.channel,
+          category_key: data.category_key,
+          from: data.from,
+          to: data.to,
           limit: data.limit,
           cursor: data.cursor,
         },
@@ -355,6 +369,20 @@ export const fetchNotifyTopics = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (): Promise<NotifyTopic[]> => {
     return await runWithSentryReport(apiEffect<NotifyTopic[]>("/v1/topics"));
+  });
+
+export const fetchNotifyTopicSubscribers = createServerFn({ method: "GET" })
+  .inputValidator((data: NotifyTopicSubscribersSearch) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ data }): Promise<NotifySubscriber[]> => {
+    return await runWithSentryReport(
+      apiEffect<NotifySubscriber[]>(`/v1/topics/${data.topicKey}/subscribers`, {
+        params: {
+          tenant_id: data.tenant_id,
+          limit: data.limit,
+        },
+      })
+    );
   });
 
 export const createNotifyTopicFn = createServerFn({ method: "POST" })
@@ -722,6 +750,24 @@ export const notifyTopicsQueryOptions = () =>
     gcTime: DEFAULT_GC_TIME,
   });
 
+export const notifyTopicSubscribersQueryOptions = (
+  search?: NotifyTopicSubscribersSearch
+) =>
+  queryOptions({
+    queryKey: queryKeys.notify.topicSubscribers(search).queryKey,
+    queryFn: () => {
+      if (!search?.topicKey) {
+        return Promise.resolve([] as NotifySubscriber[]);
+      }
+
+      return fetchNotifyTopicSubscribers({ data: search });
+    },
+    enabled: !!search?.topicKey,
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+    placeholderData: keepPreviousData,
+  });
+
 export const notifyTemplatesQueryOptions = (search?: NotifyTemplatesSearch) =>
   queryOptions({
     queryKey: queryKeys.notify.templatesList(search).queryKey,
@@ -900,9 +946,14 @@ export const useAddNotifyTopicSubscriber = () => {
     mutationFn: (data: { topicKey: string; subscriber_id: string }) =>
       addNotifyTopicSubscriberFn({ data }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.notify.topics.queryKey,
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.notify.topics.queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.notify.topicSubscribers._def,
+        }),
+      ]);
     },
   });
 };
@@ -914,9 +965,14 @@ export const useRemoveNotifyTopicSubscriber = () => {
     mutationFn: (data: { topicKey: string; subscriberId: string }) =>
       removeNotifyTopicSubscriberFn({ data }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.notify.topics.queryKey,
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.notify.topics.queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.notify.topicSubscribers._def,
+        }),
+      ]);
     },
   });
 };

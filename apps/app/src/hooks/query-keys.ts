@@ -1,6 +1,7 @@
 import { createQueryKeyStore } from "@lukemorales/query-key-factory";
 import type {
   ListParams,
+  NotifyDeliveryChannel,
   NotifyMessageStatus,
   NotifyPolicyOverride,
   NotifySubscriberStatus,
@@ -21,7 +22,13 @@ type ListEventsSearch = ListParams & {
   source_type?: string;
 };
 type ListDlqSearch = ListParams & { search?: string };
-type ListNotifyDeliveriesSearch = ListParams & { status?: NotifyMessageStatus };
+type ListNotifyDeliveriesSearch = ListParams & {
+  status?: NotifyMessageStatus;
+  channel?: NotifyDeliveryChannel;
+  category_key?: string;
+  from?: string;
+  to?: string;
+};
 type ListNotifySubscribersSearch = ListParams & {
   status?: NotifySubscriberStatus;
   tenant_id?: string;
@@ -153,6 +160,9 @@ export const queryKeys = createQueryKeyStore({
     ],
     subscriberPreferences: (subscriberId: string) => [subscriberId],
     topics: null,
+    topicSubscribers: (
+      search?: ListParams & { topicKey: string; tenant_id?: string }
+    ) => [{ search }],
     templatesList: (search?: ListNotifyTemplatesSearch) => [{ search }],
     templateDetail: (templateKey: string) => [templateKey],
     categories: null,

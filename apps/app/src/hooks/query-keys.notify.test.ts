@@ -6,6 +6,10 @@ describe("notify query keys", () => {
     expect(
       queryKeys.notify.deliveries({
         status: "failed",
+        channel: "email",
+        category_key: "approvals",
+        from: "2026-01-01T00:00:00Z",
+        to: "2026-01-02T00:00:00Z",
         limit: 20,
         cursor: "2026-01-01T00:00:00Z",
       }).queryKey
@@ -15,6 +19,10 @@ describe("notify query keys", () => {
       {
         search: {
           status: "failed",
+          channel: "email",
+          category_key: "approvals",
+          from: "2026-01-01T00:00:00Z",
+          to: "2026-01-02T00:00:00Z",
           limit: 20,
           cursor: "2026-01-01T00:00:00Z",
         },
@@ -43,6 +51,19 @@ describe("notify query keys", () => {
       "notify",
       "templatesList",
       { search: { limit: 25, cursor: "2026-01-03T00:00:00Z" } },
+    ]);
+  });
+
+  it("builds topic subscribers key", () => {
+    expect(
+      queryKeys.notify.topicSubscribers({
+        topicKey: "workflow.approvals",
+        tenant_id: "tenant_123",
+      }).queryKey
+    ).toEqual([
+      "notify",
+      "topicSubscribers",
+      { search: { topicKey: "workflow.approvals", tenant_id: "tenant_123" } },
     ]);
   });
 
