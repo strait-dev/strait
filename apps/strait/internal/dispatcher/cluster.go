@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -39,13 +40,16 @@ type ClusterEntry struct {
 	Name string `yaml:"name"`
 	// APIURL is the base URL of the Strait API in this cluster.
 	// Requests are proxied here when the cluster is selected.
+	// Must use https scheme with a non-empty host.
 	APIURL string `yaml:"api_url"`
 	// PrometheusURL is the base URL of the Prometheus instance that scrapes
 	// the cluster. Used to query queue depth for routing decisions.
+	// Must use https scheme with a non-empty host.
 	PrometheusURL string `yaml:"prometheus_url"`
 	// Weight is an optional routing weight (1–100). Zero is treated as 1.
 	// Higher weight increases the probability of selection when queue depths
-	// are roughly equal (within the jitter threshold).
+	// are roughly equal (within the jitter threshold). Negative values are
+	// rejected at load time.
 	Weight int `yaml:"weight"`
 	// Region is an optional data-centre label for logging and tracing.
 	Region string `yaml:"region"`
@@ -76,6 +80,8 @@ func NewClusterRegistry(clientset kubernetes.Interface, namespace, configmap str
 }
 
 // Reload fetches the cluster-registry ConfigMap and updates the in-memory list.
+// Invalid entries (missing name, invalid URL, wrong scheme, negative weight) cause
+// the entire reload to be rejected — a partial bad config is worse than stale good config.
 func (r *ClusterRegistry) Reload(ctx context.Context) error {
 	cm, err := r.clientset.CoreV1().ConfigMaps(r.namespace).Get(ctx, r.configmap, metav1.GetOptions{})
 	if err != nil {
@@ -92,11 +98,65 @@ func (r *ClusterRegistry) Reload(ctx context.Context) error {
 		return fmt.Errorf("parse cluster-registry: %w", err)
 	}
 
+	if err := validateEntries(clusters); err != nil {
+		return fmt.Errorf("invalid cluster-registry: %w", err)
+	}
+
 	r.mu.Lock()
 	r.clusters = clusters
 	r.mu.Unlock()
 
 	r.logger.Info("cluster registry reloaded", "count", len(clusters))
+	return nil
+}
+
+// validateEntries checks that every ClusterEntry is usable. Returns the first
+// validation error found. Validation rules:
+//   - Name must be non-empty
+//   - APIURL must be non-empty, parseable, and use https scheme
+//   - PrometheusURL, if set, must be parseable and use https scheme
+//   - Weight must be >= 0
+func validateEntries(clusters []ClusterEntry) error {
+	for i, c := range clusters {
+		if c.Name == "" {
+			return fmt.Errorf("cluster[%d] missing name", i)
+		}
+		if err := validateClusterURL("api_url", c.Name, c.APIURL, true); err != nil {
+			return err
+		}
+		if c.PrometheusURL != "" {
+			if err := validateClusterURL("prometheus_url", c.Name, c.PrometheusURL, false); err != nil {
+				return err
+			}
+		}
+		if c.Weight < 0 {
+			return fmt.Errorf("cluster %q has negative weight %d", c.Name, c.Weight)
+		}
+	}
+	return nil
+}
+
+// validateClusterURL checks that a URL is non-empty (if required), parseable,
+// has a non-empty host, and uses https scheme. This is a defense-in-depth check
+// against misconfigured ConfigMaps causing the dispatcher to proxy to unintended
+// internal endpoints.
+func validateClusterURL(field, clusterName, rawURL string, required bool) error {
+	if rawURL == "" {
+		if required {
+			return fmt.Errorf("cluster %q missing %s", clusterName, field)
+		}
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("cluster %q has unparseable %s %q: %w", clusterName, field, rawURL, err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("cluster %q has %s %q with no host", clusterName, field, rawURL)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("cluster %q has %s %q with non-https scheme %q (only https is allowed)", clusterName, field, rawURL, u.Scheme)
+	}
 	return nil
 }
 
@@ -110,25 +170,36 @@ func (r *ClusterRegistry) List() []ClusterEntry {
 }
 
 // queueDepth queries Prometheus for the total queue depth of a cluster.
-// Returns -1 on error so the cluster is deprioritised but not hard-excluded.
+//
+// Return value semantics:
+//   - ≥ 0: actual queue depth (0 = no queued items)
+//   - math.MaxInt64: query failed or response was unparseable — cluster is
+//     deprioritised but not hard-excluded from routing
+//
+// Separating the error sentinel from a valid 0 ensures that a cluster whose
+// Prometheus is unreachable sorts last, not first.
 func queueDepth(ctx context.Context, prometheusURL string, client *http.Client) int64 {
 	query := `sum(strait_queue_depth{status="queued"})`
 	apiURL := prometheusURL + "/api/v1/query?query=" + url.QueryEscape(query)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		return -1
+		return math.MaxInt64
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return -1
+		return math.MaxInt64
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return math.MaxInt64
+	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
-		return -1
+		return math.MaxInt64
 	}
 
 	var result struct {
@@ -138,8 +209,12 @@ func queueDepth(ctx context.Context, prometheusURL string, client *http.Client) 
 			} `json:"result"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil || len(result.Data.Result) == 0 {
-		return 0 // no queued items → depth is 0
+	if err := json.Unmarshal(body, &result); err != nil {
+		// Unparseable response — treat as unknown, not as empty.
+		return math.MaxInt64
+	}
+	if len(result.Data.Result) == 0 {
+		return 0 // no queued items → depth is genuinely 0
 	}
 
 	s, _ := result.Data.Result[0].Value[1].(string)
@@ -155,8 +230,9 @@ type clusterWithDepth struct {
 }
 
 // Pick selects the cluster with the lowest queue depth.
-// If all clusters fail their Prometheus query they are returned in registry order
-// so requests still reach a cluster (fail-open behaviour).
+// Clusters whose Prometheus query fails return math.MaxInt64 and sort last —
+// they are included in routing as a last resort (fail-open), not preferred.
+// If all clusters fail their Prometheus query they are returned in registry order.
 func (r *ClusterRegistry) Pick(ctx context.Context, client *http.Client) (ClusterEntry, error) {
 	clusters := r.List()
 	if len(clusters) == 0 {
@@ -183,7 +259,8 @@ func (r *ClusterRegistry) Pick(ctx context.Context, client *http.Client) (Cluste
 	}
 	wg.Wait()
 
-	// Sort by depth ascending, then by weight descending as tiebreaker.
+	// Sort by depth ascending (math.MaxInt64 = error, sorts last), then by
+	// weight descending as tiebreaker for equal depths.
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].depth != results[j].depth {
 			return results[i].depth < results[j].depth

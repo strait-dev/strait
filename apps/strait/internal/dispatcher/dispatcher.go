@@ -3,23 +3,32 @@ package dispatcher
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sync"
 	"time"
 )
+
+// cachedProxy bundles a pre-built ReverseProxy with the cluster metadata needed
+// to set response headers. Built once per unique APIURL and reused across requests.
+type cachedProxy struct {
+	proxy  *httputil.ReverseProxy
+	name   string
+	region string
+}
 
 // Dispatcher is the main entrypoint for dispatcher mode.
 // It starts an HTTP server that proxies incoming requests to the least-loaded
 // Strait cluster as determined by real-time Prometheus queue depth queries.
 type Dispatcher struct {
-	registry *ClusterRegistry
-	client   *http.Client
-	port     int
-	logger   *slog.Logger
+	registry   *ClusterRegistry
+	client     *http.Client
+	port       int
+	logger     *slog.Logger
+	proxyCache sync.Map // map[apiURL string]*cachedProxy
 }
 
 // New creates a Dispatcher.
@@ -91,6 +100,10 @@ func (d *Dispatcher) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleProxy picks the best cluster and reverse-proxies the request.
+// The ReverseProxy for each cluster is cached by APIURL to avoid per-request
+// allocations. The cache is invalidated lazily: if the cluster name or region
+// recorded in the cache differs from the currently selected cluster, the entry
+// is rebuilt.
 func (d *Dispatcher) handleProxy(w http.ResponseWriter, r *http.Request) {
 	cluster, err := d.registry.Pick(r.Context(), d.client)
 	if err != nil {
@@ -99,28 +112,53 @@ func (d *Dispatcher) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cp := d.proxyFor(cluster)
+
+	d.logger.Debug("dispatcher: routing request", "cluster", cluster.Name, "path", r.URL.Path)
+	cp.proxy.ServeHTTP(w, r)
+}
+
+// proxyFor returns a cached *cachedProxy for the cluster, building one if needed
+// or if the cluster metadata has changed since the last build.
+func (d *Dispatcher) proxyFor(cluster ClusterEntry) *cachedProxy {
+	if v, ok := d.proxyCache.Load(cluster.APIURL); ok {
+		cp := v.(*cachedProxy)
+		// Rebuild if name or region changed (e.g. after a ConfigMap reload).
+		if cp.name == cluster.Name && cp.region == cluster.Region {
+			return cp
+		}
+	}
+
 	target, err := url.Parse(cluster.APIURL)
 	if err != nil {
-		d.logger.Error("dispatcher: invalid cluster URL", "cluster", cluster.Name, "url", cluster.APIURL, "error", err)
-		http.Error(w, "invalid upstream URL", http.StatusInternalServerError)
-		return
+		// APIURL is validated at Reload time; this path is unreachable in normal
+		// operation. Return a proxy that immediately returns 502.
+		d.logger.Error("dispatcher: invalid cluster URL (should have been caught at load)", "cluster", cluster.Name, "url", cluster.APIURL, "error", err)
+		proxy := &httputil.ReverseProxy{
+			Director: func(_ *http.Request) {},
+			ErrorHandler: func(rw http.ResponseWriter, _ *http.Request, _ error) {
+				http.Error(rw, "invalid upstream URL", http.StatusInternalServerError)
+			},
+		}
+		return &cachedProxy{proxy: proxy, name: cluster.Name, region: cluster.Region}
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	name := cluster.Name
+	region := cluster.Region
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, e error) {
-		d.logger.Warn("dispatcher: upstream error", "cluster", cluster.Name, "error", e)
+		d.logger.Warn("dispatcher: upstream error", "cluster", name, "error", e)
 		http.Error(rw, "upstream error", http.StatusBadGateway)
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		resp.Header.Set("X-Strait-Cluster", cluster.Name)
-		if cluster.Region != "" {
-			resp.Header.Set("X-Strait-Region", cluster.Region)
+		resp.Header.Set("X-Strait-Cluster", name)
+		if region != "" {
+			resp.Header.Set("X-Strait-Region", region)
 		}
 		return nil
 	}
-	// Drain and discard the original body so the transport can be reused.
-	defer io.Discard.Write(nil) //nolint:errcheck
 
-	d.logger.Debug("dispatcher: routing request", "cluster", cluster.Name, "path", r.URL.Path)
-	proxy.ServeHTTP(w, r)
+	cp := &cachedProxy{proxy: proxy, name: name, region: region}
+	d.proxyCache.Store(cluster.APIURL, cp)
+	return cp
 }
