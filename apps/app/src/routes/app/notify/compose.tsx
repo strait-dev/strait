@@ -29,6 +29,7 @@ import type { NotifyDeliveryChannel } from "@/hooks/api/types";
 import {
   notifySubscribersQueryOptions,
   notifyTemplatesQueryOptions,
+  notifyTopicsQueryOptions,
   useNotifyPreview,
   useNotifyTest,
   useNotifyTrigger,
@@ -43,6 +44,7 @@ export const Route = createFileRoute("/app/notify/compose")({
       await Promise.all([
         context.queryClient.ensureQueryData(notifyTemplatesQueryOptions()),
         context.queryClient.ensureQueryData(notifySubscribersQueryOptions()),
+        context.queryClient.ensureQueryData(notifyTopicsQueryOptions()),
       ]);
     }
     return { hasProject, session };
@@ -67,6 +69,10 @@ function NotifyComposePage() {
   });
   const subscribersQuery = useQuery({
     ...notifySubscribersQueryOptions(),
+    enabled: hasProject,
+  });
+  const topicsQuery = useQuery({
+    ...notifyTopicsQueryOptions(),
     enabled: hasProject,
   });
 
@@ -97,6 +103,12 @@ function NotifyComposePage() {
 
   const [previewResult, setPreviewResult] = useState("");
   const [triggerResult, setTriggerResult] = useState("");
+  const [formErrors, setFormErrors] = useState<{
+    templateKey?: string;
+    recipient?: string;
+    channels?: string;
+    payload?: string;
+  }>({});
 
   if (!hasProject) {
     return (
@@ -108,6 +120,7 @@ function NotifyComposePage() {
 
   const templates = templatesQuery.data ?? [];
   const subscribers = subscribersQuery.data ?? [];
+  const topics = topicsQuery.data ?? [];
 
   const parsePayload = () => {
     try {
@@ -119,52 +132,80 @@ function NotifyComposePage() {
 
   const parseChannels = (): NotifyDeliveryChannel[] => [...selectedChannels];
 
-  const validateRecipient = () => {
+  const validateRecipient = (
+    nextErrors: Partial<typeof formErrors>
+  ):
+    | { type: "subscriber"; id: string }
+    | { type: "topic"; key: string }
+    | null => {
     if (recipientType === "topic") {
       if (!recipientKey.trim()) {
-        toast.error("Topic key is required");
+        nextErrors.recipient = "Topic is required";
         return null;
       }
-      return { type: "topic" as const, key: recipientKey.trim() };
+      return { type: "topic", key: recipientKey.trim() };
     }
 
     if (!recipientID.trim()) {
-      toast.error("Subscriber ID is required");
+      nextErrors.recipient = "Subscriber ID is required";
       return null;
     }
 
-    return { type: "subscriber" as const, id: recipientID.trim() };
+    return { type: "subscriber", id: recipientID.trim() };
   };
 
-  const runPreview = async () => {
+  const validateComposeInput = () => {
+    const nextErrors: Partial<typeof formErrors> = {};
+
     const payload = parsePayload();
     if (!payload) {
-      toast.error("Payload must be valid JSON");
-      return;
+      nextErrors.payload = "Payload must be valid JSON";
     }
+
     if (!templateKey.trim()) {
-      toast.error("Template key is required");
-      return;
+      nextErrors.templateKey = "Template key is required";
     }
 
     const channels = parseChannels();
     if (channels.length === 0) {
-      toast.error("Select at least one channel");
-      return;
+      nextErrors.channels = "Select at least one channel";
     }
 
-    const recipient = validateRecipient();
-    if (!recipient) {
+    const recipient = validateRecipient(nextErrors);
+
+    setFormErrors(nextErrors);
+
+    const hasValidCoreInput =
+      !!payload && !!recipient && !!templateKey.trim() && channels.length > 0;
+
+    if (!hasValidCoreInput) {
+      toast.error("Fix form errors before continuing");
+      return null;
+    }
+
+    return {
+      payload,
+      channels,
+      recipient,
+      templateKey: templateKey.trim(),
+    };
+  };
+
+  const runPreview = async () => {
+    const input = validateComposeInput();
+    if (!input) {
       return;
     }
 
     const result = await toast.promise(
       preview.mutateAsync({
-        template_key: templateKey.trim(),
-        payload,
-        channels,
+        template_key: input.templateKey,
+        payload: input.payload,
+        channels: input.channels,
         subscriber_id:
-          recipient.type === "subscriber" ? recipient.id : undefined,
+          input.recipient.type === "subscriber"
+            ? input.recipient.id
+            : undefined,
         category_key: categoryKey.trim() || undefined,
       }),
       {
@@ -178,32 +219,16 @@ function NotifyComposePage() {
   };
 
   const runTrigger = async (mode: "trigger" | "test") => {
-    const payload = parsePayload();
-    if (!payload) {
-      toast.error("Payload must be valid JSON");
-      return;
-    }
-    if (!templateKey.trim()) {
-      toast.error("Template key is required");
-      return;
-    }
-
-    const recipient = validateRecipient();
-    if (!recipient) {
-      return;
-    }
-
-    const channels = parseChannels();
-    if (channels.length === 0) {
-      toast.error("Select at least one channel");
+    const input = validateComposeInput();
+    if (!input) {
       return;
     }
 
     const body = {
-      to: recipient,
-      template_key: templateKey.trim(),
-      payload,
-      channels,
+      to: input.recipient,
+      template_key: input.templateKey,
+      payload: input.payload,
+      channels: input.channels,
       category_key: categoryKey.trim() || undefined,
     };
 
@@ -239,11 +264,17 @@ function NotifyComposePage() {
               <div className="space-y-1">
                 <Label htmlFor="recipient-type">Recipient type</Label>
                 <Select
-                  onValueChange={(value) =>
+                  onValueChange={(value) => {
                     setRecipientType(
                       value as (typeof recipientTypeOptions)[number]
-                    )
-                  }
+                    );
+                    setRecipientID("");
+                    setRecipientKey("");
+                    setFormErrors((errors) => ({
+                      ...errors,
+                      recipient: undefined,
+                    }));
+                  }}
                   value={recipientType}
                 >
                   <SelectTrigger id="recipient-type">
@@ -263,9 +294,20 @@ function NotifyComposePage() {
                 <Input
                   id="template-key"
                   list="notify-templates"
-                  onChange={(event) => setTemplateKey(event.target.value)}
+                  onChange={(event) => {
+                    setTemplateKey(event.target.value);
+                    setFormErrors((errors) => ({
+                      ...errors,
+                      templateKey: undefined,
+                    }));
+                  }}
                   value={templateKey}
                 />
+                {formErrors.templateKey ? (
+                  <p className="text-destructive text-xs">
+                    {formErrors.templateKey}
+                  </p>
+                ) : null}
                 <datalist id="notify-templates">
                   {templates.map((template) => (
                     <option key={template.id} value={template.template_key} />
@@ -275,11 +317,27 @@ function NotifyComposePage() {
               {recipientType === "topic" ? (
                 <div className="space-y-1 md:col-span-2">
                   <Label htmlFor="recipient-key">Topic key</Label>
-                  <Input
-                    id="recipient-key"
-                    onChange={(event) => setRecipientKey(event.target.value)}
-                    value={recipientKey}
-                  />
+                  <Select
+                    onValueChange={(value) => {
+                      setRecipientKey(value ?? "");
+                      setFormErrors((errors) => ({
+                        ...errors,
+                        recipient: undefined,
+                      }));
+                    }}
+                    value={recipientKey || undefined}
+                  >
+                    <SelectTrigger id="recipient-key">
+                      <SelectValue placeholder="Choose topic" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {topics.map((topic) => (
+                        <SelectItem key={topic.id} value={topic.topic_key}>
+                          {topic.topic_key}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               ) : (
                 <div className="space-y-1 md:col-span-2">
@@ -287,7 +345,13 @@ function NotifyComposePage() {
                   <Input
                     id="recipient-id"
                     list="notify-subscribers-compose"
-                    onChange={(event) => setRecipientID(event.target.value)}
+                    onChange={(event) => {
+                      setRecipientID(event.target.value);
+                      setFormErrors((errors) => ({
+                        ...errors,
+                        recipient: undefined,
+                      }));
+                    }}
                     value={recipientID}
                   />
                   <datalist id="notify-subscribers-compose">
@@ -299,6 +363,11 @@ function NotifyComposePage() {
                   </datalist>
                 </div>
               )}
+              {formErrors.recipient ? (
+                <p className="text-destructive text-xs md:col-span-2">
+                  {formErrors.recipient}
+                </p>
+              ) : null}
 
               <div className="space-y-2 md:col-span-2">
                 <Label>Channels</Label>
@@ -320,11 +389,20 @@ function NotifyComposePage() {
                             }
                             return current.filter((value) => value !== channel);
                           });
+                          setFormErrors((errors) => ({
+                            ...errors,
+                            channels: undefined,
+                          }));
                         }}
                       />
                     </div>
                   ))}
                 </div>
+                {formErrors.channels ? (
+                  <p className="text-destructive text-xs">
+                    {formErrors.channels}
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-1 md:col-span-2">
@@ -342,9 +420,18 @@ function NotifyComposePage() {
               <Textarea
                 className="min-h-[220px] font-mono text-xs"
                 id="payload-json"
-                onChange={(event) => setPayloadJSON(event.target.value)}
+                onChange={(event) => {
+                  setPayloadJSON(event.target.value);
+                  setFormErrors((errors) => ({
+                    ...errors,
+                    payload: undefined,
+                  }));
+                }}
                 value={payloadJSON}
               />
+              {formErrors.payload ? (
+                <p className="text-destructive text-xs">{formErrors.payload}</p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">

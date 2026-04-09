@@ -558,7 +558,7 @@ function NotifySubscriberDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card id="suppression-controls">
           <CardHeader>
             <CardTitle className="text-sm">Suppression controls</CardTitle>
             <CardDescription>

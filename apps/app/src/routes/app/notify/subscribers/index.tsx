@@ -15,7 +15,15 @@ import {
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
 import { Input } from "@strait/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
+import { Switch } from "@strait/ui/components/switch";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -35,27 +43,37 @@ import NoProjectState from "@/components/common/no-project-state";
 import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import NotifyStatusBadge from "@/components/notify/notify-status-badge";
+import { createSelectColumn } from "@/components/tables/shared-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import type {
+  NotifyDigestPolicy,
   NotifySubscriber,
   NotifySubscriberStatus,
 } from "@/hooks/api/types";
 import {
   notifySubscribersQueryOptions,
+  notifyTopicsQueryOptions,
+  useAddNotifyTopicSubscriber,
   useCreateNotifySubscriber,
+  useRemoveNotifyTopicSubscriber,
+  useUpdateNotifySubscriberPreference,
 } from "@/hooks/api/use-notify";
 import { FilterIcon, MailIcon, PlusIcon, SearchIcon } from "@/lib/icons";
 import {
   notifyCursorPageLimit,
   resolveNotifyNextCursor,
 } from "@/lib/notify-cursor";
+import { notifyDigestPolicyOptions } from "@/lib/notify-preferences";
 import { NOTIFY_SUBSCRIBER_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
+  tenant_id: z.string().optional(),
 });
+
+type NotifySubscribersSearch = z.infer<typeof searchSchema>;
 
 export const Route = createFileRoute("/app/notify/subscribers/")({
   validateSearch: zodValidator(searchSchema),
@@ -63,9 +81,12 @@ export const Route = createFileRoute("/app/notify/subscribers/")({
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(
-        notifySubscribersQueryOptions({ limit: notifyCursorPageLimit })
-      );
+      await Promise.all([
+        context.queryClient.ensureQueryData(
+          notifySubscribersQueryOptions({ limit: notifyCursorPageLimit })
+        ),
+        context.queryClient.ensureQueryData(notifyTopicsQueryOptions()),
+      ]);
     }
     return { hasProject, session };
   },
@@ -75,6 +96,7 @@ export const Route = createFileRoute("/app/notify/subscribers/")({
 });
 
 const columns: ColumnDef<NotifySubscriber>[] = [
+  createSelectColumn<NotifySubscriber>(),
   {
     accessorKey: "external_id",
     header: "External ID",
@@ -128,7 +150,18 @@ function NotifySubscribersPage() {
   const [newExternalID, setNewExternalID] = useState("");
   const [newEmail, setNewEmail] = useState("");
 
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const [bulkTopicKey, setBulkTopicKey] = useState("");
+  const [bulkPreferenceScope, setBulkPreferenceScope] = useState("global");
+  const [bulkDigestPolicy, setBulkDigestPolicy] =
+    useState<NotifyDigestPolicy>("instant");
+  const [bulkEmailEnabled, setBulkEmailEnabled] = useState(true);
+  const [bulkInboxEnabled, setBulkInboxEnabled] = useState(true);
+
   const createSubscriber = useCreateNotifySubscriber();
+  const addTopicSubscriber = useAddNotifyTopicSubscriber();
+  const removeTopicSubscriber = useRemoveNotifyTopicSubscriber();
+  const updatePreference = useUpdateNotifySubscriberPreference();
 
   const [cursor, setCursor] = useState<string>();
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>(
@@ -139,13 +172,27 @@ function NotifySubscribersPage() {
 
   const subscribersQuery = useQuery({
     ...notifySubscribersQueryOptions({
+      status:
+        selectedStatuses.length === 1
+          ? (selectedStatuses[0] as NotifySubscriberStatus)
+          : undefined,
+      tenant_id: search.tenant_id,
       limit: notifyCursorPageLimit,
       cursor,
     }),
     enabled: hasProject,
   });
 
+  const topicsQuery = useQuery({
+    ...notifyTopicsQueryOptions(),
+    enabled: hasProject,
+  });
+
   const pageItems = subscribersQuery.data ?? [];
+  const topics = topicsQuery.data ?? [];
+  const sortedTopics = [...topics].sort((a, b) =>
+    a.topic_key.localeCompare(b.topic_key)
+  );
   const nextCursor = resolveNotifyNextCursor(pageItems, notifyCursorPageLimit);
 
   const filtered = useMemo(() => {
@@ -174,6 +221,10 @@ function NotifySubscribersPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    getRowId: (row) => row.id,
+    state: { rowSelection },
   });
 
   if (!hasProject) {
@@ -184,10 +235,21 @@ function NotifySubscribersPage() {
     );
   }
 
-  const toggleStatus = (status: NotifySubscriberStatus) => {
+  const selectedSubscriberIDs = table
+    .getFilteredSelectedRowModel()
+    .rows.map((row) => row.original.id);
+
+  const updateFilters = (
+    updater: (prev: NotifySubscribersSearch) => NotifySubscribersSearch
+  ) => {
     setCursor(undefined);
     setCursorHistory([]);
+    navigate({
+      search: (prev) => updater(prev),
+    });
+  };
 
+  const toggleStatus = (status: NotifySubscriberStatus) => {
     const next = new Set(selectedStatuses);
     if (next.has(status)) {
       next.delete(status);
@@ -195,12 +257,10 @@ function NotifySubscribersPage() {
       next.add(status);
     }
     const values = Array.from(next);
-    navigate({
-      search: (prev) => ({
-        ...prev,
-        status: values.length > 0 ? values : undefined,
-      }),
-    });
+    updateFilters((prev) => ({
+      ...prev,
+      status: values.length > 0 ? values : undefined,
+    }));
   };
 
   const goToNextPage = () => {
@@ -247,8 +307,89 @@ function NotifySubscribersPage() {
     setNewEmail("");
   };
 
+  const applyBulkTopicMembership = async (action: "add" | "remove") => {
+    if (selectedSubscriberIDs.length === 0) {
+      toast.error("Select at least one subscriber");
+      return;
+    }
+    if (!bulkTopicKey.trim()) {
+      toast.error("Topic key is required for bulk topic membership updates");
+      return;
+    }
+
+    const run = async () => {
+      for (const subscriberID of selectedSubscriberIDs) {
+        if (action === "add") {
+          await addTopicSubscriber.mutateAsync({
+            topicKey: bulkTopicKey,
+            subscriber_id: subscriberID,
+          });
+        } else {
+          await removeTopicSubscriber.mutateAsync({
+            topicKey: bulkTopicKey,
+            subscriberId: subscriberID,
+          });
+        }
+      }
+    };
+
+    await toast.promise(run(), {
+      loading:
+        action === "add"
+          ? "Adding subscribers to topic..."
+          : "Removing subscribers from topic...",
+      success:
+        action === "add"
+          ? "Subscribers added to topic"
+          : "Subscribers removed from topic",
+      error:
+        action === "add"
+          ? "Failed to add subscribers to topic"
+          : "Failed to remove subscribers from topic",
+    });
+
+    setRowSelection({});
+  };
+
+  const applyBulkPreferenceUpdate = async () => {
+    if (selectedSubscriberIDs.length === 0) {
+      toast.error("Select at least one subscriber");
+      return;
+    }
+    if (!bulkPreferenceScope.trim()) {
+      toast.error("Preference scope is required");
+      return;
+    }
+
+    const run = async () => {
+      for (const subscriberID of selectedSubscriberIDs) {
+        await updatePreference.mutateAsync({
+          subscriberId: subscriberID,
+          scope: bulkPreferenceScope.trim(),
+          channel_prefs: {
+            email: bulkEmailEnabled,
+            inbox: bulkInboxEnabled,
+          },
+          digest_policy: bulkDigestPolicy,
+        });
+      }
+    };
+
+    await toast.promise(run(), {
+      loading: "Applying preference updates...",
+      success: "Preferences updated for selected subscribers",
+      error: "Failed to update preferences for selected subscribers",
+    });
+
+    setRowSelection({});
+  };
+
   const isCreateSubscriberDisabled =
     createSubscriber.isPending || !newExternalID.trim();
+  const isBulkWorking =
+    addTopicSubscriber.isPending ||
+    removeTopicSubscriber.isPending ||
+    updatePreference.isPending;
 
   return (
     <Shell>
@@ -279,19 +420,15 @@ function NotifySubscribersPage() {
         </CardContent>
       </Card>
 
-      <div className="mb-3 flex items-center gap-3">
-        <div className="relative w-full max-w-[420px]">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-[360px]">
           <Input
             className="pl-9"
             onChange={(event) => {
-              setCursor(undefined);
-              setCursorHistory([]);
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  query: event.target.value || undefined,
-                }),
-              });
+              updateFilters((prev) => ({
+                ...prev,
+                query: event.target.value || undefined,
+              }));
             }}
             placeholder="Search subscriber"
             value={search.query ?? ""}
@@ -300,6 +437,18 @@ function NotifySubscribersPage() {
             <HugeiconsIcon className="size-4" icon={SearchIcon} />
           </div>
         </div>
+
+        <Input
+          className="w-full max-w-[220px]"
+          onChange={(event) => {
+            updateFilters((prev) => ({
+              ...prev,
+              tenant_id: event.target.value || undefined,
+            }));
+          }}
+          placeholder="Tenant ID"
+          value={search.tenant_id ?? ""}
+        />
 
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="outline" />}>
@@ -324,6 +473,98 @@ function NotifySubscribersPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle className="text-sm">Bulk actions</CardTitle>
+          <CardDescription>
+            Apply topic membership or preference updates to selected rows only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-muted-foreground text-xs">
+            {selectedSubscriberIDs.length} selected
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+            <Select
+              onValueChange={(value) => setBulkTopicKey(value ?? "")}
+              value={bulkTopicKey || undefined}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select topic for bulk membership" />
+              </SelectTrigger>
+              <SelectContent>
+                {sortedTopics.map((topic) => (
+                  <SelectItem key={topic.id} value={topic.topic_key}>
+                    {topic.topic_key}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              disabled={isBulkWorking || selectedSubscriberIDs.length === 0}
+              onClick={() => applyBulkTopicMembership("add")}
+            >
+              Bulk add to topic
+            </Button>
+            <Button
+              disabled={isBulkWorking || selectedSubscriberIDs.length === 0}
+              onClick={() => applyBulkTopicMembership("remove")}
+              variant="outline"
+            >
+              Bulk remove from topic
+            </Button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <Input
+              onChange={(event) => setBulkPreferenceScope(event.target.value)}
+              placeholder="Preference scope"
+              value={bulkPreferenceScope}
+            />
+            <Select
+              onValueChange={(value) =>
+                setBulkDigestPolicy(value as NotifyDigestPolicy)
+              }
+              value={bulkDigestPolicy}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Digest policy" />
+              </SelectTrigger>
+              <SelectContent>
+                {notifyDigestPolicyOptions.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center justify-between rounded-md border p-2">
+              <span className="text-sm">Email</span>
+              <Switch
+                checked={bulkEmailEnabled}
+                onCheckedChange={setBulkEmailEnabled}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-2">
+              <span className="text-sm">Inbox</span>
+              <Switch
+                checked={bulkInboxEnabled}
+                onCheckedChange={setBulkInboxEnabled}
+              />
+            </div>
+          </div>
+
+          <Button
+            disabled={isBulkWorking || selectedSubscriberIDs.length === 0}
+            onClick={applyBulkPreferenceUpdate}
+            variant="secondary"
+          >
+            Bulk apply preferences
+          </Button>
+        </CardContent>
+      </Card>
 
       <DataTable
         emptyState={

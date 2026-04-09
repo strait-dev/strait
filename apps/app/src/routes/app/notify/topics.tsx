@@ -33,11 +33,13 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import {
   notifySubscribersQueryOptions,
+  notifyTopicSubscribersQueryOptions,
   notifyTopicsQueryOptions,
   useAddNotifyTopicSubscriber,
   useCreateNotifyTopic,
   useRemoveNotifyTopicSubscriber,
 } from "@/hooks/api/use-notify";
+import { notifyCursorPageLimit } from "@/lib/notify-cursor";
 import { isNotifyScopedKey } from "@/lib/notify-form";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -69,7 +71,6 @@ function NotifyTopicsPage() {
     ...notifySubscribersQueryOptions(),
     enabled: hasProject,
   });
-
   const createTopic = useCreateNotifyTopic();
   const addSubscriber = useAddNotifyTopicSubscriber();
   const removeSubscriber = useRemoveNotifyTopicSubscriber();
@@ -81,8 +82,17 @@ function NotifyTopicsPage() {
   const [selectedTopicKey, setSelectedTopicKey] = useState("");
   const [selectedSubscriberID, setSelectedSubscriberID] = useState("");
 
+  const topicSubscribersQuery = useQuery({
+    ...notifyTopicSubscribersQueryOptions({
+      topicKey: selectedTopicKey,
+      limit: notifyCursorPageLimit,
+    }),
+    enabled: hasProject && !!selectedTopicKey,
+  });
+
   const topics = topicsQuery.data ?? [];
   const subscribers = subscribersQuery.data ?? [];
+  const topicSubscribers = topicSubscribersQuery.data ?? [];
 
   const sortedTopics = useMemo(
     () => [...topics].sort((a, b) => b.created_at.localeCompare(a.created_at)),
@@ -180,6 +190,43 @@ function NotifyTopicsPage() {
         success: "Subscriber removed from topic",
         error: "Failed to remove subscriber",
       }
+    );
+  };
+
+  const renderCurrentMembers = () => {
+    if (!selectedTopicKey) {
+      return (
+        <p className="text-muted-foreground text-xs">
+          Select a topic to inspect current members.
+        </p>
+      );
+    }
+
+    if (topicSubscribersQuery.isFetching) {
+      return (
+        <p className="text-muted-foreground text-xs">
+          Loading topic members...
+        </p>
+      );
+    }
+
+    if (topicSubscribers.length === 0) {
+      return (
+        <p className="text-muted-foreground text-xs">
+          No active subscribers in this topic.
+        </p>
+      );
+    }
+
+    return (
+      <ul className="space-y-1 text-xs">
+        {topicSubscribers.map((subscriber) => (
+          <li key={subscriber.id}>
+            {subscriber.external_id}
+            {subscriber.email ? ` (${subscriber.email})` : ""}
+          </li>
+        ))}
+      </ul>
     );
   };
 
@@ -288,6 +335,11 @@ function NotifyTopicsPage() {
               >
                 Remove subscriber
               </Button>
+            </div>
+
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="font-medium text-sm">Current members</p>
+              {renderCurrentMembers()}
             </div>
           </CardContent>
         </Card>
