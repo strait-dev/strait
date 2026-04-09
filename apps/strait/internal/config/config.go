@@ -164,6 +164,10 @@ type Config struct {
 	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
 	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
 	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
+	// K8sRuntimeClass sets the RuntimeClassName on all job pods.
+	// Set to "gvisor" to enable gVisor kernel isolation on worker nodes that have
+	// the RuntimeClass installed. Leave empty to use the node default runtime.
+	K8sRuntimeClass string `env:"K8S_RUNTIME_CLASS" default:""`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -267,6 +271,19 @@ type Config struct {
 	// bearer tokens used for authenticating private base images at build time.
 	// Example: {"private.registry.io": "base64token", "ghcr.io": "ghp_token"}
 	BuildExtraRegistryAuths string `env:"BUILD_EXTRA_REGISTRY_AUTHS" default:"{}"`
+
+	// Dispatcher mode: multi-cluster job routing (--mode dispatcher).
+	// DispatcherClusterRegistryConfigMap is the name of the K8s ConfigMap that
+	// contains the cluster-registry.yaml manifest listing all Strait clusters.
+	// Defaults to the name deployed by the infra repo.
+	DispatcherClusterRegistryConfigMap string `env:"DISPATCHER_CLUSTER_REGISTRY_CONFIGMAP" default:"cluster-registry"`
+	// DispatcherClusterRegistryNamespace is the K8s namespace that contains the
+	// cluster-registry ConfigMap.
+	DispatcherClusterRegistryNamespace string `env:"DISPATCHER_CLUSTER_REGISTRY_NAMESPACE" default:"strait"`
+	// DispatcherRefreshInterval controls how often the dispatcher re-reads cluster
+	// queue depths. Shorter intervals improve routing accuracy at the cost of more
+	// Prometheus queries.
+	DispatcherRefreshInterval time.Duration `env:"DISPATCHER_REFRESH_INTERVAL" default:"5s"`
 
 	// Performance: image pull policy and lazy loading.
 	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.

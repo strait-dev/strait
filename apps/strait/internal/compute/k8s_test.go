@@ -1275,3 +1275,53 @@ func TestRecordWaitTimeout_WithMetrics_RecordsTimeout(t *testing.T) {
 		t.Errorf("expected RecordJobWait(timeout), got %v", m.jobWaits)
 	}
 }
+
+func TestK8sRuntime_Create_SetsRuntimeClassName(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
+	rt.SetRuntimeClass("gvisor")
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	if job.Spec.Template.Spec.RuntimeClassName == nil {
+		t.Fatal("RuntimeClassName is nil, want gvisor")
+	}
+	if got := *job.Spec.Template.Spec.RuntimeClassName; got != "gvisor" {
+		t.Errorf("RuntimeClassName = %q, want gvisor", got)
+	}
+}
+
+func TestK8sRuntime_Create_NoRuntimeClass_OmitsField(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
+	ctx := context.Background()
+
+	id, err := rt.Create(ctx, RunRequest{
+		ImageURI:      "alpine:3.21",
+		MachinePreset: "micro",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	job, err := cs.BatchV1().Jobs("default").Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get job error = %v", err)
+	}
+	if job.Spec.Template.Spec.RuntimeClassName != nil {
+		t.Errorf("RuntimeClassName = %q, want nil", *job.Spec.Template.Spec.RuntimeClassName)
+	}
+}

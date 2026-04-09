@@ -32,10 +32,30 @@ func MetricsSubscriber(m *telemetry.Metrics) RunEventSubscriber {
 			if event.Run.StartedAt != nil && event.Run.FinishedAt != nil {
 				dur := event.Run.FinishedAt.Sub(*event.Run.StartedAt).Seconds()
 				if dur > 0 {
+					statusAttr := attribute.String("status", string(event.ToStatus))
 					m.RunDuration.Record(ctx, dur, metric.WithAttributes(
-						attribute.String("status", string(event.ToStatus)),
+						statusAttr,
+						attribute.String("project_id", event.Run.ProjectID),
+					))
+
+					// Per-tenant job duration with machine tier for cost attribution.
+					tier := "unknown"
+					if event.Job != nil && event.Job.MachinePreset != "" {
+						tier = string(event.Job.MachinePreset)
+					}
+					m.JobDuration.Record(ctx, dur, metric.WithAttributes(
+						statusAttr,
+						attribute.String("project_id", event.Run.ProjectID),
+						attribute.String("tier", tier),
 					))
 				}
+			}
+
+			// Per-tenant queue lag: time the run waited before execution began.
+			if event.QueueWait > 0 && event.Run.ProjectID != "" {
+				m.QueueLag.Record(ctx, event.QueueWait.Seconds(), metric.WithAttributes(
+					attribute.String("project_id", event.Run.ProjectID),
+				))
 			}
 		}
 

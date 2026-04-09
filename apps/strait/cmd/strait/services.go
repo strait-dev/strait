@@ -145,7 +145,12 @@ func buildSingleRuntime(provider string, cfg *config.Config, metrics *telemetry.
 			return nil
 		}
 		rt.SetMetrics(telemetry.NewK8sMetricsAdapter(metrics))
-		slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
+		if cfg.K8sRuntimeClass != "" {
+			rt.SetRuntimeClass(cfg.K8sRuntimeClass)
+			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace, "runtime_class", cfg.K8sRuntimeClass)
+		} else {
+			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
+		}
 		return rt
 	default:
 		return nil

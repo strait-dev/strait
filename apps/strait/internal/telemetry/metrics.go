@@ -114,6 +114,17 @@ type Metrics struct {
 	// Run lifecycle metrics.
 	RunDuration metric.Float64Histogram
 
+	// Per-tenant run metrics (project_id label). Used for per-tenant capacity
+	// governance, cost attribution, and the Grafana multi-tenant dashboard panels.
+	//
+	// JobDuration records execution wall-clock time by project, machine tier,
+	// and terminal status. Buckets are coarser than RunDuration to limit series count.
+	//
+	// QueueLag records the time each run spent queued before execution began,
+	// by project. Useful for per-tenant SLO monitoring (e.g. p99 queue lag < 5s).
+	JobDuration metric.Float64Histogram
+	QueueLag    metric.Float64Histogram
+
 	// Scheduler drift metrics.
 	CronDrift metric.Float64Histogram
 
@@ -724,6 +735,19 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
 	)
+	// Per-tenant metrics. Coarser buckets than RunDuration to control cardinality.
+	jobDuration, _ := meter.Float64Histogram(
+		"strait.job.duration",
+		metric.WithDescription("Job execution duration by project, machine tier, and terminal status"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(1, 5, 15, 30, 60, 120, 300, 600, 900),
+	)
+	queueLag, _ := meter.Float64Histogram(
+		"strait.queue.lag",
+		metric.WithDescription("Time each run spent queued before execution began, by project"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60, 120),
+	)
 	cronDrift, _ := meter.Float64Histogram(
 		"strait.scheduler.cron_drift",
 		metric.WithDescription("Delta between expected cron fire time and actual fire time"),
@@ -855,6 +879,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		WebhookBacklogDepth:          webhookBacklogDepth,
 		ClickHouseExporterPending:    clickhouseExporterPending,
 		RunDuration:                  runDuration,
+		JobDuration:                  jobDuration,
+		QueueLag:                     queueLag,
 		CronDrift:                    cronDrift,
 		ClickHouseDroppedRecords:     clickhouseDroppedRecords,
 		ClickHouseFlushFailures:      clickhouseFlushFailures,

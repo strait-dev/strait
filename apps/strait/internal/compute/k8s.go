@@ -62,11 +62,14 @@ type K8sRuntime struct {
 	namespace       string
 	priorityClass   string
 	imagePullPolicy corev1.PullPolicy
+	runtimeClass    string     // Optional: RuntimeClassName for gVisor or other sandbox runtimes.
 	metrics         K8sMetrics // Optional, nil-safe.
 }
 
 // BuildK8sClientset creates a Kubernetes clientset from a kubeconfig path.
 // If kubeconfig is empty, falls back to in-cluster config.
+// QPS and Burst are set to high values to reduce etcd write amplification at
+// scale; the defaults (5 QPS / 10 Burst) cause latency spikes above ~100 concurrent jobs.
 func BuildK8sClientset(kubeconfig string) (kubernetes.Interface, error) {
 	var cfg *rest.Config
 	var err error
@@ -79,6 +82,9 @@ func BuildK8sClientset(kubeconfig string) (kubernetes.Interface, error) {
 	if err != nil {
 		return nil, fmt.Errorf("k8s config: %w", err)
 	}
+
+	cfg.QPS = 100
+	cfg.Burst = 300
 
 	clientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -110,6 +116,11 @@ func (k *K8sRuntime) Clientset() kubernetes.Interface { return k.clientset }
 
 // SetMetrics attaches optional metrics recording to the runtime.
 func (k *K8sRuntime) SetMetrics(m K8sMetrics) { k.metrics = m }
+
+// SetRuntimeClass sets the RuntimeClassName applied to all job pods.
+// Set to "gvisor" to enable gVisor kernel isolation on nodes that have the
+// RuntimeClass installed. An empty string leaves the field unset (node default).
+func (k *K8sRuntime) SetRuntimeClass(rc string) { k.runtimeClass = rc }
 
 // NewK8sRuntimeFromClient creates a K8sRuntime from an existing clientset (for testing).
 // imagePullPolicy should be a Kubernetes PullPolicy value ("Always", "IfNotPresent",
@@ -205,6 +216,10 @@ func (k *K8sRuntime) Create(ctx context.Context, req RunRequest) (string, error)
 
 		if k.priorityClass != "" {
 			job.Spec.Template.Spec.PriorityClassName = k.priorityClass
+		}
+
+		if k.runtimeClass != "" {
+			job.Spec.Template.Spec.RuntimeClassName = &k.runtimeClass
 		}
 
 		if affinity := preset.K8sNodeAffinity(); affinity != nil {
