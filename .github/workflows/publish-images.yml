@@ -211,20 +211,15 @@ jobs:
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             "${REGISTRY}/strait-dev/strait@${DIGEST}"
 
-      - name: Verify SBOM and provenance attestations
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          REGISTRY: ${{ env.REGISTRY }}
-        run: |
-          set -euo pipefail
-          cosign verify-attestation --type spdxjson \
-            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${REGISTRY}/strait-dev/strait@${DIGEST}"
-          cosign verify-attestation --type slsaprovenance \
-            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${REGISTRY}/strait-dev/strait@${DIGEST}"
+      # BuildKit attaches SBOM and SLSA provenance as OCI 1.1 referrer
+      # attestation manifests (sbom: true + provenance: mode=max in the
+      # build-push-action step above). Those use the media type
+      # vnd.docker.reference.type=attestation-manifest which `docker buildx
+      # imagetools inspect` below already validates. They are NOT stored in
+      # cosign's attestation format, so `cosign verify-attestation` cannot
+      # read them. The Kyverno policy in strait-dev/infra only verifies
+      # image signatures, not attestation predicates, so the recursive
+      # cosign verify above is the full gate we need.
 
       - name: Verify pushed tags are pullable from GHCR
         run: |
@@ -355,20 +350,11 @@ jobs:
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
 
-      - name: Verify SBOM and provenance attestations
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          REGISTRY: ${{ env.REGISTRY }}
-        run: |
-          set -euo pipefail
-          cosign verify-attestation --type spdxjson \
-            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
-          cosign verify-attestation --type slsaprovenance \
-            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
+      # See the note on the community-api job: BuildKit attestations
+      # (sbom + provenance) are not readable by cosign verify-attestation.
+      # The Kyverno policy only verifies signatures, so the cosign verify
+      # step above is sufficient. imagetools inspect validates the
+      # attestation manifests exist.
 
       - name: Verify pushed tags are pullable from GHCR
         run: |
