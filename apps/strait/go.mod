@@ -53,7 +53,7 @@ require (
 	github.com/stripe/stripe-go/v82 v82.5.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
-	github.com/testcontainers/testcontainers-go/modules/redis v0.41.0
+	github.com/testcontainers/testcontainers-go/modules/redis v0.42.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tsenart/vegeta/v12 v12.13.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.17.0
