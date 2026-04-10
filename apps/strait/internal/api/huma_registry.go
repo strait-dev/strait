@@ -1999,4 +1999,35 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Delete a memory value", Description: "Removes a key-value pair from persistent memory.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleSDKDeleteMemory)
+
+	// -- Code Deployments --
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-code-deployment", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/deployments",
+		Summary: "Create a code deployment", Description: "Creates a deployment record and returns a presigned URL for uploading the source tarball.",
+		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 422, 500, 503},
+	}, s.handleCreateCodeDeployment)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "confirm-code-deployment", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/deployments/{deploymentID}/confirm",
+		Summary: "Confirm a code deployment", Description: "Verifies the tarball upload and triggers the container image build.",
+		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 422, 500},
+	}, s.handleConfirmCodeDeployment)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-code-deployment", Method: http.MethodGet, Path: "/v1/jobs/{jobID}/deployments/{deploymentID}",
+		Summary: "Get a code deployment", Description: "Returns the current state of a code deployment, including build status and logs.",
+		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{401, 403, 404, 500},
+	}, s.handleGetCodeDeployment)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-code-deployments", Method: http.MethodGet, Path: "/v1/jobs/{jobID}/deployments",
+		Summary: "List code deployments", Description: "Returns deployments for a job in descending creation order.",
+		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListCodeDeployments)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "rollback-code-deployment", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/deployments/{deploymentID}/rollback",
+		Summary: "Roll back to a deployment", Description: "Sets an earlier ready deployment as the active one for the job.",
+		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleRollbackCodeDeployment)
 }

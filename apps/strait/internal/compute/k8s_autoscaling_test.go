@@ -15,7 +15,7 @@ func TestK8s_ConcurrentJobCreation_ScalePressure(t *testing.T) {
 	t.Parallel()
 
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	const n = 50
 	var succeeded atomic.Int64
@@ -56,7 +56,7 @@ func TestK8s_JobCreation_AllPresetsUnderLoad(t *testing.T) {
 
 	presets := []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"}
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	var wg sync.WaitGroup
 	wg.Add(len(presets))
@@ -86,7 +86,7 @@ func TestK8s_GC_DoesNotDeleteRunningJobs(t *testing.T) {
 	t.Parallel()
 
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	// Create 5 jobs.
 	for i := range 5 {

@@ -129,7 +129,7 @@ const MobileNav = () => {
   }, [isOpen, close]);
 
   return (
-    <div className="md:hidden">
+    <div className="lg:hidden">
       <Button
         aria-controls="mobile-nav-panel"
         aria-expanded={isOpen}

@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"time"
 
 	"strait/internal/api"
 	"strait/internal/billing"
+	"strait/internal/build"
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/compute"
@@ -20,8 +23,10 @@ import (
 	"strait/internal/health"
 	"strait/internal/logdrain"
 	"strait/internal/notification"
+	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
+	"strait/internal/registry"
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -44,6 +49,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc/pool"
 )
+
+// validRegistryHostnameRe matches a Docker-style registry host[:port] key used in
+// BUILD_EXTRA_REGISTRY_AUTHS. Allows letters, digits, dots, hyphens, and an optional
+// colon-separated port. Rejects embedded credentials, path-traversal sequences, and
+// protocol prefixes that could be used to redirect auth to an attacker-controlled host.
+var validRegistryHostnameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*(:[0-9]{1,5})?$`)
 
 func shutdownReason(err error) string {
 	if err == nil {
@@ -128,13 +139,18 @@ func buildSingleRuntime(provider string, cfg *config.Config, metrics *telemetry.
 		slog.Info("container runtime enabled", "runtime", "docker")
 		return compute.NewDockerRuntime()
 	case "k8s":
-		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass)
+		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass, cfg.ImagePullPolicy)
 		if err != nil {
 			slog.Error("CRITICAL: k8s runtime init failed", "error", err)
 			return nil
 		}
 		rt.SetMetrics(telemetry.NewK8sMetricsAdapter(metrics))
-		slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
+		if cfg.K8sRuntimeClass != "" {
+			rt.SetRuntimeClass(cfg.K8sRuntimeClass)
+			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace, "runtime_class", cfg.K8sRuntimeClass)
+		} else {
+			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
+		}
 		return rt
 	default:
 		return nil
@@ -507,6 +523,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Edition:            domain.ParseEdition(cfg.Edition),
 		Version:            version,
 		CDCWebhookReceiver: cdcWebhookReceiver,
+		ObjectStore:        buildObjectStore(cfg),
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -762,6 +779,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		return nil
 	})
 
+	// Start build orchestrator for code-first deployments.
+	startBuildOrchestrator(g, cfg, queries, pub, metrics)
+
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
 		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter(queries)
@@ -806,6 +826,147 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		sched.Stop()
 		return nil
 	})
+}
+
+// buildObjectStore constructs an object store from config, or returns nil if
+// object store is not configured (bucket is empty).
+func buildObjectStore(cfg *config.Config) objectstore.ObjectStore {
+	if cfg.ObjectStoreBucket == "" {
+		return nil
+	}
+	s, err := objectstore.NewS3Store(objectstore.S3StoreConfig{
+		Bucket:         cfg.ObjectStoreBucket,
+		Region:         cfg.ObjectStoreRegion,
+		Endpoint:       cfg.ObjectStoreEndpoint,
+		AccessKey:      cfg.ObjectStoreAccessKey,
+		SecretKey:      cfg.ObjectStoreSecretKey,
+		ForcePathStyle: cfg.ObjectStoreForcePathStyle,
+	})
+	if err != nil {
+		slog.Warn("object store configuration invalid, code-first deployments disabled", "error", err)
+		return nil
+	}
+	return s
+}
+
+// buildContainerRegistry constructs a container registry from config, or returns
+// nil if no registry is configured.
+func buildContainerRegistry(cfg *config.Config) registry.ContainerRegistry {
+	ctx := context.Background()
+	switch cfg.ContainerRegistryType {
+	case "ecr", "":
+		reg, err := registry.NewECRRegistry(ctx, registry.ECRConfig{
+			Region:           cfg.ObjectStoreRegion,
+			RepositoryPrefix: cfg.ContainerRegistryPrefix,
+		})
+		if err != nil {
+			slog.Warn("ECR registry configuration invalid, code-first deployments disabled", "error", err)
+			return nil
+		}
+		return reg
+	case "generic":
+		if cfg.ContainerRegistryURL == "" {
+			slog.Warn("CONTAINER_REGISTRY_URL not set for generic registry, code-first deployments disabled")
+			return nil
+		}
+		reg, err := registry.NewGenericRegistry(registry.GenericConfig{
+			RegistryURL:      cfg.ContainerRegistryURL,
+			Username:         cfg.ContainerRegistryUser,
+			Password:         cfg.ContainerRegistryPass,
+			RepositoryPrefix: cfg.ContainerRegistryPrefix,
+		})
+		if err != nil {
+			slog.Warn("generic registry configuration invalid, code-first deployments disabled", "error", err)
+			return nil
+		}
+		return reg
+	default:
+		slog.Warn("unknown CONTAINER_REGISTRY_TYPE, code-first deployments disabled",
+			"type", cfg.ContainerRegistryType)
+		return nil
+	}
+}
+
+// startBuildOrchestrator starts the build orchestrator that picks up deployments
+// in "building" status and executes the BuildKit build pipeline.
+// No-ops if the worker mode is not enabled or if object store / registry are not configured.
+func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, metrics *telemetry.Metrics) {
+	if cfg.Mode != "worker" && cfg.Mode != "all" {
+		return
+	}
+
+	objStore := buildObjectStore(cfg)
+	reg := buildContainerRegistry(cfg)
+
+	if objStore == nil || reg == nil {
+		slog.Info("build orchestrator disabled (object store or registry not configured)")
+		return
+	}
+
+	builder := build.NewBuilder(
+		cfg.BuildKitAddress,
+		objStore,
+		reg,
+		cfg.BuildKitCacheEnabled,
+		cfg.BuildTimeout,
+	)
+	if pub != nil {
+		builder = builder.WithLogPublisher(pub)
+	}
+	if cfg.BuildExtraRegistryAuths != "" && cfg.BuildExtraRegistryAuths != "{}" {
+		var extraAuths map[string]string
+		if err := json.Unmarshal([]byte(cfg.BuildExtraRegistryAuths), &extraAuths); err != nil {
+			slog.Warn("failed to parse BUILD_EXTRA_REGISTRY_AUTHS, skipping extra registry auth", "error", err)
+		} else {
+			// Validate each hostname key before passing to the builder. Reject entries
+			// whose host contains protocol prefixes, path-traversal sequences, embedded
+			// credentials, or other patterns that could redirect auth to a rogue registry.
+			for host := range extraAuths {
+				if !validRegistryHostnameRe.MatchString(host) {
+					slog.Warn("BUILD_EXTRA_REGISTRY_AUTHS: skipping entry with invalid hostname", "host", host)
+					delete(extraAuths, host)
+				}
+			}
+			if len(extraAuths) > 0 {
+				builder = builder.WithExtraRegistryAuths(extraAuths)
+			}
+		}
+	}
+	addrPool := build.NewAddressPool(cfg.BuildKitAddress, cfg.BuildKitAddresses)
+	orchOpts := []build.OrchestratorOption{
+		build.WithOrchestratorLogger(slog.Default()),
+		build.WithAddressPool(addrPool),
+		build.WithOrchestratorMetrics(metrics),
+	}
+	orch := build.NewOrchestrator(queries, builder, orchOpts...)
+
+	g.Go(func(ctx context.Context) error {
+		slog.Info("build orchestrator started",
+			"buildkit_addresses", addrPool.Len(),
+			"buildkit_addr", cfg.BuildKitAddress,
+		)
+		orch.Run(ctx)
+		return nil
+	})
+
+	if cfg.DeploymentGCEnabled {
+		gc := build.NewDeploymentGC(queries,
+			build.WithGCInterval(cfg.DeploymentGCInterval),
+			build.WithGCPendingTTL(cfg.DeploymentGCPendingTTL),
+			build.WithGCFailedAge(cfg.DeploymentGCFailedAge),
+			build.WithGCLogger(slog.Default()),
+			build.WithGCMetrics(metrics),
+		)
+		g.Go(func(ctx context.Context) error {
+			slog.Info("deployment GC started",
+				"interval", cfg.DeploymentGCInterval,
+				"pending_ttl", cfg.DeploymentGCPendingTTL,
+				"failed_age", cfg.DeploymentGCFailedAge,
+			)
+			gc.Run(ctx)
+			return nil
+		})
+	}
 }
 
 func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {

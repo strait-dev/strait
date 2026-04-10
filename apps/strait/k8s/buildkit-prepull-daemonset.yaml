@@ -1,0 +1,109 @@
+# DaemonSet that pre-pulls base runtime images to every node.
+#
+# Without pre-pulling, the first build on a node has a cold start penalty
+# (pulling several hundred MB of base image). This DaemonSet runs on all
+# nodes that schedule build pods and keeps base images warm in containerd's
+# image cache so BuildKit can use cached layers immediately.
+#
+# The DaemonSet is a pause container after all init containers have run.
+# Each init container pulls one base image and exits immediately.
+# containerd retains the image in the local cache.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: runtime-image-prepuller
+  namespace: strait-build
+  labels:
+    app: runtime-image-prepuller
+    app.kubernetes.io/component: image-cache
+spec:
+  selector:
+    matchLabels:
+      app: runtime-image-prepuller
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "50%"
+  template:
+    metadata:
+      labels:
+        app: runtime-image-prepuller
+    spec:
+      # Only run on nodes that host build pods (label set by the node pool config).
+      nodeSelector:
+        strait.dev/role: build
+      tolerations:
+        - key: "strait.dev/build-only"
+          operator: "Exists"
+          effect: "NoSchedule"
+      # Pull images as quickly as possible without disrupting the node.
+      priorityClassName: strait-build-prepull
+      initContainers:
+        - name: pull-python
+          image: ghcr.io/strait-dev/runtime-python:latest
+          command: ["/bin/true"]
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+        - name: pull-typescript
+          image: ghcr.io/strait-dev/runtime-typescript:latest
+          command: ["/bin/true"]
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+        - name: pull-ruby
+          image: ghcr.io/strait-dev/runtime-ruby:latest
+          command: ["/bin/true"]
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+        - name: pull-rust
+          image: ghcr.io/strait-dev/runtime-rust:latest
+          command: ["/bin/true"]
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+        - name: pull-go
+          image: ghcr.io/strait-dev/runtime-go:latest
+          command: ["/bin/true"]
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+      containers:
+        # Pause container: keeps the pod alive so the DaemonSet doesn't restart
+        # and re-trigger the init containers on every schedule cycle.
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+          resources:
+            requests:
+              cpu: "1m"
+              memory: "4Mi"
+            limits:
+              cpu: "10m"
+              memory: "16Mi"
