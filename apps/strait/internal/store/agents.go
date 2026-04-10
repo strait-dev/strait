@@ -19,7 +19,7 @@ import (
 
 const agentColumns = `id, project_id, job_id, name, slug, description, model, model_fallbacks, config, provider_secrets_encrypted, created_by, updated_by, created_at, updated_at`
 
-const agentDeploymentColumns = `id, agent_id, version, status, provider, config_snapshot, provider_metadata, created_by, created_at, updated_at, deployed_at`
+const agentDeploymentColumns = `id, agent_id, environment_id, version, status, provider, config_snapshot, provider_metadata, created_by, created_at, updated_at, deployed_at`
 
 func scanAgent(scanner interface {
 	Scan(dest ...any) error
@@ -64,9 +64,11 @@ func scanAgentDeployment(scanner interface {
 	var deployment domain.AgentDeployment
 	var status string
 	var createdBy *string
+	var environmentID *string
 	if err := scanner.Scan(
 		&deployment.ID,
 		&deployment.AgentID,
+		&environmentID,
 		&deployment.Version,
 		&status,
 		&deployment.Provider,
@@ -82,6 +84,9 @@ func scanAgentDeployment(scanner interface {
 	deployment.Status = domain.AgentDeploymentStatus(status)
 	if createdBy != nil {
 		deployment.CreatedBy = *createdBy
+	}
+	if environmentID != nil {
+		deployment.EnvironmentID = *environmentID
 	}
 	return &deployment, nil
 }
@@ -350,12 +355,13 @@ func (q *Queries) CreateAgentDeployment(ctx context.Context, deployment *domain.
 	}
 
 	err := q.db.QueryRow(ctx, `
-		INSERT INTO agent_deployments (id, agent_id, version, status, provider, config_snapshot, provider_metadata, created_by, deployed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO agent_deployments (id, agent_id, environment_id, version, status, provider, config_snapshot, provider_metadata, created_by, deployed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING created_at, updated_at
 	`,
 		deployment.ID,
 		deployment.AgentID,
+		dbscan.NilIfEmptyString(deployment.EnvironmentID),
 		deployment.Version,
 		string(deployment.Status),
 		deployment.Provider,
@@ -587,6 +593,30 @@ func (q *Queries) GetAgentDeploymentByID(ctx context.Context, deploymentID strin
 		return nil, fmt.Errorf("get agent deployment by id: %w", err)
 	}
 	return d, nil
+}
+
+// GetLatestAgentDeploymentByEnvironment returns the most recent deployed
+// deployment for an agent in the given environment. Used by RunAgent to pick
+// the target deployment when the caller specifies an environment_id, and by
+// the canary router to determine the current primary in an env.
+func (q *Queries) GetLatestAgentDeploymentByEnvironment(ctx context.Context, agentID, environmentID string) (*domain.AgentDeployment, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetLatestAgentDeploymentByEnvironment")
+	defer span.End()
+
+	deployment, err := scanAgentDeployment(q.db.QueryRow(ctx, `
+		SELECT `+agentDeploymentColumns+`
+		FROM agent_deployments
+		WHERE agent_id = $1 AND environment_id = $2
+		ORDER BY version DESC
+		LIMIT 1
+	`, agentID, environmentID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAgentDeploymentNotFound
+		}
+		return nil, fmt.Errorf("get latest agent deployment by env: %w", err)
+	}
+	return deployment, nil
 }
 
 // RollbackAgentDeployment creates a new deployment using the config_snapshot from

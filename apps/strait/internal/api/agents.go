@@ -41,6 +41,10 @@ type UpdateAgentRequest struct {
 
 type RunAgentRequest struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
+	// EnvironmentID, when set, targets a specific environment's deployment.
+	// Required once an agent has deployments across multiple environments;
+	// may be omitted for agents with a single (legacy) deployment.
+	EnvironmentID string `json:"environment_id,omitempty"`
 }
 
 type CreateAgentInput struct {
@@ -83,6 +87,15 @@ type DeleteAgentInput struct {
 
 type DeployAgentInput struct {
 	AgentID string `path:"agentID"`
+	Body    DeployAgentRequest
+}
+
+type DeployAgentRequest struct {
+	// EnvironmentID pins the deployment to a specific platform environment.
+	// Optional for backwards compatibility with agents that have no
+	// environment binding; recommended for all new deployments so
+	// dev/staging/prod promotion flows work cleanly.
+	EnvironmentID string `json:"environment_id,omitempty"`
 }
 
 type DeployAgentOutput struct {
@@ -99,9 +112,10 @@ type RunAgentOutput struct {
 }
 
 type ListAgentRunsInput struct {
-	AgentID string `path:"agentID"`
-	Limit   string `query:"limit"`
-	Offset  string `query:"offset"`
+	AgentID       string `path:"agentID"`
+	Limit         string `query:"limit"`
+	Offset        string `query:"offset"`
+	EnvironmentID string `query:"environment_id"`
 }
 
 type ListAgentRunsOutput struct {
@@ -313,7 +327,7 @@ func (s *Server) handleDeployAgent(ctx context.Context, input *DeployAgentInput)
 		return nil, huma.Error400BadRequest("agent_id is required")
 	}
 
-	deployment, err := svc.DeployAgent(ctx, projectID, input.AgentID, actorFromContext(ctx))
+	deployment, err := svc.DeployAgentToEnv(ctx, projectID, input.AgentID, input.Body.EnvironmentID, actorFromContext(ctx))
 	if err != nil {
 		return nil, mapAgentServiceError(err)
 	}
@@ -336,10 +350,11 @@ func (s *Server) handleRunAgent(ctx context.Context, input *RunAgentInput) (*Run
 	}
 
 	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
-		ProjectID: projectID,
-		AgentID:   input.AgentID,
-		Payload:   input.Body.Payload,
-		Actor:     actorFromContext(ctx),
+		ProjectID:     projectID,
+		AgentID:       input.AgentID,
+		Payload:       input.Body.Payload,
+		Actor:         actorFromContext(ctx),
+		EnvironmentID: input.Body.EnvironmentID,
 	})
 	if err != nil {
 		return nil, mapAgentServiceError(err)

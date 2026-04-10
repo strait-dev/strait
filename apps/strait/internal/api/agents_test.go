@@ -48,6 +48,10 @@ func (s *stubAgentService) DeployAgent(ctx context.Context, projectID, agentID, 
 	return s.deployAgentFunc(ctx, projectID, agentID, actor)
 }
 
+func (s *stubAgentService) DeployAgentToEnv(ctx context.Context, projectID, agentID, _, actor string) (*domain.AgentDeployment, error) {
+	return s.deployAgentFunc(ctx, projectID, agentID, actor)
+}
+
 func (s *stubAgentService) RunAgent(ctx context.Context, req agentsvc.RunAgentRequest) (*domain.JobRun, error) {
 	return s.runAgentFunc(ctx, req)
 }

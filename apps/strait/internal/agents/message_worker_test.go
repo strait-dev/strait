@@ -83,6 +83,9 @@ func (m *mockMWAgentService) DeleteAgent(_ context.Context, _, _ string) error {
 func (m *mockMWAgentService) DeployAgent(_ context.Context, _, _, _ string) (*domain.AgentDeployment, error) {
 	return nil, nil
 }
+func (m *mockMWAgentService) DeployAgentToEnv(_ context.Context, _, _, _, _ string) (*domain.AgentDeployment, error) {
+	return nil, nil
+}
 func (m *mockMWAgentService) RunAgent(_ context.Context, _ RunAgentRequest) (*domain.JobRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

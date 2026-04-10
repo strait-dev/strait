@@ -188,8 +188,12 @@ func (s AgentDeploymentStatus) IsValid() bool {
 }
 
 type AgentDeployment struct {
-	ID               string                `json:"id"`
-	AgentID          string                `json:"agent_id"`
+	ID      string `json:"id"`
+	AgentID string `json:"agent_id"`
+	// EnvironmentID binds the deployment to a platform Environment so a
+	// single agent definition can have concurrent deployments across
+	// dev/staging/prod. Nullable while existing deployments are backfilled.
+	EnvironmentID    string                `json:"environment_id,omitempty"`
 	Version          int                   `json:"version"`
 	Status           AgentDeploymentStatus `json:"status"`
 	Provider         string                `json:"provider"`
@@ -556,6 +560,11 @@ type JobRun struct {
 	DeploymentID      string `json:"deployment_id,omitempty"`
 	PinnedImageURI    string `json:"pinned_image_uri,omitempty"`
 	PinnedImageDigest string `json:"pinned_image_digest,omitempty"`
+	// AgentDeploymentID is set when this run was produced via an agent
+	// backing job. It pins the run to a specific AgentDeployment so
+	// concurrency, secrets resolution, and replay all stay within one env.
+	// Distinct from DeploymentID above, which references code_deployments.
+	AgentDeploymentID string `json:"agent_deployment_id,omitempty"`
 	// IsRollback is true when this run was created after a RollbackToDeployment
 	// call, meaning the job is using an older deployment rather than the latest build.
 	IsRollback bool      `json:"is_rollback,omitempty"`

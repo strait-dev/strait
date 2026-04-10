@@ -67,7 +67,14 @@ type Service interface {
 	ListAgents(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Agent, error)
 	UpdateAgent(ctx context.Context, req UpdateAgentRequest) (*domain.Agent, error)
 	DeleteAgent(ctx context.Context, projectID, agentID string) error
+	// DeployAgent deploys the agent without pinning to a specific
+	// environment. Preserved for backwards compatibility with callers that
+	// predate environment binding; new code should use DeployAgentToEnv.
 	DeployAgent(ctx context.Context, projectID, agentID, actor string) (*domain.AgentDeployment, error)
+	// DeployAgentToEnv deploys the agent to a specific platform environment.
+	// Multiple concurrent deployments are allowed, one per environment,
+	// so dev/staging/prod promotion flows work without interfering.
+	DeployAgentToEnv(ctx context.Context, projectID, agentID, environmentID, actor string) (*domain.AgentDeployment, error)
 	RunAgent(ctx context.Context, req RunAgentRequest) (*domain.JobRun, error)
 	PrepareDirectRun(ctx context.Context, req RunAgentRequest) (*DirectRunResult, error)
 	ListAgentRuns(ctx context.Context, projectID, agentID string, limit, offset int) ([]domain.JobRun, error)
@@ -88,9 +95,11 @@ type agentStore interface {
 	NextAgentDeploymentVersion(ctx context.Context, agentID string) (int, error)
 	CreateAgentDeployment(ctx context.Context, deployment *domain.AgentDeployment) error
 	GetLatestAgentDeployment(ctx context.Context, agentID string) (*domain.AgentDeployment, error)
+	GetLatestAgentDeploymentByEnvironment(ctx context.Context, agentID, environmentID string) (*domain.AgentDeployment, error)
 	ListAgentDeployments(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error)
 	UpdateAgentDeployment(ctx context.Context, id string, patch map[string]any) error
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
+	ListRunsByJobAndAgentDeployment(ctx context.Context, jobID, agentDeploymentID string, limit, offset int) ([]domain.JobRun, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
@@ -99,6 +108,7 @@ type agentStore interface {
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	GetAgentDeploymentByID(ctx context.Context, deploymentID string) (*domain.AgentDeployment, error)
 	GetActiveAgentCanary(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, error)
+	GetEnvironment(ctx context.Context, envID string) (*domain.Environment, error)
 }
 
 type Provider interface {
@@ -224,6 +234,11 @@ type RunAgentRequest struct {
 	AgentID   string
 	Payload   json.RawMessage
 	Actor     string
+	// EnvironmentID, when set, targets a specific environment's deployment
+	// for this run. If empty, the service falls back to the most recent
+	// deployment across all environments (legacy behavior for agents that
+	// have no environment_id yet).
+	EnvironmentID string
 }
 
 func NewService(q *store.Queries, txb store.TxBeginner, opts ...Option) Service {
@@ -563,6 +578,10 @@ func (s *localService) DeleteAgent(ctx context.Context, projectID, agentID strin
 }
 
 func (s *localService) DeployAgent(ctx context.Context, projectID, agentID, actor string) (*domain.AgentDeployment, error) {
+	return s.DeployAgentToEnv(ctx, projectID, agentID, "", actor)
+}
+
+func (s *localService) DeployAgentToEnv(ctx context.Context, projectID, agentID, environmentID, actor string) (*domain.AgentDeployment, error) {
 	agent, err := s.GetAgent(ctx, projectID, agentID)
 	if err != nil {
 		return nil, err
@@ -573,6 +592,20 @@ func (s *localService) DeployAgent(ctx context.Context, projectID, agentID, acto
 		if err := txQ.AdvisoryXactLock(ctx, advisoryLockID(agent.ID)); err != nil {
 			return fmt.Errorf("lock agent deployment: %w", err)
 		}
+
+		// Validate the environment belongs to the agent's project so a
+		// caller can't cross-project a deploy by passing someone else's
+		// environment_id.
+		if environmentID != "" {
+			env, envErr := txQ.GetEnvironment(ctx, environmentID)
+			if envErr != nil {
+				return fmt.Errorf("resolve deployment environment: %w", envErr)
+			}
+			if env.ProjectID != agent.ProjectID {
+				return fmt.Errorf("environment %s does not belong to project %s", environmentID, agent.ProjectID)
+			}
+		}
+
 		version, err := txQ.NextAgentDeploymentVersion(ctx, agent.ID)
 		if err != nil {
 			return err
@@ -581,6 +614,7 @@ func (s *localService) DeployAgent(ctx context.Context, projectID, agentID, acto
 		deployment = &domain.AgentDeployment{
 			ID:             uuid.Must(uuid.NewV7()).String(),
 			AgentID:        agent.ID,
+			EnvironmentID:  environmentID,
 			Version:        version,
 			Status:         domain.AgentDeploymentStatusPending,
 			Provider:       s.p.Name(),
@@ -651,7 +685,33 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		return nil, err
 	}
 
-	// Enforce per-agent concurrency limit — use plan limit if available, otherwise config default.
+	// Resolve the target deployment. If the caller specified an environment,
+	// pick the latest deployment pinned to that environment. Otherwise fall
+	// back to the most recent deployment across all envs (legacy behavior
+	// for agents without environment bindings).
+	var deployment *domain.AgentDeployment
+	if req.EnvironmentID != "" {
+		deployment, err = s.store.GetLatestAgentDeploymentByEnvironment(ctx, agent.ID, req.EnvironmentID)
+	} else {
+		deployment, err = s.store.GetLatestAgentDeployment(ctx, agent.ID)
+	}
+	if err != nil {
+		return nil, ErrNotDeployed
+	}
+	if deployment.Status != domain.AgentDeploymentStatusDeployed {
+		return nil, ErrNotDeployed
+	}
+
+	// Route via canary if active (probabilistic traffic splitting). Canary
+	// targets must share the primary's environment so prod traffic never
+	// gets routed into a dev deployment by mistake.
+	if altDeploy := s.resolveCanaryTarget(ctx, agent.ID, deployment); altDeploy != nil {
+		deployment = altDeploy
+	}
+
+	// Enforce per-deployment concurrency limit — use plan limit if
+	// available, otherwise config default. Per-deployment so dev and prod
+	// deployments of the same agent don't starve each other's budgets.
 	maxConcurrent := s.maxConcurrentRuns
 	if s.billingEnforcer != nil {
 		agentTier, tierErr := s.billingEnforcer.GetAgentPlanForProject(ctx, req.ProjectID)
@@ -663,7 +723,7 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 			maxConcurrent = limits.MaxAgentConcurrentRuns
 		}
 	}
-	existingRuns, err := s.store.ListRunsByJob(ctx, agent.JobID, maxConcurrent+1, 0)
+	existingRuns, err := s.listRunsForConcurrency(ctx, agent.JobID, deployment.ID, maxConcurrent+1)
 	if err != nil {
 		return nil, fmt.Errorf("check agent concurrency: %w", err)
 	}
@@ -677,37 +737,19 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		return nil, ErrConcurrencyExceeded
 	}
 
-	deployment, err := s.store.GetLatestAgentDeployment(ctx, agent.ID)
-	if err != nil {
-		return nil, ErrNotDeployed
-	}
-	if deployment.Status != domain.AgentDeploymentStatusDeployed {
-		return nil, ErrNotDeployed
-	}
-
-	// Route via canary if active (probabilistic traffic splitting).
-	if s.canaryRouter != nil {
-		if canary := s.getActiveCanary(ctx, agent.ID); canary != nil {
-			if targetID := s.canaryRouter.Route(canary); targetID != "" && targetID != deployment.ID {
-				if altDeploy, altErr := s.store.GetAgentDeploymentByID(ctx, targetID); altErr == nil && altDeploy != nil {
-					deployment = altDeploy
-				}
-			}
-		}
-	}
-
 	run := &domain.JobRun{
-		ID:            uuid.Must(uuid.NewV7()).String(),
-		JobID:         agent.JobID,
-		ProjectID:     agent.ProjectID,
-		Status:        domain.StatusQueued,
-		Attempt:       1,
-		Payload:       req.Payload,
-		TriggeredBy:   domain.TriggerManual,
-		JobVersion:    job.Version,
-		JobVersionID:  job.VersionID,
-		ExecutionMode: job.ExecutionMode,
-		CreatedBy:     req.Actor,
+		ID:                uuid.Must(uuid.NewV7()).String(),
+		JobID:             agent.JobID,
+		ProjectID:         agent.ProjectID,
+		Status:            domain.StatusQueued,
+		Attempt:           1,
+		Payload:           req.Payload,
+		TriggeredBy:       domain.TriggerManual,
+		JobVersion:        job.Version,
+		JobVersionID:      job.VersionID,
+		ExecutionMode:     job.ExecutionMode,
+		CreatedBy:         req.Actor,
+		AgentDeploymentID: deployment.ID,
 	}
 	if err := s.store.CreateRun(ctx, run); err != nil {
 		return nil, err
@@ -812,6 +854,47 @@ func (s *localService) ListAgentRuns(ctx context.Context, projectID, agentID str
 	return s.store.ListRunsByJob(ctx, agent.JobID, limit, offset)
 }
 
+// listRunsForConcurrency returns recent runs for the agent's backing job,
+// scoped to a specific deployment when one is given. A backing job may host
+// multiple deployments (one per environment), and concurrency must be
+// enforced per deployment so dev and prod don't starve each other.
+func (s *localService) listRunsForConcurrency(ctx context.Context, jobID, deploymentID string, limit int) ([]domain.JobRun, error) {
+	if deploymentID != "" {
+		return s.store.ListRunsByJobAndAgentDeployment(ctx, jobID, deploymentID, limit, 0)
+	}
+	return s.store.ListRunsByJob(ctx, jobID, limit, 0)
+}
+
+// resolveCanaryTarget returns a canary deployment to swap in for the
+// primary, or nil if no swap should occur. The canary target must share
+// the primary's environment — a mismatch is logged and skipped so prod
+// traffic never crosses into a dev deployment by mistake.
+func (s *localService) resolveCanaryTarget(ctx context.Context, agentID string, primary *domain.AgentDeployment) *domain.AgentDeployment {
+	if s.canaryRouter == nil {
+		return nil
+	}
+	canary := s.getActiveCanary(ctx, agentID)
+	if canary == nil {
+		return nil
+	}
+	targetID := s.canaryRouter.Route(canary)
+	if targetID == "" || targetID == primary.ID {
+		return nil
+	}
+	altDeploy, err := s.store.GetAgentDeploymentByID(ctx, targetID)
+	if err != nil || altDeploy == nil {
+		return nil
+	}
+	if altDeploy.EnvironmentID != primary.EnvironmentID {
+		slog.Warn("canary target skipped: env mismatch",
+			"agent_id", agentID,
+			"primary_env", primary.EnvironmentID,
+			"canary_env", altDeploy.EnvironmentID)
+		return nil
+	}
+	return altDeploy
+}
+
 func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunRequest) (*domain.JobRun, error) {
 	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
 	if err != nil {
@@ -826,7 +909,15 @@ func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunReq
 		return nil, fmt.Errorf("can only replay terminal runs (current: %s)", originalRun.Status)
 	}
 
-	deployment, err := s.store.GetLatestAgentDeployment(ctx, agent.ID)
+	// Carry forward the original run's deployment so a prod failure
+	// replays into prod, not dev. Fall back to the latest deployment if
+	// the original run predates per-deployment stamping.
+	var deployment *domain.AgentDeployment
+	if originalRun.AgentDeploymentID != "" {
+		deployment, err = s.store.GetAgentDeploymentByID(ctx, originalRun.AgentDeploymentID)
+	} else {
+		deployment, err = s.store.GetLatestAgentDeployment(ctx, agent.ID)
+	}
 	if err != nil {
 		return nil, ErrNotDeployed
 	}
@@ -872,17 +963,18 @@ func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunReq
 	}
 
 	run := &domain.JobRun{
-		ID:            uuid.Must(uuid.NewV7()).String(),
-		JobID:         agent.JobID,
-		ProjectID:     agent.ProjectID,
-		Status:        domain.StatusQueued,
-		Attempt:       1,
-		Payload:       payload,
-		TriggeredBy:   "replay",
-		JobVersion:    job.Version,
-		JobVersionID:  job.VersionID,
-		ExecutionMode: job.ExecutionMode,
-		CreatedBy:     req.Actor,
+		ID:                uuid.Must(uuid.NewV7()).String(),
+		JobID:             agent.JobID,
+		ProjectID:         agent.ProjectID,
+		Status:            domain.StatusQueued,
+		Attempt:           1,
+		Payload:           payload,
+		TriggeredBy:       "replay",
+		JobVersion:        job.Version,
+		JobVersionID:      job.VersionID,
+		ExecutionMode:     job.ExecutionMode,
+		CreatedBy:         req.Actor,
+		AgentDeploymentID: deployment.ID,
 	}
 	if err := s.store.CreateRun(ctx, run); err != nil {
 		return nil, err

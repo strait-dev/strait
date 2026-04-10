@@ -118,7 +118,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
 			execution_mode, machine_id, metadata,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback
+			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, agent_deployment_id
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
