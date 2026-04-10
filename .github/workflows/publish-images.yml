@@ -122,6 +122,15 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
 
+      - name: Verify pushed tags are pullable from GHCR
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Verifying $tag..."
+            docker buildx imagetools inspect "$tag" > /dev/null
+          done <<< "${{ steps.meta.outputs.tags }}"
+
   cloud-api:
     needs: check-ci
     name: Cloud API Image
@@ -180,6 +189,15 @@ jobs:
             DATE=${{ github.event.head_commit.timestamp }}
             BUILD_TAGS=cloud
 
+      - name: Verify pushed tags are pullable from GHCR
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Verifying $tag..."
+            docker buildx imagetools inspect "$tag" > /dev/null
+          done <<< "${{ steps.meta.outputs.tags }}"
+
   loadtest:
     needs: check-ci
     name: Loadtest Image
@@ -209,3 +227,33 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Verify pushed tags are pullable from GHCR
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Verifying $tag..."
+            docker buildx imagetools inspect "$tag" > /dev/null
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+  release-gate:
+    name: Release Gate
+    needs: [community-api, cloud-api, loadtest]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all image jobs to have succeeded
+        run: |
+          community="${{ needs.community-api.result }}"
+          cloud="${{ needs.cloud-api.result }}"
+          loadtest="${{ needs.loadtest.result }}"
+          echo "community-api=$community"
+          echo "cloud-api=$cloud"
+          echo "loadtest=$loadtest"
+          if [[ "$community" != "success" || "$cloud" != "success" || "$loadtest" != "success" ]]; then
+            echo "::error::one or more image jobs did not succeed"
+            exit 1
+          fi
+          echo "all image jobs succeeded"
