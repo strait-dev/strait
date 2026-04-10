@@ -109,6 +109,7 @@ type agentStore interface {
 	GetAgentDeploymentByID(ctx context.Context, deploymentID string) (*domain.AgentDeployment, error)
 	GetActiveAgentCanary(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, error)
 	GetEnvironment(ctx context.Context, envID string) (*domain.Environment, error)
+	ListProjectSecretsByEnv(ctx context.Context, projectID, environmentID string) ([]domain.ProjectSecret, error)
 }
 
 type Provider interface {
@@ -1205,6 +1206,26 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 			RunID:    run.ID,
 			RunToken: token,
 		},
+	}
+
+	// Populate env-scoped project secrets. Only fetches when the
+	// deployment is bound to an environment; legacy agents without an
+	// env binding get no secrets (they can migrate to DeployAgentToEnv).
+	// Fail-open: secret lookup errors log a warning but don't block the
+	// run — matching the existing Jobs worker secrets-load behavior.
+	if deployment.EnvironmentID != "" {
+		secrets, secretsErr := s.store.ListProjectSecretsByEnv(ctx, agent.ProjectID, deployment.EnvironmentID)
+		if secretsErr != nil {
+			slog.Warn("failed to load project secrets for agent run",
+				"run_id", run.ID,
+				"environment_id", deployment.EnvironmentID,
+				"error", secretsErr)
+		} else if len(secrets) > 0 {
+			envelope.Secrets = make(map[string]string, len(secrets))
+			for _, s := range secrets {
+				envelope.Secrets[s.SecretKey] = s.EncryptedValue
+			}
+		}
 	}
 
 	if run.Attempt > 1 {

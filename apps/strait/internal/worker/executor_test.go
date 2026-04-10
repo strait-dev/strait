@@ -35,6 +35,7 @@ type mockExecutorStore struct {
 	getJobFn                  func(ctx context.Context, id string) (*domain.Job, error)
 	getJobAtVersionFn         func(ctx context.Context, jobID string, version int) (*domain.Job, error)
 	listSecretsFn             func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
+	listProjectSecretsFn      func(ctx context.Context, projectID, jobID, environmentID string) ([]domain.ProjectSecret, error)
 	getWorkflowStepRunFn      func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
 	getWorkflowRunFn          func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listStepsByWorkflowVerFn  func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
@@ -96,6 +97,37 @@ func (m *mockExecutorStore) ListJobSecretsByJob(ctx context.Context, jobID, envi
 		return nil, nil
 	}
 	return m.listSecretsFn(ctx, jobID, environment)
+}
+
+func (m *mockExecutorStore) ListProjectSecretsForJob(ctx context.Context, projectID, jobID, environmentID string) ([]domain.ProjectSecret, error) {
+	if m.listProjectSecretsFn != nil {
+		return m.listProjectSecretsFn(ctx, projectID, jobID, environmentID)
+	}
+	// Fall back to the legacy mock so existing tests that only set
+	// listSecretsFn continue to work; translate JobSecret -> ProjectSecret
+	// with a synthetic env ID.
+	if m.listSecretsFn != nil {
+		legacy, err := m.listSecretsFn(ctx, jobID, environmentID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]domain.ProjectSecret, 0, len(legacy))
+		for _, s := range legacy {
+			out = append(out, domain.ProjectSecret{
+				ID:             s.ID,
+				ProjectID:      s.ProjectID,
+				EnvironmentID:  environmentID,
+				JobID:          s.JobID,
+				SecretKey:      s.SecretKey,
+				EncryptedValue: s.EncryptedValue,
+				KeyVersion:     s.KeyVersion,
+				CreatedAt:      s.CreatedAt,
+				UpdatedAt:      s.UpdatedAt,
+			})
+		}
+		return out, nil
+	}
+	return nil, nil
 }
 
 func (m *mockExecutorStore) UpdateHeartbeat(ctx context.Context, id string) error {
@@ -425,13 +457,18 @@ func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 1, 5), nil
+		j := testJob(server.URL, 1, 5)
+		// Phase D reads secrets via ListProjectSecretsForJob scoped to
+		// the job's environment_id — pin it so the fake project_secrets
+		// lookup resolves.
+		j.EnvironmentID = "env-prod"
+		return j, nil
 	}
-	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-		if jobID != "job-1" || environment != "production" {
-			t.Fatalf("unexpected args: %q %q", jobID, environment)
+	store.listProjectSecretsFn = func(_ context.Context, projectID, jobID, environmentID string) ([]domain.ProjectSecret, error) {
+		if jobID != "job-1" || projectID != "proj-1" || environmentID != "env-prod" {
+			t.Fatalf("unexpected args: project=%q job=%q env=%q", projectID, jobID, environmentID)
 		}
-		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
+		return []domain.ProjectSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())

@@ -589,8 +589,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// Secrets injection.
-	secrets, secretsErr := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+	// Secrets injection. Reads from project_secrets scoped to the job's
+	// own environment_id — Phase D fixes the pre-existing bug where this
+	// path hardcoded the text "production" regardless of which env the
+	// job belonged to.
+	secrets, secretsErr := e.store.ListProjectSecretsForJob(ctx, job.ProjectID, job.ID, job.EnvironmentID)
 	if secretsErr != nil {
 		e.logger.Warn("failed to load secrets for managed run", "run_id", run.ID, "error", secretsErr)
 	}
@@ -1138,16 +1141,17 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
-	// Fetch secrets and checkpoint in parallel.
+	// Fetch secrets and checkpoint in parallel. Secrets read from
+	// project_secrets scoped to the job's environment_id (Phase D).
 	var (
-		secrets    []domain.JobSecret
+		secrets    []domain.ProjectSecret
 		secretsErr error
 		cp         *domain.RunCheckpoint
 	)
 
 	var dispatchWG conc.WaitGroup
 	dispatchWG.Go(func() {
-		secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
+		secrets, secretsErr = e.store.ListProjectSecretsForJob(tracedCtx, job.ProjectID, job.ID, job.EnvironmentID)
 	})
 	if run.Attempt > 1 {
 		dispatchWG.Go(func() {
@@ -1228,7 +1232,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}()
 
 	extraHeaders := make(map[string]string)
-	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+	secrets, err := e.store.ListProjectSecretsForJob(ctx, job.ProjectID, job.ID, job.EnvironmentID)
 	if err != nil {
 		return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 	}

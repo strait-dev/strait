@@ -17,6 +17,12 @@ type RuntimeDispatchEnvelope struct {
 	Payload    json.RawMessage           `json:"payload,omitempty"`
 	Callback   RuntimeDispatchCallback   `json:"callback"`
 	Retry      *RuntimeDispatchRetry     `json:"retry,omitempty"`
+	// Secrets is the project-scoped secret set for the deployment's
+	// environment (project_secrets filtered by environment_id, job_id IS
+	// NULL). Empty for legacy agents without an environment binding.
+	// Provider API keys (OpenAI/Anthropic/etc.) stay on RuntimeDispatchAgent
+	// — those are credentials for the agent itself, not environment config.
+	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
 type RuntimeDispatchRun struct {

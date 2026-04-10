@@ -211,6 +211,147 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 	return secrets, nil
 }
 
+// ListProjectSecretsByEnv returns all project-wide secrets (job_id IS
+// NULL) for a (project_id, environment_id) pair with values decrypted
+// in-memory. Intended for callers that want pure platform-level secrets
+// without any per-job overrides, e.g. Agents reading env config.
+// Callers must treat EncryptedValue on the returned ProjectSecret as
+// plaintext after this call.
+func (q *Queries) ListProjectSecretsByEnv(ctx context.Context, projectID, environmentID string) ([]domain.ProjectSecret, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectSecretsByEnv")
+	defer span.End()
+
+	if projectID == "" || environmentID == "" {
+		return nil, nil
+	}
+
+	query := `
+		SELECT id, project_id, environment_id, job_id, secret_key, encrypted_value, key_version, created_at, updated_at
+		FROM project_secrets
+		WHERE project_id = $1 AND environment_id = $2 AND job_id IS NULL
+		ORDER BY created_at ASC`
+
+	return q.scanProjectSecrets(ctx, query, projectID, environmentID)
+}
+
+// ListProjectSecretsForJob returns the merged set of project-wide secrets
+// and job-specific overrides for a (job_id, environment_id) pair.
+// Job-specific rows shadow project-wide rows with the same secret_key.
+// This is the canonical secrets read path for the Jobs worker executor
+// and replaces the legacy ListJobSecretsByJob.
+func (q *Queries) ListProjectSecretsForJob(ctx context.Context, projectID, jobID, environmentID string) ([]domain.ProjectSecret, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectSecretsForJob")
+	defer span.End()
+
+	if projectID == "" || environmentID == "" {
+		return nil, nil
+	}
+
+	// DISTINCT ON (secret_key) with ORDER BY ... job_id IS NULL ASC lets
+	// the job-specific row win when both a project-wide and job-specific
+	// secret exist with the same key.
+	query := `
+		SELECT DISTINCT ON (secret_key)
+		       id, project_id, environment_id, job_id, secret_key, encrypted_value, key_version, created_at, updated_at
+		FROM project_secrets
+		WHERE project_id = $1
+		  AND environment_id = $2
+		  AND (job_id = $3 OR job_id IS NULL)
+		ORDER BY secret_key, (job_id IS NULL) ASC, created_at ASC`
+
+	return q.scanProjectSecrets(ctx, query, projectID, environmentID, jobID)
+}
+
+func (q *Queries) scanProjectSecrets(ctx context.Context, query string, args ...any) ([]domain.ProjectSecret, error) {
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list project secrets: %w", err)
+	}
+	defer rows.Close()
+
+	secrets := make([]domain.ProjectSecret, 0, 32)
+	for rows.Next() {
+		var s domain.ProjectSecret
+		var jobID *string
+		if scanErr := rows.Scan(
+			&s.ID, &s.ProjectID, &s.EnvironmentID, &jobID,
+			&s.SecretKey, &s.EncryptedValue, &s.KeyVersion,
+			&s.CreatedAt, &s.UpdatedAt,
+		); scanErr != nil {
+			return nil, fmt.Errorf("list project secrets scan: %w", scanErr)
+		}
+		if jobID != nil {
+			s.JobID = *jobID
+		}
+		decrypted, decryptErr := q.decryptSecretWithFallback(s.EncryptedValue)
+		if decryptErr != nil {
+			return nil, fmt.Errorf("list project secrets decrypt: %w", decryptErr)
+		}
+		s.EncryptedValue = decrypted
+		secrets = append(secrets, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list project secrets rows: %w", err)
+	}
+	return secrets, nil
+}
+
+// CreateProjectSecret inserts a new project secret. The EncryptedValue
+// field must be the plaintext value — it is encrypted before persistence.
+// The caller should set JobID to empty for a project-wide secret, or to
+// a specific job ID for a job-scoped override.
+func (q *Queries) CreateProjectSecret(ctx context.Context, secret *domain.ProjectSecret) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateProjectSecret")
+	defer span.End()
+
+	if secret.ID == "" {
+		secret.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if secret.KeyVersion == 0 {
+		secret.KeyVersion = 1
+	}
+
+	encryptionKey, err := q.secretKey()
+	if err != nil {
+		return fmt.Errorf("create project secret: %w", err)
+	}
+	encrypted, err := encryptSecret(secret.EncryptedValue, encryptionKey)
+	if err != nil {
+		return fmt.Errorf("create project secret: %w", err)
+	}
+
+	query := `
+		INSERT INTO project_secrets (id, project_id, environment_id, job_id, secret_key, encrypted_value, key_version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING created_at, updated_at`
+
+	err = q.db.QueryRow(
+		ctx, query,
+		secret.ID, secret.ProjectID, secret.EnvironmentID,
+		dbscan.NilIfEmptyString(secret.JobID),
+		secret.SecretKey, encrypted, secret.KeyVersion,
+	).Scan(&secret.CreatedAt, &secret.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("create project secret: %w", err)
+	}
+	return nil
+}
+
+// DeleteProjectSecret removes a secret by ID.
+func (q *Queries) DeleteProjectSecret(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteProjectSecret")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `DELETE FROM project_secrets WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete project secret: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrJobSecretNotFound
+	}
+	return nil
+}
+
 func (q *Queries) secretKey() ([]byte, error) {
 	if q.secretEncryptionKey == "" {
 		return nil, fmt.Errorf("secret encryption key is not configured")

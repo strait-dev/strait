@@ -515,6 +515,30 @@ type JobSecret struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// ProjectSecret is a platform-level secret scoped to a project and
+// environment. Any product running inside the project — Jobs, Agents,
+// future — can read these at runtime by (project_id, environment_id).
+//
+// JobID is optional: rows with an empty JobID are project-wide inside
+// the environment; rows with a specific JobID override the corresponding
+// key for just that job. This preserves the per-job override semantics
+// from the legacy job_secrets table.
+//
+// Distinct from JobSecret which is the legacy per-job, text-env scoped
+// table. Migration 000179 creates project_secrets and backfills from
+// job_secrets; a follow-up will drop job_secrets.
+type ProjectSecret struct {
+	ID             string    `json:"id"`
+	ProjectID      string    `json:"project_id"`
+	EnvironmentID  string    `json:"environment_id"`
+	JobID          string    `json:"job_id,omitempty"`
+	SecretKey      string    `json:"secret_key"`
+	EncryptedValue string    `json:"-"`
+	KeyVersion     int       `json:"key_version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type JobRun struct {
 	ID                    string            `json:"id"`
 	JobID                 string            `json:"job_id"`
