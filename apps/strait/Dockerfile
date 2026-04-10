@@ -25,8 +25,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o /strait ./cmd/strait
 
 # Runtime stage. Pinned to the multi-arch manifest-list digest; Dependabot
-# keeps this bumped weekly.
-FROM alpine:3.21@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204c53f4709
+# keeps this bumped weekly. alpine 3.22 ships openssl 3.3.7-r0 which fixes
+# CVE-2026-28390; alpine 3.21 is still on 3.3.6 and fails Trivy's HIGH gate.
+FROM alpine:3.22@sha256:55ae5d250caebc548793f321534bc6a8ef1d116f334f18f4ada1b2daad3251b2
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app \
@@ -39,9 +40,9 @@ RUN apk add --no-cache ca-certificates tzdata \
 # Supply chain security: the tarball checksum is verified against the upstream
 # sha256sum.txt before extraction. Update both SOCI_VERSION and the expected
 # checksums whenever upgrading.
-ARG SOCI_VERSION=0.9.0
-ARG SOCI_SHA256_AMD64=deff4c4d5aeaf88cf658f487dbde800e4073f4714d55c36d20bd8097350173c9
-ARG SOCI_SHA256_ARM64=836922af9284923934bcbd0e721fe6218d3acbe1c3ab150f5adca1f89496a276
+ARG SOCI_VERSION=0.13.0
+ARG SOCI_SHA256_AMD64=8951d87d6d17d719f7155d89f25ce08e139c3b48ef3323ee8e347de2d8c2d555
+ARG SOCI_SHA256_ARM64=dab5117cc50b0343521ae9f6dc691b4d3ab5f7eb19404d1f7c35524b48bcdad5
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
     if [ "$ARCH" = "amd64" ]; then EXPECTED_SHA256="${SOCI_SHA256_AMD64}"; \
     else EXPECTED_SHA256="${SOCI_SHA256_ARM64}"; fi && \
