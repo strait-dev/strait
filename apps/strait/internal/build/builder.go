@@ -68,6 +68,7 @@ type Builder struct {
 	// is downloaded. sociRunner is overridable in tests.
 	sociEnabled bool
 	sociRunner  func(ctx context.Context, imageRef string) error
+	sociTimeout time.Duration // defaults to 2 minutes; overridable in tests
 }
 
 // NewBuilder creates a Builder configured to talk to BuildKit at addr.
@@ -123,6 +124,12 @@ func (b *Builder) WithSOCI(enabled bool) *Builder {
 	return b
 }
 
+// withSOCITimeout overrides the internal SOCI context deadline. For testing only.
+func (b *Builder) withSOCITimeout(d time.Duration) *Builder {
+	b.sociTimeout = d
+	return b
+}
+
 // runSOCICLI invokes the `soci` CLI to create a SOCI index for imageRef and push
 // it to the registry. The soci binary authenticates to ECR via the standard AWS
 // SDK credential chain (AWS_REGION, AWS_ACCESS_KEY_ID, etc.) — no explicit auth
@@ -147,7 +154,11 @@ func (b *Builder) generateSOCIIndex(ctx context.Context, imageRef string) {
 	if !b.sociEnabled || b.sociRunner == nil {
 		return
 	}
-	sociCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	timeout := b.sociTimeout
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	sociCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if err := b.sociRunner(sociCtx, imageRef); err != nil {
 		slog.Warn("soci index generation failed (build still succeeded)",
