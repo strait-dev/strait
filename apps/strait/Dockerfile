@@ -24,39 +24,43 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /strait ./cmd/strait
 
-# Runtime stage. Pinned to the multi-arch manifest-list digest; Dependabot
-# keeps this bumped weekly. alpine 3.23 ships openssl 3.5.6-r0 which fixes
-# CVE-2026-28390; alpine 3.22 only has 3.5.5-r0 (distro-lag behind the
-# upstream fix) and fails Trivy's HIGH gate.
-FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
-
-RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S app \
-    && adduser -S app -G app
-
-# Install the SOCI CLI for lazy image loading (used when SOCI_ENABLED=true).
-# The binary is statically linked and authenticates to ECR via the AWS SDK
-# credential chain — no additional configuration needed at build time.
+# SOCI fetch stage. Alpine is still used here as a throwaway builder to run
+# wget/sha256sum/tar, but the resulting runtime image never includes anything
+# from alpine — only the extracted `soci` binary. Trivy scans the final image,
+# not intermediate stages, so alpine's distro-lag CVEs do not appear in the
+# published image. The binary itself is statically linked Go and authenticates
+# to ECR via the standard AWS SDK credential chain at runtime.
 #
 # Supply chain security: the tarball checksum is verified against the upstream
 # sha256sum.txt before extraction. Update both SOCI_VERSION and the expected
 # checksums whenever upgrading.
+FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS soci-fetch
 ARG SOCI_VERSION=0.13.0
 ARG SOCI_SHA256_AMD64=8951d87d6d17d719f7155d89f25ce08e139c3b48ef3323ee8e347de2d8c2d555
 ARG SOCI_SHA256_ARM64=dab5117cc50b0343521ae9f6dc691b4d3ab5f7eb19404d1f7c35524b48bcdad5
-RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
-    if [ "$ARCH" = "amd64" ]; then EXPECTED_SHA256="${SOCI_SHA256_AMD64}"; \
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then EXPECTED_SHA256="${SOCI_SHA256_AMD64}"; \
     else EXPECTED_SHA256="${SOCI_SHA256_ARM64}"; fi && \
     wget -qO /tmp/soci.tar.gz \
-        "https://github.com/awslabs/soci-snapshotter/releases/download/v${SOCI_VERSION}/soci-snapshotter-${SOCI_VERSION}-linux-${ARCH}.tar.gz" && \
+        "https://github.com/awslabs/soci-snapshotter/releases/download/v${SOCI_VERSION}/soci-snapshotter-${SOCI_VERSION}-linux-${TARGETARCH}.tar.gz" && \
     echo "${EXPECTED_SHA256}  /tmp/soci.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/soci.tar.gz -C /tmp soci && \
-    install -m 0755 /tmp/soci /usr/local/bin/soci && \
-    rm /tmp/soci.tar.gz /tmp/soci
+    chmod 0755 /tmp/soci
 
+# Runtime stage. Distroless static-debian12 ships only ca-certificates, tzdata,
+# /etc/passwd with a `nonroot` user, and a CA bundle — no shell, no package
+# manager, no libssl/libcrypto, no userspace utilities. Since the strait and
+# soci binaries are both statically-linked Go, they need nothing else at
+# runtime. This permanently removes the entire class of base-image distro-lag
+# CVEs that were blocking the v0.1.3 release (alpine 3.21 → 3.22 → 3.23 all
+# carried the same CVE-2026-28390 in libcrypto3/libssl3).
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:a9329520abc449e3b14d5bc3a6ffae065bdde0f02667fa10880c49b35c109fd1
+
+COPY --from=soci-fetch /tmp/soci /usr/local/bin/soci
 COPY --from=builder /strait /usr/local/bin/strait
 
-USER app
+# `nonroot` (UID 65532) is provided by the distroless image.
+USER nonroot:nonroot
 
 EXPOSE 8080
 
