@@ -222,38 +222,78 @@ func TestOrchestrator_DispatchBoundedByConcurrency(t *testing.T) {
 		}
 	}
 
-	var claimCalls atomic.Int32
 	idx := atomic.Int32{}
-
 	ms := &mockOrchestratorStore{
 		claimBuildingFn: func(_ context.Context, _ string) (*domain.CodeDeployment, error) {
-			claimCalls.Add(1)
 			i := int(idx.Add(1)) - 1
 			if i >= len(deployments) {
-				return nil, nil // queue exhausted
+				return nil, nil
 			}
 			return &deployments[i], nil
 		},
-		// Accept UpdateCodeDeploymentStatus calls from runBuild (nil builder path).
 		updateStatusFn: func(_ context.Context, _ string, _ domain.DeploymentBuildStatus, _ map[string]any) error {
 			return nil
 		},
+		setActiveDeploymentFn: func(_ context.Context, _, _, _ string) error { return nil },
 	}
 
-	o := NewOrchestrator(ms, nil, WithConcurrency(concurrency))
+	// gate blocks builds inside buildFn so we can observe max concurrency.
+	gate := make(chan struct{})
+	var inFlight atomic.Int32
+	var maxConcurrent atomic.Int32
+
+	executor := &mockBuildExecutor{
+		buildFn: func(_ context.Context, _ *domain.CodeDeployment, _ string) (*BuildResult, error) {
+			n := inFlight.Add(1)
+			defer inFlight.Add(-1)
+			// Track the maximum observed concurrency.
+			for {
+				old := maxConcurrent.Load()
+				if n <= old {
+					break
+				}
+				if maxConcurrent.CompareAndSwap(old, n) {
+					break
+				}
+			}
+			<-gate
+			return &BuildResult{
+				ImageURI:   "registry.example.com/test:latest",
+				Digest:     "sha256:abc",
+				FinishedAt: time.Now().UTC(),
+			}, nil
+		},
+	}
+
+	o := newTestOrchestratorWithMockBuilder(ms, executor)
+	o.concurrency = concurrency
 	sem := make(chan struct{}, concurrency)
 
-	// Call dispatch — it claims at most `concurrency` deployments (slots bound it).
-	o.dispatch(context.Background(), sem)
+	// dispatch in a background goroutine since builds will block on gate.
+	go o.dispatch(context.Background(), sem)
 
-	// dispatch is synchronous (waits on wg.Wait), so claimCalls is final now.
-	got := claimCalls.Load()
-	if got == 0 {
-		t.Error("expected ClaimBuildingDeployment to be called at least once")
+	// Wait for all concurrency slots to fill (builds blocking on gate).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if inFlight.Load() >= int32(concurrency) {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
 	}
-	if got > int32(concurrency)+1 {
-		// +1 for the nil-return probe call
-		t.Errorf("expected at most %d claim calls, got %d", concurrency+1, got)
+
+	if got := inFlight.Load(); got > int32(concurrency) {
+		t.Errorf("inFlight = %d, want <= %d (semaphore must bound concurrency)", got, concurrency)
+	}
+
+	// Unblock all builds and drain.
+	close(gate)
+	o.drain()
+
+	if got := maxConcurrent.Load(); got > int32(concurrency) {
+		t.Errorf("max concurrent builds = %d, want <= %d", got, concurrency)
+	}
+	if maxConcurrent.Load() == 0 {
+		t.Error("expected at least one build to have run")
 	}
 }
 
