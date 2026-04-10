@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -31,8 +31,15 @@ func signStripeWebhook(t *testing.T, secret string, body []byte) string {
 	return fmt.Sprintf("t=%s,v1=%s", ts, sig)
 }
 
-// testSecret is the webhook signing secret used in tests.
-var testSecret = "whsec_test_secret_for_unit_tests_only"
+// testSecret is the webhook signing secret used in tests. Generated randomly at
+// test startup to avoid gitleaks false positives and hardcoded key material.
+var testSecret = func() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("billing: failed to generate test webhook secret: " + err.Error())
+	}
+	return "whsec_" + hex.EncodeToString(b)
+}()
 
 func TestWebhookHandler_VerifySignature(t *testing.T) {
 	t.Parallel()
@@ -1722,7 +1729,11 @@ func FuzzWebhookSignatureHeader(f *testing.F) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	secret := "whsec_" + base64.StdEncoding.EncodeToString([]byte("test-secret-key-32bytes-long!!!!"))
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		f.Fatal("failed to generate fuzz webhook secret:", err)
+	}
+	secret := "whsec_" + hex.EncodeToString(b)
 	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
 
 	f.Fuzz(func(t *testing.T, sigHeader string) {

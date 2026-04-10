@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/testutil"
 )
 
 func TestAgentCRUD(t *testing.T) {
@@ -982,7 +983,9 @@ func mustStoreWithEncryption(t *testing.T) *store.Queries {
 func TestProviderSecrets_EncryptDecryptRoundTrip(t *testing.T) {
 	q := mustStoreWithEncryption(t)
 
-	secrets := map[string]string{"openai": "sk-test-123", "anthropic": "sk-ant-456"}
+	openaiSecret := testutil.GenerateTestSecret(16)
+	anthropicSecret := testutil.GenerateTestSecret(16)
+	secrets := map[string]string{"openai": openaiSecret, "anthropic": anthropicSecret}
 	ciphertext, err := q.EncryptAgentProviderSecrets(secrets)
 	if err != nil {
 		t.Fatalf("Encrypt() error = %v", err)
@@ -995,10 +998,10 @@ func TestProviderSecrets_EncryptDecryptRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decrypt() error = %v", err)
 	}
-	if decrypted["openai"] != "sk-test-123" {
+	if decrypted["openai"] != openaiSecret {
 		t.Fatalf("openai = %q", decrypted["openai"])
 	}
-	if decrypted["anthropic"] != "sk-ant-456" {
+	if decrypted["anthropic"] != anthropicSecret {
 		t.Fatalf("anthropic = %q", decrypted["anthropic"])
 	}
 }
@@ -1026,7 +1029,7 @@ func TestProviderSecrets_EmptyMapReturnsEmptyString(t *testing.T) {
 func TestProviderSecrets_DifferentCiphertext(t *testing.T) {
 	q := mustStoreWithEncryption(t)
 
-	secrets := map[string]string{"openai": "sk-test"}
+	secrets := map[string]string{"openai": testutil.GenerateTestSecret(16)}
 	ct1, _ := q.EncryptAgentProviderSecrets(secrets)
 	ct2, _ := q.EncryptAgentProviderSecrets(secrets)
 

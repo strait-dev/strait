@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/testutil"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -184,7 +185,7 @@ func TestParseSSEToken_WrongKey(t *testing.T) {
 		ProjectID: "proj-1",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte("wrong-key-that-is-32-chars-long!"))
+	signed, _ := token.SignedString([]byte(testutil.GenerateTestJWTKey()))
 
 	parsed := srv.parseSSEToken(signed)
 	if parsed != nil {

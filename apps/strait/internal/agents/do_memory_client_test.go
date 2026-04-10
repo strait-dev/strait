@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"strait/internal/testutil"
 )
 
 func TestValidAgentID(t *testing.T) {
@@ -121,7 +123,7 @@ func TestDOMemoryClient_Set_ValidRequest(t *testing.T) {
 	c := &DOMemoryClient{
 		accountID: "acc",
 		namespace: "ns",
-		apiToken:  "secret-token",
+		apiToken:  testutil.GenerateTestSecret(16),
 		client:    srv.Client(),
 	}
 	// Override URL format to point at test server.

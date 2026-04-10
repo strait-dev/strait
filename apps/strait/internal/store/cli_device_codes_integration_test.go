@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/store"
+	"strait/internal/testutil"
 )
 
 func TestCreateDeviceCode(t *testing.T) {
@@ -70,7 +71,7 @@ func TestApproveDeviceCode(t *testing.T) {
 	}
 
 	apiKeyID := newID()
-	rawAPIKey := "sk-test-raw-key"
+	rawAPIKey := testutil.GenerateTestAPIKey()
 	if err := q.ApproveDeviceCode(ctx, deviceCode, apiKeyID, rawAPIKey); err != nil {
 		t.Fatalf("ApproveDeviceCode() error = %v", err)
 	}

@@ -9,7 +9,12 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/testutil"
 )
+
+// testInternalSecret is a cryptographically random secret generated once per
+// test binary to avoid gitleaks false positives and hardcoded key material.
+var testInternalSecret = testutil.GenerateTestInternalSecret()
 
 func validCloudflareMetadata() json.RawMessage {
 	return MarshalCloudflareDeploymentMetadata(CloudflareDeploymentMetadata{
@@ -23,7 +28,7 @@ func validCloudflareMetadata() json.RawMessage {
 
 func TestDispatchCloudflareRun_NilHTTPClient(t *testing.T) {
 	t.Parallel()
-	svc := &localService{dispatchHTTP: nil, internalSecret: "secret"}
+	svc := &localService{dispatchHTTP: nil, internalSecret: testInternalSecret}
 	err := svc.dispatchCloudflareRun(context.Background(), &domain.AgentDeployment{
 		ProviderMetadata: validCloudflareMetadata(),
 	}, RuntimeDispatchEnvelope{})
@@ -56,7 +61,7 @@ func TestDispatchCloudflareRun_CorruptMetadata(t *testing.T) {
 	t.Parallel()
 	svc := &localService{
 		dispatchHTTP:   &http.Client{},
-		internalSecret: "secret",
+		internalSecret: testInternalSecret,
 	}
 	err := svc.dispatchCloudflareRun(context.Background(), &domain.AgentDeployment{
 		ProviderMetadata: json.RawMessage(`not-json`),
@@ -90,7 +95,7 @@ func TestDispatchCloudflareRun_Success(t *testing.T) {
 
 	svc := &localService{
 		dispatchHTTP:   srv.Client(),
-		internalSecret: "test-secret",
+		internalSecret: testInternalSecret,
 	}
 	err := svc.dispatchCloudflareRun(context.Background(), &domain.AgentDeployment{
 		ID: "dep-1", Provider: ProviderNameCloudflare, ProviderMetadata: metadata,
@@ -98,7 +103,7 @@ func TestDispatchCloudflareRun_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
-	if gotAuth != "Bearer test-secret" {
+	if gotAuth != "Bearer "+testInternalSecret {
 		t.Fatalf("Authorization = %q", gotAuth)
 	}
 	if gotCT != "application/json" {
@@ -119,7 +124,7 @@ func TestDispatchCloudflareRun_ServerReturns500(t *testing.T) {
 		DispatchWorkerURL: srv.URL, CompatibilityDate: "2026-03-29",
 	})
 
-	svc := &localService{dispatchHTTP: srv.Client(), internalSecret: "secret"}
+	svc := &localService{dispatchHTTP: srv.Client(), internalSecret: testInternalSecret}
 	err := svc.dispatchCloudflareRun(context.Background(), &domain.AgentDeployment{
 		ProviderMetadata: metadata,
 	}, RuntimeDispatchEnvelope{})
@@ -143,7 +148,7 @@ func TestDispatchCloudflareRun_ServerReturns201(t *testing.T) {
 		DispatchWorkerURL: srv.URL, CompatibilityDate: "2026-03-29",
 	})
 
-	svc := &localService{dispatchHTTP: srv.Client(), internalSecret: "secret"}
+	svc := &localService{dispatchHTTP: srv.Client(), internalSecret: testInternalSecret}
 	err := svc.dispatchCloudflareRun(context.Background(), &domain.AgentDeployment{
 		ProviderMetadata: metadata,
 	}, RuntimeDispatchEnvelope{})

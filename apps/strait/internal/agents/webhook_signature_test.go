@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/testutil"
 	"strait/internal/webhook"
 )
 
 func TestSignWebhookPayload_ProducesValidSignature(t *testing.T) {
 	t.Parallel()
-	secret := "whsec_test_secret_123"
+	secret := testutil.GenerateTestWebhookSecret()
 	body := []byte(`{"event":"agent.run.terminal","run_id":"run-1"}`)
 	ts := time.Now()
 
@@ -29,7 +30,7 @@ func TestSignWebhookPayload_ProducesValidSignature(t *testing.T) {
 
 func TestSignWebhookPayload_DifferentBodies(t *testing.T) {
 	t.Parallel()
-	secret := "whsec_test"
+	secret := testutil.GenerateTestWebhookSecret()
 	ts := time.Now()
 
 	sig1 := SignWebhookPayload(secret, []byte(`{"a":1}`), ts)
@@ -146,7 +147,7 @@ func TestExtractWebhookSecret_InvalidJSON(t *testing.T) {
 // Fix 1 regression: verify SignWebhookPayload does not mutate the input body.
 func TestSignWebhookPayload_DoesNotMutateBody(t *testing.T) {
 	t.Parallel()
-	secret := "whsec_test"
+	secret := testutil.GenerateTestWebhookSecret()
 	body := []byte(`{"event":"test"}`)
 	original := make([]byte, len(body))
 	copy(original, body)
@@ -161,7 +162,7 @@ func TestSignWebhookPayload_DoesNotMutateBody(t *testing.T) {
 // Verify body with extra capacity is not corrupted by append.
 func TestSignWebhookPayload_BodyWithExtraCapacity(t *testing.T) {
 	t.Parallel()
-	secret := "whsec_test"
+	secret := testutil.GenerateTestWebhookSecret()
 	// Create a backing array with extra capacity and a sentinel byte after the body.
 	backing := make([]byte, 32, 1024)
 	copy(backing, `{"event":"test"}`)
