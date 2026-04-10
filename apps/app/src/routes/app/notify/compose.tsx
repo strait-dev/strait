@@ -34,6 +34,7 @@ import {
   useNotifyTest,
   useNotifyTrigger,
 } from "@/hooks/api/use-notify";
+import NotifyErrorBoundary from "@/components/notify/notify-error-boundary";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/compose")({
@@ -250,6 +251,7 @@ function NotifyComposePage() {
 
   return (
     <Shell>
+      <NotifyErrorBoundary>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -488,6 +490,7 @@ function NotifyComposePage() {
           </CardContent>
         </Card>
       </div>
+      </NotifyErrorBoundary>
     </Shell>
   );
 }
