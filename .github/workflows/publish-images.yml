@@ -183,12 +183,12 @@ jobs:
           # manifest AND the attestation manifests (SBOM + SLSA provenance).
           # Without it, cosign signs only the index digest, which Kyverno
           # rejects once it resolves to a per-arch child at admission time.
-          # --tsa-server-url embeds an RFC 3161 timestamp from Sigstore's
+          # --timestamp-server-url embeds an RFC 3161 timestamp from Sigstore's
           # public TSA, giving offline-verifiable proof of signing time
           # independent of Rekor.
           cosign sign --yes --recursive \
             --oidc-issuer="https://token.actions.githubusercontent.com" \
-            --tsa-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
+            --timestamp-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
             --timeout=3m \
             "${REGISTRY}/strait-dev/strait@${DIGEST}"
 
@@ -319,12 +319,12 @@ jobs:
           # manifest AND the attestation manifests (SBOM + SLSA provenance).
           # Without it, cosign signs only the index digest, which Kyverno
           # rejects once it resolves to a per-arch child at admission time.
-          # --tsa-server-url embeds an RFC 3161 timestamp from Sigstore's
+          # --timestamp-server-url embeds an RFC 3161 timestamp from Sigstore's
           # public TSA, giving offline-verifiable proof of signing time
           # independent of Rekor.
           cosign sign --yes --recursive \
             --oidc-issuer="https://token.actions.githubusercontent.com" \
-            --tsa-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
+            --timestamp-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
             --timeout=3m \
             "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
 
