@@ -20,10 +20,11 @@ paths = [
     '''\.github/workflows/''',
     '''apps/website/''',
     '''apps/app/src/hooks/api/''',
-    # Generated JS runtime bundles — Effect.ts library symbol keys such as
-    # "effect/ScheduleInterval" are falsely detected as generic API keys due
-    # to their entropy profile and "/" path separator.
-    '''internal/agents/.*\.js$''',
+    # Generated JS bundles embedded in the Go binary. These files are produced by
+    # the build pipeline and contain third-party library Symbol keys (e.g.
+    # "effect/ScheduleInterval") that gitleaks misidentifies as API keys due to
+    # the slash-separated format matching its generic-api-key heuristic.
+    '''internal/agents/.*_bundle\.js$''',
 ]
 
 regexTarget = "match"

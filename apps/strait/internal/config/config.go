@@ -324,6 +324,12 @@ type Config struct {
 	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
 	// When enabled, container startup begins before the full image is pulled.
 	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
+	// SOCIMinImageBytes is the minimum compressed image size (in bytes) below which
+	// SOCI index generation is skipped — the overhead of lazy loading is not worth it
+	// for small images. Defaults to 10 MiB.
+	// NOTE: size-based skipping is not yet implemented; this config is reserved for
+	// a future optimisation once post-build image size querying is available.
+	SOCIMinImageBytes int64 `env:"SOCI_MIN_IMAGE_SIZE_BYTES" default:"10485760"`
 }
 
 // Load reads configuration from environment variables.
