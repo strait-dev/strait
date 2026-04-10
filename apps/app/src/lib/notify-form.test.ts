@@ -8,6 +8,22 @@ describe("notify form helpers", () => {
     expect(isNotifyScopedKey("bad key")).toBe(false);
   });
 
+  it("rejects keys that start or end with separators", () => {
+    expect(isNotifyScopedKey(".key")).toBe(false);
+    expect(isNotifyScopedKey("key.")).toBe(false);
+    expect(isNotifyScopedKey("-key")).toBe(false);
+    expect(isNotifyScopedKey("key-")).toBe(false);
+    expect(isNotifyScopedKey("_key")).toBe(false);
+    expect(isNotifyScopedKey("key_")).toBe(false);
+    expect(isNotifyScopedKey("..double")).toBe(false);
+  });
+
+  it("accepts single alphanumeric character keys", () => {
+    expect(isNotifyScopedKey("a")).toBe(true);
+    expect(isNotifyScopedKey("Z")).toBe(true);
+    expect(isNotifyScopedKey("9")).toBe(true);
+  });
+
   it("parses valid JSON object", () => {
     const result = parseNotifyJSONRecord('{"subject":{"value":"hello"}}');
 

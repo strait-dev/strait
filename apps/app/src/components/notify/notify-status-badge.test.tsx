@@ -33,4 +33,10 @@ describe("NotifyStatusBadge", () => {
 
     expect(screen.getByText("Unknown")).toBeTruthy();
   });
+
+  it("formats hyphenated statuses", () => {
+    render(<NotifyStatusBadge status="rate-limited" />);
+
+    expect(screen.getByText("Rate Limited")).toBeTruthy();
+  });
 });

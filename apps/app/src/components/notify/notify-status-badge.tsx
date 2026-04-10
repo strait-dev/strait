@@ -24,7 +24,10 @@ const statusStyles = {
 } as const;
 
 const formatStatus = (status: string) =>
-  status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  status
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 
 const NotifyStatusBadge = ({ status }: Props) => {
   const normalized = (status || "unknown").toLowerCase();

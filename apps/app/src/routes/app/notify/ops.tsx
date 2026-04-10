@@ -24,6 +24,9 @@ import {
 import { buildNotifyOpsSnapshot } from "@/lib/notify-ops";
 import type { AppRouteContext } from "@/routes/app/layout";
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const Route = createFileRoute("/app/notify/ops")({
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;
@@ -103,7 +106,10 @@ function NotifyOpsPage() {
     toast.success("Notify operational data refreshed");
   };
 
-  const triageCommand = `cd apps/strait && go run ./scripts/notify-ses-feedback-check --project-id ${session.user.activeProjectId} --database-url "$DATABASE_URL"`;
+  const safeProjectId = uuidPattern.test(session.user.activeProjectId ?? "")
+    ? session.user.activeProjectId
+    : "<project-id>";
+  const triageCommand = `cd apps/strait && go run ./scripts/notify-ses-feedback-check --project-id ${safeProjectId} --database-url "$DATABASE_URL"`;
 
   const copyTriageCommand = async () => {
     await navigator.clipboard.writeText(triageCommand);
