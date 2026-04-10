@@ -913,6 +913,10 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 	if pub != nil {
 		builder = builder.WithLogPublisher(pub)
 	}
+	if cfg.SOCIEnabled {
+		builder = builder.WithSOCI(true)
+		slog.Info("soci lazy image loading enabled")
+	}
 	if cfg.BuildExtraRegistryAuths != "" && cfg.BuildExtraRegistryAuths != "{}" {
 		var extraAuths map[string]string
 		if err := json.Unmarshal([]byte(cfg.BuildExtraRegistryAuths), &extraAuths); err != nil {

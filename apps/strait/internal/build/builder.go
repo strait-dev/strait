@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -52,7 +53,8 @@ type BuildResult struct {
 //  3. Generates a runtime-specific Dockerfile
 //  4. Submits the build to BuildKit
 //  5. Pushes the image to the container registry
-//  6. Returns the image URI + digest
+//  6. Optionally generates a SOCI index for lazy image loading
+//  7. Returns the image URI + digest
 type Builder struct {
 	buildkitAddr string
 	objectStore  objectstore.ObjectStore
@@ -61,6 +63,11 @@ type Builder struct {
 	timeout      time.Duration
 	logPublisher pubsub.Publisher
 	extraAuths   map[string]string
+	// SOCI lazy loading — generates a seekable OCI index in the registry after
+	// a successful build so containerd can start containers before the full image
+	// is downloaded. sociRunner is overridable in tests.
+	sociEnabled bool
+	sociRunner  func(ctx context.Context, imageRef string) error
 }
 
 // NewBuilder creates a Builder configured to talk to BuildKit at addr.
@@ -97,6 +104,59 @@ func (b *Builder) WithLogPublisher(p pubsub.Publisher) *Builder {
 func (b *Builder) WithExtraRegistryAuths(auths map[string]string) *Builder {
 	b.extraAuths = auths
 	return b
+}
+
+// WithSOCI enables or disables SOCI (Seekable OCI) index generation after each
+// successful build. When enabled, a SOCI index is pushed to the same registry
+// alongside the image so the containerd SOCI snapshotter can lazily stream image
+// layers, reducing cold-start latency. Requires the `soci` CLI to be in PATH
+// and the SOCI snapshotter to be installed on cluster nodes.
+//
+// SOCI failure is non-fatal: the build is still considered successful and the
+// image can be pulled normally. The only downside is no lazy loading for that
+// image.
+func (b *Builder) WithSOCI(enabled bool) *Builder {
+	b.sociEnabled = enabled
+	if enabled {
+		b.sociRunner = runSOCICLI
+	}
+	return b
+}
+
+// runSOCICLI invokes the `soci` CLI to create a SOCI index for imageRef and push
+// it to the registry. The soci binary authenticates to ECR via the standard AWS
+// SDK credential chain (AWS_REGION, AWS_ACCESS_KEY_ID, etc.) — no explicit auth
+// is needed beyond what the process environment already provides.
+func runSOCICLI(ctx context.Context, imageRef string) error {
+	path, err := exec.LookPath("soci")
+	if err != nil {
+		return fmt.Errorf("soci binary not in PATH: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, path, "create", imageRef)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("soci create: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// generateSOCIIndex generates a SOCI index for imageRef after a successful build.
+// Failures are logged as warnings and do not fail the build — SOCI is a
+// performance optimisation, not a correctness requirement.
+func (b *Builder) generateSOCIIndex(ctx context.Context, imageRef string) {
+	if !b.sociEnabled || b.sociRunner == nil {
+		return
+	}
+	sociCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	if err := b.sociRunner(sociCtx, imageRef); err != nil {
+		slog.Warn("soci index generation failed (build still succeeded)",
+			"image", imageRef,
+			"error", err,
+		)
+		return
+	}
+	slog.Info("soci index generated", "image", imageRef)
 }
 
 // Build runs the full build pipeline for a single deployment and returns the result.
@@ -245,6 +305,10 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 
 	// 7. Extract the image digest from the solve response.
 	digest := resp.ExporterResponse["containerimage.digest"]
+
+	// 8. Optionally generate a SOCI index for lazy image loading. This is a
+	// best-effort step: failure is logged but does not fail the build.
+	b.generateSOCIIndex(ctx, imageTag)
 
 	return &BuildResult{
 		ImageURI:   imageTag,
