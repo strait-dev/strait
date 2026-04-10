@@ -1,6 +1,8 @@
 # Build stage runs on the native runner architecture so Go cross-compiles
 # natively instead of running under QEMU emulation, which is 10-30x slower.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+# Base image pinned to the multi-arch manifest-list digest. Dependabot's
+# docker ecosystem keeps this bumped weekly.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:c2a1f7b2095d046ae14b286b18413a05bb82c9bca9b25fe7ff5efef0f0826166 AS builder
 
 RUN apk add --no-cache ca-certificates
 
@@ -22,8 +24,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /strait ./cmd/strait
 
-# Runtime stage
-FROM alpine:3.21
+# Runtime stage. Pinned to the multi-arch manifest-list digest; Dependabot
+# keeps this bumped weekly.
+FROM alpine:3.21@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204c53f4709
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app \
