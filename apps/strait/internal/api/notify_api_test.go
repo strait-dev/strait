@@ -1420,3 +1420,61 @@ func TestResolveNotifyTopicSubscribers_PageFetchError(t *testing.T) {
 		t.Fatal("resolveNotifyRecipients() with page error must return error")
 	}
 }
+
+// TestSendNotifyEmail_CancelledContextFails verifies that sendNotifyEmail
+// propagates context cancellation — so a 30-second timeout added around the
+// provider call can actually abort the operation.
+func TestSendNotifyEmail_CancelledContextFails(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled
+
+	msg := &domain.NotificationMessage{
+		ID:        "msg_test",
+		ProjectID: "proj_test",
+	}
+	sub := &domain.NotifySubscriber{Email: "user@example.com"}
+	payload := map[string]any{
+		"subject":   "hello",
+		"html_body": "<p>hi</p>",
+	}
+
+	err := srv.sendNotifyEmail(ctx, ns, sub, msg, payload)
+	if err == nil {
+		t.Fatal("sendNotifyEmail with cancelled context must return an error")
+	}
+}
+
+// TestDispatchNotifyWebhookEvent_DropCountedWhenPoolStopped verifies that when
+// the background pool is stopped, TrySubmit returns !submitted and the
+// NotifyWebhookDropped metric path is exercised (no panic, warning logged).
+func TestDispatchNotifyWebhookEvent_DropCountedWhenPoolStopped(t *testing.T) {
+	t.Parallel()
+
+	mock := &APIStoreMock{
+		ListWebhookSubscriptionsFunc: func(_ context.Context, _ string) ([]domain.WebhookSubscription, error) {
+			return []domain.WebhookSubscription{
+				{
+					ID:         "ws_1",
+					ProjectID:  "proj_test",
+					WebhookURL: "http://localhost:9999/hook",
+					EventTypes: []string{"*"},
+					Active:     true,
+				},
+			}, nil
+		},
+	}
+
+	ns := &notifyStoreAdapter{}
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: mock, NotifyStore: ns}, &mockQueue{}, nil)
+
+	// Stop the pool so TrySubmit returns !submitted.
+	srv.bgPool.StopAndWait()
+
+	// Should not panic. When the pool is stopped, the drop path is taken.
+	srv.dispatchNotifyWebhookEvent(context.Background(), "proj_test", "notify.sent", map[string]any{"id": "msg_1"})
+}

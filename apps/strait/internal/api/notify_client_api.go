@@ -246,7 +246,10 @@ func (s *Server) handleInboxFeed(w http.ResponseWriter, r *http.Request) {
 
 	if unread, countErr := ns.CountInboxUnread(r.Context(), recipientType, recipientID); countErr == nil {
 		event := fmt.Sprintf("event: unread_count\ndata: {\"count\":%d}\n\n", unread)
-		_, _ = w.Write([]byte(event))
+		if _, writeErr := w.Write([]byte(event)); writeErr != nil {
+			slog.WarnContext(r.Context(), "sse: initial unread_count write failed", "err", writeErr)
+			return
+		}
 		flusher.Flush()
 	}
 
@@ -270,11 +273,20 @@ func (s *Server) handleInboxFeed(w http.ResponseWriter, r *http.Request) {
 			if envelope.Event == "" {
 				envelope.Event = "message"
 			}
-			_, _ = w.Write([]byte("event: " + envelope.Event + "\n"))
-			_, _ = w.Write([]byte("data: " + string(envelope.Data) + "\n\n"))
+			if _, writeErr := w.Write([]byte("event: " + envelope.Event + "\n")); writeErr != nil {
+				slog.WarnContext(r.Context(), "sse: event write failed, client disconnected", "err", writeErr)
+				return
+			}
+			if _, writeErr := w.Write([]byte("data: " + string(envelope.Data) + "\n\n")); writeErr != nil {
+				slog.WarnContext(r.Context(), "sse: data write failed, client disconnected", "err", writeErr)
+				return
+			}
 			flusher.Flush()
 		case <-ticker.C:
-			_, _ = w.Write([]byte("event: heartbeat\ndata: {}\n\n"))
+			if _, writeErr := w.Write([]byte("event: heartbeat\ndata: {}\n\n")); writeErr != nil {
+				slog.WarnContext(r.Context(), "sse: heartbeat write failed, client disconnected", "err", writeErr)
+				return
+			}
 			flusher.Flush()
 		}
 	}

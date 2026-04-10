@@ -504,7 +504,9 @@ func (s *Server) sendNotifyEmail(ctx context.Context, ns notifyStore, sub *domai
 		attempt.FromEmail = "noreply@strait.dev"
 	}
 
-	providerMessageID, err := notifycore.SendEmailWithProvider(ctx, msg.ID, msg.ProjectID, sub.Email, subject, htmlBody, textBody, attempt)
+	sendCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	providerMessageID, err := notifycore.SendEmailWithProvider(sendCtx, msg.ID, msg.ProjectID, sub.Email, subject, htmlBody, textBody, attempt)
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
@@ -825,7 +827,7 @@ func (s *Server) dispatchNotifyWebhookEvent(ctx context.Context, projectID, even
 			continue
 		}
 		bodyCopy := append([]byte(nil), body...)
-		s.bgPool.Submit(func() {
+		if _, submitted := s.bgPool.TrySubmit(func() {
 			req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodPost, sub.WebhookURL, strings.NewReader(string(bodyCopy)))
 			if reqErr != nil {
 				return
@@ -842,7 +844,12 @@ func (s *Server) dispatchNotifyWebhookEvent(ctx context.Context, projectID, even
 				return
 			}
 			_ = resp.Body.Close()
-		})
+		}); !submitted {
+			slog.WarnContext(ctx, "notify webhook dispatch dropped, pool stopped or full", "event", eventType)
+			if s.metrics != nil {
+				s.metrics.NotifyWebhookDropped.Add(ctx, 1)
+			}
+		}
 	}
 }
 
