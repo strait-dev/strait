@@ -458,32 +458,53 @@ jobs:
           PREV: ${{ steps.prev.outputs.tag }}
           REGISTRY: ${{ env.REGISTRY }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p sbom-artifacts
+
+          # Extract the SPDX SBOM that BuildKit attached to the image as an
+          # OCI referrer (sbom: true on build-push-action). buildx knows how
+          # to walk the attestation manifests and return the SBOM payload.
+          fetch_sbom() {
+            local image="$1" tag="$2" out="$3"
+            docker buildx imagetools inspect \
+              --format '{{ json .SBOM.SPDX }}' \
+              "${REGISTRY}/strait-dev/${image}:${tag}" > "$out" 2>/dev/null || true
+            # Empty or "null" means no SBOM was attached (older image).
+            if [ ! -s "$out" ] || [ "$(cat "$out")" = "null" ] || [ "$(cat "$out")" = "{}" ]; then
+              return 1
+            fi
+            return 0
+          }
+
           for image in strait strait-cloud; do
             CUR_TAG="${CURRENT#v}"
             PREV_TAG="${PREV#v}"
 
-            cosign download attestation \
-              --predicate-type=https://spdx.dev/Document \
-              --platform=linux/amd64 \
-              "${REGISTRY}/strait-dev/${image}:${CUR_TAG}" \
-              | jq -r '.payload' | base64 -d | jq '.predicate' > "sbom-artifacts/${image}-current.spdx.json"
+            echo "### ${image}" >> "$GITHUB_STEP_SUMMARY"
 
-            cosign download attestation \
-              --predicate-type=https://spdx.dev/Document \
-              --platform=linux/amd64 \
-              "${REGISTRY}/strait-dev/${image}:${PREV_TAG}" \
-              | jq -r '.payload' | base64 -d | jq '.predicate' > "sbom-artifacts/${image}-previous.spdx.json"
+            if ! fetch_sbom "${image}" "${CUR_TAG}" "sbom-artifacts/${image}-current.spdx.json"; then
+              echo "Could not fetch SBOM for ${image}:${CUR_TAG} — skipping diff." >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            if ! fetch_sbom "${image}" "${PREV_TAG}" "sbom-artifacts/${image}-previous.spdx.json"; then
+              echo "Previous release ${image}:${PREV_TAG} has no BuildKit SBOM attestation (likely predates the signing pipeline). Diff skipped." >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
 
             {
-              echo "### ${image}"
               scripts/sbom-diff.sh \
                 "sbom-artifacts/${image}-current.spdx.json" \
-                "sbom-artifacts/${image}-previous.spdx.json"
+                "sbom-artifacts/${image}-previous.spdx.json" || echo "sbom-diff.sh failed for ${image} — see job logs"
               echo
             } >> "$GITHUB_STEP_SUMMARY"
           done
+
+          # Soft-fail: sbom-diff is observability, not a release gate. Always
+          # succeed so downstream jobs and overall run status stay green.
+          exit 0
 
       - name: Upload SBOM artifacts
         if: steps.prev.outputs.tag != ''
