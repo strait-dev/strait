@@ -328,11 +328,25 @@ func (s *Server) resolveNotifyRecipients(ctx context.Context, ns notifyStore, pr
 		if tenantID != "" {
 			tenant = &tenantID
 		}
-		subs, err := ns.ListNotifySubscribersByTopicKey(ctx, projectID, to.Key, tenant, 10000)
-		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to resolve topic subscribers")
+		// Fetch topic subscribers in bounded pages to avoid loading unlimited rows
+		// into memory. For very large topics (>50k) consider an async fan-out job
+		// instead of inline resolution.
+		const topicPageSize = 500
+		var all []domain.NotifySubscriber
+		var cursor *time.Time
+		for {
+			page, pageErr := ns.ListNotifySubscribersByTopicKeyCursor(ctx, projectID, to.Key, tenant, topicPageSize, cursor)
+			if pageErr != nil {
+				return nil, huma.Error500InternalServerError("failed to resolve topic subscribers")
+			}
+			all = append(all, page...)
+			if len(page) < topicPageSize {
+				break
+			}
+			last := page[len(page)-1].CreatedAt
+			cursor = &last
 		}
-		return subs, nil
+		return all, nil
 	default:
 		return nil, huma.Error400BadRequest("unsupported recipient type")
 	}

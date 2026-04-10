@@ -411,6 +411,7 @@ type NotifyStore interface {
 	AddNotifyTopicSubscriber(ctx context.Context, topicID, subscriberID string) error
 	RemoveNotifyTopicSubscriber(ctx context.Context, topicID, subscriberID string) error
 	ListNotifySubscribersByTopicKey(ctx context.Context, projectID, topicKey string, tenantID *string, limit int) ([]domain.NotifySubscriber, error)
+	ListNotifySubscribersByTopicKeyCursor(ctx context.Context, projectID, topicKey string, tenantID *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error)
 	CreateNotificationTemplate(ctx context.Context, tmpl *domain.NotificationTemplate) error
 	GetNotificationTemplateByID(ctx context.Context, id, projectID string) (*domain.NotificationTemplate, error)
 	GetLatestNotificationTemplateByKey(ctx context.Context, projectID, templateKey string) (*domain.NotificationTemplate, error)

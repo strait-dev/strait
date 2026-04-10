@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,6 +47,7 @@ type notifyStoreAdapter struct {
 	getUnsubscribeTokenFunc                     func(ctx context.Context, token string) (*domain.UnsubscribeToken, error)
 	useUnsubscribeTokenFunc                     func(ctx context.Context, token string, usedAt time.Time) error
 	tryNotifyDedupKeyFunc                       func(ctx context.Context, projectID, dedupKey string, ttl time.Duration) (bool, error)
+	listNotifySubscribersByTopicKeyCursorFunc   func(ctx context.Context, projectID, topicKey string, tenantID *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error)
 }
 
 func (m *notifyStoreAdapter) GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
@@ -239,6 +241,13 @@ func (m *notifyStoreAdapter) TryNotifyDedupKey(ctx context.Context, projectID, d
 		return true, nil
 	}
 	return m.tryNotifyDedupKeyFunc(ctx, projectID, dedupKey, ttl)
+}
+
+func (m *notifyStoreAdapter) ListNotifySubscribersByTopicKeyCursor(ctx context.Context, projectID, topicKey string, tenantID *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error) {
+	if m.listNotifySubscribersByTopicKeyCursorFunc == nil {
+		return []domain.NotifySubscriber{}, nil
+	}
+	return m.listNotifySubscribersByTopicKeyCursorFunc(ctx, projectID, topicKey, tenantID, limit, cursor)
 }
 
 type notifyAPIStore struct {
@@ -1312,5 +1321,102 @@ func TestNotifyDedupWindow_CappedAt24h(t *testing.T) {
 				t.Fatalf("dedup TTL = %v, must be <= %v", capturedTTL, tc.wantMaxTTL)
 			}
 		})
+	}
+}
+
+// TestResolveNotifyTopicSubscribers_Paginates verifies that when a topic has
+// more subscribers than a single page, the resolver issues multiple cursor
+// calls and collects all of them — not just the first 500.
+func TestResolveNotifyTopicSubscribers_Paginates(t *testing.T) {
+	t.Parallel()
+
+	const pageSize = 500
+	now := time.Now().UTC()
+
+	// Build 1200 subscribers spread across 3 pages.
+	var allSubs []domain.NotifySubscriber
+	for i := range 1200 {
+		allSubs = append(allSubs, domain.NotifySubscriber{
+			ID:        fmt.Sprintf("sub_%04d", i),
+			ProjectID: "proj_pag",
+			Status:    domain.NotifySubscriberStatusActive,
+			CreatedAt: now.Add(-time.Duration(i) * time.Second),
+		})
+	}
+
+	callCount := 0
+	ns := &notifyStoreAdapter{
+		listNotifySubscribersByTopicKeyCursorFunc: func(_ context.Context, projectID, topicKey string, _ *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error) {
+			callCount++
+			start := (callCount - 1) * pageSize
+			end := min(start+pageSize, len(allSubs))
+			return allSubs[start:end], nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	result, err := srv.resolveNotifyRecipients(context.Background(), ns, "proj_pag", NotifyRecipientInput{Type: "topic", Key: "all.users"}, "")
+	if err != nil {
+		t.Fatalf("resolveNotifyRecipients() error = %v", err)
+	}
+	if len(result) != 1200 {
+		t.Fatalf("got %d subscribers, want 1200", len(result))
+	}
+	if callCount < 3 {
+		t.Fatalf("expected at least 3 store calls for pagination, got %d", callCount)
+	}
+}
+
+// TestResolveNotifyTopicSubscribers_EmptyTopic verifies that resolving a topic
+// with zero active subscribers returns an empty slice without error.
+func TestResolveNotifyTopicSubscribers_EmptyTopic(t *testing.T) {
+	t.Parallel()
+
+	ns := &notifyStoreAdapter{
+		listNotifySubscribersByTopicKeyCursorFunc: func(_ context.Context, _, _ string, _ *string, _ int, _ *time.Time) ([]domain.NotifySubscriber, error) {
+			return []domain.NotifySubscriber{}, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	result, err := srv.resolveNotifyRecipients(context.Background(), ns, "proj_empty", NotifyRecipientInput{Type: "topic", Key: "empty.topic"}, "")
+	if err != nil {
+		t.Fatalf("resolveNotifyRecipients() error = %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("got %d subscribers, want 0", len(result))
+	}
+}
+
+// TestResolveNotifyTopicSubscribers_PageFetchError verifies that a store error
+// on any page stops resolution and surfaces the error — no silent partial fan-out.
+func TestResolveNotifyTopicSubscribers_PageFetchError(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	ns := &notifyStoreAdapter{
+		listNotifySubscribersByTopicKeyCursorFunc: func(_ context.Context, _, _ string, _ *string, _ int, _ *time.Time) ([]domain.NotifySubscriber, error) {
+			callCount++
+			if callCount == 2 {
+				return nil, errors.New("db error on page 2")
+			}
+			// Return a full page so the loop continues to page 2.
+			subs := make([]domain.NotifySubscriber, 500)
+			for i := range subs {
+				subs[i] = domain.NotifySubscriber{
+					ID:        fmt.Sprintf("sub_%04d", i),
+					ProjectID: "proj_err",
+					Status:    domain.NotifySubscriberStatusActive,
+					CreatedAt: time.Now().Add(-time.Duration(i) * time.Second),
+				}
+			}
+			return subs, nil
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	_, err := srv.resolveNotifyRecipients(context.Background(), ns, "proj_err", NotifyRecipientInput{Type: "topic", Key: "big.topic"}, "")
+	if err == nil {
+		t.Fatal("resolveNotifyRecipients() with page error must return error")
 	}
 }

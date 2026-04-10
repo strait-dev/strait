@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/dbscan"
 	"strait/internal/domain"
@@ -166,6 +167,61 @@ func (q *Queries) ListNotifySubscribersByTopicKey(ctx context.Context, projectID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list notify subscribers by topic key rows: %w", err)
+	}
+
+	return subs, nil
+}
+
+// ListNotifySubscribersByTopicKeyCursor returns active subscribers for a topic
+// using keyset (cursor) pagination ordered by created_at DESC. Pass nil cursor
+// for the first page; pass the created_at of the last subscriber from the
+// previous page to advance. Each call returns at most [limit] rows.
+func (q *Queries) ListNotifySubscribersByTopicKeyCursor(ctx context.Context, projectID, topicKey string, tenantID *string, limit int, cursor *time.Time) ([]domain.NotifySubscriber, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListNotifySubscribersByTopicKeyCursor")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 500
+	}
+
+	query := `
+		SELECT s.id, s.project_id, s.external_id, s.email, s.phone, s.locale, s.timezone, s.push_tokens, s.attributes, s.tenant_id, s.status, s.created_at, s.updated_at
+		FROM topics t
+		JOIN topic_memberships tm ON tm.topic_id = t.id
+		JOIN subscribers s ON s.id = tm.subscriber_id
+		WHERE t.project_id = $1
+		  AND t.topic_key = $2
+		  AND ($3::text IS NULL OR s.tenant_id = $3)
+		  AND s.status = 'active'
+		  AND ($4::timestamptz IS NULL OR s.created_at < $4)
+		ORDER BY s.created_at DESC
+		LIMIT $5`
+
+	var tenantValue any
+	if tenantID != nil {
+		tenantValue = *tenantID
+	}
+	var cursorValue any
+	if cursor != nil {
+		cursorValue = *cursor
+	}
+
+	rows, err := q.db.Query(ctx, query, projectID, topicKey, tenantValue, cursorValue, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list notify subscribers by topic key cursor: %w", err)
+	}
+	defer rows.Close()
+
+	subs := make([]domain.NotifySubscriber, 0, limit)
+	for rows.Next() {
+		sub, scanErr := scanNotifySubscriber(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list notify subscribers by topic key cursor scan: %w", scanErr)
+		}
+		subs = append(subs, *sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list notify subscribers by topic key cursor rows: %w", err)
 	}
 
 	return subs, nil
