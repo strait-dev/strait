@@ -8,10 +8,32 @@
 -- Note: fillfactor only applies to newly written pages. Existing pages
 -- keep their current layout until the next vacuum/rewrite. This change
 -- prevents future bloat rather than repacking existing bloat.
-ALTER TABLE job_runs           SET (fillfactor = 85);
+
 ALTER TABLE workflow_runs      SET (fillfactor = 85);
 ALTER TABLE workflow_step_runs SET (fillfactor = 85);
 ALTER TABLE webhook_deliveries SET (fillfactor = 85);
+
+-- job_runs is partitioned (migration 000066), and Postgres does not
+-- allow storage parameters like fillfactor on a partitioned parent.
+-- Apply fillfactor to every existing partition instead. New partitions
+-- created by pg_partman after this migration will inherit the default
+-- fillfactor; the maintenance loop can re-run this block to catch up
+-- if that becomes a concern.
+DO $$
+DECLARE
+    partition_name TEXT;
+BEGIN
+    FOR partition_name IN
+        SELECT c.relname
+        FROM pg_class c
+        JOIN pg_inherits i ON i.inhrelid = c.oid
+        JOIN pg_class p   ON p.oid       = i.inhparent
+        WHERE p.relname = 'job_runs'
+          AND c.relkind = 'r'
+    LOOP
+        EXECUTE format('ALTER TABLE %I SET (fillfactor = 85)', partition_name);
+    END LOOP;
+END $$;
 
 -- Extend the autovacuum tuning from 000063 to additional update-heavy
 -- tables that were not covered there. workflow_runs and workflow_step_runs
