@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"strconv"
@@ -152,9 +153,13 @@ func (s *Server) handleNotifyTrigger(ctx context.Context, input *NotifyTriggerIn
 		}
 
 		if req.Dedup != nil && req.Dedup.Key != "" && categoryType != domain.NotifyCategoryTypeCritical {
+			const maxDedupWindow = 24 * time.Hour
 			window := 10 * time.Minute
 			if req.Dedup.Window != "" {
 				if parsed, parseErr := time.ParseDuration(req.Dedup.Window); parseErr == nil && parsed > 0 {
+					if parsed > maxDedupWindow {
+						parsed = maxDedupWindow
+					}
 					window = parsed
 				}
 			}
@@ -607,11 +612,23 @@ func (s *Server) allowNotifyRate(ctx context.Context, ns notifyStore, sub domain
 	key := fmt.Sprintf("notify:rate:%s:%s:%s", sub.ProjectID, sub.ID, channel)
 	val, redisErr := s.redisClient.Incr(ctx, key).Result()
 	if redisErr != nil {
+		slog.WarnContext(ctx, "notify rate limit redis failure, allowing request",
+			"err", redisErr,
+			"project_id", sub.ProjectID,
+			"subscriber_id", sub.ID,
+			"channel", channel,
+		)
+		if s.metrics != nil {
+			s.metrics.NotifyRateLimitRedisFailures.Add(ctx, 1)
+		}
 		return true
 	}
 	if val == 1 {
 		if _, expErr := s.redisClient.Expire(ctx, key, time.Hour).Result(); expErr != nil {
-			_ = expErr
+			slog.WarnContext(ctx, "notify rate limit redis expire failure",
+				"err", expErr,
+				"key", key,
+			)
 		}
 	}
 	return int(val) <= limit

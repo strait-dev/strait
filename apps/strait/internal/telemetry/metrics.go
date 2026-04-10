@@ -141,6 +141,8 @@ type Metrics struct {
 	NotifyDigestFailuresTotal    metric.Int64Counter
 	NotifyEscalationTransitions  metric.Int64Counter
 	NotifyEscalationStuckStates  metric.Int64Counter
+	NotifyRateLimitRedisFailures metric.Int64Counter
+	NotifyWebhookDropped         metric.Int64Counter
 
 	// Log drain metrics.
 	LogDrainEventsTotal metric.Int64Counter
@@ -812,6 +814,16 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total notify escalation requeues indicating stuck state"),
 		metric.WithUnit("1"),
 	)
+	notifyRateLimitRedisFailures, _ := meter.Int64Counter(
+		"strait_notify_rate_limit_redis_failures_total",
+		metric.WithDescription("Total notify rate limit checks that failed due to Redis unavailability (fail-open)"),
+		metric.WithUnit("1"),
+	)
+	notifyWebhookDropped, _ := meter.Int64Counter(
+		"strait_notify_webhook_dropped_total",
+		metric.WithDescription("Total notify webhook dispatch events dropped due to full pool"),
+		metric.WithUnit("1"),
+	)
 	logDrainEventsTotal, _ := meter.Int64Counter(
 		"strait_log_drain_events_total",
 		metric.WithDescription("Total log drain events by status"),
@@ -934,6 +946,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		NotifyDigestFailuresTotal:    notifyDigestFailuresTotal,
 		NotifyEscalationTransitions:  notifyEscalationTransitions,
 		NotifyEscalationStuckStates:  notifyEscalationStuckStates,
+		NotifyRateLimitRedisFailures: notifyRateLimitRedisFailures,
+		NotifyWebhookDropped:         notifyWebhookDropped,
 		LogDrainEventsTotal:          logDrainEventsTotal,
 		PubSubPublishErrors:          pubsubPublishErrors,
 		StripeUsageEventsIngested:    stripeUsageEventsIngested,
