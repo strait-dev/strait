@@ -9,6 +9,10 @@ import (
 	"strait/internal/pubsub"
 )
 
+// testInternalSecret is the internal secret used across all api package tests.
+// Defined once here so tests stay consistent and the value is easy to update.
+const testInternalSecret = "test-secret-value"
+
 // testJWTSigningKey is a cryptographically random 32-byte key generated once
 // per test binary. Using a random key instead of a hardcoded string avoids
 // gitleaks false positives and ensures tests don't depend on a specific key value.

@@ -299,7 +299,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			},
 		}
 		cfg := &config.Config{
-			InternalSecret:      "test-secret-value",
+			InternalSecret:      testInternalSecret,
 			MaxBulkTriggerItems: 500,
 			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,
@@ -338,7 +338,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			},
 		}
 		cfg := &config.Config{
-			InternalSecret:      "test-secret-value",
+			InternalSecret:      testInternalSecret,
 			MaxBulkTriggerItems: 500,
 			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,
@@ -456,7 +456,7 @@ func TestHandleCreateJob_PreferredRegions(t *testing.T) {
 			},
 		}
 		cfg := &config.Config{
-			InternalSecret:      "test-secret-value",
+			InternalSecret:      testInternalSecret,
 			MaxBulkTriggerItems: 500,
 			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,

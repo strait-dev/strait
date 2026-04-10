@@ -19,7 +19,7 @@ func newTestServerWithRedis(t *testing.T, s APIStore) *Server {
 	t.Cleanup(func() { rdb.Close() })
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}

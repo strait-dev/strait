@@ -145,7 +145,7 @@ func TestEvents_CancelEventTrigger(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/events/" + eventKeys[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"X-Project-Id":      []string{projectID},
 		}
 		return nil

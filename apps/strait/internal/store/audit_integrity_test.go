@@ -57,7 +57,7 @@ func TestDeriveAuditSigningKey_EmptySecret_Error(t *testing.T) {
 func TestComputeAuditSignature_Deterministic(t *testing.T) {
 	t.Parallel()
 
-	key, _ := DeriveAuditSigningKey("test-secret-value")
+	key, _ := DeriveAuditSigningKey(testInternalSecret)
 	ev := testAuditEvent("ev-1", "proj-1", "create")
 
 	sig1 := ComputeAuditSignature(ev, key)
@@ -74,7 +74,7 @@ func TestComputeAuditSignature_Deterministic(t *testing.T) {
 func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
 	t.Parallel()
 
-	key, _ := DeriveAuditSigningKey("test-secret-value")
+	key, _ := DeriveAuditSigningKey(testInternalSecret)
 	base := testAuditEvent("ev-1", "proj-1", "create")
 	baseSig := ComputeAuditSignature(base, key)
 

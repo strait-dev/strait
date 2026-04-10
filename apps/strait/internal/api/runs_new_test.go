@@ -514,7 +514,7 @@ func (m *mockContainerRuntime) GetLogs(ctx context.Context, machineID string, li
 func newTestServerWithRuntime(t *testing.T, s APIStore, q *mockQueue, rt compute.ContainerRuntime) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}

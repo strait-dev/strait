@@ -22,7 +22,7 @@ import (
 func newTestServerWithEncryptionKey(t *testing.T, s APIStore, encryptionKey string) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 		SecretEncryptionKey: encryptionKey,

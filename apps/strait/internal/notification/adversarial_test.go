@@ -201,7 +201,7 @@ func TestWebhookSender_SpecialCharacterPayloads(t *testing.T) {
 				})
 
 			sender := NewWebhookSender(client)
-			ch := newTestChannel("https://example.com/hook", "test-secret-value")
+			ch := newTestChannel("https://example.com/hook", testInternalSecret)
 			del := newTestDelivery("test.event", json.RawMessage(tt.payload))
 
 			err := sender.Send(context.Background(), ch, del)

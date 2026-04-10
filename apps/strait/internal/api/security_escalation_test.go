@@ -80,7 +80,7 @@ func TestInternalSecretAuth_ValidSecret_NotRateLimited(t *testing.T) {
 	// Valid secret should always succeed even after many requests.
 	for i := range 20 {
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		req.RemoteAddr = "10.0.3.1:9999"
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)

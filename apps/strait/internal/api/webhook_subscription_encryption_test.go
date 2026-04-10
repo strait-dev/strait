@@ -32,7 +32,7 @@ func (m *mockEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 func newTestServerWithEncryptor(t *testing.T, s APIStore, q *mockQueue, enc Encryptor) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 		SecretEncryptionKey: "test-encryption-key-32-chars-ok",

@@ -41,7 +41,7 @@ func TestDoS_HTTPRequestTimeout(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/slow-job", nil)
 	req = req.WithContext(ctx)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -276,7 +276,7 @@ func TestDoS_SSEConnectionLimitGlobal(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		InternalSecret:        "test-secret-value",
+		InternalSecret:        testInternalSecret,
 		MaxBulkTriggerItems:   500,
 		JWTSigningKey:         testJWTSigningKey,
 		SSEMaxConns:           3,
@@ -318,7 +318,7 @@ func TestDoS_SSEConnectionLimitPerProject(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		InternalSecret:        "test-secret-value",
+		InternalSecret:        testInternalSecret,
 		MaxBulkTriggerItems:   500,
 		JWTSigningKey:         testJWTSigningKey,
 		SSEMaxConns:           5000,
@@ -364,7 +364,7 @@ func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
 		},
 	}
 	cfg := &config.Config{
-		InternalSecret:        "test-secret-value",
+		InternalSecret:        testInternalSecret,
 		MaxBulkTriggerItems:   500,
 		JWTSigningKey:         testJWTSigningKey,
 		SSEMaxConns:           1,

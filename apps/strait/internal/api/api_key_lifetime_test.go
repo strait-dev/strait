@@ -32,7 +32,7 @@ func newAPIKeyTestServer(t *testing.T, maxLifetimeDays int) *Server {
 	}
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
@@ -51,7 +51,7 @@ func createKeyRequest(t *testing.T, srv *Server, body string) *httptest.Response
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	return w

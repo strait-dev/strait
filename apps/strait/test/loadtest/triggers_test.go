@@ -48,7 +48,7 @@ func TestTriggers_WithUniqueIdempotencyKeys(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/jobs/" + jobID + "/trigger"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 			"X-Idempotency-Key": []string{"idem-" + newID()},
 		}
@@ -83,7 +83,7 @@ func TestTriggers_SameIdempotencyKey(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/jobs/" + jobID + "/trigger"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 			"X-Idempotency-Key": []string{fixedKey},
 		}
@@ -222,7 +222,7 @@ func TestTriggers_ConcurrentDifferentJobs(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/jobs/" + jobIDs[idx] + "/trigger"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte(fmt.Sprintf(`{"payload":{"n":%d}}`, counter.Load()))

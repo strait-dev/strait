@@ -100,7 +100,7 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/replay", nil)
-	r.Header.Set("X-Internal-Secret", "test-secret-value")
+	r.Header.Set("X-Internal-Secret", testInternalSecret)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "del-1")
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))

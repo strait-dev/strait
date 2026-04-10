@@ -14,7 +14,7 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 			DebugStatsviz:  true,
 		},
@@ -51,7 +51,7 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 	t.Run("correct secret returns 200", func(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/debug/statsviz/", nil)
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 
@@ -66,7 +66,7 @@ func TestDebugStatsviz_Disabled_Returns404(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 			DebugStatsviz:  false,
 		},
@@ -78,7 +78,7 @@ func TestDebugStatsviz_Disabled_Returns404(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	req := httptest.NewRequest(http.MethodGet, "/debug/statsviz/", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

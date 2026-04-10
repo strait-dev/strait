@@ -18,7 +18,7 @@ func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		JWTSigningKey:       testJWTSigningKey,
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 	}
 	srv := NewServer(ServerDeps{

@@ -37,7 +37,7 @@ func TestRotateWebhookSecret_Success(t *testing.T) {
 	body := `{"grace_period_minutes": 120}`
 	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions/sub-1/rotate-secret", bytes.NewBufferString(body))
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("X-Internal-Secret", "test-secret-value")
+	r.Header.Set("X-Internal-Secret", testInternalSecret)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "sub-1")
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))

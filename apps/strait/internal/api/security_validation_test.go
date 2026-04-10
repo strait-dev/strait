@@ -100,7 +100,7 @@ func TestHandleTriggerJob_RejectsPayloadOver5MB(t *testing.T) {
 	}
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:     "test-secret-value",
+			InternalSecret:     testInternalSecret,
 			JWTSigningKey:      testJWTSigningKey,
 			MaxRequestBodySize: 8 * 1024 * 1024,
 		},

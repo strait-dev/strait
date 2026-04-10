@@ -214,7 +214,7 @@ func FuzzWebhookSubURL(f *testing.F) {
 		srv := newTestServer(t, webhookSubStore(), &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions", strings.NewReader(body))
-		r.Header.Set("X-Internal-Secret", "test-secret-value")
+		r.Header.Set("X-Internal-Secret", testInternalSecret)
 		r.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, r)
 

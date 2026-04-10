@@ -1,13 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@strait/ui/components/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +9,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@strait/ui/components/alert-dialog";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,

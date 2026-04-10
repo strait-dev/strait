@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
 	testServer = api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:           "test-secret-value",
+			InternalSecret:           testInternalSecret,
 			JWTSigningKey:            testJWTSigningKey,
 			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
 			RateLimitRequests:        0,
@@ -80,7 +80,7 @@ func authedRequest(method, path, body string, projectID ...string) *http.Request
 	} else {
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
 	}
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	req.Header.Set("Content-Type", "application/json")
 	if len(projectID) > 0 && projectID[0] != "" {
 		req.Header.Set("X-Project-Id", projectID[0])
@@ -1033,7 +1033,7 @@ func TestE2E_JobCreatedBy(t *testing.T) {
 	body := fmt.Sprintf(`{"project_id":"%s","name":"Created By Job","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60}`, projectID, slug, slug)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/", strings.NewReader(body))
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Actor-Id", "user_leo_123")
 	req.Header.Set("X-Actor-Email", "leo@example.com")

@@ -134,7 +134,7 @@ func TestWorkflows_DeleteWorkflow(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/workflows/" + wfIDs[i] + "/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}

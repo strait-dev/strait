@@ -196,7 +196,7 @@ func TestHandleSendEvent_CrossProject_Returns404(t *testing.T) {
 	body := `{"payload":{"data":"test"}}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	// Set a different project context to simulate cross-project access.
 	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-attacker")
 	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeAll})
@@ -248,7 +248,7 @@ func TestHandleSendEvent_SameProject_Succeeds(t *testing.T) {
 	body := `{"payload":{"data":"test"}}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeAll})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
@@ -279,7 +279,7 @@ func TestHandleCancelEventTrigger_CrossProject_Returns404(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/some-key", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-attacker")
 	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeAll})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
@@ -322,7 +322,7 @@ func TestHandleCancelEventTrigger_SameProject_Succeeds(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/some-key", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeAll})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")

@@ -25,6 +25,7 @@ import { useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import NotifyErrorBoundary from "@/components/notify/notify-error-boundary";
 import type { NotifyDeliveryChannel } from "@/hooks/api/types";
 import {
   notifySubscribersQueryOptions,
@@ -34,7 +35,6 @@ import {
   useNotifyTest,
   useNotifyTrigger,
 } from "@/hooks/api/use-notify";
-import NotifyErrorBoundary from "@/components/notify/notify-error-boundary";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/notify/compose")({
@@ -252,244 +252,250 @@ function NotifyComposePage() {
   return (
     <Shell>
       <NotifyErrorBoundary>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Compose notify</CardTitle>
-            <CardDescription>
-              Trigger or test send a notify payload through the standard API
-              pipeline.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="recipient-type">Recipient type</Label>
-                <Select
-                  onValueChange={(value) => {
-                    setRecipientType(
-                      value as (typeof recipientTypeOptions)[number]
-                    );
-                    setRecipientID("");
-                    setRecipientKey("");
-                    setFormErrors((errors) => ({
-                      ...errors,
-                      recipient: undefined,
-                    }));
-                  }}
-                  value={recipientType}
-                >
-                  <SelectTrigger id="recipient-type">
-                    <SelectValue placeholder="Choose recipient type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recipientTypeOptions.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="template-key">Template key</Label>
-                <Input
-                  id="template-key"
-                  list="notify-templates"
-                  onChange={(event) => {
-                    setTemplateKey(event.target.value);
-                    setFormErrors((errors) => ({
-                      ...errors,
-                      templateKey: undefined,
-                    }));
-                  }}
-                  value={templateKey}
-                />
-                {formErrors.templateKey ? (
-                  <p className="text-destructive text-xs">
-                    {formErrors.templateKey}
-                  </p>
-                ) : null}
-                <datalist id="notify-templates">
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.template_key} />
-                  ))}
-                </datalist>
-              </div>
-              {recipientType === "topic" ? (
-                <div className="space-y-1 md:col-span-2">
-                  <Label htmlFor="recipient-key">Topic key</Label>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Compose notify</CardTitle>
+              <CardDescription>
+                Trigger or test send a notify payload through the standard API
+                pipeline.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="recipient-type">Recipient type</Label>
                   <Select
                     onValueChange={(value) => {
-                      setRecipientKey(value ?? "");
+                      setRecipientType(
+                        value as (typeof recipientTypeOptions)[number]
+                      );
+                      setRecipientID("");
+                      setRecipientKey("");
                       setFormErrors((errors) => ({
                         ...errors,
                         recipient: undefined,
                       }));
                     }}
-                    value={recipientKey || undefined}
+                    value={recipientType}
                   >
-                    <SelectTrigger id="recipient-key">
-                      <SelectValue placeholder="Choose topic" />
+                    <SelectTrigger id="recipient-type">
+                      <SelectValue placeholder="Choose recipient type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {topics.map((topic) => (
-                        <SelectItem key={topic.id} value={topic.topic_key}>
-                          {topic.topic_key}
+                      {recipientTypeOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
-                <div className="space-y-1 md:col-span-2">
-                  <Label htmlFor="recipient-id">Subscriber ID</Label>
+                <div className="space-y-1">
+                  <Label htmlFor="template-key">Template key</Label>
                   <Input
-                    id="recipient-id"
-                    list="notify-subscribers-compose"
+                    id="template-key"
+                    list="notify-templates"
                     onChange={(event) => {
-                      setRecipientID(event.target.value);
+                      setTemplateKey(event.target.value);
                       setFormErrors((errors) => ({
                         ...errors,
-                        recipient: undefined,
+                        templateKey: undefined,
                       }));
                     }}
-                    value={recipientID}
+                    value={templateKey}
                   />
-                  <datalist id="notify-subscribers-compose">
-                    {subscribers.map((subscriber) => (
-                      <option key={subscriber.id} value={subscriber.id}>
-                        {subscriber.external_id}
-                      </option>
+                  {formErrors.templateKey ? (
+                    <p className="text-destructive text-xs">
+                      {formErrors.templateKey}
+                    </p>
+                  ) : null}
+                  <datalist id="notify-templates">
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.template_key} />
                     ))}
                   </datalist>
                 </div>
-              )}
-              {formErrors.recipient ? (
-                <p className="text-destructive text-xs md:col-span-2">
-                  {formErrors.recipient}
-                </p>
-              ) : null}
-
-              <div className="space-y-2 md:col-span-2">
-                <Label>Channels</Label>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {channelOptions.map((channel) => (
-                    <div
-                      className="flex items-center justify-between rounded-md border p-3"
-                      key={channel}
+                {recipientType === "topic" ? (
+                  <div className="space-y-1 md:col-span-2">
+                    <Label htmlFor="recipient-key">Topic key</Label>
+                    <Select
+                      onValueChange={(value) => {
+                        setRecipientKey(value ?? "");
+                        setFormErrors((errors) => ({
+                          ...errors,
+                          recipient: undefined,
+                        }));
+                      }}
+                      value={recipientKey || undefined}
                     >
-                      <div>
-                        <p className="font-medium text-sm">{channel}</p>
+                      <SelectTrigger id="recipient-key">
+                        <SelectValue placeholder="Choose topic" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {topics.map((topic) => (
+                          <SelectItem key={topic.id} value={topic.topic_key}>
+                            {topic.topic_key}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-1 md:col-span-2">
+                    <Label htmlFor="recipient-id">Subscriber ID</Label>
+                    <Input
+                      id="recipient-id"
+                      list="notify-subscribers-compose"
+                      onChange={(event) => {
+                        setRecipientID(event.target.value);
+                        setFormErrors((errors) => ({
+                          ...errors,
+                          recipient: undefined,
+                        }));
+                      }}
+                      value={recipientID}
+                    />
+                    <datalist id="notify-subscribers-compose">
+                      {subscribers.map((subscriber) => (
+                        <option key={subscriber.id} value={subscriber.id}>
+                          {subscriber.external_id}
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
+                )}
+                {formErrors.recipient ? (
+                  <p className="text-destructive text-xs md:col-span-2">
+                    {formErrors.recipient}
+                  </p>
+                ) : null}
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Channels</Label>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {channelOptions.map((channel) => (
+                      <div
+                        className="flex items-center justify-between rounded-md border p-3"
+                        key={channel}
+                      >
+                        <div>
+                          <p className="font-medium text-sm">{channel}</p>
+                        </div>
+                        <Switch
+                          checked={selectedChannels.includes(channel)}
+                          onCheckedChange={(checked) => {
+                            setSelectedChannels((current) => {
+                              if (checked) {
+                                return Array.from(
+                                  new Set([...current, channel])
+                                );
+                              }
+                              return current.filter(
+                                (value) => value !== channel
+                              );
+                            });
+                            setFormErrors((errors) => ({
+                              ...errors,
+                              channels: undefined,
+                            }));
+                          }}
+                        />
                       </div>
-                      <Switch
-                        checked={selectedChannels.includes(channel)}
-                        onCheckedChange={(checked) => {
-                          setSelectedChannels((current) => {
-                            if (checked) {
-                              return Array.from(new Set([...current, channel]));
-                            }
-                            return current.filter((value) => value !== channel);
-                          });
-                          setFormErrors((errors) => ({
-                            ...errors,
-                            channels: undefined,
-                          }));
-                        }}
-                      />
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                  {formErrors.channels ? (
+                    <p className="text-destructive text-xs">
+                      {formErrors.channels}
+                    </p>
+                  ) : null}
                 </div>
-                {formErrors.channels ? (
+
+                <div className="space-y-1 md:col-span-2">
+                  <Label htmlFor="category-key">Category key (optional)</Label>
+                  <Input
+                    id="category-key"
+                    onChange={(event) => setCategoryKey(event.target.value)}
+                    value={categoryKey}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="payload-json">Payload JSON</Label>
+                <Textarea
+                  className="min-h-[220px] font-mono text-xs"
+                  id="payload-json"
+                  onChange={(event) => {
+                    setPayloadJSON(event.target.value);
+                    setFormErrors((errors) => ({
+                      ...errors,
+                      payload: undefined,
+                    }));
+                  }}
+                  value={payloadJSON}
+                />
+                {formErrors.payload ? (
                   <p className="text-destructive text-xs">
-                    {formErrors.channels}
+                    {formErrors.payload}
                   </p>
                 ) : null}
               </div>
 
-              <div className="space-y-1 md:col-span-2">
-                <Label htmlFor="category-key">Category key (optional)</Label>
-                <Input
-                  id="category-key"
-                  onChange={(event) => setCategoryKey(event.target.value)}
-                  value={categoryKey}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={isWorking}
+                  onClick={runPreview}
+                  variant="outline"
+                >
+                  Preview
+                </Button>
+                <Button
+                  disabled={isWorking}
+                  onClick={() => runTrigger("test")}
+                  variant="secondary"
+                >
+                  Test send
+                </Button>
+                <Button
+                  disabled={isWorking}
+                  onClick={() => runTrigger("trigger")}
+                >
+                  Trigger
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Output</CardTitle>
+              <CardDescription>
+                Preview output and trigger API responses are shown below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="preview-output">Preview</Label>
+                <Textarea
+                  className="min-h-[180px] font-mono text-xs"
+                  id="preview-output"
+                  readOnly
+                  value={previewResult}
                 />
               </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="payload-json">Payload JSON</Label>
-              <Textarea
-                className="min-h-[220px] font-mono text-xs"
-                id="payload-json"
-                onChange={(event) => {
-                  setPayloadJSON(event.target.value);
-                  setFormErrors((errors) => ({
-                    ...errors,
-                    payload: undefined,
-                  }));
-                }}
-                value={payloadJSON}
-              />
-              {formErrors.payload ? (
-                <p className="text-destructive text-xs">{formErrors.payload}</p>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                disabled={isWorking}
-                onClick={runPreview}
-                variant="outline"
-              >
-                Preview
-              </Button>
-              <Button
-                disabled={isWorking}
-                onClick={() => runTrigger("test")}
-                variant="secondary"
-              >
-                Test send
-              </Button>
-              <Button
-                disabled={isWorking}
-                onClick={() => runTrigger("trigger")}
-              >
-                Trigger
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Output</CardTitle>
-            <CardDescription>
-              Preview output and trigger API responses are shown below.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="preview-output">Preview</Label>
-              <Textarea
-                className="min-h-[180px] font-mono text-xs"
-                id="preview-output"
-                readOnly
-                value={previewResult}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="trigger-output">Trigger/Test response</Label>
-              <Textarea
-                className="min-h-[180px] font-mono text-xs"
-                id="trigger-output"
-                readOnly
-                value={triggerResult}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              <div className="space-y-1">
+                <Label htmlFor="trigger-output">Trigger/Test response</Label>
+                <Textarea
+                  className="min-h-[180px] font-mono text-xs"
+                  id="trigger-output"
+                  readOnly
+                  value={triggerResult}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </NotifyErrorBoundary>
     </Shell>
   );

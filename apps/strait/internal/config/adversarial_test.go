@@ -16,7 +16,7 @@ import (
 func TestConfig_IntOverflowPort(t *testing.T) {
 	t.Setenv("PORT", "99999999999")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	t.Setenv("INTERNAL_SECRET", testInternalSecret)
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 
 	_, err := Load()
@@ -36,7 +36,7 @@ func TestConfig_IntOverflowPort(t *testing.T) {
 func TestConfig_NegativePort(t *testing.T) {
 	t.Setenv("PORT", "-1")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	t.Setenv("INTERNAL_SECRET", testInternalSecret)
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 
 	cfg, err := Load()
@@ -53,7 +53,7 @@ func TestConfig_NegativePort(t *testing.T) {
 func TestConfig_EmptyDatabaseURL(t *testing.T) {
 	// Explicitly unset DATABASE_URL.
 	t.Setenv("DATABASE_URL", "")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	t.Setenv("INTERNAL_SECRET", testInternalSecret)
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 
 	_, err := Load()
@@ -73,7 +73,7 @@ func TestConfig_EmptyDatabaseURL(t *testing.T) {
 // is accepted by Load() (URL parsing is not validated at config level).
 func TestConfig_MalformedDatabaseURL(t *testing.T) {
 	t.Setenv("DATABASE_URL", "://not-a-valid-url")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	t.Setenv("INTERNAL_SECRET", testInternalSecret)
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 
 	// The config loader does not validate DATABASE_URL format beyond
@@ -94,7 +94,7 @@ func TestConfig_MalformedDatabaseURL(t *testing.T) {
 func TestConfig_ExtremeWorkerConcurrency(t *testing.T) {
 	t.Setenv("WORKER_CONCURRENCY", strconv.Itoa(math.MaxInt32))
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	t.Setenv("INTERNAL_SECRET", testInternalSecret)
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 
 	cfg, err := Load()

@@ -133,7 +133,7 @@ func TestJobs_DeleteJob(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/jobs/" + jobIDs[i] + "/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -370,7 +370,7 @@ func TestJobs_CreateDependency(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/jobs/" + jobID + "/dependencies"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte(fmt.Sprintf(`{"depends_on_job_id":"%s"}`, depJobID))
@@ -477,7 +477,7 @@ func TestJobs_ConcurrentReadWrite(t *testing.T) {
 		tgt.Method = "GET"
 		tgt.URL = baseURL + "/v1/jobs/" + jobIDs[i] + "/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -526,7 +526,7 @@ func TestJobs_DeleteDependency(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/jobs/" + jobID + "/dependencies/" + depIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}

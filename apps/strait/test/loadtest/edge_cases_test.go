@@ -31,7 +31,7 @@ func TestEdge_NotFoundResponses(t *testing.T) {
 		tgt.Method = "GET"
 		tgt.URL = baseURL + notFoundPaths[i%int64(len(notFoundPaths))]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -151,7 +151,7 @@ func TestEdge_ValidationErrors(t *testing.T) {
 		tgt.Method = req.method
 		tgt.URL = baseURL + req.path
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte(req.body)
@@ -190,7 +190,7 @@ func TestEdge_MalformedJSON(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/jobs/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte(malformedBodies[i%int64(len(malformedBodies))])
@@ -247,7 +247,7 @@ func TestEdge_EmptyBody(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + emptyPaths[i%int64(len(emptyPaths))]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		tgt.Body = []byte("")
@@ -302,7 +302,7 @@ func TestEdge_ConcurrentDeleteSameResource(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/jobs/" + jobID + "/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -321,7 +321,7 @@ func TestEdge_RapidCreateDelete(t *testing.T) {
 	tgt := func(tgt *vegeta.Target) error {
 		i := counter.Add(1) - 1
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		if i%2 == 0 {
@@ -357,7 +357,7 @@ func TestEdge_MethodNotAllowed(t *testing.T) {
 		tgt.Method = "PUT"
 		tgt.URL = baseURL + "/v1/jobs/"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -387,7 +387,7 @@ func TestEdge_PaginationLimits(t *testing.T) {
 		tgt.Method = "GET"
 		tgt.URL = baseURL + "/v1/jobs/?project_id=" + projectID + "&limit=" + limit
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -414,7 +414,7 @@ func TestEdge_IdempotencyKey(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/jobs/" + jobID + "/trigger"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 			"X-Idempotency-Key": []string{idempotencyKey},
 			"Idempotency-Key":   []string{idempotencyKey},

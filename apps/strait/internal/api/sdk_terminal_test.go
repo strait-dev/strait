@@ -117,7 +117,7 @@ func TestSDKTerminal_Complete_ResultExceedsMaxSize(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 		MaxResultSize:       10, // 10 bytes max
@@ -522,7 +522,7 @@ func TestSDKTerminal_Complete_VeryLargePayloadWithinLimit(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 		MaxResultSize:       1048576, // 1 MB

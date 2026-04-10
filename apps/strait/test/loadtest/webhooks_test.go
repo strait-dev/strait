@@ -128,7 +128,7 @@ func TestWebhookSubscriptions_Delete(t *testing.T) {
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/webhooks/subscriptions/" + subIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -172,7 +172,7 @@ func TestWebhooks_GetDelivery(t *testing.T) {
 		tgt.Method = "GET"
 		tgt.URL = baseURL + "/v1/webhooks/deliveries/" + deliveryIDs[pos]
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 		}
 		return nil
 	}
@@ -229,7 +229,7 @@ func TestWebhooks_RetryDelivery(t *testing.T) {
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/webhook-deliveries/" + deliveryIDs[pos] + "/retry"
 		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
+			"X-Internal-Secret": []string{testInternalSecret},
 			"Content-Type":      []string{"application/json"},
 		}
 		return nil

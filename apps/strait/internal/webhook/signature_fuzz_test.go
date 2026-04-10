@@ -13,7 +13,7 @@ import (
 func FuzzValidateSignature(f *testing.F) {
 	// Seed with realistic values for each algorithm path.
 	body := []byte(`{"event":"test"}`)
-	secret := "test-secret-value"
+	secret := testInternalSecret
 
 	// hmac-sha256 valid
 	hmacSig := computeFuzzHMAC(secret, body)
@@ -49,7 +49,7 @@ func FuzzValidateSignature(f *testing.F) {
 
 func FuzzValidateHMACSHA256(f *testing.F) {
 	body := []byte(`{"event":"test"}`)
-	secret := "test-secret-value"
+	secret := testInternalSecret
 	sig := computeFuzzHMAC(secret, body)
 
 	f.Add(secret, body, "sha256="+sig)

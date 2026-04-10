@@ -24,7 +24,7 @@ func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCal
 func newEventTriggersTestServerWithPubSub(t *testing.T, s APIStore, wfCallback WorkflowCallback, ps pubsub.Publisher) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
@@ -76,7 +76,7 @@ func TestHandleSendEvent_Success(t *testing.T) {
 	body := `{"payload":{"result":"approved"}}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/aml-check:app-123/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -109,7 +109,7 @@ func TestHandleSendEvent_NotFound(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/nonexistent/send", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -137,7 +137,7 @@ func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 
 	// Different payload -> 409.
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", strings.NewReader(`{"payload":{"different":true}}`))
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
@@ -160,7 +160,7 @@ func TestHandleSendEvent_StoreError(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -190,7 +190,7 @@ func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/aml-check:app-123", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -220,7 +220,7 @@ func TestHandleGetEventTrigger_NotFound(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/nonexistent", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -299,7 +299,7 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, wfCallback)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	req.ContentLength = 0
 
 	rr := httptest.NewRecorder()
@@ -353,7 +353,7 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -394,7 +394,7 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	// Same payload -> 200 (idempotent).
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -404,7 +404,7 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	// Different payload -> 409.
 	req2 := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":false}}`))
 	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("X-Internal-Secret", "test-secret-value")
+	req2.Header.Set("X-Internal-Secret", testInternalSecret)
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusConflict {
@@ -441,7 +441,7 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/prefix/order:/send", strings.NewReader(`{"payload":{"batch":true}}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -474,7 +474,7 @@ func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/prefix/nonexistent:/send", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -620,7 +620,7 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, wfCallback)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-me", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -655,7 +655,7 @@ func TestHandleCancelEventTrigger_NotWaiting(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, &mockWorkflowTrigger{})
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/already-received", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -686,7 +686,7 @@ func TestHandleEventTriggerStream_TerminalState(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/done-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -717,7 +717,7 @@ func TestHandleEventTriggerStream_NotFound(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/nonexistent/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -767,7 +767,7 @@ func TestHandleGetEventTriggerStats_RequiresProject(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/stats", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -917,7 +917,7 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-job", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -963,7 +963,7 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/wf-event/send", strings.NewReader(`{"payload":{"approved":true}}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -997,7 +997,7 @@ func TestHandleSendEvent_IdempotentResendMatchingPayload(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/idem-key/send", strings.NewReader(`{"payload":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1026,7 +1026,7 @@ func TestHandleSendEvent_ConflictDifferentPayload(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/conf-key/send", strings.NewReader(`{"payload":{"ok":false}}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1049,7 +1049,7 @@ func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/any-key/send", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1089,7 +1089,7 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	ch <- []byte(`{"id":"evt-stream","status":"received"}`)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/stream-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	// Cancel request after we get the message to avoid hanging.
 	reqCtx, reqCancel := context.WithTimeout(req.Context(), 2*time.Second)
 	defer reqCancel()
@@ -1139,7 +1139,7 @@ func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
 	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/cancel-stream-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	// Very short timeout to trigger context.Done branch.
 	reqCtx, reqCancel := context.WithTimeout(req.Context(), 100*time.Millisecond)
 	defer reqCancel()
@@ -1186,7 +1186,7 @@ func TestHandleEventTriggerStream_ClosedChannel(t *testing.T) {
 	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/closed-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1213,7 +1213,7 @@ func TestHandleEventTriggerStream_NilPubsub(t *testing.T) {
 	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/nopub-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1246,7 +1246,7 @@ func TestHandleEventTriggerStream_SubscribeError(t *testing.T) {
 	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/suberr-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1268,7 +1268,7 @@ func TestHandleEventTriggerStream_StoreError(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/bad-key/stream", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1316,7 +1316,7 @@ func TestHandleCancelEventTrigger_NotFound(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/ghost-key", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1378,7 +1378,7 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/upderr-key", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1400,7 +1400,7 @@ func TestHandleGetEventTrigger_StoreError(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/bad-key", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1429,7 +1429,7 @@ func TestHandleGetEventTrigger_ResponseBody(t *testing.T) {
 	srv := newEventTriggersTestServer(t, ms, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/ok-key", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1616,7 +1616,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader("{"))
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, req)
 
@@ -1631,7 +1631,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":0}`))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
@@ -1657,7 +1657,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
@@ -1693,7 +1693,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusInternalServerError {
@@ -1717,7 +1717,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30}`))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
@@ -1747,7 +1747,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30}`))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Internal-Secret", testInternalSecret)
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusInternalServerError {

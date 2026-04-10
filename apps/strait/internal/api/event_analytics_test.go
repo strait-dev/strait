@@ -16,7 +16,7 @@ import (
 func newTestServerWithAnalytics(t *testing.T, s APIStore, as AnalyticsStore, q *mockQueue) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}

@@ -20,7 +20,7 @@ import (
 
 func benchmarkConfig() *config.Config {
 	return &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
@@ -72,7 +72,7 @@ func BenchmarkHandleTriggerJob(b *testing.B) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger", strings.NewReader(body))
-			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("X-Internal-Secret", testInternalSecret)
 			r.Header.Set("Content-Type", "application/json")
 			r.RemoteAddr = uniqueRemoteAddr(&reqCount)
 			srv.ServeHTTP(w, r)
@@ -109,7 +109,7 @@ func BenchmarkHandleBulkTrigger(b *testing.B) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", strings.NewReader(body))
-			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("X-Internal-Secret", testInternalSecret)
 			r.Header.Set("Content-Type", "application/json")
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusCreated {
@@ -158,7 +158,7 @@ func BenchmarkHandleBulkTrigger_500Items(b *testing.B) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", strings.NewReader(body))
-			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("X-Internal-Secret", testInternalSecret)
 			r.Header.Set("Content-Type", "application/json")
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusCreated {
@@ -194,7 +194,7 @@ func BenchmarkHandleBulkCancel(b *testing.B) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodPost, "/v1/runs/bulk-cancel", strings.NewReader(body))
-			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("X-Internal-Secret", testInternalSecret)
 			r.Header.Set("Content-Type", "application/json")
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusOK {
@@ -223,7 +223,7 @@ func BenchmarkHandleStats(b *testing.B) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("X-Internal-Secret", testInternalSecret)
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusOK {
 				b.Fatalf("expected 200, got %d", w.Code)
@@ -262,7 +262,7 @@ func BenchmarkHandleListJobs(b *testing.B) {
 		for pb.Next() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
-			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("X-Internal-Secret", testInternalSecret)
 			r.Header.Set("X-Project-Id", "proj-1")
 			srv.ServeHTTP(w, r)
 			if w.Code != http.StatusOK {

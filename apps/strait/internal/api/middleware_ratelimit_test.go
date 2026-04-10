@@ -200,7 +200,7 @@ func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
 	ts := newRLTestServer(nil, limiter)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	// Internal secret auth does not set scopes -- scopesFromContext returns nil.
 
 	rr := httptest.NewRecorder()

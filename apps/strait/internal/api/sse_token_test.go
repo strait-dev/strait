@@ -60,7 +60,7 @@ func TestParseSSEToken_Valid(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
@@ -102,7 +102,7 @@ func TestParseSSEToken_Expired(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
@@ -134,7 +134,7 @@ func TestParseSSEToken_WrongIssuer(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
@@ -166,7 +166,7 @@ func TestParseSSEToken_WrongKey(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
@@ -197,7 +197,7 @@ func TestParseSSEToken_GarbageInput(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},
@@ -219,7 +219,7 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:   &APIStoreMock{},
@@ -281,7 +281,7 @@ func FuzzParseSSEToken(f *testing.F) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret: "test-secret-value",
+			InternalSecret: testInternalSecret,
 			JWTSigningKey:  testJWTSigningKey,
 		},
 		Store:  &APIStoreMock{},

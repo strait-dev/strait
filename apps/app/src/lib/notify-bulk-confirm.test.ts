@@ -7,9 +7,7 @@ import {
 
 describe("bulkTopicConfirmTitle", () => {
   it("returns add title for add action", () => {
-    expect(bulkTopicConfirmTitle("add")).toBe(
-      "Bulk add subscribers to topic"
-    );
+    expect(bulkTopicConfirmTitle("add")).toBe("Bulk add subscribers to topic");
   });
 
   it("returns remove title for remove action", () => {

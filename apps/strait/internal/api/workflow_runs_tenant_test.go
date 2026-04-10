@@ -97,7 +97,7 @@ func newWorkflowRunTestServerWithCallback(t *testing.T, s APIStore) *Server {
 		},
 	}
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}

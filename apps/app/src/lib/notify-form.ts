@@ -1,4 +1,5 @@
-export const notifyScopedKeyPattern = /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$/;
+export const notifyScopedKeyPattern =
+  /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$/;
 
 export const isNotifyScopedKey = (value: string) =>
   notifyScopedKeyPattern.test(value.trim());

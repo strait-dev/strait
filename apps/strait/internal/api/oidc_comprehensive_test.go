@@ -638,7 +638,7 @@ func TestOIDCAuth_NilStoreReturns503(t *testing.T) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret-value",
+			InternalSecret:   testInternalSecret,
 			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.test",
@@ -842,7 +842,7 @@ func FuzzOIDCVerify_AuthorizationHeader(f *testing.F) {
 
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
-			InternalSecret:   "test-secret-value",
+			InternalSecret:   testInternalSecret,
 			JWTSigningKey:    testJWTSigningKey,
 			OIDCEnabled:      true,
 			OIDCIssuer:       "https://issuer.test",

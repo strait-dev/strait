@@ -111,7 +111,7 @@ func TestUsage_ExportCSVInjection(t *testing.T) {
 		enforcer: enforcer,
 		usageSvc: usageSvc,
 		config: &config.Config{
-			InternalSecret:      "test-secret-value",
+			InternalSecret:      testInternalSecret,
 			MaxBulkTriggerItems: 500,
 			JWTSigningKey:       testJWTSigningKey,
 		},

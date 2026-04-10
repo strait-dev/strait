@@ -96,7 +96,7 @@ func (m *mockWorkflowTrigger) OnStepFailed(ctx context.Context, workflowRunID st
 func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
@@ -114,7 +114,7 @@ func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPubl
 func newWorkflowTestServerWithCallback(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, wfCallback WorkflowCallback, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
@@ -3585,7 +3585,7 @@ func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
 func newWorkflowTestServerWithRuntime(t *testing.T, s APIStore, q *mockQueue, rt compute.ContainerRuntime) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}

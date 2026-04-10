@@ -344,7 +344,7 @@ func TestAdversarial_WebhookSubscriptionURLReal(t *testing.T) {
 			"project_id": %q,
 			"webhook_url": %q,
 			"event_types": ["run.completed"],
-			"secret": "test-secret-value"
+			"secret": testInternalSecret
 		}`, projectID, badURL)
 
 		w := doRequest(t, http.MethodPost, "/v1/webhooks/subscriptions", body, projectID)

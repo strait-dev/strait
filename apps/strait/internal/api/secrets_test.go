@@ -16,7 +16,7 @@ import (
 func newTestServerWithEncryption(t *testing.T, s APIStore, q *mockQueue) *Server {
 	t.Helper()
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
+		InternalSecret:      testInternalSecret,
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 		SecretEncryptionKey: "test-encryption-key-32-chars-ok",

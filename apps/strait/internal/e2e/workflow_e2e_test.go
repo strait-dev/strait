@@ -33,7 +33,7 @@ func wfSetup(t *testing.T) *api.Server {
 
 	return api.NewServer(api.ServerDeps{
 		Config: &config.Config{
-			InternalSecret:           "test-secret-value",
+			InternalSecret:           testInternalSecret,
 			JWTSigningKey:            testJWTSigningKey,
 			RateLimitRequests:        5000,
 			RateLimitWindow:          time.Minute,
@@ -59,7 +59,7 @@ func wfDoReq(t *testing.T, srv *api.Server, method, path, body string) *httptest
 	} else {
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
 	}
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Internal-Secret", testInternalSecret)
 	req.Header.Set("X-Actor-Id", "test:e2e-actor")
 	req.Header.Set("Content-Type", "application/json")
 

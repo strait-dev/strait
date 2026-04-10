@@ -20,6 +20,10 @@ paths = [
     '''\.github/workflows/''',
     '''apps/website/''',
     '''apps/app/src/hooks/api/''',
+    # Generated JS runtime bundles — Effect.ts library symbol keys such as
+    # "effect/ScheduleInterval" are falsely detected as generic API keys due
+    # to their entropy profile and "/" path separator.
+    '''internal/agents/.*\.js$''',
 ]
 
 regexTarget = "match"
@@ -36,4 +40,6 @@ regexes = [
     '''loadtest-secret''',
     '''dump-openapi''',
     '''mwesulbn1k\.ufs\.sh''',
+    # Effect.ts library symbol keys embedded in compiled agent worker bundles
+    '''effect/Schedule''',
 ]
