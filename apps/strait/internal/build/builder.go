@@ -142,7 +142,12 @@ func runSOCICLI(ctx context.Context, imageRef string) error {
 	cmd := exec.CommandContext(ctx, path, "create", imageRef)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("soci create: %w (output: %s)", err, strings.TrimSpace(string(out)))
+		// Log the raw CLI output as a structured field rather than embedding it in
+		// the error string. CombinedOutput() may contain registry credentials or
+		// auth tokens printed by the soci CLI, so it must not be surfaced in
+		// error messages that propagate to API responses or metrics labels.
+		slog.Warn("soci create failed", "error", err, "output", strings.TrimSpace(string(out)))
+		return fmt.Errorf("soci create: %w", err)
 	}
 	return nil
 }
@@ -337,7 +342,9 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 func (b *Builder) extractTarball(ctx context.Context, sourceURI string) (dir string, cleanup func(), err error) {
 	rc, err := b.objectStore.GetObject(ctx, sourceURI)
 	if err != nil {
-		return "", nil, fmt.Errorf("get object %s: %w", sourceURI, err)
+		// Do not include sourceURI in the error: presigned S3 URLs contain auth
+		// tokens in query parameters that must not appear in logs or error messages.
+		return "", nil, fmt.Errorf("get object: %w", err)
 	}
 	defer rc.Close()
 

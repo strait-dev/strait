@@ -399,8 +399,9 @@ func TestRunSOCICLI_SuccessWithFakeBinary(t *testing.T) {
 }
 
 // TestRunSOCICLI_FailureWithFakeBinary verifies that runSOCICLI wraps and returns
-// an error when the soci binary exits non-zero. The error message must contain
-// the binary's stderr/stdout output.
+// an error when the soci binary exits non-zero. The CLI output is emitted via
+// structured logging rather than embedded in the error string, so the error
+// must NOT contain raw credential-bearing output — only the process exit status.
 func TestRunSOCICLI_FailureWithFakeBinary(t *testing.T) {
 	dir := t.TempDir()
 	// Write a script that prints a diagnostic and exits 1.
@@ -417,8 +418,13 @@ exit 1
 	if err == nil {
 		t.Fatal("expected error from non-zero exit, got nil")
 	}
-	if !strings.Contains(err.Error(), "ECR: credentials expired") {
-		t.Errorf("error %q does not contain expected stderr output", err.Error())
+	// The error must not embed the raw CLI output (which may contain auth tokens).
+	// It should contain the exit status wrapper only.
+	if strings.Contains(err.Error(), "ECR: credentials expired") {
+		t.Errorf("runSOCICLI must not embed CLI output in error string (security: may contain credentials): %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "soci create") {
+		t.Errorf("error %q should still identify the failing command", err.Error())
 	}
 }
 

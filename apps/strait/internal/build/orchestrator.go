@@ -182,6 +182,11 @@ func (o *Orchestrator) dispatch(ctx context.Context, sem chan struct{}) {
 						"panic", r,
 						"deployment_id", dep.ID,
 					)
+					// Mark the deployment as failed so it does not remain stuck in
+					// "building" indefinitely. A deployment that stays in "building"
+					// forever will block any future claim for the same job and makes the
+					// system appear healthy when it is not.
+					o.handleBuildFailure(ctx, dep, fmt.Errorf("internal error: build goroutine panicked"), o.logger)
 				}
 			}()
 			o.runBuild(ctx, dep)
