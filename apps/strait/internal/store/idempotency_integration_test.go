@@ -3,8 +3,9 @@
 package store_test
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -77,7 +78,8 @@ func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
 	if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
-	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 201, []byte(`{"id":"abc"}`)); err != nil {
+	wantBody := []byte(`{"id":"abc"}`)
+	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 201, wantBody); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
@@ -91,8 +93,18 @@ func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("cached status code = %d, want 201", code)
 	}
-	if !bytes.Equal(body, []byte(`{"id":"abc"}`)) {
-		t.Fatalf("cached body = %q, want %q", body, `{"id":"abc"}`)
+	// Postgres reformats JSONB on ingestion (adds a space after colons
+	// and reorders keys), so byte-equal comparison is too strict. Parse
+	// and compare semantically.
+	var got, want map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal cached body: %v", err)
+	}
+	if err := json.Unmarshal(wantBody, &want); err != nil {
+		t.Fatalf("unmarshal want body: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cached body = %v, want %v", got, want)
 	}
 }
 
@@ -206,8 +218,12 @@ func TestIdempotency_Complete_UpdatesRow(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("code = %d, want 200", code)
 	}
-	if !bytes.Equal(body, []byte(`"ok"`)) {
-		t.Fatalf("body = %q, want %q", body, `"ok"`)
+	var got any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if got != "ok" {
+		t.Fatalf("body = %v, want \"ok\"", got)
 	}
 }
 

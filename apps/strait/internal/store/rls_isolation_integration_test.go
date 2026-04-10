@@ -35,9 +35,19 @@ import (
 
 // runAsProject runs fn inside a tx with app.current_project_id bound to
 // projectID. fn receives a *store.Queries backed by the tx, so every
-// store call inside fn runs under the tenant context. If commit is
-// false the tx is rolled back after fn returns; this is useful for read-
-// only assertions that should not persist any side effects.
+// store call inside fn runs under the tenant context.
+//
+// The tx temporarily drops to the strait_app role via SET LOCAL ROLE.
+// This is required for RLS to actually enforce: the testcontainers
+// postgres image creates the POSTGRES_USER as a superuser, and superusers
+// bypass RLS even under FORCE ROW LEVEL SECURITY. strait_app is a
+// non-superuser, non-BYPASSRLS role created in testutil.SetupTestDB with
+// the DML grants tests need. The superuser seeding runs before the
+// SET LOCAL ROLE so data creation is unaffected.
+//
+// If commit is false the tx is rolled back after fn returns; this is
+// useful for read-only assertions that should not persist any side
+// effects.
 func runAsProject(t *testing.T, ctx context.Context, projectID string, commit bool, fn func(q *store.Queries)) {
 	t.Helper()
 	tx, err := testDB.Pool.Begin(ctx)
@@ -53,6 +63,10 @@ func runAsProject(t *testing.T, ctx context.Context, projectID string, commit bo
 		_ = tx.Rollback(ctx)
 		t.Fatalf("set project context: %v", err)
 	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("set local role strait_app: %v", err)
+	}
 	q := store.New(tx)
 	fn(q)
 	if commit {
@@ -64,7 +78,8 @@ func runAsProject(t *testing.T, ctx context.Context, projectID string, commit bo
 
 // countAsProject runs a raw COUNT query under a tenant context so tests
 // can assert row visibility without depending on a specific store method
-// supporting the table.
+// supporting the table. Drops to the strait_app role for the same reason
+// as runAsProject — see that function's comment for the full rationale.
 func countAsProject(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, sqlQuery string, args ...any) int {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
@@ -74,6 +89,9 @@ func countAsProject(t *testing.T, ctx context.Context, pool *pgxpool.Pool, proje
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
 		t.Fatalf("set project context: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
+		t.Fatalf("set local role strait_app: %v", err)
 	}
 	var count int
 	if err := tx.QueryRow(ctx, sqlQuery, args...).Scan(&count); err != nil {
