@@ -1,5 +1,6 @@
-# Build stage
-FROM golang:1.26-alpine AS builder
+# Build stage runs on the native runner architecture so Go cross-compiles
+# natively instead of running under QEMU emulation, which is 10-30x slower.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache ca-certificates
 
@@ -14,7 +15,9 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
 ARG BUILD_TAGS=""
-RUN CGO_ENABLED=0 GOOS=linux go build \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -tags "${BUILD_TAGS}" \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /strait ./cmd/strait
