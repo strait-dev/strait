@@ -50,24 +50,43 @@ func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) erro
 
 	// Aggregate run counts and durations separately from cost to avoid
 	// inflated counts when a run has multiple usage rows.
+	//
+	// The cost subquery uses a CTE that pre-aggregates run_usage per run_id
+	// before the outer GROUP BY. The earlier implementation used
+	//   (SELECT SUM(u.cost_microusd) FROM run_usage u WHERE u.run_id = ANY(ARRAY_AGG(jr.id)))
+	// which is a correlated subquery: Postgres materialized the ARRAY_AGG
+	// for every group and executed the SELECT SUM once per group. The CTE
+	// version computes per-run cost exactly once, then a LEFT JOIN rolls
+	// it up with the outer aggregation in a single pass.
 	query := `
+		WITH target_runs AS (
+			SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.started_at, jr.finished_at
+			FROM job_runs jr
+			WHERE jr.created_at >= $1 AND jr.created_at < $2
+			  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
+		),
+		run_costs AS (
+			SELECT ru.run_id, SUM(ru.cost_microusd) AS run_cost
+			FROM run_usage ru
+			WHERE ru.run_id IN (SELECT id FROM target_runs)
+			GROUP BY ru.run_id
+		)
 		INSERT INTO job_stats_hourly (job_id, project_id, hour, total, completed, failed, timed_out, canceled, avg_duration_ms, p95_duration_ms, total_cost_microusd)
 		SELECT
-			jr.job_id,
-			jr.project_id,
+			tr.job_id,
+			tr.project_id,
 			$1 AS hour,
 			COUNT(*) AS total,
-			COUNT(*) FILTER (WHERE jr.status = 'completed') AS completed,
-			COUNT(*) FILTER (WHERE jr.status = 'failed') AS failed,
-			COUNT(*) FILTER (WHERE jr.status = 'timed_out') AS timed_out,
-			COUNT(*) FILTER (WHERE jr.status = 'canceled') AS canceled,
-			COALESCE(AVG(EXTRACT(EPOCH FROM (jr.finished_at - jr.started_at)) * 1000)::BIGINT, 0) AS avg_duration_ms,
-			COALESCE((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (jr.finished_at - jr.started_at)) * 1000))::BIGINT, 0) AS p95_duration_ms,
-			COALESCE((SELECT SUM(u.cost_microusd) FROM run_usage u WHERE u.run_id = ANY(ARRAY_AGG(jr.id))), 0) AS total_cost_microusd
-		FROM job_runs jr
-		WHERE jr.created_at >= $1 AND jr.created_at < $2
-		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
-		GROUP BY jr.job_id, jr.project_id
+			COUNT(*) FILTER (WHERE tr.status = 'completed') AS completed,
+			COUNT(*) FILTER (WHERE tr.status = 'failed') AS failed,
+			COUNT(*) FILTER (WHERE tr.status = 'timed_out') AS timed_out,
+			COUNT(*) FILTER (WHERE tr.status = 'canceled') AS canceled,
+			COALESCE(AVG(EXTRACT(EPOCH FROM (tr.finished_at - tr.started_at)) * 1000)::BIGINT, 0) AS avg_duration_ms,
+			COALESCE((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (tr.finished_at - tr.started_at)) * 1000))::BIGINT, 0) AS p95_duration_ms,
+			COALESCE(SUM(rc.run_cost), 0) AS total_cost_microusd
+		FROM target_runs tr
+		LEFT JOIN run_costs rc ON rc.run_id = tr.id
+		GROUP BY tr.job_id, tr.project_id
 		ON CONFLICT (job_id, hour) DO UPDATE SET
 			total = EXCLUDED.total,
 			completed = EXCLUDED.completed,
