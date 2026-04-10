@@ -196,6 +196,9 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	poolConfig.MinConns = cfg.DBMinConns
 	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+	if cfg.DBHealthCheckPeriod > 0 {
+		poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
+	}
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
 
 	// Apply statement_timeout to the API connection pool to prevent runaway queries.
@@ -240,6 +243,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 			"min_conns", cfg.DBMinConns,
 			"max_conn_lifetime", cfg.DBMaxConnLifetime,
 			"max_conn_idle_time", cfg.DBMaxConnIdleTime,
+			"health_check_period", cfg.DBHealthCheckPeriod,
 		)
 		return pool, nil
 	}
@@ -814,6 +818,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
+			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))

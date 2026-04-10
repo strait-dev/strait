@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_jobs_on_batch_window_secs_batch_max_size;
