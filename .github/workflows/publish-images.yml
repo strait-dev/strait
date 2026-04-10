@@ -352,3 +352,112 @@ jobs:
             exit 1
           fi
           echo "all image jobs succeeded"
+
+  release-notes:
+    name: Publish GitHub Release
+    needs: release-gate
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.release-gate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # git-cliff needs full tag history
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@98c93442bb05a455a77bee982867857ae748eeea # v4.7.1
+        with:
+          config: cliff.toml
+          args: --latest --strip all
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.content }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+
+  sbom-diff:
+    name: SBOM diff vs previous release
+    needs: release-gate
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.release-gate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      id-token: write # cosign keyless verification of attestations
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Resolve previous release tag
+        id: prev
+        run: |
+          set -euo pipefail
+          CURRENT="${{ github.ref_name }}"
+          # Most recent stable semver tag (no pre-release suffix), excluding CURRENT.
+          PREV="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${CURRENT}$" | head -1 || true)"
+          echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
+          if [ -z "$PREV" ]; then
+            echo "No previous stable release tag found — skipping SBOM diff."
+          else
+            echo "Diffing against ${PREV}"
+          fi
+
+      - name: Fetch SBOMs and diff
+        if: steps.prev.outputs.tag != ''
+        env:
+          CURRENT: ${{ github.ref_name }}
+          PREV: ${{ steps.prev.outputs.tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          mkdir -p sbom-artifacts
+          for image in strait strait-cloud; do
+            CUR_TAG="${CURRENT#v}"
+            PREV_TAG="${PREV#v}"
+
+            cosign download attestation \
+              --predicate-type=https://spdx.dev/Document \
+              --platform=linux/amd64 \
+              "${REGISTRY}/strait-dev/${image}:${CUR_TAG}" \
+              | jq -r '.payload' | base64 -d | jq '.predicate' > "sbom-artifacts/${image}-current.spdx.json"
+
+            cosign download attestation \
+              --predicate-type=https://spdx.dev/Document \
+              --platform=linux/amd64 \
+              "${REGISTRY}/strait-dev/${image}:${PREV_TAG}" \
+              | jq -r '.payload' | base64 -d | jq '.predicate' > "sbom-artifacts/${image}-previous.spdx.json"
+
+            {
+              echo "### ${image}"
+              scripts/sbom-diff.sh \
+                "sbom-artifacts/${image}-current.spdx.json" \
+                "sbom-artifacts/${image}-previous.spdx.json"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload SBOM artifacts
+        if: steps.prev.outputs.tag != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-diff
+          path: sbom-artifacts/
+          if-no-files-found: ignore
