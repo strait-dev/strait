@@ -385,16 +385,14 @@ func resolveNotifySESFeedbackOutcome(eventType string, ts time.Time) (string, ma
 
 	switch normalized {
 	case "bounce":
-		reason := "provider_callback:ses.bounce"
 		return domain.NotifyMessageStatusBounced, map[string]any{
 			"bounced_at":         ts,
-			"suppression_reason": reason,
-		}, true, reason
+			"suppression_reason": domain.NotifySuppressionReasonSESBounce,
+		}, true, domain.NotifySuppressionReasonSESBounce
 	case "complaint":
-		reason := "provider_callback:ses.complaint"
 		return domain.NotifyMessageStatusFailed, map[string]any{
-			"suppression_reason": reason,
-		}, true, reason
+			"suppression_reason": domain.NotifySuppressionReasonSESComplaint,
+		}, true, domain.NotifySuppressionReasonSESComplaint
 	case "delivery":
 		return domain.NotifyMessageStatusDelivered, map[string]any{
 			"delivered_at": ts,

@@ -43,7 +43,7 @@ func (s *Server) enforceNotifyUnsuppressPolicy(
 	if event.Action != domain.NotifySuppressionActionSuppressed {
 		return nil
 	}
-	if !notifySuppressionReasonRequiresManualOverride(event.Reason) {
+	if !domain.NotifySuppressionReasonRequiresManualOverride(event.Reason) {
 		return nil
 	}
 	if force {
@@ -54,19 +54,6 @@ func (s *Server) enforceNotifyUnsuppressPolicy(
 		return huma.Error409Conflict("self-service unsuppress is blocked for provider complaint/bounce suppressions")
 	}
 	return huma.Error409Conflict("unsuppress requires force=true for provider complaint/bounce suppressions")
-}
-
-func notifySuppressionReasonRequiresManualOverride(reason string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(reason))
-	if normalized == "" {
-		return false
-	}
-
-	if strings.Contains(normalized, "provider_callback:") {
-		return strings.Contains(normalized, "complain") || strings.Contains(normalized, "bounce")
-	}
-
-	return false
 }
 
 func notifyChannelPrefExplicitEnableEmail(raw json.RawMessage) bool {

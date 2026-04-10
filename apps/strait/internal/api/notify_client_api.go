@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -468,7 +469,13 @@ func (s *Server) handleProcessUnsubscribe(ctx context.Context, input *Unsubscrib
 			return nil, huma.Error500InternalServerError("failed to update category preference")
 		}
 	}
-	_ = ns.UseUnsubscribeToken(ctx, input.Token, time.Now().UTC())
+	if markErr := ns.UseUnsubscribeToken(ctx, input.Token, time.Now().UTC()); markErr != nil {
+		slog.ErrorContext(ctx, "failed to mark unsubscribe token used",
+			"err", markErr,
+			"token_prefix", input.Token[:min(8, len(input.Token))],
+		)
+		return nil, huma.Error500InternalServerError("failed to record unsubscribe")
+	}
 	s.dispatchNotifyWebhookEvent(ctx, tok.ProjectID, "notification.unsubscribed", map[string]any{
 		"subscriber_id": tok.SubscriberID,
 		"scope":         scope,

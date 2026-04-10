@@ -72,6 +72,24 @@ const (
 	NotifySuppressionSourceSubscriberAPI    = "subscriber_api"
 )
 
+// Suppression reasons emitted by the SES feedback consumer.
+// These are the canonical values stored in the database and matched
+// by suppression policy enforcement. Use these constants instead of
+// inline strings to prevent silent bypass if formats ever change.
+const (
+	NotifySuppressionReasonSESBounce    = "provider_callback:ses.bounce"
+	NotifySuppressionReasonSESComplaint = "provider_callback:ses.complaint"
+)
+
+// NotifySuppressionReasonRequiresManualOverride reports whether the given
+// suppression reason requires force=true or admin intervention to unsuppress.
+// Only exact matches against known provider-callback reasons are accepted;
+// substring matching is intentionally avoided to prevent bypass via crafted values.
+func NotifySuppressionReasonRequiresManualOverride(reason string) bool {
+	return reason == NotifySuppressionReasonSESBounce ||
+		reason == NotifySuppressionReasonSESComplaint
+}
+
 // NotifySubscriber is an end-user recipient managed by a developer project.
 type NotifySubscriber struct {
 	ID         string          `json:"id"`

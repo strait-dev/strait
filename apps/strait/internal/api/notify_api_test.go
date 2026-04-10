@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,6 +40,8 @@ type notifyStoreAdapter struct {
 	listNotificationMessagesByProjectFunc       func(ctx context.Context, projectID string, status, channel, categoryKey *string, from, to *time.Time, limit int, cursor *time.Time) ([]domain.NotificationMessage, error)
 	getNotifyTopicByKeyFunc                     func(ctx context.Context, projectID, topicKey string) (*domain.NotifyTopic, error)
 	listNotifySubscribersByTopicKeyFunc         func(ctx context.Context, projectID, topicKey string, tenantID *string, limit int) ([]domain.NotifySubscriber, error)
+	getUnsubscribeTokenFunc                     func(ctx context.Context, token string) (*domain.UnsubscribeToken, error)
+	useUnsubscribeTokenFunc                     func(ctx context.Context, token string, usedAt time.Time) error
 }
 
 func (m *notifyStoreAdapter) GetActiveEscalationStateByStepRun(ctx context.Context, projectID, stepRunID string) (*domain.EscalationState, error) {
@@ -213,6 +216,20 @@ func (m *notifyStoreAdapter) ListNotifySubscribersByTopicKey(ctx context.Context
 	return m.listNotifySubscribersByTopicKeyFunc(ctx, projectID, topicKey, tenantID, limit)
 }
 
+func (m *notifyStoreAdapter) GetUnsubscribeToken(ctx context.Context, token string) (*domain.UnsubscribeToken, error) {
+	if m.getUnsubscribeTokenFunc == nil {
+		return nil, store.ErrUnsubscribeTokenNotFound
+	}
+	return m.getUnsubscribeTokenFunc(ctx, token)
+}
+
+func (m *notifyStoreAdapter) UseUnsubscribeToken(ctx context.Context, token string, usedAt time.Time) error {
+	if m.useUnsubscribeTokenFunc == nil {
+		return nil
+	}
+	return m.useUnsubscribeTokenFunc(ctx, token, usedAt)
+}
+
 type notifyAPIStore struct {
 	*APIStoreMock
 	store.NotifyStore
@@ -373,7 +390,7 @@ func TestCreateNotifyUnsuppress_RequiresForceForProviderComplaint(t *testing.T) 
 				Scope:         scope,
 				Channel:       channel,
 				Action:        domain.NotifySuppressionActionSuppressed,
-				Reason:        "provider_callback:email.complained",
+				Reason:        domain.NotifySuppressionReasonSESComplaint,
 				Source:        domain.NotifySuppressionSourceProviderCallback,
 			}, nil
 		},
@@ -413,7 +430,7 @@ func TestCreateNotifyUnsuppress_ForceOverrideAllowsProviderComplaint(t *testing.
 				Scope:         scope,
 				Channel:       channel,
 				Action:        domain.NotifySuppressionActionSuppressed,
-				Reason:        "provider_callback:email.bounced",
+				Reason:        domain.NotifySuppressionReasonSESBounce,
 				Source:        domain.NotifySuppressionSourceProviderCallback,
 			}, nil
 		},
@@ -466,7 +483,7 @@ func TestUpdateNotifyPreferencesScope_BlocksSelfServiceUnsuppressForProviderComp
 				Scope:         scope,
 				Channel:       channel,
 				Action:        domain.NotifySuppressionActionSuppressed,
-				Reason:        "provider_callback:email.complained",
+				Reason:        domain.NotifySuppressionReasonSESComplaint,
 			}, nil
 		},
 		upsertNotificationPreferenceFunc: func(_ context.Context, _ *domain.NotificationPreference) error {
@@ -544,17 +561,21 @@ func TestNotifySuppressionReasonRequiresManualOverride(t *testing.T) {
 		reason string
 		want   bool
 	}{
-		{name: "complaint callback", reason: "provider_callback:email.complained", want: true},
-		{name: "bounce callback", reason: "provider_callback:email.bounced", want: true},
-		{name: "provider callback delivered", reason: "provider_callback:email.delivered", want: false},
-		{name: "manual reason", reason: "manual_unsuppress", want: false},
+		{name: "ses bounce", reason: domain.NotifySuppressionReasonSESBounce, want: true},
+		{name: "ses complaint", reason: domain.NotifySuppressionReasonSESComplaint, want: true},
+		{name: "empty reason", reason: "", want: false},
+		{name: "unrelated reason", reason: "manual_unsuppress", want: false},
+		// Prefix-only or partial matches must not bypass the guard.
+		{name: "prefix-only bounce", reason: "provider_callback:ses.bounce.extra", want: false},
+		{name: "substring bounce", reason: "provider_callback:ses.bounce_modified", want: false},
+		{name: "uppercase variant", reason: "PROVIDER_CALLBACK:SES.BOUNCE", want: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := notifySuppressionReasonRequiresManualOverride(tc.reason); got != tc.want {
-				t.Fatalf("notifySuppressionReasonRequiresManualOverride(%q) = %v, want %v", tc.reason, got, tc.want)
+			if got := domain.NotifySuppressionReasonRequiresManualOverride(tc.reason); got != tc.want {
+				t.Fatalf("NotifySuppressionReasonRequiresManualOverride(%q) = %v, want %v", tc.reason, got, tc.want)
 			}
 		})
 	}
@@ -571,6 +592,38 @@ func TestNotifyChannelPrefExplicitEnableEmail(t *testing.T) {
 	}
 	if notifyChannelPrefExplicitEnableEmail(json.RawMessage(`{"inbox":true}`)) {
 		t.Fatal("notifyChannelPrefExplicitEnableEmail(missing email) = true, want false")
+	}
+}
+
+func TestHandleProcessUnsubscribe_TokenMarkUsedError(t *testing.T) {
+	t.Parallel()
+
+	// When UseUnsubscribeToken returns an error, the endpoint must return 500
+	// instead of silently succeeding and leaving the token reusable.
+	const tokenVal = "tok_test_abc123"
+	ns := &notifyStoreAdapter{
+		getUnsubscribeTokenFunc: func(_ context.Context, token string) (*domain.UnsubscribeToken, error) {
+			return &domain.UnsubscribeToken{
+				Token:        token,
+				ProjectID:    "proj_1",
+				SubscriberID: "sub_1",
+				Scope:        "global",
+				ExpiresAt:    time.Now().Add(time.Hour),
+			}, nil
+		},
+		useUnsubscribeTokenFunc: func(_ context.Context, _ string, _ time.Time) error {
+			return errors.New("db write failed")
+		},
+	}
+
+	srv := newTestServer(t, &notifyAPIStore{APIStoreMock: &APIStoreMock{}, NotifyStore: ns}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/unsubscribe/"+tokenVal, strings.NewReader(`{}`))
+	r.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d (token mark-used error must return 500)\nbody=%s", w.Code, http.StatusInternalServerError, w.Body.String())
 	}
 }
 
