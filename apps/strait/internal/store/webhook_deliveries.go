@@ -34,9 +34,19 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 		d.ID = uuid.Must(uuid.NewV7()).String()
 	}
 
+	// project_id is derived at insert time from whichever FK is populated.
+	// The COALESCE mirrors the backfill precedence used by migration 000183.
+	// Rows with no resolvable parent get the '__orphaned__' sentinel so the
+	// RLS policy never sees a NULL and the reaper can find them later.
 	query := `
-		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id, project_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+			COALESCE(
+				(SELECT jr.project_id FROM job_runs jr WHERE jr.id = $2),
+				(SELECT et.project_id FROM event_triggers et WHERE et.id = $13),
+				(SELECT j.project_id  FROM jobs j           WHERE j.id  = $3),
+				'__orphaned__'
+			))
 		RETURNING created_at, updated_at`
 
 	return q.db.QueryRow(ctx, query,
@@ -101,12 +111,15 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		NextRetryAt: &now,
 	}
 
+	// EnqueueRunWebhook has the run in scope so project_id is known
+	// upfront — pass it as an explicit parameter rather than using the
+	// COALESCE subquery that CreateWebhookDelivery relies on.
 	query := `
 		INSERT INTO webhook_deliveries (
 			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, next_retry_at,
-			webhook_secret, payload, payload_size_bytes, event_type
+			webhook_secret, payload, payload_size_bytes, event_type, project_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, octet_length($11::jsonb::text), $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, octet_length($11::jsonb::text), $12, $13)
 		RETURNING created_at, updated_at`
 
 	err = q.db.QueryRow(
@@ -124,6 +137,7 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		dbscan.NilIfEmptyString(job.WebhookSecret),
 		payload,
 		fmt.Sprintf("run.%s", run.Status),
+		run.ProjectID,
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("enqueue run webhook: %w", err)
@@ -369,10 +383,10 @@ func (q *Queries) ReplayWebhookDelivery(ctx context.Context, id string) (*domain
 	query := `
 		INSERT INTO webhook_deliveries (
 			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
-			next_retry_at, webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id
+			next_retry_at, webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, project_id
 		)
 		SELECT $1, run_id, job_id, webhook_url, webhook_retry_policy, 'pending', 0, max_attempts,
-		       NOW(), webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id
+		       NOW(), webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, project_id
 		FROM webhook_deliveries
 		WHERE id = $2
 		RETURNING id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
