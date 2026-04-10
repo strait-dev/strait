@@ -44,11 +44,12 @@ type Config struct {
 	EventTriggerRetentionDays int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
-	DBMaxConns         int32         `env:"DB_MAX_CONNS" default:"50"`
-	DBMinConns         int32         `env:"DB_MIN_CONNS" default:"10"`
-	DBMaxConnLifetime  time.Duration `env:"DB_MAX_CONN_LIFETIME" default:"30m"`
-	DBMaxConnIdleTime  time.Duration `env:"DB_MAX_CONN_IDLE_TIME" default:"5m"`
-	DBStatementTimeout time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
+	DBMaxConns          int32         `env:"DB_MAX_CONNS" default:"50"`
+	DBMinConns          int32         `env:"DB_MIN_CONNS" default:"10"`
+	DBMaxConnLifetime   time.Duration `env:"DB_MAX_CONN_LIFETIME" default:"30m"`
+	DBMaxConnIdleTime   time.Duration `env:"DB_MAX_CONN_IDLE_TIME" default:"5m"`
+	DBHealthCheckPeriod time.Duration `env:"DB_HEALTH_CHECK_PERIOD" default:"30s"`
+	DBStatementTimeout  time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
 
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`

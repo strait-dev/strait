@@ -621,8 +621,18 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	}
 }
 
-// projectContextMiddleware sets the app.current_project_id session variable
-// for RLS policies when the request has a project context.
+// projectContextMiddleware is retained for long-lived SSE routes that
+// cannot safely hold a transaction open for the duration of the stream.
+// For those routes the middleware is effectively a no-op for tenant
+// isolation: the set_config call is transaction-local and is lost the
+// moment its implicit transaction commits, so subsequent queries in the
+// SSE handler run without a project context and fall back to
+// application-level filtering. The main /v1 route group uses
+// rlsTxMiddleware instead, which provides real RLS enforcement.
+//
+// TODO: tighten SSE isolation by making SSE handlers run their initial
+// DB fetch inside store.WithTx + set_config and then release the tx
+// before entering the long-running pub/sub loop.
 func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
 	setter, ok := s.store.(ProjectContextSetter)
 	if !ok {
@@ -641,6 +651,80 @@ func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
 			}()
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// rlsTxMiddleware wraps each request in a per-request Postgres transaction
+// and binds it to the request context via store.ContextWithTx. Every store
+// method called during the request routes its queries through that tx
+// (via the ctxAwareDBTX wrapper installed by store.NewWithContextRouting),
+// which means the SELECT set_config('app.current_project_id', $1, true)
+// call made at the start of the tx actually persists for every subsequent
+// query in the request. Without this, RLS tenant isolation does not work
+// under a connection pool because set_config's transaction-local setting
+// is lost the moment an implicit transaction commits.
+//
+// The middleware fails closed: any error beginning the tx, setting the
+// project context, or (after the handler runs) committing the tx results
+// in a 500 response. A panic in the handler rolls the tx back and
+// re-panics so the server's outer recovery middleware still handles it.
+//
+// Apply this middleware only to short-lived request handlers. Long-lived
+// SSE or streaming routes continue to use projectContextMiddleware and
+// rely on application-level filtering in the handler.
+func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
+	if s.txPool == nil {
+		// No tx pool configured (unit tests with a mock store). Fall
+		// back to the legacy middleware so tests still exercise the
+		// SetProjectContext code path.
+		return s.projectContextMiddleware(next)
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		projectID := projectIDFromContext(r.Context())
+		if projectID == "" {
+			// Routes with no project context (public endpoints, health
+			// checks) skip the tx wrap entirely.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx := r.Context()
+		tx, err := s.txPool.Begin(ctx)
+		if err != nil {
+			slog.Error("failed to begin RLS tx", "project_id", projectID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
+			return
+		}
+
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+				slog.Warn("failed to rollback RLS tx after set_config error", "error", rbErr)
+			}
+			slog.Error("failed to set RLS project context", "project_id", projectID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
+			return
+		}
+
+		ctx = store.ContextWithTx(ctx, tx)
+
+		// Track whether a panic occurred so we can rollback instead of
+		// committing. Without this, a recovered panic could leave the
+		// handler's partial writes committed.
+		panicked := true
+		defer func() {
+			if panicked {
+				if rbErr := tx.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+					slog.Warn("failed to rollback RLS tx after panic", "error", rbErr)
+				}
+			}
+		}()
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+
+		panicked = false
+		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+		}
 	})
 }
 

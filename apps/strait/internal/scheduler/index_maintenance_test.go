@@ -49,3 +49,85 @@ func TestIndexMaintainer_DefaultInterval(t *testing.T) {
 		t.Fatalf("interval = %v, want %v", maintainer.interval, defaultIndexMaintenanceInterval)
 	}
 }
+
+func TestIndexMaintainer_AdvisoryLock_Acquired(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu           sync.Mutex
+		tryCalls     int
+		releaseCalls int
+	)
+	locker := &mockAdvisoryLocker{
+		acquireFn: func(_ context.Context, _ int64) (bool, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			tryCalls++
+			return true, nil
+		},
+		releaseFn: func(_ context.Context, _ int64) error {
+			mu.Lock()
+			defer mu.Unlock()
+			releaseCalls++
+			return nil
+		},
+	}
+
+	store := &mockIndexMaintenanceStore{}
+	maintainer := NewIndexMaintainer(store, 20*time.Millisecond).WithAdvisoryLocker(locker)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Millisecond)
+	defer cancel()
+	maintainer.Run(ctx)
+
+	if store.callCount() < len(defaultReindexTargets) {
+		t.Fatalf("reindex calls = %d, want at least %d", store.callCount(), len(defaultReindexTargets))
+	}
+	mu.Lock()
+	finalTry := tryCalls
+	finalRelease := releaseCalls
+	mu.Unlock()
+	if finalTry == 0 {
+		t.Fatal("advisory lock was never attempted")
+	}
+	if finalRelease != finalTry {
+		t.Fatalf("releaseCalls = %d, want %d", finalRelease, finalTry)
+	}
+}
+
+func TestIndexMaintainer_AdvisoryLock_NotAcquired(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu           sync.Mutex
+		releaseCalls int
+	)
+	locker := &mockAdvisoryLocker{
+		acquireFn: func(_ context.Context, _ int64) (bool, error) {
+			return false, nil
+		},
+		releaseFn: func(_ context.Context, _ int64) error {
+			mu.Lock()
+			defer mu.Unlock()
+			releaseCalls++
+			return nil
+		},
+	}
+
+	store := &mockIndexMaintenanceStore{}
+	maintainer := NewIndexMaintainer(store, 20*time.Millisecond).WithAdvisoryLocker(locker)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Millisecond)
+	defer cancel()
+	maintainer.Run(ctx)
+
+	if store.callCount() != 0 {
+		t.Fatalf("reindex calls = %d, want 0 (lock not acquired)", store.callCount())
+	}
+	mu.Lock()
+	finalRelease := releaseCalls
+	mu.Unlock()
+	if finalRelease != 0 {
+		t.Fatalf("releaseCalls = %d, want 0 (lock never held)", finalRelease)
+	}
+}
