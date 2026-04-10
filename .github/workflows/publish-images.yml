@@ -36,15 +36,33 @@ jobs:
             const poll = 30 * 1000; // 30 seconds
             const start = Date.now();
 
+            // For each required workflow name, pick the best run on this commit:
+            //   1. A completed SUCCESS run (preferred — proves CI passed)
+            //   2. Otherwise any in-progress or queued run (still waiting)
+            //   3. Otherwise the most recent completed non-success run (the real failure)
+            // This intentionally ignores stale cancelled runs when a later run on
+            // the same commit succeeds — which happens when a tag push re-triggers
+            // workflows whose concurrency rules cancel the old runs. The runs API
+            // returns results newest-first, so we scan in that order.
+            function pickRun(runs, name) {
+              const matches = runs.filter(r => r.name === name);
+              const success = matches.find(r => r.status === 'completed' && r.conclusion === 'success');
+              if (success) return success;
+              const pending = matches.find(r => r.status !== 'completed');
+              if (pending) return pending;
+              return matches[0]; // newest completed non-success, or undefined
+            }
+
             while (Date.now() - start < maxWait) {
               const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 head_sha: context.sha,
+                per_page: 100,
               });
 
               const results = required.map(name => {
-                const run = runs.workflow_runs.find(r => r.name === name);
+                const run = pickRun(runs.workflow_runs, name);
                 return { name, status: run?.status, conclusion: run?.conclusion };
               });
 
