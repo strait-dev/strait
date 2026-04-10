@@ -9,6 +9,16 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@strait/ui/components/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -59,6 +69,11 @@ import {
   useUpdateNotifySubscriberPreference,
 } from "@/hooks/api/use-notify";
 import { FilterIcon, MailIcon, PlusIcon, SearchIcon } from "@/lib/icons";
+import {
+  bulkPrefConfirmDescription,
+  bulkTopicConfirmDescription,
+  bulkTopicConfirmTitle,
+} from "@/lib/notify-bulk-confirm";
 import {
   notifyCursorPageLimit,
   resolveNotifyNextCursor,
@@ -157,6 +172,12 @@ function NotifySubscribersPage() {
     useState<NotifyDigestPolicy>("instant");
   const [bulkEmailEnabled, setBulkEmailEnabled] = useState(true);
   const [bulkInboxEnabled, setBulkInboxEnabled] = useState(true);
+
+  const [topicConfirmOpen, setTopicConfirmOpen] = useState(false);
+  const [topicConfirmAction, setTopicConfirmAction] = useState<
+    "add" | "remove"
+  >("add");
+  const [prefConfirmOpen, setPrefConfirmOpen] = useState(false);
 
   const createSubscriber = useCreateNotifySubscriber();
   const addTopicSubscriber = useAddNotifyTopicSubscriber();
@@ -504,13 +525,19 @@ function NotifySubscribersPage() {
             </Select>
             <Button
               disabled={isBulkWorking || selectedSubscriberIDs.length === 0}
-              onClick={() => applyBulkTopicMembership("add")}
+              onClick={() => {
+                setTopicConfirmAction("add");
+                setTopicConfirmOpen(true);
+              }}
             >
               Bulk add to topic
             </Button>
             <Button
               disabled={isBulkWorking || selectedSubscriberIDs.length === 0}
-              onClick={() => applyBulkTopicMembership("remove")}
+              onClick={() => {
+                setTopicConfirmAction("remove");
+                setTopicConfirmOpen(true);
+              }}
               variant="outline"
             >
               Bulk remove from topic
@@ -558,7 +585,7 @@ function NotifySubscribersPage() {
 
           <Button
             disabled={isBulkWorking || selectedSubscriberIDs.length === 0}
-            onClick={applyBulkPreferenceUpdate}
+            onClick={() => setPrefConfirmOpen(true)}
             variant="secondary"
           >
             Bulk apply preferences
@@ -606,6 +633,51 @@ function NotifySubscribersPage() {
           </Button>
         </div>
       </div>
+
+      <AlertDialog onOpenChange={setTopicConfirmOpen} open={topicConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkTopicConfirmTitle(topicConfirmAction)}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkTopicConfirmDescription(
+                topicConfirmAction,
+                selectedSubscriberIDs.length,
+                bulkTopicKey
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => applyBulkTopicMembership(topicConfirmAction)}
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog onOpenChange={setPrefConfirmOpen} open={prefConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bulk apply preferences</AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkPrefConfirmDescription(
+                selectedSubscriberIDs.length,
+                bulkPreferenceScope
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={applyBulkPreferenceUpdate}>
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }
