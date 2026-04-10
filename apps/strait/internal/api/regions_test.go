@@ -63,18 +63,36 @@ func TestHandleGetProjectSettings(t *testing.T) {
 
 	t.Run("with_default_region", func(t *testing.T) {
 		t.Parallel()
+		// Note: project_quotas.plan_tier is write-dead; the source of truth
+		// for plan tier is now organization_subscriptions via the billing
+		// enforcer. Wire a mock enforcer that returns starter for proj-1.
 		ms := &APIStoreMock{
 			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID:     projectID,
 					DefaultRegion: "lhr",
-					PlanTier:      "starter",
 				}, nil
 			},
 		}
-		srv := newTestServer(t, ms, &mockQueue{}, nil)
+		enforcer := &mockBillingEnforcer{
+			activeProjectOrgMap: map[string]string{"proj-1": "org-1"},
+			jobsPlanByProject:   map[string]domain.PlanTier{"proj-1": domain.PlanStarter},
+		}
+		cfg := &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+		}
+		srv := NewServer(ServerDeps{
+			Config:          cfg,
+			Store:           ms,
+			Queue:           &mockQueue{},
+			BillingEnforcer: enforcer,
+			Edition:         domain.EditionCloud,
+		})
+		t.Cleanup(srv.Close)
 		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/proj-1/settings/", ""))
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/projects/proj-1/settings/", "", "proj-1"))
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -325,17 +343,16 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 
 	t.Run("starter_plan_allowed_region", func(t *testing.T) {
 		t.Parallel()
+		// Plan tier now comes from organization_subscriptions via the billing
+		// enforcer, not project_quotas.plan_tier.
 		ms := &APIStoreMock{
-			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
-				return &store.ProjectQuota{
-					ProjectID: projectID,
-					PlanTier:  "starter",
-				}, nil
-			},
 			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 				job.ID = "job-123"
 				return nil
 			},
+		}
+		enforcer := &mockBillingEnforcer{
+			jobsPlanByProject: map[string]domain.PlanTier{"proj-1": domain.PlanStarter},
 		}
 		cfg := &config.Config{
 			InternalSecret:      "test-secret-value",
@@ -343,7 +360,12 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			JWTSigningKey:       testJWTSigningKey,
 			EnforceRegionGating: true,
 		}
-		srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+		srv := NewServer(ServerDeps{
+			Config:          cfg,
+			Store:           ms,
+			Queue:           &mockQueue{},
+			BillingEnforcer: enforcer,
+		})
 		t.Cleanup(srv.Close)
 
 		body := `{

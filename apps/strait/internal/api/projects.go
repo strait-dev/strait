@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"log/slog"
 
@@ -13,6 +12,16 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 )
+
+// orgAdvisoryLockID returns a deterministic int64 hash of the org ID for
+// use as a pg_advisory_xact_lock key. Kept at the api package level for
+// tests; the platform/projects service has its own internal copy used
+// during transactional project creation.
+func orgAdvisoryLockID(orgID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(orgID))
+	return int64(h.Sum64()) //nolint:gosec // advisory lock IDs can wrap
+}
 
 // CreateProjectRequest is the request body for creating a project.
 type CreateProjectRequest struct {
@@ -49,67 +58,13 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		Name:  req.Name,
 	}
 
-	// Serialize project creation per org using an advisory lock inside a
-	// transaction so the limit check and insert are atomic.
-	if s.txPool != nil && s.billingEnforcer != nil { //nolint:nestif
-		txErr := store.WithTx(ctx, s.txPool, func(q *store.Queries) error {
-			// Advisory lock keyed on org_id to serialize concurrent creates.
-			if err := q.AdvisoryXactLock(ctx, orgAdvisoryLockID(req.OrgID)); err != nil {
-				return fmt.Errorf("advisory lock: %w", err)
-			}
-
-			if err := s.billingEnforcer.CheckProjectLimit(ctx, req.OrgID); err != nil {
-				return err
-			}
-
-			// Ensure the org has a subscription row (lazy init for free tier).
-			if subErr := s.billingEnforcer.EnsureOrgSubscription(ctx, req.OrgID); subErr != nil {
-				slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", subErr)
-			}
-
-			if err := q.CreateProject(ctx, project); err != nil {
-				return fmt.Errorf("create project: %w", err)
-			}
-
-			if err := q.SeedProjectSystemRoles(ctx, project.ID); err != nil {
-				slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
-			}
-
-			return nil
-		})
-		if txErr != nil {
-			var le *billing.LimitError
-			if errors.As(txErr, &le) {
-				return nil, le
-			}
-			slog.Error("failed to create project", "error", txErr)
-			return nil, huma.Error500InternalServerError("failed to create project")
+	if err := s.platformProjects.Create(ctx, project); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			return nil, le
 		}
-	} else {
-		// Fallback: no transaction pool available, run without advisory lock.
-		if s.billingEnforcer != nil {
-			if err := s.billingEnforcer.CheckProjectLimit(ctx, req.OrgID); err != nil {
-				var le *billing.LimitError
-				if errors.As(err, &le) {
-					return nil, le
-				}
-				slog.Error("failed to check project limit", "error", err)
-				return nil, huma.Error500InternalServerError("failed to check project limit")
-			}
-
-			if err := s.billingEnforcer.EnsureOrgSubscription(ctx, req.OrgID); err != nil {
-				slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", err)
-			}
-		}
-
-		if err := s.store.CreateProject(ctx, project); err != nil {
-			slog.Error("failed to create project", "error", err)
-			return nil, huma.Error500InternalServerError("failed to create project")
-		}
-
-		if err := s.store.SeedProjectSystemRoles(ctx, project.ID); err != nil {
-			slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
-		}
+		slog.Error("failed to create project", "error", err)
+		return nil, huma.Error500InternalServerError("failed to create project")
 	}
 
 	return &CreateProjectOutput{Body: project}, nil
@@ -135,7 +90,7 @@ func (s *Server) handleListProjects(ctx context.Context, input *ListProjectsInpu
 		return nil, huma.Error400BadRequest("org_id query parameter is required")
 	}
 
-	projects, err := s.store.ListProjectsByOrg(ctx, input.OrgID)
+	projects, err := s.platformProjects.ListByOrg(ctx, input.OrgID)
 	if err != nil {
 		slog.Error("failed to list projects", "error", err)
 		return nil, huma.Error500InternalServerError("failed to list projects")
@@ -181,7 +136,7 @@ func (s *Server) handleGetProject(ctx context.Context, input *GetProjectInput) (
 		}
 	}
 
-	project, err := s.store.GetProject(ctx, input.ProjectID)
+	project, err := s.platformProjects.Get(ctx, input.ProjectID)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
 			return nil, huma.Error404NotFound("project not found")
@@ -219,7 +174,7 @@ func (s *Server) handleDeleteProject(ctx context.Context, input *DeleteProjectIn
 		}
 	}
 
-	err := s.store.DeleteProject(ctx, input.ProjectID)
+	err := s.platformProjects.Delete(ctx, input.ProjectID)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
 			return nil, huma.Error404NotFound("project not found")
@@ -229,12 +184,4 @@ func (s *Server) handleDeleteProject(ctx context.Context, input *DeleteProjectIn
 	}
 
 	return nil, nil
-}
-
-// orgAdvisoryLockID returns a deterministic int64 hash of the org ID for use
-// as a pg_advisory_xact_lock key, serializing per-org project creation.
-func orgAdvisoryLockID(orgID string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(orgID))
-	return int64(h.Sum64()) //nolint:gosec // advisory lock IDs can wrap
 }

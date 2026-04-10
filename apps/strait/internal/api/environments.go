@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/domain"
+	platformenvironments "strait/internal/platform/environments"
 	"strait/internal/store"
 )
 
@@ -52,10 +54,6 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
 
-	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
-		return nil, err
-	}
-
 	env := &domain.Environment{
 		ProjectID: req.ProjectID,
 		Name:      req.Name,
@@ -64,7 +62,19 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		Variables: req.Variables,
 	}
 
-	if err := s.store.CreateEnvironment(ctx, env); err != nil {
+	if err := s.platformEnvironments.Create(ctx, env); err != nil {
+		var limitErr *platformenvironments.EnvironmentLimitReachedError
+		if errors.As(err, &limitErr) {
+			limits := s.getOrgPlanLimits(ctx, req.ProjectID)
+			displayName := "current"
+			if limits != nil {
+				displayName = limits.DisplayName
+			}
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("Your %s plan allows %d environments (you have %d). Upgrade at /settings/billing",
+					displayName, limitErr.Limit, limitErr.Existing),
+			)
+		}
 		return nil, huma.Error500InternalServerError("failed to create environment")
 	}
 
@@ -82,7 +92,7 @@ type GetEnvironmentOutput struct {
 }
 
 func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironmentInput) (*GetEnvironmentOutput, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	env, err := s.platformEnvironments.Get(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -94,7 +104,7 @@ func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironment
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
-	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
+	resolvedVariables, err := s.platformEnvironments.ResolveVariables(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -127,7 +137,7 @@ func (s *Server) handleListEnvironments(ctx context.Context, input *ListEnvironm
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	envs, err := s.store.ListEnvironments(ctx, projectID, limit+1, cursor)
+	envs, err := s.platformEnvironments.List(ctx, projectID, limit+1, cursor)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list environments")
 	}
@@ -149,7 +159,7 @@ type UpdateEnvironmentOutput struct {
 }
 
 func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvironmentInput) (*UpdateEnvironmentOutput, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	env, err := s.platformEnvironments.Get(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -175,7 +185,7 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 		env.Variables = *req.Variables
 	}
 
-	if err := s.store.UpdateEnvironment(ctx, env); err != nil {
+	if err := s.platformEnvironments.Update(ctx, env); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
 		}
@@ -191,7 +201,7 @@ type DeleteEnvironmentInput struct {
 }
 
 func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvironmentInput) (*struct{}, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	env, err := s.platformEnvironments.Get(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -203,7 +213,7 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvir
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
-	if err := s.store.DeleteEnvironment(ctx, input.EnvID); err != nil {
+	if err := s.platformEnvironments.Delete(ctx, input.EnvID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
 		}
@@ -227,7 +237,7 @@ type GetResolvedVariablesOutput struct {
 }
 
 func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResolvedVariablesInput) (*GetResolvedVariablesOutput, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	env, err := s.platformEnvironments.Get(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -239,7 +249,7 @@ func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResol
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
-	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
+	resolvedVariables, err := s.platformEnvironments.ResolveVariables(ctx, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")

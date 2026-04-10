@@ -975,6 +975,60 @@ func (e *Enforcer) GetAgentPlanForProject(ctx context.Context, projectID string)
 	return sub.AgentPlanTier, nil
 }
 
+// GetJobsPlanForProject returns the Jobs plan tier for a project's org.
+// Returns "free" if no subscription exists or on any error (fail-open).
+// This is the canonical lookup for Jobs plan tier — do NOT read plan_tier
+// off project_quotas, that column is write-dead and always returns empty.
+func (e *Enforcer) GetJobsPlanForProject(ctx context.Context, projectID string) (domain.PlanTier, error) {
+	if projectID == "" {
+		return domain.PlanFree, nil
+	}
+	orgID, orgErr := e.store.GetProjectOrgID(ctx, projectID)
+	if orgErr != nil || orgID == "" {
+		return domain.PlanFree, nil //nolint:nilerr // intentional fail-open to free tier
+	}
+	sub, subErr := e.store.GetOrgSubscription(ctx, orgID)
+	if subErr != nil {
+		return domain.PlanFree, nil //nolint:nilerr // intentional fail-open to free tier
+	}
+	if sub.PlanTier == "" {
+		return domain.PlanFree, nil
+	}
+	return domain.PlanTier(sub.PlanTier), nil
+}
+
+// HasJobsSubscription reports whether the org has an active paid Jobs plan.
+// Intended for UI badges, feature flags, and billing-side logic — NOT for
+// request gating. Free tier remains available to all orgs regardless.
+// Fails open (returns false) on any store error.
+func (e *Enforcer) HasJobsSubscription(ctx context.Context, orgID string) bool {
+	if orgID == "" {
+		return false
+	}
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil || sub == nil {
+		return false
+	}
+	tier := domain.PlanTier(sub.PlanTier)
+	return tier != "" && tier != domain.PlanFree
+}
+
+// HasAgentsSubscription reports whether the org has an active paid Agents plan.
+// Intended for UI badges, feature flags, and billing-side logic — NOT for
+// request gating. Free tier remains available to all orgs regardless.
+// Fails open (returns false) on any store error.
+func (e *Enforcer) HasAgentsSubscription(ctx context.Context, orgID string) bool {
+	if orgID == "" {
+		return false
+	}
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil || sub == nil {
+		return false
+	}
+	tier := domain.PlanTier(sub.AgentPlanTier)
+	return tier != "" && tier != domain.AgentPlanFree
+}
+
 // CheckProjectBudgetLimit checks if a project has exceeded its monthly budget.
 // Returns ErrProjectBudgetReached if the budget is exceeded and action is "reject".
 // Fails open on any store errors.

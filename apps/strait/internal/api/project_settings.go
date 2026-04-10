@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 
-	"strait/internal/domain"
-
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -36,13 +34,15 @@ func (s *Server) handleGetProjectSettings(ctx context.Context, input *GetProject
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get project settings")
 	}
-	resp := ProjectSettingsResponse{ProjectID: projectID, PlanTier: string(domain.PlanFree)}
+	// Plan tier comes from organization_subscriptions via the billing enforcer.
+	// project_quotas.plan_tier is write-dead; do not read it.
+	resp := ProjectSettingsResponse{
+		ProjectID: projectID,
+		PlanTier:  string(s.getProjectPlanTierCtx(ctx, projectID)),
+	}
 	if quota != nil {
 		resp.DefaultRegion = quota.DefaultRegion
 		resp.MaxKeyLifetimeDays = quota.MaxKeyLifetimeDays
-		if quota.PlanTier != "" {
-			resp.PlanTier = quota.PlanTier
-		}
 	}
 	return &GetProjectSettingsOutput{Body: resp}, nil
 }

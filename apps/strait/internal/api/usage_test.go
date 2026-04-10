@@ -19,6 +19,7 @@ import (
 type mockBillingEnforcer struct {
 	projectOrgMap       map[string]string
 	activeProjectOrgMap map[string]string
+	jobsPlanByProject   map[string]domain.PlanTier
 }
 
 func (m *mockBillingEnforcer) CheckProjectLimit(_ context.Context, _ string) error {
@@ -56,6 +57,15 @@ func (m *mockBillingEnforcer) CheckProjectBudgetLimit(_ context.Context, _ strin
 
 func (m *mockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
 	return billing.GetPlanLimits(domain.PlanFree), nil
+}
+
+func (m *mockBillingEnforcer) GetJobsPlanForProject(_ context.Context, projectID string) (domain.PlanTier, error) {
+	if m.jobsPlanByProject != nil {
+		if tier, ok := m.jobsPlanByProject[projectID]; ok {
+			return tier, nil
+		}
+	}
+	return domain.PlanFree, nil
 }
 
 func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {

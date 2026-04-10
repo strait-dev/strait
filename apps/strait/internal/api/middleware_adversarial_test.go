@@ -982,6 +982,10 @@ func (m *adversarialBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ strin
 	return billing.OrgPlanLimits{}, nil
 }
 
+func (m *adversarialBillingEnforcer) GetJobsPlanForProject(_ context.Context, _ string) (domain.PlanTier, error) {
+	return domain.PlanFree, nil
+}
+
 func (m *adversarialBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }

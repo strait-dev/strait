@@ -23,6 +23,8 @@ import (
 	"strait/internal/health"
 	"strait/internal/httputil"
 	"strait/internal/objectstore"
+	platformenvironments "strait/internal/platform/environments"
+	platformprojects "strait/internal/platform/projects"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/ratelimit"
@@ -542,44 +544,46 @@ type AnalyticsStore interface {
 }
 
 type Server struct {
-	router             chi.Router
-	store              APIStore
-	agentService       agents.Service
-	analyticsStore     AnalyticsStore
-	queue              queue.Queue
-	pubsub             pubsub.Publisher
-	config             *config.Config
-	metrics            *telemetry.Metrics
-	metricsHandler     http.Handler
-	pinger             Pinger
-	healthRegistry     *health.Registry
-	workflowCallback   WorkflowCallback
-	workflowEngine     WorkflowTrigger
-	txPool             store.TxBeginner
-	actorSyncer        ActorSyncer
-	validate           *validator.Validate
-	maxRequestBodySize int64
-	poolStatter        PoolStatter
-	permCache          *permissionCache
-	oidcVerifier       *oidcVerifier
-	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
-	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
-	rateLimiter        *ratelimit.RedisRateLimiter
-	authLimiter        *ratelimit.AuthLimiter
-	encryptor          Encryptor
-	containerRuntime   compute.ContainerRuntime
-	stripeWebhook      http.Handler
-	billingEnforcer    BillingEnforcer
-	usageService       UsageService
-	chExporter         *clickhouse.Exporter
-	agentBilling       *billing.AgentBillingReporter
-	doMemoryClient     *agents.DOMemoryClient
-	edition            domain.Edition
-	version            string
-	startedAt          time.Time
-	cdcWebhookReceiver http.Handler
-	cachedOpenAPISpec  []byte
-	objectStore        objectstore.ObjectStore // Optional: enables code-first deployments.
+	router               chi.Router
+	store                APIStore
+	agentService         agents.Service
+	platformProjects     *platformprojects.Service
+	platformEnvironments *platformenvironments.Service
+	analyticsStore       AnalyticsStore
+	queue                queue.Queue
+	pubsub               pubsub.Publisher
+	config               *config.Config
+	metrics              *telemetry.Metrics
+	metricsHandler       http.Handler
+	pinger               Pinger
+	healthRegistry       *health.Registry
+	workflowCallback     WorkflowCallback
+	workflowEngine       WorkflowTrigger
+	txPool               store.TxBeginner
+	actorSyncer          ActorSyncer
+	validate             *validator.Validate
+	maxRequestBodySize   int64
+	poolStatter          PoolStatter
+	permCache            *permissionCache
+	oidcVerifier         *oidcVerifier
+	bgPool               pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
+	runInTx              func(ctx context.Context, fn func(s APIStore) error) error
+	rateLimiter          *ratelimit.RedisRateLimiter
+	authLimiter          *ratelimit.AuthLimiter
+	encryptor            Encryptor
+	containerRuntime     compute.ContainerRuntime
+	stripeWebhook        http.Handler
+	billingEnforcer      BillingEnforcer
+	usageService         UsageService
+	chExporter           *clickhouse.Exporter
+	agentBilling         *billing.AgentBillingReporter
+	doMemoryClient       *agents.DOMemoryClient
+	edition              domain.Edition
+	version              string
+	startedAt            time.Time
+	cdcWebhookReceiver   http.Handler
+	cachedOpenAPISpec    []byte
+	objectStore          objectstore.ObjectStore // Optional: enables code-first deployments.
 
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
@@ -662,6 +666,7 @@ type BillingEnforcer interface {
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
+	GetJobsPlanForProject(ctx context.Context, projectID string) (domain.PlanTier, error)
 	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 	GetStripeCustomerID(ctx context.Context, orgID string) (string, error)
@@ -790,8 +795,64 @@ func NewServer(deps ServerDeps) *Server {
 		}
 	}
 
+	// Platform services: product-neutral primitives shared across Jobs,
+	// Agents, and future products. See internal/platform/doc.go.
+	srv.platformProjects = platformprojects.NewService(
+		srv.store,
+		srv.txPool,
+		platformProjectsBillingAdapter{srv.billingEnforcer},
+		slog.Default(),
+	)
+	srv.platformEnvironments = platformenvironments.NewService(
+		srv.store,
+		platformEnvironmentsLimitAdapter{srv: srv},
+	)
+
 	srv.router = srv.routes()
 	return srv
+}
+
+// platformProjectsBillingAdapter bridges the narrow billing interface the
+// platform/projects service expects to the api.BillingEnforcer interface.
+// Falls back to no-op checks when billingEnforcer is nil (test contexts).
+type platformProjectsBillingAdapter struct {
+	be BillingEnforcer
+}
+
+func (a platformProjectsBillingAdapter) CheckProjectLimit(ctx context.Context, orgID string) error {
+	if a.be == nil {
+		return nil
+	}
+	return a.be.CheckProjectLimit(ctx, orgID)
+}
+
+func (a platformProjectsBillingAdapter) EnsureOrgSubscription(ctx context.Context, orgID string) error {
+	if a.be == nil {
+		return nil
+	}
+	return a.be.EnsureOrgSubscription(ctx, orgID)
+}
+
+// platformEnvironmentsLimitAdapter implements platformenvironments.LimitChecker
+// by resolving the org plan limits via the Server's billing enforcer. Fails
+// open (limit=0 meaning unlimited) on any lookup error.
+type platformEnvironmentsLimitAdapter struct {
+	srv *Server
+}
+
+func (a platformEnvironmentsLimitAdapter) MaxEnvironmentsForProject(ctx context.Context, projectID string) (int, string, error) {
+	if a.srv == nil || a.srv.billingEnforcer == nil {
+		return 0, "", nil
+	}
+	limits := a.srv.getOrgPlanLimits(ctx, projectID)
+	if limits == nil || limits.MaxEnvironments <= 0 {
+		return 0, "", nil
+	}
+	orgID, err := a.srv.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return 0, "", nil //nolint:nilerr // fail open
+	}
+	return limits.MaxEnvironments, orgID, nil
 }
 
 func (s *Server) dbBackpressure(next http.Handler) http.Handler {

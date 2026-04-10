@@ -65,14 +65,20 @@ func (s *Server) checkPreferredRegionsForPlan(ctx context.Context, projectID str
 	return nil
 }
 
-// getProjectPlanTierCtx fetches the plan tier for a project, defaulting to free.
+// getProjectPlanTierCtx fetches the Jobs plan tier for a project, defaulting to free.
+//
+// The source of truth is organization_subscriptions.plan_tier, resolved via the
+// billing enforcer. The project_quotas.plan_tier column is write-dead (nothing
+// writes it, every read returns empty) and must not be used. This function used
+// to read from project_quotas which meant region gating was permanently stuck
+// in free-tier mode regardless of actual subscription state.
 func (s *Server) getProjectPlanTierCtx(ctx context.Context, projectID string) domain.PlanTier {
-	quota, err := s.store.GetProjectQuota(ctx, projectID)
-	if err != nil || quota == nil {
+	if s.billingEnforcer == nil {
 		return domain.PlanFree
 	}
-	if quota.PlanTier == "" {
+	tier, err := s.billingEnforcer.GetJobsPlanForProject(ctx, projectID)
+	if err != nil || tier == "" {
 		return domain.PlanFree
 	}
-	return domain.PlanTier(quota.PlanTier)
+	return tier
 }
