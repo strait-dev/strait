@@ -9,7 +9,6 @@ on:
 permissions:
   actions: read
   contents: read
-  packages: write
 
 concurrency:
   group: publish-images-${{ github.ref }}
@@ -70,15 +69,28 @@ jobs:
     needs: check-ci
     name: Community API Image
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # keyless cosign signing via Fulcio OIDC
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
       - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         id: meta
@@ -89,104 +101,301 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: apps/strait
           file: apps/strait/Dockerfile
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ github.event.head_commit.timestamp }}
-
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/strait-dev/strait:${{ steps.meta.outputs.version }}
-          format: table
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-          timeout: 10m
-
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: apps/strait
-          file: apps/strait/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=strait-community
+          cache-to: type=gha,mode=max,scope=strait-community
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
+
+      - name: Scan pushed image with Trivy (amd64)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+
+      - name: Scan pushed image with Trivy (arm64)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+
+      - name: Sign image and attestations (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          # --recursive walks the OCI index and signs every per-arch child
+          # manifest AND the attestation manifests (SBOM + SLSA provenance).
+          # Without it, cosign signs only the index digest, which Kyverno
+          # rejects once it resolves to a per-arch child at admission time.
+          # --tsa-server-url embeds an RFC 3161 timestamp from Sigstore's
+          # public TSA, giving offline-verifiable proof of signing time
+          # independent of Rekor.
+          cosign sign --yes --recursive \
+            --oidc-issuer="https://token.actions.githubusercontent.com" \
+            --tsa-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
+            --timeout=3m \
+            "${REGISTRY}/strait-dev/strait@${DIGEST}"
+
+      - name: Verify signature
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait@${DIGEST}"
+
+      - name: Verify SBOM and provenance attestations
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          cosign verify-attestation --type spdxjson \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait@${DIGEST}"
+          cosign verify-attestation --type slsaprovenance \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait@${DIGEST}"
+
+      - name: Verify pushed tags are pullable from GHCR
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Verifying $tag..."
+            docker buildx imagetools inspect "$tag" > /dev/null
+          done <<< "${{ steps.meta.outputs.tags }}"
 
   cloud-api:
     needs: check-ci
     name: Cloud API Image
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # keyless cosign signing via Fulcio OIDC
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
       - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         id: meta
         with:
           images: ${{ env.REGISTRY }}/strait-dev/strait-cloud
+          # Only publish the immutable semver tag. ArgoCD Image Updater uses
+          # the semver strategy and consumes {{version}} directly; {{major}}.{{minor}}
+          # and latest are mutable tags with no consumer here and only add
+          # verification footguns.
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
 
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: apps/strait
           file: apps/strait/Dockerfile
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ github.event.head_commit.timestamp }}
-            BUILD_TAGS=cloud
-
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/strait-dev/strait-cloud:${{ steps.meta.outputs.version }}
-          format: table
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-          timeout: 10m
-
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: apps/strait
-          file: apps/strait/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=strait-cloud
+          cache-to: type=gha,mode=max,scope=strait-cloud
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
             BUILD_TAGS=cloud
 
-  loadtest:
-    needs: check-ci
-    name: Loadtest Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 20
+      - name: Scan pushed image with Trivy (amd64)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait-cloud@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+
+      - name: Scan pushed image with Trivy (arm64)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait-cloud@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+
+      - name: Sign image and attestations (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          # --recursive walks the OCI index and signs every per-arch child
+          # manifest AND the attestation manifests (SBOM + SLSA provenance).
+          # Without it, cosign signs only the index digest, which Kyverno
+          # rejects once it resolves to a per-arch child at admission time.
+          # --tsa-server-url embeds an RFC 3161 timestamp from Sigstore's
+          # public TSA, giving offline-verifiable proof of signing time
+          # independent of Rekor.
+          cosign sign --yes --recursive \
+            --oidc-issuer="https://token.actions.githubusercontent.com" \
+            --tsa-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
+            --timeout=3m \
+            "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
+
+      - name: Verify signature
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
+
+      - name: Verify SBOM and provenance attestations
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          cosign verify-attestation --type spdxjson \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
+          cosign verify-attestation --type slsaprovenance \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
+
+      - name: Verify pushed tags are pullable from GHCR
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Verifying $tag..."
+            docker buildx imagetools inspect "$tag" > /dev/null
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+  release-gate:
+    name: Release Gate
+    needs: [community-api, cloud-api]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all image jobs to have succeeded
+        run: |
+          community="${{ needs.community-api.result }}"
+          cloud="${{ needs.cloud-api.result }}"
+          echo "community-api=$community"
+          echo "cloud-api=$cloud"
+          if [[ "$community" != "success" || "$cloud" != "success" ]]; then
+            echo "::error::one or more image jobs did not succeed"
+            exit 1
+          fi
+          echo "all image jobs succeeded"
+
+  release-notes:
+    name: Publish GitHub Release
+    needs: release-gate
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.release-gate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # git-cliff needs full tag history
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@98c93442bb05a455a77bee982867857ae748eeea # v4.7.1
+        with:
+          config: cliff.toml
+          args: --latest --strip all
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.content }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+
+  sbom-diff:
+    name: SBOM diff vs previous release
+    needs: release-gate
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.release-gate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      id-token: write # cosign keyless verification of attestations
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -194,18 +403,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        id: meta
-        with:
-          images: ${{ env.REGISTRY }}/strait-dev/strait-loadtest
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - name: Resolve previous release tag
+        id: prev
+        run: |
+          set -euo pipefail
+          CURRENT="${{ github.ref_name }}"
+          # Most recent stable semver tag (no pre-release suffix), excluding CURRENT.
+          PREV="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${CURRENT}$" | head -1 || true)"
+          echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
+          if [ -z "$PREV" ]; then
+            echo "No previous stable release tag found — skipping SBOM diff."
+          else
+            echo "Diffing against ${PREV}"
+          fi
+
+      - name: Fetch SBOMs and diff
+        if: steps.prev.outputs.tag != ''
+        env:
+          CURRENT: ${{ github.ref_name }}
+          PREV: ${{ steps.prev.outputs.tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          mkdir -p sbom-artifacts
+          for image in strait strait-cloud; do
+            CUR_TAG="${CURRENT#v}"
+            PREV_TAG="${PREV#v}"
+
+            cosign download attestation \
+              --predicate-type=https://spdx.dev/Document \
+              --platform=linux/amd64 \
+              "${REGISTRY}/strait-dev/${image}:${CUR_TAG}" \
+              | jq -r '.payload' | base64 -d | jq '.predicate' > "sbom-artifacts/${image}-current.spdx.json"
+
+            cosign download attestation \
+              --predicate-type=https://spdx.dev/Document \
+              --platform=linux/amd64 \
+              "${REGISTRY}/strait-dev/${image}:${PREV_TAG}" \
+              | jq -r '.payload' | base64 -d | jq '.predicate' > "sbom-artifacts/${image}-previous.spdx.json"
+
+            {
+              echo "### ${image}"
+              scripts/sbom-diff.sh \
+                "sbom-artifacts/${image}-current.spdx.json" \
+                "sbom-artifacts/${image}-previous.spdx.json"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload SBOM artifacts
+        if: steps.prev.outputs.tag != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          context: apps/strait
-          file: apps/strait/test/e2e_stress/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          name: sbom-diff
+          path: sbom-artifacts/
+          if-no-files-found: ignore

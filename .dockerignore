@@ -10,7 +10,6 @@
 # Go service test artifacts.
 apps/strait/test
 apps/strait/internal/loadtest
-packages/load-tests
 
 # Docs and website source (keep package.json for lockfile).
 apps/docs/app
@@ -27,7 +26,6 @@ apps/website/public
 **/dist
 **/coverage
 *.log
-e2e_stress_report_*
 
 # Ops, monitoring, scripts, deploy configs.
 packages/monitoring

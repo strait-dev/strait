@@ -23,3 +23,15 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+
+  - package-ecosystem: "docker"
+    directory: "/apps/strait"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
