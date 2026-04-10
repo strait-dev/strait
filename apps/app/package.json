@@ -52,7 +52,7 @@
     "@types/pg": "^8.20.0",
     "@upstash/redis": "^1.37.0",
     "@xyflow/react": "^12.10.2",
-    "better-auth": "1.6.1",
+    "better-auth": "1.6.2",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
     "effect": "^3.21.0",
