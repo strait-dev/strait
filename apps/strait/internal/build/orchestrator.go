@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -57,6 +57,7 @@ type Orchestrator struct {
 	concurrency    int
 	logger         *slog.Logger
 	metrics        *telemetry.Metrics
+	inflight       sync.WaitGroup // tracks running build goroutines; drain() waits on this
 }
 
 // OrchestratorOption configures an Orchestrator.
@@ -138,8 +139,9 @@ func (o *Orchestrator) Run(ctx context.Context) {
 }
 
 // dispatch attempts to claim one unclaimed building deployment per available
-// concurrency slot. Each claimed deployment is executed in a goroutine managed
-// by conc.WaitGroup so panics are recovered and propagated safely.
+// concurrency slot. Each claimed deployment is handed to a background goroutine;
+// dispatch returns immediately so the poll loop is never blocked by in-flight
+// builds — the semaphore alone bounds concurrency.
 func (o *Orchestrator) dispatch(ctx context.Context, sem chan struct{}) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "build.Orchestrator.dispatch")
 	defer span.End()
@@ -152,37 +154,45 @@ func (o *Orchestrator) dispatch(ctx context.Context, sem chan struct{}) {
 		}
 	}
 
-	var wg conc.WaitGroup
-
-dispatch:
 	for {
 		// Try to acquire a concurrency slot without blocking.
 		select {
 		case sem <- struct{}{}:
 		default:
-			break dispatch // All slots taken.
+			return // All slots taken.
 		}
 
 		d, err := o.store.ClaimBuildingDeployment(ctx, o.workerID)
 		if err != nil {
 			<-sem // release slot
 			o.logger.Error("claim building deployment failed", "error", err)
-			break dispatch
+			return
 		}
 		if d == nil {
 			<-sem // release slot — queue is empty
-			break dispatch
+			return
 		}
 
 		dep := d
-		wg.Go(func() {
+		o.inflight.Go(func() {
 			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					o.logger.Error("build goroutine panicked",
+						"panic", r,
+						"deployment_id", dep.ID,
+					)
+				}
+			}()
 			o.runBuild(ctx, dep)
 		})
 	}
-
-	wg.Wait()
 }
+
+// drain blocks until all in-flight build goroutines have finished.
+// Useful for graceful shutdown and for tests that need to assert on
+// goroutine-written state after calling dispatch.
+func (o *Orchestrator) drain() { o.inflight.Wait() }
 
 // releaseStale releases claims on building deployments held longer than
 // builderTimeout*2 so that work orphaned by a crashed orchestrator can be

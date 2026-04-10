@@ -304,10 +304,13 @@ func (b *Builder) Build(ctx context.Context, d *domain.CodeDeployment, addr stri
 	<-doneCh
 
 	// Publish the done sentinel regardless of build outcome so SSE consumers know
-	// the stream has ended.
+	// the stream has ended. Use a detached context so a server shutdown (which
+	// cancels ctx) cannot prevent the sentinel from reaching connected clients.
 	if b.logPublisher != nil {
 		sentinel, _ := json.Marshal(buildLogChunk{Done: true})
-		_ = b.logPublisher.Publish(ctx, BuildLogChannel(d.ID), sentinel)
+		sentinelCtx, sentinelCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer sentinelCancel()
+		_ = b.logPublisher.Publish(sentinelCtx, BuildLogChannel(d.ID), sentinel)
 	}
 
 	if buildErr != nil {
@@ -341,6 +344,9 @@ func (b *Builder) extractTarball(ctx context.Context, sourceURI string) (dir str
 	data, err := io.ReadAll(io.LimitReader(rc, MaxTarballBytes+1))
 	if err != nil {
 		return "", nil, fmt.Errorf("read tarball: %w", err)
+	}
+	if int64(len(data)) > MaxTarballBytes {
+		return "", nil, &TarballError{Reason: fmt.Sprintf("compressed tarball exceeds maximum size (%d MB)", MaxTarballBytes/1024/1024)}
 	}
 
 	// Security: validate before extracting.
