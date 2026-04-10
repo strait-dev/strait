@@ -25,9 +25,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o /strait ./cmd/strait
 
 # Runtime stage. Pinned to the multi-arch manifest-list digest; Dependabot
-# keeps this bumped weekly. alpine 3.22 ships openssl 3.3.7-r0 which fixes
-# CVE-2026-28390; alpine 3.21 is still on 3.3.6 and fails Trivy's HIGH gate.
-FROM alpine:3.22@sha256:55ae5d250caebc548793f321534bc6a8ef1d116f334f18f4ada1b2daad3251b2
+# keeps this bumped weekly. alpine 3.23 ships openssl 3.5.6-r0 which fixes
+# CVE-2026-28390; alpine 3.22 only has 3.5.5-r0 (distro-lag behind the
+# upstream fix) and fails Trivy's HIGH gate.
+FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app \
