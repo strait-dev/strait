@@ -322,47 +322,57 @@ func TestRLS_JobSLOEvaluations_ViaParentJobSLO(t *testing.T) {
 	projA := "project-rls-slo-a-" + newID()
 	projB := "project-rls-slo-b-" + newID()
 
-	var sloA, sloB string
-	runAsProject(t, ctx, projA, true, func(q *store.Queries) {
-		job := mustCreateJob(t, ctx, q, projA)
-		sloA = "slo-" + newID()
-		if _, err := testDB.Pool.Exec(ctx,
-			`INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours) VALUES ($1, $2, $3, $4, $5, $6)`,
-			sloA, job.ID, projA, "success_rate", 0.99, 24,
-		); err != nil {
-			t.Fatalf("insert job_slos A: %v", err)
-		}
-		if _, err := testDB.Pool.Exec(ctx,
-			`INSERT INTO job_slo_evaluations (id, slo_id, current_value, budget_remaining) VALUES ($1, $2, $3, $4)`,
-			"eval-"+newID(), sloA, 0.98, 0.95,
-		); err != nil {
-			t.Fatalf("insert eval A: %v", err)
-		}
-	})
-	runAsProject(t, ctx, projB, true, func(q *store.Queries) {
-		job := mustCreateJob(t, ctx, q, projB)
-		sloB = "slo-" + newID()
-		if _, err := testDB.Pool.Exec(ctx,
-			`INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours) VALUES ($1, $2, $3, $4, $5, $6)`,
-			sloB, job.ID, projB, "success_rate", 0.99, 24,
-		); err != nil {
-			t.Fatalf("insert job_slos B: %v", err)
-		}
-		if _, err := testDB.Pool.Exec(ctx,
-			`INSERT INTO job_slo_evaluations (id, slo_id, current_value, budget_remaining) VALUES ($1, $2, $3, $4)`,
-			"eval-"+newID(), sloB, 0.97, 0.90,
-		); err != nil {
-			t.Fatalf("insert eval B: %v", err)
-		}
-	})
+	// Seed the jobs, job_slos, and job_slo_evaluations via the pool
+	// (superuser path, bypasses RLS) in a single committed sequence.
+	// The earlier version seeded through runAsProject's uncommitted tx
+	// and then tried to reference the job via a pool-level INSERT,
+	// which hit a FK violation because the pool connection couldn't
+	// see the uncommitted parent row.
+	q := mustStore(t)
+	jobA := mustCreateJob(t, ctx, q, projA)
+	jobB := mustCreateJob(t, ctx, q, projB)
+
+	sloA := "slo-" + newID()
+	if _, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours) VALUES ($1, $2, $3, $4, $5, $6)`,
+		sloA, jobA.ID, projA, "success_rate", 0.99, 24,
+	); err != nil {
+		t.Fatalf("insert job_slos A: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO job_slo_evaluations (id, slo_id, current_value, budget_remaining) VALUES ($1, $2, $3, $4)`,
+		"eval-"+newID(), sloA, 0.98, 0.95,
+	); err != nil {
+		t.Fatalf("insert eval A: %v", err)
+	}
+
+	sloB := "slo-" + newID()
+	if _, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours) VALUES ($1, $2, $3, $4, $5, $6)`,
+		sloB, jobB.ID, projB, "success_rate", 0.99, 24,
+	); err != nil {
+		t.Fatalf("insert job_slos B: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO job_slo_evaluations (id, slo_id, current_value, budget_remaining) VALUES ($1, $2, $3, $4)`,
+		"eval-"+newID(), sloB, 0.97, 0.90,
+	); err != nil {
+		t.Fatalf("insert eval B: %v", err)
+	}
 
 	// The EXISTS subquery in the job_slo_evaluations policy routes RLS
 	// through the parent job_slos. Under tenant A, only A's evaluation
 	// should be visible, even though job_slo_evaluations has no direct
-	// project_id column.
+	// project_id column. countAsProject drops to strait_app inside a
+	// tx with app.current_project_id bound, so the policy actually
+	// enforces.
 	got := countAsProject(t, ctx, testDB.Pool, projA, `SELECT COUNT(*) FROM job_slo_evaluations`)
 	if got != 1 {
 		t.Fatalf("project A sees %d SLO evaluations, want 1 (transitive RLS failed)", got)
+	}
+	gotB := countAsProject(t, ctx, testDB.Pool, projB, `SELECT COUNT(*) FROM job_slo_evaluations`)
+	if gotB != 1 {
+		t.Fatalf("project B sees %d SLO evaluations, want 1", gotB)
 	}
 }
 
