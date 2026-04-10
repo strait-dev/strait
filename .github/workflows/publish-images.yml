@@ -34,6 +34,7 @@ jobs:
             const required = ['Test', 'Lint', 'Security'];
             const maxWait = 15 * 60 * 1000; // 15 minutes
             const poll = 30 * 1000; // 30 seconds
+            const missingGrace = 3 * 60 * 1000; // 3 minutes to wait for a required run to appear
             const start = Date.now();
 
             // For each required workflow name, pick the best run on this commit:
@@ -63,12 +64,22 @@ jobs:
 
               const results = required.map(name => {
                 const run = pickRun(runs.workflow_runs, name);
-                return { name, status: run?.status, conclusion: run?.conclusion };
+                return { name, run };
               });
 
-              const allDone = results.every(r => r.status === 'completed');
+              // Fail fast if a required workflow has no run on this commit at
+              // all after a short grace period — usually caused by path-filtered
+              // triggers that didn't match. Never silently wait the full 15min.
+              const missing = results.filter(r => !r.run).map(r => r.name);
+              if (missing.length > 0 && Date.now() - start > missingGrace) {
+                core.setFailed(`Required workflows have no runs on ${context.sha}: ${missing.join(', ')}. Check trigger path filters.`);
+                return;
+              }
+
+              const resolved = results.map(r => ({ name: r.name, status: r.run?.status, conclusion: r.run?.conclusion }));
+              const allDone = resolved.every(r => r.status === 'completed');
               if (allDone) {
-                const failed = results.filter(r => r.conclusion !== 'success');
+                const failed = resolved.filter(r => r.conclusion !== 'success');
                 if (failed.length > 0) {
                   core.setFailed(`CI failed: ${failed.map(f => `${f.name}=${f.conclusion}`).join(', ')}`);
                   return;
@@ -77,7 +88,7 @@ jobs:
                 return;
               }
 
-              const pending = results.filter(r => r.status !== 'completed').map(r => r.name);
+              const pending = resolved.filter(r => r.status !== 'completed').map(r => r.name);
               core.info(`Waiting for: ${pending.join(', ')} (${Math.round((Date.now() - start) / 1000)}s elapsed)`);
               await new Promise(r => setTimeout(r, poll));
             }
