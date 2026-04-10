@@ -22,6 +22,10 @@ func (s *Server) handleGetWorkflowRunDebug(ctx context.Context, input *GetWorkfl
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
+	if err := requireProjectMatch(ctx, wfRun.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
 	steps, err := s.loadWorkflowRunSteps(ctx, wfRun)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load workflow steps")
@@ -55,8 +59,16 @@ func (s *Server) handleCompareWorkflowRuns(ctx context.Context, input *CompareWo
 		return nil, huma.Error404NotFound("workflow run A not found")
 	}
 
+	if err := requireProjectMatch(ctx, runA.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run A not found")
+	}
+
 	runB, err := s.store.GetWorkflowRun(ctx, input.OtherRunID)
 	if err != nil {
+		return nil, huma.Error404NotFound("workflow run B not found")
+	}
+
+	if err := requireProjectMatch(ctx, runB.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run B not found")
 	}
 

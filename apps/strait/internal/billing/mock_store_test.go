@@ -25,30 +25,39 @@ type paymentStatusUpdate struct {
 	graceEnd *time.Time
 }
 
+type pendingDowngradeUpdate struct {
+	orgID       string
+	pendingTier string
+	periodStart *time.Time
+	periodEnd   *time.Time
+}
+
 type mockBillingStore struct {
-	lastUpserted            *OrgSubscription
-	upsertCount             int
-	lastPlanUpdate          *planUpdate
-	lastFullUpdate          *fullUpdate
-	lastPendingTier         string
-	lastClearedPending      string
-	pendingDowngradeOrg     string
-	lastPaymentStatusUpdate *paymentStatusUpdate
-	subscriptions           map[string]*OrgSubscription
-	projects                map[string][]string
-	memberCounts            map[string]int
-	orgCountsByUser         map[string]int
-	executingRuns           map[string]int
-	aiModelCallCounts       map[string]int64
-	usageRecords            []UsageRecord
-	periodSpendByOrg        map[string]int64
-	sumSpendErr             error
-	recordWebhookErr        error
-	recordedWebhookIDs      []string
-	getOrgSubscriptionFn    func(ctx context.Context, orgID string) (*OrgSubscription, error)
-	enterpriseContracts     map[string]*EnterpriseContract
-	projectOrgMap           map[string]string
-	agentSpendByOrg         map[string]int64
+	lastUpserted               *OrgSubscription
+	upsertCount                int
+	lastPlanUpdate             *planUpdate
+	lastFullUpdate             *fullUpdate
+	lastPendingTier            string
+	lastClearedPending         string
+	pendingDowngradeOrg        string
+	lastPendingDowngrade       *pendingDowngradeUpdate
+	lastPaymentStatusUpdate    *paymentStatusUpdate
+	subscriptions              map[string]*OrgSubscription
+	projects                   map[string][]string
+	memberCounts               map[string]int
+	orgCountsByUser            map[string]int
+	executingRuns              map[string]int
+	aiModelCallCounts          map[string]int64
+	usageRecords               []UsageRecord
+	periodSpendByOrg           map[string]int64
+	sumSpendErr                error
+	recordWebhookErr           error
+	recordedWebhookIDs         []string
+	getOrgSubscriptionFn       func(ctx context.Context, orgID string) (*OrgSubscription, error)
+	enterpriseContracts        map[string]*EnterpriseContract
+	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
+	projectOrgMap              map[string]string
+	agentSpendByOrg            map[string]int64
 }
 
 func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
@@ -124,11 +133,23 @@ func (m *mockBillingStore) SetPendingPlanTier(_ context.Context, orgID, tier str
 	return ErrSubscriptionNotFound
 }
 
-func (m *mockBillingStore) SetPendingDowngrade(_ context.Context, orgID, pendingTier string, _, _ *time.Time) error {
+func (m *mockBillingStore) SetPendingDowngrade(_ context.Context, orgID, pendingTier string, periodStart, periodEnd *time.Time) error {
 	m.lastPendingTier = pendingTier
+	m.lastPendingDowngrade = &pendingDowngradeUpdate{
+		orgID:       orgID,
+		pendingTier: pendingTier,
+		periodStart: periodStart,
+		periodEnd:   periodEnd,
+	}
 	if m.subscriptions != nil {
 		if sub, ok := m.subscriptions[orgID]; ok {
 			sub.PendingPlanTier = &pendingTier
+			if periodStart != nil {
+				sub.CurrentPeriodStart = periodStart
+			}
+			if periodEnd != nil {
+				sub.CurrentPeriodEnd = periodEnd
+			}
 			return nil
 		}
 	}
@@ -394,7 +415,10 @@ func (m *mockBillingStore) GetEnterpriseContract(_ context.Context, orgID string
 	return nil, ErrContractNotFound
 }
 
-func (m *mockBillingStore) UpsertEnterpriseContract(_ context.Context, c *EnterpriseContract) error {
+func (m *mockBillingStore) UpsertEnterpriseContract(ctx context.Context, c *EnterpriseContract) error {
+	if m.upsertEnterpriseContractFn != nil {
+		return m.upsertEnterpriseContractFn(ctx, c)
+	}
 	if m.enterpriseContracts == nil {
 		m.enterpriseContracts = make(map[string]*EnterpriseContract)
 	}

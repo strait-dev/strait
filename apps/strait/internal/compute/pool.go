@@ -3,6 +3,7 @@ package compute
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -110,11 +111,12 @@ func (p *MachinePool) Release(projectID, imageURI, region, machineID string) {
 					fn(evicted.MachineID)
 				}()
 			default:
-				// Eviction queue full — destroy inline to avoid leak.
-				func() {
-					defer func() { recover() }() //nolint:errcheck
-					fn(evicted.MachineID)
-				}()
+				// Eviction semaphore full -- drop evicted machine instead of
+				// blocking inline (which would hold p.mu across network I/O).
+				// The periodic GC will clean up any leaked machines.
+				slog.Warn("machine pool eviction semaphore full, dropping evicted machine",
+					"machine_id", evicted.MachineID,
+				)
 			}
 		}
 	}
@@ -126,21 +128,20 @@ func (p *MachinePool) Release(projectID, imageURI, region, machineID string) {
 }
 
 // Prune removes machines older than maxAge and calls destroyFn for each.
+// The destroy callbacks run outside the pool lock so that slow network I/O
+// (e.g. K8s API calls) does not block other pool operations.
 func (p *MachinePool) Prune(maxAge time.Duration, destroyFn func(machineID string) error) int {
 	cutoff := time.Now().Add(-maxAge)
-	var pruned int
+
+	// Phase 1: collect machines to prune under the lock.
+	var toPrune []string
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	for key, entries := range p.entries {
 		var kept []poolEntry
 		for _, e := range entries {
 			if e.StoppedAt.Before(cutoff) {
-				pruned++
-				if destroyFn != nil {
-					_ = destroyFn(e.MachineID)
-				}
+				toPrune = append(toPrune, e.MachineID)
 			} else {
 				kept = append(kept, e)
 			}
@@ -151,8 +152,16 @@ func (p *MachinePool) Prune(maxAge time.Duration, destroyFn func(machineID strin
 			p.entries[key] = kept
 		}
 	}
+	p.mu.Unlock()
 
-	return pruned
+	// Phase 2: destroy outside the lock so slow I/O doesn't block pool ops.
+	if destroyFn != nil {
+		for _, id := range toPrune {
+			_ = destroyFn(id)
+		}
+	}
+
+	return len(toPrune)
 }
 
 // Size returns the total number of machines in the pool.

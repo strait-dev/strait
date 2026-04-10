@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,13 +21,17 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
+	"strait/internal/httputil"
+	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/ratelimit"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/worker"
+	"strait/schemas"
 
+	"sync"
 	"sync/atomic"
 
 	"github.com/alitto/pond/v2"
@@ -62,6 +64,7 @@ type APIStore interface {
 	WorkflowStore
 	AgentLookupStore
 	DeploymentStore
+	CodeDeploymentStore
 	EventTriggerStore
 	AuthStore
 	RBACStore
@@ -114,8 +117,10 @@ type JobStore interface {
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
+	GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error)
 	DeleteJobSecret(ctx context.Context, id string) error
 	CreateJobDependency(ctx context.Context, dep *domain.JobDependency) error
+	GetJobDependency(ctx context.Context, id string) (*domain.JobDependency, error)
 	ListJobDependencies(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error)
 	DeleteJobDependency(ctx context.Context, id string) error
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
@@ -248,6 +253,7 @@ type EventSourceStore interface {
 	UpdateEventSource(ctx context.Context, sourceID, projectID string, patch map[string]any) error
 	DeleteEventSource(ctx context.Context, sourceID, projectID string) error
 	CreateEventSubscription(ctx context.Context, sub *domain.EventSubscription) error
+	GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error)
 	ListEventSubscriptionsBySource(ctx context.Context, sourceID string) ([]domain.EventSubscription, error)
 	DeleteEventSubscription(ctx context.Context, subID string) error
 }
@@ -300,6 +306,38 @@ type WorkflowStore interface {
 	UpdateCanaryDeploymentTraffic(ctx context.Context, workflowID string, trafficPct int) error
 	CompleteCanaryDeployment(ctx context.Context, workflowID, status string) error
 	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
+}
+
+// CodeDeploymentStore handles code-first job deployment lifecycle operations.
+// Each deployment corresponds to one `strait deploy` invocation.
+type CodeDeploymentStore interface {
+	CreateCodeDeployment(ctx context.Context, d *domain.CodeDeployment) error
+	GetCodeDeployment(ctx context.Context, id, projectID string) (*domain.CodeDeployment, error)
+	ListCodeDeployments(ctx context.Context, jobID, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
+	// ConfirmCodeDeployment atomically transitions the deployment from pending to
+	// building. Returns ErrCodeDeploymentNotFound if the deployment is not found
+	// or is already in a non-pending state. This prevents TOCTOU double-builds
+	// when two concurrent confirm requests race at the handler layer.
+	ConfirmCodeDeployment(ctx context.Context, id string) error
+	// ClaimBuildingDeployment atomically selects and claims the oldest unclaimed
+	// building deployment for the given workerID. Returns nil, nil when there is
+	// nothing to claim. Uses FOR UPDATE SKIP LOCKED to prevent duplicate dispatch
+	// across multiple orchestrator replicas.
+	ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error)
+	// ReleaseStaleClaimedDeployments resets the claim on building deployments
+	// whose build_node_claimed_at is older than olderThan. This recovers work
+	// orphaned by crashed orchestrator workers.
+	ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error)
+	// DeleteExpiredDeployments removes pending deployments created before
+	// pendingBefore and failed/timed_out deployments finished before failedBefore.
+	// Never deletes the active deployment of any job.
+	DeleteExpiredDeployments(ctx context.Context, pendingBefore, failedBefore time.Time) (int64, error)
+	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
+	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
+	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
+	// ListCodeDeploymentsByOrg returns deployments across all projects in an org,
+	// ordered newest-first. Used by internal admin tooling only.
+	ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
 }
 
 // DeploymentStore handles deployment version lifecycle operations.
@@ -541,6 +579,51 @@ type Server struct {
 	startedAt          time.Time
 	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
+	objectStore        objectstore.ObjectStore // Optional: enables code-first deployments.
+
+	// SSE connection limiters to prevent goroutine/connection exhaustion.
+	sseGlobalConns  atomic.Int64
+	sseProjectConns sync.Map // map[string]*atomic.Int64
+}
+
+// acquireSSEConn attempts to reserve an SSE connection slot for the given project.
+// Returns false if either the global or per-project limit would be exceeded.
+func (s *Server) acquireSSEConn(projectID string) bool {
+	maxGlobal := s.config.SSEMaxConns
+	if maxGlobal <= 0 {
+		maxGlobal = 5000
+	}
+	maxProject := s.config.SSEMaxConnsPerProject
+	if maxProject <= 0 {
+		maxProject = 100
+	}
+
+	if s.sseGlobalConns.Load() >= maxGlobal {
+		return false
+	}
+
+	counter := s.projectSSECounter(projectID)
+	if counter.Load() >= maxProject {
+		return false
+	}
+
+	s.sseGlobalConns.Add(1)
+	counter.Add(1)
+	return true
+}
+
+// releaseSSEConn releases an SSE connection slot for the given project.
+func (s *Server) releaseSSEConn(projectID string) {
+	s.sseGlobalConns.Add(-1)
+	counter := s.projectSSECounter(projectID)
+	counter.Add(-1)
+}
+
+// projectSSECounter returns the per-project SSE connection counter,
+// creating one if it does not exist.
+func (s *Server) projectSSECounter(projectID string) *atomic.Int64 {
+	val, _ := s.sseProjectConns.LoadOrStore(projectID, &atomic.Int64{})
+	return val.(*atomic.Int64)
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -630,6 +713,7 @@ type ServerDeps struct {
 	CHExporter         *clickhouse.Exporter          // Optional: enables ClickHouse analytics export from API handlers.
 	AgentBilling       *billing.AgentBillingReporter // Optional: enables agent run billing to Stripe.
 	DOMemoryClient     *agents.DOMemoryClient        // Optional: enables Durable Objects memory backend.
+	ObjectStore        objectstore.ObjectStore       // Optional: enables code-first deployments (tarball storage).
 	Edition            domain.Edition                // Edition controls feature gating (community vs cloud).
 	Version            string                        // Build version (injected via ldflags).
 	CDCWebhookReceiver http.Handler                  // Optional: enables CDC webhook push endpoint.
@@ -689,6 +773,7 @@ func NewServer(deps ServerDeps) *Server {
 		version:            deps.Version,
 		startedAt:          time.Now(),
 		cdcWebhookReceiver: deps.CDCWebhookReceiver,
+		objectStore:        deps.ObjectStore,
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
@@ -749,9 +834,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"status":  "ok",
-		"edition": string(s.edition),
-		"version": s.version,
+		"status":    "ok",
+		"version":   s.version,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Detailed subsystem checks are only exposed to authenticated internal callers.
@@ -769,6 +854,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if isInternal {
+			resp["edition"] = string(s.edition)
 			resp["uptime_seconds"] = int(time.Since(s.startedAt).Seconds())
 			subsystems := make(map[string]string)
 			for _, c := range result.Components {
@@ -916,25 +1002,15 @@ func validateURL(rawURL string) error {
 		return nil
 	}
 
+	// Use the shared SSRF validator for comprehensive private/loopback/
+	// link-local/CGNAT IP checks, including DNS resolution of hostnames.
+	if err := httputil.ValidateExternalURL(rawURL); err != nil {
+		return fmt.Errorf("url rejected: %w", err)
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
-	for _, blocked := range blockedHosts {
-		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("url must not point to internal services")
-		}
-	}
-
-	ip := net.ParseIP(host)
-	if ip == nil {
-		ips, lookupErr := net.LookupIP(host)
-		if lookupErr == nil && slices.ContainsFunc(ips, isPrivateIP) {
-			return fmt.Errorf("url must not point to private or loopback addresses")
-		}
 	}
 
 	if port := u.Port(); port != "" && port != "80" && port != "443" {
@@ -961,24 +1037,13 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 		return errors.New(msg)
 	}
 
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	blockedHosts := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
-	for _, blocked := range blockedHosts {
-		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("url must not point to internal services")
+	if !globalAllowPrivateEndpoints.Load() {
+		if err := httputil.ValidateExternalURL(rawURL); err != nil {
+			return fmt.Errorf("url rejected: %w", err)
 		}
 	}
 
 	return nil
-}
-
-func isPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
@@ -1003,4 +1068,13 @@ func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
 	// Serve the cached OpenAPI spec as JSON.
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(s.cachedOpenAPISpec)
+}
+
+func (s *Server) handleStraitJSONSchema(w http.ResponseWriter, _ *http.Request) {
+	// Serve the embedded strait.json schema file. This is the authoritative
+	// schema for all SDK project configuration files. Clients (IDEs, SDK CI)
+	// fetch this at most once per day.
+	w.Header().Set("Content-Type", "application/schema+json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(schemas.StraitJSON)
 }

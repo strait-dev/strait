@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -263,4 +264,71 @@ func BenchmarkEvaluateCondition(b *testing.B) {
 
 func mustJSON(s string) json.RawMessage {
 	return json.RawMessage(s)
+}
+
+func TestCondition_Regex_PatternLengthLimit(t *testing.T) {
+	t.Parallel()
+
+	// Build a pattern that exceeds the max length.
+	longPattern := strings.Repeat("a", maxRegexPatternLen+1)
+	cond := mustJSON(`{"type":"regex","left":"hello","right":"` + longPattern + `"}`)
+
+	_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
+	if err == nil {
+		t.Fatal("expected error for oversized regex pattern, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum length") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestCondition_Regex_InputLengthLimit(t *testing.T) {
+	t.Parallel()
+
+	// Normal pattern, oversized input.
+	longInput := strings.Repeat("a", maxRegexInputLen+1)
+	cond := mustJSON(`{"type":"regex","left":"` + longInput + `","right":"a+"}`)
+
+	_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
+	if err == nil {
+		t.Fatal("expected error for oversized regex input, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum length") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestCondition_Regex_ReDoS_DoesNotHang(t *testing.T) {
+	t.Parallel()
+
+	// Note: Go's regexp engine (RE2-based) does not backtrack, so this pattern
+	// won't cause catastrophic backtracking per se. The length limits are the
+	// primary defense against adversarial inputs.
+	cond := mustJSON(`{"type":"regex","left":"` + strings.Repeat("a", 100) + `","right":"(a+)+b"}`)
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = EvaluateCondition(cond, map[string]domain.StepRunStatus{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// completed without hanging
+	case <-time.After(2 * time.Second):
+		t.Fatal("regex evaluation appears to hang (possible ReDoS)")
+	}
+}
+
+func TestCondition_Regex_ValidPattern(t *testing.T) {
+	t.Parallel()
+
+	cond := mustJSON(`{"type":"regex","left":"hello-world-123","right":"^hello-.*-\\d+$"}`)
+	got, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected regex match to return true")
+	}
 }

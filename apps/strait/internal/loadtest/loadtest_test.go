@@ -318,12 +318,12 @@ func TestBreakingPoint(t *testing.T) {
 	t.Log("adding 100 tenants every 30 min until P99 > 5s or error rate > 0.1%")
 
 	type breakingPointResult struct {
-		MaxTenants    int           `json:"max_tenants"`
-		BreakTenants  int           `json:"break_tenants"`
-		Duration      time.Duration `json:"duration"`
-		BreakReason   string        `json:"break_reason"`
-		Steps         []struct {
-			Tenants  int     `json:"tenants"`
+		MaxTenants   int           `json:"max_tenants"`
+		BreakTenants int           `json:"break_tenants"`
+		Duration     time.Duration `json:"duration"`
+		BreakReason  string        `json:"break_reason"`
+		Steps        []struct {
+			Tenants    int     `json:"tenants"`
 			RunsPerSec float64 `json:"runs_per_sec"`
 			ErrorRate  float64 `json:"error_rate"`
 		} `json:"steps"`
@@ -429,10 +429,10 @@ func TestEndurance(t *testing.T) {
 		LongRunJobs:    20,
 		LongRunMinutes: 240,
 		AlertThresholds: loadtest.AlertThresholds{
-			MemoryGrowthPerHourMB: 100,
+			MemoryGrowthPerHourMB:  100,
 			GoroutineGrowthPerHour: 1000,
-			P99GrowthPerHourPct:   10,
-			ErrorGrowthPerHourPct: 0.1,
+			P99GrowthPerHourPct:    10,
+			ErrorGrowthPerHourPct:  0.1,
 		},
 	})
 
@@ -605,7 +605,7 @@ func TestTestServerEndpoints(t *testing.T) {
 
 // TestChaosScenarios runs each chaos scenario as an individual subtest.
 // Use: go test -tags=loadtest -run TestChaosScenarios -timeout 4h ./internal/loadtest/...
-// Or run a single scenario: go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m
+// Or run a single scenario: go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m.
 func TestChaosScenarios(t *testing.T) {
 	h := setupHarness(t)
 	ce := loadtest.NewChaosEngine(h, 100, loadtestProjectID, resolveJobID("loadtest-fast-echo"))
@@ -726,23 +726,23 @@ func TestEnduranceWeekend(t *testing.T) {
 	}
 }
 
-// TestFlyValidation runs load tests against a Fly.io deployment.
-// Use: LOADTEST_STRAIT_URL=https://your-app.fly.dev go test -tags=loadtest -run TestFlyValidation -timeout 2h ./internal/loadtest/...
-func TestFlyValidation(t *testing.T) {
+// TestProductionValidation runs load tests against a production deployment.
+// Use: LOADTEST_STRAIT_URL=https://api.strait.dev go test -tags=loadtest -run TestProductionValidation -timeout 2h ./internal/loadtest/...
+func TestProductionValidation(t *testing.T) {
 	straitURL := os.Getenv("LOADTEST_STRAIT_URL")
 	if straitURL == "" || straitURL == "http://localhost:7676" {
-		t.Skip("set LOADTEST_STRAIT_URL to a Fly.io deployment URL to run")
+		t.Skip("set LOADTEST_STRAIT_URL to a production deployment URL to run")
 	}
 
 	h := setupHarness(t)
-	scenario := loadtest.FlyValidation()
+	scenario := loadtest.ProductionValidation()
 
-	t.Logf("running Fly.io validation against %s", straitURL)
+	t.Logf("running production validation against %s", straitURL)
 
 	engine := loadtest.NewRampEngine(*scenario.RampConfig, func(ctx context.Context) error {
 		return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-fast-echo"), map[string]any{
 			"timestamp": time.Now().UnixMilli(),
-			"source":    "fly_validation",
+			"source":    "production_validation",
 		})
 	})
 
@@ -756,10 +756,10 @@ func TestFlyValidation(t *testing.T) {
 
 	result, err := engine.Run(context.Background())
 	if err != nil {
-		t.Fatalf("Fly.io validation failed: %v", err)
+		t.Fatalf("production validation failed: %v", err)
 	}
 
-	t.Logf("=== FLY.IO VALIDATION RESULTS ===")
+	t.Logf("=== PRODUCTION VALIDATION RESULTS ===")
 	t.Logf("max sustained: %d jobs/sec", result.MaxRate)
 	t.Logf("breaks at: %d jobs/sec", result.BreakingRate)
 	t.Logf("bottleneck: %s", result.Bottleneck)
@@ -773,7 +773,7 @@ func TestFlyValidation(t *testing.T) {
 			step.QueueDepth)
 	}
 
-	if err := h.WriteResult("fly_validation.json", result); err != nil {
+	if err := h.WriteResult("production_validation.json", result); err != nil {
 		t.Errorf("writing result: %v", err)
 	}
 }

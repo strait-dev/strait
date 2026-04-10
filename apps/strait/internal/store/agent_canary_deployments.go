@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -58,7 +59,7 @@ func (q *Queries) GetActiveAgentCanary(ctx context.Context, agentID string) (*do
 		&c.CreatedAt, &c.UpdatedAt, &c.CompletedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get active agent canary: %w", err)

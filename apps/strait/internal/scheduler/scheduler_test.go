@@ -301,3 +301,84 @@ func TestScheduler_Stop(t *testing.T) {
 	cancel()
 	s.Stop()
 }
+
+func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
+	t.Parallel()
+	store := &mockSchedulerStore{
+		cron: &mockCronStore{
+			listCronJobsFn: func(context.Context) ([]domain.Job, error) { return []domain.Job{}, nil },
+		},
+		poller: &mockPollerStore{},
+		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
+	}
+
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Stop completed without deadlock.
+	case <-time.After(10 * time.Second):
+		t.Fatal("Scheduler.Stop() did not complete within 10s, possible deadlock")
+	}
+}
+
+func TestScheduler_Stop_CalledTwice_NoPanic(t *testing.T) {
+	t.Parallel()
+	store := &mockSchedulerStore{
+		cron: &mockCronStore{
+			listCronJobsFn: func(context.Context) ([]domain.Job, error) { return []domain.Job{}, nil },
+		},
+		poller: &mockPollerStore{},
+		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
+	}
+
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+
+	cancel()
+	s.Stop()
+	// Second Stop should not panic.
+	s.Stop()
+}
+
+func TestScheduler_Start_LoadJobsError_Wrapped(t *testing.T) {
+	t.Parallel()
+	storeErr := errors.New("connection refused")
+	store := &mockSchedulerStore{
+		cron: &mockCronStore{
+			listCronJobsFn: func(context.Context) ([]domain.Job, error) { return nil, storeErr },
+		},
+		poller: &mockPollerStore{},
+		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
+	}
+
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+	err := s.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "load cron jobs") {
+		t.Errorf("error should wrap with 'load cron jobs', got: %v", err)
+	}
+	if !errors.Is(err, storeErr) {
+		t.Errorf("error should wrap original error, got: %v", err)
+	}
+}

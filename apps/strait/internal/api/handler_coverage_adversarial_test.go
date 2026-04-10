@@ -696,7 +696,12 @@ func TestHandlerBulkReplayWorkflowRuns_HappyPath(t *testing.T) {
 			return &domain.WorkflowRun{ID: "new-" + originalRunID}, nil
 		},
 	}
-	srv := advNewTestServerWithWorkflowEngine(t, &APIStoreMock{}, we)
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, ProjectID: "proj-1", WorkflowID: "wf-1", Status: domain.WfStatusFailed}, nil
+		},
+	}
+	srv := advNewTestServerWithWorkflowEngine(t, ms, we)
 
 	body := `{"workflow_run_ids":["wr-1","wr-2"]}`
 	w := httptest.NewRecorder()
@@ -751,7 +756,12 @@ func TestHandlerBulkReplayWorkflowRuns_PartialFailure(t *testing.T) {
 			return &domain.WorkflowRun{ID: "new-" + originalRunID}, nil
 		},
 	}
-	srv := advNewTestServerWithWorkflowEngine(t, &APIStoreMock{}, we)
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, ProjectID: "proj-1", WorkflowID: "wf-1", Status: domain.WfStatusFailed}, nil
+		},
+	}
+	srv := advNewTestServerWithWorkflowEngine(t, ms, we)
 
 	body := `{"workflow_run_ids":["wr-1","wr-bad","wr-2"]}`
 	w := httptest.NewRecorder()

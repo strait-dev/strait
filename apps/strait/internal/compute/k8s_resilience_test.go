@@ -12,7 +12,7 @@ import (
 func TestK8s_CreateJob_ValidatesBeforeAPICall(t *testing.T) {
 	t.Parallel()
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	// Invalid image should fail before hitting the K8s API.
 	_, err := rt.Create(context.Background(), RunRequest{
@@ -39,7 +39,7 @@ func TestK8s_CreateJob_ValidatesBeforeAPICall(t *testing.T) {
 func TestK8s_DestroyJob_NotFound_ReturnsError(t *testing.T) {
 	t.Parallel()
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	err := rt.Destroy(context.Background(), "strait-aabbccddeeff")
 	if err == nil {
@@ -50,7 +50,7 @@ func TestK8s_DestroyJob_NotFound_ReturnsError(t *testing.T) {
 func TestK8s_MultipleDestroy_Idempotent(t *testing.T) {
 	t.Parallel()
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	// Create a job, then destroy it twice — second destroy should be idempotent.
 	id, err := rt.Create(context.Background(), RunRequest{
@@ -74,7 +74,7 @@ func TestK8s_MultipleDestroy_Idempotent(t *testing.T) {
 func TestK8s_StopJob_NotFound_ReturnsError(t *testing.T) {
 	t.Parallel()
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 	err := rt.Stop(context.Background(), "strait-aabbccddeeff")
 	if err == nil {
@@ -86,7 +86,7 @@ func TestK8s_RouterFallback_PrimaryDown(t *testing.T) {
 	t.Parallel()
 
 	primary := &failingRuntime{err: NewRetryableError(503, "primary down", nil)}
-	fallback := NewK8sRuntimeFromClient(k8sfake.NewSimpleClientset(), "default", "")
+	fallback := NewK8sRuntimeFromClient(k8sfake.NewSimpleClientset(), "default", "", "")
 
 	router := NewRuntimeRouter(primary, fallback)
 	machineID, err := router.Create(context.Background(), RunRequest{
@@ -105,7 +105,7 @@ func TestK8s_RouterFallback_DoesNotFallbackOnFatal(t *testing.T) {
 	t.Parallel()
 
 	primary := &failingRuntime{err: NewFatalError(422, "invalid request", nil)}
-	fallback := NewK8sRuntimeFromClient(k8sfake.NewSimpleClientset(), "default", "")
+	fallback := NewK8sRuntimeFromClient(k8sfake.NewSimpleClientset(), "default", "", "")
 
 	router := NewRuntimeRouter(primary, fallback)
 	_, err := router.Create(context.Background(), RunRequest{
@@ -123,7 +123,7 @@ func TestK8s_RouterFallback_DoesNotFallbackOnFatal(t *testing.T) {
 func TestK8s_CreateJob_WithTimeout(t *testing.T) {
 	t.Parallel()
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "")
+	rt := NewK8sRuntimeFromClient(cs, "default", "", "")
 
 	_, err := rt.Create(context.Background(), RunRequest{
 		ImageURI:      "alpine:3.21",
@@ -149,7 +149,7 @@ func TestK8s_GC_ConcurrentWithJobCreation_NoRace(t *testing.T) {
 	t.Parallel()
 
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 	gc := NewK8sJobGC(cs, "default", time.Hour, time.Minute)
 
 	// Run creation and GC concurrently — must not panic or race.

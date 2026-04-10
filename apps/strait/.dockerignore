@@ -39,5 +39,4 @@ coverage.out
 *-coverage.txt
 
 # Deployment configs (not needed in build)
-fly.toml
 docker-compose.yml

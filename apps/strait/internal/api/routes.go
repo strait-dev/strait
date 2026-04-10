@@ -151,6 +151,15 @@ func (s *Server) routes() chi.Router {
 		})
 	}
 
+	// Admin internal routes (X-Internal-Secret auth only).
+	r.Route("/internal/admin", func(r chi.Router) {
+		r.Use(s.internalSecretAuth)
+		r.Use(chimw.Timeout(requestTimeout))
+		r.Route("/orgs/{orgID}", func(r chi.Router) {
+			r.Get("/deployments", TypedHandler(s, http.StatusOK, s.handleListAdminOrgDeployments))
+		})
+	})
+
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
 		r.Use(rateLimit(10, time.Minute))
@@ -189,6 +198,15 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleProjectActivityStream)
+	})
+
+	// Deployment build log stream (SSE when stream=true and build is in progress).
+	// Placed before /v1 to avoid the global request timeout middleware.
+	r.Route("/v1/jobs/{jobID}/deployments/{deploymentID}/logs", func(r chi.Router) {
+		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectContextMiddleware)
+		r.Use(s.projectRateLimit)
+		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleDeploymentLogs)
 	})
 
 	// Org-scoped cross-project query routes.
@@ -277,6 +295,17 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseJob))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeJob))
+
+				// Code-first deployment routes.
+				r.Route("/deployments", func(r chi.Router) {
+					r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/", TypedHandler(s, http.StatusOK, s.handleCreateCodeDeployment))
+					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListCodeDeployments))
+					r.Route("/{deploymentID}", func(r chi.Router) {
+						r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetCodeDeployment))
+						r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/confirm", TypedHandler(s, http.StatusOK, s.handleConfirmCodeDeployment))
+						r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/rollback", TypedHandler(s, http.StatusOK, s.handleRollbackCodeDeployment))
+					})
+				})
 			})
 		})
 
@@ -683,6 +712,9 @@ func (s *Server) routes() chi.Router {
 	r.Get("/reference", s.handleAPIReference)
 	r.Get("/reference/openapi.json", s.handleOpenAPISpec)
 	r.Get("/reference/openapi.yaml", http.RedirectHandler("/reference/openapi.json", http.StatusMovedPermanently).ServeHTTP)
+
+	// SDK configuration schema — served publicly so IDEs and SDK CI can fetch it.
+	r.Get("/schemas/v1/strait.json", s.handleStraitJSONSchema)
 
 	return r
 }

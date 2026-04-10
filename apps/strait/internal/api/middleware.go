@@ -13,7 +13,9 @@ import (
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
+	"strait/internal/store"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel/attribute"
@@ -73,12 +75,18 @@ func requireJSONContentType(next http.Handler) http.Handler {
 	})
 }
 
-// realIP extracts the client IP from the request, preferring X-Forwarded-For
-// (first entry) over RemoteAddr. Returns only the IP, stripping port if present.
+// realIP extracts the client IP from the request, preferring the last entry
+// in X-Forwarded-For (the one appended by the first trusted reverse proxy)
+// over RemoteAddr. Returns only the IP, stripping port if present.
 func realIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ip := strings.SplitN(xff, ",", 2)[0]
-		return strings.TrimSpace(ip)
+		// Use the rightmost (last) entry: this is the IP appended by the
+		// first trusted proxy and cannot be spoofed by the client.
+		parts := strings.Split(xff, ",")
+		ip := strings.TrimSpace(parts[len(parts)-1])
+		if ip != "" {
+			return ip
+		}
 	}
 	ip := r.RemoteAddr
 	if idx := strings.LastIndex(ip, ":"); idx != -1 {
@@ -142,6 +150,27 @@ func requireProjectMatch(ctx context.Context, resourceProjectID string) error {
 	}
 	if resourceProjectID != projectID {
 		return errProjectMismatch
+	}
+	return nil
+}
+
+// requireRunAccess fetches the run by ID and enforces tenant isolation.
+// Returns an appropriate huma error if the caller does not own the run.
+// Internal callers (scheduler, worker) that operate without a project
+// context skip the check.
+func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
+	if projectIDFromContext(ctx) == "" {
+		return nil // internal caller without project context
+	}
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return huma.Error404NotFound("run not found")
+		}
+		return huma.Error500InternalServerError("failed to get run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return huma.Error404NotFound("run not found")
 	}
 	return nil
 }
@@ -319,8 +348,18 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := realIP(r)
+
+		// Check if this IP is locked out from too many failed attempts.
+		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
+			return
+		}
+
 		secret := r.Header.Get("X-Internal-Secret")
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}

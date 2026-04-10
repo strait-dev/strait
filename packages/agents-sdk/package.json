@@ -62,11 +62,11 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
     "@types/node": "^25.5.2",
-    "@typescript/native-preview": "^7.0.0-dev.20260405.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260409.1",
     "ai": "^6.0.146",
     "fast-check": "^4.6.0",
     "openai": "^6.33.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.4"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": ">=0.80.0",

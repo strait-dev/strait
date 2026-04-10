@@ -67,6 +67,9 @@ var _ APIStore = &APIStoreMock{}
 //			CancelNonTerminalStepRunsFunc: func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {
 //				panic("mock out the CancelNonTerminalStepRuns method")
 //			},
+//			ClaimBuildingDeploymentFunc: func(ctx context.Context, workerID string) (*domain.CodeDeployment, error) {
+//				panic("mock out the ClaimBuildingDeployment method")
+//			},
 //			CleanupExpiredDeviceCodesFunc: func(ctx context.Context) (int64, error) {
 //				panic("mock out the CleanupExpiredDeviceCodes method")
 //			},
@@ -75,6 +78,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			CompleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error {
 //				panic("mock out the CompleteIdempotencyKey method")
+//			},
+//			ConfirmCodeDeploymentFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the ConfirmCodeDeployment method")
 //			},
 //			CountActiveEventTriggersByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountActiveEventTriggersByProject method")
@@ -132,6 +138,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			CreateCanaryDeploymentFunc: func(ctx context.Context, canary *domain.CanaryDeployment) error {
 //				panic("mock out the CreateCanaryDeployment method")
+//			},
+//			CreateCodeDeploymentFunc: func(ctx context.Context, d *domain.CodeDeployment) error {
+//				panic("mock out the CreateCodeDeployment method")
 //			},
 //			CreateDeploymentVersionFunc: func(ctx context.Context, deployment *domain.DeploymentVersion) error {
 //				panic("mock out the CreateDeploymentVersion method")
@@ -232,6 +241,9 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
 //				panic("mock out the DeleteEventTriggersFinishedBefore method")
 //			},
+//			DeleteExpiredDeploymentsFunc: func(ctx context.Context, pendingBefore time.Time, failedBefore time.Time) (int64, error) {
+//				panic("mock out the DeleteExpiredDeployments method")
+//			},
 //			DeleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string) (int64, error) {
 //				panic("mock out the DeleteIdempotencyKey method")
 //			},
@@ -313,6 +325,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetBatchOperationFunc: func(ctx context.Context, batchID string, projectID string) (*domain.BatchOperation, error) {
 //				panic("mock out the GetBatchOperation method")
 //			},
+//			GetCodeDeploymentFunc: func(ctx context.Context, id string, projectID string) (*domain.CodeDeployment, error) {
+//				panic("mock out the GetCodeDeployment method")
+//			},
 //			GetComputeCostAnalyticsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error) {
 //				panic("mock out the GetComputeCostAnalytics method")
 //			},
@@ -343,6 +358,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetEventSourceByNameFunc: func(ctx context.Context, projectID string, name string) (*domain.EventSource, error) {
 //				panic("mock out the GetEventSourceByName method")
 //			},
+//			GetEventSubscriptionFunc: func(ctx context.Context, subID string) (*domain.EventSubscription, error) {
+//				panic("mock out the GetEventSubscription method")
+//			},
 //			GetEventTriggerByEventKeyFunc: func(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 //				panic("mock out the GetEventTriggerByEventKey method")
 //			},
@@ -355,6 +373,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetJobBySlugFunc: func(ctx context.Context, projectID string, slug string) (*domain.Job, error) {
 //				panic("mock out the GetJobBySlug method")
 //			},
+//			GetJobDependencyFunc: func(ctx context.Context, id string) (*domain.JobDependency, error) {
+//				panic("mock out the GetJobDependency method")
+//			},
 //			GetJobGroupFunc: func(ctx context.Context, id string) (*domain.JobGroup, error) {
 //				panic("mock out the GetJobGroup method")
 //			},
@@ -366,6 +387,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			GetJobMemoryFunc: func(ctx context.Context, jobID string, key string) (*domain.JobMemory, error) {
 //				panic("mock out the GetJobMemory method")
+//			},
+//			GetJobSecretFunc: func(ctx context.Context, id string) (*domain.JobSecret, error) {
+//				panic("mock out the GetJobSecret method")
 //			},
 //			GetJobVersionByVersionIDFunc: func(ctx context.Context, versionID string) (*domain.JobVersion, error) {
 //				panic("mock out the GetJobVersionByVersionID method")
@@ -483,6 +507,12 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			ListChildRunsFunc: func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 //				panic("mock out the ListChildRuns method")
+//			},
+//			ListCodeDeploymentsFunc: func(ctx context.Context, jobID string, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+//				panic("mock out the ListCodeDeployments method")
+//			},
+//			ListCodeDeploymentsByOrgFunc: func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+//				panic("mock out the ListCodeDeploymentsByOrg method")
 //			},
 //			ListDeadLetterRunsFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 //				panic("mock out the ListDeadLetterRuns method")
@@ -658,6 +688,9 @@ var _ APIStore = &APIStoreMock{}
 //			ReceiveEventAndRequeueRunFunc: func(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error {
 //				panic("mock out the ReceiveEventAndRequeueRun method")
 //			},
+//			ReleaseStaleClaimedDeploymentsFunc: func(ctx context.Context, olderThan time.Duration) (int64, error) {
+//				panic("mock out the ReleaseStaleClaimedDeployments method")
+//			},
 //			RemoveMemberRoleFunc: func(ctx context.Context, projectID string, userID string) error {
 //				panic("mock out the RemoveMemberRole method")
 //			},
@@ -691,11 +724,17 @@ var _ APIStore = &APIStoreMock{}
 //			RollbackDeploymentVersionFunc: func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error) {
 //				panic("mock out the RollbackDeploymentVersion method")
 //			},
+//			RollbackToDeploymentFunc: func(ctx context.Context, jobID string, deploymentID string, projectID string) error {
+//				panic("mock out the RollbackToDeployment method")
+//			},
 //			RotateWebhookSecretFunc: func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
 //				panic("mock out the RotateWebhookSecret method")
 //			},
 //			SeedProjectSystemRolesFunc: func(ctx context.Context, projectID string) error {
 //				panic("mock out the SeedProjectSystemRoles method")
+//			},
+//			SetActiveDeploymentFunc: func(ctx context.Context, jobID string, deploymentID string, projectID string) error {
+//				panic("mock out the SetActiveDeployment method")
 //			},
 //			SetEventTriggerSentByFunc: func(ctx context.Context, id string, sentBy string) error {
 //				panic("mock out the SetEventTriggerSentBy method")
@@ -732,6 +771,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			UpdateCanaryDeploymentTrafficFunc: func(ctx context.Context, workflowID string, trafficPct int) error {
 //				panic("mock out the UpdateCanaryDeploymentTraffic method")
+//			},
+//			UpdateCodeDeploymentStatusFunc: func(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error {
+//				panic("mock out the UpdateCodeDeploymentStatus method")
 //			},
 //			UpdateEnvironmentFunc: func(ctx context.Context, env *domain.Environment) error {
 //				panic("mock out the UpdateEnvironment method")
@@ -866,6 +908,9 @@ type APIStoreMock struct {
 	// CancelNonTerminalStepRunsFunc mocks the CancelNonTerminalStepRuns method.
 	CancelNonTerminalStepRunsFunc func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 
+	// ClaimBuildingDeploymentFunc mocks the ClaimBuildingDeployment method.
+	ClaimBuildingDeploymentFunc func(ctx context.Context, workerID string) (*domain.CodeDeployment, error)
+
 	// CleanupExpiredDeviceCodesFunc mocks the CleanupExpiredDeviceCodes method.
 	CleanupExpiredDeviceCodesFunc func(ctx context.Context) (int64, error)
 
@@ -874,6 +919,9 @@ type APIStoreMock struct {
 
 	// CompleteIdempotencyKeyFunc mocks the CompleteIdempotencyKey method.
 	CompleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error
+
+	// ConfirmCodeDeploymentFunc mocks the ConfirmCodeDeployment method.
+	ConfirmCodeDeploymentFunc func(ctx context.Context, id string) error
 
 	// CountActiveEventTriggersByProjectFunc mocks the CountActiveEventTriggersByProject method.
 	CountActiveEventTriggersByProjectFunc func(ctx context.Context, projectID string) (int, error)
@@ -946,6 +994,9 @@ type APIStoreMock struct {
 
 	// CreateCanaryDeploymentFunc mocks the CreateCanaryDeployment method.
 	CreateCanaryDeploymentFunc func(ctx context.Context, canary *domain.CanaryDeployment) error
+
+	// CreateCodeDeploymentFunc mocks the CreateCodeDeployment method.
+	CreateCodeDeploymentFunc func(ctx context.Context, d *domain.CodeDeployment) error
 
 	// CreateDeploymentVersionFunc mocks the CreateDeploymentVersion method.
 	CreateDeploymentVersionFunc func(ctx context.Context, deployment *domain.DeploymentVersion) error
@@ -1046,6 +1097,9 @@ type APIStoreMock struct {
 	// DeleteEventTriggersFinishedBeforeFunc mocks the DeleteEventTriggersFinishedBefore method.
 	DeleteEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
 
+	// DeleteExpiredDeploymentsFunc mocks the DeleteExpiredDeployments method.
+	DeleteExpiredDeploymentsFunc func(ctx context.Context, pendingBefore time.Time, failedBefore time.Time) (int64, error)
+
 	// DeleteIdempotencyKeyFunc mocks the DeleteIdempotencyKey method.
 	DeleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string) (int64, error)
 
@@ -1127,6 +1181,9 @@ type APIStoreMock struct {
 	// GetBatchOperationFunc mocks the GetBatchOperation method.
 	GetBatchOperationFunc func(ctx context.Context, batchID string, projectID string) (*domain.BatchOperation, error)
 
+	// GetCodeDeploymentFunc mocks the GetCodeDeployment method.
+	GetCodeDeploymentFunc func(ctx context.Context, id string, projectID string) (*domain.CodeDeployment, error)
+
 	// GetComputeCostAnalyticsFunc mocks the GetComputeCostAnalytics method.
 	GetComputeCostAnalyticsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error)
 
@@ -1157,6 +1214,9 @@ type APIStoreMock struct {
 	// GetEventSourceByNameFunc mocks the GetEventSourceByName method.
 	GetEventSourceByNameFunc func(ctx context.Context, projectID string, name string) (*domain.EventSource, error)
 
+	// GetEventSubscriptionFunc mocks the GetEventSubscription method.
+	GetEventSubscriptionFunc func(ctx context.Context, subID string) (*domain.EventSubscription, error)
+
 	// GetEventTriggerByEventKeyFunc mocks the GetEventTriggerByEventKey method.
 	GetEventTriggerByEventKeyFunc func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 
@@ -1169,6 +1229,9 @@ type APIStoreMock struct {
 	// GetJobBySlugFunc mocks the GetJobBySlug method.
 	GetJobBySlugFunc func(ctx context.Context, projectID string, slug string) (*domain.Job, error)
 
+	// GetJobDependencyFunc mocks the GetJobDependency method.
+	GetJobDependencyFunc func(ctx context.Context, id string) (*domain.JobDependency, error)
+
 	// GetJobGroupFunc mocks the GetJobGroup method.
 	GetJobGroupFunc func(ctx context.Context, id string) (*domain.JobGroup, error)
 
@@ -1180,6 +1243,9 @@ type APIStoreMock struct {
 
 	// GetJobMemoryFunc mocks the GetJobMemory method.
 	GetJobMemoryFunc func(ctx context.Context, jobID string, key string) (*domain.JobMemory, error)
+
+	// GetJobSecretFunc mocks the GetJobSecret method.
+	GetJobSecretFunc func(ctx context.Context, id string) (*domain.JobSecret, error)
 
 	// GetJobVersionByVersionIDFunc mocks the GetJobVersionByVersionID method.
 	GetJobVersionByVersionIDFunc func(ctx context.Context, versionID string) (*domain.JobVersion, error)
@@ -1297,6 +1363,12 @@ type APIStoreMock struct {
 
 	// ListChildRunsFunc mocks the ListChildRuns method.
 	ListChildRunsFunc func(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+
+	// ListCodeDeploymentsFunc mocks the ListCodeDeployments method.
+	ListCodeDeploymentsFunc func(ctx context.Context, jobID string, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
+
+	// ListCodeDeploymentsByOrgFunc mocks the ListCodeDeploymentsByOrg method.
+	ListCodeDeploymentsByOrgFunc func(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
 
 	// ListDeadLetterRunsFunc mocks the ListDeadLetterRuns method.
 	ListDeadLetterRunsFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -1472,6 +1544,9 @@ type APIStoreMock struct {
 	// ReceiveEventAndRequeueRunFunc mocks the ReceiveEventAndRequeueRun method.
 	ReceiveEventAndRequeueRunFunc func(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 
+	// ReleaseStaleClaimedDeploymentsFunc mocks the ReleaseStaleClaimedDeployments method.
+	ReleaseStaleClaimedDeploymentsFunc func(ctx context.Context, olderThan time.Duration) (int64, error)
+
 	// RemoveMemberRoleFunc mocks the RemoveMemberRole method.
 	RemoveMemberRoleFunc func(ctx context.Context, projectID string, userID string) error
 
@@ -1505,11 +1580,17 @@ type APIStoreMock struct {
 	// RollbackDeploymentVersionFunc mocks the RollbackDeploymentVersion method.
 	RollbackDeploymentVersionFunc func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error)
 
+	// RollbackToDeploymentFunc mocks the RollbackToDeployment method.
+	RollbackToDeploymentFunc func(ctx context.Context, jobID string, deploymentID string, projectID string) error
+
 	// RotateWebhookSecretFunc mocks the RotateWebhookSecret method.
 	RotateWebhookSecretFunc func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error
 
 	// SeedProjectSystemRolesFunc mocks the SeedProjectSystemRoles method.
 	SeedProjectSystemRolesFunc func(ctx context.Context, projectID string) error
+
+	// SetActiveDeploymentFunc mocks the SetActiveDeployment method.
+	SetActiveDeploymentFunc func(ctx context.Context, jobID string, deploymentID string, projectID string) error
 
 	// SetEventTriggerSentByFunc mocks the SetEventTriggerSentBy method.
 	SetEventTriggerSentByFunc func(ctx context.Context, id string, sentBy string) error
@@ -1546,6 +1627,9 @@ type APIStoreMock struct {
 
 	// UpdateCanaryDeploymentTrafficFunc mocks the UpdateCanaryDeploymentTraffic method.
 	UpdateCanaryDeploymentTrafficFunc func(ctx context.Context, workflowID string, trafficPct int) error
+
+	// UpdateCodeDeploymentStatusFunc mocks the UpdateCodeDeploymentStatus method.
+	UpdateCodeDeploymentStatusFunc func(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
 
 	// UpdateEnvironmentFunc mocks the UpdateEnvironment method.
 	UpdateEnvironmentFunc func(ctx context.Context, env *domain.Environment) error
@@ -1777,6 +1861,13 @@ type APIStoreMock struct {
 			// Reason is the reason argument value.
 			Reason string
 		}
+		// ClaimBuildingDeployment holds details about calls to the ClaimBuildingDeployment method.
+		ClaimBuildingDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WorkerID is the workerID argument value.
+			WorkerID string
+		}
 		// CleanupExpiredDeviceCodes holds details about calls to the CleanupExpiredDeviceCodes method.
 		CleanupExpiredDeviceCodes []struct {
 			// Ctx is the ctx argument value.
@@ -1803,6 +1894,13 @@ type APIStoreMock struct {
 			ResponseStatus int
 			// ResponseBody is the responseBody argument value.
 			ResponseBody []byte
+		}
+		// ConfirmCodeDeployment holds details about calls to the ConfirmCodeDeployment method.
+		ConfirmCodeDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// CountActiveEventTriggersByProject holds details about calls to the CountActiveEventTriggersByProject method.
 		CountActiveEventTriggersByProject []struct {
@@ -1942,6 +2040,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// Canary is the canary argument value.
 			Canary *domain.CanaryDeployment
+		}
+		// CreateCodeDeployment holds details about calls to the CreateCodeDeployment method.
+		CreateCodeDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// D is the d argument value.
+			D *domain.CodeDeployment
 		}
 		// CreateDeploymentVersion holds details about calls to the CreateDeploymentVersion method.
 		CreateDeploymentVersion []struct {
@@ -2190,6 +2295,15 @@ type APIStoreMock struct {
 			// Limit is the limit argument value.
 			Limit int
 		}
+		// DeleteExpiredDeployments holds details about calls to the DeleteExpiredDeployments method.
+		DeleteExpiredDeployments []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// PendingBefore is the pendingBefore argument value.
+			PendingBefore time.Time
+			// FailedBefore is the failedBefore argument value.
+			FailedBefore time.Time
+		}
 		// DeleteIdempotencyKey holds details about calls to the DeleteIdempotencyKey method.
 		DeleteIdempotencyKey []struct {
 			// Ctx is the ctx argument value.
@@ -2409,6 +2523,15 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// GetCodeDeployment holds details about calls to the GetCodeDeployment method.
+		GetCodeDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
 		// GetComputeCostAnalytics holds details about calls to the GetComputeCostAnalytics method.
 		GetComputeCostAnalytics []struct {
 			// Ctx is the ctx argument value.
@@ -2503,6 +2626,13 @@ type APIStoreMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// GetEventSubscription holds details about calls to the GetEventSubscription method.
+		GetEventSubscription []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SubID is the subID argument value.
+			SubID string
+		}
 		// GetEventTriggerByEventKey holds details about calls to the GetEventTriggerByEventKey method.
 		GetEventTriggerByEventKey []struct {
 			// Ctx is the ctx argument value.
@@ -2532,6 +2662,13 @@ type APIStoreMock struct {
 			ProjectID string
 			// Slug is the slug argument value.
 			Slug string
+		}
+		// GetJobDependency holds details about calls to the GetJobDependency method.
+		GetJobDependency []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// GetJobGroup holds details about calls to the GetJobGroup method.
 		GetJobGroup []struct {
@@ -2564,6 +2701,13 @@ type APIStoreMock struct {
 			JobID string
 			// Key is the key argument value.
 			Key string
+		}
+		// GetJobSecret holds details about calls to the GetJobSecret method.
+		GetJobSecret []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// GetJobVersionByVersionID holds details about calls to the GetJobVersionByVersionID method.
 		GetJobVersionByVersionID []struct {
@@ -2905,6 +3049,30 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ParentRunID is the parentRunID argument value.
 			ParentRunID string
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor *time.Time
+		}
+		// ListCodeDeployments holds details about calls to the ListCodeDeployments method.
+		ListCodeDeployments []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// JobID is the jobID argument value.
+			JobID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor *time.Time
+		}
+		// ListCodeDeploymentsByOrg holds details about calls to the ListCodeDeploymentsByOrg method.
+		ListCodeDeploymentsByOrg []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OrgID is the orgID argument value.
+			OrgID string
 			// Limit is the limit argument value.
 			Limit int
 			// Cursor is the cursor argument value.
@@ -3546,6 +3714,13 @@ type APIStoreMock struct {
 			// JobRunID is the jobRunID argument value.
 			JobRunID string
 		}
+		// ReleaseStaleClaimedDeployments holds details about calls to the ReleaseStaleClaimedDeployments method.
+		ReleaseStaleClaimedDeployments []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OlderThan is the olderThan argument value.
+			OlderThan time.Duration
+		}
 		// RemoveMemberRole holds details about calls to the RemoveMemberRole method.
 		RemoveMemberRole []struct {
 			// Ctx is the ctx argument value.
@@ -3635,6 +3810,17 @@ type APIStoreMock struct {
 			// UpdatedBy is the updatedBy argument value.
 			UpdatedBy string
 		}
+		// RollbackToDeployment holds details about calls to the RollbackToDeployment method.
+		RollbackToDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// JobID is the jobID argument value.
+			JobID string
+			// DeploymentID is the deploymentID argument value.
+			DeploymentID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
 		// RotateWebhookSecret holds details about calls to the RotateWebhookSecret method.
 		RotateWebhookSecret []struct {
 			// Ctx is the ctx argument value.
@@ -3650,6 +3836,17 @@ type APIStoreMock struct {
 		SeedProjectSystemRoles []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
+		// SetActiveDeployment holds details about calls to the SetActiveDeployment method.
+		SetActiveDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// JobID is the jobID argument value.
+			JobID string
+			// DeploymentID is the deploymentID argument value.
+			DeploymentID string
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
@@ -3766,6 +3963,17 @@ type APIStoreMock struct {
 			WorkflowID string
 			// TrafficPct is the trafficPct argument value.
 			TrafficPct int
+		}
+		// UpdateCodeDeploymentStatus holds details about calls to the UpdateCodeDeploymentStatus method.
+		UpdateCodeDeploymentStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// Status is the status argument value.
+			Status domain.DeploymentBuildStatus
+			// Fields is the fields argument value.
+			Fields map[string]any
 		}
 		// UpdateEnvironment holds details about calls to the UpdateEnvironment method.
 		UpdateEnvironment []struct {
@@ -4026,9 +4234,11 @@ type APIStoreMock struct {
 	lockCancelEventTriggersByWorkflowRun      sync.RWMutex
 	lockCancelJobRunsByWorkflowRun            sync.RWMutex
 	lockCancelNonTerminalStepRuns             sync.RWMutex
+	lockClaimBuildingDeployment               sync.RWMutex
 	lockCleanupExpiredDeviceCodes             sync.RWMutex
 	lockCompleteCanaryDeployment              sync.RWMutex
 	lockCompleteIdempotencyKey                sync.RWMutex
+	lockConfirmCodeDeployment                 sync.RWMutex
 	lockCountActiveEventTriggersByProject     sync.RWMutex
 	lockCountActiveWorkflowRunsByVersion      sync.RWMutex
 	lockCountBatchBufferItems                 sync.RWMutex
@@ -4048,6 +4258,7 @@ type APIStoreMock struct {
 	lockCreateAuditEvent                      sync.RWMutex
 	lockCreateBatchOperation                  sync.RWMutex
 	lockCreateCanaryDeployment                sync.RWMutex
+	lockCreateCodeDeployment                  sync.RWMutex
 	lockCreateDeploymentVersion               sync.RWMutex
 	lockCreateDeviceCode                      sync.RWMutex
 	lockCreateEnvironment                     sync.RWMutex
@@ -4081,6 +4292,7 @@ type APIStoreMock struct {
 	lockDeleteEventSource                     sync.RWMutex
 	lockDeleteEventSubscription               sync.RWMutex
 	lockDeleteEventTriggersFinishedBefore     sync.RWMutex
+	lockDeleteExpiredDeployments              sync.RWMutex
 	lockDeleteIdempotencyKey                  sync.RWMutex
 	lockDeleteJob                             sync.RWMutex
 	lockDeleteJobDependency                   sync.RWMutex
@@ -4108,6 +4320,7 @@ type APIStoreMock struct {
 	lockGetAgent                              sync.RWMutex
 	lockGetApprovalStats                      sync.RWMutex
 	lockGetBatchOperation                     sync.RWMutex
+	lockGetCodeDeployment                     sync.RWMutex
 	lockGetComputeCostAnalytics               sync.RWMutex
 	lockGetCostAnalytics                      sync.RWMutex
 	lockGetCostOutliers                       sync.RWMutex
@@ -4118,14 +4331,17 @@ type APIStoreMock struct {
 	lockGetEnvironment                        sync.RWMutex
 	lockGetEventSource                        sync.RWMutex
 	lockGetEventSourceByName                  sync.RWMutex
+	lockGetEventSubscription                  sync.RWMutex
 	lockGetEventTriggerByEventKey             sync.RWMutex
 	lockGetEventTriggerStats                  sync.RWMutex
 	lockGetJob                                sync.RWMutex
 	lockGetJobBySlug                          sync.RWMutex
+	lockGetJobDependency                      sync.RWMutex
 	lockGetJobGroup                           sync.RWMutex
 	lockGetJobGroupStats                      sync.RWMutex
 	lockGetJobHealthStats                     sync.RWMutex
 	lockGetJobMemory                          sync.RWMutex
+	lockGetJobSecret                          sync.RWMutex
 	lockGetJobVersionByVersionID              sync.RWMutex
 	lockGetLogDrain                           sync.RWMutex
 	lockGetMemberRole                         sync.RWMutex
@@ -4165,6 +4381,8 @@ type APIStoreMock struct {
 	lockListAuditEvents                       sync.RWMutex
 	lockListBatchOperations                   sync.RWMutex
 	lockListChildRuns                         sync.RWMutex
+	lockListCodeDeployments                   sync.RWMutex
+	lockListCodeDeploymentsByOrg              sync.RWMutex
 	lockListDeadLetterRuns                    sync.RWMutex
 	lockListDeploymentVersions                sync.RWMutex
 	lockListDynamicWorkflowStepsByWorkflowRun sync.RWMutex
@@ -4223,6 +4441,7 @@ type APIStoreMock struct {
 	lockPromoteDeploymentVersion              sync.RWMutex
 	lockQueueStats                            sync.RWMutex
 	lockReceiveEventAndRequeueRun             sync.RWMutex
+	lockReleaseStaleClaimedDeployments        sync.RWMutex
 	lockRemoveMemberRole                      sync.RWMutex
 	lockReplayDeadLetterRun                   sync.RWMutex
 	lockReplayWebhookDelivery                 sync.RWMutex
@@ -4234,8 +4453,10 @@ type APIStoreMock struct {
 	lockRetryWebhookDelivery                  sync.RWMutex
 	lockRevokeAPIKey                          sync.RWMutex
 	lockRollbackDeploymentVersion             sync.RWMutex
+	lockRollbackToDeployment                  sync.RWMutex
 	lockRotateWebhookSecret                   sync.RWMutex
 	lockSeedProjectSystemRoles                sync.RWMutex
+	lockSetActiveDeployment                   sync.RWMutex
 	lockSetEventTriggerSentBy                 sync.RWMutex
 	lockStreamAuditEvents                     sync.RWMutex
 	lockStreamJobs                            sync.RWMutex
@@ -4248,6 +4469,7 @@ type APIStoreMock struct {
 	lockTouchAPIKeyLastUsed                   sync.RWMutex
 	lockTryAcquireIdempotencyKey              sync.RWMutex
 	lockUpdateCanaryDeploymentTraffic         sync.RWMutex
+	lockUpdateCodeDeploymentStatus            sync.RWMutex
 	lockUpdateEnvironment                     sync.RWMutex
 	lockUpdateEventSource                     sync.RWMutex
 	lockUpdateEventTriggerStatus              sync.RWMutex
@@ -4958,6 +5180,46 @@ func (mock *APIStoreMock) CancelNonTerminalStepRunsCalls() []struct {
 	return calls
 }
 
+// ClaimBuildingDeployment calls ClaimBuildingDeploymentFunc.
+func (mock *APIStoreMock) ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error) {
+	callInfo := struct {
+		Ctx      context.Context
+		WorkerID string
+	}{
+		Ctx:      ctx,
+		WorkerID: workerID,
+	}
+	mock.lockClaimBuildingDeployment.Lock()
+	mock.calls.ClaimBuildingDeployment = append(mock.calls.ClaimBuildingDeployment, callInfo)
+	mock.lockClaimBuildingDeployment.Unlock()
+	if mock.ClaimBuildingDeploymentFunc == nil {
+		var (
+			codeDeploymentOut *domain.CodeDeployment
+			errOut            error
+		)
+		return codeDeploymentOut, errOut
+	}
+	return mock.ClaimBuildingDeploymentFunc(ctx, workerID)
+}
+
+// ClaimBuildingDeploymentCalls gets all the calls that were made to ClaimBuildingDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.ClaimBuildingDeploymentCalls())
+func (mock *APIStoreMock) ClaimBuildingDeploymentCalls() []struct {
+	Ctx      context.Context
+	WorkerID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		WorkerID string
+	}
+	mock.lockClaimBuildingDeployment.RLock()
+	calls = mock.calls.ClaimBuildingDeployment
+	mock.lockClaimBuildingDeployment.RUnlock()
+	return calls
+}
+
 // CleanupExpiredDeviceCodes calls CleanupExpiredDeviceCodesFunc.
 func (mock *APIStoreMock) CleanupExpiredDeviceCodes(ctx context.Context) (int64, error) {
 	callInfo := struct {
@@ -5085,6 +5347,45 @@ func (mock *APIStoreMock) CompleteIdempotencyKeyCalls() []struct {
 	mock.lockCompleteIdempotencyKey.RLock()
 	calls = mock.calls.CompleteIdempotencyKey
 	mock.lockCompleteIdempotencyKey.RUnlock()
+	return calls
+}
+
+// ConfirmCodeDeployment calls ConfirmCodeDeploymentFunc.
+func (mock *APIStoreMock) ConfirmCodeDeployment(ctx context.Context, id string) error {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockConfirmCodeDeployment.Lock()
+	mock.calls.ConfirmCodeDeployment = append(mock.calls.ConfirmCodeDeployment, callInfo)
+	mock.lockConfirmCodeDeployment.Unlock()
+	if mock.ConfirmCodeDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.ConfirmCodeDeploymentFunc(ctx, id)
+}
+
+// ConfirmCodeDeploymentCalls gets all the calls that were made to ConfirmCodeDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.ConfirmCodeDeploymentCalls())
+func (mock *APIStoreMock) ConfirmCodeDeploymentCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockConfirmCodeDeployment.RLock()
+	calls = mock.calls.ConfirmCodeDeployment
+	mock.lockConfirmCodeDeployment.RUnlock()
 	return calls
 }
 
@@ -5908,6 +6209,45 @@ func (mock *APIStoreMock) CreateCanaryDeploymentCalls() []struct {
 	mock.lockCreateCanaryDeployment.RLock()
 	calls = mock.calls.CreateCanaryDeployment
 	mock.lockCreateCanaryDeployment.RUnlock()
+	return calls
+}
+
+// CreateCodeDeployment calls CreateCodeDeploymentFunc.
+func (mock *APIStoreMock) CreateCodeDeployment(ctx context.Context, d *domain.CodeDeployment) error {
+	callInfo := struct {
+		Ctx context.Context
+		D   *domain.CodeDeployment
+	}{
+		Ctx: ctx,
+		D:   d,
+	}
+	mock.lockCreateCodeDeployment.Lock()
+	mock.calls.CreateCodeDeployment = append(mock.calls.CreateCodeDeployment, callInfo)
+	mock.lockCreateCodeDeployment.Unlock()
+	if mock.CreateCodeDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateCodeDeploymentFunc(ctx, d)
+}
+
+// CreateCodeDeploymentCalls gets all the calls that were made to CreateCodeDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.CreateCodeDeploymentCalls())
+func (mock *APIStoreMock) CreateCodeDeploymentCalls() []struct {
+	Ctx context.Context
+	D   *domain.CodeDeployment
+} {
+	var calls []struct {
+		Ctx context.Context
+		D   *domain.CodeDeployment
+	}
+	mock.lockCreateCodeDeployment.RLock()
+	calls = mock.calls.CreateCodeDeployment
+	mock.lockCreateCodeDeployment.RUnlock()
 	return calls
 }
 
@@ -7231,6 +7571,50 @@ func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeCalls() []struct {
 	return calls
 }
 
+// DeleteExpiredDeployments calls DeleteExpiredDeploymentsFunc.
+func (mock *APIStoreMock) DeleteExpiredDeployments(ctx context.Context, pendingBefore time.Time, failedBefore time.Time) (int64, error) {
+	callInfo := struct {
+		Ctx           context.Context
+		PendingBefore time.Time
+		FailedBefore  time.Time
+	}{
+		Ctx:           ctx,
+		PendingBefore: pendingBefore,
+		FailedBefore:  failedBefore,
+	}
+	mock.lockDeleteExpiredDeployments.Lock()
+	mock.calls.DeleteExpiredDeployments = append(mock.calls.DeleteExpiredDeployments, callInfo)
+	mock.lockDeleteExpiredDeployments.Unlock()
+	if mock.DeleteExpiredDeploymentsFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.DeleteExpiredDeploymentsFunc(ctx, pendingBefore, failedBefore)
+}
+
+// DeleteExpiredDeploymentsCalls gets all the calls that were made to DeleteExpiredDeployments.
+// Check the length with:
+//
+//	len(mockedAPIStore.DeleteExpiredDeploymentsCalls())
+func (mock *APIStoreMock) DeleteExpiredDeploymentsCalls() []struct {
+	Ctx           context.Context
+	PendingBefore time.Time
+	FailedBefore  time.Time
+} {
+	var calls []struct {
+		Ctx           context.Context
+		PendingBefore time.Time
+		FailedBefore  time.Time
+	}
+	mock.lockDeleteExpiredDeployments.RLock()
+	calls = mock.calls.DeleteExpiredDeployments
+	mock.lockDeleteExpiredDeployments.RUnlock()
+	return calls
+}
+
 // DeleteIdempotencyKey calls DeleteIdempotencyKeyFunc.
 func (mock *APIStoreMock) DeleteIdempotencyKey(ctx context.Context, projectID string, key string) (int64, error) {
 	callInfo := struct {
@@ -8359,6 +8743,50 @@ func (mock *APIStoreMock) GetBatchOperationCalls() []struct {
 	return calls
 }
 
+// GetCodeDeployment calls GetCodeDeploymentFunc.
+func (mock *APIStoreMock) GetCodeDeployment(ctx context.Context, id string, projectID string) (*domain.CodeDeployment, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ID        string
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ID:        id,
+		ProjectID: projectID,
+	}
+	mock.lockGetCodeDeployment.Lock()
+	mock.calls.GetCodeDeployment = append(mock.calls.GetCodeDeployment, callInfo)
+	mock.lockGetCodeDeployment.Unlock()
+	if mock.GetCodeDeploymentFunc == nil {
+		var (
+			codeDeploymentOut *domain.CodeDeployment
+			errOut            error
+		)
+		return codeDeploymentOut, errOut
+	}
+	return mock.GetCodeDeploymentFunc(ctx, id, projectID)
+}
+
+// GetCodeDeploymentCalls gets all the calls that were made to GetCodeDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetCodeDeploymentCalls())
+func (mock *APIStoreMock) GetCodeDeploymentCalls() []struct {
+	Ctx       context.Context
+	ID        string
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ID        string
+		ProjectID string
+	}
+	mock.lockGetCodeDeployment.RLock()
+	calls = mock.calls.GetCodeDeployment
+	mock.lockGetCodeDeployment.RUnlock()
+	return calls
+}
+
 // GetComputeCostAnalytics calls GetComputeCostAnalyticsFunc.
 func (mock *APIStoreMock) GetComputeCostAnalytics(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error) {
 	callInfo := struct {
@@ -8807,6 +9235,46 @@ func (mock *APIStoreMock) GetEventSourceByNameCalls() []struct {
 	return calls
 }
 
+// GetEventSubscription calls GetEventSubscriptionFunc.
+func (mock *APIStoreMock) GetEventSubscription(ctx context.Context, subID string) (*domain.EventSubscription, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		SubID string
+	}{
+		Ctx:   ctx,
+		SubID: subID,
+	}
+	mock.lockGetEventSubscription.Lock()
+	mock.calls.GetEventSubscription = append(mock.calls.GetEventSubscription, callInfo)
+	mock.lockGetEventSubscription.Unlock()
+	if mock.GetEventSubscriptionFunc == nil {
+		var (
+			eventSubscriptionOut *domain.EventSubscription
+			errOut               error
+		)
+		return eventSubscriptionOut, errOut
+	}
+	return mock.GetEventSubscriptionFunc(ctx, subID)
+}
+
+// GetEventSubscriptionCalls gets all the calls that were made to GetEventSubscription.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetEventSubscriptionCalls())
+func (mock *APIStoreMock) GetEventSubscriptionCalls() []struct {
+	Ctx   context.Context
+	SubID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		SubID string
+	}
+	mock.lockGetEventSubscription.RLock()
+	calls = mock.calls.GetEventSubscription
+	mock.lockGetEventSubscription.RUnlock()
+	return calls
+}
+
 // GetEventTriggerByEventKey calls GetEventTriggerByEventKeyFunc.
 func (mock *APIStoreMock) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 	callInfo := struct {
@@ -8968,6 +9436,46 @@ func (mock *APIStoreMock) GetJobBySlugCalls() []struct {
 	mock.lockGetJobBySlug.RLock()
 	calls = mock.calls.GetJobBySlug
 	mock.lockGetJobBySlug.RUnlock()
+	return calls
+}
+
+// GetJobDependency calls GetJobDependencyFunc.
+func (mock *APIStoreMock) GetJobDependency(ctx context.Context, id string) (*domain.JobDependency, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetJobDependency.Lock()
+	mock.calls.GetJobDependency = append(mock.calls.GetJobDependency, callInfo)
+	mock.lockGetJobDependency.Unlock()
+	if mock.GetJobDependencyFunc == nil {
+		var (
+			jobDependencyOut *domain.JobDependency
+			errOut           error
+		)
+		return jobDependencyOut, errOut
+	}
+	return mock.GetJobDependencyFunc(ctx, id)
+}
+
+// GetJobDependencyCalls gets all the calls that were made to GetJobDependency.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetJobDependencyCalls())
+func (mock *APIStoreMock) GetJobDependencyCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetJobDependency.RLock()
+	calls = mock.calls.GetJobDependency
+	mock.lockGetJobDependency.RUnlock()
 	return calls
 }
 
@@ -9136,6 +9644,46 @@ func (mock *APIStoreMock) GetJobMemoryCalls() []struct {
 	mock.lockGetJobMemory.RLock()
 	calls = mock.calls.GetJobMemory
 	mock.lockGetJobMemory.RUnlock()
+	return calls
+}
+
+// GetJobSecret calls GetJobSecretFunc.
+func (mock *APIStoreMock) GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetJobSecret.Lock()
+	mock.calls.GetJobSecret = append(mock.calls.GetJobSecret, callInfo)
+	mock.lockGetJobSecret.Unlock()
+	if mock.GetJobSecretFunc == nil {
+		var (
+			jobSecretOut *domain.JobSecret
+			errOut       error
+		)
+		return jobSecretOut, errOut
+	}
+	return mock.GetJobSecretFunc(ctx, id)
+}
+
+// GetJobSecretCalls gets all the calls that were made to GetJobSecret.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetJobSecretCalls())
+func (mock *APIStoreMock) GetJobSecretCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetJobSecret.RLock()
+	calls = mock.calls.GetJobSecret
+	mock.lockGetJobSecret.RUnlock()
 	return calls
 }
 
@@ -10840,6 +11388,106 @@ func (mock *APIStoreMock) ListChildRunsCalls() []struct {
 	mock.lockListChildRuns.RLock()
 	calls = mock.calls.ListChildRuns
 	mock.lockListChildRuns.RUnlock()
+	return calls
+}
+
+// ListCodeDeployments calls ListCodeDeploymentsFunc.
+func (mock *APIStoreMock) ListCodeDeployments(ctx context.Context, jobID string, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		JobID     string
+		ProjectID string
+		Limit     int
+		Cursor    *time.Time
+	}{
+		Ctx:       ctx,
+		JobID:     jobID,
+		ProjectID: projectID,
+		Limit:     limit,
+		Cursor:    cursor,
+	}
+	mock.lockListCodeDeployments.Lock()
+	mock.calls.ListCodeDeployments = append(mock.calls.ListCodeDeployments, callInfo)
+	mock.lockListCodeDeployments.Unlock()
+	if mock.ListCodeDeploymentsFunc == nil {
+		var (
+			codeDeploymentsOut []domain.CodeDeployment
+			errOut             error
+		)
+		return codeDeploymentsOut, errOut
+	}
+	return mock.ListCodeDeploymentsFunc(ctx, jobID, projectID, limit, cursor)
+}
+
+// ListCodeDeploymentsCalls gets all the calls that were made to ListCodeDeployments.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListCodeDeploymentsCalls())
+func (mock *APIStoreMock) ListCodeDeploymentsCalls() []struct {
+	Ctx       context.Context
+	JobID     string
+	ProjectID string
+	Limit     int
+	Cursor    *time.Time
+} {
+	var calls []struct {
+		Ctx       context.Context
+		JobID     string
+		ProjectID string
+		Limit     int
+		Cursor    *time.Time
+	}
+	mock.lockListCodeDeployments.RLock()
+	calls = mock.calls.ListCodeDeployments
+	mock.lockListCodeDeployments.RUnlock()
+	return calls
+}
+
+// ListCodeDeploymentsByOrg calls ListCodeDeploymentsByOrgFunc.
+func (mock *APIStoreMock) ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error) {
+	callInfo := struct {
+		Ctx    context.Context
+		OrgID  string
+		Limit  int
+		Cursor *time.Time
+	}{
+		Ctx:    ctx,
+		OrgID:  orgID,
+		Limit:  limit,
+		Cursor: cursor,
+	}
+	mock.lockListCodeDeploymentsByOrg.Lock()
+	mock.calls.ListCodeDeploymentsByOrg = append(mock.calls.ListCodeDeploymentsByOrg, callInfo)
+	mock.lockListCodeDeploymentsByOrg.Unlock()
+	if mock.ListCodeDeploymentsByOrgFunc == nil {
+		var (
+			codeDeploymentsOut []domain.CodeDeployment
+			errOut             error
+		)
+		return codeDeploymentsOut, errOut
+	}
+	return mock.ListCodeDeploymentsByOrgFunc(ctx, orgID, limit, cursor)
+}
+
+// ListCodeDeploymentsByOrgCalls gets all the calls that were made to ListCodeDeploymentsByOrg.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListCodeDeploymentsByOrgCalls())
+func (mock *APIStoreMock) ListCodeDeploymentsByOrgCalls() []struct {
+	Ctx    context.Context
+	OrgID  string
+	Limit  int
+	Cursor *time.Time
+} {
+	var calls []struct {
+		Ctx    context.Context
+		OrgID  string
+		Limit  int
+		Cursor *time.Time
+	}
+	mock.lockListCodeDeploymentsByOrg.RLock()
+	calls = mock.calls.ListCodeDeploymentsByOrg
+	mock.lockListCodeDeploymentsByOrg.RUnlock()
 	return calls
 }
 
@@ -13619,6 +14267,46 @@ func (mock *APIStoreMock) ReceiveEventAndRequeueRunCalls() []struct {
 	return calls
 }
 
+// ReleaseStaleClaimedDeployments calls ReleaseStaleClaimedDeploymentsFunc.
+func (mock *APIStoreMock) ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		OlderThan time.Duration
+	}{
+		Ctx:       ctx,
+		OlderThan: olderThan,
+	}
+	mock.lockReleaseStaleClaimedDeployments.Lock()
+	mock.calls.ReleaseStaleClaimedDeployments = append(mock.calls.ReleaseStaleClaimedDeployments, callInfo)
+	mock.lockReleaseStaleClaimedDeployments.Unlock()
+	if mock.ReleaseStaleClaimedDeploymentsFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.ReleaseStaleClaimedDeploymentsFunc(ctx, olderThan)
+}
+
+// ReleaseStaleClaimedDeploymentsCalls gets all the calls that were made to ReleaseStaleClaimedDeployments.
+// Check the length with:
+//
+//	len(mockedAPIStore.ReleaseStaleClaimedDeploymentsCalls())
+func (mock *APIStoreMock) ReleaseStaleClaimedDeploymentsCalls() []struct {
+	Ctx       context.Context
+	OlderThan time.Duration
+} {
+	var calls []struct {
+		Ctx       context.Context
+		OlderThan time.Duration
+	}
+	mock.lockReleaseStaleClaimedDeployments.RLock()
+	calls = mock.calls.ReleaseStaleClaimedDeployments
+	mock.lockReleaseStaleClaimedDeployments.RUnlock()
+	return calls
+}
+
 // RemoveMemberRole calls RemoveMemberRoleFunc.
 func (mock *APIStoreMock) RemoveMemberRole(ctx context.Context, projectID string, userID string) error {
 	callInfo := struct {
@@ -14077,6 +14765,53 @@ func (mock *APIStoreMock) RollbackDeploymentVersionCalls() []struct {
 	return calls
 }
 
+// RollbackToDeployment calls RollbackToDeploymentFunc.
+func (mock *APIStoreMock) RollbackToDeployment(ctx context.Context, jobID string, deploymentID string, projectID string) error {
+	callInfo := struct {
+		Ctx          context.Context
+		JobID        string
+		DeploymentID string
+		ProjectID    string
+	}{
+		Ctx:          ctx,
+		JobID:        jobID,
+		DeploymentID: deploymentID,
+		ProjectID:    projectID,
+	}
+	mock.lockRollbackToDeployment.Lock()
+	mock.calls.RollbackToDeployment = append(mock.calls.RollbackToDeployment, callInfo)
+	mock.lockRollbackToDeployment.Unlock()
+	if mock.RollbackToDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.RollbackToDeploymentFunc(ctx, jobID, deploymentID, projectID)
+}
+
+// RollbackToDeploymentCalls gets all the calls that were made to RollbackToDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.RollbackToDeploymentCalls())
+func (mock *APIStoreMock) RollbackToDeploymentCalls() []struct {
+	Ctx          context.Context
+	JobID        string
+	DeploymentID string
+	ProjectID    string
+} {
+	var calls []struct {
+		Ctx          context.Context
+		JobID        string
+		DeploymentID string
+		ProjectID    string
+	}
+	mock.lockRollbackToDeployment.RLock()
+	calls = mock.calls.RollbackToDeployment
+	mock.lockRollbackToDeployment.RUnlock()
+	return calls
+}
+
 // RotateWebhookSecret calls RotateWebhookSecretFunc.
 func (mock *APIStoreMock) RotateWebhookSecret(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
 	callInfo := struct {
@@ -14160,6 +14895,53 @@ func (mock *APIStoreMock) SeedProjectSystemRolesCalls() []struct {
 	mock.lockSeedProjectSystemRoles.RLock()
 	calls = mock.calls.SeedProjectSystemRoles
 	mock.lockSeedProjectSystemRoles.RUnlock()
+	return calls
+}
+
+// SetActiveDeployment calls SetActiveDeploymentFunc.
+func (mock *APIStoreMock) SetActiveDeployment(ctx context.Context, jobID string, deploymentID string, projectID string) error {
+	callInfo := struct {
+		Ctx          context.Context
+		JobID        string
+		DeploymentID string
+		ProjectID    string
+	}{
+		Ctx:          ctx,
+		JobID:        jobID,
+		DeploymentID: deploymentID,
+		ProjectID:    projectID,
+	}
+	mock.lockSetActiveDeployment.Lock()
+	mock.calls.SetActiveDeployment = append(mock.calls.SetActiveDeployment, callInfo)
+	mock.lockSetActiveDeployment.Unlock()
+	if mock.SetActiveDeploymentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.SetActiveDeploymentFunc(ctx, jobID, deploymentID, projectID)
+}
+
+// SetActiveDeploymentCalls gets all the calls that were made to SetActiveDeployment.
+// Check the length with:
+//
+//	len(mockedAPIStore.SetActiveDeploymentCalls())
+func (mock *APIStoreMock) SetActiveDeploymentCalls() []struct {
+	Ctx          context.Context
+	JobID        string
+	DeploymentID string
+	ProjectID    string
+} {
+	var calls []struct {
+		Ctx          context.Context
+		JobID        string
+		DeploymentID string
+		ProjectID    string
+	}
+	mock.lockSetActiveDeployment.RLock()
+	calls = mock.calls.SetActiveDeployment
+	mock.lockSetActiveDeployment.RUnlock()
 	return calls
 }
 
@@ -14695,6 +15477,53 @@ func (mock *APIStoreMock) UpdateCanaryDeploymentTrafficCalls() []struct {
 	mock.lockUpdateCanaryDeploymentTraffic.RLock()
 	calls = mock.calls.UpdateCanaryDeploymentTraffic
 	mock.lockUpdateCanaryDeploymentTraffic.RUnlock()
+	return calls
+}
+
+// UpdateCodeDeploymentStatus calls UpdateCodeDeploymentStatusFunc.
+func (mock *APIStoreMock) UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error {
+	callInfo := struct {
+		Ctx    context.Context
+		ID     string
+		Status domain.DeploymentBuildStatus
+		Fields map[string]any
+	}{
+		Ctx:    ctx,
+		ID:     id,
+		Status: status,
+		Fields: fields,
+	}
+	mock.lockUpdateCodeDeploymentStatus.Lock()
+	mock.calls.UpdateCodeDeploymentStatus = append(mock.calls.UpdateCodeDeploymentStatus, callInfo)
+	mock.lockUpdateCodeDeploymentStatus.Unlock()
+	if mock.UpdateCodeDeploymentStatusFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.UpdateCodeDeploymentStatusFunc(ctx, id, status, fields)
+}
+
+// UpdateCodeDeploymentStatusCalls gets all the calls that were made to UpdateCodeDeploymentStatus.
+// Check the length with:
+//
+//	len(mockedAPIStore.UpdateCodeDeploymentStatusCalls())
+func (mock *APIStoreMock) UpdateCodeDeploymentStatusCalls() []struct {
+	Ctx    context.Context
+	ID     string
+	Status domain.DeploymentBuildStatus
+	Fields map[string]any
+} {
+	var calls []struct {
+		Ctx    context.Context
+		ID     string
+		Status domain.DeploymentBuildStatus
+		Fields map[string]any
+	}
+	mock.lockUpdateCodeDeploymentStatus.RLock()
+	calls = mock.calls.UpdateCodeDeploymentStatus
+	mock.lockUpdateCodeDeploymentStatus.RUnlock()
 	return calls
 }
 

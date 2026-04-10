@@ -522,8 +522,9 @@ func TestHandleSendEvent_ProjectScoping_Forbidden(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusForbidden, rr.Body.String())
+	// Returns 404 (not 403) to avoid leaking resource existence to other projects.
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
 }
 
@@ -1350,8 +1351,9 @@ func TestHandleCancelEventTrigger_ProjectForbidden(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403; body: %s", rr.Code, rr.Body.String())
+	// Returns 404 (not 403) to avoid leaking resource existence to other projects.
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
 	}
 }
 

@@ -68,6 +68,9 @@ func TestDashboard_AllPanelsHaveTargets(t *testing.T) {
 	t.Parallel()
 	d := loadDashboard(t)
 	for _, p := range d.Dashboard.Panels {
+		if p.Type == "row" {
+			continue // row panels are section dividers with no queries
+		}
 		if len(p.Targets) == 0 {
 			t.Errorf("panel %q has no targets", p.Title)
 		}
@@ -83,6 +86,9 @@ func TestDashboard_AllPanelsHaveDescriptions(t *testing.T) {
 	t.Parallel()
 	d := loadDashboard(t)
 	for _, p := range d.Dashboard.Panels {
+		if p.Type == "row" {
+			continue // row panels are section dividers with no description
+		}
 		if p.Description == "" {
 			t.Errorf("panel %q is missing description", p.Title)
 		}

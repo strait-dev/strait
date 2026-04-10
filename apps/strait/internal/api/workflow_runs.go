@@ -38,6 +38,15 @@ type ListWorkflowRunsInput struct {
 type ListWorkflowRunsOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListWorkflowRuns(ctx context.Context, input *ListWorkflowRunsInput) (*ListWorkflowRunsOutput, error) {
+	// Verify the parent workflow belongs to the caller's project.
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -114,6 +123,9 @@ func (s *Server) handleGetWorkflowRun(ctx context.Context, input *GetWorkflowRun
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
 
 	return &GetWorkflowRunOutput{Body: run}, nil
 }
@@ -130,6 +142,9 @@ func (s *Server) handleCancelWorkflowRun(ctx context.Context, input *CancelWorkf
 			return nil, huma.Error404NotFound("workflow run not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
 	if run.Status.IsTerminal() {
@@ -199,6 +214,9 @@ func (s *Server) handlePauseWorkflowRun(ctx context.Context, input *PauseWorkflo
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
 	if run.Status.IsTerminal() {
 		return nil, huma.Error400BadRequest("workflow run already in terminal state")
 	}
@@ -259,6 +277,9 @@ func (s *Server) handleResumeWorkflowRun(ctx context.Context, input *ResumeWorkf
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow run")
 	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
 	if run.Status != domain.WfStatusPaused {
 		return nil, huma.Error400BadRequest("workflow run is not paused")
 	}
@@ -281,6 +302,17 @@ type GetWorkflowRunLabelsInput struct {
 type GetWorkflowRunLabelsOutput struct{ Body any }
 
 func (s *Server) handleGetWorkflowRunLabels(ctx context.Context, input *GetWorkflowRunLabelsInput) (*GetWorkflowRunLabelsOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			return nil, huma.Error404NotFound("workflow run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
 	labels, err := s.store.ListWorkflowRunLabels(ctx, input.WorkflowRunID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list workflow run labels")
@@ -296,6 +328,17 @@ type ListWorkflowStepRunsInput struct {
 type ListWorkflowStepRunsOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListWorkflowStepRuns(ctx context.Context, input *ListWorkflowStepRunsInput) (*ListWorkflowStepRunsOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			return nil, huma.Error404NotFound("workflow run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -426,9 +469,9 @@ func (s *Server) handleForceCompleteWorkflowStep(ctx context.Context, input *For
 		return nil, huma.Error503ServiceUnavailable("workflow callback unavailable")
 	}
 
-	beforeRun, beforeErr := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
-	if beforeErr != nil {
-		slog.Warn("failed to get workflow run before force-complete step", "workflow_run_id", input.WorkflowRunID, "error", beforeErr)
+	beforeRun, err := s.loadScopedWorkflowRunForStepMutation(ctx, input.WorkflowRunID)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.workflowCallback.ForceCompleteStep(ctx, input.WorkflowRunID, input.StepRef, input.Body.Result); err != nil {
@@ -444,7 +487,7 @@ func (s *Server) handleForceCompleteWorkflowStep(ctx context.Context, input *For
 	if afterErr != nil {
 		slog.Warn("failed to get workflow run after force-complete step", "workflow_run_id", input.WorkflowRunID, "error", afterErr)
 	}
-	if beforeErr == nil && afterErr == nil && beforeRun != nil && afterRun != nil && beforeRun.Status != afterRun.Status {
+	if afterErr == nil && afterRun != nil && beforeRun.Status != afterRun.Status {
 		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "force_complete_step")
 	}
 
@@ -467,6 +510,9 @@ func (s *Server) handleRetryWorkflowRun(ctx context.Context, input *RetryWorkflo
 			return nil, huma.Error404NotFound("workflow run not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
 	if !run.Status.IsTerminal() {
@@ -502,6 +548,9 @@ type GetWorkflowRunGraphOutput struct{ Body any }
 func (s *Server) handleGetWorkflowRunGraph(ctx context.Context, input *GetWorkflowRunGraphInput) (*GetWorkflowRunGraphOutput, error) {
 	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 	steps, err := s.loadWorkflowRunSteps(ctx, run)
@@ -700,6 +749,17 @@ type GetWorkflowRunExplainInput struct {
 type GetWorkflowRunExplainOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleGetWorkflowRunExplain(ctx context.Context, input *GetWorkflowRunExplainInput) (*GetWorkflowRunExplainOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			return nil, huma.Error404NotFound("workflow run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -726,6 +786,9 @@ func (s *Server) handleRetryWorkflowStep(ctx context.Context, input *RetryWorkfl
 
 	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
@@ -774,6 +837,9 @@ func (s *Server) handleReplayWorkflowSubtree(ctx context.Context, input *ReplayW
 	}
 	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 	steps, err := s.loadWorkflowRunSteps(ctx, run)
@@ -844,6 +910,9 @@ func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWor
 			return nil, huma.Error404NotFound("workflow run not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, input.WorkflowRunID, 10000, nil)
@@ -1055,6 +1124,15 @@ func (s *Server) handleBulkReplayWorkflowRuns(ctx context.Context, input *BulkRe
 	replayed := 0
 
 	for _, wrID := range req.WorkflowRunIDs {
+		run, err := s.store.GetWorkflowRun(ctx, wrID)
+		if err != nil {
+			results = append(results, replayResult{OriginalRunID: wrID, Status: "failed", Error: "workflow run not found"})
+			continue
+		}
+		if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+			results = append(results, replayResult{OriginalRunID: wrID, Status: "failed", Error: "workflow run not found"})
+			continue
+		}
 		newRun, err := s.workflowEngine.RetryWorkflowRun(ctx, wrID)
 		if err != nil {
 			results = append(results, replayResult{OriginalRunID: wrID, Status: "failed", Error: err.Error()})

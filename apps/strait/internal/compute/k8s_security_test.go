@@ -14,7 +14,7 @@ import (
 
 func newSecurityTestRuntime() (*K8sRuntime, *k8sfake.Clientset) {
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 	return rt, cs
 }
 
@@ -157,7 +157,7 @@ func TestK8s_LabelInjection_Adversarial(t *testing.T) {
 	sanitized := sanitizeUserLabels(adversarial)
 
 	// System label must not be overridable.
-	rt := NewK8sRuntimeFromClient(k8sfake.NewSimpleClientset(), "default", "")
+	rt := NewK8sRuntimeFromClient(k8sfake.NewSimpleClientset(), "default", "", "")
 	_, err := rt.Create(context.Background(), RunRequest{
 		ImageURI:      "alpine:3.21",
 		MachinePreset: "micro",
@@ -192,7 +192,7 @@ func TestK8s_NamespaceIsolation(t *testing.T) {
 	t.Parallel()
 
 	cs := k8sfake.NewSimpleClientset()
-	rt := NewK8sRuntimeFromClient(cs, "production-jobs", "")
+	rt := NewK8sRuntimeFromClient(cs, "production-jobs", "", "")
 
 	_, err := rt.Create(context.Background(), RunRequest{
 		ImageURI:      "alpine:3.21",
@@ -273,7 +273,7 @@ func TestK8s_SecurityContext_ConsistentAcrossPresets(t *testing.T) {
 	presets := []string{"micro", "small-1x", "medium-1x", "large-1x"}
 	for _, preset := range presets {
 		cs := k8sfake.NewSimpleClientset()
-		rt := NewK8sRuntimeFromClient(cs, "default", "strait-job")
+		rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
 		_, err := rt.Create(context.Background(), RunRequest{
 			ImageURI:      "alpine:3.21",

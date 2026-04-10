@@ -110,7 +110,10 @@ func (s *AnalyticsStore) GetAgentCostSummary(ctx context.Context, projectID, age
 		WHERE project_id = ? AND agent_id = ? AND created_at >= ? AND created_at <= ?
 	`
 
-	row := s.client.QueryRow(ctx, query, projectID, agentID, from, to)
+	row, err := s.client.QueryRow(ctx, query, projectID, agentID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("agent cost summary: %w", err)
+	}
 	var r AgentCostSummary
 	if err := row.Scan(&r.TotalRuns, &r.TotalTokens, &r.PromptTokens, &r.CompletionTokens, &r.TotalCostMicrousd, &r.AvgCostMicrousd, &r.ToolCallCount, &r.CheckpointCount); err != nil {
 		return nil, fmt.Errorf("agent cost summary: %w", err)

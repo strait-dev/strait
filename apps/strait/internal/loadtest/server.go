@@ -76,7 +76,7 @@ func (ts *TestServer) Start() error {
 	ln, err := net.Listen("tcp", ts.addr)
 	if err != nil {
 		// Port in use - try OS-assigned port
-		ln, err = net.Listen("tcp", ":0")
+		ln, err = net.Listen("tcp", ":0") //nolint:gosec // test server intentionally binds to all interfaces
 		if err != nil {
 			return fmt.Errorf("test server failed to listen: %w", err)
 		}
@@ -87,7 +87,7 @@ func (ts *TestServer) Start() error {
 	ts.addr = actualAddr
 
 	go func() {
-		ts.srv.Serve(ln)
+		_ = ts.srv.Serve(ln)
 	}()
 
 	return nil
@@ -135,73 +135,73 @@ func (ts *TestServer) handleFastEcho(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"echo":      body,
 		"timestamp": time.Now().UnixMilli(),
 	})
 }
 
 // handleSlowProcess simulates work taking 1-5 seconds.
-func (ts *TestServer) handleSlowProcess(w http.ResponseWriter, r *http.Request) {
+func (ts *TestServer) handleSlowProcess(w http.ResponseWriter, _ *http.Request) {
 	ts.stats.SlowProcess.Add(1)
 	ts.stats.Total.Add(1)
 
-	delay := time.Duration(1+rand.IntN(4)) * time.Second
+	delay := time.Duration(1+rand.IntN(4)) * time.Second //nolint:gosec // non-cryptographic use for load test simulation
 	time.Sleep(delay)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"processed":  true,
-		"delay_ms":   delay.Milliseconds(),
-		"timestamp":  time.Now().UnixMilli(),
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"processed": true,
+		"delay_ms":  delay.Milliseconds(),
+		"timestamp": time.Now().UnixMilli(),
 	})
 }
 
 // handleVariableLoad generates configurable CPU load.
-func (ts *TestServer) handleVariableLoad(w http.ResponseWriter, r *http.Request) {
+func (ts *TestServer) handleVariableLoad(w http.ResponseWriter, _ *http.Request) {
 	ts.stats.VariableLoad.Add(1)
 	ts.stats.Total.Add(1)
 
 	// Simulate variable processing time (100ms-2s)
-	delay := time.Duration(100+rand.IntN(1900)) * time.Millisecond
+	delay := time.Duration(100+rand.IntN(1900)) * time.Millisecond //nolint:gosec // non-cryptographic use for load test simulation
 	start := time.Now()
 
 	// Do some actual work during the delay
 	iterations := 0
 	for time.Since(start) < delay {
 		// Busy-wait with real computation
-		_ = rand.IntN(1000) * rand.IntN(1000)
+		_ = rand.IntN(1000) * rand.IntN(1000) //nolint:gosec // non-cryptographic use for load test simulation
 		iterations++
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"iterations": iterations,
 		"delay_ms":   time.Since(start).Milliseconds(),
 	})
 }
 
 // handleFlaky fails ~20% of the time to test retry behavior.
-func (ts *TestServer) handleFlaky(w http.ResponseWriter, r *http.Request) {
+func (ts *TestServer) handleFlaky(w http.ResponseWriter, _ *http.Request) {
 	ts.stats.Flaky.Add(1)
 	ts.stats.Total.Add(1)
 
-	if rand.IntN(5) == 0 {
+	if rand.IntN(5) == 0 { //nolint:gosec // non-cryptographic use for load test simulation
 		http.Error(w, "simulated failure", http.StatusInternalServerError)
 		return
 	}
 
-	time.Sleep(time.Duration(50+rand.IntN(200)) * time.Millisecond)
+	time.Sleep(time.Duration(50+rand.IntN(200)) * time.Millisecond) //nolint:gosec // non-cryptographic use for load test simulation
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"success":   true,
 		"timestamp": time.Now().UnixMilli(),
 	})
 }
 
 // handleMemoryHeavy allocates memory to simulate heavy responses.
-func (ts *TestServer) handleMemoryHeavy(w http.ResponseWriter, r *http.Request) {
+func (ts *TestServer) handleMemoryHeavy(w http.ResponseWriter, _ *http.Request) {
 	ts.stats.MemoryHeavy.Add(1)
 	ts.stats.Total.Add(1)
 
@@ -211,32 +211,32 @@ func (ts *TestServer) handleMemoryHeavy(w http.ResponseWriter, r *http.Request) 
 		items[i] = map[string]any{
 			"id":    i,
 			"value": fmt.Sprintf("item-%d-data-padding-for-size", i),
-			"score": rand.Float64() * 100,
+			"score": rand.Float64() * 100, //nolint:gosec // non-cryptographic use for load test simulation
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"items": items,
 		"count": len(items),
 	})
 }
 
 // handleCostReporter simulates a job that reports cost metadata.
-func (ts *TestServer) handleCostReporter(w http.ResponseWriter, r *http.Request) {
+func (ts *TestServer) handleCostReporter(w http.ResponseWriter, _ *http.Request) {
 	ts.stats.CostReporter.Add(1)
 	ts.stats.Total.Add(1)
 
-	time.Sleep(time.Duration(200+rand.IntN(300)) * time.Millisecond)
+	time.Sleep(time.Duration(200+rand.IntN(300)) * time.Millisecond) //nolint:gosec // non-cryptographic use for load test simulation
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"cost": map[string]any{
 			"provider":          "openai",
 			"model":             "gpt-4o",
-			"prompt_tokens":     800 + rand.IntN(500),
-			"completion_tokens": 200 + rand.IntN(300),
-			"total_cost_usd":    0.01 + rand.Float64()*0.05,
+			"prompt_tokens":     800 + rand.IntN(500),       //nolint:gosec // non-cryptographic use for load test simulation
+			"completion_tokens": 200 + rand.IntN(300),       //nolint:gosec // non-cryptographic use for load test simulation
+			"total_cost_usd":    0.01 + rand.Float64()*0.05, //nolint:gosec // non-cryptographic use for load test simulation
 		},
 		"result": "processed",
 	})
@@ -244,7 +244,7 @@ func (ts *TestServer) handleCostReporter(w http.ResponseWriter, r *http.Request)
 
 func (ts *TestServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "ok",
 		"uptime": time.Since(ts.started).String(),
 	})
@@ -252,5 +252,5 @@ func (ts *TestServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (ts *TestServer) handleStats(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ts.Snapshot())
+	_ = json.NewEncoder(w).Encode(ts.Snapshot())
 }

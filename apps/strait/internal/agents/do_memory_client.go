@@ -52,7 +52,7 @@ type DOMemoryEntry struct {
 // Set writes a memory key to the agent's Durable Object.
 func (c *DOMemoryClient) Set(ctx context.Context, agentID, key string, value json.RawMessage, ttlSecs, maxPerKey, maxPerAgent int) (*DOMemoryEntry, error) {
 	body, err := json.Marshal(map[string]any{
-		"value":         json.RawMessage(value),
+		"value":         value,
 		"ttl_secs":      ttlSecs,
 		"max_per_key":   maxPerKey,
 		"max_per_agent": maxPerAgent,
@@ -164,4 +164,3 @@ func (c *DOMemoryClient) doRequest(ctx context.Context, method, agentID, path st
 
 	return c.client.Do(req)
 }
-

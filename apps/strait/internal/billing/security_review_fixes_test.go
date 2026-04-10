@@ -158,7 +158,7 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-		WithEdition("community"))
+		WithDevBypassSignatureCheck(), WithEdition("community"))
 
 	body := `{"id":"evt-record-err","type":"customer.subscription.created","data":{"object":{"id":"sub_record_err","status":"active","items":{"data":[{"price":{"id":"starter-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust_1","email":"test@example.com","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
@@ -187,7 +187,7 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-		WithEdition("community"))
+		WithDevBypassSignatureCheck(), WithEdition("community"))
 
 	payload := StripeWebhookPayload{
 		ID:   "evt-record-ok",
@@ -221,7 +221,7 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
-		WithEdition("community"))
+		WithDevBypassSignatureCheck(), WithEdition("community"))
 
 	// Send a webhook with unknown product ID -- handler will return error.
 	payload := StripeWebhookPayload{

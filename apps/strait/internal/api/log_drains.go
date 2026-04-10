@@ -54,6 +54,9 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	if err := validateURL(req.EndpointURL); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}

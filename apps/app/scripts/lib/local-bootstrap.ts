@@ -386,7 +386,8 @@ export async function migrateAuthDatabase(dryRun = false) {
 
   await waitForDatabase(connectionString);
   await patchKnownMigrationCompatibility(connectionString);
-  const { auth } = await import("../../src/lib/auth.server");
+  const { getAuth } = await import("../../src/lib/auth.server");
+  const auth = await getAuth();
 
   const { toBeAdded, toBeCreated, runMigrations } = await getMigrations(
     auth.options

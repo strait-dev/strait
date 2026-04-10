@@ -4,7 +4,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
 )
+
+// skipIfCommunity skips the test when running in a community build.
+// Tests that set STRAIT_EDITION=cloud require the cloud build tag.
+func skipIfCommunity(t *testing.T) {
+	t.Helper()
+	if domain.BuildEdition() != domain.EditionCloud {
+		t.Skip("requires cloud build tag")
+	}
+}
 
 // setRequiredEnv sets the minimum required env vars for a valid config.
 func setRequiredEnv(t *testing.T) {
@@ -723,6 +734,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	t.Run("docker runtime with cloud edition", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "docker")
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 
 		cfg, err := Load()
@@ -764,6 +777,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	t.Run("k8s valid with defaults", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 
 		cfg, err := Load()
@@ -784,6 +799,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	t.Run("k8s with custom namespace", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("K8S_NAMESPACE", "strait-jobs")
 		t.Setenv("K8S_PRIORITY_CLASS", "high-priority")
@@ -803,6 +820,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	t.Run("k8s namespace defaults to default when empty", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("K8S_NAMESPACE", "")
 
@@ -818,6 +837,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	t.Run("k8s kubeconfig optional", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 
 		cfg, err := Load()
@@ -832,6 +853,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 	t.Run("k8s with kubeconfig", func(t *testing.T) {
 		setRequiredEnv(t)
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("K8S_KUBECONFIG", "/path/to/kubeconfig")
 
@@ -848,6 +871,8 @@ func TestLoad_ComputeRuntimeValidation(t *testing.T) {
 func TestLoad_FallbackProviderValidation(t *testing.T) {
 	t.Run("k8s primary docker fallback", func(t *testing.T) {
 		setRequiredEnv(t)
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
 		t.Setenv("K8S_NAMESPACE", "default")
@@ -864,6 +889,8 @@ func TestLoad_FallbackProviderValidation(t *testing.T) {
 
 	t.Run("empty fallback is valid", func(t *testing.T) {
 		setRequiredEnv(t)
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
 		t.Setenv("K8S_NAMESPACE", "default")
@@ -879,6 +906,8 @@ func TestLoad_FallbackProviderValidation(t *testing.T) {
 
 	t.Run("same as primary rejected", func(t *testing.T) {
 		setRequiredEnv(t)
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
 		t.Setenv("K8S_NAMESPACE", "default")
@@ -895,6 +924,8 @@ func TestLoad_FallbackProviderValidation(t *testing.T) {
 
 	t.Run("invalid provider rejected", func(t *testing.T) {
 		setRequiredEnv(t)
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "fly")
 		t.Setenv("FLY_API_TOKEN", "fly-token")
@@ -909,6 +940,8 @@ func TestLoad_FallbackProviderValidation(t *testing.T) {
 
 	t.Run("fallback without primary rejected", func(t *testing.T) {
 		setRequiredEnv(t)
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "none")
 		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
@@ -921,6 +954,8 @@ func TestLoad_FallbackProviderValidation(t *testing.T) {
 
 	t.Run("fly fallback requires fly config", func(t *testing.T) {
 		setRequiredEnv(t)
+		skipIfCommunity(t)
+		skipIfCommunity(t)
 		t.Setenv("STRAIT_EDITION", "cloud")
 		t.Setenv("COMPUTE_RUNTIME", "k8s")
 		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
@@ -1156,6 +1191,7 @@ func TestLoad_StringOverrides(t *testing.T) {
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
 	t.Setenv("RESEND_API_KEY", "re_123")
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
+	skipIfCommunity(t)
 	t.Setenv("STRAIT_EDITION", "cloud")
 	t.Setenv("DEQUEUE_STRATEGY", "round_robin")
 	t.Setenv("WORKER_PARTITION_WEIGHTS", "critical:3,default:1")
@@ -1224,6 +1260,7 @@ func TestLoad_ManagedExecutionFields(t *testing.T) {
 	t.Setenv("WARM_POOL_ENABLED", "true")
 	t.Setenv("WARM_POOL_MAX_PER_JOB", "3")
 	t.Setenv("WARM_POOL_TTL", "10m")
+	skipIfCommunity(t)
 	t.Setenv("STRAIT_EDITION", "cloud")
 
 	cfg, err := Load()

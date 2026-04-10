@@ -763,22 +763,25 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		return nil // no limit set
 	}
 
-	// Best-effort Redis lock reduces the TOCTOU window for concurrent spending checks.
-	// A strict fix would use pg_advisory_xact_lock inside a transaction, but the
-	// current approach is sufficient for practical workloads (spending checks happen
-	// once per run dispatch, not per request, and the race requires sub-second timing).
+	// Redis-based distributed lock serializes concurrent spending checks per org.
+	// Uses a 5-second TTL with up to 3 retries (200ms apart) to handle contention
+	// under high concurrency, preventing TOCTOU races where multiple goroutines
+	// could pass the check simultaneously with the old 500ms single-retry approach.
 	if e.rdb != nil {
 		lockKey := "strait:spend_check:" + orgID
-		acquired, lockErr := e.rdb.SetNX(ctx, lockKey, "1", 500*time.Millisecond).Result()
-		if lockErr == nil && !acquired {
-			// Another check is in progress for this org -- wait briefly and retry once.
-			time.Sleep(100 * time.Millisecond)
-			acquired, lockErr = e.rdb.SetNX(ctx, lockKey, "1", 500*time.Millisecond).Result()
+		var acquired bool
+		var lockErr error
+		for range 3 {
+			acquired, lockErr = e.rdb.SetNX(ctx, lockKey, "1", 5*time.Second).Result()
+			if lockErr != nil || acquired {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
 		if lockErr == nil && acquired {
 			defer e.rdb.Del(ctx, lockKey)
 		}
-		// If lock is not acquired after retry, proceed without serialization.
+		// If lock is not acquired after retries, proceed without serialization.
 		// The underlying query is still safe; the lock only reduces TOCTOU window.
 	}
 

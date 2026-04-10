@@ -393,10 +393,18 @@ type Job struct {
 	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
 	AllowedTools              []string          `json:"allowed_tools,omitempty"`
 	BlockedTools              []string          `json:"blocked_tools,omitempty"`
-	CreatedBy                 string            `json:"created_by,omitempty"`
-	UpdatedBy                 string            `json:"updated_by,omitempty"`
-	CreatedAt                 time.Time         `json:"created_at"`
-	UpdatedAt                 time.Time         `json:"updated_at"`
+	// Code-first deployment fields.
+	// SourceType defaults to "image" (existing behavior). Set to "code" for strait-deployed jobs.
+	SourceType         SourceType `json:"source_type,omitempty"`
+	RuntimeType        Runtime    `json:"runtime,omitempty"`
+	ActiveDeploymentID string     `json:"active_deployment_id,omitempty"`
+	// RollbackSourceDeploymentID is the deployment that was active before the most
+	// recent rollback operation. It is cleared when a new code build succeeds.
+	RollbackSourceDeploymentID string    `json:"rollback_source_deployment_id,omitempty"`
+	CreatedBy                  string    `json:"created_by,omitempty"`
+	UpdatedBy                  string    `json:"updated_by,omitempty"`
+	CreatedAt                  time.Time `json:"created_at"`
+	UpdatedAt                  time.Time `json:"updated_at"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -542,7 +550,16 @@ type JobRun struct {
 	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
 	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
 	MachineID             string            `json:"machine_id,omitempty"`
-	CreatedAt             time.Time         `json:"created_at"`
+	// Code-first deployment: populated at queue time when job.SourceType == "code".
+	// Pinning the image digest ensures retries and workflow steps always use the
+	// same image even if a new deployment lands between attempts.
+	DeploymentID      string `json:"deployment_id,omitempty"`
+	PinnedImageURI    string `json:"pinned_image_uri,omitempty"`
+	PinnedImageDigest string `json:"pinned_image_digest,omitempty"`
+	// IsRollback is true when this run was created after a RollbackToDeployment
+	// call, meaning the job is using an older deployment rather than the latest build.
+	IsRollback bool      `json:"is_rollback,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type BatchOperation struct {
@@ -1516,4 +1533,104 @@ func (s DeploymentStrategy) IsValid() bool {
 	default:
 		return false
 	}
+}
+
+// SourceType controls whether a job dispatches via a user-supplied image or
+// code-first deployments built and managed by Strait.
+type SourceType string
+
+const (
+	// SourceTypeImage is the default: the job references an external image URI
+	// (or endpoint URL for HTTP mode). Existing behavior is unchanged.
+	SourceTypeImage SourceType = "image"
+	// SourceTypeCode means the job was deployed via `strait deploy`. Strait builds
+	// the image from uploaded source code and pins each run to the built digest.
+	SourceTypeCode SourceType = "code"
+)
+
+// IsValid returns true if the source type is a known value.
+func (s SourceType) IsValid() bool {
+	switch s {
+	case SourceTypeImage, SourceTypeCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Runtime identifies the programming language for a code-first job.
+type Runtime string
+
+const (
+	RuntimePython     Runtime = "python"
+	RuntimeTypeScript Runtime = "typescript"
+	RuntimeRuby       Runtime = "ruby"
+	RuntimeRust       Runtime = "rust"
+	RuntimeGo         Runtime = "go"
+)
+
+// IsValid returns true if the runtime is a known value.
+func (r Runtime) IsValid() bool {
+	switch r {
+	case RuntimePython, RuntimeTypeScript, RuntimeRuby, RuntimeRust, RuntimeGo:
+		return true
+	default:
+		return false
+	}
+}
+
+// AllRuntimes returns all valid Runtime values. Used to keep external
+// representations (e.g. the strait.json JSON Schema) in sync with the domain.
+func AllRuntimes() []Runtime {
+	return []Runtime{
+		RuntimePython,
+		RuntimeTypeScript,
+		RuntimeRuby,
+		RuntimeRust,
+		RuntimeGo,
+	}
+}
+
+// DeploymentBuildStatus tracks the lifecycle of a code deployment build.
+type DeploymentBuildStatus string
+
+const (
+	DeploymentStatusPending  DeploymentBuildStatus = "pending"   // upload confirmed, build not yet started
+	DeploymentStatusBuilding DeploymentBuildStatus = "building"  // BuildKit is running
+	DeploymentStatusReady    DeploymentBuildStatus = "ready"     // image pushed, runs can use it
+	DeploymentStatusFailed   DeploymentBuildStatus = "failed"    // build or push failed
+	DeploymentStatusTimedOut DeploymentBuildStatus = "timed_out" // build exceeded configured timeout
+)
+
+// IsValid returns true if the build status is a known value.
+func (s DeploymentBuildStatus) IsValid() bool {
+	switch s {
+	case DeploymentStatusPending, DeploymentStatusBuilding, DeploymentStatusReady, DeploymentStatusFailed, DeploymentStatusTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// CodeDeployment represents a single versioned code-first deployment of a job.
+// Each deployment corresponds to one `strait deploy` invocation: tarball upload
+// → BuildKit build → ECR push → atomic swap of active_deployment_id on the job.
+type CodeDeployment struct {
+	ID               string                `json:"id"`
+	JobID            string                `json:"job_id"`
+	ProjectID        string                `json:"project_id"`
+	Version          int                   `json:"version"`
+	Status           DeploymentBuildStatus `json:"status"`
+	Runtime          Runtime               `json:"runtime"`
+	SourceHash       string                `json:"source_hash"` // SHA-256 of uploaded tarball
+	SourceSizeBytes  int64                 `json:"source_size_bytes"`
+	SourceURI        string                `json:"source_uri"`                   // object store key
+	BuiltImageURI    string                `json:"built_image_uri,omitempty"`    // full URI after build
+	BuiltImageDigest string                `json:"built_image_digest,omitempty"` // sha256:... digest
+	BuildLogs        string                `json:"build_logs,omitempty"`
+	ErrorMessage     string                `json:"error_message,omitempty"`
+	CreatedBy        string                `json:"created_by,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
+	UpdatedAt        time.Time             `json:"updated_at"`
+	FinishedAt       *time.Time            `json:"finished_at,omitempty"`
 }

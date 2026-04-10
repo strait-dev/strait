@@ -24,6 +24,10 @@ func (s *Server) handleCompensateWorkflowRun(ctx context.Context, input *Compens
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
+	if err := requireProjectMatch(ctx, wfRun.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
 	if err := s.checkFeatureAllowed(ctx, wfRun.ProjectID, billing.FeatureCompensatingTxns, "Compensating transactions"); err != nil {
 		return nil, err
 	}
@@ -71,6 +75,10 @@ type GetCompensationPlanOutput struct {
 func (s *Server) handleGetCompensationPlan(ctx context.Context, input *GetCompensationPlanInput) (*GetCompensationPlanOutput, error) {
 	wfRun, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
+	if err := requireProjectMatch(ctx, wfRun.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 

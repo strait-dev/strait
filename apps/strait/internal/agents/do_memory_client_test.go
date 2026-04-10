@@ -30,10 +30,10 @@ func TestValidAgentID(t *testing.T) {
 		"550e8400-e29b-41d4-a716-446655440000#fragment",
 		"550e8400-e29b-41d4-a716-446655440000?query=1",
 		"550e8400-e29b-41d4-a716-446655440000/../../",
-		"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", // uppercase
+		"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",  // uppercase
 		"550e8400-e29b-41d4-a716-4466554400001", // too long
 		"550e8400-e29b-41d4-a716-44665544000",   // too short
-		"550e8400e29b41d4a716446655440000",       // no dashes
+		"550e8400e29b41d4a716446655440000",      // no dashes
 		"admin@evil.com",
 		"localhost",
 		"127.0.0.1",

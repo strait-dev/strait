@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"strait/internal/domain"
@@ -47,9 +48,7 @@ func TestCheckAgentSpendingLimit_FreePlan_AtCap(t *testing.T) {
 	}
 
 	var limitErr *LimitError
-	if le, ok := err.(*LimitError); ok {
-		limitErr = le
-	} else {
+	if !errors.As(err, &limitErr) {
 		t.Fatalf("expected *LimitError, got %T: %v", err, err)
 	}
 	if limitErr.Code != "agent_spending_limit_reached" {
@@ -89,9 +88,7 @@ func TestCheckAgentSpendingLimit_MakerPlan_WithSpendingCap(t *testing.T) {
 		t.Fatal("expected error at spending cap, got nil")
 	}
 	var limitErr *LimitError
-	if le, ok := err.(*LimitError); ok {
-		limitErr = le
-	} else {
+	if !errors.As(err, &limitErr) {
 		t.Fatalf("expected *LimitError, got %T", err)
 	}
 	if limitErr.Code != "agent_spending_limit_reached" {

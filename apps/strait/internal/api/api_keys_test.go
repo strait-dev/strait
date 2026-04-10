@@ -228,6 +228,9 @@ func TestHandleRevokeAPIKey_Success(t *testing.T) {
 	t.Parallel()
 	var revokedID string
 	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test"}, nil
+		},
 		RevokeAPIKeyFunc: func(_ context.Context, id string) error {
 			revokedID = id
 			return nil
@@ -735,6 +738,9 @@ func TestOrgScopedKey_RevokeWorks(t *testing.T) {
 	t.Parallel()
 	var revokedID string
 	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test"}, nil
+		},
 		RevokeAPIKeyFunc: func(_ context.Context, id string) error {
 			revokedID = id
 			return nil

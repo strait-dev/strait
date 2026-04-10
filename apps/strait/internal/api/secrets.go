@@ -36,6 +36,9 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 
 	if s.config.SecretEncryptionKey == "" {
 		return nil, huma.Error503ServiceUnavailable("secret encryption is not configured -- set SECRET_ENCRYPTION_KEY")
@@ -45,12 +48,22 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 		req.Environment = "production"
 	}
 
+	encryptedValue := req.Value
+	if s.encryptor != nil {
+		enc, encErr := s.encryptor.Encrypt([]byte(req.Value))
+		if encErr != nil {
+			slog.Error("failed to encrypt secret value", "error", encErr)
+			return nil, huma.Error500InternalServerError("failed to encrypt secret")
+		}
+		encryptedValue = string(enc)
+	}
+
 	secret := &domain.JobSecret{
 		ProjectID:      req.ProjectID,
 		JobID:          req.JobID,
 		Environment:    req.Environment,
 		SecretKey:      req.SecretKey,
-		EncryptedValue: req.Value,
+		EncryptedValue: encryptedValue,
 	}
 
 	if err := s.store.CreateJobSecret(ctx, secret); err != nil {
@@ -102,6 +115,18 @@ type DeleteSecretInput struct {
 }
 
 func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInput) (*struct{}, error) {
+	secret, err := s.store.GetJobSecret(ctx, input.SecretID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobSecretNotFound) {
+			return nil, huma.Error404NotFound("secret not found")
+		}
+		slog.Error("failed to get secret", "error", err)
+		return nil, huma.Error500InternalServerError("failed to get secret")
+	}
+	if err := requireProjectMatch(ctx, secret.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("secret not found")
+	}
+
 	if err := s.store.DeleteJobSecret(ctx, input.SecretID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
 			return nil, huma.Error404NotFound("secret not found")

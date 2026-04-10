@@ -33,7 +33,7 @@ func AllAddonTypes() []AddonType {
 
 // IsValidAddonType returns true if the addon type is recognized.
 func IsValidAddonType(t AddonType) bool {
-	switch t { //nolint:exhaustive // agent addons are valid too
+	switch t {
 	case AddonConcurrentRuns, AddonMembers, AddonCronSchedules,
 		AddonDataRetention, AddonWebhookEndpoints,
 		AddonAgentConcurrentRuns, AddonAgentDefinitions, AddonAgentMemory,

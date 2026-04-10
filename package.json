@@ -28,7 +28,7 @@
     "clean:workspaces": "turbo run clean",
     "go:build": "cd apps/strait && go build ./...",
     "go:vet": "cd apps/strait && go vet ./...",
-    "go:lint": "cd apps/strait && golangci-lint run --timeout=5m ./...",
+    "go:lint": "cd apps/strait && golangci-lint run --timeout=10m ./...",
     "go:test": "cd apps/strait && go test ./... -short -count=1 -race -timeout=300s",
     "go:run-all": "bun run go:lint",
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:format && bun run biome:write && bun run biome:fix:unsafe && bun run biome:lint && bun run typecheck && bun run go:lint",
@@ -51,11 +51,11 @@
     "@biomejs/biome": "2.4.10",
     "@changesets/cli": "^2.30.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260405.1",
-    "knip": "^6.3.0",
-    "lefthook": "^2.1.4",
+    "@typescript/native-preview": "^7.0.0-dev.20260409.1",
+    "knip": "^6.3.1",
+    "lefthook": "^2.1.5",
     "openapi-typescript": "^7.13.0",
-    "turbo": "^2.9.4",
-    "ultracite": "7.4.3"
+    "turbo": "^2.9.5",
+    "ultracite": "7.4.4"
   }
 }

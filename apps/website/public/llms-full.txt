@@ -24,7 +24,7 @@ Strait is a job orchestration platform that provides:
 - **Primary database**: PostgreSQL (raw SQL with pgx/v5, no ORM)
 - **Analytics database**: ClickHouse (12 tables, custom analytics exporter)
 - **Cache**: Redis (optional, for rate limiting and caching)
-- **Hosting**: Fly.io (apps: strait, strait-sequin, strait-otel-collector)
+- **Hosting**: Kubernetes on Hetzner Cloud (k3s, ArgoCD GitOps)
 - **Observability stack**: Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime)
 
 ## Core Concepts
@@ -179,7 +179,7 @@ The 32 analytics endpoints cover:
 - **Incident management**: Automated alerting on downtime
 
 ### OpenTelemetry
-- **Collector**: Dedicated `strait-otel-collector` app on Fly.io
+- **Collector**: Dedicated OTel Collector sidecar in the k8s cluster
 - **Traces**: Distributed tracing across all services
 - **Metrics**: Runtime metrics, job execution metrics, queue depth metrics
 - **Logs**: Structured log correlation with traces

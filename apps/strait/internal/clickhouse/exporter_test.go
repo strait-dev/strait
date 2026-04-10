@@ -66,6 +66,30 @@ func TestExporter_Stop_Cleanly(t *testing.T) {
 	exporter.Stop()
 }
 
+func TestExporter_StopWithoutStart_DoesNotDeadlock(t *testing.T) {
+	t.Parallel()
+
+	exporter := NewExporter(&Client{}, ExporterConfig{
+		Enabled:       true,
+		BatchSize:     10,
+		FlushInterval: 50 * time.Millisecond,
+	}, slog.Default())
+
+	// Stop() without ever calling Start() must return promptly, not deadlock.
+	done := make(chan struct{})
+	go func() {
+		exporter.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success: Stop returned without deadlock
+	case <-time.After(1 * time.Second):
+		t.Fatal("Stop() without Start() deadlocked (did not return within 1 second)")
+	}
+}
+
 func TestExporter_EnqueuesNewRecordTypes(t *testing.T) {
 	t.Parallel()
 

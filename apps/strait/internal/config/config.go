@@ -124,7 +124,10 @@ type Config struct {
 	CDCWaitTimeMs int `env:"CDC_WAIT_TIME_MS" default:"5000"`
 
 	// SSE settings
-	SSEKeepaliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" default:"15s"`
+	SSEKeepaliveInterval  time.Duration `env:"SSE_KEEPALIVE_INTERVAL" default:"15s"`
+	SSEMaxConns           int64         `env:"SSE_MAX_CONNS" default:"5000"`
+	SSEMaxConnsPerProject int64         `env:"SSE_MAX_CONNS_PER_PROJECT" default:"100"`
+	SSEMaxConnDuration    time.Duration `env:"SSE_MAX_CONN_DURATION" default:"30m"`
 
 	// Log drain settings
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
@@ -172,6 +175,11 @@ type Config struct {
 	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
 	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
 	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
+	// K8sRuntimeClass sets the RuntimeClassName on all job pods.
+	// Set to "gvisor" to enable gVisor kernel isolation on worker nodes that have
+	// the RuntimeClass installed. Leave empty to use the node default runtime.
+	K8sRuntimeClass string `env:"K8S_RUNTIME_CLASS" default:""`
+
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
 
@@ -239,13 +247,83 @@ type Config struct {
 	// Debug tools
 	DebugStatsviz bool `env:"DEBUG_STATSVIZ" default:"false"`
 
-	// Edition controls feature gating (community vs cloud)
+	// Edition is determined at compile time via build tags (community vs cloud).
+	// This field exists for config logging but is ignored by domain.ParseEdition.
 	Edition string `env:"STRAIT_EDITION" default:"community"`
+
+	// Code-first build pipeline (STR-385).
+
+	// BuildKit daemon address. Used by the build orchestrator to submit builds.
+	BuildKitAddress string `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
+	// BuildKitAddresses is an optional comma-separated list of BuildKit daemon
+	// addresses used for multi-node round-robin dispatch. When non-empty it
+	// overrides BuildKitAddress.
+	BuildKitAddresses string `env:"BUILDKIT_ADDRESSES" default:""`
+	BuildKitNamespace string `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
+
+	// Deployment GC removes stale pending and old failed/timed_out deployments.
+	DeploymentGCEnabled    bool          `env:"DEPLOYMENT_GC_ENABLED" default:"true"`
+	DeploymentGCInterval   time.Duration `env:"DEPLOYMENT_GC_INTERVAL" default:"1h"`
+	DeploymentGCPendingTTL time.Duration `env:"DEPLOYMENT_GC_PENDING_TTL" default:"15m"`
+	DeploymentGCFailedAge  time.Duration `env:"DEPLOYMENT_GC_FAILED_AGE" default:"168h"` // 7 days
+
+	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
+	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`
+	BuildTimeout         time.Duration `env:"BUILD_TIMEOUT" default:"10m"`
+
+	// Object store for deployment tarballs.
+	// Type selects the implementation: "s3" (default, works for R2 and MinIO).
+	ObjectStoreType           string `env:"OBJECT_STORE_TYPE" default:"s3"`
+	ObjectStoreBucket         string `env:"OBJECT_STORE_BUCKET"`
+	ObjectStoreEndpoint       string `env:"OBJECT_STORE_ENDPOINT"` // e.g. "https://{account}.r2.cloudflarestorage.com" or "http://minio:9000"
+	ObjectStoreRegion         string `env:"OBJECT_STORE_REGION" default:"auto"`
+	ObjectStoreAccessKey      string `env:"OBJECT_STORE_ACCESS_KEY"`
+	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
+	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
+
+	// Container registry for built images.
+	// Type selects the implementation: "ecr" or "generic" (Docker Registry API v2).
+	ContainerRegistryType   string `env:"CONTAINER_REGISTRY_TYPE" default:"ecr"`
+	ContainerRegistryURL    string `env:"CONTAINER_REGISTRY_URL"`  // for generic
+	ContainerRegistryUser   string `env:"CONTAINER_REGISTRY_USER"` // for generic
+	ContainerRegistryPass   string `env:"CONTAINER_REGISTRY_PASS"` // for generic
+	ContainerRegistryPrefix string `env:"CONTAINER_REGISTRY_PREFIX" default:"strait-jobs"`
+	ECRRegion               string `env:"ECR_REGION" default:"us-east-1"`
+	ECRRegistryID           string `env:"ECR_REGISTRY_ID"` // AWS account ID; defaults to caller account
+	ECRRoleARN              string `env:"ECR_ROLE_ARN"`    // optional IAM role for cross-account access
+	// BuildExtraRegistryAuths is a JSON object mapping registry hostnames to
+	// bearer tokens used for authenticating private base images at build time.
+	// Example: {"private.registry.io": "base64token", "ghcr.io": "ghp_token"}
+	BuildExtraRegistryAuths string `env:"BUILD_EXTRA_REGISTRY_AUTHS" default:"{}"`
+
+	// Dispatcher mode: multi-cluster job routing (--mode dispatcher).
+	// DispatcherClusterRegistryConfigMap is the name of the K8s ConfigMap that
+	// contains the cluster-registry.yaml manifest listing all Strait clusters.
+	// Defaults to the name deployed by the infra repo.
+	DispatcherClusterRegistryConfigMap string `env:"DISPATCHER_CLUSTER_REGISTRY_CONFIGMAP" default:"cluster-registry"`
+	// DispatcherClusterRegistryNamespace is the K8s namespace that contains the
+	// cluster-registry ConfigMap.
+	DispatcherClusterRegistryNamespace string `env:"DISPATCHER_CLUSTER_REGISTRY_NAMESPACE" default:"strait"`
+	// DispatcherRefreshInterval controls how often the dispatcher re-reads cluster
+	// queue depths. Shorter intervals improve routing accuracy at the cost of more
+	// Prometheus queries.
+	DispatcherRefreshInterval time.Duration `env:"DISPATCHER_REFRESH_INTERVAL" default:"5s"`
+
+	// Performance: image pull policy and lazy loading.
+	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.
+	ImagePullPolicy string `env:"IMAGE_PULL_POLICY" default:"IfNotPresent"`
+	// PrePullEnabled deploys a DaemonSet that pre-pulls base runtime images to
+	// all nodes, eliminating cold-start latency on the first run.
+	PrePullEnabled bool `env:"PRE_PULL_ENABLED" default:"false"`
+	// SOCIEnabled enables Seekable OCI (SOCI) lazy image loading via the
+	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
+	// When enabled, container startup begins before the full image is pulled.
+	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
 }
 
 // Load reads configuration from environment variables.
 //
-//nolint:gocyclo,cyclop,gocognit
+//nolint:gocyclo,cyclop
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -357,7 +435,7 @@ func Load() (*Config, error) {
 			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
 		}
 	}
-	if cfg.Edition == string(domain.EditionCommunity) && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
+	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
 		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
 			"configured", cfg.ComputeRuntime)
 		cfg.ComputeRuntime = "none"

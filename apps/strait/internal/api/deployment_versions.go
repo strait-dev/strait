@@ -53,6 +53,9 @@ func (s *Server) handleCreateDeploymentVersion(ctx context.Context, input *Creat
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	status := domain.DeploymentVersionStatusDraft
 	if req.Runtime == "" {
 		req.Runtime = "node"
@@ -129,6 +132,9 @@ func (s *Server) handleFinalizeDeploymentVersion(ctx context.Context, input *Fin
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	deployment, err := s.store.FinalizeDeploymentVersion(ctx, input.DeploymentID, req.ProjectID, actorFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, store.ErrDeploymentVersionNotFound) {
@@ -153,6 +159,9 @@ func (s *Server) handlePromoteDeploymentVersion(ctx context.Context, input *Prom
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	deployment, err := s.store.PromoteDeploymentVersion(ctx, input.DeploymentID, req.ProjectID, req.Environment, actorFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, store.ErrDeploymentVersionNotFound) {
@@ -176,6 +185,9 @@ func (s *Server) handleRollbackDeploymentVersion(ctx context.Context, input *Rol
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
 	deployment, err := s.store.RollbackDeploymentVersion(ctx, input.DeploymentID, req.ProjectID, req.Environment, actorFromContext(ctx))
 	if err != nil {

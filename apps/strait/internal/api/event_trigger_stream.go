@@ -46,6 +46,12 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if !s.acquireSSEConn(trigger.ProjectID) {
+		respondError(w, r, http.StatusServiceUnavailable, "too many SSE connections")
+		return
+	}
+	defer s.releaseSSEConn(trigger.ProjectID)
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
@@ -57,9 +63,17 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Apply max connection duration timeout.
+	maxDuration := s.config.SSEMaxConnDuration
+	if maxDuration <= 0 {
+		maxDuration = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
+	defer cancel()
+
 	// Subscribe to the trigger-specific channel (same pattern as run:{runID}).
 	channel := fmt.Sprintf("event_trigger:%s", trigger.ID)
-	sub, err := s.pubsub.Subscribe(r.Context(), channel)
+	sub, err := s.pubsub.Subscribe(ctx, channel)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to subscribe")
 		return
@@ -88,7 +102,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case msg, ok := <-sub.Ch:
 			if !ok {

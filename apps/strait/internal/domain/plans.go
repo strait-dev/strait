@@ -26,7 +26,7 @@ func AllPlanTiers() []PlanTier {
 
 // IsValid returns true if the plan tier is a recognized value.
 func (p PlanTier) IsValid() bool {
-	switch p { //nolint:exhaustive // IsValid covers both Jobs and Agent tiers
+	switch p {
 	case PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise,
 		AgentPlanFree, AgentPlanMaker, AgentPlanGrowth, AgentPlanEnterprise:
 		return true
@@ -46,7 +46,7 @@ func (p PlanTier) IsAgentPlan() bool {
 // Rank returns the numeric rank of a plan tier (0=free, 4=enterprise).
 // Unknown tiers return 0.
 func (p PlanTier) Rank() int {
-	switch p { //nolint:exhaustive // agent tiers ranked separately
+	switch p {
 	case PlanFree:
 		return 0
 	case PlanStarter:
