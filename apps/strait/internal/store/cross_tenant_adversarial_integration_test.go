@@ -186,41 +186,56 @@ func TestCrossTenant_CountProjectQueuedRuns_CrossProjectIsolation(t *testing.T) 
 }
 
 // -----------------------------------------------------------------------.
-// Webhook subscription cross-tenant get
+// Webhook subscription cross-tenant isolation via RLS
 // -----------------------------------------------------------------------.
 
-func TestCrossTenant_GetWebhookSubscription_WrongProject_NotFound(t *testing.T) {
+// GetWebhookSubscription takes only (ctx, id) — it does not accept a
+// projectID parameter, so tenant isolation depends on RLS enforcing it
+// via the current_setting('app.current_project_id') policy on the
+// webhook_subscriptions table. This test binds the project context on
+// a per-request transaction (the same pattern rlsTxMiddleware uses) and
+// then calls GetWebhookSubscription from project B, expecting it to
+// return ErrWebhookSubscriptionNotFound because RLS filters the row.
+func TestCrossTenant_GetWebhookSubscription_WrongProject_RLSBlocks(t *testing.T) {
 	ctx := context.Background()
-	q := mustStore(t)
 	mustClean(t, ctx)
 
 	projA := "proj-xt-ws-a-" + newID()
 	projB := "proj-xt-ws-b-" + newID()
 
-	sub := &domain.WebhookSubscription{
-		ProjectID:  projA,
-		WebhookURL: "https://example.com/xt-" + newID(),
-		EventTypes: []string{"run.completed"},
-		Secret:     "s",
-		Active:     true,
-	}
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription: %v", err)
-	}
+	var subID string
+	runAsProject(t, ctx, projA, true, func(q *store.Queries) {
+		sub := &domain.WebhookSubscription{
+			ProjectID:  projA,
+			WebhookURL: "https://example.com/xt-" + newID(),
+			EventTypes: []string{"run.completed"},
+			Secret:     "s",
+			Active:     true,
+		}
+		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+			t.Fatalf("CreateWebhookSubscription: %v", err)
+		}
+		subID = sub.ID
+	})
 
 	// Correct project sees it.
-	got, err := q.GetWebhookSubscription(ctx, sub.ID, projA)
-	if err != nil {
-		t.Fatalf("GetWebhookSubscription(own): %v", err)
-	}
-	if got.ID != sub.ID {
-		t.Fatalf("got %q, want %q", got.ID, sub.ID)
-	}
+	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
+		got, err := q.GetWebhookSubscription(ctx, subID)
+		if err != nil {
+			t.Fatalf("GetWebhookSubscription(own): %v", err)
+		}
+		if got.ID != subID {
+			t.Fatalf("got %q, want %q", got.ID, subID)
+		}
+	})
 
-	// Wrong project gets not-found.
-	if _, err := q.GetWebhookSubscription(ctx, sub.ID, projB); !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-		t.Fatalf("cross-tenant GetWebhookSubscription: err = %v, want ErrWebhookSubscriptionNotFound", err)
-	}
+	// Wrong project: RLS policy excludes the row, so the store method
+	// returns ErrWebhookSubscriptionNotFound.
+	runAsProject(t, ctx, projB, false, func(q *store.Queries) {
+		if _, err := q.GetWebhookSubscription(ctx, subID); !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
+			t.Fatalf("cross-tenant GetWebhookSubscription: err = %v, want ErrWebhookSubscriptionNotFound", err)
+		}
+	})
 }
 
 // -----------------------------------------------------------------------.
