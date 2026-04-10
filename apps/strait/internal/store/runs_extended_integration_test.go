@@ -2135,8 +2135,9 @@ func TestRunCompute_ListProjectsWithComputeLimit_HappyPath(t *testing.T) {
 	// Insert a project_quota row directly.
 	projectID := "project-compute-limit"
 	if _, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO project_quotas (project_id, timezone, compute_daily_cost_limit_microusd) VALUES ($1, $2, $3)`,
-		projectID, "UTC", int64(100000),
+		`INSERT INTO project_job_quotas (project_id, compute_daily_cost_limit_microusd) VALUES ($1, $2);
+		 INSERT INTO project_platform_settings (project_id, timezone) VALUES ($1, $3);`,
+		projectID, int64(100000), "UTC",
 	); err != nil {
 		t.Fatalf("insert project_quota error = %v", err)
 	}
@@ -2177,8 +2178,9 @@ func TestRunCompute_ListProjectsWithComputeLimit_ExcludesZero(t *testing.T) {
 
 	projectID := "project-compute-limit-zero"
 	if _, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO project_quotas (project_id, timezone, compute_daily_cost_limit_microusd) VALUES ($1, $2, $3)`,
-		projectID, "UTC", int64(0),
+		`INSERT INTO project_job_quotas (project_id, compute_daily_cost_limit_microusd) VALUES ($1, $2);
+		 INSERT INTO project_platform_settings (project_id, timezone) VALUES ($1, $3);`,
+		projectID, int64(0), "UTC",
 	); err != nil {
 		t.Fatalf("insert project_quota error = %v", err)
 	}

@@ -541,74 +541,42 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 	return jobs, nil
 }
 
-func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectQuota")
+// GetProjectJobQuota returns the Jobs-only quota row for a project.
+// Returns (nil, nil) when no row exists (lazy upsert pattern — callers
+// must tolerate nil).
+func (q *Queries) GetProjectJobQuota(ctx context.Context, projectID string) (*ProjectJobQuota, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectJobQuota")
 	defer span.End()
 
-	query := `
-		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
-		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region, plan_tier,
-		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
-		       max_memory_per_key_bytes, max_memory_per_job_bytes, max_key_lifetime_days
-		FROM project_quotas
-		WHERE project_id = $1`
-
-	quota := &ProjectQuota{}
-	var maxQueued *int
-	var maxExecuting *int
-	var maxJobs *int
-	var timezone *string
-	var maxCostPerRun *int64
-	var maxDailyCost *int64
-	var rateLimitRequests *int
-	var rateLimitWindowSecs *int
-	var computeDailyCostLimit *int64
-	var defaultRegion *string
-	var planTier *string
-	var maxTokensPerRun *int64
-	var maxToolCallsPerRun *int
-	var maxIterationsPerRun *int
-	var maxMemoryPerKeyBytes *int
-	var maxMemoryPerJobBytes *int
-	var maxKeyLifetimeDays *int
-	err := q.db.QueryRow(ctx, query, projectID).Scan(
+	quota := &ProjectJobQuota{}
+	var maxJobs, maxQueued, maxExecuting, maxMemKey, maxMemJob *int
+	var maxCostPerRun, maxDailyCost, computeDailyCost *int64
+	err := q.db.QueryRow(ctx, `
+		SELECT project_id, max_jobs, max_queued_runs, max_executing_runs,
+		       max_cost_per_run_microusd, max_daily_cost_microusd,
+		       compute_daily_cost_limit_microusd,
+		       max_memory_per_key_bytes, max_memory_per_job_bytes
+		FROM project_job_quotas
+		WHERE project_id = $1`, projectID).Scan(
 		&quota.ProjectID,
-		&maxQueued,
-		&maxExecuting,
-		&maxJobs,
-		&timezone,
-		&maxCostPerRun,
-		&maxDailyCost,
-		&rateLimitRequests,
-		&rateLimitWindowSecs,
-		&computeDailyCostLimit,
-		&defaultRegion,
-		&planTier,
-		&maxTokensPerRun,
-		&maxToolCallsPerRun,
-		&maxIterationsPerRun,
-		&maxMemoryPerKeyBytes,
-		&maxMemoryPerJobBytes,
-		&maxKeyLifetimeDays,
+		&maxJobs, &maxQueued, &maxExecuting,
+		&maxCostPerRun, &maxDailyCost, &computeDailyCost,
+		&maxMemKey, &maxMemJob,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get project quota: %w", err)
+		return nil, fmt.Errorf("get project job quota: %w", err)
 	}
-
+	if maxJobs != nil {
+		quota.MaxJobs = *maxJobs
+	}
 	if maxQueued != nil {
 		quota.MaxQueuedRuns = *maxQueued
 	}
 	if maxExecuting != nil {
 		quota.MaxExecutingRuns = *maxExecuting
-	}
-	if maxJobs != nil {
-		quota.MaxJobs = *maxJobs
-	}
-	if timezone != nil {
-		quota.Timezone = *timezone
 	}
 	if maxCostPerRun != nil {
 		quota.MaxCostPerRunMicrousd = *maxCostPerRun
@@ -616,40 +584,163 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	if maxDailyCost != nil {
 		quota.MaxDailyCostMicrousd = *maxDailyCost
 	}
-	if rateLimitRequests != nil {
-		quota.RateLimitRequests = *rateLimitRequests
+	if computeDailyCost != nil {
+		quota.ComputeDailyCostLimitMicrousd = *computeDailyCost
 	}
-	if rateLimitWindowSecs != nil {
-		quota.RateLimitWindowSecs = *rateLimitWindowSecs
+	if maxMemKey != nil {
+		quota.MaxMemoryPerKeyBytes = *maxMemKey
 	}
-	if computeDailyCostLimit != nil {
-		quota.ComputeDailyCostLimitMicrousd = *computeDailyCostLimit
+	if maxMemJob != nil {
+		quota.MaxMemoryPerJobBytes = *maxMemJob
+	}
+	return quota, nil
+}
+
+// GetProjectAgentQuota returns the Agents-only quota row for a project.
+// Returns (nil, nil) when no row exists.
+func (q *Queries) GetProjectAgentQuota(ctx context.Context, projectID string) (*ProjectAgentQuota, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectAgentQuota")
+	defer span.End()
+
+	quota := &ProjectAgentQuota{}
+	var maxTokens *int64
+	var maxToolCalls, maxIterations *int
+	err := q.db.QueryRow(ctx, `
+		SELECT project_id, max_agents, max_agent_runs_per_month, max_agent_channels,
+		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run
+		FROM project_agent_quotas
+		WHERE project_id = $1`, projectID).Scan(
+		&quota.ProjectID,
+		&quota.MaxAgents, &quota.MaxAgentRunsPerMonth, &quota.MaxAgentChannels,
+		&maxTokens, &maxToolCalls, &maxIterations,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get project agent quota: %w", err)
+	}
+	if maxTokens != nil {
+		quota.MaxTokensPerRun = *maxTokens
+	}
+	if maxToolCalls != nil {
+		quota.MaxToolCallsPerRun = *maxToolCalls
+	}
+	if maxIterations != nil {
+		quota.MaxIterationsPerRun = *maxIterations
+	}
+	return quota, nil
+}
+
+// GetProjectPlatformSettings returns the product-neutral settings row for
+// a project (timezone, default region, rate limits, budget, key lifetime).
+// Returns (nil, nil) when no row exists.
+func (q *Queries) GetProjectPlatformSettings(ctx context.Context, projectID string) (*ProjectPlatformSettings, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectPlatformSettings")
+	defer span.End()
+
+	settings := &ProjectPlatformSettings{}
+	var timezone, defaultRegion, budgetAction *string
+	var rateLimitReq, rateLimitWindow *int
+	var monthlyBudget *int64
+	err := q.db.QueryRow(ctx, `
+		SELECT project_id, timezone, default_region, max_key_lifetime_days,
+		       rate_limit_requests, rate_limit_window_secs,
+		       monthly_budget_microusd, budget_action
+		FROM project_platform_settings
+		WHERE project_id = $1`, projectID).Scan(
+		&settings.ProjectID,
+		&timezone, &defaultRegion, &settings.MaxKeyLifetimeDays,
+		&rateLimitReq, &rateLimitWindow,
+		&monthlyBudget, &budgetAction,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get project platform settings: %w", err)
+	}
+	if timezone != nil {
+		settings.Timezone = *timezone
 	}
 	if defaultRegion != nil {
-		quota.DefaultRegion = *defaultRegion
+		settings.DefaultRegion = *defaultRegion
 	}
-	if planTier != nil {
-		quota.PlanTier = *planTier
+	if rateLimitReq != nil {
+		settings.RateLimitRequests = *rateLimitReq
 	}
-	if maxTokensPerRun != nil {
-		quota.MaxTokensPerRun = *maxTokensPerRun
+	if rateLimitWindow != nil {
+		settings.RateLimitWindowSecs = *rateLimitWindow
 	}
-	if maxToolCallsPerRun != nil {
-		quota.MaxToolCallsPerRun = *maxToolCallsPerRun
+	if monthlyBudget != nil {
+		settings.MonthlyBudgetMicrousd = *monthlyBudget
 	}
-	if maxIterationsPerRun != nil {
-		quota.MaxIterationsPerRun = *maxIterationsPerRun
+	if budgetAction != nil {
+		settings.BudgetAction = *budgetAction
 	}
-	if maxMemoryPerKeyBytes != nil {
-		quota.MaxMemoryPerKeyBytes = *maxMemoryPerKeyBytes
+	return settings, nil
+}
+
+// GetProjectQuota composes the three per-product quota reads and returns
+// a unified view for backwards compatibility.
+//
+// Deprecated: read from GetProjectJobQuota, GetProjectAgentQuota, or
+// GetProjectPlatformSettings directly. This shim exists only to keep
+// pre-phase-C callers working during the migration; it will be removed
+// once all call sites move to the focused getters.
+func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetProjectQuota")
+	defer span.End()
+
+	jobQuota, jobErr := q.GetProjectJobQuota(ctx, projectID)
+	if jobErr != nil {
+		return nil, jobErr
 	}
-	if maxMemoryPerJobBytes != nil {
-		quota.MaxMemoryPerJobBytes = *maxMemoryPerJobBytes
+	agentQuota, agentErr := q.GetProjectAgentQuota(ctx, projectID)
+	if agentErr != nil {
+		return nil, agentErr
 	}
-	if maxKeyLifetimeDays != nil {
-		quota.MaxKeyLifetimeDays = *maxKeyLifetimeDays
+	platform, platformErr := q.GetProjectPlatformSettings(ctx, projectID)
+	if platformErr != nil {
+		return nil, platformErr
+	}
+	if jobQuota == nil && agentQuota == nil && platform == nil {
+		return nil, nil
 	}
 
+	quota := &ProjectQuota{ProjectID: projectID}
+	if jobQuota != nil {
+		quota.ProjectID = jobQuota.ProjectID
+		quota.MaxJobs = jobQuota.MaxJobs
+		quota.MaxQueuedRuns = jobQuota.MaxQueuedRuns
+		quota.MaxExecutingRuns = jobQuota.MaxExecutingRuns
+		quota.MaxCostPerRunMicrousd = jobQuota.MaxCostPerRunMicrousd
+		quota.MaxDailyCostMicrousd = jobQuota.MaxDailyCostMicrousd
+		quota.ComputeDailyCostLimitMicrousd = jobQuota.ComputeDailyCostLimitMicrousd
+		quota.MaxMemoryPerKeyBytes = jobQuota.MaxMemoryPerKeyBytes
+		quota.MaxMemoryPerJobBytes = jobQuota.MaxMemoryPerJobBytes
+	}
+	if agentQuota != nil {
+		if quota.ProjectID == "" {
+			quota.ProjectID = agentQuota.ProjectID
+		}
+		quota.MaxAgents = agentQuota.MaxAgents
+		quota.MaxAgentRunsPerMonth = agentQuota.MaxAgentRunsPerMonth
+		quota.MaxAgentChannels = agentQuota.MaxAgentChannels
+		quota.MaxTokensPerRun = agentQuota.MaxTokensPerRun
+		quota.MaxToolCallsPerRun = agentQuota.MaxToolCallsPerRun
+		quota.MaxIterationsPerRun = agentQuota.MaxIterationsPerRun
+	}
+	if platform != nil {
+		if quota.ProjectID == "" {
+			quota.ProjectID = platform.ProjectID
+		}
+		quota.Timezone = platform.Timezone
+		quota.DefaultRegion = platform.DefaultRegion
+		quota.MaxKeyLifetimeDays = platform.MaxKeyLifetimeDays
+		quota.RateLimitRequests = platform.RateLimitRequests
+		quota.RateLimitWindowSecs = platform.RateLimitWindowSecs
+	}
 	return quota, nil
 }
 
@@ -770,16 +861,18 @@ func (q *Queries) ListOrgsWithExecutingRuns(ctx context.Context) ([]string, erro
 	return orgIDs, rows.Err()
 }
 
-// UpdateProjectDefaultRegion sets the default_region for a project's quota row.
-// It upserts the row if it does not exist.
+// UpdateProjectDefaultRegion sets the default_region on the platform
+// settings row for a project, upserting as needed.
 func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, defaultRegion string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectDefaultRegion")
 	defer span.End()
 
 	query := `
-		INSERT INTO project_quotas (project_id, default_region)
+		INSERT INTO project_platform_settings (project_id, default_region)
 		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET default_region = EXCLUDED.default_region`
+		ON CONFLICT (project_id) DO UPDATE SET
+			default_region = EXCLUDED.default_region,
+			updated_at = NOW()`
 
 	_, err := q.db.Exec(ctx, query, projectID, defaultRegion)
 	if err != nil {
@@ -788,14 +881,18 @@ func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, def
 	return nil
 }
 
+// UpdateProjectMaxKeyLifetimeDays sets the API key lifetime cap on the
+// platform settings row for a project, upserting as needed.
 func (q *Queries) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID string, days int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectMaxKeyLifetimeDays")
 	defer span.End()
 
 	query := `
-		INSERT INTO project_quotas (project_id, max_key_lifetime_days)
+		INSERT INTO project_platform_settings (project_id, max_key_lifetime_days)
 		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET max_key_lifetime_days = EXCLUDED.max_key_lifetime_days`
+		ON CONFLICT (project_id) DO UPDATE SET
+			max_key_lifetime_days = EXCLUDED.max_key_lifetime_days,
+			updated_at = NOW()`
 
 	_, err := q.db.Exec(ctx, query, projectID, days)
 	if err != nil {

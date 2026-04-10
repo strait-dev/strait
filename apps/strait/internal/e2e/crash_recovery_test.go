@@ -140,7 +140,7 @@ func TestCrashRecovery_ProjectQuotaAtomicity(t *testing.T) {
 		t.Fatalf("insert project: %v", err)
 	}
 	_, err = testEnv.DB.Pool.Exec(ctx,
-		`INSERT INTO project_quotas (project_id, max_queued_runs, max_executing_runs, max_jobs)
+		`INSERT INTO project_job_quotas (project_id, max_queued_runs, max_executing_runs, max_jobs)
 		 VALUES ($1, 100, 50, 20)`, projectID)
 	if err != nil {
 		t.Fatalf("insert quota: %v", err)
@@ -153,7 +153,7 @@ func TestCrashRecovery_ProjectQuotaAtomicity(t *testing.T) {
 		go func(val int) {
 			defer wg.Done()
 			_, execErr := testEnv.DB.Pool.Exec(ctx,
-				`UPDATE project_quotas SET max_queued_runs = $1 WHERE project_id = $2`,
+				`UPDATE project_job_quotas SET max_queued_runs = $1 WHERE project_id = $2`,
 				100+val, projectID)
 			if execErr != nil {
 				t.Logf("concurrent quota update: %v", execErr)

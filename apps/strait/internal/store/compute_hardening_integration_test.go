@@ -512,7 +512,7 @@ func TestRegionFallbackChain_AllRegionsHaveChains(t *testing.T) {
 func mustCreateProjectQuota(t *testing.T, ctx context.Context, q *store.Queries, projectID string, limitMicrousd int64) {
 	t.Helper()
 	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO project_quotas (project_id, compute_daily_cost_limit_microusd)
+		`INSERT INTO project_job_quotas (project_id, compute_daily_cost_limit_microusd)
 		 VALUES ($1, $2)
 		 ON CONFLICT (project_id) DO UPDATE SET compute_daily_cost_limit_microusd = $2`,
 		projectID, limitMicrousd)

@@ -118,11 +118,16 @@ func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
 	}
 
 	// Clean up active child records before tombstoning the project row.
+	// Delete from both the legacy project_quotas and the three per-concern
+	// tables introduced in phase C so projects stay tidy during cutover.
 	cleanupQueries := []string{
 		`DELETE FROM project_member_roles WHERE project_id = $1`,
 		`DELETE FROM project_roles WHERE project_id = $1`,
 		`DELETE FROM api_keys WHERE project_id = $1`,
 		`DELETE FROM project_quotas WHERE project_id = $1`,
+		`DELETE FROM project_job_quotas WHERE project_id = $1`,
+		`DELETE FROM project_agent_quotas WHERE project_id = $1`,
+		`DELETE FROM project_platform_settings WHERE project_id = $1`,
 		`DELETE FROM usage_records WHERE project_id = $1`,
 		`UPDATE jobs SET enabled = false WHERE project_id = $1`,
 		`UPDATE projects SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,

@@ -1254,12 +1254,8 @@ func TestPgStore_SetProjectBudget(t *testing.T) {
 
 	p := createProject(t, ctx, q, "org-setbudget", "P")
 
-	// Insert a project_quotas row first (required by SetProjectBudget which does UPDATE).
-	_, err := testDB.Pool.Exec(ctx,
-		"INSERT INTO project_quotas (project_id) VALUES ($1) ON CONFLICT DO NOTHING", p.ID)
-	if err != nil {
-		t.Fatalf("insert project_quotas: %v", err)
-	}
+	// SetProjectBudget upserts into project_platform_settings, so no
+	// pre-insert is required.
 
 	if err := pgStore.SetProjectBudget(ctx, p.ID, 50_000_000, "suspend"); err != nil {
 		t.Fatalf("SetProjectBudget error = %v", err)

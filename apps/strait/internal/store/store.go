@@ -151,6 +151,16 @@ type RunStore interface {
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
 
+// ProjectQuota is a composite view of the three per-product quota tables
+// kept for backwards compatibility with pre-phase-C callers. New code
+// should read from the focused getters — GetProjectJobQuota,
+// GetProjectAgentQuota, GetProjectPlatformSettings — so that Jobs and
+// Agents quota state stays cleanly separated per the platform
+// primitives + per-product subscriptions model.
+//
+// Deprecated: use GetProjectJobQuota / GetProjectAgentQuota /
+// GetProjectPlatformSettings. This struct will be removed after all call
+// sites migrate.
 type ProjectQuota struct {
 	ProjectID                     string
 	MaxQueuedRuns                 int
@@ -160,20 +170,66 @@ type ProjectQuota struct {
 	MaxCostPerRunMicrousd         int64
 	MaxDailyCostMicrousd          int64
 	ComputeDailyCostLimitMicrousd int64
-	MaxActiveEventTriggers        int // 0 = unlimited
-	RateLimitRequests             int
-	RateLimitWindowSecs           int
-	DefaultRegion                 string
-	PlanTier                      string
-	MaxTokensPerRun               int64
-	MaxToolCallsPerRun            int
-	MaxIterationsPerRun           int
+	// MaxActiveEventTriggers is a zombie field: nothing populates it today
+	// and the one reader (sdk_wait_event.go) is effectively disabled. Kept
+	// here so the field remains available while callers migrate. Will be
+	// removed alongside the deprecated ProjectQuota shim.
+	MaxActiveEventTriggers int
+	RateLimitRequests      int
+	RateLimitWindowSecs    int
+	DefaultRegion          string
+	PlanTier               string
+	MaxTokensPerRun        int64
+	MaxToolCallsPerRun     int
+	MaxIterationsPerRun    int
+	MaxMemoryPerKeyBytes   int
+	MaxMemoryPerJobBytes   int
+	MaxKeyLifetimeDays     int
+	MaxAgents              int // 0 = unlimited
+	MaxAgentRunsPerMonth   int // 0 = unlimited
+	MaxAgentChannels       int // 0 = unlimited
+}
+
+// ProjectPlatformSettings holds product-neutral project settings that
+// belong to every Strait product (Jobs, Agents, future). This is the
+// canonical source for timezone, default region, rate limits, project
+// monthly budget, and API key lifetime.
+type ProjectPlatformSettings struct {
+	ProjectID             string
+	Timezone              string
+	DefaultRegion         string
+	MaxKeyLifetimeDays    int
+	RateLimitRequests     int
+	RateLimitWindowSecs   int
+	MonthlyBudgetMicrousd int64
+	BudgetAction          string
+}
+
+// ProjectJobQuota holds Jobs-only quotas and limits. Consumed by the
+// Jobs product (internal/api/trigger, internal/worker, sdk_*). Agent
+// quota state lives in ProjectAgentQuota.
+type ProjectJobQuota struct {
+	ProjectID                     string
+	MaxJobs                       int
+	MaxQueuedRuns                 int
+	MaxExecutingRuns              int
+	MaxCostPerRunMicrousd         int64
+	MaxDailyCostMicrousd          int64
+	ComputeDailyCostLimitMicrousd int64
 	MaxMemoryPerKeyBytes          int
 	MaxMemoryPerJobBytes          int
-	MaxKeyLifetimeDays            int
-	MaxAgents                     int // 0 = unlimited
-	MaxAgentRunsPerMonth          int // 0 = unlimited
-	MaxAgentChannels              int // 0 = unlimited
+}
+
+// ProjectAgentQuota holds Agents-only quotas and guardrails. Consumed by
+// the Agents product (internal/agents, internal/api/sdk_guardrails).
+type ProjectAgentQuota struct {
+	ProjectID            string
+	MaxAgents            int
+	MaxAgentRunsPerMonth int
+	MaxAgentChannels     int
+	MaxTokensPerRun      int64
+	MaxToolCallsPerRun   int
+	MaxIterationsPerRun  int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.

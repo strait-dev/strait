@@ -740,7 +740,7 @@ func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64
 	var action string
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(monthly_budget_microusd, -1), COALESCE(budget_action, 'notify')
-		FROM project_quotas
+		FROM project_platform_settings
 		WHERE project_id = $1
 	`, projectID).Scan(&budget, &action)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -754,11 +754,12 @@ func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64
 
 func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO project_quotas (project_id, monthly_budget_microusd, budget_action)
+		INSERT INTO project_platform_settings (project_id, monthly_budget_microusd, budget_action)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (project_id) DO UPDATE
 		SET monthly_budget_microusd = EXCLUDED.monthly_budget_microusd,
-		    budget_action = EXCLUDED.budget_action
+		    budget_action = EXCLUDED.budget_action,
+		    updated_at = NOW()
 	`, projectID, budgetMicro, action)
 	if err != nil {
 		return fmt.Errorf("setting project budget: %w", err)

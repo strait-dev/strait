@@ -182,11 +182,16 @@ func (q *Queries) ListProjectsWithComputeLimit(ctx context.Context) ([]ProjectCo
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListProjectsWithComputeLimit")
 	defer span.End()
 
+	// compute_daily_cost_limit_microusd lives on the Jobs product table
+	// and timezone is a platform-neutral field, so this join pulls from
+	// both. LEFT JOIN on platform settings so projects without a settings
+	// row still get the 'UTC' default via COALESCE.
 	query := `
-		SELECT project_id, COALESCE(timezone, 'UTC'), compute_daily_cost_limit_microusd
-		FROM project_quotas
-		WHERE compute_daily_cost_limit_microusd IS NOT NULL
-		  AND compute_daily_cost_limit_microusd > 0`
+		SELECT jq.project_id, COALESCE(ps.timezone, 'UTC'), jq.compute_daily_cost_limit_microusd
+		FROM project_job_quotas jq
+		LEFT JOIN project_platform_settings ps ON ps.project_id = jq.project_id
+		WHERE jq.compute_daily_cost_limit_microusd IS NOT NULL
+		  AND jq.compute_daily_cost_limit_microusd > 0`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

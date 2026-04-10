@@ -4123,10 +4123,12 @@ func TestQuota_GetProjectQuota(t *testing.T) {
 
 	projectID := "project-quota-get"
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO project_quotas (project_id, max_queued_runs, max_executing_runs, max_jobs, timezone)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO project_job_quotas (project_id, max_queued_runs, max_executing_runs, max_jobs)
+		VALUES ($1, $2, $3, $4);
+		INSERT INTO project_platform_settings (project_id, timezone)
+		VALUES ($1, $5);
 	`, projectID, 15, 7, 40, "America/New_York"); err != nil {
-		t.Fatalf("insert project_quotas error = %v", err)
+		t.Fatalf("insert project quota error = %v", err)
 	}
 
 	quota, err := q.GetProjectQuota(ctx, projectID)
