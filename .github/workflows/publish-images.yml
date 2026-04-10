@@ -183,12 +183,15 @@ jobs:
           # manifest AND the attestation manifests (SBOM + SLSA provenance).
           # Without it, cosign signs only the index digest, which Kyverno
           # rejects once it resolves to a per-arch child at admission time.
-          # --timestamp-server-url embeds an RFC 3161 timestamp from Sigstore's
-          # public TSA, giving offline-verifiable proof of signing time
-          # independent of Rekor.
+          #
+          # Rekor transparency log entries provide the timestamp proof the
+          # Kyverno policy verifies. An additional RFC 3161 TSA is a future
+          # enhancement but is currently incompatible with cosign 2.6+'s
+          # signing-config auto-discovery — it needs all service URLs
+          # specified together (fulcio, rekor, oidc, tsa) rather than just
+          # one. Tracked as a follow-up.
           cosign sign --yes --recursive \
             --oidc-issuer="https://token.actions.githubusercontent.com" \
-            --timestamp-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
             --timeout=3m \
             "${REGISTRY}/strait-dev/strait@${DIGEST}"
 
@@ -319,12 +322,15 @@ jobs:
           # manifest AND the attestation manifests (SBOM + SLSA provenance).
           # Without it, cosign signs only the index digest, which Kyverno
           # rejects once it resolves to a per-arch child at admission time.
-          # --timestamp-server-url embeds an RFC 3161 timestamp from Sigstore's
-          # public TSA, giving offline-verifiable proof of signing time
-          # independent of Rekor.
+          #
+          # Rekor transparency log entries provide the timestamp proof the
+          # Kyverno policy verifies. An additional RFC 3161 TSA is a future
+          # enhancement but is currently incompatible with cosign 2.6+'s
+          # signing-config auto-discovery — it needs all service URLs
+          # specified together (fulcio, rekor, oidc, tsa) rather than just
+          # one. Tracked as a follow-up.
           cosign sign --yes --recursive \
             --oidc-issuer="https://token.actions.githubusercontent.com" \
-            --timestamp-server-url="https://timestamp.sigstore.dev/api/v1/timestamp" \
             --timeout=3m \
             "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
 
