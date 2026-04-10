@@ -142,8 +142,6 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 		chaosErr = ce.chaosDatabaseFailover(ctx)
 	case "redis_total_failure":
 		chaosErr = ce.chaosRedisFailure(ctx)
-	case "docker_daemon_restart":
-		chaosErr = ce.chaosDockerRestart(ctx)
 	case "connection_pool_exhaustion":
 		chaosErr = ce.chaosPoolExhaustion(ctx)
 	case "disk_pressure":
@@ -305,34 +303,6 @@ func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 	}
 
 	// Wait for reconnection
-	time.Sleep(30 * time.Second)
-	return nil
-}
-
-func (ce *ChaosEngine) chaosDockerRestart(ctx context.Context) error {
-	// First, list container IDs matching the ancestor filter.
-	// Go's exec.Command does not interpret shell expansion like $(...),
-	// so we must run docker ps separately and parse the output.
-	listCmd := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "ancestor=strait-loadtest-python")
-	out, err := listCmd.Output()
-	if err != nil {
-		// No containers running or docker not available
-		return fmt.Errorf("listing containers: %w", err)
-	}
-
-	containerIDs := strings.Fields(strings.TrimSpace(string(out)))
-	if len(containerIDs) == 0 {
-		return nil
-	}
-
-	// Restart each container individually
-	for _, id := range containerIDs {
-		restart := exec.CommandContext(ctx, "docker", "restart", id)
-		if err := restart.Run(); err != nil {
-			return fmt.Errorf("failed to restart container %s: %w", id, err)
-		}
-	}
-
 	time.Sleep(30 * time.Second)
 	return nil
 }

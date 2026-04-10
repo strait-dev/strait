@@ -137,10 +137,6 @@ jobs:
           cache: true
           cache-dependency-path: apps/strait/go.sum
 
-      - name: Build test job images
-        working-directory: packages/load-tests
-        run: make build
-
       - name: Start Strait
         working-directory: apps/strait
         env:

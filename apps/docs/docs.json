@@ -88,7 +88,6 @@
               "guides/audit-events",
               "guides/api-key-rotation",
               "guides/performance-tuning",
-              "guides/load-testing",
               "guides/capacity-planning",
               "guides/job-dependencies",
               "guides/debug-bundles",
