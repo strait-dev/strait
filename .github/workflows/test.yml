@@ -222,7 +222,7 @@ jobs:
           STRAIT_TEST_REDIS_URL: redis://localhost:6379/0
         run: |
           set -o pipefail
-          go test -json -race -cover -tags=integration -timeout=20m \
+          go test -json -race -cover -tags=integration -timeout=20m -p 1 \
             ./internal/store \
             ./internal/queue \
             ./internal/pubsub \
