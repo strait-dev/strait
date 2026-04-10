@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - master
-    paths:
-      - "apps/strait/**"
-      - ".github/workflows/security.yml"
+    # No path filter on master: every master commit must have a Security
+    # run so publish-images.yml can gate releases on it. Path filters are
+    # still fine for pull_request where we optimize for review turnaround.
   pull_request:
     paths:
       - "apps/strait/**"
