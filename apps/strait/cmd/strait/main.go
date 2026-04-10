@@ -287,8 +287,18 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("warm query cache: %w", err)
 	}
 
-	// Create dependencies
-	queries := store.New(dbPool)
+	// Create dependencies.
+	//
+	// NewWithContextRouting wraps the pool in a DBTX that transparently
+	// routes through a per-request transaction when one is bound to the
+	// request context (see store.ContextWithTx and the rlsTxMiddleware
+	// in internal/api). Worker-mode code paths never bind a tx so the
+	// wrapper falls through to the pool — zero behavior change there.
+	// The API path gets real RLS enforcement because the middleware
+	// begins a tx, runs SELECT set_config('app.current_project_id', ...)
+	// on it, and every subsequent store call inside the request runs on
+	// the same tx.
+	queries := store.NewWithContextRouting(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
 	if cfg.InternalSecret != "" {
 		auditKey, auditKeyErr := store.DeriveAuditSigningKey(cfg.InternalSecret)
