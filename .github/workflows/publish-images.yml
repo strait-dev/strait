@@ -190,8 +190,13 @@ jobs:
           # signing-config auto-discovery — it needs all service URLs
           # specified together (fulcio, rekor, oidc, tsa) rather than just
           # one. Tracked as a follow-up.
+          # The OIDC issuer is auto-discovered from the GitHub Actions
+          # runner environment (token.actions.githubusercontent.com). In
+          # cosign 2.6+, passing --oidc-issuer explicitly conflicts with
+          # the TUF-based signing config and errors with "cannot specify
+          # service URLs and use signing config". The default identity
+          # still matches the Kyverno policy's certificate-identity-regexp.
           cosign sign --yes --recursive \
-            --oidc-issuer="https://token.actions.githubusercontent.com" \
             --timeout=3m \
             "${REGISTRY}/strait-dev/strait@${DIGEST}"
 
@@ -329,8 +334,13 @@ jobs:
           # signing-config auto-discovery — it needs all service URLs
           # specified together (fulcio, rekor, oidc, tsa) rather than just
           # one. Tracked as a follow-up.
+          # The OIDC issuer is auto-discovered from the GitHub Actions
+          # runner environment (token.actions.githubusercontent.com). In
+          # cosign 2.6+, passing --oidc-issuer explicitly conflicts with
+          # the TUF-based signing config and errors with "cannot specify
+          # service URLs and use signing config". The default identity
+          # still matches the Kyverno policy's certificate-identity-regexp.
           cosign sign --yes --recursive \
-            --oidc-issuer="https://token.actions.githubusercontent.com" \
             --timeout=3m \
             "${REGISTRY}/strait-dev/strait-cloud@${DIGEST}"
 
