@@ -110,6 +110,12 @@ func (s *Server) handleListSecrets(ctx context.Context, input *ListSecretsInput)
 		return nil, huma.Error500InternalServerError("failed to list secrets")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionSecretListRead, "secret", "", map[string]any{
+		"count":       len(secrets),
+		"job_id":      input.JobID,
+		"environment": input.Environment,
+	})
+
 	return &ListSecretsOutput{Body: paginatedResult(secrets, limit, func(s domain.JobSecret) string {
 		return s.CreatedAt.Format(time.RFC3339Nano)
 	})}, nil

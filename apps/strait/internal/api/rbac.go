@@ -655,6 +655,12 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list audit events")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionAuditListRead, "audit", projectID, map[string]any{
+		"count":          len(events),
+		"filter_actor":   input.ActorID,
+		"filter_rtype":   input.ResourceType,
+		"filter_rid":     input.ResourceID,
+	})
 	return &ListAuditEventsOutput{Body: paginatedResult(events, limit, func(ev domain.AuditEvent) string { return ev.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
@@ -678,6 +684,11 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChain
 		slog.Error("failed to verify audit chain", "project_id", projectID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to verify audit chain")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionAuditChainVerified, "audit", projectID, map[string]any{
+		"valid":          result.Valid,
+		"events_checked": result.EventsChecked,
+	})
 
 	return &VerifyAuditChainOutput{Body: result}, nil
 }

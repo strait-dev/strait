@@ -142,6 +142,10 @@ func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list api keys")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyListRead, "api_key", "", map[string]any{
+		"count":  len(keys),
+		"org_id": input.OrgID,
+	})
 	return &ListAPIKeysOutput{Body: paginatedResult(keys, limit, func(k domain.APIKey) string { return k.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
