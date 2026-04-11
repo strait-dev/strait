@@ -15,6 +15,7 @@
     "lint": "turbo lint && bun run manypkg check",
     "format": "biome format --write .",
     "typecheck": "turbo typecheck",
+    "typecheck:affected": "turbo typecheck --affected",
     "knip": "knip",
     "knip:fix": "knip --fix",
     "knip:fix:unsafe": "knip --fix --allow-remove-files",
