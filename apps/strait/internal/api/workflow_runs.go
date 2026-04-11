@@ -198,7 +198,7 @@ func (s *Server) handleCancelWorkflowRun(ctx context.Context, input *CancelWorkf
 	}
 	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
 
-	s.emitAuditEvent(ctx, "workflow_run.cancelled", "workflow_run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunCancelled, "workflow_run", run.ID, map[string]any{
 		"workflow_id":      run.WorkflowID,
 		"previous_status":  string(run.Status),
 	})
@@ -263,7 +263,7 @@ func (s *Server) handlePauseWorkflowRun(ctx context.Context, input *PauseWorkflo
 	}
 	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusPaused, "pause")
 
-	s.emitAuditEvent(ctx, "workflow_run.paused", "workflow_run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunPaused, "workflow_run", run.ID, map[string]any{
 		"workflow_id": run.WorkflowID,
 	})
 
@@ -304,7 +304,7 @@ func (s *Server) handleResumeWorkflowRun(ctx context.Context, input *ResumeWorkf
 	}
 	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusRunning, "resume")
 
-	s.emitAuditEvent(ctx, "workflow_run.resumed", "workflow_run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunResumed, "workflow_run", run.ID, map[string]any{
 		"workflow_id": run.WorkflowID,
 	})
 
@@ -429,7 +429,7 @@ func (s *Server) handleApproveWorkflowStep(ctx context.Context, input *ApproveWo
 		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "approve_step")
 	}
 
-	s.emitAuditEvent(ctx, "workflow_step.approved", "workflow_step", stepRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowStepApproved, "workflow_step", stepRun.ID, map[string]any{
 		"workflow_run_id": input.WorkflowRunID,
 		"step_ref":        input.StepRef,
 		"approver":        approver,
@@ -475,7 +475,7 @@ func (s *Server) handleSkipWorkflowStep(ctx context.Context, input *SkipWorkflow
 		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "skip_step")
 	}
 
-	s.emitAuditEvent(ctx, "workflow_step.skipped", "workflow_step", stepRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowStepSkipped, "workflow_step", stepRun.ID, map[string]any{
 		"workflow_run_id": input.WorkflowRunID,
 		"step_ref":        input.StepRef,
 		"reason":          input.Body.Reason,
@@ -518,7 +518,7 @@ func (s *Server) handleForceCompleteWorkflowStep(ctx context.Context, input *For
 		s.publishWorkflowRunHook(ctx, afterRun, beforeRun.Status, afterRun.Status, "force_complete_step")
 	}
 
-	s.emitAuditEvent(ctx, "workflow_step.force_completed", "workflow_step", stepRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowStepForceCompleted, "workflow_step", stepRun.ID, map[string]any{
 		"workflow_run_id": input.WorkflowRunID,
 		"step_ref":        input.StepRef,
 	})
@@ -558,7 +558,7 @@ func (s *Server) handleRetryWorkflowRun(ctx context.Context, input *RetryWorkflo
 
 	s.publishWorkflowRunHook(ctx, newRun, domain.WfStatusPending, newRun.Status, "retry")
 
-	s.emitAuditEvent(ctx, "workflow_run.retried", "workflow_run", newRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunRetried, "workflow_run", newRun.ID, map[string]any{
 		"original_run_id": input.WorkflowRunID,
 		"workflow_id":     run.WorkflowID,
 	})
@@ -860,7 +860,7 @@ func (s *Server) handleRetryWorkflowStep(ctx context.Context, input *RetryWorkfl
 
 	updated, _ := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
 
-	s.emitAuditEvent(ctx, "workflow_step.retried", "workflow_step", stepRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowStepRetried, "workflow_step", stepRun.ID, map[string]any{
 		"workflow_run_id": input.WorkflowRunID,
 		"step_ref":        input.StepRef,
 	})
@@ -938,7 +938,7 @@ func (s *Server) handleReplayWorkflowSubtree(ctx context.Context, input *ReplayW
 		return nil, huma.Error409Conflict(err.Error())
 	}
 
-	s.emitAuditEvent(ctx, "workflow_run.subtree_replayed", "workflow_run", input.WorkflowRunID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunSubtreeReplayed, "workflow_run", input.WorkflowRunID, map[string]any{
 		"from_step_ref": input.StepRef,
 		"reset_steps":   reset,
 	})
@@ -1141,7 +1141,7 @@ func (s *Server) handleBulkCancelWorkflowRuns(ctx context.Context, input *BulkCa
 		}
 	}
 
-	s.emitAuditEvent(ctx, "workflow_run.bulk_cancelled", "workflow_run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunBulkCancelled, "workflow_run", "", map[string]any{
 		"count":           len(canceled),
 		"total":           len(req.WorkflowRunIDs),
 		"workflow_run_ids": canceled,
@@ -1197,7 +1197,7 @@ func (s *Server) handleBulkReplayWorkflowRuns(ctx context.Context, input *BulkRe
 		replayed++
 	}
 
-	s.emitAuditEvent(ctx, "workflow_run.bulk_replayed", "workflow_run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunBulkReplayed, "workflow_run", "", map[string]any{
 		"count":            replayed,
 		"total":            len(req.WorkflowRunIDs),
 		"workflow_run_ids": req.WorkflowRunIDs,

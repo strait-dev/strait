@@ -88,6 +88,15 @@ func (s *Server) stopAuditAsyncDrain() {
 // synchronously before returning so the detached worker does not observe a
 // cancelled request context.
 func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+	if !domain.IsKnownAuditAction(action) {
+		slog.Error("emitAuditEventAsync: unknown action rejected",
+			"action", action, "resource_type", resourceType, "resource_id", resourceID)
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "unknown_action")))
+		}
+		return
+	}
 	if s.auditAsyncCh == nil {
 		// Async drain not started (e.g. in tests that bypass NewServer).
 		// Fall back to the synchronous path so the event is not lost.

@@ -76,7 +76,7 @@ func (s *Server) handleExportJobs(ctx context.Context, input *ExportJobsInput) (
 		})
 	}
 
-	s.emitAuditEvent(ctx, "jobs.exported", "job", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionJobsExported, "job", "", map[string]any{
 		"format":     format,
 		"project_id": projectID,
 	})
@@ -183,7 +183,7 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 		})
 	}
 
-	s.emitAuditEvent(ctx, "runs.exported", "run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunsExported, "run", "", map[string]any{
 		"format":     format,
 		"from":       input.From,
 		"to":         input.To,
@@ -245,7 +245,7 @@ func (s *Server) handleExportWorkflows(ctx context.Context, input *ExportWorkflo
 		})
 	}
 
-	s.emitAuditEvent(ctx, "workflows.exported", "workflow", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowsExported, "workflow", "", map[string]any{
 		"format":     format,
 		"project_id": projectID,
 	})

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"time"
 
+	"strait/internal/domain"
+
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -70,7 +72,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
-	s.emitAuditEvent(ctx, "webhook.tested", "webhook", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWebhookTested, "webhook", "", map[string]any{
 		"url_host":    urlHost(req.URL),
 		"status_code": resp.StatusCode,
 		"success":     resp.StatusCode >= 200 && resp.StatusCode < 300,
@@ -122,7 +124,7 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 		return nil, huma.Error500InternalServerError("failed to create replay delivery")
 	}
 
-	s.emitAuditEvent(ctx, "webhook.delivery_replayed", "webhook", input.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWebhookDeliveryReplayed, "webhook", input.ID, map[string]any{
 		"original_delivery_id": input.ID,
 		"job_id":               original.JobID,
 	})

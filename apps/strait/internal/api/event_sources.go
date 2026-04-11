@@ -83,7 +83,7 @@ func (s *Server) handleCreateEventSource(ctx context.Context, input *CreateEvent
 	if err := s.store.CreateEventSource(ctx, src); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create event source")
 	}
-	s.emitAuditEvent(ctx, "event_source.created", "event_source", src.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventSourceCreated, "event_source", src.ID, map[string]any{
 		"name":                src.Name,
 		"signature_algorithm": src.SignatureAlgorithm,
 		"enabled":             src.Enabled,
@@ -187,7 +187,7 @@ func (s *Server) handleUpdateEventSource(ctx context.Context, input *UpdateEvent
 		}
 		changedFields = append(changedFields, k)
 	}
-	s.emitAuditEvent(ctx, "event_source.updated", "event_source", input.SourceID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventSourceUpdated, "event_source", input.SourceID, map[string]any{
 		"changed_fields":  changedFields,
 		"secret_changed":  req.SignatureSecret != nil,
 	})
@@ -209,7 +209,7 @@ func (s *Server) handleDeleteEventSource(ctx context.Context, input *DeleteEvent
 		}
 		return nil, huma.Error500InternalServerError("failed to delete event source")
 	}
-	s.emitAuditEvent(ctx, "event_source.deleted", "event_source", input.SourceID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionEventSourceDeleted, "event_source", input.SourceID, nil)
 	return nil, nil
 }
 
@@ -237,7 +237,7 @@ func (s *Server) handleSubscribeToEventSource(ctx context.Context, input *Subscr
 	if err := s.store.CreateEventSubscription(ctx, sub); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create event subscription")
 	}
-	s.emitAuditEvent(ctx, "event_source.subscribed", "event_source", input.SourceID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventSourceSubscribed, "event_source", input.SourceID, map[string]any{
 		"subscription_id": sub.ID,
 		"target_type":     req.TargetType,
 		"target_id":       req.TargetID,
@@ -301,7 +301,7 @@ func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *Delet
 		}
 		return nil, huma.Error500InternalServerError("failed to delete event subscription")
 	}
-	s.emitAuditEvent(ctx, "event_subscription.deleted", "event_subscription", input.SubID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventSubscriptionDeleted, "event_subscription", input.SubID, map[string]any{
 		"source_id":   input.SourceID,
 		"target_type": sub.TargetType,
 		"target_id":   sub.TargetID,
@@ -398,7 +398,7 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 			}
 		}
 	}
-	s.emitAuditEventAsync(ctx, "event_source.dispatched", "event_source", source.ID, map[string]any{
+	s.emitAuditEventAsync(ctx, domain.AuditActionEventSourceDispatched, "event_source", source.ID, map[string]any{
 		"source_name":  req.Source,
 		"dispatched":   dispatched,
 		"payload_size": len(req.Payload),

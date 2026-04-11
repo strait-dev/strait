@@ -321,7 +321,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 
 	s.enqueueJobMetadata(job)
 
-	s.emitAuditEvent(ctx, "job.created", "job", job.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", job.ID, map[string]any{
 		"name":           job.Name,
 		"slug":           job.Slug,
 		"cron":           job.Cron,
@@ -698,7 +698,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 
 	s.enqueueJobMetadata(job)
 
-	s.emitAuditEvent(ctx, "job.updated", "job", job.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionJobUpdated, "job", job.ID, map[string]any{
 		"changes": req,
 		"name":    job.Name,
 		"slug":    job.Slug,
@@ -751,7 +751,7 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 		"job_id", input.JobID,
 		"actor", actorFromContext(ctx),
 		"project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, "job.delete", "job", input.JobID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionJobDeleted, "job", input.JobID, nil)
 
 	return nil, nil
 }
@@ -862,7 +862,7 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, huma.Error500InternalServerError("failed to clone job")
 	}
 
-	s.emitAuditEvent(ctx, "job.cloned", "job", clone.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionJobCloned, "job", clone.ID, map[string]any{
 		"source_job_id": source.ID,
 		"new_name":      clone.Name,
 		"new_slug":      clone.Slug,
@@ -1073,7 +1073,7 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		for i := range resp.Created {
 			ids = append(ids, resp.Created[i].ID)
 		}
-		s.emitAuditEvent(ctx, "job.batch_created", "job", "", map[string]any{
+		s.emitAuditEvent(ctx, domain.AuditActionJobBatchCreated, "job", "", map[string]any{
 			"count":   len(ids),
 			"job_ids": ids,
 			"errors":  len(resp.Errors),
@@ -1108,7 +1108,7 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
 
-	s.emitAuditEvent(ctx, "job.batch_enabled", "job", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionJobBatchEnabled, "job", "", map[string]any{
 		"count":   updated,
 		"job_ids": req.IDs,
 	})
@@ -1136,7 +1136,7 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
 	}
 
-	s.emitAuditEvent(ctx, "job.batch_disabled", "job", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionJobBatchDisabled, "job", "", map[string]any{
 		"count":   updated,
 		"job_ids": req.IDs,
 	})
@@ -1277,7 +1277,7 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 			"reason", input.Body.Reason,
 			"actor", actorFromContext(ctx),
 			"project_id", projectIDFromContext(ctx))
-		s.emitAuditEvent(ctx, "job.paused", "job", input.JobID, map[string]any{
+		s.emitAuditEvent(ctx, domain.AuditActionJobPaused, "job", input.JobID, map[string]any{
 			"reason": input.Body.Reason,
 		})
 	}
@@ -1327,7 +1327,7 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 			"job_id", input.JobID,
 			"actor", actorFromContext(ctx),
 			"project_id", projectIDFromContext(ctx))
-		s.emitAuditEvent(ctx, "job.resumed", "job", input.JobID, nil)
+		s.emitAuditEvent(ctx, domain.AuditActionJobResumed, "job", input.JobID, nil)
 	}
 
 	updated, err := s.store.GetJob(ctx, input.JobID)

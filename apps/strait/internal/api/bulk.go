@@ -378,7 +378,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		slog.Error("failed to finalize batch operation", "batch_id", batchID, "error", err)
 	}
 
-	s.emitAuditEventAsync(ctx, "job.bulk_triggered", "job", job.ID, map[string]any{
+	s.emitAuditEventAsync(ctx, domain.AuditActionJobBulkTriggered, "job", job.ID, map[string]any{
 		"batch_id": batchID,
 		"total":    len(req.Items),
 		"created":  created,
@@ -472,7 +472,7 @@ func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRuns
 		}
 	}
 
-	s.emitAuditEvent(ctx, "run.bulk_cancelled", "run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunBulkCancelled, "run", "", map[string]any{
 		"total":    len(req.RunIDs),
 		"canceled": canceled,
 		"failed":   failed,
@@ -519,7 +519,7 @@ func (s *Server) handleBulkCancelAll(ctx context.Context, input *BulkCancelAllIn
 		return nil, huma.Error500InternalServerError("failed to cancel runs")
 	}
 
-	s.emitAuditEvent(ctx, "run.bulk_cancelled_all", "run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunBulkCancelledAll, "run", "", map[string]any{
 		"project_id":   projectID,
 		"canceled":     len(ids),
 		"job_id":       req.JobID,

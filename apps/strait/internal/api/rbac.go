@@ -86,6 +86,11 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 	if s.config == nil {
 		return
 	}
+	if !domain.IsKnownAuditAction(action) {
+		slog.Error("emitAuditEvent: unknown action rejected",
+			"action", action, "resource_type", resourceType, "resource_id", resourceID)
+		return
+	}
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
@@ -123,7 +128,7 @@ func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (
 	if err := s.store.CreateProjectRole(ctx, role); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create role")
 	}
-	s.emitAuditEvent(ctx, "role.created", "role", role.ID, map[string]any{"name": role.Name, "description": role.Description, "permissions": role.Permissions, "parent_role": role.ParentRoleID, "project_id": role.ProjectID, "is_system": role.IsSystem, "change_source": "rbac_api"})
+	s.emitAuditEvent(ctx, domain.AuditActionRoleCreated, "role", role.ID, map[string]any{"name": role.Name, "description": role.Description, "permissions": role.Permissions, "parent_role": role.ParentRoleID, "project_id": role.ProjectID, "is_system": role.IsSystem, "change_source": "rbac_api"})
 	return &CreateRoleOutput{Body: role}, nil
 }
 
@@ -233,7 +238,7 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	if updated == nil {
 		updated = role
 	}
-	s.emitAuditEvent(ctx, "role.updated", "role", roleID, map[string]any{"changes": map[string]any{"before": previousRole, "after": updated}})
+	s.emitAuditEvent(ctx, domain.AuditActionRoleUpdated, "role", roleID, map[string]any{"changes": map[string]any{"before": previousRole, "after": updated}})
 	return &UpdateRoleOutput{Body: updated}, nil
 }
 
@@ -264,7 +269,7 @@ func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (
 		return nil, huma.Error500InternalServerError("failed to delete role")
 	}
 	slog.Info("role deleted", "role_id", input.RoleID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, "role.deleted", "role", input.RoleID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionRoleDeleted, "role", input.RoleID, nil)
 	return nil, nil
 }
 
@@ -323,7 +328,7 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 		return nil, huma.Error500InternalServerError("failed to assign role")
 	}
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
-	s.emitAuditEvent(ctx, "permission.granted", "role", m.RoleID, map[string]any{"user_id": m.UserID, "project_id": m.ProjectID})
+	s.emitAuditEvent(ctx, domain.AuditActionPermissionGranted, "role", m.RoleID, map[string]any{"user_id": m.UserID, "project_id": m.ProjectID})
 	return &AssignMemberOutput{Body: m}, nil
 }
 
@@ -356,7 +361,7 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 			continue
 		}
 		s.permCache.Invalidate(projectID, item.UserID)
-		s.emitAuditEvent(ctx, "permission.granted", "role", item.RoleID, map[string]any{"user_id": item.UserID, "project_id": projectID, "bulk": true})
+		s.emitAuditEvent(ctx, domain.AuditActionPermissionGranted, "role", item.RoleID, map[string]any{"user_id": item.UserID, "project_id": projectID, "bulk": true})
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
 	return &BulkAssignMembersOutput{Body: map[string]any{"results": results, "total": len(results)}}, nil
@@ -403,7 +408,7 @@ func (s *Server) handleRemoveMember(ctx context.Context, input *RemoveMemberInpu
 		roleID = memberRole.RoleID
 		resourceID = memberRole.RoleID
 	}
-	s.emitAuditEvent(ctx, "permission.revoked", "role", resourceID, map[string]any{"user_id": userID, "project_id": projectID, "role_id": roleID})
+	s.emitAuditEvent(ctx, domain.AuditActionPermissionRevoked, "role", resourceID, map[string]any{"user_id": userID, "project_id": projectID, "role_id": roleID})
 	return nil, nil
 }
 
@@ -429,7 +434,7 @@ func (s *Server) handleSeedSystemRoles(ctx context.Context, _ *SeedSystemRolesIn
 			roleNames = append(roleNames, r.Name)
 		}
 	}
-	s.emitAuditEvent(ctx, "role.system_seeded", "role", projectID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRoleSystemSeeded, "role", projectID, map[string]any{
 		"project_id":     projectID,
 		"system_roles":   roleNames,
 		"roles_returned": len(roles),
@@ -463,7 +468,7 @@ func (s *Server) handleCreateResourcePolicy(ctx context.Context, input *CreateRe
 		return nil, huma.Error500InternalServerError("failed to create resource policy")
 	}
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
-	s.emitAuditEvent(ctx, "resource_policy.created", "resource_policy", policy.ID, map[string]any{"resource_type": req.ResourceType, "resource_id": req.ResourceID, "user_id": req.UserID, "actions": req.Actions})
+	s.emitAuditEvent(ctx, domain.AuditActionResourcePolicyCreated, "resource_policy", policy.ID, map[string]any{"resource_type": req.ResourceType, "resource_id": req.ResourceID, "user_id": req.UserID, "actions": req.Actions})
 	return &CreateResourcePolicyOutput{Body: policy}, nil
 }
 
@@ -506,7 +511,7 @@ func (s *Server) handleDeleteResourcePolicy(ctx context.Context, input *DeleteRe
 		s.permCache.Invalidate(projectID, userID)
 	}
 	slog.Info("resource policy deleted", "policy_id", input.PolicyID, "actor", actorFromContext(ctx), "affected_user", userID, "project_id", projectID)
-	s.emitAuditEvent(ctx, "resource_policy.deleted", "resource_policy", input.PolicyID, map[string]any{"affected_user": userID})
+	s.emitAuditEvent(ctx, domain.AuditActionResourcePolicyDeleted, "resource_policy", input.PolicyID, map[string]any{"affected_user": userID})
 	return nil, nil
 }
 
@@ -539,7 +544,7 @@ func (s *Server) handleCreateTagPolicy(ctx context.Context, input *CreateTagPoli
 		return nil, huma.Error500InternalServerError("failed to create tag policy")
 	}
 	s.permCache.Invalidate(req.ProjectID, req.UserID)
-	s.emitAuditEvent(ctx, "tag_policy.created", "tag_policy", policy.ID, map[string]any{"tag_key": req.TagKey, "tag_value": req.TagValue, "resource_type": req.ResourceType, "user_id": req.UserID, "actions": req.Actions})
+	s.emitAuditEvent(ctx, domain.AuditActionTagPolicyCreated, "tag_policy", policy.ID, map[string]any{"tag_key": req.TagKey, "tag_value": req.TagValue, "resource_type": req.ResourceType, "user_id": req.UserID, "actions": req.Actions})
 	return &CreateTagPolicyOutput{Body: policy}, nil
 }
 
@@ -582,7 +587,7 @@ func (s *Server) handleDeleteTagPolicy(ctx context.Context, input *DeleteTagPoli
 	if projectID != "" && userID != "" {
 		s.permCache.Invalidate(projectID, userID)
 	}
-	s.emitAuditEvent(ctx, "tag_policy.deleted", "tag_policy", input.PolicyID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionTagPolicyDeleted, "tag_policy", input.PolicyID, nil)
 	return nil, nil
 }
 

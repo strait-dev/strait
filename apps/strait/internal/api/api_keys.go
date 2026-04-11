@@ -106,7 +106,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		slog.Warn("api key created without expiration; consider setting expires_in_days for security",
 			"key_id", key.ID, "project_id", key.ProjectID, "actor", actorFromContext(ctx))
 	}
-	s.emitAuditEvent(ctx, "api_key.created", "api_key", key.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
 		"name":                   key.Name,
 		"key_prefix":             key.KeyPrefix,
 		"scopes":                 key.Scopes,
@@ -217,7 +217,7 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 		return nil, huma.Error404NotFound("api key not found or already revoked")
 	}
 	slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, "api_key.revoke", "api_key", input.KeyID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
 	return &RevokeAPIKeyOutput{Body: map[string]string{"status": "revoked"}}, nil
 }
 
@@ -261,6 +261,6 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
-	s.emitAuditEvent(ctx, "api_key.rotate", "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
+	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
 	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
 }

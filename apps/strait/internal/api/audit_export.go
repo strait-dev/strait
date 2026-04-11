@@ -138,7 +138,7 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
 	}
 
-	s.emitAuditEvent(ctx, "audit.exported", "audit", projectID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionAuditExported, "audit", projectID, map[string]any{
 		"from":          input.From,
 		"to":            input.To,
 		"format":        format,

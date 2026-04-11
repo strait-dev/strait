@@ -273,7 +273,7 @@ func (s *Server) handleUpdateSpendingLimit(ctx context.Context, input *UpdateSpe
 	if err := s.usageService.SetSpendingLimit(ctx, orgID, input.Body.LimitMicrousd, input.Body.Action); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	s.emitAuditEvent(ctx, "spending_limit.updated", "org", orgID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionSpendingLimitUpdated, "org", orgID, map[string]any{
 		"limit_microusd": input.Body.LimitMicrousd,
 		"action":         input.Body.Action,
 	})
@@ -323,7 +323,7 @@ func (s *Server) handleUpdateEmailPreferences(ctx context.Context, input *Update
 	if err := s.usageService.UpdateEmailPreferences(ctx, orgID, input.Body.MonthlyUsageEmail); err != nil {
 		return nil, huma.Error500InternalServerError("failed to update email preferences")
 	}
-	s.emitAuditEvent(ctx, "email_preferences.updated", "org", orgID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEmailPreferencesUpdated, "org", orgID, map[string]any{
 		"monthly_usage_email": input.Body.MonthlyUsageEmail,
 	})
 	return &UpdateEmailPreferencesOutput{Body: map[string]string{"status": "updated"}}, nil
@@ -419,7 +419,7 @@ func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput)
 		return nil, huma.Error400BadRequest("unsupported format, use csv or pdf")
 	}
 
-	s.emitAuditEvent(ctx, "usage.exported", "usage", orgID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionUsageExported, "usage", orgID, map[string]any{
 		"format": format,
 		"from":   input.From,
 		"to":     input.To,
@@ -498,7 +498,7 @@ func (s *Server) handleUpdateProjectBudget(ctx context.Context, input *UpdatePro
 	if err := s.usageService.SetProjectBudget(ctx, req.ProjectID, req.BudgetMicro, req.Action); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	s.emitAuditEvent(ctx, "project_budget.updated", "project", req.ProjectID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionProjectBudgetUpdated, "project", req.ProjectID, map[string]any{
 		"budget_microusd": req.BudgetMicro,
 		"action":          req.Action,
 	})
@@ -547,7 +547,7 @@ func (s *Server) handleUpdateAnomalyConfig(ctx context.Context, input *UpdateAno
 	if err := s.usageService.SetAnomalyConfig(ctx, orgID, input.Body.Warning, input.Body.Critical); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	s.emitAuditEvent(ctx, "anomaly_config.updated", "org", orgID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionAnomalyConfigUpdated, "org", orgID, map[string]any{
 		"warning_threshold":  input.Body.Warning,
 		"critical_threshold": input.Body.Critical,
 	})

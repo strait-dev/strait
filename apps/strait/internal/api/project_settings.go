@@ -83,7 +83,7 @@ func (s *Server) handleUpdateProjectSettings(ctx context.Context, input *UpdateP
 		return nil, err
 	}
 
-	s.emitAuditEvent(ctx, "project_settings.updated", "project_settings", projectID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionProjectSettingsUpdated, "project_settings", projectID, map[string]any{
 		"changes": input.Body,
 	})
 

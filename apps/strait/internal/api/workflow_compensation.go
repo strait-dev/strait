@@ -61,7 +61,7 @@ func (s *Server) handleCompensateWorkflowRun(ctx context.Context, input *Compens
 		return nil, huma.Error500InternalServerError("failed to start compensation")
 	}
 
-	s.emitAuditEvent(ctx, "workflow_run.compensated", "workflow_run", wfRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunCompensated, "workflow_run", wfRun.ID, map[string]any{
 		"workflow_id":     wfRun.WorkflowID,
 		"previous_status": string(wfRun.Status),
 		"plan_steps":      len(plan.Steps),

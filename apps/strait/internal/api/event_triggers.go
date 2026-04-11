@@ -116,7 +116,7 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		s.metrics.EventTriggersReceived.Add(ctx, 1, attrs)
 		s.metrics.EventTriggerWaitDuration.Record(ctx, now.Sub(trigger.RequestedAt).Seconds(), attrs)
 	}
-	s.emitAuditEvent(ctx, "event.sent", "event_trigger", trigger.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventSent, "event_trigger", trigger.ID, map[string]any{
 		"event_key":    eventKey,
 		"source_type":  trigger.SourceType,
 		"payload_size": len(req.Payload),
@@ -218,7 +218,7 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 		attrs := metric.WithAttributes(attribute.String("source_type", trigger.SourceType), attribute.String("project_id", trigger.ProjectID))
 		s.metrics.EventTriggersTimedOut.Add(ctx, 1, attrs)
 	}
-	s.emitAuditEvent(ctx, "event_trigger.cancelled", "event_trigger", trigger.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventTriggerCancelled, "event_trigger", trigger.ID, map[string]any{
 		"event_key":   input.EventKey,
 		"source_type": trigger.SourceType,
 	})
@@ -382,7 +382,7 @@ func (s *Server) handleSendEventByPrefix(ctx context.Context, input *SendEventBy
 			s.metrics.EventTriggerWaitDuration.Record(ctx, now.Sub(t.RequestedAt).Seconds(), attrs)
 		}
 	}
-	s.emitAuditEvent(ctx, "event.sent_by_prefix", "event_trigger", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventSentByPrefix, "event_trigger", "", map[string]any{
 		"prefix":        prefix,
 		"trigger_count": len(resolved),
 		"payload_size":  len(req.Payload),
@@ -412,7 +412,7 @@ func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEvent
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to count triggers")
 		}
-		s.emitAuditEvent(ctx, "event_trigger.purged", "event_trigger", "", map[string]any{
+		s.emitAuditEvent(ctx, domain.AuditActionEventTriggerPurged, "event_trigger", "", map[string]any{
 			"dry_run":         true,
 			"would_delete":    count,
 			"older_than_days": req.OlderThanDays,
@@ -423,7 +423,7 @@ func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEvent
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to purge triggers")
 	}
-	s.emitAuditEvent(ctx, "event_trigger.purged", "event_trigger", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEventTriggerPurged, "event_trigger", "", map[string]any{
 		"deleted":         deleted,
 		"older_than_days": req.OlderThanDays,
 	})

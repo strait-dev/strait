@@ -71,7 +71,7 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 	if err := s.store.CreateLogDrain(ctx, drain); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create log drain")
 	}
-	s.emitAuditEvent(ctx, "log_drain.created", "log_drain", drain.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionLogDrainCreated, "log_drain", drain.ID, map[string]any{
 		"name":         drain.Name,
 		"drain_type":   drain.DrainType,
 		"endpoint_host": urlHost(drain.EndpointURL),
@@ -177,7 +177,7 @@ func (s *Server) handleUpdateLogDrain(ctx context.Context, input *UpdateLogDrain
 		}
 		changedFields = append(changedFields, k)
 	}
-	s.emitAuditEvent(ctx, "log_drain.updated", "log_drain", drainID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionLogDrainUpdated, "log_drain", drainID, map[string]any{
 		"name":             drain.Name,
 		"endpoint_host":    urlHost(drain.EndpointURL),
 		"changed_fields":   changedFields,
@@ -198,6 +198,6 @@ func (s *Server) handleDeleteLogDrain(ctx context.Context, input *DeleteLogDrain
 		}
 		return nil, huma.Error500InternalServerError("failed to delete log drain")
 	}
-	s.emitAuditEvent(ctx, "log_drain.deleted", "log_drain", input.DrainID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionLogDrainDeleted, "log_drain", input.DrainID, nil)
 	return nil, nil
 }

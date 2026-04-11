@@ -243,7 +243,7 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
 
-	s.emitAuditEvent(ctx, "run.cancelled", "run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunCancelled, "run", run.ID, map[string]any{
 		"job_id":           run.JobID,
 		"previous_status":  string(run.Status),
 		"children_canceled": canceledCount,
@@ -451,7 +451,7 @@ func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*R
 		return nil, huma.Error500InternalServerError("failed to enqueue replay run")
 	}
 
-	s.emitAuditEvent(ctx, "run.replayed", "run", replayRun.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunReplayed, "run", replayRun.ID, map[string]any{
 		"original_run_id": input.RunID,
 		"job_id":          originalRun.JobID,
 		"from_checkpoint": input.FromCheckpoint,
@@ -520,7 +520,7 @@ func (s *Server) handleReplayDeadLetterRun(ctx context.Context, input *ReplayDea
 		}
 	}
 
-	s.emitAuditEvent(ctx, "run.replayed_deadletter", "run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunReplayedDeadletter, "run", run.ID, map[string]any{
 		"original_run_id": input.RunID,
 		"job_id":          run.JobID,
 	})
@@ -630,7 +630,7 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		}
 	}
 
-	s.emitAuditEvent(ctx, "run.bulk_replayed_deadletter", "run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunBulkReplayedDeadletter, "run", "", map[string]any{
 		"count":      len(runs),
 		"project_id": effectiveProjectID,
 		"run_ids":    req.RunIDs,
@@ -734,7 +734,7 @@ func (s *Server) handleSetDebugMode(ctx context.Context, input *SetDebugModeInpu
 		return nil, huma.Error500InternalServerError("failed to update debug mode")
 	}
 
-	s.emitAuditEvent(ctx, "run.debug_mode_set", "run", input.RunID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunDebugModeSet, "run", input.RunID, map[string]any{
 		"enabled": input.Body.DebugMode,
 	})
 
@@ -795,7 +795,7 @@ func (s *Server) handleResetIdempotencyKey(ctx context.Context, input *ResetIdem
 		return nil, huma.Error500InternalServerError("failed to reset idempotency key")
 	}
 
-	s.emitAuditEvent(ctx, "run.idempotency_key_reset", "run", input.RunID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionRunIdempotencyKeyReset, "run", input.RunID, nil)
 
 	return &ResetIdempotencyKeyOutput{Body: map[string]string{"status": "reset", "run_id": input.RunID}}, nil
 }
@@ -847,7 +847,7 @@ func (s *Server) handleRescheduleRun(ctx context.Context, input *RescheduleRunIn
 		return nil, huma.Error500InternalServerError("failed to fetch rescheduled run")
 	}
 
-	s.emitAuditEvent(ctx, "run.rescheduled", "run", input.RunID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunRescheduled, "run", input.RunID, map[string]any{
 		"job_id":           run.JobID,
 		"new_scheduled_at": req.ScheduledAt,
 		"payload_changed":  len(req.Payload) > 0,
@@ -939,7 +939,7 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 		replayed++
 	}
 
-	s.emitAuditEvent(ctx, "run.bulk_replayed", "run", "", map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunBulkReplayed, "run", "", map[string]any{
 		"count":    replayed,
 		"total":    len(req.RunIDs),
 		"run_ids":  req.RunIDs,
@@ -1002,7 +1002,7 @@ func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*Pau
 		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
 
-	s.emitAuditEvent(ctx, "run.paused", "run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunPaused, "run", run.ID, map[string]any{
 		"job_id": run.JobID,
 	})
 
@@ -1049,7 +1049,7 @@ func (s *Server) handleResumeRun(ctx context.Context, input *ResumeRunInput) (*R
 		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
 
-	s.emitAuditEvent(ctx, "run.resumed", "run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunResumed, "run", run.ID, map[string]any{
 		"job_id": run.JobID,
 	})
 
@@ -1125,7 +1125,7 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 		return nil, huma.Error500InternalServerError("failed to get updated run")
 	}
 
-	s.emitAuditEvent(ctx, "run.restarted", "run", run.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionRunRestarted, "run", run.ID, map[string]any{
 		"job_id":         run.JobID,
 		"machine_preset": req.MachinePreset,
 	})

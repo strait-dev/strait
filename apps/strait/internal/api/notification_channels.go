@@ -77,7 +77,7 @@ func (s *Server) handleCreateNotificationChannel(ctx context.Context, input *Cre
 	if err := s.store.CreateNotificationChannel(ctx, ch); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create notification channel")
 	}
-	s.emitAuditEvent(ctx, "notification_channel.created", "notification_channel", ch.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelCreated, "notification_channel", ch.ID, map[string]any{
 		"name":         ch.Name,
 		"channel_type": ch.ChannelType,
 		"enabled":      ch.Enabled,
@@ -181,7 +181,7 @@ func (s *Server) handleUpdateNotificationChannel(ctx context.Context, input *Upd
 	if req.Enabled != nil {
 		changedFields = append(changedFields, "enabled")
 	}
-	s.emitAuditEvent(ctx, "notification_channel.updated", "notification_channel", ch.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelUpdated, "notification_channel", ch.ID, map[string]any{
 		"name":           ch.Name,
 		"channel_type":   ch.ChannelType,
 		"changed_fields": changedFields,
@@ -207,7 +207,7 @@ func (s *Server) handleDeleteNotificationChannel(ctx context.Context, input *Del
 		}
 		return nil, huma.Error500InternalServerError("failed to delete notification channel")
 	}
-	s.emitAuditEvent(ctx, "notification_channel.deleted", "notification_channel", input.ChannelID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelDeleted, "notification_channel", input.ChannelID, nil)
 	return nil, nil
 }
 

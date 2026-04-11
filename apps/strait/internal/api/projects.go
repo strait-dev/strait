@@ -112,7 +112,7 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		}
 	}
 
-	s.emitAuditEvent(ctx, "project.created", "project", project.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionProjectCreated, "project", project.ID, map[string]any{
 		"name":   project.Name,
 		"org_id": project.OrgID,
 	})
@@ -232,7 +232,7 @@ func (s *Server) handleDeleteProject(ctx context.Context, input *DeleteProjectIn
 		return nil, huma.Error500InternalServerError("failed to delete project")
 	}
 
-	s.emitAuditEvent(ctx, "project.deleted", "project", input.ProjectID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionProjectDeleted, "project", input.ProjectID, nil)
 
 	return nil, nil
 }

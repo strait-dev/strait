@@ -68,7 +68,7 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		return nil, huma.Error500InternalServerError("failed to create environment")
 	}
 
-	s.emitAuditEvent(ctx, "environment.created", "environment", env.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEnvironmentCreated, "environment", env.ID, map[string]any{
 		"name":         env.Name,
 		"slug":         env.Slug,
 		"parent_id":    env.ParentID,
@@ -202,7 +202,7 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 	if req.Variables != nil {
 		changedFields = append(changedFields, "variables")
 	}
-	s.emitAuditEvent(ctx, "environment.updated", "environment", env.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEnvironmentUpdated, "environment", env.ID, map[string]any{
 		"name":           env.Name,
 		"changed_fields": changedFields,
 		"variable_keys":  tagKeys(env.Variables),
@@ -239,7 +239,7 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvir
 		return nil, huma.Error500InternalServerError("failed to delete environment")
 	}
 
-	s.emitAuditEvent(ctx, "environment.deleted", "environment", input.EnvID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionEnvironmentDeleted, "environment", input.EnvID, map[string]any{
 		"name": env.Name,
 		"slug": env.Slug,
 	})

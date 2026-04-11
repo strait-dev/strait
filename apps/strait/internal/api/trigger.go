@@ -517,7 +517,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error500InternalServerError("failed to enqueue run")
 	}
 
-	s.emitAuditEventAsync(ctx, "job.triggered", "job", job.ID, map[string]any{
+	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 		"run_id":                 run.ID,
 		"scheduled_at":            scheduledAt,
 		"priority":                req.Priority,

@@ -86,7 +86,7 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create webhook subscription")
 	}
-	s.emitAuditEvent(ctx, "webhook_subscription.created", "webhook_subscription", sub.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWebhookSubscriptionCreated, "webhook_subscription", sub.ID, map[string]any{
 		"url_host":    urlHost(req.WebhookURL),
 		"event_types": req.EventTypes,
 		"active":      active,
@@ -137,7 +137,7 @@ func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *Del
 		}
 		return nil, huma.Error500InternalServerError("failed to delete webhook subscription")
 	}
-	s.emitAuditEvent(ctx, "webhook_subscription.deleted", "webhook_subscription", input.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWebhookSubscriptionDeleted, "webhook_subscription", input.ID, map[string]any{
 		"url_host":    urlHost(sub.WebhookURL),
 		"event_types": sub.EventTypes,
 	})
@@ -200,7 +200,7 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 		return nil, huma.Error500InternalServerError("failed to rotate webhook secret")
 	}
 
-	s.emitAuditEvent(ctx, "webhook_subscription.rotate_secret", "webhook_subscription", input.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWebhookSubscriptionRotateSecret, "webhook_subscription", input.ID, map[string]any{
 		"grace_expires_at":     graceExpiresAt,
 		"grace_period_minutes": graceMins,
 	})

@@ -195,7 +195,7 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 		return nil, huma.Error500InternalServerError("failed to create workflow")
 	}
 
-	s.emitAuditEvent(ctx, "workflow.created", "workflow", wf.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowCreated, "workflow", wf.ID, map[string]any{
 		"name":       wf.Name,
 		"slug":       wf.Slug,
 		"step_count": len(steps),
@@ -442,13 +442,13 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 			resp.PreviousVersionID = previousVersionID
 		}
 		if req.BreakingChange != nil && *req.BreakingChange && countErr == nil && count > 0 {
-			s.emitAuditEvent(ctx, "workflow.updated_breaking", "workflow", wf.ID, map[string]any{
+			s.emitAuditEvent(ctx, domain.AuditActionWorkflowUpdatedBreaking, "workflow", wf.ID, map[string]any{
 				"previous_version_id":             previousVersionID,
 				"active_runs_on_previous_version": count,
 				"new_version":                     wf.Version,
 			})
 		} else {
-			s.emitAuditEvent(ctx, "workflow.updated", "workflow", wf.ID, map[string]any{
+			s.emitAuditEvent(ctx, domain.AuditActionWorkflowUpdated, "workflow", wf.ID, map[string]any{
 				"changes":             req,
 				"name":                wf.Name,
 				"previous_version_id": previousVersionID,
@@ -456,7 +456,7 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 			})
 		}
 	} else {
-		s.emitAuditEvent(ctx, "workflow.updated", "workflow", wf.ID, map[string]any{
+		s.emitAuditEvent(ctx, domain.AuditActionWorkflowUpdated, "workflow", wf.ID, map[string]any{
 			"changes":     req,
 			"name":        wf.Name,
 			"new_version": wf.Version,
@@ -495,7 +495,7 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, input *DeleteWorkflow
 		return nil, huma.Error500InternalServerError("failed to delete workflow")
 	}
 
-	s.emitAuditEvent(ctx, "workflow.deleted", "workflow", input.WorkflowID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowDeleted, "workflow", input.WorkflowID, map[string]any{
 		"name": wf.Name,
 		"slug": wf.Slug,
 	})
@@ -581,7 +581,7 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 	}
 	s.publishWorkflowRunHook(ctx, run, domain.WfStatusPending, run.Status, "trigger")
 
-	s.emitAuditEventAsync(ctx, "workflow.triggered", "workflow", workflowID, map[string]any{
+	s.emitAuditEventAsync(ctx, domain.AuditActionWorkflowTriggered, "workflow", workflowID, map[string]any{
 		"run_id":       run.ID,
 		"triggered_by": string(triggeredBy),
 		"tag_keys":     tagKeys(req.Tags),
@@ -878,7 +878,7 @@ func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflow
 		if err := workflow.ValidateDAG(steps); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
-		s.emitAuditEvent(ctx, "workflow.dry_run", "workflow", input.WorkflowID, map[string]any{
+		s.emitAuditEvent(ctx, domain.AuditActionWorkflowDryRun, "workflow", input.WorkflowID, map[string]any{
 			"step_count": len(steps),
 			"mode":       "existing_steps",
 		})
@@ -897,7 +897,7 @@ func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflow
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	s.emitAuditEvent(ctx, "workflow.dry_run", "workflow", input.WorkflowID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowDryRun, "workflow", input.WorkflowID, map[string]any{
 		"step_count": len(steps),
 		"mode":       "request_steps",
 	})
@@ -983,7 +983,7 @@ func (s *Server) handleWorkflowPlan(ctx context.Context, input *WorkflowPlanInpu
 		sort.Strings(queue)
 	}
 
-	s.emitAuditEvent(ctx, "workflow.plan_requested", "workflow", workflowID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowPlanRequested, "workflow", workflowID, map[string]any{
 		"step_count":       len(steps),
 		"override_count":   len(req.StepOverrides),
 		"workflow_version": wf.Version,
@@ -1259,7 +1259,7 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 		return nil, huma.Error500InternalServerError("failed to clone workflow")
 	}
 
-	s.emitAuditEvent(ctx, "workflow.cloned", "workflow", newWf.ID, map[string]any{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowCloned, "workflow", newWf.ID, map[string]any{
 		"source_workflow_id": sourceID,
 		"new_name":           newWf.Name,
 		"new_slug":           newWf.Slug,
