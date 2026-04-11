@@ -53,7 +53,8 @@ ARG COMMIT=none
 ARG DATE=unknown
 ENV VITE_APP_VERSION=$VERSION \
     VITE_APP_COMMIT=$COMMIT \
-    VITE_APP_DATE=$DATE
+    VITE_APP_DATE=$DATE \
+    VITE_STRAIT_EDITION=community
 
 RUN cd apps/app && BUILD_TARGET=node bun run build
 

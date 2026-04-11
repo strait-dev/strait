@@ -45,6 +45,7 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
+import { isCommunityEdition } from "@/lib/edition";
 import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 
 /**
@@ -142,6 +143,12 @@ const createStripeCustomer = async (
   user: { id: string; email: string; name: string },
   orgId: string
 ): Promise<void> => {
+  // Community edition: no Stripe, no customer record, nothing to do.
+  // Gating here rather than at the call site so every future signup
+  // code path is safe by construction.
+  if (isCommunityEdition) {
+    return;
+  }
   if (!process.env.STRIPE_SECRET_KEY) {
     return;
   }

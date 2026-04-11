@@ -7,7 +7,8 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { isCommunityEdition } from "@/lib/edition";
 import { Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
@@ -40,6 +41,14 @@ import {
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/billing/")({
+  // Cloud-only: Billing, usage history, spending limits, and Stripe
+  // addon purchases are not available in the community edition.
+  // See `src/lib/edition.ts` for the gate.
+  beforeLoad: () => {
+    if (isCommunityEdition) {
+      throw redirect({ to: "/app" });
+    }
+  },
   loader: async ({ context }) => {
     const ctx = context as AppRouteContext;
     await Promise.allSettled([

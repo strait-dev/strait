@@ -11,8 +11,9 @@ import {
 import { Shell } from "@strait/ui/components/shell";
 import { toast } from "@strait/ui/components/toast/index";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { assertCloudEdition, isCommunityEdition } from "@/lib/edition";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
@@ -69,6 +70,9 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
+    // Defense in depth: refuse to talk to Stripe in community edition
+    // even if a caller bypasses the route guard below.
+    assertCloudEdition("Plan checkout");
     const stripe = getStripeClient();
 
     const slug = `${data.planSlug}-${data.billingInterval}`;
@@ -123,6 +127,13 @@ const upgradeSearchSchema = z.object({
 
 export const Route = createFileRoute("/app/upgrade")({
   validateSearch: zodValidator(upgradeSearchSchema),
+  // Cloud-only: plan selection + Stripe checkout are not available
+  // in the community edition. Redirect any inbound request to /app.
+  beforeLoad: () => {
+    if (isCommunityEdition) {
+      throw redirect({ to: "/app" });
+    }
+  },
   loader: async ({ context }) => {
     const ctx = context as AppRouteContext;
     const [, apiPlans] = await Promise.all([
