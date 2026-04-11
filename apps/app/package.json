@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "start": "wrangler dev",
+    "start": "wrangler dev --config ../../wrangler.jsonc",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy",
+    "deploy": "vite build && wrangler deploy --config ../../wrangler.jsonc",
     "biome:lint": "biome lint ./src ./e2e",
     "biome:format": "biome format --write ./src ./e2e",
     "biome:write": "biome check --write ./src ./e2e",

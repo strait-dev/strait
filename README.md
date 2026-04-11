@@ -63,15 +63,21 @@ bun run build
 
 ## Self-Hosting
 
-Run Strait on your own infrastructure in under a minute:
+Pick whichever path matches how you want to run Strait.
+
+**Option 1 — Deploy the dashboard to Cloudflare with one click.** The API stays on your own infrastructure, the dashboard runs on your own Cloudflare account.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+
+**Option 2 — Run the full stack locally with Docker Compose.** API, dashboard, Postgres, Redis, and Sequin (CDC), all on your own hardware:
 
 ```bash
-git clone https://github.com/leonardomso/strait.git
+git clone https://github.com/strait-dev/strait.git
 cd strait
-docker compose -f docker-compose.selfhost.yml up -d
+make selfhost
 ```
 
-This starts Strait, PostgreSQL, Redis, and Sequin (CDC). See [SELFHOST.md](SELFHOST.md) for configuration, production hardening, and the edition comparison.
+See [SELFHOST.md](SELFHOST.md) for both paths in detail — configuration, production hardening, and the edition comparison.
 
 ## Key Features
 

@@ -63,7 +63,10 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    cloudflare({
+      configPath: "../../wrangler.jsonc",
+      viteEnvironment: { name: "ssr" },
+    }),
     wellKnownOAuthPlugin(),
     devtools(),
     tailwindcss(),

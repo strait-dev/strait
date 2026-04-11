@@ -1,14 +1,40 @@
 # Self-Hosting Strait
 
-Run Strait on your own infrastructure with a single command.
+Strait offers two self-hosting paths. Pick whichever matches how you want to run the dashboard.
 
-## Prerequisites
+| | Option 1 — Cloudflare dashboard | Option 2 — Full Docker stack |
+|---|---|---|
+| Setup | One click | `make selfhost` |
+| Dashboard runs on | Your own Cloudflare account | Your own hardware |
+| API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
+| Postgres | Neon / Supabase / Fly PG / self-hosted | Bundled `postgres:18-alpine` |
+| Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
+
+Both options run the community edition with all open-source features.
+
+---
+
+## Option 1 — Deploy the dashboard to Cloudflare (fastest)
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+
+Clicking the button walks you through a fully scripted Cloudflare Workers deploy. The build command, Hyperdrive binding, and every non-secret variable are predeclared in the repo-root `wrangler.jsonc`, so the deploy flow is a single guided form.
+
+See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare-one-click) for the detailed walkthrough, including the list of secrets you must set in the Cloudflare dashboard after the first deploy.
+
+**You still need the Strait API somewhere reachable by the Worker.** The easiest setup: run the API locally with Option 2 below (or on any VPS/Kubernetes/Fly.io host), expose it via `cloudflared tunnel` or a public hostname, and point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables.
+
+---
+
+## Option 2 — Run the full stack locally with Docker Compose
+
+### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - 2 GB RAM minimum (4 GB recommended)
 - Ports 3000 (Dashboard), 8080 (API), 5432 (Postgres), 6379 (Redis), 7376 (Sequin) available
 
-## Quick Start
+### Quick Start
 
 ```bash
 # 1. Clone the repository.
