@@ -470,6 +470,12 @@ func (q *Queries) UpdateAgentDeployment(ctx context.Context, id string, patch ma
 // GetAgentHealthStats returns aggregated health metrics for an agent over a time window.
 // Queries the agent's backing job runs and computes a composite health score
 // factoring success rate, error class distribution, and cost efficiency.
+// GetAgentHealthStats returns aggregate health metrics for an agent
+// over the window `[since, now()]`. Collapsed to a single CTE query
+// (plus one agent-lookup up front) so the `job_runs` partition scan
+// happens exactly once per call. Pre-F2 this function issued four
+// separate round-trips (agent, run stats, error classes, cost) and
+// re-filtered `job_runs` by `(job_id, created_at)` three times.
 func (q *Queries) GetAgentHealthStats(ctx context.Context, agentID string, since time.Time) (*AgentHealthStats, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAgentHealthStats")
 	defer span.End()
@@ -479,19 +485,54 @@ func (q *Queries) GetAgentHealthStats(ctx context.Context, agentID string, since
 		return nil, fmt.Errorf("get agent for health: %w", err)
 	}
 
+	// One CTE materializes the matching runs; three sibling CTEs
+	// aggregate over it without re-scanning job_runs. The final
+	// SELECT cross-joins the three single-row aggregate CTEs so
+	// the result is a single row of columns.
 	query := `
+		WITH recent_runs AS (
+			SELECT id, status, finished_at, started_at
+			FROM job_runs
+			WHERE job_id = $1
+			  AND created_at >= $2
+			  AND status IN ('completed','failed','system_failed','timed_out','crashed','canceled')
+		),
+		run_stats AS (
+			SELECT
+				COUNT(*) AS total_runs,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed_runs,
+				COUNT(*) FILTER (WHERE status IN ('failed','system_failed')) AS failed_runs,
+				COALESCE(
+					AVG(EXTRACT(EPOCH FROM (finished_at - started_at)))
+						FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
+					0
+				) AS avg_duration_secs
+			FROM recent_runs
+		),
+		err_stats AS (
+			SELECT
+				COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'oom') AS oom_runs,
+				COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'timeout') AS timeout_runs,
+				COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'rate_limited') AS rate_limited_runs
+			FROM run_events
+			WHERE run_id IN (SELECT id FROM recent_runs)
+			  AND type = 'error'
+		),
+		cost_stats AS (
+			SELECT COALESCE(AVG(cost_microusd), 0) AS avg_cost_microusd
+			FROM run_usage
+			WHERE run_id IN (SELECT id FROM recent_runs)
+		)
 		SELECT
-			COUNT(*) AS total_runs,
-			COUNT(*) FILTER (WHERE status = 'completed') AS completed_runs,
-			COUNT(*) FILTER (WHERE status IN ('failed', 'system_failed')) AS failed_runs,
-			COALESCE(
-				AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
-				0
-			) AS avg_duration_secs
-		FROM job_runs
-		WHERE job_id = $1
-			AND created_at >= $2
-			AND status IN ('completed', 'failed', 'system_failed', 'timed_out', 'crashed', 'canceled')`
+			run_stats.total_runs,
+			run_stats.completed_runs,
+			run_stats.failed_runs,
+			run_stats.avg_duration_secs,
+			err_stats.oom_runs,
+			err_stats.timeout_runs,
+			err_stats.rate_limited_runs,
+			cost_stats.avg_cost_microusd
+		FROM run_stats, err_stats, cost_stats`
 
 	stats := &AgentHealthStats{}
 	if err := q.db.QueryRow(ctx, query, agent.JobID, since).Scan(
@@ -499,36 +540,13 @@ func (q *Queries) GetAgentHealthStats(ctx context.Context, agentID string, since
 		&stats.CompletedRuns,
 		&stats.FailedRuns,
 		&stats.AvgDurationSecs,
-	); err != nil {
-		return nil, fmt.Errorf("get agent health stats: %w", err)
-	}
-
-	// Count error classes from run events.
-	errClassQuery := `
-		SELECT
-			COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'oom') AS oom_runs,
-			COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'timeout') AS timeout_runs,
-			COUNT(*) FILTER (WHERE data::jsonb->>'error_class' = 'rate_limited') AS rate_limited_runs
-		FROM run_events
-		WHERE run_id IN (
-			SELECT id FROM job_runs WHERE job_id = $1 AND created_at >= $2
-		)
-		AND type = 'error'`
-
-	_ = q.db.QueryRow(ctx, errClassQuery, agent.JobID, since).Scan(
 		&stats.OOMRuns,
 		&stats.TimeoutRuns,
 		&stats.RateLimitedRuns,
-	)
-
-	// Compute average cost.
-	costQuery := `
-		SELECT COALESCE(AVG(cost_microusd), 0)
-		FROM run_usage
-		WHERE run_id IN (
-			SELECT id FROM job_runs WHERE job_id = $1 AND created_at >= $2
-		)`
-	_ = q.db.QueryRow(ctx, costQuery, agent.JobID, since).Scan(&stats.AvgCostMicrousd)
+		&stats.AvgCostMicrousd,
+	); err != nil {
+		return nil, fmt.Errorf("get agent health stats: %w", err)
+	}
 
 	// Compute health score.
 	stats.HealthScore, stats.HealthLevel = ComputeAgentHealthScore(stats)
