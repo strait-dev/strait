@@ -860,6 +860,12 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:      slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithPartitionTuner(
+				scheduler.NewPartitionTuner(queries, scheduler.PartitionTunerConfig{
+					Interval: 7 * 24 * time.Hour,
+					Logger:   slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))

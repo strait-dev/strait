@@ -176,3 +176,15 @@ func startOfMonth(t time.Time) time.Time {
 func quoteIdent(s string) string {
 	return `"` + s + `"`
 }
+
+// ExecDDL runs a single DDL statement via the underlying pool. Used by
+// the partition tuner (R3 Phase 4) which issues ALTER TABLE SET/RESET
+// commands on individual partitions.
+func (q *Queries) ExecDDL(ctx context.Context, sql string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ExecDDL")
+	defer span.End()
+	if _, err := q.db.Exec(ctx, sql); err != nil {
+		return fmt.Errorf("exec ddl: %w", err)
+	}
+	return nil
+}

@@ -52,6 +52,7 @@ type Scheduler struct {
 	priorityPromoter         *PriorityPromoter
 	counterReconciler        *CounterReconciler
 	partitionEnsurer         *PartitionEnsurer
+	partitionTuner           *PartitionTuner
 	wg                       conc.WaitGroup
 }
 
@@ -140,6 +141,13 @@ func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 func WithPartitionEnsurer(p *PartitionEnsurer) SchedulerOption {
 	return func(s *Scheduler) {
 		s.partitionEnsurer = p
+	}
+}
+
+// WithPartitionTuner enables R3 Phase 4 per-partition autovacuum tuning.
+func WithPartitionTuner(p *PartitionTuner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.partitionTuner = p
 	}
 }
 
@@ -257,6 +265,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.partitionEnsurer != nil {
 		safeGo(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
+	}
+	if s.partitionTuner != nil {
+		safeGo(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
