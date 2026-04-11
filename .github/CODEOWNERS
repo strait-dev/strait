@@ -6,3 +6,11 @@ apps/strait/ @strait-dev/backend
 
 # CI/CD
 .github/ @strait-dev/platform
+
+# Security-sensitive files — explicit platform review required.
+# The leading / anchors to the repo root so these match exactly, not
+# accidentally inside node_modules or similar.
+/.github/workflows/publish-images.yml   @strait-dev/platform
+/.github/workflows/security.yml         @strait-dev/platform
+/.github/CODEOWNERS                     @strait-dev/platform
+/apps/strait/Dockerfile                 @strait-dev/platform @strait-dev/backend

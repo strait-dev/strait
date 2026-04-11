@@ -221,7 +221,7 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(requireJSONAccept)
 		r.Use(requireJSONContentType)
-		r.Use(s.projectContextMiddleware)
+		r.Use(s.rlsTxMiddleware)
 		r.Use(s.projectRateLimit)
 		r.Use(s.planUsageHeaders)
 		r.Use(chimw.Timeout(requestTimeout))

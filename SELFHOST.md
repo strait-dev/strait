@@ -230,18 +230,6 @@ curl -X POST http://localhost:8080/v1/jobs/my-job/trigger \
   -d '{"payload": {"userId": "123"}}'
 ```
 
-## Load Testing
-
-Test your deployment with the packaged stress test:
-
-```bash
-docker run --rm --network host \
-  -e STRAIT_URL=http://localhost:8080 \
-  -e INTERNAL_SECRET="<your secret>" \
-  -e ITERATIONS=1000 \
-  ghcr.io/strait-dev/strait-loadtest
-```
-
 ## Resetting
 
 Start fresh by wiping all data and secrets:

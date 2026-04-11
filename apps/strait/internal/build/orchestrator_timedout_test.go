@@ -231,9 +231,9 @@ func TestOrchestrator_HandleBuildFailure_NilBuilder_SetsFailedStatus(t *testing.
 		WithConcurrency(1),
 	)
 
-	// Run one dispatch cycle synchronously.
 	sem := make(chan struct{}, 1)
 	o.dispatch(context.Background(), sem)
+	o.drain() // wait for the build goroutine to finish before asserting
 
 	if capturedStatus != domain.DeploymentStatusFailed {
 		t.Errorf("nil builder: status = %q, want failed", capturedStatus)

@@ -44,11 +44,12 @@ type Config struct {
 	EventTriggerRetentionDays int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
 
 	// Database connection pool tuning
-	DBMaxConns         int32         `env:"DB_MAX_CONNS" default:"50"`
-	DBMinConns         int32         `env:"DB_MIN_CONNS" default:"10"`
-	DBMaxConnLifetime  time.Duration `env:"DB_MAX_CONN_LIFETIME" default:"30m"`
-	DBMaxConnIdleTime  time.Duration `env:"DB_MAX_CONN_IDLE_TIME" default:"5m"`
-	DBStatementTimeout time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
+	DBMaxConns          int32         `env:"DB_MAX_CONNS" default:"50"`
+	DBMinConns          int32         `env:"DB_MIN_CONNS" default:"10"`
+	DBMaxConnLifetime   time.Duration `env:"DB_MAX_CONN_LIFETIME" default:"30m"`
+	DBMaxConnIdleTime   time.Duration `env:"DB_MAX_CONN_IDLE_TIME" default:"5m"`
+	DBHealthCheckPeriod time.Duration `env:"DB_HEALTH_CHECK_PERIOD" default:"30s"`
+	DBStatementTimeout  time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
 
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`
@@ -319,6 +320,12 @@ type Config struct {
 	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
 	// When enabled, container startup begins before the full image is pulled.
 	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
+	// SOCIMinImageBytes is the minimum compressed image size (in bytes) below which
+	// SOCI index generation is skipped — the overhead of lazy loading is not worth it
+	// for small images. Defaults to 10 MiB.
+	// NOTE: size-based skipping is not yet implemented; this config is reserved for
+	// a future optimisation once post-build image size querying is available.
+	SOCIMinImageBytes int64 `env:"SOCI_MIN_IMAGE_SIZE_BYTES" default:"10485760"`
 }
 
 // Load reads configuration from environment variables.

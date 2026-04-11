@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -164,6 +167,227 @@ func TestProjectContextMiddleware_StoreDoesNotImplementSetter(t *testing.T) {
 
 	if !called {
 		t.Fatal("expected next handler to be called when store does not implement ProjectContextSetter")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// 1b. rlsTxMiddleware
+// ---------------------------------------------------------------------------.
+
+// rlsFakeTx is a minimal pgx.Tx stub for testing rlsTxMiddleware. Only the
+// methods the middleware calls (Exec, Commit, Rollback) are implemented.
+type rlsFakeTx struct {
+	pgx.Tx
+	execErr       error
+	commitErr     error
+	rollbackErr   error
+	execCalls     int
+	commitCalls   int
+	rollbackCalls int
+}
+
+func (f *rlsFakeTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	f.execCalls++
+	return pgconn.CommandTag{}, f.execErr
+}
+
+func (f *rlsFakeTx) Commit(_ context.Context) error {
+	f.commitCalls++
+	return f.commitErr
+}
+
+func (f *rlsFakeTx) Rollback(_ context.Context) error {
+	f.rollbackCalls++
+	return f.rollbackErr
+}
+
+// rlsFakeTxBeginner implements store.TxBeginner for rlsTxMiddleware tests.
+type rlsFakeTxBeginner struct {
+	tx       pgx.Tx
+	beginErr error
+	calls    int
+}
+
+func (b *rlsFakeTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
+	b.calls++
+	if b.beginErr != nil {
+		return nil, b.beginErr
+	}
+	return b.tx, nil
+}
+
+func TestRLSTxMiddleware_NoProjectID_PassThrough(t *testing.T) {
+	t.Parallel()
+	tx := &rlsFakeTx{}
+	srv := &Server{txPool: &rlsFakeTxBeginner{tx: tx}, store: &APIStoreMock{}}
+
+	called := false
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/test", nil))
+
+	if !called {
+		t.Fatal("expected next handler called")
+	}
+	if tx.execCalls != 0 || tx.commitCalls != 0 {
+		t.Fatal("tx should not be used when no project id is present")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
+	t.Parallel()
+	tx := &rlsFakeTx{}
+	pool := &rlsFakeTxBeginner{tx: tx}
+	srv := &Server{txPool: pool, store: &APIStoreMock{}}
+
+	called := false
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		// Verify the request context carries the bound tx.
+		gotTx, ok := store.TxFromContext(r.Context())
+		if !ok {
+			t.Error("expected tx in request context")
+		}
+		if gotTx != tx {
+			t.Error("request context tx != expected tx")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if !called {
+		t.Fatal("expected next handler called")
+	}
+	if pool.calls != 1 {
+		t.Fatalf("Begin calls = %d, want 1", pool.calls)
+	}
+	if tx.execCalls != 1 {
+		t.Fatalf("set_config Exec calls = %d, want 1", tx.execCalls)
+	}
+	if tx.commitCalls != 1 {
+		t.Fatalf("Commit calls = %d, want 1", tx.commitCalls)
+	}
+	if tx.rollbackCalls != 0 {
+		t.Fatalf("Rollback calls = %d, want 0", tx.rollbackCalls)
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestRLSTxMiddleware_BeginFails_FailsClosed(t *testing.T) {
+	t.Parallel()
+	pool := &rlsFakeTxBeginner{beginErr: errors.New("pool exhausted")}
+	srv := &Server{txPool: pool, store: &APIStoreMock{}}
+
+	called := false
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if called {
+		t.Fatal("next handler must not be called when Begin fails")
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestRLSTxMiddleware_SetConfigFails_RollsBackAnd500(t *testing.T) {
+	t.Parallel()
+	tx := &rlsFakeTx{execErr: errors.New("exec failed")}
+	srv := &Server{txPool: &rlsFakeTxBeginner{tx: tx}, store: &APIStoreMock{}}
+
+	called := false
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if called {
+		t.Fatal("next handler must not be called when set_config fails")
+	}
+	if tx.rollbackCalls != 1 {
+		t.Fatalf("Rollback calls = %d, want 1", tx.rollbackCalls)
+	}
+	if tx.commitCalls != 0 {
+		t.Fatalf("Commit calls = %d, want 0 (should have rolled back)", tx.commitCalls)
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestRLSTxMiddleware_HandlerPanic_RollsBack(t *testing.T) {
+	t.Parallel()
+	tx := &rlsFakeTx{}
+	srv := &Server{txPool: &rlsFakeTxBeginner{tx: tx}, store: &APIStoreMock{}}
+
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		panic("handler blew up")
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
+	w := httptest.NewRecorder()
+
+	defer func() {
+		if rec := recover(); rec == nil {
+			t.Fatal("expected panic to propagate past middleware")
+		}
+		if tx.rollbackCalls != 1 {
+			t.Fatalf("Rollback calls = %d, want 1 after panic", tx.rollbackCalls)
+		}
+		if tx.commitCalls != 0 {
+			t.Fatalf("Commit calls = %d, want 0 after panic", tx.commitCalls)
+		}
+	}()
+	handler.ServeHTTP(w, r)
+}
+
+func TestRLSTxMiddleware_NoTxPool_FallsBackToLegacy(t *testing.T) {
+	t.Parallel()
+	setter := &mockProjectContextSetter{APIStore: &APIStoreMock{}}
+	srv := &Server{txPool: nil, store: setter}
+
+	called := false
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if !called {
+		t.Fatal("next handler should be called when falling back to legacy middleware")
+	}
+	if setter.setCalls != 1 {
+		t.Fatalf("legacy SetProjectContext calls = %d, want 1", setter.setCalls)
 	}
 }
 

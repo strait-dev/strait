@@ -174,6 +174,17 @@ func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
 	}
 }
 
+// WithIndexMaintainerAdvisoryLocker enables single-leader execution of the
+// periodic REINDEX loop across multiple worker instances sharing a database.
+// Without this, every worker runs REINDEX independently, which is safe (the
+// underlying REINDEX INDEX CONCURRENTLY takes its own heavy lock) but wastes
+// work.
+func WithIndexMaintainerAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.indexMaintainer.WithAdvisoryLocker(locker)
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)

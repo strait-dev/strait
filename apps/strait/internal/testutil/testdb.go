@@ -67,11 +67,49 @@ func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
 
+	// Create a non-superuser role for RLS tests. The POSTGRES_USER the
+	// testcontainers image creates (`test`) is a superuser, which bypasses
+	// row-level security even under FORCE ROW LEVEL SECURITY. Without a
+	// non-superuser role, we can't actually test that RLS policies filter
+	// cross-tenant rows. Tests that need to verify RLS enforcement do
+	// `SET LOCAL ROLE strait_app` inside their transaction to temporarily
+	// drop to this role. The superuser that seeded the data is implicitly
+	// a member of all roles so SET LOCAL ROLE just works.
+	if err := setupRLSTestRole(ctx, pool); err != nil {
+		pool.Close()
+		_ = pgContainer.Terminate(ctx)
+		return nil, fmt.Errorf("setup rls test role: %w", err)
+	}
+
 	return &TestDB{
 		Pool:      pool,
 		Container: pgContainer,
 		ConnStr:   connStr,
 	}, nil
+}
+
+// setupRLSTestRole creates a non-superuser, non-BYPASSRLS role and grants
+// it the DML privileges integration tests need. This runs after migrations
+// so every table exists at grant time.
+func setupRLSTestRole(ctx context.Context, pool *pgxpool.Pool) error {
+	stmts := []string{
+		`DO $$ BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'strait_app') THEN
+				CREATE ROLE strait_app NOLOGIN NOBYPASSRLS;
+			END IF;
+		END $$`,
+		`GRANT USAGE ON SCHEMA public TO strait_app`,
+		`GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO strait_app`,
+		`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO strait_app`,
+		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO strait_app`,
+		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO strait_app`,
+	}
+	for _, s := range stmts {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			return fmt.Errorf("exec %q: %w", s, err)
+		}
+	}
+	return nil
 }
 
 func (tdb *TestDB) CleanTables(ctx context.Context) error {

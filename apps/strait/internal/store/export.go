@@ -13,6 +13,11 @@ import (
 
 // StreamJobs iterates all jobs for a project, calling fn per row.
 // Rows are ordered by created_at ASC for deterministic export order.
+//
+// The SELECT list must match the column order expected by scanJob. If
+// new columns are added to the jobs table they must be added here too,
+// otherwise pgx returns "number of field descriptions must equal number
+// of destinations" at scan time.
 func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.StreamJobs")
 	defer span.End()
@@ -22,13 +27,17 @@ func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*dom
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, cron_overlap_policy, result_schema,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata,
+		       retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold,
+		       cron_overlap_policy, result_schema,
 		       debounce_window_secs, batch_window_secs, batch_max_size,
 		       execution_mode, machine_preset, image_uri, region, preferred_regions,
 		       on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
 		       on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
-		       poison_pill_threshold, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
-		       paused, paused_at, pause_reason
+		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
+		       allowed_tools, blocked_tools,
+		       paused, paused_at, pause_reason,
+		       source_type, active_deployment_id, rollback_source_deployment_id
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at ASC

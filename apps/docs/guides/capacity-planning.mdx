@@ -138,21 +138,16 @@ For Fly.io deployments:
 
 ### Running Your Own Benchmarks
 
-Use the included load testing framework with Grafana dashboards for real-time visualization:
+Use the included load testing framework against your own Postgres + Redis:
 
 ```bash
-# Start the load test environment (Postgres, Redis, Prometheus, Grafana)
 cd apps/strait
-docker compose -f docker-compose.loadtest.yml up -d
 
-# Start Strait
+# Start Strait against a local Postgres + Redis
 DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
 REDIS_URL="redis://localhost:6379" go run ./cmd/strait
 
-# Run the quick validation
+# Run the quick validation in a separate terminal
 LOADTEST_QUICK=true go test -tags=loadtest -run TestQuickValidation \
   -timeout 15m ./internal/loadtest/...
-
-# View results in Grafana
-open http://localhost:3001
 ```

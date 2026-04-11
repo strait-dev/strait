@@ -1,24 +1,21 @@
 # Load Testing Framework
 
 Find where Strait breaks. Runs real workloads, measures throughput/latency/concurrency,
-detects memory leaks, and simulates chaos -- all locally with Docker.
+detects memory leaks, and simulates chaos.
 
 ## Quick Start
 
 From `apps/strait/`:
 
 ```bash
-# 1. Start infrastructure (Postgres, Redis, Prometheus, Grafana)
-make loadtest-up
+# 1. Start your usual dev infrastructure (Postgres + Redis)
+make dev-up
 
-# 2. Start Strait (in a separate terminal)
+# 2. Start Strait configured for load testing
 make loadtest-server
 
 # 3. Run the 15-minute quick validation
 make loadtest-quick
-
-# 4. Open Grafana to see results
-open http://localhost:3001
 ```
 
 That's it. The quick validation ramps from 10 to ~100 jobs/sec and finds your
@@ -27,14 +24,12 @@ approximate throughput ceiling.
 ## All Commands
 
 ```bash
-make loadtest-up           # Start Postgres + Redis + Prometheus + Grafana
 make loadtest-server       # Start Strait configured for load testing
-make loadtest-down         # Stop all load test infrastructure
 make loadtest-quick        # 15-min quick validation (CI-friendly)
 make loadtest-throughput   # Find max sustained throughput (up to 2h)
 make loadtest-concurrency  # Find max concurrent connections (up to 1h)
 make loadtest-endurance    # 24h stability test at 70% ceiling
-make loadtest-chaos        # Run all 8 chaos engineering scenarios
+make loadtest-chaos        # Run all chaos engineering scenarios
 make loadtest-errors       # Test all 12 error scenarios
 make loadtest-all          # Run quick + throughput + concurrency
 make loadtest-report       # Generate HTML/JSON report from results
@@ -51,24 +46,7 @@ make loadtest-unit         # Run unit tests for the framework itself
 | 3 | Multi-Tenant Simulation | 4-8h | Real production behavior with 500-2000 tenants |
 | 3 | Breaking Point | 2-6h | Exact tenant count where system degrades |
 | 4 | Endurance | 24-72h | Memory leaks, goroutine leaks, performance drift |
-| 5 | Chaos Engineering | ~4h | Recovery from 8 failure scenarios |
-
-## Grafana Dashboard
-
-After running `make loadtest-up`, open http://localhost:3001 to see:
-
-- Queue depth and active workers (real-time)
-- Throughput and dispatch latency P50/P95/P99
-- Error rates and worker pool utilization
-- Database connection pool breakdown
-- Webhook delivery metrics
-- Go runtime: goroutines, heap memory, GC pauses
-
-Prometheus scrapes Strait's `/metrics` endpoint every 5 seconds.
-
-Use the **Environment** dropdown at the top to filter all panels by
-`deployment.environment` (dev/stg/prd). The attribute is set from
-`SENTRY_ENVIRONMENT` on startup.
+| 5 | Chaos Engineering | ~4h | Recovery from failure scenarios |
 
 ## Observability Pipeline
 

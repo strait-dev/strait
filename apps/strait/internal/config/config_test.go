@@ -53,6 +53,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DBMinConns", cfg.DBMinConns, int32(10)},
 		{"DBMaxConnLifetime", cfg.DBMaxConnLifetime, 30 * time.Minute},
 		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 5 * time.Minute},
+		{"DBHealthCheckPeriod", cfg.DBHealthCheckPeriod, 30 * time.Second},
 		{"DBStatementTimeout", cfg.DBStatementTimeout, 30 * time.Second},
 		{"RateLimitRequests", cfg.RateLimitRequests, 100},
 		{"RateLimitWindow", cfg.RateLimitWindow, time.Minute},

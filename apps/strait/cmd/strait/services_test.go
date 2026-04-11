@@ -50,6 +50,44 @@ func TestShutdownReason(t *testing.T) {
 	}
 }
 
+func TestIsPrivateRegistryHost(t *testing.T) {
+	t.Parallel()
+
+	blocked := []string{
+		"localhost",
+		"LOCALHOST",
+		"localhost:5000",
+		"127.0.0.1",
+		"127.0.0.1:5000",
+		"::1",
+		"0.0.0.0",
+		"10.0.0.1",
+		"10.0.0.1:5000",
+		"192.168.1.1",
+		"172.16.0.1",
+		"169.254.0.1", // link-local
+	}
+	for _, host := range blocked {
+		if !isPrivateRegistryHost(host) {
+			t.Errorf("isPrivateRegistryHost(%q) = false, want true (should be blocked)", host)
+		}
+	}
+
+	allowed := []string{
+		"ghcr.io",
+		"ghcr.io:443",
+		"registry.example.com",
+		"123456789.dkr.ecr.us-east-1.amazonaws.com",
+		"gcr.io",
+		"docker.io",
+	}
+	for _, host := range allowed {
+		if isPrivateRegistryHost(host) {
+			t.Errorf("isPrivateRegistryHost(%q) = true, want false (legitimate public registry)", host)
+		}
+	}
+}
+
 func TestNotificationWorkerEnabled(t *testing.T) {
 	t.Helper()
 

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"strait/internal/agents"
@@ -56,6 +58,29 @@ import (
 // colon-separated port. Rejects embedded credentials, path-traversal sequences, and
 // protocol prefixes that could be used to redirect auth to an attacker-controlled host.
 var validRegistryHostnameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*(:[0-9]{1,5})?$`)
+
+// isPrivateRegistryHost reports whether host is a loopback address, a private or
+// link-local IP, or the "localhost" name. Such hosts are rejected from
+// BUILD_EXTRA_REGISTRY_AUTHS because a user-supplied bearer token sent to a
+// localhost registry would be forwarded inside the build worker, giving an
+// attacker-controlled base-image server the ability to harvest registry credentials
+// via SSRF.
+func isPrivateRegistryHost(host string) bool {
+	// Strip optional port before checking.
+	h, _, err := net.SplitHostPort(host)
+	if err != nil {
+		// No port — treat the whole string as the host.
+		h = host
+	}
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+}
 
 func shutdownReason(err error) string {
 	if err == nil {
@@ -172,6 +197,9 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	poolConfig.MinConns = cfg.DBMinConns
 	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
 	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+	if cfg.DBHealthCheckPeriod > 0 {
+		poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
+	}
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
 
 	// Apply statement_timeout to the API connection pool to prevent runaway queries.
@@ -216,6 +244,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 			"min_conns", cfg.DBMinConns,
 			"max_conn_lifetime", cfg.DBMaxConnLifetime,
 			"max_conn_idle_time", cfg.DBMaxConnIdleTime,
+			"health_check_period", cfg.DBHealthCheckPeriod,
 		)
 		return pool, nil
 	}
@@ -844,6 +873,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
+			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
@@ -968,6 +998,10 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 	if pub != nil {
 		builder = builder.WithLogPublisher(pub)
 	}
+	if cfg.SOCIEnabled {
+		builder = builder.WithSOCI(true)
+		slog.Info("soci lazy image loading enabled")
+	}
 	if cfg.BuildExtraRegistryAuths != "" && cfg.BuildExtraRegistryAuths != "{}" {
 		var extraAuths map[string]string
 		if err := json.Unmarshal([]byte(cfg.BuildExtraRegistryAuths), &extraAuths); err != nil {
@@ -977,7 +1011,7 @@ func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *st
 			// whose host contains protocol prefixes, path-traversal sequences, embedded
 			// credentials, or other patterns that could redirect auth to a rogue registry.
 			for host := range extraAuths {
-				if !validRegistryHostnameRe.MatchString(host) {
+				if !validRegistryHostnameRe.MatchString(host) || isPrivateRegistryHost(host) {
 					slog.Warn("BUILD_EXTRA_REGISTRY_AUTHS: skipping entry with invalid hostname", "host", host)
 					delete(extraAuths, host)
 				}
