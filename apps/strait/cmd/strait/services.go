@@ -1107,6 +1107,22 @@ func startMaintenanceWorker(g *pool.ContextPool, queries *store.Queries) {
 	})
 }
 
+// startQueueHealthSampler launches the Phase 2 queue-health sampler. Reads
+// pg_stat_user_tables for job_runs partitions every 30s and publishes live/
+// dead tuple counts, HOT ratio, and oldest queued age gauges.
+func startQueueHealthSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
+	sampler, err := queue.NewHealthSampler(dbPool, 30*time.Second, slog.Default())
+	if err != nil {
+		slog.Warn("failed to create queue health sampler, skipping", "error", err)
+		return
+	}
+	g.Go(func(ctx context.Context) error {
+		slog.Info("queue health sampler started")
+		sampler.Run(ctx)
+		return nil
+	})
+}
+
 // startDBWatchdog launches the Phase 1 MVCC-horizon watchdog.
 func startDBWatchdog(g *pool.ContextPool, cfg *config.Config, dbPool *pgxpool.Pool) {
 	if !cfg.DBWatchdogEnabled {

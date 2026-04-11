@@ -21,6 +21,7 @@ type PostgresQueue struct {
 	db               store.DBTX
 	priorityAging    bool
 	statementTimeout time.Duration
+	metrics          *QueueMetrics
 }
 
 type PostgresQueueOption func(*PostgresQueue)
@@ -39,7 +40,8 @@ func WithStatementTimeout(d time.Duration) PostgresQueueOption {
 
 // NewPostgresQueue creates a new Postgres-backed job queue using SKIP LOCKED.
 func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue {
-	q := &PostgresQueue{db: db}
+	m, _ := Metrics()
+	q := &PostgresQueue{db: db, metrics: m}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(q)
@@ -374,7 +376,28 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		return nil, fmt.Errorf("dequeue run: %w", err)
 	}
 
+	q.recordClaimMetrics(ctx, run)
 	return run, nil
+}
+
+// recordClaimMetrics samples the observed queue lag and retry schedule lag
+// for the claimed run. Called from every successful dequeue variant.
+func (q *PostgresQueue) recordClaimMetrics(ctx context.Context, run *domain.JobRun) {
+	if q.metrics == nil || run == nil {
+		return
+	}
+	if !run.CreatedAt.IsZero() {
+		age := time.Since(run.CreatedAt).Seconds()
+		if age >= 0 {
+			q.metrics.OldestQueuedAge.Record(ctx, age)
+		}
+	}
+	if run.NextRetryAt != nil && !run.NextRetryAt.IsZero() {
+		lag := time.Since(*run.NextRetryAt).Seconds()
+		if lag >= 0 {
+			q.metrics.RetryScheduleLag.Record(ctx, lag)
+		}
+	}
 }
 
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {

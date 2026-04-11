@@ -409,6 +409,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	startLogDrainWorker(g, cfg, queries, metrics)
 	startMaintenanceWorker(g, queries)
 	startDBWatchdog(g, cfg, dbPool)
+	startQueueHealthSampler(g, dbPool)
 	var chAnalytics api.AnalyticsStore
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))

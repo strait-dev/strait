@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,12 +27,15 @@ type QueueNotifier struct {
 	initialDelay time.Duration
 	maxDelay     time.Duration
 	logger       *slog.Logger
+	metrics      *QueueMetrics
+	droppedCount uint64
 }
 
 func NewQueueNotifier(databaseURL string, logger *slog.Logger) *QueueNotifier {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	m, _ := Metrics() // nil on error; all accesses are nil-guarded
 
 	return &QueueNotifier{
 		databaseURL:  databaseURL,
@@ -40,7 +44,14 @@ func NewQueueNotifier(databaseURL string, logger *slog.Logger) *QueueNotifier {
 		initialDelay: defaultInitialDelay,
 		maxDelay:     defaultMaxDelay,
 		logger:       logger,
+		metrics:      m,
 	}
+}
+
+// DroppedNotifications returns the total wake notifications dropped because
+// the wake channel was full. Exposed for tests.
+func (n *QueueNotifier) DroppedNotifications() uint64 {
+	return atomic.LoadUint64(&n.droppedCount)
 }
 
 func (n *QueueNotifier) Wake() <-chan struct{} {
@@ -125,6 +136,11 @@ func (n *QueueNotifier) listenLoop(ctx context.Context) (connected bool, err err
 		select {
 		case n.wake <- struct{}{}:
 		default:
+			atomic.AddUint64(&n.droppedCount, 1)
+			if n.metrics != nil {
+				n.metrics.NotifyDropped.Add(ctx, 1)
+			}
+			n.logger.Debug("queue wake notification dropped (channel full)", "channel", n.channel)
 		}
 	}
 }
