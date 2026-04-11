@@ -101,6 +101,13 @@ func (q *Queries) UpdateAgentMessageStatus(ctx context.Context, id string, statu
 	return err
 }
 
+// maxAgentMessagesPerChain bounds ListAgentMessagesByChain so a
+// pathological writer cannot inflate a chain and stall a reader.
+// The chain_depth check constraint on agent_messages caps real chains
+// at 20, so 100 is a generous ceiling that leaves room for parallel
+// siblings at the same depth.
+const maxAgentMessagesPerChain = 100
+
 func (q *Queries) ListAgentMessagesByChain(ctx context.Context, chainID string) ([]domain.AgentMessage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAgentMessagesByChain")
 	defer span.End()
@@ -111,9 +118,10 @@ func (q *Queries) ListAgentMessagesByChain(ctx context.Context, chainID string) 
 			created_at, delivered_at, error
 		FROM agent_messages
 		WHERE chain_id = $1
-		ORDER BY chain_depth ASC`
+		ORDER BY chain_depth ASC
+		LIMIT $2`
 
-	rows, err := q.db.Query(ctx, query, chainID)
+	rows, err := q.db.Query(ctx, query, chainID, maxAgentMessagesPerChain)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +172,13 @@ func (q *Queries) ListPendingAgentMessages(ctx context.Context, limit int) ([]do
 	return messages, rows.Err()
 }
 
+// ListAgentMessagesByAgent returns messages where the agent appears as
+// either source or target, newest first. Rewritten as a UNION ALL of
+// two index-backed subqueries because the original
+// WHERE (source_agent_id = $1 OR target_agent_id = $1) clause couldn't
+// use either of idx_agent_messages_source_created or
+// idx_agent_messages_target. Each branch contributes up to `limit` rows;
+// the outer ORDER BY + LIMIT merges and trims to the final `limit`.
 func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentMessage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAgentMessagesByAgent")
 	defer span.End()
@@ -172,19 +187,43 @@ func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, 
 		limit = 50
 	}
 
-	query := `
-		SELECT id, project_id, source_agent_id, target_agent_id,
-			source_run_id, chain_id, chain_depth, payload, status,
-			created_at, delivered_at, error
-		FROM agent_messages
-		WHERE (source_agent_id = $1 OR target_agent_id = $1)`
+	const columns = `id, project_id, source_agent_id, target_agent_id,
+		source_run_id, chain_id, chain_depth, payload, status,
+		created_at, delivered_at, error`
 
+	var query string
 	args := []any{agentID}
 	if cursor != nil {
-		query += ` AND created_at < $2 ORDER BY created_at DESC LIMIT $3`
+		query = `
+			(SELECT ` + columns + `
+			 FROM agent_messages
+			 WHERE source_agent_id = $1 AND created_at < $2
+			 ORDER BY created_at DESC
+			 LIMIT $3)
+			UNION ALL
+			(SELECT ` + columns + `
+			 FROM agent_messages
+			 WHERE target_agent_id = $1 AND created_at < $2
+			 ORDER BY created_at DESC
+			 LIMIT $3)
+			ORDER BY created_at DESC
+			LIMIT $3`
 		args = append(args, *cursor, limit)
 	} else {
-		query += ` ORDER BY created_at DESC LIMIT $2`
+		query = `
+			(SELECT ` + columns + `
+			 FROM agent_messages
+			 WHERE source_agent_id = $1
+			 ORDER BY created_at DESC
+			 LIMIT $2)
+			UNION ALL
+			(SELECT ` + columns + `
+			 FROM agent_messages
+			 WHERE target_agent_id = $1
+			 ORDER BY created_at DESC
+			 LIMIT $2)
+			ORDER BY created_at DESC
+			LIMIT $2`
 		args = append(args, limit)
 	}
 
@@ -212,8 +251,16 @@ type AgentMessageEdge struct {
 	MessageCount  int    `json:"message_count"`
 }
 
-// GetAgentTopologyEdges returns the directed edges between agents for a project,
-// grouped by source/target with message counts.
+// maxAgentTopologyEdges caps GetAgentTopologyEdges. The endpoint is a
+// visualization query (network graph of agent-to-agent message flow);
+// callers that need an exhaustive count should iterate on
+// ListAgentMessagesByAgent with a cursor instead.
+const maxAgentTopologyEdges = 500
+
+// GetAgentTopologyEdges returns the directed edges between agents for a
+// project, grouped by source/target with message counts. Bounded to
+// maxAgentTopologyEdges to keep the UI graph render cheap on chatty
+// projects; order is by message_count DESC so the busiest edges win.
 func (q *Queries) GetAgentTopologyEdges(ctx context.Context, projectID string) ([]AgentMessageEdge, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAgentTopologyEdges")
 	defer span.End()
@@ -223,9 +270,10 @@ func (q *Queries) GetAgentTopologyEdges(ctx context.Context, projectID string) (
 		FROM agent_messages
 		WHERE project_id = $1 AND source_agent_id != ''
 		GROUP BY source_agent_id, target_agent_id
-		ORDER BY message_count DESC`
+		ORDER BY message_count DESC
+		LIMIT $2`
 
-	rows, err := q.db.Query(ctx, query, projectID)
+	rows, err := q.db.Query(ctx, query, projectID, maxAgentTopologyEdges)
 	if err != nil {
 		return nil, err
 	}

@@ -108,6 +108,7 @@ type agentStore interface {
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	GetAgentDeploymentByID(ctx context.Context, deploymentID string) (*domain.AgentDeployment, error)
 	GetActiveAgentCanary(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, error)
+	GetActiveAgentCanaryWithTarget(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, *domain.AgentDeployment, error)
 	GetEnvironment(ctx context.Context, envID string) (*domain.Environment, error)
 	ListProjectSecretsByEnv(ctx context.Context, projectID, environmentID string) ([]domain.ProjectSecret, error)
 }
@@ -670,11 +671,14 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		}
 	}
 
-	// Check agent spending limit (Free plan hard cap, paid plan optional cap).
-	if s.billingEnforcer != nil {
-		if err := s.billingEnforcer.CheckAgentSpendingLimit(ctx, req.ProjectID); err != nil {
-			return nil, err
-		}
+	// Resolve the per-request billing snapshot once. This collapses the
+	// two separate billing-enforcer queries (spending-limit check and
+	// plan-tier lookup) into a single pass so RunAgent hits
+	// org_subscriptions once instead of twice. Also applied in
+	// PrepareDirectRun so code-paths stay symmetric.
+	snapshot, err := s.loadAgentEnforcement(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 
 	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
@@ -710,19 +714,12 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 		deployment = altDeploy
 	}
 
-	// Enforce per-deployment concurrency limit — use plan limit if
-	// available, otherwise config default. Per-deployment so dev and prod
-	// deployments of the same agent don't starve each other's budgets.
+	// Enforce per-deployment concurrency limit using the snapshot's plan
+	// limits. Per-deployment so dev and prod deployments of the same
+	// agent don't starve each other's budgets.
 	maxConcurrent := s.maxConcurrentRuns
-	if s.billingEnforcer != nil {
-		agentTier, tierErr := s.billingEnforcer.GetAgentPlanForProject(ctx, req.ProjectID)
-		if tierErr != nil {
-			slog.Warn("agent plan lookup failed, defaulting to free", "project_id", req.ProjectID, "error", tierErr)
-		}
-		limits := billing.GetAgentPlanLimits(domain.PlanTier(agentTier))
-		if limits.MaxAgentConcurrentRuns > 0 {
-			maxConcurrent = limits.MaxAgentConcurrentRuns
-		}
+	if snapshot.limits.MaxAgentConcurrentRuns > 0 {
+		maxConcurrent = snapshot.limits.MaxAgentConcurrentRuns
 	}
 	existingRuns, err := s.listRunsForConcurrency(ctx, agent.JobID, deployment.ID, maxConcurrent+1)
 	if err != nil {
@@ -866,34 +863,87 @@ func (s *localService) listRunsForConcurrency(ctx context.Context, jobID, deploy
 	return s.store.ListRunsByJob(ctx, jobID, limit, 0)
 }
 
+// agentEnforcementSnapshot holds the per-request billing state for a
+// RunAgent/PrepareDirectRun/ReplayAgentRun call. Resolving it once at
+// the top of the flow keeps the billing enforcer from being queried
+// twice (CheckAgentSpendingLimit + GetAgentPlanForProject) per request
+// and gives every downstream concurrency/limit check a consistent view.
+type agentEnforcementSnapshot struct {
+	tier   domain.PlanTier
+	limits billing.OrgPlanLimits
+}
+
+// loadAgentEnforcement resolves the billing snapshot for a project. If
+// the billing enforcer is absent (test contexts), returns an empty
+// snapshot that lets existing tests run unchanged. Spending-limit
+// failures are returned unwrapped so RunAgent can translate them to
+// ErrSpendingLimitExceeded (or similar) at the handler layer.
+func (s *localService) loadAgentEnforcement(ctx context.Context, projectID string) (*agentEnforcementSnapshot, error) {
+	snapshot := &agentEnforcementSnapshot{
+		tier:   domain.AgentPlanFree,
+		limits: billing.GetAgentPlanLimits(domain.AgentPlanFree),
+	}
+	if s.billingEnforcer == nil {
+		return snapshot, nil
+	}
+	if err := s.billingEnforcer.CheckAgentSpendingLimit(ctx, projectID); err != nil {
+		return nil, err
+	}
+	tier, tierErr := s.billingEnforcer.GetAgentPlanForProject(ctx, projectID)
+	if tierErr != nil {
+		slog.Warn("agent plan lookup failed, defaulting to free", "project_id", projectID, "error", tierErr)
+		return snapshot, nil
+	}
+	if tier == "" {
+		tier = string(domain.AgentPlanFree)
+	}
+	snapshot.tier = domain.PlanTier(tier)
+	snapshot.limits = billing.GetAgentPlanLimits(snapshot.tier)
+	return snapshot, nil
+}
+
 // resolveCanaryTarget returns a canary deployment to swap in for the
 // primary, or nil if no swap should occur. The canary target must share
 // the primary's environment — a mismatch is logged and skipped so prod
 // traffic never crosses into a dev deployment by mistake.
+//
+// Uses the single-roundtrip GetActiveAgentCanaryWithTarget to avoid the
+// per-RunAgent N+1 from the original implementation (one query for the
+// canary row, then a separate query for its target deployment).
 func (s *localService) resolveCanaryTarget(ctx context.Context, agentID string, primary *domain.AgentDeployment) *domain.AgentDeployment {
 	if s.canaryRouter == nil {
 		return nil
 	}
-	canary := s.getActiveCanary(ctx, agentID)
-	if canary == nil {
+	canary, target, err := s.store.GetActiveAgentCanaryWithTarget(ctx, agentID)
+	if err != nil {
+		slog.Warn("failed to get active canary", "agent_id", agentID, "error", err)
+		return nil
+	}
+	if canary == nil || target == nil {
 		return nil
 	}
 	targetID := s.canaryRouter.Route(canary)
 	if targetID == "" || targetID == primary.ID {
 		return nil
 	}
-	altDeploy, err := s.store.GetAgentDeploymentByID(ctx, targetID)
-	if err != nil || altDeploy == nil {
-		return nil
+	// The router may pick the source deployment instead of the target.
+	// If it picks the target we already have it; otherwise fall back to
+	// a single lookup (rare path).
+	if targetID != target.ID {
+		altDeploy, altErr := s.store.GetAgentDeploymentByID(ctx, targetID)
+		if altErr != nil || altDeploy == nil {
+			return nil
+		}
+		target = altDeploy
 	}
-	if altDeploy.EnvironmentID != primary.EnvironmentID {
+	if target.EnvironmentID != primary.EnvironmentID {
 		slog.Warn("canary target skipped: env mismatch",
 			"agent_id", agentID,
 			"primary_env", primary.EnvironmentID,
-			"canary_env", altDeploy.EnvironmentID)
+			"canary_env", target.EnvironmentID)
 		return nil
 	}
-	return altDeploy
+	return target
 }
 
 func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunRequest) (*domain.JobRun, error) {
@@ -1452,16 +1502,6 @@ func (s *localService) buildWebhookPayload(agent *domain.Agent, run *domain.JobR
 // When a WebhookDeliveryStore is available, it creates a durable delivery record
 // processed by the existing DeliveryWorker with exponential backoff and retries.
 // Falls back to fire-and-forget HTTP when no store is configured.
-// getActiveCanary returns the active canary deployment for an agent, or nil if none.
-func (s *localService) getActiveCanary(ctx context.Context, agentID string) *domain.AgentCanaryDeployment {
-	canary, err := s.store.GetActiveAgentCanary(ctx, agentID)
-	if err != nil {
-		slog.Warn("failed to get active canary", "agent_id", agentID, "error", err)
-		return nil
-	}
-	return canary
-}
-
 func (s *localService) fireAgentWebhook(ctx context.Context, agent *domain.Agent, runID string) {
 	if agent == nil {
 		return
