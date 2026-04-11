@@ -1,15 +1,45 @@
 pre-commit:
   parallel: true
   commands:
-    run_all:
-      run: bun run run-all
-      fail_text: "run-all failed"
-    app_typecheck:
-      run: cd apps/app && bun run typecheck
-      fail_text: "App typecheck failed"
     gitleaks:
       run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
       fail_text: "Secrets detected in staged files"
+      timeout: 30s
+      skip:
+        - merge
+        - rebase
+
+pre-push:
+  parallel: true
+  commands:
+    app_typecheck:
+      glob: "apps/app/**/*.{ts,tsx}"
+      run: cd apps/app && bun run typecheck
+      fail_text: "App typecheck failed"
+      timeout: 120s
+      skip:
+        - merge
+        - rebase
+
+    run_all:
+      glob:
+        - "*.{ts,tsx,js,jsx,mjs,cjs}"
+        - "*.go"
+        - "package.json"
+        - "bun.lock"
+        - "turbo.json"
+        - "biome.json"
+      run: |
+        export GOCACHE="$PWD/.cache/go-build"
+        export GOLANGCI_LINT_CACHE="$PWD/.cache/golangci-lint"
+        mkdir -p "$GOCACHE" "$GOLANGCI_LINT_CACHE"
+        bun run run-all
+      fail_text: "run-all failed"
+      timeout: 300s
+      skip:
+        - merge
+        - rebase
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
 
 commit-msg:
   commands:
