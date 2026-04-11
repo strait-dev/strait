@@ -371,3 +371,120 @@ func TestBillingEnforcer_NilEnforcerSkipsChecks(t *testing.T) {
 		t.Error("nil enforcer guard failed — billing check was called on nil enforcer")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase E5.3: loadAgentEnforcement (introduced in Phase E1.4) snapshot tests
+// ---------------------------------------------------------------------------
+
+// TestLoadAgentEnforcement_CallsEachEnforcerMethodOnce verifies that
+// the Phase E1 loadAgentEnforcement helper hits the billing enforcer
+// exactly once per method call — one CheckAgentSpendingLimit plus one
+// GetAgentPlanForProject per RunAgent request. Regression would be
+// reintroducing a second lookup somewhere in RunAgent's flow.
+func TestLoadAgentEnforcement_CallsEachEnforcerMethodOnce(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{
+		checkSpendingLimitErr: nil,
+		agentPlanTier:         "agent_maker",
+	}
+	svc := &localService{billingEnforcer: enforcer}
+
+	snap, err := svc.loadAgentEnforcement(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("loadAgentEnforcement() error = %v", err)
+	}
+	if snap == nil {
+		t.Fatal("loadAgentEnforcement() = nil snapshot")
+	}
+	if snap.tier != domain.PlanTier("agent_maker") {
+		t.Fatalf("tier = %q, want agent_maker", snap.tier)
+	}
+	if got := enforcer.checkCallCount.Load(); got != 1 {
+		t.Fatalf("CheckAgentSpendingLimit called %d times, want 1", got)
+	}
+	if got := enforcer.planCallCount.Load(); got != 1 {
+		t.Fatalf("GetAgentPlanForProject called %d times, want 1", got)
+	}
+}
+
+// TestLoadAgentEnforcement_PropagatesSpendingLimitError asserts that
+// the snapshot helper returns the spending-limit error without also
+// doing the (wasted) plan-tier lookup.
+func TestLoadAgentEnforcement_PropagatesSpendingLimitError(t *testing.T) {
+	t.Parallel()
+	wantErr := &billing.LimitError{
+		Code:       "agent_spending_limit",
+		Message:    "free tier cap",
+		UpgradeURL: "/upgrade",
+	}
+	enforcer := &mockBillingEnforcer{
+		checkSpendingLimitErr: wantErr,
+	}
+	svc := &localService{billingEnforcer: enforcer}
+
+	_, err := svc.loadAgentEnforcement(context.Background(), "proj-1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	// Short-circuit: plan-tier lookup must not run if spending limit
+	// is already blocked.
+	if got := enforcer.planCallCount.Load(); got != 0 {
+		t.Fatalf("GetAgentPlanForProject called %d times on short-circuit path, want 0", got)
+	}
+}
+
+// TestLoadAgentEnforcement_NilEnforcerReturnsDefaultSnapshot guards
+// the nil-enforcer path used by tests that don't wire billing. Must
+// return a free-tier snapshot and never call anything.
+func TestLoadAgentEnforcement_NilEnforcerReturnsDefaultSnapshot(t *testing.T) {
+	t.Parallel()
+	svc := &localService{billingEnforcer: nil}
+	snap, err := svc.loadAgentEnforcement(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("loadAgentEnforcement() error = %v", err)
+	}
+	if snap == nil {
+		t.Fatal("loadAgentEnforcement() = nil snapshot")
+	}
+	if snap.tier != domain.AgentPlanFree {
+		t.Fatalf("tier = %q, want AgentPlanFree", snap.tier)
+	}
+}
+
+// TestLoadAgentEnforcement_ConcurrentCallsSafeAcrossGoroutines is the
+// race-detector-friendly companion to the above: N goroutines hit
+// loadAgentEnforcement on the same service with the same mock
+// enforcer, verifying the shared state (counters, atomic loads) doesn't
+// corrupt under -race.
+func TestLoadAgentEnforcement_ConcurrentCallsSafeAcrossGoroutines(t *testing.T) {
+	t.Parallel()
+	enforcer := &mockBillingEnforcer{agentPlanTier: "agent_growth"}
+	svc := &localService{billingEnforcer: enforcer}
+
+	const goroutines = 128
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			snap, err := svc.loadAgentEnforcement(context.Background(), "proj-1")
+			if err != nil {
+				t.Errorf("loadAgentEnforcement() error = %v", err)
+				return
+			}
+			if snap.tier != domain.PlanTier("agent_growth") {
+				t.Errorf("tier = %q, want agent_growth", snap.tier)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Each goroutine makes exactly one Check + one Plan call. Total
+	// must be goroutines, not goroutines*2.
+	if got := enforcer.checkCallCount.Load(); got != goroutines {
+		t.Fatalf("check calls = %d, want %d", got, goroutines)
+	}
+	if got := enforcer.planCallCount.Load(); got != goroutines {
+		t.Fatalf("plan calls = %d, want %d", got, goroutines)
+	}
+}
