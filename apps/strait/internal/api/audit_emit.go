@@ -27,6 +27,20 @@ const auditAsyncBufferSize = 4096
 // to flush pending events before abandoning them.
 const auditAsyncShutdownTimeout = 5 * time.Second
 
+// auditRetryDelays is the in-memory retry schedule for transient
+// CreateAuditEvent failures. The total budget is ~1.25 seconds per event,
+// which blocks the drainer long enough to absorb a brief DB blip without
+// indefinitely stalling the channel. After all retries fail the event is
+// spilled to the audit_events_deadletter table via the store.
+//
+// Overridable in tests via setAuditRetryDelaysForTest to avoid real-time
+// sleeps in unit tests. Not exposed for production use.
+var auditRetryDelays = []time.Duration{
+	50 * time.Millisecond,
+	200 * time.Millisecond,
+	1 * time.Second,
+}
+
 // auditMaxDetailsBytes caps the marshaled details payload. Oversize
 // payloads are replaced with a truncation marker before being handed to
 // the chain writer — the HMAC canonical form stays bounded and the DB
@@ -72,23 +86,68 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 			}
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
-		slog.Warn("failed to create async audit event",
+
+	// Retry loop: N+1 attempts total (one initial + len(auditRetryDelays)
+	// retries). Between attempts, sleep by the configured backoff. If all
+	// attempts fail, spill to the deadletter table; if THAT also fails,
+	// log the full event as a last-resort forensic record.
+	var lastErr error
+	attempts := len(auditRetryDelays) + 1
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(auditRetryDelays[attempt-1])
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := s.store.CreateAuditEvent(ctx, ev)
+		cancel()
+		if err == nil {
+			if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
+				s.metrics.AuditEventsEmitted.Add(context.Background(), 1,
+					metric.WithAttributes(attribute.String("mode", "async")))
+			}
+			return
+		}
+		lastErr = err
+		slog.Warn("audit event write attempt failed",
 			"action", ev.Action,
 			"resource_type", ev.ResourceType,
 			"resource_id", ev.ResourceID,
+			"attempt", attempt+1,
 			"error", err)
+	}
+
+	// All retries exhausted — spill to deadletter.
+	dlqCtx, dlqCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer dlqCancel()
+	lastErrStr := ""
+	if lastErr != nil {
+		lastErrStr = lastErr.Error()
+	}
+	if dlqErr := s.store.CreateAuditEventDeadletter(dlqCtx, ev, lastErrStr, len(auditRetryDelays)); dlqErr != nil {
+		slog.Error("audit event deadletter write ALSO failed — event lost",
+			"action", ev.Action,
+			"resource_type", ev.ResourceType,
+			"resource_id", ev.ResourceID,
+			"project_id", ev.ProjectID,
+			"actor_id", ev.ActorID,
+			"details", string(ev.Details),
+			"primary_error", lastErrStr,
+			"deadletter_error", dlqErr)
 		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-			s.metrics.AuditEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("reason", "write_failed")))
+			s.metrics.AuditEventsDropped.Add(dlqCtx, 1,
+				metric.WithAttributes(attribute.String("reason", "deadletter_failed")))
 		}
 		return
 	}
-	if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
-		s.metrics.AuditEventsEmitted.Add(ctx, 1,
-			metric.WithAttributes(attribute.String("mode", "async")))
+	slog.Warn("audit event spilled to deadletter table",
+		"action", ev.Action,
+		"resource_type", ev.ResourceType,
+		"resource_id", ev.ResourceID,
+		"retry_count", len(auditRetryDelays),
+		"primary_error", lastErrStr)
+	if s.metrics != nil && s.metrics.AuditEventsDeadlettered != nil {
+		s.metrics.AuditEventsDeadlettered.Add(dlqCtx, 1,
+			metric.WithAttributes(attribute.String("reason", "write_failed")))
 	}
 }
 

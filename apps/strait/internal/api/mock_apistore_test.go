@@ -88,6 +88,9 @@ var _ APIStore = &APIStoreMock{}
 //			CountActiveWorkflowRunsByVersionFunc: func(ctx context.Context, workflowID string, versionID string) (int, error) {
 //				panic("mock out the CountActiveWorkflowRunsByVersion method")
 //			},
+//			CountAuditEventsDeadletterFunc: func(ctx context.Context) (int64, error) {
+//				panic("mock out the CountAuditEventsDeadletter method")
+//			},
 //			CountBatchBufferItemsFunc: func(ctx context.Context, jobID string, batchKey string) (int, error) {
 //				panic("mock out the CountBatchBufferItems method")
 //			},
@@ -132,6 +135,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			CreateAuditEventFunc: func(ctx context.Context, ev *domain.AuditEvent) error {
 //				panic("mock out the CreateAuditEvent method")
+//			},
+//			CreateAuditEventDeadletterFunc: func(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error {
+//				panic("mock out the CreateAuditEventDeadletter method")
 //			},
 //			CreateBatchOperationFunc: func(ctx context.Context, op *domain.BatchOperation) error {
 //				panic("mock out the CreateBatchOperation method")
@@ -914,6 +920,9 @@ type APIStoreMock struct {
 	// CountActiveWorkflowRunsByVersionFunc mocks the CountActiveWorkflowRunsByVersion method.
 	CountActiveWorkflowRunsByVersionFunc func(ctx context.Context, workflowID string, versionID string) (int, error)
 
+	// CountAuditEventsDeadletterFunc mocks the CountAuditEventsDeadletter method.
+	CountAuditEventsDeadletterFunc func(ctx context.Context) (int64, error)
+
 	// CountBatchBufferItemsFunc mocks the CountBatchBufferItems method.
 	CountBatchBufferItemsFunc func(ctx context.Context, jobID string, batchKey string) (int, error)
 
@@ -958,6 +967,9 @@ type APIStoreMock struct {
 
 	// CreateAuditEventFunc mocks the CreateAuditEvent method.
 	CreateAuditEventFunc func(ctx context.Context, ev *domain.AuditEvent) error
+
+	// CreateAuditEventDeadletterFunc mocks the CreateAuditEventDeadletter method.
+	CreateAuditEventDeadletterFunc func(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error
 
 	// CreateBatchOperationFunc mocks the CreateBatchOperation method.
 	CreateBatchOperationFunc func(ctx context.Context, op *domain.BatchOperation) error
@@ -1873,6 +1885,11 @@ type APIStoreMock struct {
 			// VersionID is the versionID argument value.
 			VersionID string
 		}
+		// CountAuditEventsDeadletter holds details about calls to the CountAuditEventsDeadletter method.
+		CountAuditEventsDeadletter []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// CountBatchBufferItems holds details about calls to the CountBatchBufferItems method.
 		CountBatchBufferItems []struct {
 			// Ctx is the ctx argument value.
@@ -1981,6 +1998,17 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// Ev is the ev argument value.
 			Ev *domain.AuditEvent
+		}
+		// CreateAuditEventDeadletter holds details about calls to the CreateAuditEventDeadletter method.
+		CreateAuditEventDeadletter []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ev is the ev argument value.
+			Ev *domain.AuditEvent
+			// LastErr is the lastErr argument value.
+			LastErr string
+			// RetryCount is the retryCount argument value.
+			RetryCount int
 		}
 		// CreateBatchOperation holds details about calls to the CreateBatchOperation method.
 		CreateBatchOperation []struct {
@@ -4159,6 +4187,7 @@ type APIStoreMock struct {
 	lockConfirmCodeDeployment              sync.RWMutex
 	lockCountActiveEventTriggersByProject  sync.RWMutex
 	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
+	lockCountAuditEventsDeadletter         sync.RWMutex
 	lockCountBatchBufferItems              sync.RWMutex
 	lockCountCronJobsByOrg                 sync.RWMutex
 	lockCountEnvironmentsByOrg             sync.RWMutex
@@ -4174,6 +4203,7 @@ type APIStoreMock struct {
 	lockCountWebhookSubscriptionsByProject sync.RWMutex
 	lockCreateAPIKey                       sync.RWMutex
 	lockCreateAuditEvent                   sync.RWMutex
+	lockCreateAuditEventDeadletter         sync.RWMutex
 	lockCreateBatchOperation               sync.RWMutex
 	lockCreateCanaryDeployment             sync.RWMutex
 	lockCreateCodeDeployment               sync.RWMutex
@@ -5386,6 +5416,42 @@ func (mock *APIStoreMock) CountActiveWorkflowRunsByVersionCalls() []struct {
 	return calls
 }
 
+// CountAuditEventsDeadletter calls CountAuditEventsDeadletterFunc.
+func (mock *APIStoreMock) CountAuditEventsDeadletter(ctx context.Context) (int64, error) {
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockCountAuditEventsDeadletter.Lock()
+	mock.calls.CountAuditEventsDeadletter = append(mock.calls.CountAuditEventsDeadletter, callInfo)
+	mock.lockCountAuditEventsDeadletter.Unlock()
+	if mock.CountAuditEventsDeadletterFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountAuditEventsDeadletterFunc(ctx)
+}
+
+// CountAuditEventsDeadletterCalls gets all the calls that were made to CountAuditEventsDeadletter.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountAuditEventsDeadletterCalls())
+func (mock *APIStoreMock) CountAuditEventsDeadletterCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockCountAuditEventsDeadletter.RLock()
+	calls = mock.calls.CountAuditEventsDeadletter
+	mock.lockCountAuditEventsDeadletter.RUnlock()
+	return calls
+}
+
 // CountBatchBufferItems calls CountBatchBufferItemsFunc.
 func (mock *APIStoreMock) CountBatchBufferItems(ctx context.Context, jobID string, batchKey string) (int, error) {
 	callInfo := struct {
@@ -5989,6 +6055,53 @@ func (mock *APIStoreMock) CreateAuditEventCalls() []struct {
 	mock.lockCreateAuditEvent.RLock()
 	calls = mock.calls.CreateAuditEvent
 	mock.lockCreateAuditEvent.RUnlock()
+	return calls
+}
+
+// CreateAuditEventDeadletter calls CreateAuditEventDeadletterFunc.
+func (mock *APIStoreMock) CreateAuditEventDeadletter(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error {
+	callInfo := struct {
+		Ctx        context.Context
+		Ev         *domain.AuditEvent
+		LastErr    string
+		RetryCount int
+	}{
+		Ctx:        ctx,
+		Ev:         ev,
+		LastErr:    lastErr,
+		RetryCount: retryCount,
+	}
+	mock.lockCreateAuditEventDeadletter.Lock()
+	mock.calls.CreateAuditEventDeadletter = append(mock.calls.CreateAuditEventDeadletter, callInfo)
+	mock.lockCreateAuditEventDeadletter.Unlock()
+	if mock.CreateAuditEventDeadletterFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateAuditEventDeadletterFunc(ctx, ev, lastErr, retryCount)
+}
+
+// CreateAuditEventDeadletterCalls gets all the calls that were made to CreateAuditEventDeadletter.
+// Check the length with:
+//
+//	len(mockedAPIStore.CreateAuditEventDeadletterCalls())
+func (mock *APIStoreMock) CreateAuditEventDeadletterCalls() []struct {
+	Ctx        context.Context
+	Ev         *domain.AuditEvent
+	LastErr    string
+	RetryCount int
+} {
+	var calls []struct {
+		Ctx        context.Context
+		Ev         *domain.AuditEvent
+		LastErr    string
+		RetryCount int
+	}
+	mock.lockCreateAuditEventDeadletter.RLock()
+	calls = mock.calls.CreateAuditEventDeadletter
+	mock.lockCreateAuditEventDeadletter.RUnlock()
 	return calls
 }
 

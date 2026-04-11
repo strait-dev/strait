@@ -396,6 +396,8 @@ type RBACStore interface {
 	DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error)
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
+	CreateAuditEventDeadletter(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error
+	CountAuditEventsDeadletter(ctx context.Context) (int64, error)
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
