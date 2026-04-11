@@ -231,19 +231,34 @@ type KnownActor struct {
 }
 
 // AuditEvent records sensitive control-plane actions for compliance and forensics.
+//
+// SchemaVersion controls which canonical form is used to compute the HMAC
+// signature. Version 1 includes only the original fields; version 2 extends
+// the canonical form with RemoteIP, UserAgent, RequestID, TraceID, and
+// SchemaVersion itself. The verifier branches on SchemaVersion when recomputing
+// signatures so old and new events can coexist in the same chain.
 type AuditEvent struct {
-	ID           string          `json:"id"`
-	ProjectID    string          `json:"project_id"`
-	ActorID      string          `json:"actor_id"`
-	ActorType    string          `json:"actor_type"`
-	Action       string          `json:"action"`
-	ResourceType string          `json:"resource_type"`
-	ResourceID   string          `json:"resource_id"`
-	Details      json.RawMessage `json:"details,omitempty"`
-	Signature    string          `json:"signature,omitempty"`
-	PreviousHash string          `json:"previous_hash,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
+	ID            string          `json:"id"`
+	ProjectID     string          `json:"project_id"`
+	ActorID       string          `json:"actor_id"`
+	ActorType     string          `json:"actor_type"`
+	Action        string          `json:"action"`
+	ResourceType  string          `json:"resource_type"`
+	ResourceID    string          `json:"resource_id"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	Signature     string          `json:"signature,omitempty"`
+	PreviousHash  string          `json:"previous_hash,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	RemoteIP      string          `json:"remote_ip,omitempty"`
+	UserAgent     string          `json:"user_agent,omitempty"`
+	RequestID     string          `json:"request_id,omitempty"`
+	TraceID       string          `json:"trace_id,omitempty"`
+	SchemaVersion uint16          `json:"schema_version,omitempty"`
 }
+
+// AuditEventSchemaVersionCurrent is the schema version stamped on new
+// audit events. Bump whenever the canonical form changes.
+const AuditEventSchemaVersionCurrent uint16 = 2
 
 // AuditChainVerification is the result of verifying the HMAC chain
 // integrity for a project's audit event log.

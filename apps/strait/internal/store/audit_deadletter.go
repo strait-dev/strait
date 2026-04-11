@@ -31,16 +31,22 @@ func (q *Queries) CreateAuditEventDeadletter(ctx context.Context, ev *domain.Aud
 		details = json.RawMessage(`{}`)
 	}
 
+	if ev.SchemaVersion == 0 {
+		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	}
+
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO audit_events_deadletter (
 			id, project_id, actor_id, actor_type, action,
 			resource_type, resource_id, details, created_at,
-			last_error, retry_count
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+			last_error, retry_count,
+			remote_ip, user_agent, request_id, trace_id, schema_version
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16)
 	`,
 		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action,
 		ev.ResourceType, ev.ResourceID, details, ev.CreatedAt,
 		lastErr, retryCount,
+		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("create audit event deadletter: %w", err)

@@ -20,6 +20,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 const ctxProjectIDKey contextKey = "project_id"
@@ -29,6 +30,17 @@ const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
+
+// Forensic metadata propagated through request context into audit events.
+const ctxRemoteIPKey contextKey = "remote_ip"
+const ctxUserAgentKey contextKey = "user_agent"
+const ctxRequestIDKey contextKey = "request_id"
+const ctxTraceIDKey contextKey = "trace_id"
+
+// auditUserAgentMaxBytes caps the user agent string stored on each audit
+// event. Real-world UAs are typically <200 chars; anything longer is
+// almost certainly probing or pathological.
+const auditUserAgentMaxBytes = 2048
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -132,6 +144,79 @@ func projectIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+func remoteIPFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxRemoteIPKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func userAgentFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxUserAgentKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func requestIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxRequestIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxTraceIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// attachAuditContext middleware stamps the request context with the
+// forensic metadata (remote IP, user agent, request ID, trace ID) that
+// audit events will later record. Installed early in the middleware
+// chain so every downstream handler — even those that bypass auth —
+// sees the same set of values.
+func (s *Server) attachAuditContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r))
+		ua := r.UserAgent()
+		if len(ua) > auditUserAgentMaxBytes {
+			ua = ua[:auditUserAgentMaxBytes]
+		}
+		ctx = context.WithValue(ctx, ctxUserAgentKey, ua)
+		if reqID := chimw.GetReqID(ctx); reqID != "" {
+			ctx = context.WithValue(ctx, ctxRequestIDKey, reqID)
+		}
+		// Trace ID: populated by OTel middleware if installed. We read
+		// it via the span context to avoid a hard dependency on
+		// otelchi's internal context keys.
+		//
+		// The span is empty when tracing is disabled — in that case
+		// TraceID() returns an all-zero value and we leave the audit
+		// field blank.
+		if traceID := traceIDFromRequest(r); traceID != "" {
+			ctx = context.WithValue(ctx, ctxTraceIDKey, traceID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// traceIDFromRequest extracts the OTel trace ID from the request span,
+// or the empty string if no span is active.
+func traceIDFromRequest(r *http.Request) string {
+	sc := oteltrace.SpanContextFromContext(r.Context())
+	if !sc.IsValid() {
+		return ""
+	}
+	tid := sc.TraceID()
+	if !tid.IsValid() {
+		return ""
+	}
+	return tid.String()
 }
 
 // errProjectMismatch is returned when a resource's project_id does not match the

@@ -273,13 +273,18 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		return
 	}
 	ev := &domain.AuditEvent{
-		ProjectID:    projectIDFromContext(ctx),
-		ActorID:      actorID,
-		ActorType:    actorType,
-		Action:       action,
-		ResourceType: resourceType,
-		ResourceID:   resourceID,
-		Details:      detailsJSON,
+		ProjectID:     projectIDFromContext(ctx),
+		ActorID:       actorID,
+		ActorType:     actorType,
+		Action:        action,
+		ResourceType:  resourceType,
+		ResourceID:    resourceID,
+		Details:       detailsJSON,
+		RemoteIP:      remoteIPFromContext(ctx),
+		UserAgent:     userAgentFromContext(ctx),
+		RequestID:     requestIDFromContext(ctx),
+		TraceID:       traceIDFromContext(ctx),
+		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
 	}
 
 	s.auditAsyncMu.RLock()

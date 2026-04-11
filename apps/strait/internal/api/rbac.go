@@ -100,8 +100,18 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 		return
 	}
 	ev := &domain.AuditEvent{
-		ProjectID: projectIDFromContext(ctx), ActorID: actorID, ActorType: actorType,
-		Action: action, ResourceType: resourceType, ResourceID: resourceID, Details: detailsJSON,
+		ProjectID:     projectIDFromContext(ctx),
+		ActorID:       actorID,
+		ActorType:     actorType,
+		Action:        action,
+		ResourceType:  resourceType,
+		ResourceID:    resourceID,
+		Details:       detailsJSON,
+		RemoteIP:      remoteIPFromContext(ctx),
+		UserAgent:     userAgentFromContext(ctx),
+		RequestID:     requestIDFromContext(ctx),
+		TraceID:       traceIDFromContext(ctx),
+		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
 		slog.Warn("failed to create audit event", "action", action, "resource_type", resourceType, "resource_id", resourceID, "error", err)

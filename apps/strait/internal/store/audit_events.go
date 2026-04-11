@@ -37,15 +37,37 @@ func DeriveAuditSigningKey(secret string) ([]byte, error) {
 // ComputeAuditSignature computes the HMAC-SHA256 signature for an audit event.
 // The canonical form is pipe-separated fields including the previous_hash,
 // ensuring any modification to any field invalidates the signature.
+//
+// The canonical form branches on SchemaVersion:
+//   - v1 (default): original form, 10 fields. Used by events written before
+//     the forensic-columns migration.
+//   - v2: extends v1 with RemoteIP, UserAgent, RequestID, TraceID,
+//     SchemaVersion. Used by new events after migration 000185.
+//
+// Verify runs the same branching logic so both versions coexist in the same
+// chain without any bulk re-signing.
 func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	mac := hmac.New(sha256.New, key)
-	canonical := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
-		ev.Action, ev.ResourceType, ev.ResourceID,
-		string(ev.Details),
-		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
-		ev.PreviousHash,
-	)
+	var canonical string
+	if ev.SchemaVersion >= 2 {
+		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d",
+			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
+			ev.Action, ev.ResourceType, ev.ResourceID,
+			string(ev.Details),
+			ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+			ev.PreviousHash,
+			ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID,
+			ev.SchemaVersion,
+		)
+	} else {
+		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
+			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
+			ev.Action, ev.ResourceType, ev.ResourceID,
+			string(ev.Details),
+			ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+			ev.PreviousHash,
+		)
+	}
 	mac.Write([]byte(canonical))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -65,6 +87,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 
 	// Use client-side timestamp so all fields are known for signature computation.
 	ev.CreatedAt = time.Now().UTC()
+
+	// Default schema version for new events.
+	if ev.SchemaVersion == 0 {
+		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	}
 
 	// Atomic single-statement insert with chain linkage.
 	//
@@ -88,8 +115,13 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			       ) AS prev_hash
 		),
 		ins AS (
-			INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9
+			INSERT INTO audit_events (
+				id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+				details, signature, previous_hash, created_at,
+				remote_ip, user_agent, request_id, trace_id, schema_version
+			)
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9,
+			       $11, $12, $13, $14, $15
 			FROM lock_and_prev
 			RETURNING previous_hash
 		)
@@ -98,6 +130,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	if err := q.db.QueryRow(ctx, atomicQuery,
 		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID, details,
 		ev.CreatedAt, ZeroHash,
+		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
 	).Scan(&ev.PreviousHash); err != nil {
 		return fmt.Errorf("create audit event: %w", err)
 	}
@@ -126,7 +159,8 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
+		       remote_ip, user_agent, request_id, trace_id, schema_version
 		FROM audit_events
 		WHERE project_id = $1`
 	args := []any{projectID}
@@ -183,7 +217,7 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 	events := make([]domain.AuditEvent, 0, limit)
 	for rows.Next() {
 		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion); err != nil {
 			return nil, fmt.Errorf("scan audit event: %w", err)
 		}
 		events = append(events, ev)
@@ -197,7 +231,8 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
+		       remote_ip, user_agent, request_id, trace_id, schema_version
 		FROM audit_events
 		WHERE project_id = $1`
 	args := []any{projectID}
@@ -231,7 +266,7 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 
 	for rows.Next() {
 		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion); err != nil {
 			return fmt.Errorf("scan audit event: %w", err)
 		}
 		if err := fn(&ev); err != nil {
@@ -254,7 +289,8 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	}
 
 	query := `
-		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
+		       remote_ip, user_agent, request_id, trace_id, schema_version
 		FROM audit_events
 		WHERE project_id = $1
 		ORDER BY created_at ASC`
@@ -274,7 +310,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	for rows.Next() {
 		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion); err != nil {
 			return nil, fmt.Errorf("verify audit chain scan: %w", err)
 		}
 
