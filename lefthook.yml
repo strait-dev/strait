@@ -42,6 +42,10 @@ pre-push:
         - "bun.lock"
         - "turbo.json"
         - "biome.json"
+      only:
+        - ref: master
+        - ref: main
+        - ref: release/*
       skip:
         - run: test "${SKIP_RUN_ALL:-0}" = "1"
       group:
