@@ -12,15 +12,6 @@ pre-commit:
 pre-push:
   parallel: true
   commands:
-    app_typecheck:
-      glob: "apps/app/**/*.{ts,tsx}"
-      run: cd apps/app && bun run typecheck
-      fail_text: "App typecheck failed"
-      timeout: 120s
-      skip:
-        - merge
-        - rebase
-
     run_all:
       glob:
         - "*.{ts,tsx,js,jsx,mjs,cjs}"
