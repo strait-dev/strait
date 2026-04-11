@@ -15,7 +15,7 @@ func TestAdaptivePoll_BaseOnFreshStart(t *testing.T) {
 func TestAdaptivePoll_BacksOffOnEmpty(t *testing.T) {
 	a := NewAdaptivePollInterval(1*time.Second, 200*time.Millisecond, 30*time.Second)
 	prev := a.Next()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		a.ObserveEmpty()
 		cur := a.Next()
 		if cur < prev {
@@ -30,7 +30,7 @@ func TestAdaptivePoll_BacksOffOnEmpty(t *testing.T) {
 
 func TestAdaptivePoll_CappedAtMax(t *testing.T) {
 	a := NewAdaptivePollInterval(1*time.Second, 200*time.Millisecond, 5*time.Second)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		a.ObserveEmpty()
 	}
 	if d := a.Next(); d > 5*time.Second {
@@ -56,7 +56,7 @@ func TestAdaptivePoll_DepthShortensInterval(t *testing.T) {
 
 func TestAdaptivePoll_ClaimResetsEmpty(t *testing.T) {
 	a := NewAdaptivePollInterval(1*time.Second, 200*time.Millisecond, 30*time.Second)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		a.ObserveEmpty()
 	}
 	before := a.Next()
@@ -72,7 +72,7 @@ func TestAdaptivePoll_ClaimResetsEmpty(t *testing.T) {
 
 func TestAdaptivePoll_Disable(t *testing.T) {
 	a := NewAdaptivePollInterval(2*time.Second, 200*time.Millisecond, 30*time.Second)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		a.ObserveEmpty()
 	}
 	a.Disable()
@@ -96,7 +96,11 @@ func FuzzAdaptivePoll_Bounds(f *testing.F) {
 	f.Add(uint8(10), uint8(100))
 	f.Fuzz(func(t *testing.T, empties, depth uint8) {
 		a := NewAdaptivePollInterval(1*time.Second, 100*time.Millisecond, 10*time.Second)
-		for i := uint8(0); i < empties && i < 32; i++ {
+		limit := int(empties)
+		if limit > 32 {
+			limit = 32
+		}
+		for range limit {
 			a.ObserveEmpty()
 		}
 		a.ObserveDepth(int64(depth) * 100)

@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,10 +123,5 @@ func FuzzStatusEquivalenceNoPanic(f *testing.F) {
 // statusSetContains is a trivial helper under fuzz. Kept local so the
 // test file compiles standalone.
 func statusSetContains(set []string, s string) bool {
-	for _, x := range set {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(set, s)
 }

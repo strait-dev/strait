@@ -193,7 +193,8 @@ func (c *DBCircuit) recordFailure(err error, halfOpen bool) {
 			kept = append(kept, t)
 		}
 	}
-	c.fails = append(kept, now)
+	kept = append(kept, now)
+	c.fails = kept
 	if len(c.fails) >= c.cfg.FailureThreshold {
 		c.state = CircuitOpen
 		c.openAt = now

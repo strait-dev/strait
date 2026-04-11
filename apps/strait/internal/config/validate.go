@@ -23,27 +23,25 @@ import (
 // Validate returns nil if the config is internally consistent and
 // compatible with the queue reliability contract. On failure it returns
 // an errors.Join wrapping every individual invariant violation.
-//
-//nolint:gocyclo,cyclop // flat list of independent checks is clearer than grouping
 func (c *Config) Validate() error {
 	var errs []error
 
 	// Positive-required durations.
 	requirePositive := map[string]time.Duration{
-		"HEARTBEAT_INTERVAL":       c.HeartbeatInterval,
-		"REAPER_INTERVAL":          c.ReaperInterval,
-		"STALE_THRESHOLD":          c.StaleThreshold,
-		"POLLER_INTERVAL":          c.PollerInterval,
-		"REQUEST_TIMEOUT":          c.RequestTimeout,
-		"WORKER_DRAIN_TIMEOUT":     c.WorkerDrainTimeout,
-		"DB_STATEMENT_TIMEOUT":     c.DBStatementTimeout,
-		"DB_MAX_CONN_LIFETIME":     c.DBMaxConnLifetime,
-		"DB_MAX_CONN_IDLE_TIME":    c.DBMaxConnIdleTime,
-		"DB_HEALTH_CHECK_PERIOD":   c.DBHealthCheckPeriod,
+		"HEARTBEAT_INTERVAL":             c.HeartbeatInterval,
+		"REAPER_INTERVAL":                c.ReaperInterval,
+		"STALE_THRESHOLD":                c.StaleThreshold,
+		"POLLER_INTERVAL":                c.PollerInterval,
+		"REQUEST_TIMEOUT":                c.RequestTimeout,
+		"WORKER_DRAIN_TIMEOUT":           c.WorkerDrainTimeout,
+		"DB_STATEMENT_TIMEOUT":           c.DBStatementTimeout,
+		"DB_MAX_CONN_LIFETIME":           c.DBMaxConnLifetime,
+		"DB_MAX_CONN_IDLE_TIME":          c.DBMaxConnIdleTime,
+		"DB_HEALTH_CHECK_PERIOD":         c.DBHealthCheckPeriod,
 		"DB_IDLE_IN_TRANSACTION_TIMEOUT": c.DBIdleInTransactionTimeout,
-		"DB_LOCK_TIMEOUT":          c.DBLockTimeout,
-		"DB_LONG_TXN_ALERT_THRESHOLD": c.DBLongTxnAlertThreshold,
-		"DB_WATCHDOG_INTERVAL":     c.DBWatchdogInterval,
+		"DB_LOCK_TIMEOUT":                c.DBLockTimeout,
+		"DB_LONG_TXN_ALERT_THRESHOLD":    c.DBLongTxnAlertThreshold,
+		"DB_WATCHDOG_INTERVAL":           c.DBWatchdogInterval,
 	}
 	for name, d := range requirePositive {
 		if d <= 0 {

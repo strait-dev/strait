@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,8 +35,8 @@ type DLQAgeOut struct {
 	retention      time.Duration
 	batchLimit     int
 	logger         *slog.Logger
-	iterations     int64
-	masked         int64
+	iterations     atomic.Int64
+	masked         atomic.Int64
 }
 
 // DLQAgeOutConfig configures the archiver.
@@ -76,8 +77,8 @@ func (a *DLQAgeOut) WithAdvisoryLocker(locker AdvisoryLocker) *DLQAgeOut {
 	return a
 }
 
-func (a *DLQAgeOut) Iterations() int64 { return a.iterations }
-func (a *DLQAgeOut) TotalMasked() int64 { return a.masked }
+func (a *DLQAgeOut) Iterations() int64  { return a.iterations.Load() }
+func (a *DLQAgeOut) TotalMasked() int64 { return a.masked.Load() }
 
 // Run blocks until ctx is cancelled.
 func (a *DLQAgeOut) Run(ctx context.Context) {
@@ -101,7 +102,7 @@ func (a *DLQAgeOut) RunOnceForTest(ctx context.Context) error {
 
 func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 	defer func() {
-		a.iterations++
+		a.iterations.Add(1)
 		if r := recover(); r != nil {
 			a.logger.Warn("dlq age-out panic recovered", "panic", r)
 		}
@@ -126,10 +127,9 @@ func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("mask old dlq rows: %w", err)
 	}
-	a.masked += n
+	a.masked.Add(n)
 	if n > 0 {
 		a.logger.Info("dlq age-out masked rows", "count", n, "retention", a.retention)
 	}
 	return nil
 }
-

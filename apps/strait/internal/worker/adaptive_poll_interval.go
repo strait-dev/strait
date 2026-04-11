@@ -101,7 +101,7 @@ func (a *AdaptivePollInterval) Next() time.Duration {
 
 	// Start from base; extend for emptiness; shrink for depth.
 	d := float64(a.base)
-	for i := 0; i < empty; i++ {
+	for range empty {
 		d *= 2
 		if d >= float64(a.maxInterval) {
 			d = float64(a.maxInterval)
@@ -109,14 +109,7 @@ func (a *AdaptivePollInterval) Next() time.Duration {
 		}
 	}
 	if depth > 0 {
-		d = d / (1 + float64(depth)/100)
+		d /= 1 + float64(depth)/100
 	}
-	out := time.Duration(d)
-	if out < a.minInterval {
-		out = a.minInterval
-	}
-	if out > a.maxInterval {
-		out = a.maxInterval
-	}
-	return out
+	return min(max(time.Duration(d), a.minInterval), a.maxInterval)
 }

@@ -37,7 +37,7 @@ func TestCircuit_OpensAtThreshold(t *testing.T) {
 	now := time.Now()
 	c := newTestCircuit(&now)
 	boom := errors.New("boom")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	}
 	if c.State() != CircuitOpen {
@@ -57,7 +57,7 @@ func TestCircuit_HalfOpenAfterCooldown(t *testing.T) {
 	now := time.Now()
 	c := newTestCircuit(&now)
 	boom := errors.New("boom")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	}
 	if c.State() != CircuitOpen {
@@ -74,7 +74,7 @@ func TestCircuit_HalfOpenSuccessCloses(t *testing.T) {
 	now := time.Now()
 	c := newTestCircuit(&now)
 	boom := errors.New("boom")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	}
 	now = now.Add(200 * time.Millisecond)
@@ -92,7 +92,7 @@ func TestCircuit_HalfOpenFailureReopensExponentially(t *testing.T) {
 	now := time.Now()
 	c := newTestCircuit(&now)
 	boom := errors.New("boom")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	}
 	// First cooldown.
@@ -115,7 +115,7 @@ func TestCircuit_HalfOpenFailureReopensExponentially(t *testing.T) {
 func TestCircuit_DoesNotCountContextCanceled(t *testing.T) {
 	now := time.Now()
 	c := newTestCircuit(&now)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return context.Canceled })
 	}
 	if c.State() != CircuitClosed {
@@ -144,14 +144,12 @@ func TestCircuit_ConcurrentFailuresOpenOnce(t *testing.T) {
 	boom := errors.New("boom")
 	var wg sync.WaitGroup
 	var count atomic.Int64
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			if err := c.Do(context.Background(), func(_ context.Context) error { return boom }); errors.Is(err, ErrCircuitOpen) {
 				count.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if c.State() != CircuitOpen {
@@ -173,7 +171,7 @@ func TestCircuit_MaxOpenForCap(t *testing.T) {
 	})
 	boom := errors.New("boom")
 	// Trip and re-trip many times to push exponential duration past the cap.
-	for cycle := 0; cycle < 10; cycle++ {
+	for range 10 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 		now = now.Add(400 * time.Millisecond)
 	}

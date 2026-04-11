@@ -31,7 +31,7 @@ func TestQueueNotifier_DroppedNotifications_BufferFull(t *testing.T) {
 	// First send succeeds (buffer empty).
 	send()
 	// Next 256 sends all drop.
-	for i := 0; i < 256; i++ {
+	for range 256 {
 		send()
 	}
 
@@ -51,11 +51,9 @@ func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
 	var wg sync.WaitGroup
 	const senders = 32
 	const perSender = 64
-	for i := 0; i < senders; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < perSender; j++ {
+	for range senders {
+		wg.Go(func() {
+			for range perSender {
 				select {
 				case n.wake <- struct{}{}:
 				default:
@@ -63,7 +61,7 @@ func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
 					atomic.AddUint64(&n.droppedCount, 1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

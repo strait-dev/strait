@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/store"
@@ -52,8 +53,8 @@ type PlanDriftMonitor struct {
 	advisoryLocker AdvisoryLocker
 	interval       time.Duration
 	logger         *slog.Logger
-	iterations     int64
-	driftCount     int64
+	iterations     atomic.Int64
+	driftCount     atomic.Int64
 }
 
 // PlanDriftMonitorConfig configures the monitor.
@@ -86,8 +87,8 @@ func (m *PlanDriftMonitor) WithAdvisoryLocker(locker AdvisoryLocker) *PlanDriftM
 	return m
 }
 
-func (m *PlanDriftMonitor) Iterations() int64 { return m.iterations }
-func (m *PlanDriftMonitor) DriftCount() int64 { return m.driftCount }
+func (m *PlanDriftMonitor) Iterations() int64 { return m.iterations.Load() }
+func (m *PlanDriftMonitor) DriftCount() int64 { return m.driftCount.Load() }
 
 // Run blocks until ctx is cancelled.
 func (m *PlanDriftMonitor) Run(ctx context.Context) {
@@ -111,7 +112,7 @@ func (m *PlanDriftMonitor) RunOnceForTest(ctx context.Context) error {
 
 func (m *PlanDriftMonitor) runOnce(ctx context.Context) error {
 	defer func() {
-		m.iterations++
+		m.iterations.Add(1)
 		if r := recover(); r != nil {
 			m.logger.Warn("plan drift monitor panic recovered", "panic", r)
 		}
@@ -166,7 +167,7 @@ func (m *PlanDriftMonitor) checkOne(ctx context.Context, q WatchedQuery) error {
 	}
 	// Compare.
 	if baseline.TopNodeType != topNode {
-		m.driftCount++
+		m.driftCount.Add(1)
 		m.logger.Warn("plan drift: node type changed",
 			"query", q.Name,
 			"before", baseline.TopNodeType,
@@ -183,7 +184,7 @@ func (m *PlanDriftMonitor) checkOne(ctx context.Context, q WatchedQuery) error {
 	if baseline.EstTotalCost > 0 {
 		delta := math.Abs(cost-baseline.EstTotalCost) / baseline.EstTotalCost
 		if delta > costDriftTolerance {
-			m.driftCount++
+			m.driftCount.Add(1)
 			m.logger.Warn("plan drift: cost changed beyond tolerance",
 				"query", q.Name,
 				"node", topNode,

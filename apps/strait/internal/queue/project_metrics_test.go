@@ -55,7 +55,7 @@ func TestProjectAllowlist_AddIdempotent(t *testing.T) {
 
 func TestProjectAllowlist_LargeWorkloadBoundedCardinality(t *testing.T) {
 	a := NewProjectLabelAllowlist(51) // 50 real slots + fallback
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		a.Add("project-" + string(rune('a'+(i%26))))
 	}
 	if a.Size() > 50 {

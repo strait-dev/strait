@@ -26,13 +26,13 @@ type ProjectLabelAllowlist struct {
 
 // NewProjectLabelAllowlist builds an empty allow-list with a hard cap on
 // distinct labels (including the "_other" bucket).
-func NewProjectLabelAllowlist(max int) *ProjectLabelAllowlist {
-	if max <= 0 {
-		max = 100
+func NewProjectLabelAllowlist(maxLabels int) *ProjectLabelAllowlist {
+	if maxLabels <= 0 {
+		maxLabels = 100
 	}
 	return &ProjectLabelAllowlist{
 		allowed: make(map[string]struct{}),
-		max:     max,
+		max:     maxLabels,
 	}
 }
 
@@ -42,12 +42,12 @@ func (p *ProjectLabelAllowlist) Set(ids []string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.allowed = make(map[string]struct{}, len(ids))
-	cap := p.max - 1
-	if cap <= 0 {
+	limit := p.max - 1
+	if limit <= 0 {
 		return
 	}
 	for i, id := range ids {
-		if i >= cap {
+		if i >= limit {
 			break
 		}
 		p.allowed[id] = struct{}{}

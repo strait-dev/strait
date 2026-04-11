@@ -88,15 +88,13 @@ func TestClaimCursor_ConcurrentAdvance(t *testing.T) {
 	c := NewClaimCursor(60 * time.Second)
 	var wg sync.WaitGroup
 	base := time.Now()
-	for g := 0; g < 16; g++ {
-		wg.Add(1)
-		go func(g int) {
-			defer wg.Done()
-			for i := 0; i < 200; i++ {
+	for g := range 16 {
+		wg.Go(func() {
+			for i := range 200 {
 				ts := base.Add(time.Duration(g*200+i) * time.Microsecond)
 				c.Advance(ts, "id")
 			}
-		}(g)
+		})
 	}
 	wg.Wait()
 	ts, _, ok := c.Snapshot()

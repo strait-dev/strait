@@ -180,8 +180,8 @@ func TestOutbox_ValidationErrors(t *testing.T) {
 	defer tx.Rollback(ctx)
 
 	cases := []queue.OutboxEntry{
-		{JobID: "j1"},                    // missing project
-		{ProjectID: "p1"},                // missing job
+		{JobID: "j1"},     // missing project
+		{ProjectID: "p1"}, // missing job
 	}
 	for i, e := range cases {
 		if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{e}); err == nil {

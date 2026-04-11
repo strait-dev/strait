@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/store"
@@ -23,8 +24,8 @@ type PartitionEnsurer struct {
 	interval       time.Duration
 	monthsAhead    int
 	logger         *slog.Logger
-	iterations     int64
-	errors         int64
+	iterations     atomic.Int64
+	errors         atomic.Int64
 }
 
 // PartitionEnsurerStore is the minimal store surface the ensurer needs.
@@ -67,10 +68,10 @@ func (p *PartitionEnsurer) WithAdvisoryLocker(locker AdvisoryLocker) *PartitionE
 }
 
 // Iterations returns the number of completed ensurer cycles. For tests.
-func (p *PartitionEnsurer) Iterations() int64 { return p.iterations }
+func (p *PartitionEnsurer) Iterations() int64 { return p.iterations.Load() }
 
 // Errors returns the cumulative number of failed ensurer cycles.
-func (p *PartitionEnsurer) Errors() int64 { return p.errors }
+func (p *PartitionEnsurer) Errors() int64 { return p.errors.Load() }
 
 // Run blocks until ctx is cancelled.
 func (p *PartitionEnsurer) Run(ctx context.Context) {
@@ -94,17 +95,17 @@ func (p *PartitionEnsurer) RunOnceForTest(ctx context.Context) error {
 
 func (p *PartitionEnsurer) runOnce(ctx context.Context) error {
 	defer func() {
-		p.iterations++
+		p.iterations.Add(1)
 		if r := recover(); r != nil {
 			p.logger.Warn("partition ensurer panic recovered", "panic", r)
-			p.errors++
+			p.errors.Add(1)
 		}
 	}()
 
 	if p.advisoryLocker != nil {
 		acquired, err := p.advisoryLocker.TryAdvisoryLock(ctx, partitionEnsurerAdvisoryLockID)
 		if err != nil {
-			p.errors++
+			p.errors.Add(1)
 			return err
 		}
 		if !acquired {
@@ -119,7 +120,7 @@ func (p *PartitionEnsurer) runOnce(ctx context.Context) error {
 
 	if err := p.store.EnsureJobRunsPartitions(ctx, p.monthsAhead); err != nil {
 		p.logger.Warn("ensure partitions failed", "error", err)
-		p.errors++
+		p.errors.Add(1)
 		return err
 	}
 	return nil

@@ -79,21 +79,19 @@ func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
 
 	var wg sync.WaitGroup
-	const G = 32
-	for i := 0; i < G; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	const numGoroutines = 32
+	for range numGoroutines {
+		wg.Go(func() {
+			for range 100 {
 				// Simulate what Run() does on a reconnect.
 				incReconnects(n)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
-	if got := n.Reconnects(); got != G*100 {
-		t.Errorf("reconnects = %d, want %d", got, G*100)
+	if got := n.Reconnects(); got != numGoroutines*100 {
+		t.Errorf("reconnects = %d, want %d", got, numGoroutines*100)
 	}
 }
 

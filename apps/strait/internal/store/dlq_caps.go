@@ -25,7 +25,7 @@ func (q *Queries) DLQDepth(ctx context.Context, projectID, jobID string) (int, e
 	).Scan(&count)
 	if err != nil {
 		// pgx returns ErrNoRows for missing rows — treat as zero.
-		return 0, nil //nolint:nilerr // missing row means depth=0
+		return 0, nil
 	}
 	return count, nil
 }
@@ -100,7 +100,7 @@ func (q *Queries) MaskOldestDLQRow(ctx context.Context, projectID, jobID string)
 	var id string
 	err := q.db.QueryRow(ctx, sql, projectID, jobID).Scan(&id)
 	if err != nil {
-		return "", nil //nolint:nilerr // no victim means no-op
+		return "", nil
 	}
 	return id, nil
 }

@@ -32,7 +32,7 @@ type QueueMetrics struct {
 var (
 	queueMetricsOnce sync.Once
 	queueMetricsInst *QueueMetrics
-	queueMetricsErr  error
+	errQueueMetrics  error
 )
 
 // Metrics returns the process-wide QueueMetrics singleton, initialising it
@@ -41,9 +41,9 @@ var (
 // OTEL API is nil-safe and records to a noop meter when no SDK is registered.
 func Metrics() (*QueueMetrics, error) {
 	queueMetricsOnce.Do(func() {
-		queueMetricsInst, queueMetricsErr = newQueueMetrics()
+		queueMetricsInst, errQueueMetrics = newQueueMetrics()
 	})
-	return queueMetricsInst, queueMetricsErr
+	return queueMetricsInst, errQueueMetrics
 }
 
 // ResetMetricsForTest clears the singleton so tests can re-initialise with a
@@ -51,7 +51,7 @@ func Metrics() (*QueueMetrics, error) {
 func ResetMetricsForTest() {
 	queueMetricsOnce = sync.Once{}
 	queueMetricsInst = nil
-	queueMetricsErr = nil
+	errQueueMetrics = nil
 }
 
 func newQueueMetrics() (*QueueMetrics, error) {
@@ -174,10 +174,10 @@ func (m *QueueMetrics) RecordPartitionStats(ctx context.Context, partition strin
 // PartitionStats is a plain row from pg_stat_user_tables for a single table
 // (typically a job_runs partition).
 type PartitionStats struct {
-	Relname       string
-	LiveTuples    int64
-	DeadTuples    int64
-	TotalUpdates  int64
-	HotUpdates    int64
+	Relname        string
+	LiveTuples     int64
+	DeadTuples     int64
+	TotalUpdates   int64
+	HotUpdates     int64
 	DeadTupleRatio float64
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/queue"
@@ -33,8 +34,8 @@ type CounterReconciler struct {
 	metrics        *queue.QueueMetrics
 	interval       time.Duration
 	logger         *slog.Logger
-	iterations     int64
-	totalDrift     int64
+	iterations     atomic.Int64
+	totalDrift     atomic.Int64
 }
 
 // CounterReconcilerConfig configures the reconciler.
@@ -69,11 +70,11 @@ func (r *CounterReconciler) WithAdvisoryLocker(locker AdvisoryLocker) *CounterRe
 }
 
 // Iterations returns completed reconciliation cycles. For tests.
-func (r *CounterReconciler) Iterations() int64 { return r.iterations }
+func (r *CounterReconciler) Iterations() int64 { return r.iterations.Load() }
 
 // TotalDrift returns the cumulative absolute drift observed across all
 // runs. For tests and assertions.
-func (r *CounterReconciler) TotalDrift() int64 { return r.totalDrift }
+func (r *CounterReconciler) TotalDrift() int64 { return r.totalDrift.Load() }
 
 // Run blocks until ctx is cancelled; first tick runs immediately so tests
 // don't have to wait a full interval.
@@ -100,7 +101,7 @@ func (r *CounterReconciler) RunOnceForTest(ctx context.Context) error {
 // runOnce executes a single reconciliation cycle. Exposed for tests.
 func (r *CounterReconciler) runOnce(ctx context.Context) error {
 	defer func() {
-		r.iterations++
+		r.iterations.Add(1)
 		if rec := recover(); rec != nil {
 			r.logger.Warn("counter reconciler panic recovered", "panic", rec)
 		}
@@ -132,7 +133,7 @@ func (r *CounterReconciler) runOnce(ctx context.Context) error {
 	}
 
 	drift := activeDrift + dlqDrift
-	r.totalDrift += drift
+	r.totalDrift.Add(drift)
 	if r.metrics != nil {
 		r.metrics.CounterDrift.Record(ctx, drift)
 	}

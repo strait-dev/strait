@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/store"
@@ -30,8 +31,8 @@ type PriorityPromoter struct {
 	maxPriority        int
 	batchLimit         int
 	logger             *slog.Logger
-	iterationsExecuted int64
-	rowsPromoted       int64
+	iterationsExecuted atomic.Int64
+	rowsPromoted       atomic.Int64
 }
 
 // PriorityPromoterConfig tunes the promoter. Zero-value fields fall back to
@@ -79,11 +80,11 @@ func (p *PriorityPromoter) WithAdvisoryLocker(locker AdvisoryLocker) *PriorityPr
 }
 
 // Iterations returns the number of completed sample iterations. For tests.
-func (p *PriorityPromoter) Iterations() int64 { return p.iterationsExecuted }
+func (p *PriorityPromoter) Iterations() int64 { return p.iterationsExecuted.Load() }
 
 // RowsPromoted returns the cumulative number of rows whose priority was
 // bumped. For tests.
-func (p *PriorityPromoter) RowsPromoted() int64 { return p.rowsPromoted }
+func (p *PriorityPromoter) RowsPromoted() int64 { return p.rowsPromoted.Load() }
 
 // Run blocks until ctx is cancelled. First iteration runs immediately so
 // tests do not have to wait.
@@ -104,7 +105,7 @@ func (p *PriorityPromoter) Run(ctx context.Context) {
 // runOnce executes one promotion cycle. Exposed for tests.
 func (p *PriorityPromoter) runOnce(ctx context.Context) error {
 	defer func() {
-		p.iterationsExecuted++
+		p.iterationsExecuted.Add(1)
 		if r := recover(); r != nil {
 			p.logger.Warn("priority promoter panic recovered", "panic", r)
 		}
@@ -145,7 +146,7 @@ WHERE id IN (SELECT id FROM candidates)
 		return err
 	}
 	rows := tag.RowsAffected()
-	p.rowsPromoted += rows
+	p.rowsPromoted.Add(rows)
 	if rows > 0 {
 		p.logger.Debug("priority promoter bumped rows", "rows", rows)
 	}

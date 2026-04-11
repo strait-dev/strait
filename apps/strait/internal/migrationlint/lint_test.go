@@ -46,7 +46,7 @@ func fmtSscan(name string, out *int) (int, error) {
 	// Extract leading digits from a migration filename like
 	// 000191_something.up.sql without pulling in fmt.Sscanf's cost.
 	var n, consumed int
-	for i := 0; i < len(name); i++ {
+	for i := range len(name) {
 		c := name[i]
 		if c < '0' || c > '9' {
 			break

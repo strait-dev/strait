@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/webhook"
 )
 
@@ -76,35 +75,12 @@ func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
 }
 
 func TestE2E_PriorityAgingAffectsDequeueOrder(t *testing.T) {
-	mustClean(t)
-
-	projectID := "proj-priority-aging-" + newID()
-	job := createJob(t, projectID, "Priority Aging", "priority-aging-"+newID())
-	jobID := asString(t, job, "id")
-
-	olderLowPriority := triggerJob(t, jobID, `{"payload":{"kind":"older-low"},"priority":0}`, "")
-	newerHighPriority := triggerJob(t, jobID, `{"payload":{"kind":"newer-high"},"priority":1}`, "")
-
-	olderRunID := asString(t, olderLowPriority, "id")
-	newerRunID := asString(t, newerHighPriority, "id")
-
-	if _, err := testEnv.DB.Pool.Exec(context.Background(),
-		"UPDATE job_runs SET created_at = NOW() - INTERVAL '2 hours' WHERE id = $1", olderRunID,
-	); err != nil {
-		t.Fatalf("age low-priority run: %v", err)
-	}
-
-	q := queue.NewPostgresQueue(testEnv.DB.Pool, queue.WithPriorityAging(true))
-	dequeued, err := q.Dequeue(context.Background())
-	if err != nil {
-		t.Fatalf("dequeue with priority aging: %v", err)
-	}
-	if dequeued == nil {
-		t.Fatal("expected a dequeued run")
-	}
-	if dequeued.ID != olderRunID {
-		t.Fatalf("expected older low-priority run %s first, got %s (newer run was %s)", olderRunID, dequeued.ID, newerRunID)
-	}
+	// R1 Phase 4 replaced the dequeue-time aging ORDER BY with a
+	// scheduler.PriorityPromoter goroutine that bumps priority on aged
+	// queued runs. WithPriorityAging is now a no-op kept for compat,
+	// so this test's premise is invalid. Promotion is exercised in
+	// scheduler/priority_promoter_integration_test.go instead.
+	t.Skip("superseded by scheduler.PriorityPromoter (R1 Phase 4); see priority_promoter_integration_test.go")
 }
 
 func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {

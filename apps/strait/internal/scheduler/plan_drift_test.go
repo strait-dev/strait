@@ -10,12 +10,12 @@ import (
 )
 
 type fakePlanStore struct {
-	baselines     map[string]store.PlanBaselineRow
-	nextExplain   []byte
-	explainErr    error
-	upsertErr     error
-	getErr        error
-	upsertCalls   int
+	baselines   map[string]store.PlanBaselineRow
+	nextExplain []byte
+	explainErr  error
+	upsertErr   error
+	getErr      error
+	upsertCalls int
 }
 
 func newFakePlanStore() *fakePlanStore {

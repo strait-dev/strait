@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// RunStatus is the enum for job_runs.status.
+//
+//nolint:recvcheck // Scan requires a pointer receiver; Value uses value receiver by convention
 type RunStatus string
 
 const (

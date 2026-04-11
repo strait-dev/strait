@@ -18,9 +18,11 @@ import (
 // ErrorClassEnum is the typed form of the ErrorClass* untyped string
 // constants in types.go. Use the existing string constants at assignment
 // sites and convert via ErrorClassEnum(...) when you need typed behavior.
+//
+//nolint:recvcheck // Scan requires a pointer receiver; Value uses value receiver by convention
 type ErrorClassEnum string
 
-// Scan / Value for pgx integration.
+// Scan / Value for pgx integration. Pointer receiver is interface-mandated.
 func (e *ErrorClassEnum) Scan(src any) error {
 	if src == nil {
 		*e = ""

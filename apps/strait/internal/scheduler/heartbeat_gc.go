@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/store"
@@ -35,8 +36,8 @@ type HeartbeatGC struct {
 	interval       time.Duration
 	batchLimit     int
 	logger         *slog.Logger
-	iterations     int64
-	totalDeleted   int64
+	iterations     atomic.Int64
+	totalDeleted   atomic.Int64
 }
 
 // HeartbeatGCConfig configures the GC.
@@ -72,8 +73,8 @@ func (h *HeartbeatGC) WithAdvisoryLocker(locker AdvisoryLocker) *HeartbeatGC {
 	return h
 }
 
-func (h *HeartbeatGC) Iterations() int64   { return h.iterations }
-func (h *HeartbeatGC) TotalDeleted() int64 { return h.totalDeleted }
+func (h *HeartbeatGC) Iterations() int64   { return h.iterations.Load() }
+func (h *HeartbeatGC) TotalDeleted() int64 { return h.totalDeleted.Load() }
 
 // Run blocks until ctx is cancelled.
 func (h *HeartbeatGC) Run(ctx context.Context) {
@@ -97,7 +98,7 @@ func (h *HeartbeatGC) RunOnceForTest(ctx context.Context) error {
 
 func (h *HeartbeatGC) runOnce(ctx context.Context) error {
 	defer func() {
-		h.iterations++
+		h.iterations.Add(1)
 		if r := recover(); r != nil {
 			h.logger.Warn("heartbeat GC panic recovered", "panic", r)
 		}
@@ -123,7 +124,7 @@ func (h *HeartbeatGC) runOnce(ctx context.Context) error {
 		h.logger.Warn("heartbeat GC delete failed", "error", err)
 		return err
 	}
-	h.totalDeleted += deleted
+	h.totalDeleted.Add(deleted)
 	if deleted > 0 {
 		h.logger.Info("heartbeat GC deleted orphaned rows", "deleted", deleted)
 	}

@@ -47,15 +47,15 @@ func AsThrottled(err error) (*ThrottledError, bool) {
 // BackpressureConfig controls the bucket parameters used when a project
 // has no explicit project_rate_limits row yet.
 type BackpressureConfig struct {
-	DefaultMaxTokens   int
+	DefaultMaxTokens    int
 	DefaultRefillPerSec int
 }
 
 // Backpressure consults the project_rate_limits table to enforce a
 // DB-side token bucket per project.
 type Backpressure struct {
-	db     store.DBTX
-	cfg    BackpressureConfig
+	db      store.DBTX
+	cfg     BackpressureConfig
 	enabled bool
 }
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,9 +32,9 @@ type PartitionTuner struct {
 	interval       time.Duration
 	clock          func() time.Time
 	logger         *slog.Logger
-	iterations     int64
-	hotCount       int
-	coldCount      int
+	iterations     atomic.Int64
+	hotCount       atomic.Int64
+	coldCount      atomic.Int64
 }
 
 // PartitionTunerStore is the minimal store interface the tuner needs.
@@ -75,9 +76,9 @@ func (t *PartitionTuner) WithAdvisoryLocker(locker AdvisoryLocker) *PartitionTun
 	return t
 }
 
-func (t *PartitionTuner) Iterations() int64 { return t.iterations }
-func (t *PartitionTuner) HotCount() int     { return t.hotCount }
-func (t *PartitionTuner) ColdCount() int    { return t.coldCount }
+func (t *PartitionTuner) Iterations() int64 { return t.iterations.Load() }
+func (t *PartitionTuner) HotCount() int     { return int(t.hotCount.Load()) }
+func (t *PartitionTuner) ColdCount() int    { return int(t.coldCount.Load()) }
 
 // Run blocks until ctx is cancelled.
 func (t *PartitionTuner) Run(ctx context.Context) {
@@ -101,7 +102,7 @@ func (t *PartitionTuner) RunOnceForTest(ctx context.Context) error {
 
 func (t *PartitionTuner) runOnce(ctx context.Context) error {
 	defer func() {
-		t.iterations++
+		t.iterations.Add(1)
 		if r := recover(); r != nil {
 			t.logger.Warn("partition tuner panic recovered", "panic", r)
 		}
@@ -128,25 +129,26 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 	}
 
 	hot := hotPartitionNames(t.clock())
-	t.hotCount = 0
-	t.coldCount = 0
+	var hotN, coldN int64
 	for _, p := range partitions {
 		if _, isHot := hot[p]; isHot {
 			if err := t.store.ExecDDL(ctx, hotSettingsSQL(p)); err != nil {
 				t.logger.Warn("apply hot settings failed", "partition", p, "error", err)
 				continue
 			}
-			t.hotCount++
+			hotN++
 		} else {
 			if err := t.store.ExecDDL(ctx, resetSettingsSQL(p)); err != nil {
 				t.logger.Warn("reset settings failed", "partition", p, "error", err)
 				continue
 			}
-			t.coldCount++
+			coldN++
 		}
 	}
+	t.hotCount.Store(hotN)
+	t.coldCount.Store(coldN)
 	t.logger.Info("partition tuner complete",
-		"hot", t.hotCount, "cold", t.coldCount, "total", len(partitions),
+		"hot", hotN, "cold", coldN, "total", len(partitions),
 	)
 	return nil
 }

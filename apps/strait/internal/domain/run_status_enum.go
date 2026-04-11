@@ -14,7 +14,8 @@ import (
 // the enum interchange-safe in all directions (struct, DB, JSON).
 
 // Scan implements database/sql.Scanner so RunStatus fields can be scanned
-// directly from pgx without an intermediate string variable.
+// directly from pgx without an intermediate string variable. Pointer
+// receiver is required by the Scanner interface.
 func (s *RunStatus) Scan(src any) error {
 	if src == nil {
 		*s = ""

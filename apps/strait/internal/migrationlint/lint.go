@@ -24,9 +24,9 @@ import (
 type Rule string
 
 const (
-	RuleCreateIndexNonConcurrent Rule = "create-index-non-concurrent"
+	RuleCreateIndexNonConcurrent  Rule = "create-index-non-concurrent"
 	RuleCreateUniqueNonConcurrent Rule = "create-unique-index-non-concurrent"
-	RuleDropIndexNonConcurrent   Rule = "drop-index-non-concurrent"
+	RuleDropIndexNonConcurrent    Rule = "drop-index-non-concurrent"
 	RuleSetNotNull                Rule = "alter-set-not-null"
 	RuleAddColumnNotNullDefault   Rule = "add-column-not-null-default"
 	RuleDropColumn                Rule = "drop-column"
@@ -134,11 +134,9 @@ func extractIndexTarget(stmt string) string {
 }
 
 func isIndexRule(r Rule) bool {
-	switch r {
-	case RuleCreateIndexNonConcurrent, RuleCreateUniqueNonConcurrent, RuleDropIndexNonConcurrent:
-		return true
-	}
-	return false
+	return r == RuleCreateIndexNonConcurrent ||
+		r == RuleCreateUniqueNonConcurrent ||
+		r == RuleDropIndexNonConcurrent
 }
 
 // stripCommentsMultiLine removes `-- ...` comment suffixes from each
@@ -147,8 +145,8 @@ func isIndexRule(r Rule) bool {
 func stripCommentsMultiLine(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if idx := strings.Index(line, "--"); idx >= 0 {
-			lines[i] = line[:idx]
+		if before, _, found := strings.Cut(line, "--"); found {
+			lines[i] = before
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -211,9 +209,9 @@ var allRules = []rule{
 		message: "CREATE UNIQUE INDEX without CONCURRENTLY locks the table; use CREATE UNIQUE INDEX CONCURRENTLY",
 	},
 	{
-		id:      RuleDropIndexNonConcurrent,
-		re:      regexp.MustCompile(`(?is)\bDROP\s+INDEX\b`),
-		negRe:   regexp.MustCompile(`(?is)\b(CONCURRENTLY|IF\s+EXISTS)\b`),
+		id:    RuleDropIndexNonConcurrent,
+		re:    regexp.MustCompile(`(?is)\bDROP\s+INDEX\b`),
+		negRe: regexp.MustCompile(`(?is)\b(CONCURRENTLY|IF\s+EXISTS)\b`),
 		// We allow DROP INDEX IF EXISTS since it's still safe, but warn
 		// on plain DROP INDEX without any qualifier.
 		message: "DROP INDEX without CONCURRENTLY or IF EXISTS can break reads under load; use DROP INDEX CONCURRENTLY",
@@ -351,7 +349,7 @@ func findStatementLine(_ []string, offset int, content []byte) int {
 		offset = len(content)
 	}
 	line := 1
-	for i := 0; i < offset; i++ {
+	for i := range offset {
 		if content[i] == '\n' {
 			line++
 		}

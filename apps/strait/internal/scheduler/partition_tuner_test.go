@@ -181,9 +181,9 @@ func TestPartitionTuner_RotatesHotAsTimeAdvances(t *testing.T) {
 
 func TestParsePartitionMonth(t *testing.T) {
 	cases := []struct {
-		name    string
-		wantY   int
-		wantM   int
+		name  string
+		wantY int
+		wantM int
 	}{
 		{"job_runs_p2026_04", 2026, 4},
 		{"job_runs_p2020_12", 2020, 12},

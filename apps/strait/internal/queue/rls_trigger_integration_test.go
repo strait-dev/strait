@@ -34,11 +34,11 @@ func withRLSSession(t *testing.T, ctx context.Context, projectID string, fn func
 	}
 	defer tx.Rollback(ctx)
 
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
+		t.Fatalf("set project: %v", err)
+	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
 		t.Fatalf("set role: %v", err)
-	}
-	if _, err := tx.Exec(ctx, "SET LOCAL app.current_project_id = $1", projectID); err != nil {
-		t.Fatalf("set project: %v", err)
 	}
 	fn(tx)
 	if err := tx.Commit(ctx); err != nil {

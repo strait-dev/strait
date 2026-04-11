@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/store"
@@ -22,7 +23,7 @@ type HealthSampler struct {
 	metrics  *QueueMetrics
 	logger   *slog.Logger
 
-	iterations int64
+	iterations atomic.Int64
 }
 
 // NewHealthSampler builds a sampler using the shared queue metrics singleton.
@@ -59,7 +60,7 @@ func (h *HealthSampler) Run(ctx context.Context) {
 
 // Iterations returns the number of completed sample iterations. Exposed for
 // tests.
-func (h *HealthSampler) Iterations() int64 { return h.iterations }
+func (h *HealthSampler) Iterations() int64 { return h.iterations.Load() }
 
 // SampleOnce runs a single sample iteration. It catches panics so a
 // malformed pg_stat_user_tables row (or a dropped partition mid-query)
@@ -69,7 +70,7 @@ func (h *HealthSampler) SampleOnce(ctx context.Context) {
 		if r := recover(); r != nil {
 			h.logger.Warn("queue health sampler panic recovered", "panic", r)
 		}
-		h.iterations++
+		h.iterations.Add(1)
 	}()
 
 	h.samplePartitions(ctx)
