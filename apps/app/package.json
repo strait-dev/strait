@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:node": "BUILD_TARGET=node vite build",
     "start": "wrangler dev --config ../../wrangler.jsonc",
+    "start:node": "node ./scripts/node-server.mjs",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy --config ../../wrangler.jsonc",
     "biome:lint": "biome lint ./src ./e2e",

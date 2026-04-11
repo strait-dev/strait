@@ -11,6 +11,51 @@ import { ngrok } from "vite-plugin-ngrok";
 const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
 
 /**
+ * Build target selector. Defaults to `cloudflare` so `vite build` and the
+ * strait.dev production deploy remain unchanged. `BUILD_TARGET=node` drops
+ * the Cloudflare plugin and produces a self-contained SSR bundle at
+ * `dist/server/server.js`, wrapped for HTTP by `scripts/node-server.mjs`
+ * and used by the self-host Docker image.
+ */
+const buildTarget: "cloudflare" | "node" =
+  process.env.BUILD_TARGET === "node" ? "node" : "cloudflare";
+
+/**
+ * Virtual-module shim for the `cloudflare:workers` import scheme.
+ *
+ * Used only when `BUILD_TARGET=node`. `auth.server.ts` imports `env` from
+ * `cloudflare:workers` to access the Hyperdrive binding; in Node that
+ * specifier does not exist and would crash the bundle. The resolver
+ * catches the specifier and returns an empty-env virtual module, letting
+ * `getAuthConnectionString()` fall through to `process.env.AUTH_DATABASE_URL`.
+ *
+ * Also needed: the Node SSR build externalizes `node_modules` by default,
+ * which breaks named imports from CommonJS packages (e.g. `@opentelemetry/
+ * semantic-conventions`). The Node branch sets `ssr.noExternal: true` below
+ * to force inline bundling, making the output self-contained.
+ *
+ * Mirrors the runtime loader shim at `apps/app/scripts/cloudflare-shim.mjs`
+ * used by the migrate script.
+ */
+function shimCloudflareWorkers(): Plugin {
+  const virtualId = "\0virtual:cloudflare-workers";
+  return {
+    name: "shim-cloudflare-workers",
+    enforce: "pre",
+    resolveId(id) {
+      if (id === "cloudflare:workers") return virtualId;
+      return null;
+    },
+    load(id) {
+      if (id === virtualId) {
+        return "export const env = {};\nexport default {};\n";
+      }
+      return null;
+    },
+  };
+}
+
+/**
  * Vite plugin that serves /.well-known/oauth-authorization-server and
  * /.well-known/openid-configuration by calling the Better Auth API
  * programmatically. TanStack Start's file router ignores dot-prefixed
@@ -63,10 +108,14 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
-    cloudflare({
-      configPath: "../../wrangler.jsonc",
-      viteEnvironment: { name: "ssr" },
-    }),
+    ...(buildTarget === "cloudflare"
+      ? [
+          cloudflare({
+            configPath: "../../wrangler.jsonc",
+            viteEnvironment: { name: "ssr" },
+          }),
+        ]
+      : [shimCloudflareWorkers()]),
     wellKnownOAuthPlugin(),
     devtools(),
     tailwindcss(),
@@ -100,6 +149,16 @@ export default defineConfig({
       ],
     },
   },
+  // Node target: inline-bundle all deps so `node dist/server/server.js`
+  // is self-contained. Without this, Vite leaves node_modules as
+  // externals and Node's ESM loader fails on CJS named imports.
+  ...(buildTarget === "node"
+    ? {
+        ssr: {
+          noExternal: true,
+        },
+      }
+    : {}),
   server: {
     port: 5173,
     host: true,
