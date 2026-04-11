@@ -89,6 +89,7 @@ type agentStore interface {
 	DeleteJob(ctx context.Context, id string) error
 	CreateAgent(ctx context.Context, agent *domain.Agent) error
 	GetAgent(ctx context.Context, id string) (*domain.Agent, error)
+	GetAgentByJobID(ctx context.Context, jobID string) (*domain.Agent, error)
 	ListAgents(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Agent, error)
 	UpdateAgent(ctx context.Context, agent *domain.Agent) error
 	DeleteAgent(ctx context.Context, id string) error
@@ -1427,24 +1428,20 @@ func (s *localService) scheduleAgentRetry(ctx context.Context, failedRun *domain
 		}),
 	})
 
-	// Look up the agent by scanning project agents for the matching job ID.
-	// Paginate to avoid missing agents if the project has many.
-	var foundAgent *domain.Agent
-	var cursor *time.Time
-	for foundAgent == nil {
-		batch, listErr := s.store.ListAgents(ctx, failedRun.ProjectID, 100, cursor)
-		if listErr != nil || len(batch) == 0 {
+	// Look up the agent by its backing job_id in a single index-unique
+	// read. `agents.job_id` has a UNIQUE constraint (see migration
+	// 000163_agents.up.sql line 15), so this is O(1). Pre-F5 the code
+	// paginated ListAgents scanning each batch for a matching JobID
+	// because the agentStore interface didn't expose GetAgentByJobID.
+	foundAgent, err := s.store.GetAgentByJobID(ctx, failedRun.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrAgentNotFound) {
+			// Not an agent-backed run, nothing to reschedule.
 			return
 		}
-		for _, a := range batch {
-			if a.JobID == failedRun.JobID {
-				agentCopy := a
-				foundAgent = &agentCopy
-				break
-			}
-		}
-		last := batch[len(batch)-1]
-		cursor = &last.CreatedAt
+		slog.Warn("scheduleAgentRetry: failed to resolve agent by job_id",
+			"job_id", failedRun.JobID, "error", err)
+		return
 	}
 
 	deployment, depErr := s.store.GetLatestAgentDeployment(ctx, foundAgent.ID)

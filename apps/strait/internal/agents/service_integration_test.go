@@ -1509,3 +1509,59 @@ func mustStoreWithEncryption(t *testing.T) *store.Queries {
 	q.SetSecretEncryptionKey("test-secret-encryption-key-32chr!")
 	return q
 }
+
+// ---------------------------------------------------------------------------
+// Phase F5: scheduleAgentRetry uses GetAgentByJobID
+// ---------------------------------------------------------------------------
+
+// TestGetAgentByJobID_ResolvesBackingJobOwner is the F5 regression
+// net: the agents service uses store.GetAgentByJobID to resolve the
+// agent that owns a failed run's backing job, instead of the old
+// paginated ListAgents scan. The lookup must be O(1) and return the
+// correct agent, and the store method must be reachable through the
+// service's narrow agentStore interface.
+func TestGetAgentByJobID_ResolvesBackingJobOwner(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Retry Owner",
+		Slug:      "retry-owner",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	// Look up the agent by its backing job_id. This is what
+	// scheduleAgentRetry now calls internally.
+	got, err := q.GetAgentByJobID(ctx, agent.JobID)
+	if err != nil {
+		t.Fatalf("GetAgentByJobID() error = %v", err)
+	}
+	if got.ID != agent.ID {
+		t.Fatalf("GetAgentByJobID() = %q, want %q", got.ID, agent.ID)
+	}
+}
+
+// TestGetAgentByJobID_UnknownJobReturnsNotFound verifies the
+// failure path scheduleAgentRetry takes when the failed run belongs
+// to a plain job (no agent) rather than an agent backing job. The
+// retry path must short-circuit cleanly in that case.
+func TestGetAgentByJobID_UnknownJobReturnsNotFound(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+
+	_, err := q.GetAgentByJobID(ctx, "job-with-no-agent-"+newID())
+	if !errors.Is(err, store.ErrAgentNotFound) {
+		t.Fatalf("err = %v, want ErrAgentNotFound", err)
+	}
+}
