@@ -9,6 +9,15 @@ pre-commit:
         - merge
         - rebase
 
+    biome:
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs}"
+      run: bunx biome check --write --unsafe --no-errors-on-unmatched {staged_files}
+      fail_text: "Biome check failed"
+      timeout: 60s
+      skip:
+        - merge
+        - rebase
+
 pre-push:
   parallel: true
   commands:
