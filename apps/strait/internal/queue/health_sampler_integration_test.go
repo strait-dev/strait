@@ -7,8 +7,40 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/domain"
 	"strait/internal/queue"
 )
+
+// mustEnqueueRun is a tiny helper used by the Phase 2 and Phase 3 tests. The
+// shared helper lives in queue_integration_test.go but does not enqueue, so
+// we define the enqueue step locally.
+func mustEnqueueRun(t *testing.T, ctx context.Context, q *queue.PostgresQueue, job *domain.Job) *domain.JobRun {
+	t.Helper()
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Priority:  1,
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	return run
+}
+
+// waitFor polls cond until it returns true or timeout elapses, failing the
+// test on timeout. Used by several Phase 2/3 integration tests.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %s", timeout)
+}
 
 func TestHealthSampler_HappyPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
