@@ -404,6 +404,72 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	return q.DequeueNWithCursor(ctx, n, nil)
 }
 
+// DequeueNFullyDenormalized is the R2 Phase 6 variant that drops the
+// `JOIN jobs` entirely by reading enabled/paused/max_concurrency from the
+// denormalized columns on job_runs. The fan-out trigger on jobs keeps the
+// columns current for non-terminal rows, so the dequeue hot path touches
+// only job_runs + job_active_counts.
+func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFullyDenormalized")
+	defer span.End()
+
+	q.setStatementTimeout(ctx)
+
+	query := fmt.Sprintf(`
+		WITH claimed AS (
+			SELECT jr.id, jr.created_at
+			FROM job_runs jr
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = '%s'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1
+		), updated AS (
+			UPDATE job_runs
+			SET status = '%s', started_at = NOW()
+			WHERE id IN (SELECT id FROM claimed)
+			RETURNING %s
+		)
+		SELECT %s
+		FROM updated
+		ORDER BY created_at ASC`, domain.StatusQueued, q.dequeueOrderByClause(), domain.StatusDequeued, dequeueColumns, dequeueColumns)
+
+	rows, err := q.db.Query(ctx, query, n)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue fully denormalized: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, n)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue fully denormalized scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue fully denormalized rows: %w", err)
+	}
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
+}
+
 // DequeueNDenormalized is the Phase 6 variant that replaces the
 // COUNT-over-active-rows CTE with a lookup against the job_active_counts
 // table. The maintenance trigger guarantees the counter stays in sync with
