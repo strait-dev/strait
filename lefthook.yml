@@ -5,6 +5,7 @@ pre-commit:
   follow: true
   commands:
     gitleaks:
+      priority: 1
       run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
       fail_text: "Secrets detected in staged files"
       timeout: 30s
@@ -13,6 +14,7 @@ pre-commit:
         - rebase
 
     biome:
+      priority: 2
       glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
       run: bunx biome check --write --unsafe --no-errors-on-unmatched {staged_files}
       stage_fixed: true
