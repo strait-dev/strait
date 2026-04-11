@@ -29,7 +29,6 @@ func withShortRetries(t *testing.T) {
 // TestDrainer_RetriesTransientErrors: store fails twice then succeeds.
 // Expectation: event is written exactly once, no deadletter writes.
 func TestDrainer_RetriesTransientErrors(t *testing.T) {
-	t.Parallel()
 	withShortRetries(t)
 
 	var attempts, writes, dlqCalls atomic.Int32
@@ -67,7 +66,6 @@ func TestDrainer_RetriesTransientErrors(t *testing.T) {
 // TestDrainer_DeadlettersAfterExhaustingRetries: store always fails.
 // Expectation: event ends up in the deadletter with retry_count=3.
 func TestDrainer_DeadlettersAfterExhaustingRetries(t *testing.T) {
-	t.Parallel()
 	withShortRetries(t)
 
 	var mu sync.Mutex
@@ -118,7 +116,6 @@ func TestDrainer_DeadlettersAfterExhaustingRetries(t *testing.T) {
 // TestDrainer_LogsIfDeadletterAlsoFails: both primary and DLQ fail.
 // Expectation: no crash, event is lost with deadletter_failed counter.
 func TestDrainer_LogsIfDeadletterAlsoFails(t *testing.T) {
-	t.Parallel()
 	withShortRetries(t)
 
 	var dlqCalls atomic.Int32
@@ -149,7 +146,6 @@ func TestDrainer_LogsIfDeadletterAlsoFails(t *testing.T) {
 // requires 2 retries. All 5 must be written in submission order.
 // The retry blocks the drainer (documented trade-off).
 func TestDrainer_RetriesDoNotReorderEvents(t *testing.T) {
-	t.Parallel()
 	withShortRetries(t)
 
 	var mu sync.Mutex
