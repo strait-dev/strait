@@ -142,6 +142,11 @@ func (w *DBWatchdog) sampleOnce(ctx context.Context) {
 	}()
 	defer w.sampleCount.Add(1)
 
+	// R2 Phase 2: exclude the watchdog's own connection from the scan. The
+	// application_name filter ensures the watchdog does not see itself as
+	// a long transaction when the pool is saturated; cmd/strait sets the
+	// matching application_name on the watchdog-owned connection via the
+	// AfterConnect hook.
 	const q = `
 SELECT
   pid,
@@ -154,6 +159,7 @@ SELECT
 FROM pg_stat_activity
 WHERE backend_type = 'client backend'
   AND pid <> pg_backend_pid()
+  AND COALESCE(application_name, '') NOT IN ('strait-watchdog', 'strait-reconciler')
   AND (xact_start IS NOT NULL OR state = 'idle in transaction')
 `
 	rows, err := w.pool.Query(ctx, q)
