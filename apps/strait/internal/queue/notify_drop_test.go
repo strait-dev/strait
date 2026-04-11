@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -22,8 +23,7 @@ func TestQueueNotifier_DroppedNotifications_BufferFull(t *testing.T) {
 		select {
 		case n.wake <- struct{}{}:
 		default:
-			// Replicate atomic increment; metrics are nop without SDK.
-			n.droppedCount++
+			atomic.AddUint64(&n.droppedCount, 1)
 			_ = ctx
 		}
 	}
@@ -59,23 +59,25 @@ func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
 				select {
 				case n.wake <- struct{}{}:
 				default:
-					// Drop path — use atomic to match production code.
-					// syncAtomic not used here to keep the test minimal;
-					// the production code uses atomic.AddUint64 which is
-					// already covered in the real listenLoop test.
-					n.droppedCount++
+					// Match production code path: atomic increment.
+					atomic.AddUint64(&n.droppedCount, 1)
 				}
 			}
 		}()
 	}
 	wg.Wait()
 
-	// Total sends = senders * perSender = 2048. The wake channel can hold
-	// exactly 1 buffered element that may or may not have been drained.
+	// Total sends = senders * perSender = 2048. The wake channel is never
+	// drained in this test, so it holds at most 1 element. Every send
+	// beyond the first must be counted as dropped. Allow slack for the
+	// buffer element plus scheduler-induced dropping.
 	total := uint64(senders * perSender)
 	dropped := n.DroppedNotifications()
 	accepted := total - dropped
 	if accepted > 1 {
 		t.Errorf("more than 1 accepted into a buffer=1 channel: accepted=%d dropped=%d", accepted, dropped)
+	}
+	if dropped == 0 {
+		t.Errorf("expected some notifications to be dropped, got 0")
 	}
 }

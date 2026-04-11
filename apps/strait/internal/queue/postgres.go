@@ -401,12 +401,29 @@ func (q *PostgresQueue) recordClaimMetrics(ctx context.Context, run *domain.JobR
 }
 
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return q.DequeueNWithCursor(ctx, n, nil)
+}
+
+// DequeueNWithCursor is the Phase 5 cursor-aware variant. When cursor is
+// non-nil and has a valid snapshot, its (created_at, id) pair is added to
+// the claim predicate so Postgres can skip past already-visited heap tuples
+// during B-tree descent. On empty result (no runs claimable beyond the
+// cursor) the cursor is reset so older rows remain reachable.
+func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *ClaimCursor) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
 	defer span.End()
 
 	q.setStatementTimeout(ctx)
 
 	orderBy := q.dequeueOrderByClause()
+
+	cursorCreated, cursorID, cursorValid := cursor.Snapshot()
+	args := []any{n}
+	cursorClause := ""
+	if cursorValid {
+		cursorClause = "AND (jr.created_at, jr.id) > ($2, $3)"
+		args = append(args, cursorCreated, cursorID)
+	}
 
 	query := fmt.Sprintf(`
 		WITH %s,
@@ -421,6 +438,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  %s
+			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1
@@ -432,10 +450,11 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 		)
 		SELECT %s
 		FROM updated
-		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
+		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, cursorClause, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
 
-	rows, err := q.db.Query(ctx, query, n)
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
+		cursor.Reset()
 		return nil, fmt.Errorf("dequeue runs: %w", err)
 	}
 	defer rows.Close()
@@ -451,6 +470,19 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("dequeue runs rows: %w", err)
+	}
+
+	if len(runs) == 0 {
+		// Empty claim => reset cursor so older rows are reachable next tick.
+		cursor.Reset()
+	} else {
+		// Advance cursor to the max (created_at, id) we observed.
+		for i := range runs {
+			cursor.Advance(runs[i].CreatedAt, runs[i].ID)
+		}
+	}
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
 	}
 
 	return runs, nil

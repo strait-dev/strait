@@ -9,9 +9,18 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 
 	"github.com/getsentry/sentry-go"
 )
+
+// cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
+// so the executor can thread a Phase 5 claim cursor through DequeueN without
+// expanding the base queue.Queue interface (and therefore without breaking
+// every mock in the repository).
+type cursorAwareQueue interface {
+	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
+}
 
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
@@ -41,12 +50,20 @@ func (e *Executor) poll(ctx context.Context) {
 
 	var runs []domain.JobRun
 	var err error
-	if len(e.partitionCycle) > 0 {
+	switch {
+	case len(e.partitionCycle) > 0:
 		runs, err = e.dequeueAcrossPartitions(ctx, available)
-	} else if e.dequeueStrategy == "fair_round_robin" {
+	case e.dequeueStrategy == "fair_round_robin":
 		runs, err = e.queue.DequeueNFair(ctx, available)
-	} else {
-		runs, err = e.queue.DequeueN(ctx, available)
+	default:
+		// Phase 5: prefer cursor-aware dequeue when the concrete queue
+		// implementation supports it. Falls back to plain DequeueN for
+		// tests that pass a mock.
+		if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
+			runs, err = cq.DequeueNWithCursor(ctx, available, e.claimCursor)
+		} else {
+			runs, err = e.queue.DequeueN(ctx, available)
+		}
 	}
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())

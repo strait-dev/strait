@@ -126,6 +126,7 @@ type Executor struct {
 	callbackWG               sync.WaitGroup
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
+	claimCursor              *queue.ClaimCursor
 }
 
 type ConcurrencyLimitProvider interface {
@@ -277,6 +278,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
+		claimCursor:              queue.NewClaimCursor(60 * time.Second),
 	}
 }
 
