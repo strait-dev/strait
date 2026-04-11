@@ -304,3 +304,83 @@ func TestGetAgentByJobID(t *testing.T) {
 		t.Errorf("JobID = %q, want %q", got.JobID, job.ID)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase G1: UpdateAgentSpendingLimit round-trip
+// ---------------------------------------------------------------------------
+
+// TestUpdateAgentSpendingLimit_Roundtrip exercises the real SQL UPDATE
+// path of UpdateAgentSpendingLimit, which previously had coverage only
+// via API handler mocks and scheduler mocks (no store-level integration
+// test). The test seeds an organization_subscriptions row, updates the
+// agent spending limit, reads it back via GetOrgAgentSpendingLimit, and
+// asserts the value round-trips.
+func TestUpdateAgentSpendingLimit_Roundtrip(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-g1-" + newID()
+	// UpdateAgentSpendingLimit targets organization_subscriptions.
+	// Seed a row directly so the UPDATE has something to modify.
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO organization_subscriptions (
+			id, org_id, plan_tier, status,
+			agent_plan_tier, agent_spending_limit_microusd
+		) VALUES ($1, $2, 'free', 'active', 'agent_free', -1)
+	`, "sub-g1-"+newID(), orgID); err != nil {
+		t.Fatalf("seed subscription error = %v", err)
+	}
+
+	// Baseline: unset limit reads back as -1 (per the COALESCE in
+	// GetOrgAgentSpendingLimit).
+	if got, err := q.GetOrgAgentSpendingLimit(ctx, orgID); err != nil {
+		t.Fatalf("GetOrgAgentSpendingLimit(baseline) error = %v", err)
+	} else if got != -1 {
+		t.Fatalf("baseline limit = %d, want -1", got)
+	}
+
+	// Set a positive limit and read back.
+	if err := q.UpdateAgentSpendingLimit(ctx, orgID, 50_000_000); err != nil {
+		t.Fatalf("UpdateAgentSpendingLimit(positive) error = %v", err)
+	}
+	if got, err := q.GetOrgAgentSpendingLimit(ctx, orgID); err != nil {
+		t.Fatalf("GetOrgAgentSpendingLimit(positive) error = %v", err)
+	} else if got != 50_000_000 {
+		t.Fatalf("positive limit = %d, want 50000000", got)
+	}
+
+	// Overwriting the limit works end-to-end.
+	if err := q.UpdateAgentSpendingLimit(ctx, orgID, 10_000_000); err != nil {
+		t.Fatalf("UpdateAgentSpendingLimit(overwrite) error = %v", err)
+	}
+	if got, err := q.GetOrgAgentSpendingLimit(ctx, orgID); err != nil {
+		t.Fatalf("GetOrgAgentSpendingLimit(overwrite) error = %v", err)
+	} else if got != 10_000_000 {
+		t.Fatalf("overwritten limit = %d, want 10000000", got)
+	}
+
+	// Disable the cap via the -1 sentinel.
+	if err := q.UpdateAgentSpendingLimit(ctx, orgID, -1); err != nil {
+		t.Fatalf("UpdateAgentSpendingLimit(disable) error = %v", err)
+	}
+	if got, err := q.GetOrgAgentSpendingLimit(ctx, orgID); err != nil {
+		t.Fatalf("GetOrgAgentSpendingLimit(disable) error = %v", err)
+	} else if got != -1 {
+		t.Fatalf("disabled limit = %d, want -1", got)
+	}
+}
+
+// TestUpdateAgentSpendingLimit_UnknownOrgIsNoOp confirms that calling
+// the update against a nonexistent org is a silent no-op (zero rows
+// affected) rather than an error — matching the permissive shape the
+// scheduler mocks assume.
+func TestUpdateAgentSpendingLimit_UnknownOrgIsNoOp(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	if err := q.UpdateAgentSpendingLimit(ctx, "org-nonexistent-"+newID(), 1000); err != nil {
+		t.Fatalf("UpdateAgentSpendingLimit(unknown) error = %v, want nil no-op", err)
+	}
+}

@@ -1662,6 +1662,188 @@ func TestListRunsByJobAndAgentDeployment_RespectsLimitOffset(t *testing.T) {
 // Phase F4: ListAgentMessagesByAgent cursor tie-breaker
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase G2: ListAgentMessagesByChain LIMIT cap assertion
+// ---------------------------------------------------------------------------
+
+// TestListAgentMessagesByChain_EnforcesLimitCap pins the Phase E1.2
+// cap of maxAgentMessagesPerChain = 100. Before this test a regression
+// that removed the LIMIT from the SQL would pass every other chain
+// test because they all work with small datasets.
+//
+// Insert 150 messages into a single chain_id (chain_depth cycles 1..20
+// per the CHECK constraint) and assert exactly 100 rows come back.
+func TestListAgentMessagesByChain_EnforcesLimitCap(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	chainID := "chain-g2-" + newID()
+	const want = 100
+	const insert = 150
+	for i := 0; i < insert; i++ {
+		// chain_depth must satisfy the CHECK (1..20); cycle.
+		depth := (i % 20) + 1
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO agent_messages (
+				id, project_id, source_agent_id, target_agent_id,
+				source_run_id, chain_id, chain_depth, payload, status
+			) VALUES ($1, $2, $3, $3, '', $4, $5, '{}'::jsonb, 'pending')
+		`, newID(), fx.project.ID, fx.agent.ID, chainID, depth); err != nil {
+			t.Fatalf("insert msg %d error = %v", i, err)
+		}
+	}
+
+	got, err := q.ListAgentMessagesByChain(ctx, chainID)
+	if err != nil {
+		t.Fatalf("ListAgentMessagesByChain() error = %v", err)
+	}
+	if len(got) != want {
+		t.Fatalf("got %d messages, want %d (LIMIT cap regression)", len(got), want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase G3: GetAgentTopologyEdges LIMIT cap assertion
+// ---------------------------------------------------------------------------
+
+// TestGetAgentTopologyEdges_EnforcesLimitCap pins the Phase E1.2 cap
+// of maxAgentTopologyEdges = 500. Inserts 501 distinct
+// (source_agent_id, target_agent_id) pairs in one project and asserts
+// the returned edge list has at most 500 rows. A regression that
+// dropped the LIMIT would silently return all 501+.
+func TestGetAgentTopologyEdges_EnforcesLimitCap(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-g3", Name: "G3 Topology Cap"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, project.ID)
+
+	// Build a single "source" agent plus 501 "target" agents so we
+	// get 501 distinct (source, target) edges for the GROUP BY.
+	sourceAgent := &domain.Agent{
+		ID: newID(), ProjectID: project.ID, JobID: job.ID,
+		Name: "Source", Slug: "source-g3-" + newID(), Model: "gpt-5.4",
+		Config: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, sourceAgent); err != nil {
+		t.Fatalf("CreateAgent(source) error = %v", err)
+	}
+
+	const insertEdges = 501
+	const wantCap = 500
+	targetAgents := make([]string, 0, insertEdges)
+	for i := 0; i < insertEdges; i++ {
+		// Each target agent needs its own backing job row because
+		// agents.job_id has a UNIQUE constraint.
+		targetJob := mustCreateJob(t, ctx, q, project.ID)
+		target := &domain.Agent{
+			ID: newID(), ProjectID: project.ID, JobID: targetJob.ID,
+			Name: "Target", Slug: "target-g3-" + newID(), Model: "gpt-5.4",
+			Config: json.RawMessage(`{}`),
+		}
+		if err := q.CreateAgent(ctx, target); err != nil {
+			t.Fatalf("CreateAgent(target %d) error = %v", i, err)
+		}
+		targetAgents = append(targetAgents, target.ID)
+	}
+
+	// One message per (source, target) edge so the GROUP BY yields
+	// exactly insertEdges rows before the LIMIT cap trims it.
+	for _, targetID := range targetAgents {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO agent_messages (
+				id, project_id, source_agent_id, target_agent_id,
+				source_run_id, chain_id, chain_depth, payload, status
+			) VALUES ($1, $2, $3, $4, '', $5, 1, '{}'::jsonb, 'pending')
+		`, newID(), project.ID, sourceAgent.ID, targetID, "chain-g3-"+newID()); err != nil {
+			t.Fatalf("insert msg error = %v", err)
+		}
+	}
+
+	edges, err := q.GetAgentTopologyEdges(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetAgentTopologyEdges() error = %v", err)
+	}
+	if len(edges) > wantCap {
+		t.Fatalf("got %d edges, want at most %d (LIMIT cap regression)", len(edges), wantCap)
+	}
+	if len(edges) != wantCap {
+		t.Fatalf("got %d edges, want exactly %d", len(edges), wantCap)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase G4: ListAgentDeployments cursor pagination
+// ---------------------------------------------------------------------------
+
+// TestListAgentDeployments_CursorPagination exercises the cursor-
+// based paging path that the pre-G4 tests only covered in the empty-
+// agent case. Creates 5 deployments and pages through them in batches
+// of 2, asserting every deployment is returned exactly once across
+// the pages with the expected newest-first ordering.
+func TestListAgentDeployments_CursorPagination(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	// Create deployments with a small delay so created_at values
+	// are distinct — cursor pagination keys off created_at.
+	const total = 5
+	expected := make([]string, total)
+	for i := 0; i < total; i++ {
+		d := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, i+1)
+		expected[total-1-i] = d.ID // newest-first order
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// Walk with page size 2. The cursor advances using the oldest
+	// created_at from the current page, matching how the store's
+	// cursor comparison (created_at < $cursor) works.
+	var got []string
+	var cursor *time.Time
+	for len(got) < total {
+		page, err := q.ListAgentDeployments(ctx, fx.agent.ID, 2, cursor)
+		if err != nil {
+			t.Fatalf("ListAgentDeployments() error = %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, d := range page {
+			got = append(got, d.ID)
+		}
+		last := page[len(page)-1].CreatedAt
+		cursor = &last
+	}
+
+	if len(got) != total {
+		t.Fatalf("paged through %d deployments, want %d (cursor=%+v, seen=%v)", len(got), total, cursor, got)
+	}
+	// Every expected ID appears exactly once.
+	seen := map[string]int{}
+	for _, id := range got {
+		seen[id]++
+	}
+	for _, id := range expected {
+		if seen[id] != 1 {
+			t.Errorf("deployment %s appeared %d times across pages, want 1", id, seen[id])
+		}
+	}
+	// Ordering across the merged pages must be newest-first.
+	for i, id := range got {
+		if id != expected[i] {
+			t.Errorf("page[%d] = %q, want %q (ordering regression)", i, id, expected[i])
+		}
+	}
+}
+
 // TestListAgentMessagesByAgent_CursorTieBreakerOnIdenticalTimestamps
 // pins the Phase F4 fix: two messages landing in the same millisecond
 // must paginate deterministically with no duplicates and no gaps.
