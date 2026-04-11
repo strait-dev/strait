@@ -569,3 +569,124 @@ func TestRLS_AgentUsageRecords_CrossTenantIsolation(t *testing.T) {
 		t.Fatalf("got %d agent_usage_records visible across tenants, want 0", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase F3: run_iterations + run_events cross-tenant isolation
+// ---------------------------------------------------------------------------
+
+// TestRLS_RunIterations_CrossTenantIsolation verifies the Phase F3
+// EXISTS-through-job_runs policy on run_iterations. An iteration
+// created under project A must be invisible to project B, even via
+// CountRunIterations which takes a raw run_id.
+func TestRLS_RunIterations_CrossTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	projA := "proj-rls-iter-a-" + newID()
+	projB := "proj-rls-iter-b-" + newID()
+	for _, p := range []string{projA, projB} {
+		if err := q.CreateProject(ctx, &domain.Project{ID: p, OrgID: "org-rls-iter-" + p, Name: p}); err != nil {
+			t.Fatalf("CreateProject(%s) error = %v", p, err)
+		}
+	}
+	jobA := mustCreateJob(t, ctx, q, projA)
+	runA := &domain.JobRun{
+		ID: newID(), JobID: jobA.ID, ProjectID: projA,
+		Status: domain.StatusExecuting, Attempt: 1,
+		TriggeredBy: domain.TriggerManual,
+	}
+	if err := q.CreateRun(ctx, runA); err != nil {
+		t.Fatalf("CreateRun(A) error = %v", err)
+	}
+
+	// Insert a run_iteration for project A directly — there's no
+	// tenant-context requirement on the writer.
+	if err := q.CreateRunIteration(ctx, &domain.RunIteration{
+		RunID:       runA.ID,
+		Iteration:   1,
+		Description: "cross-tenant-must-not-leak",
+	}); err != nil {
+		t.Fatalf("CreateRunIteration(A) error = %v", err)
+	}
+
+	// Sanity: the iteration is visible to its own project.
+	if got := countAsProject(t, ctx, testDB.Pool, projA,
+		"SELECT COUNT(*) FROM run_iterations WHERE run_id = $1", runA.ID); got != 1 {
+		t.Fatalf("own-tenant count = %d, want 1", got)
+	}
+
+	// Under project B's RLS context, the iteration must be invisible
+	// via both a direct count and via CountRunIterations.
+	if got := countAsProject(t, ctx, testDB.Pool, projB,
+		"SELECT COUNT(*) FROM run_iterations WHERE run_id = $1", runA.ID); got != 0 {
+		t.Fatalf("cross-tenant count = %d, want 0", got)
+	}
+
+	runAsProject(t, ctx, projB, false, func(qtx *store.Queries) {
+		if got, err := qtx.CountRunIterations(ctx, runA.ID); err != nil {
+			t.Fatalf("CountRunIterations() error = %v", err)
+		} else if got != 0 {
+			t.Fatalf("CountRunIterations() = %d, want 0 under cross-tenant RLS", got)
+		}
+	})
+}
+
+// TestRLS_RunEvents_CrossTenantIsolation verifies the Phase F3
+// EXISTS-through-job_runs policy on run_events. An event created
+// under project A carries a 'must-not-leak' marker in its data;
+// project B must never observe any row.
+func TestRLS_RunEvents_CrossTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	projA := "proj-rls-evt-a-" + newID()
+	projB := "proj-rls-evt-b-" + newID()
+	for _, p := range []string{projA, projB} {
+		if err := q.CreateProject(ctx, &domain.Project{ID: p, OrgID: "org-rls-evt-" + p, Name: p}); err != nil {
+			t.Fatalf("CreateProject(%s) error = %v", p, err)
+		}
+	}
+	jobA := mustCreateJob(t, ctx, q, projA)
+	runA := &domain.JobRun{
+		ID: newID(), JobID: jobA.ID, ProjectID: projA,
+		Status: domain.StatusExecuting, Attempt: 1,
+		TriggeredBy: domain.TriggerManual,
+	}
+	if err := q.CreateRun(ctx, runA); err != nil {
+		t.Fatalf("CreateRun(A) error = %v", err)
+	}
+	if err := q.InsertEvent(ctx, &domain.RunEvent{
+		RunID:   runA.ID,
+		Type:    "error",
+		Level:   "error",
+		Message: "must-not-leak",
+		Data:    mustJSONForTest(map[string]any{"secret": "must-not-leak"}),
+	}); err != nil {
+		t.Fatalf("InsertEvent(A) error = %v", err)
+	}
+
+	// Own-tenant count is 1.
+	if got := countAsProject(t, ctx, testDB.Pool, projA,
+		"SELECT COUNT(*) FROM run_events WHERE run_id = $1", runA.ID); got != 1 {
+		t.Fatalf("own-tenant count = %d, want 1", got)
+	}
+
+	// Cross-tenant count must be 0 via both direct SQL and via the
+	// ListEvents store method.
+	if got := countAsProject(t, ctx, testDB.Pool, projB,
+		"SELECT COUNT(*) FROM run_events WHERE run_id = $1", runA.ID); got != 0 {
+		t.Fatalf("cross-tenant raw count = %d, want 0", got)
+	}
+
+	runAsProject(t, ctx, projB, false, func(qtx *store.Queries) {
+		events, err := qtx.ListEvents(ctx, runA.ID, 10, nil)
+		if err != nil {
+			t.Fatalf("ListEvents() error = %v", err)
+		}
+		if len(events) != 0 {
+			t.Fatalf("got %d events under cross-tenant RLS, want 0 (leaked: %+v)", len(events), events)
+		}
+	})
+}
