@@ -1,0 +1,21 @@
+-- Composite index for the per-project run-count quota path.
+--
+-- CountProjectRunsSince (internal/store/runs.go:222) runs
+--   SELECT COUNT(*) FROM job_runs WHERE project_id = $1 AND created_at >= $2
+-- on every RunAgent call (monthly quota gate at
+-- internal/agents/service.go:667) and is not served by any existing
+-- composite index:
+--
+--   * idx_runs_project_status (project_id, status, created_at DESC)
+--     has the right prefix but forces a scan across all statuses.
+--   * idx_job_runs_execution_mode_managed is partial on
+--     execution_mode='managed' and ignores the quota query entirely.
+--
+-- With this unconditional composite the in-partition scan reduces to
+-- an index-only range on project_id + created_at. job_runs is
+-- range-partitioned by created_at, so Postgres still prunes
+-- partitions outside the time window before the index is consulted.
+--
+-- Phase F1 of the agents hardening work.
+CREATE INDEX IF NOT EXISTS idx_job_runs_project_id_created_at
+    ON job_runs (project_id, created_at);

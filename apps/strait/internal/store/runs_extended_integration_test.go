@@ -2343,3 +2343,90 @@ func TestRunResource_ListRunResourceSnapshots_TimeFilter(t *testing.T) {
 		t.Fatalf("len = %d, want 0 (past window)", len(snapshots))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase F1: idx_job_runs_project_id_created_at verification
+// ---------------------------------------------------------------------------
+
+// TestCountProjectRunsSince_IndexCoverage is a correctness guard for
+// the Phase F1 composite index on (project_id, created_at). The
+// index is additive — it doesn't change query results — so this
+// test pins the expected counts across two projects and a time
+// window, matching how the RunAgent monthly quota check uses it.
+//
+// This is not a benchmark; the new index is a pure additive index
+// covering CountProjectRunsSince which fires on every RunAgent call.
+// If the query shape or result ever drifts, this test catches it.
+func TestCountProjectRunsSince_IndexCoverage(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projA := &domain.Project{ID: newID(), OrgID: "org-f1", Name: "F1 A"}
+	projB := &domain.Project{ID: newID(), OrgID: "org-f1", Name: "F1 B"}
+	if err := q.CreateProject(ctx, projA); err != nil {
+		t.Fatalf("CreateProject(A) error = %v", err)
+	}
+	if err := q.CreateProject(ctx, projB); err != nil {
+		t.Fatalf("CreateProject(B) error = %v", err)
+	}
+	jobA := mustCreateJob(t, ctx, q, projA.ID)
+	jobB := mustCreateJob(t, ctx, q, projB.ID)
+
+	// Project A gets 5 runs in the window, project B gets 2.
+	for range 5 {
+		run := &domain.JobRun{
+			ID: newID(), JobID: jobA.ID, ProjectID: projA.ID,
+			Status: domain.StatusCompleted, Attempt: 1,
+			TriggeredBy: domain.TriggerManual,
+		}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun(A) error = %v", err)
+		}
+	}
+	for range 2 {
+		run := &domain.JobRun{
+			ID: newID(), JobID: jobB.ID, ProjectID: projB.ID,
+			Status: domain.StatusCompleted, Attempt: 1,
+			TriggeredBy: domain.TriggerManual,
+		}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun(B) error = %v", err)
+		}
+	}
+
+	// Start-of-epoch window sees everything.
+	if got, err := q.CountProjectRunsSince(ctx, projA.ID,
+		time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("CountProjectRunsSince(A) error = %v", err)
+	} else if got != 5 {
+		t.Fatalf("project A count = %d, want 5", got)
+	}
+	if got, err := q.CountProjectRunsSince(ctx, projB.ID,
+		time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("CountProjectRunsSince(B) error = %v", err)
+	} else if got != 2 {
+		t.Fatalf("project B count = %d, want 2", got)
+	}
+
+	// Future-window returns zero for both projects.
+	future := time.Now().Add(24 * time.Hour)
+	if got, err := q.CountProjectRunsSince(ctx, projA.ID, future); err != nil {
+		t.Fatalf("CountProjectRunsSince(A, future) error = %v", err)
+	} else if got != 0 {
+		t.Fatalf("project A future count = %d, want 0", got)
+	}
+	if got, err := q.CountProjectRunsSince(ctx, projB.ID, future); err != nil {
+		t.Fatalf("CountProjectRunsSince(B, future) error = %v", err)
+	} else if got != 0 {
+		t.Fatalf("project B future count = %d, want 0", got)
+	}
+
+	// Unknown project returns zero without error.
+	if got, err := q.CountProjectRunsSince(ctx, "proj-does-not-exist",
+		time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("CountProjectRunsSince(unknown) error = %v", err)
+	} else if got != 0 {
+		t.Fatalf("unknown project count = %d, want 0", got)
+	}
+}
