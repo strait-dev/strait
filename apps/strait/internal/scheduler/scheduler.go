@@ -50,6 +50,7 @@ type Scheduler struct {
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
 	priorityPromoter         *PriorityPromoter
+	counterReconciler        *CounterReconciler
 	wg                       conc.WaitGroup
 }
 
@@ -124,6 +125,13 @@ func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption 
 func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
 	return func(s *Scheduler) {
 		s.priorityPromoter = p
+	}
+}
+
+// WithCounterReconciler enables R2 Phase 3 counter drift reconciliation.
+func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
+	return func(s *Scheduler) {
+		s.counterReconciler = r
 	}
 }
 
@@ -235,6 +243,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.priorityPromoter != nil {
 		safeGo(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
+	}
+	if s.counterReconciler != nil {
+		safeGo(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

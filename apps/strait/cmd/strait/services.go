@@ -847,6 +847,12 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:       slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithCounterReconciler(
+				scheduler.NewCounterReconciler(dbPool, scheduler.CounterReconcilerConfig{
+					Interval: time.Hour,
+					Logger:   slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))

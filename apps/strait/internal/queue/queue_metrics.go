@@ -25,6 +25,8 @@ type QueueMetrics struct {
 	HeartbeatReclaims metric.Int64Counter
 	RetryScheduleLag  metric.Float64Histogram
 	MaskedRowsPending metric.Int64Gauge
+	// Round 2 Phase 3: absolute drift observed by the counter reconciler.
+	CounterDrift metric.Int64Gauge
 }
 
 var (
@@ -131,6 +133,13 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("masked rows pending gauge: %w", err)
 	}
+	counterDrift, err := meter.Int64Gauge(
+		"strait.queue.counter_drift",
+		metric.WithDescription("Absolute drift observed between trigger-maintained counters and ground truth (job_active_counts + dlq_counts combined)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("counter drift gauge: %w", err)
+	}
 
 	return &QueueMetrics{
 		OldestQueuedAge:   oldestAge,
@@ -143,6 +152,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		HeartbeatReclaims: heartbeatReclaims,
 		RetryScheduleLag:  retryLag,
 		MaskedRowsPending: masked,
+		CounterDrift:      counterDrift,
 	}, nil
 }
 
