@@ -29,6 +29,18 @@ type QueueNotifier struct {
 	logger       *slog.Logger
 	metrics      *QueueMetrics
 	droppedCount uint64
+	reconnects   uint64
+	// Phase 10: time of the most recent successful LISTEN establishment.
+	// Zero while no connection is live. Stored as UnixNano for lock-free
+	// reads.
+	lastConnectedUnixNano int64
+	// Aggressive-polling signal channel. When the notifier has been
+	// disconnected longer than the configured threshold, this channel is
+	// closed; workers that select on it can shorten their poll interval.
+	degradedCh chan struct{}
+	// Degraded reset guard so we don't re-create the channel after every
+	// transient hiccup.
+	degradedOnce atomic.Bool
 }
 
 func NewQueueNotifier(databaseURL string, logger *slog.Logger) *QueueNotifier {
@@ -45,6 +57,48 @@ func NewQueueNotifier(databaseURL string, logger *slog.Logger) *QueueNotifier {
 		maxDelay:     defaultMaxDelay,
 		logger:       logger,
 		metrics:      m,
+		degradedCh:   make(chan struct{}),
+	}
+}
+
+// Reconnects returns the cumulative number of LISTEN reconnects. Exposed
+// for tests.
+func (n *QueueNotifier) Reconnects() uint64 {
+	return atomic.LoadUint64(&n.reconnects)
+}
+
+// ConnectionAge returns how long the current LISTEN connection has been
+// live, or 0 if the notifier is disconnected.
+func (n *QueueNotifier) ConnectionAge() time.Duration {
+	t := atomic.LoadInt64(&n.lastConnectedUnixNano)
+	if t == 0 {
+		return 0
+	}
+	return time.Since(time.Unix(0, t))
+}
+
+// Degraded returns a channel that is closed once the notifier has been
+// disconnected longer than the aggressive-polling threshold. Workers can
+// select on it to shorten their poll interval while the notifier is out.
+// Once the notifier successfully reconnects, callers should call
+// DegradedReset to get a fresh channel.
+func (n *QueueNotifier) Degraded() <-chan struct{} {
+	return n.degradedCh
+}
+
+// markDegraded closes degradedCh so receivers wake up. Idempotent.
+func (n *QueueNotifier) markDegraded() {
+	if n.degradedOnce.CompareAndSwap(false, true) {
+		close(n.degradedCh)
+	}
+}
+
+// DegradedReset replaces the degraded channel with a fresh one after a
+// successful reconnect. Safe to call concurrently; reuses the same field.
+func (n *QueueNotifier) DegradedReset() {
+	if n.degradedOnce.Load() {
+		n.degradedCh = make(chan struct{})
+		n.degradedOnce.Store(false)
 	}
 }
 
@@ -60,6 +114,11 @@ func (n *QueueNotifier) Wake() <-chan struct{} {
 
 func (n *QueueNotifier) Run(ctx context.Context) {
 	var attempt int
+	// If a disconnect lasts longer than this, the notifier flips into
+	// degraded mode and closes Degraded() so workers can tighten their
+	// poll interval.
+	const degradedThreshold = 30 * time.Second
+	var disconnectStart time.Time
 	for {
 		if err := ctx.Err(); err != nil {
 			return
@@ -74,6 +133,20 @@ func (n *QueueNotifier) Run(ctx context.Context) {
 		// so that transient disconnects do not accumulate delay.
 		if connected {
 			attempt = 0
+			atomic.AddUint64(&n.reconnects, 1)
+			if n.metrics != nil {
+				n.metrics.NotifyReconnects.Add(ctx, 1)
+			}
+			n.DegradedReset()
+		}
+
+		if disconnectStart.IsZero() {
+			disconnectStart = time.Now()
+		} else if time.Since(disconnectStart) > degradedThreshold {
+			n.markDegraded()
+			n.logger.Warn("queue notifier degraded: aggressive polling engaged",
+				"disconnected_for", time.Since(disconnectStart),
+			)
 		}
 
 		delay := n.backoffDelay(attempt)
@@ -88,6 +161,9 @@ func (n *QueueNotifier) Run(ctx context.Context) {
 			return
 		case <-time.After(delay):
 		}
+
+		// If the loop successfully connects on the next iteration it
+		// will clear disconnectStart through listenLoop's first success.
 	}
 }
 
@@ -119,6 +195,7 @@ func (n *QueueNotifier) listenLoop(ctx context.Context) (connected bool, err err
 		return false, fmt.Errorf("listen on %s: %w", n.channel, err)
 	}
 
+	atomic.StoreInt64(&n.lastConnectedUnixNano, time.Now().UnixNano())
 	n.logger.Info("queue notifier listening", "channel", n.channel)
 
 	for {
