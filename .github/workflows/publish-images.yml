@@ -159,6 +159,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -172,6 +173,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Sign image and attestations (keyless)
         env:
@@ -298,6 +300,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -311,6 +314,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Sign image and attestations (keyless)
         env:
@@ -437,6 +441,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -450,6 +455,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Sign image and attestations (keyless)
         env:
