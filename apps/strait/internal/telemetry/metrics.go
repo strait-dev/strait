@@ -147,6 +147,10 @@ type Metrics struct {
 	OverageEntered            metric.Int64Counter
 	HTTPModeRunsCompleted     metric.Int64Counter
 	HTTPModeGateRejected      metric.Int64Counter
+
+	// Audit event metrics.
+	AuditEventsEmitted metric.Int64Counter
+	AuditEventsDropped metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -807,6 +811,17 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 
+	auditEventsEmitted, _ := meter.Int64Counter(
+		"strait.audit.events_emitted_total",
+		metric.WithDescription("Total audit events successfully written to the audit log"),
+		metric.WithUnit("1"),
+	)
+	auditEventsDropped, _ := meter.Int64Counter(
+		"strait.audit.events_dropped_total",
+		metric.WithDescription("Total audit events dropped (async buffer full or write failure)"),
+		metric.WithUnit("1"),
+	)
+
 	m := &Metrics{
 		RunTransitions:               runTransitions,
 		DequeueDuration:              dequeueDuration,
@@ -892,6 +907,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		OverageEntered:               overageEntered,
 		HTTPModeRunsCompleted:        httpModeRunsCompleted,
 		HTTPModeGateRejected:         httpModeGateRejected,
+		AuditEventsEmitted:           auditEventsEmitted,
+		AuditEventsDropped:           auditEventsDropped,
 	}
 
 	slog.Info("prometheus metrics enabled")

@@ -563,6 +563,15 @@ type Server struct {
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
 	sseProjectConns sync.Map // map[string]*atomic.Int64
+
+	// Async audit event drain for hot-path handlers (job trigger, bulk trigger).
+	// A single goroutine reads from auditAsyncCh and writes events sequentially
+	// via store.CreateAuditEvent, preserving HMAC chain ordering.
+	auditAsyncCh       chan *domain.AuditEvent
+	auditAsyncDone     chan struct{}
+	auditAsyncMu       sync.RWMutex
+	auditAsyncStopOnce sync.Once
+	auditAsyncStopped  bool
 }
 
 // acquireSSEConn attempts to reserve an SSE connection slot for the given project.
@@ -763,6 +772,7 @@ func NewServer(deps ServerDeps) *Server {
 	}
 
 	srv.router = srv.routes()
+	srv.startAuditAsyncDrain()
 	return srv
 }
 
@@ -795,6 +805,7 @@ func (s *Server) Close() {
 	if s.bgPool != nil {
 		s.bgPool.StopAndWait()
 	}
+	s.stopAuditAsyncDrain()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
