@@ -866,6 +866,14 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:   slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithDLQAgeOut(
+				scheduler.NewDLQAgeOut(queries, scheduler.DLQAgeOutConfig{
+					Interval:   24 * time.Hour,
+					Retention:  30 * 24 * time.Hour,
+					BatchLimit: 1000,
+					Logger:     slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))

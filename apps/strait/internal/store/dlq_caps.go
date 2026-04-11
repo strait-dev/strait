@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 )
@@ -43,6 +44,37 @@ func (q *Queries) DLQDepthByProject(ctx context.Context, projectID string) (int,
 		return 0, fmt.Errorf("dlq depth by project: %w", err)
 	}
 	return count, nil
+}
+
+// MaskOldDLQRows soft-deletes up to `limit` dead_letter rows whose
+// finished_at is older than `retention`. Used by the R3 Phase 5
+// DLQ age-out archiver. The dlq_counts trigger from Phase 9 decrements
+// the counter on mask so DLQ caps free up automatically.
+func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MaskOldDLQRows")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 1000
+	}
+	cutoff := time.Now().UTC().Add(-retention)
+	const sql = `
+		WITH victims AS (
+			SELECT id FROM job_runs
+			WHERE status = 'dead_letter'
+			  AND visible_until IS NULL
+			  AND finished_at IS NOT NULL
+			  AND finished_at < $1
+			ORDER BY finished_at ASC
+			LIMIT $2
+		)
+		UPDATE job_runs SET visible_until = NOW()
+		WHERE id IN (SELECT id FROM victims)`
+	tag, err := q.db.Exec(ctx, sql, cutoff, limit)
+	if err != nil {
+		return 0, fmt.Errorf("mask old dlq rows: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // MaskOldestDLQRow soft-deletes the single oldest dead_letter row for

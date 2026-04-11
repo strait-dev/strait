@@ -53,6 +53,7 @@ type Scheduler struct {
 	counterReconciler        *CounterReconciler
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
+	dlqAgeOut                *DLQAgeOut
 	wg                       conc.WaitGroup
 }
 
@@ -148,6 +149,13 @@ func WithPartitionEnsurer(p *PartitionEnsurer) SchedulerOption {
 func WithPartitionTuner(p *PartitionTuner) SchedulerOption {
 	return func(s *Scheduler) {
 		s.partitionTuner = p
+	}
+}
+
+// WithDLQAgeOut enables R3 Phase 5 DLQ archival.
+func WithDLQAgeOut(a *DLQAgeOut) SchedulerOption {
+	return func(s *Scheduler) {
+		s.dlqAgeOut = a
 	}
 }
 
@@ -268,6 +276,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.partitionTuner != nil {
 		safeGo(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
+	}
+	if s.dlqAgeOut != nil {
+		safeGo(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
