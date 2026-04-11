@@ -110,7 +110,7 @@ services:
       start_period: 60s
 
   strait-app:
-    image: ghcr.io/strait-dev/strait-app:latest
+    image: ${STRAIT_APP_IMAGE:-ghcr.io/strait-dev/strait-app:latest}
     restart: unless-stopped
     ports:
       - "3000:3000"
