@@ -1,0 +1,280 @@
+package api
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// auditCoverageExemptHandlers lists handlers that must NOT emit audit events.
+// These are read-only, SDK-scoped run-self operations, or dispatchers whose
+// side effects are already audited by the underlying mutation call.
+//
+// Adding a new handler to this list is intentionally uncomfortable — every
+// entry needs a reason comment, because the default stance is "audit it".
+var auditCoverageExemptHandlers = map[string]string{
+	// Auth flows — the caller has no actor yet, and the device code is audited
+	// when approved (handleApproveDeviceCode).
+	"handleCreateDeviceCode":   "pre-auth, no actor; issuance not a control-plane mutation",
+	"handleExchangeDeviceCode": "pre-auth, no actor; the approval path is audited",
+	"handleLogin":              "pre-auth, auth-lockout path; no actor yet",
+	"handleLogout":             "session teardown; session auth already logged by middleware",
+
+	// Stripe billing webhooks are verified inbound events, not user mutations.
+	"handleStripeWebhook": "inbound Stripe webhook, not a user-initiated mutation",
+
+	// CDC webhook receiver is internal-only.
+	"handleCDCWebhook": "internal CDC push, not user-initiated",
+
+	// SDK endpoints: the run reports its own progress via run-token JWT.
+	// These are protected by the SDK auth flow; audit logs would be dominated
+	// by per-heartbeat noise with no security value.
+	"handleSDKProgress":          "sdk run-token, self-report only",
+	"handleSDKCheckpoint":        "sdk run-token, self-report only",
+	"handleSDKComplete":          "sdk run-token, self-report only",
+	"handleSDKToolCall":          "sdk run-token, self-report only",
+	"handleSDKUsage":             "sdk run-token, self-report only",
+	"handleSDKOutput":            "sdk run-token, self-report only",
+	"handleSDKEvent":             "sdk run-token, self-report only",
+	"handleSDKWaitEvent":         "sdk run-token, self-report only",
+	"handleSDKResources":         "sdk run-token, self-report only",
+	"handleSDKHeartbeat":         "sdk run-token, self-report only",
+	"handleSDKEmitEvent":         "sdk run-token, self-report only",
+	"handleSDKLog":               "sdk run-token, self-report only",
+	"handleSDKWorkflowStepDone":  "sdk run-token, self-report only",
+	"handleSDKWorkflowStepFail":  "sdk run-token, self-report only",
+	"handleSDKWorkflowStepSleep": "sdk run-token, self-report only",
+}
+
+// auditCoverageMutationPrefixes is the list of handler-name prefixes that the
+// guard considers state-mutating. Any `handleX...` that matches one of these
+// and is not in the exempt list must contain a call to emitAuditEvent or
+// emitAuditEventAsync.
+var auditCoverageMutationPrefixes = []string{
+	"handleCreate",
+	"handleUpdate",
+	"handleDelete",
+	"handleUpsert",
+	"handlePause",
+	"handleResume",
+	"handleCancel",
+	"handleApprove",
+	"handleSkip",
+	"handleForceComplete",
+	"handleRetry",
+	"handleReplay",
+	"handleRollback",
+	"handleRestart",
+	"handleReschedule",
+	"handleResetIdempotencyKey",
+	"handleSetDebugMode",
+	"handleClone",
+	"handleBatch",
+	"handleBulk",
+	"handleTrigger",
+	"handleSend",
+	"handleRotate",
+	"handleRevoke",
+	"handleDispatch",
+	"handleSubscribe",
+	"handlePromote",
+	"handleFinalize",
+	"handleConfirm",
+	"handleCompensate",
+	"handleSeed",
+	"handleExport",
+	"handlePurge",
+	"handleAssign",
+	"handleRemove",
+	"handleTest",
+}
+
+// TestAuditCoverageGuard walks every .go file in internal/api/ and asserts
+// that every state-mutating *Server method on `handleX...` calls
+// emitAuditEvent or emitAuditEventAsync somewhere in its body. Handlers that
+// intentionally skip auditing must be listed in auditCoverageExemptHandlers
+// with a documented reason.
+//
+// This test is the single mechanism that keeps audit coverage at ~100% going
+// forward. Adding a new mutation handler without auditing it will fail CI.
+func TestAuditCoverageGuard(t *testing.T) {
+	t.Parallel()
+
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+
+	type handlerInfo struct {
+		name string
+		file string
+		line int
+	}
+
+	var missing []handlerInfo
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if parseErr != nil {
+			t.Fatalf("parse %s: %v", name, parseErr)
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || fn.Body == nil {
+				continue
+			}
+			// Receiver must be *Server.
+			if !isServerReceiver(fn.Recv) {
+				continue
+			}
+			// Name must start with "handle" + mutation prefix.
+			if !isMutationHandler(fn.Name.Name) {
+				continue
+			}
+			// Exempt list is a non-audit allowlist.
+			if _, exempt := auditCoverageExemptHandlers[fn.Name.Name]; exempt {
+				continue
+			}
+
+			if !callsAuditEmit(fn.Body) {
+				pos := fset.Position(fn.Pos())
+				missing = append(missing, handlerInfo{
+					name: fn.Name.Name,
+					file: filepath.Base(pos.Filename),
+					line: pos.Line,
+				})
+			}
+		}
+	}
+
+	if len(missing) == 0 {
+		return
+	}
+
+	sort.Slice(missing, func(i, j int) bool {
+		if missing[i].file != missing[j].file {
+			return missing[i].file < missing[j].file
+		}
+		return missing[i].name < missing[j].name
+	})
+
+	var b strings.Builder
+	b.WriteString("the following state-mutating handlers do not emit an audit event:\n\n")
+	for _, m := range missing {
+		b.WriteString("  - ")
+		b.WriteString(m.file)
+		b.WriteString(":")
+		b.WriteString(itoa(m.line))
+		b.WriteString("  ")
+		b.WriteString(m.name)
+		b.WriteString("\n")
+	}
+	b.WriteString("\nadd a call to s.emitAuditEvent (or s.emitAuditEventAsync for the hot path), ")
+	b.WriteString("or — if the handler is truly read-only — add it to ")
+	b.WriteString("auditCoverageExemptHandlers with a documented reason.\n")
+
+	t.Fatal(b.String())
+}
+
+// isServerReceiver reports whether the function's receiver is *api.Server.
+func isServerReceiver(recv *ast.FieldList) bool {
+	if recv == nil || len(recv.List) == 0 {
+		return false
+	}
+	star, ok := recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := star.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return ident.Name == "Server"
+}
+
+// isMutationHandler reports whether a handler name starts with any of the
+// known mutation-intent prefixes.
+func isMutationHandler(name string) bool {
+	if !strings.HasPrefix(name, "handle") {
+		return false
+	}
+	for _, prefix := range auditCoverageMutationPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// callsAuditEmit walks a function body looking for a call to
+// s.emitAuditEvent or s.emitAuditEventAsync. Returns true on the first hit.
+func callsAuditEmit(body *ast.BlockStmt) bool {
+	var found bool
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if sel.Sel.Name == "emitAuditEvent" || sel.Sel.Name == "emitAuditEventAsync" {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// itoa is a small int→string helper so the test has no runtime dependencies
+// beyond the standard library parser.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}
