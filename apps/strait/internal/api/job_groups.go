@@ -38,6 +38,10 @@ func (s *Server) handleCreateJobGroup(ctx context.Context, input *CreateJobGroup
 	if err := s.store.CreateJobGroup(ctx, group); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create job group")
 	}
+	s.emitAuditEvent(ctx, "job_group.created", "job_group", group.ID, map[string]any{
+		"name": group.Name,
+		"slug": group.Slug,
+	})
 	return &CreateJobGroupOutput{Body: group}, nil
 }
 
@@ -111,6 +115,10 @@ func (s *Server) handleUpdateJobGroup(ctx context.Context, input *UpdateJobGroup
 		}
 		return nil, huma.Error500InternalServerError("failed to update job group")
 	}
+	s.emitAuditEvent(ctx, "job_group.updated", "job_group", group.ID, map[string]any{
+		"changes": req,
+		"name":    group.Name,
+	})
 	return &UpdateJobGroupOutput{Body: group}, nil
 }
 
@@ -135,6 +143,10 @@ func (s *Server) handleDeleteJobGroup(ctx context.Context, input *DeleteJobGroup
 		}
 		return nil, huma.Error500InternalServerError("failed to delete job group")
 	}
+	s.emitAuditEvent(ctx, "job_group.deleted", "job_group", input.GroupID, map[string]any{
+		"name": group.Name,
+		"slug": group.Slug,
+	})
 	return nil, nil
 }
 
@@ -190,6 +202,9 @@ func (s *Server) handlePauseAllJobsByGroup(ctx context.Context, input *PauseAllJ
 		}
 		return nil, huma.Error500InternalServerError("failed to pause jobs in group")
 	}
+	s.emitAuditEvent(ctx, "job_group.paused_all", "job_group", input.GroupID, map[string]any{
+		"name": group.Name,
+	})
 	return &PauseAllJobsByGroupOutput{Body: map[string]string{"status": "paused"}}, nil
 }
 
@@ -215,6 +230,9 @@ func (s *Server) handleResumeAllJobsByGroup(ctx context.Context, input *ResumeAl
 		}
 		return nil, huma.Error500InternalServerError("failed to resume jobs in group")
 	}
+	s.emitAuditEvent(ctx, "job_group.resumed_all", "job_group", input.GroupID, map[string]any{
+		"name": group.Name,
+	})
 	return &ResumeAllJobsByGroupOutput{Body: map[string]string{"status": "resumed"}}, nil
 }
 

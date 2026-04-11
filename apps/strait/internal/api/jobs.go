@@ -321,6 +321,16 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 
 	s.enqueueJobMetadata(job)
 
+	s.emitAuditEvent(ctx, "job.created", "job", job.ID, map[string]any{
+		"name":           job.Name,
+		"slug":           job.Slug,
+		"cron":           job.Cron,
+		"execution_mode": string(job.ExecutionMode),
+		"group_id":       job.GroupID,
+		"environment_id": job.EnvironmentID,
+		"enabled":        job.Enabled,
+	})
+
 	return &CreateJobOutput{Body: job}, nil
 }
 
@@ -688,6 +698,12 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 
 	s.enqueueJobMetadata(job)
 
+	s.emitAuditEvent(ctx, "job.updated", "job", job.ID, map[string]any{
+		"changes": req,
+		"name":    job.Name,
+		"slug":    job.Slug,
+	})
+
 	return &UpdateJobOutput{Body: job}, nil
 }
 
@@ -845,6 +861,12 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := s.store.CreateJob(ctx, clone); err != nil {
 		return nil, huma.Error500InternalServerError("failed to clone job")
 	}
+
+	s.emitAuditEvent(ctx, "job.cloned", "job", clone.ID, map[string]any{
+		"source_job_id": source.ID,
+		"new_name":      clone.Name,
+		"new_slug":      clone.Slug,
+	})
 
 	return &CloneJobOutput{Body: clone}, nil
 }
@@ -1046,6 +1068,18 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		return nil, &rawStatusError{status: http.StatusBadRequest, body: resp}
 	}
 
+	if len(resp.Created) > 0 {
+		ids := make([]string, 0, len(resp.Created))
+		for i := range resp.Created {
+			ids = append(ids, resp.Created[i].ID)
+		}
+		s.emitAuditEvent(ctx, "job.batch_created", "job", "", map[string]any{
+			"count":   len(ids),
+			"job_ids": ids,
+			"errors":  len(resp.Errors),
+		})
+	}
+
 	return &BatchCreateJobsOutput{Body: resp}, nil
 }
 
@@ -1074,6 +1108,11 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
 
+	s.emitAuditEvent(ctx, "job.batch_enabled", "job", "", map[string]any{
+		"count":   updated,
+		"job_ids": req.IDs,
+	})
+
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
 }
 
@@ -1096,6 +1135,11 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
 	}
+
+	s.emitAuditEvent(ctx, "job.batch_disabled", "job", "", map[string]any{
+		"count":   updated,
+		"job_ids": req.IDs,
+	})
 
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
 }
