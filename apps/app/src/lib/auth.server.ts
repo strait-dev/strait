@@ -57,7 +57,7 @@ import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
  * Falls back to `AUTH_DATABASE_URL` for local development where
  * Hyperdrive provides a local connection string automatically.
  */
-const getAuthConnectionString = (): string => {
+export const getAuthConnectionString = (): string => {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;
