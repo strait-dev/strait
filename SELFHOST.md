@@ -14,13 +14,13 @@ Both options run the community edition with all open-source features.
 
 ---
 
-## Option 1 — Deploy the dashboard to Cloudflare (fastest)
+## Option 1 — Deploy the dashboard to Cloudflare
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
 
-Clicking the button walks you through a fully scripted Cloudflare Workers deploy. The build command, Hyperdrive binding, and every non-secret variable are predeclared in the repo-root `wrangler.jsonc`, so the deploy flow is a single guided form.
+Clicking the button forks the repo and takes you through a Cloudflare Workers Builds import. Because this repo is a Bun monorepo and Cloudflare does not yet support Bun workspace resolution in one-click deploys, you will need to set **Root directory** to `apps/app` and provide a custom **Build command** during import — the Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc` so the rest of the flow is guided.
 
-See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare-one-click) for the detailed walkthrough, including the list of secrets you must set in the Cloudflare dashboard after the first deploy.
+See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detailed walkthrough, including the exact build command string and the list of secrets you must set in the Cloudflare dashboard after the first deploy.
 
 **You still need the Strait API somewhere reachable by the Worker.** The easiest setup: run the API locally with Option 2 below (or on any VPS/Kubernetes/Fly.io host), expose it via `cloudflared tunnel` or a public hostname, and point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables.
 

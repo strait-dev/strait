@@ -65,7 +65,7 @@ bun run build
 
 Pick whichever path matches how you want to run Strait.
 
-**Option 1 — Deploy the dashboard to Cloudflare with one click.** The API stays on your own infrastructure, the dashboard runs on your own Cloudflare account.
+**Option 1 — Deploy the dashboard to Cloudflare.** The API stays on your own infrastructure, the dashboard runs on your own Cloudflare account. Bun monorepos need one manual setting during import (`Root directory: apps/app` + a custom build command) — see [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the full walkthrough.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
 

@@ -109,12 +109,7 @@ export default defineConfig({
   },
   plugins: [
     ...(buildTarget === "cloudflare"
-      ? [
-          cloudflare({
-            configPath: "../../wrangler.jsonc",
-            viteEnvironment: { name: "ssr" },
-          }),
-        ]
+      ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
       : [shimCloudflareWorkers()]),
     wellKnownOAuthPlugin(),
     devtools(),

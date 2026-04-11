@@ -2,18 +2,19 @@
 
 Job orchestration management UI built with TanStack Start.
 
-## Deploy to Cloudflare (one-click)
+## Deploy to Cloudflare
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
 
-Clicking the button walks you through a fully scripted Cloudflare Workers deploy:
+Clicking the button forks `strait-dev/strait` to your GitHub account and takes you through a Cloudflare Workers import. Because this repo is a Bun monorepo (Cloudflare does not yet support Bun workspace resolution in one-click deploys), the flow needs **one manual setting** before the first build:
 
-1. Forks `strait-dev/strait` to your GitHub account.
-2. Creates a new Workers project called `strait-app` on your Cloudflare account.
-3. Runs the monorepo install + build — `bun install && cd apps/app && bun run build` — from the `build.command` predeclared in the root `wrangler.jsonc`.
-4. Prompts you to provision a Hyperdrive binding pointing at your Postgres (Neon, Supabase, Fly PG, or any Postgres with a connection string).
-5. Prompts you for the non-secret variables declared in `wrangler.jsonc` (`BETTER_AUTH_URL`, `STRAIT_API_URL`, OAuth client IDs, Stripe price IDs, etc.).
-6. Deploys.
+1. During the Workers Builds import screen, set:
+   - **Root directory**: `apps/app`
+   - **Build command**: `cd ../.. && bun install --frozen-lockfile && cd apps/app && bun run build`
+   - **Deploy command**: `npx wrangler deploy` *(default, leave as-is)*
+2. When Cloudflare detects the `HYPERDRIVE` binding in `apps/app/wrangler.jsonc`, it will prompt you to create a new Hyperdrive config pointing at your Postgres (Neon, Supabase, Fly PG, or any Postgres with a connection string).
+3. Cloudflare will prompt you for the non-secret variables declared in `apps/app/wrangler.jsonc` (`BETTER_AUTH_URL`, `STRAIT_API_URL`, OAuth client IDs, Stripe price IDs, etc.). Fill in the required ones; leave optional fields blank.
+4. Confirm and deploy.
 
 **After the first deploy**, open the Cloudflare dashboard → Workers → `strait-app` → Settings → Variables and Secrets, and add the following secrets:
 

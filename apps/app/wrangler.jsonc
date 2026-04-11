@@ -1,27 +1,20 @@
 // Strait App — Cloudflare Workers configuration.
 //
-// This file lives at the repo root (not apps/app) so the "Deploy to
-// Cloudflare" button can find it and run the monorepo build from a
-// single source of truth. Local dev and CI both still work: the vite
-// plugin in apps/app/vite.config.ts reads this file via `configPath`,
-// and the deploy script in apps/app/package.json passes `--config` to
-// wrangler.
+// Lives alongside the app source (not at the repo root) because
+// Cloudflare's wrangler CLI walks up from cwd to auto-discover a
+// config, and a root-level wrangler.jsonc would conflict with
+// apps/website/wrangler.toml when CF Workers Builds runs from that
+// subdirectory.
 //
-// See apps/app/README.md for the one-click deploy walkthrough.
+// For the Deploy to Cloudflare button flow, the visitor will be
+// prompted to set the root directory to `apps/app` during the
+// one-click import. See apps/app/README.md for the walkthrough.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "strait-app",
   "compatibility_date": "2026-03-29",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
-
-  // Monorepo install + build. Cloudflare Workers Builds runs this
-  // before `wrangler deploy`. Bun is installed in the CF build image
-  // by default for repositories with a bun.lock file.
-  "build": {
-    "command": "bun install --frozen-lockfile && cd apps/app && bun run build"
-  },
-
   "observability": {
     "enabled": true
   },
@@ -32,8 +25,8 @@
   // Postgres connection via Hyperdrive. For Deploy to Cloudflare
   // visitors, the deploy flow prompts them to create a new Hyperdrive
   // config pointing at their own Postgres (Neon, Supabase, Fly PG,
-  // self-hosted, etc.). The committed id/localConnectionString only
-  // apply to strait.dev's production deploy and local `wrangler dev`.
+  // self-hosted, etc.). The committed id/localConnectionString apply
+  // to strait.dev's production deploy and local `wrangler dev`.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
