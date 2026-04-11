@@ -1237,3 +1237,473 @@ func TestCountProjectRunsSince_MultipleProjects(t *testing.T) {
 		t.Fatalf("countB = %d, want 2", countB)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase E2.1: Phase B additions — GetLatestAgentDeploymentByEnvironment
+// ---------------------------------------------------------------------------
+
+// agentDeployFixture builds a project + agent + env scaffold that the
+// per-environment deployment tests reuse. The returned env slugs are
+// "dev" and "prod" so test assertions stay readable.
+type agentDeployFixture struct {
+	project *domain.Project
+	agent   *domain.Agent
+	devEnv  *domain.Environment
+	prodEnv *domain.Environment
+}
+
+func mustCreateAgentDeployFixture(t *testing.T, ctx context.Context, q *store.Queries) *agentDeployFixture {
+	t.Helper()
+	project := &domain.Project{ID: newID(), OrgID: "org-agent-deploy-" + newID(), Name: "Agent Deploy Fixture"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	devEnv := &domain.Environment{ID: newID(), ProjectID: project.ID, Name: "Development", Slug: "dev"}
+	if err := q.CreateEnvironment(ctx, devEnv); err != nil {
+		t.Fatalf("CreateEnvironment(dev) error = %v", err)
+	}
+	prodEnv := &domain.Environment{ID: newID(), ProjectID: project.ID, Name: "Production", Slug: "prod"}
+	if err := q.CreateEnvironment(ctx, prodEnv); err != nil {
+		t.Fatalf("CreateEnvironment(prod) error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, project.ID)
+	agent := &domain.Agent{
+		ID:        newID(),
+		ProjectID: project.ID,
+		JobID:     job.ID,
+		Name:      "Env-aware Agent",
+		Slug:      "env-aware-" + newID(),
+		Model:     "gpt-5.4",
+		Config:    json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	return &agentDeployFixture{project: project, agent: agent, devEnv: devEnv, prodEnv: prodEnv}
+}
+
+func mustCreateAgentDeployment(t *testing.T, ctx context.Context, q *store.Queries, agentID, environmentID string, version int) *domain.AgentDeployment {
+	t.Helper()
+	d := &domain.AgentDeployment{
+		ID:             newID(),
+		AgentID:        agentID,
+		EnvironmentID:  environmentID,
+		Version:        version,
+		Status:         domain.AgentDeploymentStatusDeployed,
+		Provider:       "local_stub",
+		ConfigSnapshot: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAgentDeployment(ctx, d); err != nil {
+		t.Fatalf("CreateAgentDeployment() error = %v", err)
+	}
+	return d
+}
+
+func TestGetLatestAgentDeploymentByEnvironment_ReturnsLatestInEnv(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 1)
+	second := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 2)
+
+	got, err := q.GetLatestAgentDeploymentByEnvironment(ctx, fx.agent.ID, fx.devEnv.ID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment() error = %v", err)
+	}
+	if got.ID != second.ID {
+		t.Fatalf("got deployment %q, want %q", got.ID, second.ID)
+	}
+	if got.Version != 2 {
+		t.Fatalf("got version %d, want 2", got.Version)
+	}
+}
+
+func TestGetLatestAgentDeploymentByEnvironment_SkipsOtherEnvs(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	// dev gets versions 1 and 2, prod gets version 3. Asking for prod
+	// must return v3 even though v3 is also the globally-latest version.
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 1)
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 2)
+	prodV3 := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.prodEnv.ID, 3)
+
+	gotProd, err := q.GetLatestAgentDeploymentByEnvironment(ctx, fx.agent.ID, fx.prodEnv.ID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment(prod) error = %v", err)
+	}
+	if gotProd.ID != prodV3.ID {
+		t.Fatalf("prod latest = %q, want %q", gotProd.ID, prodV3.ID)
+	}
+
+	gotDev, err := q.GetLatestAgentDeploymentByEnvironment(ctx, fx.agent.ID, fx.devEnv.ID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment(dev) error = %v", err)
+	}
+	if gotDev.Version != 2 {
+		t.Fatalf("dev latest version = %d, want 2", gotDev.Version)
+	}
+}
+
+func TestGetLatestAgentDeploymentByEnvironment_NoDeployments_ReturnsNotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	_, err := q.GetLatestAgentDeploymentByEnvironment(ctx, fx.agent.ID, fx.prodEnv.ID)
+	if !errors.Is(err, store.ErrAgentDeploymentNotFound) {
+		t.Fatalf("err = %v, want ErrAgentDeploymentNotFound", err)
+	}
+}
+
+func TestGetLatestAgentDeploymentByEnvironment_NullEnvironmentIgnored(t *testing.T) {
+	// A deployment with environment_id IS NULL is a legacy (pre-Phase-B)
+	// deployment and must not leak into an env-scoped query.
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", 1) // legacy, no env
+	envV2 := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 2)
+
+	got, err := q.GetLatestAgentDeploymentByEnvironment(ctx, fx.agent.ID, fx.devEnv.ID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment() error = %v", err)
+	}
+	if got.ID != envV2.ID {
+		t.Fatalf("got %q, want %q (legacy null-env deployment must be skipped)", got.ID, envV2.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase E2.1: RollbackAgentDeployment
+// ---------------------------------------------------------------------------
+
+func TestRollbackAgentDeployment_CreatesNewVersionFromTarget(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	v1 := &domain.AgentDeployment{
+		ID:             newID(),
+		AgentID:        fx.agent.ID,
+		Version:        1,
+		Status:         domain.AgentDeploymentStatusDeployed,
+		Provider:       "local_stub",
+		ConfigSnapshot: json.RawMessage(`{"version":"v1"}`),
+	}
+	if err := q.CreateAgentDeployment(ctx, v1); err != nil {
+		t.Fatalf("CreateAgentDeployment(v1) error = %v", err)
+	}
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", 2)
+
+	rollback, err := q.RollbackAgentDeployment(ctx, fx.agent.ID, v1.ID, "ops-1")
+	if err != nil {
+		t.Fatalf("RollbackAgentDeployment() error = %v", err)
+	}
+	if rollback.Version != 3 {
+		t.Fatalf("rollback.Version = %d, want 3", rollback.Version)
+	}
+	if rollback.ID == v1.ID {
+		t.Fatalf("rollback.ID == target.ID — should be a new row")
+	}
+}
+
+func TestRollbackAgentDeployment_TargetFromDifferentAgentFails(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fxA := mustCreateAgentDeployFixture(t, ctx, q)
+	fxB := mustCreateAgentDeployFixture(t, ctx, q)
+
+	targetInB := mustCreateAgentDeployment(t, ctx, q, fxB.agent.ID, "", 1)
+
+	if _, err := q.RollbackAgentDeployment(ctx, fxA.agent.ID, targetInB.ID, "ops-1"); err == nil {
+		t.Fatal("expected error rolling agent A back to a deployment owned by agent B")
+	}
+}
+
+func TestRollbackAgentDeployment_PreservesTargetConfigSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	target := &domain.AgentDeployment{
+		ID:             newID(),
+		AgentID:        fx.agent.ID,
+		Version:        1,
+		Status:         domain.AgentDeploymentStatusDeployed,
+		Provider:       "local_stub",
+		ConfigSnapshot: json.RawMessage(`{"model":"pinned","temperature":0.1}`),
+	}
+	if err := q.CreateAgentDeployment(ctx, target); err != nil {
+		t.Fatalf("CreateAgentDeployment(target) error = %v", err)
+	}
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", 2) // v2 has different config
+
+	rollback, err := q.RollbackAgentDeployment(ctx, fx.agent.ID, target.ID, "ops-1")
+	if err != nil {
+		t.Fatalf("RollbackAgentDeployment() error = %v", err)
+	}
+	// The rollback row's config must match the target's snapshot byte-for-byte.
+	if string(rollback.ConfigSnapshot) != string(target.ConfigSnapshot) {
+		t.Fatalf("rollback config = %s, want %s", string(rollback.ConfigSnapshot), string(target.ConfigSnapshot))
+	}
+}
+
+func TestRollbackAgentDeployment_BumpsVersionNumber(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	v1 := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", 1)
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", 2)
+	_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", 3)
+
+	rollback, err := q.RollbackAgentDeployment(ctx, fx.agent.ID, v1.ID, "ops-1")
+	if err != nil {
+		t.Fatalf("RollbackAgentDeployment() error = %v", err)
+	}
+	if rollback.Version != 4 {
+		t.Fatalf("rollback.Version = %d, want 4 (next after the highest existing)", rollback.Version)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase E2.1: NextAgentDeploymentVersion edge cases
+// ---------------------------------------------------------------------------
+
+func TestNextAgentDeploymentVersion_FirstDeploymentReturnsOne(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	got, err := q.NextAgentDeploymentVersion(ctx, fx.agent.ID)
+	if err != nil {
+		t.Fatalf("NextAgentDeploymentVersion() error = %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("got version %d, want 1 (agent has no deployments yet)", got)
+	}
+}
+
+func TestNextAgentDeploymentVersion_IsMonotonicPerAgent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	for i := 1; i <= 5; i++ {
+		v, err := q.NextAgentDeploymentVersion(ctx, fx.agent.ID)
+		if err != nil {
+			t.Fatalf("NextAgentDeploymentVersion() iter %d error = %v", i, err)
+		}
+		if v != i {
+			t.Fatalf("iter %d: got version %d, want %d", i, v, i)
+		}
+		_ = mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, "", v)
+	}
+}
+
+func TestNextAgentDeploymentVersion_OtherAgentsIsolated(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fxA := mustCreateAgentDeployFixture(t, ctx, q)
+	fxB := mustCreateAgentDeployFixture(t, ctx, q)
+
+	// Agent A gets three deployments; agent B should still start at version 1.
+	for i := 1; i <= 3; i++ {
+		_ = mustCreateAgentDeployment(t, ctx, q, fxA.agent.ID, "", i)
+	}
+	vB, err := q.NextAgentDeploymentVersion(ctx, fxB.agent.ID)
+	if err != nil {
+		t.Fatalf("NextAgentDeploymentVersion(B) error = %v", err)
+	}
+	if vB != 1 {
+		t.Fatalf("agent B next version = %d, want 1 (isolation from agent A)", vB)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase E2.4: ListRunsByJobAndAgentDeployment
+// ---------------------------------------------------------------------------
+
+func TestListRunsByJobAndAgentDeployment_ReturnsMatchingDeployment(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+	job, err := q.GetJob(ctx, fx.agent.JobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	dep := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 1)
+
+	for range 3 {
+		run := &domain.JobRun{
+			ID:                newID(),
+			JobID:             job.ID,
+			ProjectID:         fx.project.ID,
+			Status:            domain.StatusCompleted,
+			Attempt:           1,
+			TriggeredBy:       domain.TriggerManual,
+			AgentDeploymentID: dep.ID,
+		}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun() error = %v", err)
+		}
+	}
+
+	runs, err := q.ListRunsByJobAndAgentDeployment(ctx, job.ID, dep.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListRunsByJobAndAgentDeployment() error = %v", err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("got %d runs, want 3", len(runs))
+	}
+	for _, r := range runs {
+		if r.AgentDeploymentID != dep.ID {
+			t.Fatalf("run %q has deployment %q, want %q", r.ID, r.AgentDeploymentID, dep.ID)
+		}
+	}
+}
+
+func TestListRunsByJobAndAgentDeployment_ExcludesOtherDeployments(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+	job, err := q.GetJob(ctx, fx.agent.JobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	devDep := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 1)
+	prodDep := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.prodEnv.ID, 2)
+
+	// Two runs on dev, one on prod.
+	for _, depID := range []string{devDep.ID, devDep.ID, prodDep.ID} {
+		run := &domain.JobRun{
+			ID:                newID(),
+			JobID:             job.ID,
+			ProjectID:         fx.project.ID,
+			Status:            domain.StatusExecuting,
+			Attempt:           1,
+			TriggeredBy:       domain.TriggerManual,
+			AgentDeploymentID: depID,
+		}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun() error = %v", err)
+		}
+	}
+
+	devRuns, err := q.ListRunsByJobAndAgentDeployment(ctx, job.ID, devDep.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListRunsByJobAndAgentDeployment(dev) error = %v", err)
+	}
+	if len(devRuns) != 2 {
+		t.Fatalf("dev runs = %d, want 2", len(devRuns))
+	}
+	prodRuns, err := q.ListRunsByJobAndAgentDeployment(ctx, job.ID, prodDep.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListRunsByJobAndAgentDeployment(prod) error = %v", err)
+	}
+	if len(prodRuns) != 1 {
+		t.Fatalf("prod runs = %d, want 1", len(prodRuns))
+	}
+}
+
+func TestListRunsByJobAndAgentDeployment_RespectsLimitOffset(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+	job, err := q.GetJob(ctx, fx.agent.JobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	dep := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 1)
+
+	for range 5 {
+		run := &domain.JobRun{
+			ID:                newID(),
+			JobID:             job.ID,
+			ProjectID:         fx.project.ID,
+			Status:            domain.StatusCompleted,
+			Attempt:           1,
+			TriggeredBy:       domain.TriggerManual,
+			AgentDeploymentID: dep.ID,
+		}
+		if err := q.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun() error = %v", err)
+		}
+	}
+
+	page, err := q.ListRunsByJobAndAgentDeployment(ctx, job.ID, dep.ID, 2, 1)
+	if err != nil {
+		t.Fatalf("ListRunsByJobAndAgentDeployment() error = %v", err)
+	}
+	if len(page) != 2 {
+		t.Fatalf("got %d runs, want 2 (limit=2, offset=1)", len(page))
+	}
+}
+
+func TestListRunsByJobAndAgentDeployment_NullDeploymentIDExcluded(t *testing.T) {
+	// Runs without an agent_deployment_id must never match the filter.
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+	job, err := q.GetJob(ctx, fx.agent.JobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	dep := mustCreateAgentDeployment(t, ctx, q, fx.agent.ID, fx.devEnv.ID, 1)
+
+	// One run stamped with the deployment, one without.
+	stamped := &domain.JobRun{
+		ID:                newID(),
+		JobID:             job.ID,
+		ProjectID:         fx.project.ID,
+		Status:            domain.StatusExecuting,
+		Attempt:           1,
+		TriggeredBy:       domain.TriggerManual,
+		AgentDeploymentID: dep.ID,
+	}
+	if err := q.CreateRun(ctx, stamped); err != nil {
+		t.Fatalf("CreateRun(stamped) error = %v", err)
+	}
+	unstamped := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   fx.project.ID,
+		Status:      domain.StatusExecuting,
+		Attempt:     1,
+		TriggeredBy: domain.TriggerManual,
+	}
+	if err := q.CreateRun(ctx, unstamped); err != nil {
+		t.Fatalf("CreateRun(unstamped) error = %v", err)
+	}
+
+	runs, err := q.ListRunsByJobAndAgentDeployment(ctx, job.ID, dep.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListRunsByJobAndAgentDeployment() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("got %d runs, want 1 (unstamped run must be excluded)", len(runs))
+	}
+	if runs[0].ID != stamped.ID {
+		t.Fatalf("got run %q, want %q", runs[0].ID, stamped.ID)
+	}
+}
+

@@ -9881,3 +9881,153 @@ func mustCreateWorkflowStepEventTrigger(
 
 	return trigger
 }
+
+// ---------------------------------------------------------------------------
+// Phase E2.5: split quota getters (project_job_quotas / project_agent_quotas
+// / project_platform_settings)
+// ---------------------------------------------------------------------------
+
+func TestGetProjectJobQuota_ReadsFromSplitTable(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-jq", Name: "Jobs Quota"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO project_job_quotas (project_id, max_jobs, max_queued_runs, max_executing_runs,
+			max_cost_per_run_microusd, max_daily_cost_microusd)
+		VALUES ($1, 20, 100, 50, 5000000, 100000000)
+	`, project.ID); err != nil {
+		t.Fatalf("insert project_job_quotas: %v", err)
+	}
+
+	got, err := q.GetProjectJobQuota(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProjectJobQuota() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetProjectJobQuota() = nil, want populated row")
+	}
+	if got.MaxJobs != 20 || got.MaxQueuedRuns != 100 || got.MaxExecutingRuns != 50 {
+		t.Fatalf("got %+v, want max_jobs=20 max_queued=100 max_executing=50", got)
+	}
+	if got.MaxCostPerRunMicrousd != 5000000 || got.MaxDailyCostMicrousd != 100000000 {
+		t.Fatalf("got cost caps %+v, want (5000000, 100000000)", got)
+	}
+}
+
+func TestGetProjectJobQuota_MissingRowReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	got, err := q.GetProjectJobQuota(ctx, "unknown-"+newID())
+	if err != nil {
+		t.Fatalf("GetProjectJobQuota() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("got %+v, want nil for missing project", got)
+	}
+}
+
+func TestGetProjectAgentQuota_ReadsFromSplitTable(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-aq", Name: "Agents Quota"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO project_agent_quotas (project_id, max_agents, max_agent_runs_per_month,
+			max_agent_channels, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run)
+		VALUES ($1, 5, 1000, 3, 100000, 50, 10)
+	`, project.ID); err != nil {
+		t.Fatalf("insert project_agent_quotas: %v", err)
+	}
+
+	got, err := q.GetProjectAgentQuota(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProjectAgentQuota() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetProjectAgentQuota() = nil, want populated row")
+	}
+	if got.MaxAgents != 5 || got.MaxAgentRunsPerMonth != 1000 || got.MaxAgentChannels != 3 {
+		t.Fatalf("got agent caps %+v, want (5, 1000, 3)", got)
+	}
+	if got.MaxTokensPerRun != 100000 || got.MaxToolCallsPerRun != 50 || got.MaxIterationsPerRun != 10 {
+		t.Fatalf("got guardrails %+v, want (100000, 50, 10)", got)
+	}
+}
+
+func TestGetProjectAgentQuota_MissingRowReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	got, err := q.GetProjectAgentQuota(ctx, "unknown-"+newID())
+	if err != nil {
+		t.Fatalf("GetProjectAgentQuota() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("got %+v, want nil for missing project", got)
+	}
+}
+
+func TestGetProjectPlatformSettings_ReadsFromSplitTable(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	project := &domain.Project{ID: newID(), OrgID: "org-ps", Name: "Platform Settings"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO project_platform_settings (project_id, timezone, default_region,
+			max_key_lifetime_days, rate_limit_requests, rate_limit_window_secs,
+			monthly_budget_microusd, budget_action)
+		VALUES ($1, 'America/New_York', 'iad', 90, 500, 60, 20000000, 'suspend')
+	`, project.ID); err != nil {
+		t.Fatalf("insert project_platform_settings: %v", err)
+	}
+
+	got, err := q.GetProjectPlatformSettings(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("GetProjectPlatformSettings() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetProjectPlatformSettings() = nil, want populated row")
+	}
+	if got.Timezone != "America/New_York" || got.DefaultRegion != "iad" {
+		t.Fatalf("got tz=%q region=%q, want (America/New_York, iad)", got.Timezone, got.DefaultRegion)
+	}
+	if got.MaxKeyLifetimeDays != 90 {
+		t.Fatalf("got max_key_lifetime=%d, want 90", got.MaxKeyLifetimeDays)
+	}
+	if got.RateLimitRequests != 500 || got.RateLimitWindowSecs != 60 {
+		t.Fatalf("got rate limit (%d, %d), want (500, 60)", got.RateLimitRequests, got.RateLimitWindowSecs)
+	}
+	if got.MonthlyBudgetMicrousd != 20000000 || got.BudgetAction != "suspend" {
+		t.Fatalf("got budget (%d, %q), want (20000000, suspend)", got.MonthlyBudgetMicrousd, got.BudgetAction)
+	}
+}
+
+func TestGetProjectPlatformSettings_MissingRowReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	got, err := q.GetProjectPlatformSettings(ctx, "unknown-"+newID())
+	if err != nil {
+		t.Fatalf("GetProjectPlatformSettings() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("got %+v, want nil for missing project", got)
+	}
+}

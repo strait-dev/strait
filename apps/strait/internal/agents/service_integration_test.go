@@ -875,6 +875,637 @@ func mustCreateProject(t *testing.T, ctx context.Context, q *store.Queries) stri
 	return project.ID
 }
 
+// mustCreateEnvironment creates an environment row under the given
+// project and returns its ID. Used by the Phase E3 env-aware tests.
+func mustCreateEnvironment(t *testing.T, ctx context.Context, q *store.Queries, projectID, slug string) string {
+	t.Helper()
+	env := &domain.Environment{
+		ID:        "env-" + newID(),
+		ProjectID: projectID,
+		Name:      slug,
+		Slug:      slug,
+	}
+	if err := q.CreateEnvironment(ctx, env); err != nil {
+		t.Fatalf("CreateEnvironment(%s) error = %v", slug, err)
+	}
+	return env.ID
+}
+
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
+}
+
+// ---------------------------------------------------------------------------
+// Phase E3: DeployAgentToEnv coverage
+// ---------------------------------------------------------------------------
+
+func TestDeployAgentToEnv_PinsEnvironmentID(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+	devEnvID := mustCreateEnvironment(t, ctx, q, projectID, "dev")
+
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Env Agent",
+		Slug:      "env-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	deployment, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, devEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv() error = %v", err)
+	}
+	if deployment.EnvironmentID != devEnvID {
+		t.Fatalf("deployment.EnvironmentID = %q, want %q", deployment.EnvironmentID, devEnvID)
+	}
+	if deployment.Status != domain.AgentDeploymentStatusDeployed {
+		t.Fatalf("deployment.Status = %s, want deployed", deployment.Status)
+	}
+
+	// The per-env getter should find the row.
+	fromEnv, err := q.GetLatestAgentDeploymentByEnvironment(ctx, agent.ID, devEnvID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment() error = %v", err)
+	}
+	if fromEnv.ID != deployment.ID {
+		t.Fatalf("by-env ID = %q, want %q", fromEnv.ID, deployment.ID)
+	}
+}
+
+func TestDeployAgentToEnv_CrossProjectEnvironmentRejected(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectA := mustCreateProject(t, ctx, q)
+	projectB := mustCreateProject(t, ctx, q)
+	envB := mustCreateEnvironment(t, ctx, q, projectB, "prod")
+
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
+	agentA, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectA,
+		Name:      "A Agent",
+		Slug:      "a-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	// Attempt to deploy an agent owned by project A into project B's env.
+	_, err = svc.DeployAgentToEnv(ctx, projectA, agentA.ID, envB, "user-1")
+	if err == nil {
+		t.Fatal("expected error — environment belongs to a different project")
+	}
+}
+
+func TestDeployAgentToEnv_UnknownEnvironmentReturnsError(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Ghost Env Agent",
+		Slug:      "ghost-env-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	_, err = svc.DeployAgentToEnv(ctx, projectID, agent.ID, "env-does-not-exist", "user-1")
+	if err == nil {
+		t.Fatal("expected error for unknown environment_id")
+	}
+}
+
+func TestDeployAgentToEnv_CoexistsWithLegacyNoEnvDeployment(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+	devEnvID := mustCreateEnvironment(t, ctx, q, projectID, "dev")
+
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Legacy Coexist",
+		Slug:      "legacy-coexist",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	legacy, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgent(legacy) error = %v", err)
+	}
+	if legacy.EnvironmentID != "" {
+		t.Fatalf("legacy deployment should have no env, got %q", legacy.EnvironmentID)
+	}
+
+	envBound, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, devEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv(dev) error = %v", err)
+	}
+	if envBound.EnvironmentID != devEnvID {
+		t.Fatalf("env-bound deployment has env %q, want %q", envBound.EnvironmentID, devEnvID)
+	}
+	if envBound.Version != legacy.Version+1 {
+		t.Fatalf("versions not contiguous: legacy=%d env=%d", legacy.Version, envBound.Version)
+	}
+}
+
+func TestDeployAgentToEnv_MultiEnvMonotonicVersions(t *testing.T) {
+	// Version numbers are agent-scoped, not env-scoped. A dev->prod->dev
+	// sequence should produce strictly monotonic versions.
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+	devEnvID := mustCreateEnvironment(t, ctx, q, projectID, "dev")
+	prodEnvID := mustCreateEnvironment(t, ctx, q, projectID, "prod")
+
+	svc := agents.NewService(q, testDB.Pool, agents.WithJWTSigningKey(runtimeTestJWTKey))
+	defer closeService(svc)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Multi Env",
+		Slug:      "multi-env",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	d1, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, devEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv(dev) error = %v", err)
+	}
+	d2, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, prodEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv(prod) error = %v", err)
+	}
+	d3, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, devEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv(dev) error = %v", err)
+	}
+
+	if d1.Version != 1 || d2.Version != 2 || d3.Version != 3 {
+		t.Fatalf("versions = %d,%d,%d; want 1,2,3", d1.Version, d2.Version, d3.Version)
+	}
+
+	// Each env sees its own latest.
+	latestDev, err := q.GetLatestAgentDeploymentByEnvironment(ctx, agent.ID, devEnvID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment(dev) error = %v", err)
+	}
+	if latestDev.ID != d3.ID {
+		t.Fatalf("dev latest = %q, want %q", latestDev.ID, d3.ID)
+	}
+	latestProd, err := q.GetLatestAgentDeploymentByEnvironment(ctx, agent.ID, prodEnvID)
+	if err != nil {
+		t.Fatalf("GetLatestAgentDeploymentByEnvironment(prod) error = %v", err)
+	}
+	if latestProd.ID != d2.ID {
+		t.Fatalf("prod latest = %q, want %q", latestProd.ID, d2.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase E3: RunAgent environment routing + deployment stamping
+// ---------------------------------------------------------------------------
+
+// newEnvAwareTestService builds a service with a local API server so
+// RunAgent can actually dispatch and the LocalStubProvider completes runs.
+// Returns the service plus a cleanup function.
+func newEnvAwareTestService(t *testing.T) (agents.Service, *store.Queries, string) {
+	t.Helper()
+	ctx := context.Background()
+	q := store.New(testDB.Pool)
+	mustClean(t, ctx)
+	projectID := mustCreateProject(t, ctx, q)
+
+	recorder := &recordingPublisher{}
+	srv := api.NewServer(api.ServerDeps{
+		Config: &config.Config{
+			InternalSecret:     runtimeTestIntSecret,
+			JWTSigningKey:      runtimeTestJWTKey,
+			MaxRequestBodySize: 1 << 20,
+			MaxResultSize:      1 << 20,
+		},
+		Store:  q,
+		PubSub: recorder,
+	})
+	httpServer := httptest.NewServer(srv)
+	t.Cleanup(httpServer.Close)
+	t.Cleanup(srv.Close)
+
+	svc := agents.NewService(
+		q,
+		testDB.Pool,
+		agents.WithAPIBaseURL(httpServer.URL),
+		agents.WithJWTSigningKey(runtimeTestJWTKey),
+	)
+	t.Cleanup(func() { closeService(svc) })
+	return svc, q, projectID
+}
+
+func TestRunAgent_PicksDeploymentByEnvironment(t *testing.T) {
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+	devEnvID := mustCreateEnvironment(t, ctx, q, projectID, "dev")
+	prodEnvID := mustCreateEnvironment(t, ctx, q, projectID, "prod")
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Env Router",
+		Slug:      "env-router",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	devDep, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, devEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv(dev) error = %v", err)
+	}
+	prodDep, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, prodEnvID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv(prod) error = %v", err)
+	}
+
+	runDev, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		EnvironmentID: devEnvID,
+		Payload:       json.RawMessage(`{"prompt":"dev"}`),
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent(dev) error = %v", err)
+	}
+	if runDev.AgentDeploymentID != devDep.ID {
+		t.Fatalf("run dev stamped %q, want %q", runDev.AgentDeploymentID, devDep.ID)
+	}
+	runProd, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		EnvironmentID: prodEnvID,
+		Payload:       json.RawMessage(`{"prompt":"prod"}`),
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent(prod) error = %v", err)
+	}
+	if runProd.AgentDeploymentID != prodDep.ID {
+		t.Fatalf("run prod stamped %q, want %q", runProd.AgentDeploymentID, prodDep.ID)
+	}
+}
+
+func TestRunAgent_NoEnvironmentFallsBackToLatest(t *testing.T) {
+	// Legacy RunAgent(no env) should resolve to GetLatestAgentDeployment.
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+	_ = q
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Legacy Agent",
+		Slug:      "legacy-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	dep, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{"prompt":"hi"}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+	if run.AgentDeploymentID != dep.ID {
+		t.Fatalf("run stamped %q, want %q", run.AgentDeploymentID, dep.ID)
+	}
+}
+
+func TestRunAgent_UnknownEnvironmentReturnsNotDeployed(t *testing.T) {
+	ctx := context.Background()
+	svc, _, projectID := newEnvAwareTestService(t)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "No Deploy",
+		Slug:      "no-deploy",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+
+	_, err = svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		EnvironmentID: "env-nonexistent",
+		Payload:       json.RawMessage(`{}`),
+		Actor:         "user-1",
+	})
+	if !errors.Is(err, agents.ErrNotDeployed) {
+		t.Fatalf("err = %v, want ErrNotDeployed", err)
+	}
+}
+
+func TestRunAgent_StampsAgentDeploymentIDOnJobRun(t *testing.T) {
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+	envID := mustCreateEnvironment(t, ctx, q, projectID, "dev")
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Stamper",
+		Slug:      "stamper",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	dep, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, envID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv() error = %v", err)
+	}
+
+	run, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		EnvironmentID: envID,
+		Payload:       json.RawMessage(`{}`),
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+
+	// Read the persisted run row and assert the deployment stamp
+	// survived round-trip through the store.
+	persisted, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if persisted.AgentDeploymentID != dep.ID {
+		t.Fatalf("persisted run stamped %q, want %q", persisted.AgentDeploymentID, dep.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase E3: ReplayAgentRun carries deployment forward
+// ---------------------------------------------------------------------------
+
+func TestReplayAgentRun_PreservesOriginalDeployment(t *testing.T) {
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+	envID := mustCreateEnvironment(t, ctx, q, projectID, "prod")
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Replay Agent",
+		Slug:      "replay-agent",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	originalDep, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, envID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgentToEnv() error = %v", err)
+	}
+
+	original, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		EnvironmentID: envID,
+		Payload:       json.RawMessage(`{"prompt":"original"}`),
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+	_ = mustWaitForRunStatus(t, ctx, q, original.ID, domain.StatusCompleted)
+
+	// Push a newer deployment in the same env — replay MUST still route
+	// back to the original deployment, not this newer one.
+	newerDep, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, envID, "user-1")
+	if err != nil {
+		t.Fatalf("second DeployAgentToEnv() error = %v", err)
+	}
+	if newerDep.ID == originalDep.ID {
+		t.Fatal("second deploy returned the same deployment")
+	}
+
+	replay, err := svc.ReplayAgentRun(ctx, agents.ReplayAgentRunRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		OriginalRunID: original.ID,
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("ReplayAgentRun() error = %v", err)
+	}
+	if replay.AgentDeploymentID != originalDep.ID {
+		t.Fatalf("replay stamped %q, want original deployment %q", replay.AgentDeploymentID, originalDep.ID)
+	}
+}
+
+func TestReplayAgentRun_LegacyRunWithoutDeploymentFallsBack(t *testing.T) {
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Legacy Replay",
+		Slug:      "legacy-replay",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	legacyDep, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1")
+	if err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	original, err := svc.RunAgent(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent() error = %v", err)
+	}
+	_ = mustWaitForRunStatus(t, ctx, q, original.ID, domain.StatusCompleted)
+
+	// Simulate a pre-Phase-B run by blanking out the deployment id.
+	if _, err := testDB.Pool.Exec(ctx,
+		"UPDATE job_runs SET agent_deployment_id = NULL WHERE id = $1", original.ID,
+	); err != nil {
+		t.Fatalf("blank deployment: %v", err)
+	}
+
+	replay, err := svc.ReplayAgentRun(ctx, agents.ReplayAgentRunRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		OriginalRunID: original.ID,
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("ReplayAgentRun() error = %v", err)
+	}
+	// Fallback is GetLatestAgentDeployment — which is the legacy deployment.
+	if replay.AgentDeploymentID != legacyDep.ID {
+		t.Fatalf("replay stamped %q, want legacy %q", replay.AgentDeploymentID, legacyDep.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase E3: Agent envelope reads env-scoped project_secrets
+// ---------------------------------------------------------------------------
+
+func TestBuildRuntimeEnvelope_PopulatesSecretsFromEnv(t *testing.T) {
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+	envID := mustCreateEnvironment(t, ctx, q, projectID, "prod")
+
+	// Insert a project-wide secret in the prod env.
+	qEnc := mustStoreWithEncryption(t)
+	if err := qEnc.CreateProjectSecret(ctx, &domain.ProjectSecret{
+		ProjectID:      projectID,
+		EnvironmentID:  envID,
+		SecretKey:      "API_KEY",
+		EncryptedValue: "prod-secret",
+	}); err != nil {
+		t.Fatalf("CreateProjectSecret() error = %v", err)
+	}
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Secret Reader",
+		Slug:      "secret-reader",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgentToEnv(ctx, projectID, agent.ID, envID, "user-1"); err != nil {
+		t.Fatalf("DeployAgentToEnv() error = %v", err)
+	}
+
+	// PrepareDirectRun returns the envelope synchronously so we can
+	// inspect it without waiting on dispatch side effects.
+	result, err := svc.PrepareDirectRun(ctx, agents.RunAgentRequest{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		EnvironmentID: envID,
+		Payload:       json.RawMessage(`{}`),
+		Actor:         "user-1",
+	})
+	if err != nil {
+		t.Fatalf("PrepareDirectRun() error = %v", err)
+	}
+	if got := result.Envelope.Secrets["API_KEY"]; got != "prod-secret" {
+		t.Fatalf("envelope.Secrets[API_KEY] = %q, want prod-secret", got)
+	}
+}
+
+func TestBuildRuntimeEnvelope_NoEnvOnDeploymentSkipsSecrets(t *testing.T) {
+	// A legacy (no-env) deployment should receive no project_secrets
+	// even if secrets exist for that project in any env.
+	ctx := context.Background()
+	svc, q, projectID := newEnvAwareTestService(t)
+	envID := mustCreateEnvironment(t, ctx, q, projectID, "prod")
+
+	qEnc := mustStoreWithEncryption(t)
+	if err := qEnc.CreateProjectSecret(ctx, &domain.ProjectSecret{
+		ProjectID:      projectID,
+		EnvironmentID:  envID,
+		SecretKey:      "UNUSED",
+		EncryptedValue: "should-not-leak",
+	}); err != nil {
+		t.Fatalf("CreateProjectSecret() error = %v", err)
+	}
+
+	agent, err := svc.CreateAgent(ctx, agents.CreateAgentRequest{
+		ProjectID: projectID,
+		Name:      "Legacy No Env",
+		Slug:      "legacy-no-env",
+		Model:     "gpt-5.4",
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent() error = %v", err)
+	}
+	if _, err := svc.DeployAgent(ctx, projectID, agent.ID, "user-1"); err != nil {
+		t.Fatalf("DeployAgent() error = %v", err)
+	}
+
+	result, err := svc.PrepareDirectRun(ctx, agents.RunAgentRequest{
+		ProjectID: projectID,
+		AgentID:   agent.ID,
+		Payload:   json.RawMessage(`{}`),
+		Actor:     "user-1",
+	})
+	if err != nil {
+		t.Fatalf("PrepareDirectRun() error = %v", err)
+	}
+	if len(result.Envelope.Secrets) != 0 {
+		t.Fatalf("envelope.Secrets = %v, want empty for legacy no-env deployment", result.Envelope.Secrets)
+	}
+}
+
+// mustStoreWithEncryption returns a *store.Queries wired with an
+// encryption key so CreateProjectSecret and ListProjectSecretsByEnv
+// can encrypt/decrypt. Mirrors the pattern in
+// internal/store/agents_integration_test.go.
+func mustStoreWithEncryption(t *testing.T) *store.Queries {
+	t.Helper()
+	q := store.New(testDB.Pool)
+	q.SetSecretEncryptionKey("test-secret-encryption-key-32chr!")
+	return q
 }
