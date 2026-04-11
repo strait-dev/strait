@@ -62,6 +62,33 @@ func (q *Queries) DeleteHeartbeatSideTable(ctx context.Context, ids []string) er
 	return nil
 }
 
+// DeleteOrphanedHeartbeats removes side-table rows whose owning run is
+// no longer in status 'executing'. Used by the R2 Phase 5 heartbeat GC
+// to bound the unlogged table size when a terminal transition skipped
+// the explicit delete.
+func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteOrphanedHeartbeats")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const sql = `
+		WITH victims AS (
+			SELECT h.run_id FROM job_run_heartbeats h
+			LEFT JOIN job_runs r ON r.id = h.run_id
+			WHERE r.id IS NULL OR r.status <> 'executing'
+			LIMIT $1
+		)
+		DELETE FROM job_run_heartbeats
+		WHERE run_id IN (SELECT run_id FROM victims)`
+	tag, err := q.db.Exec(ctx, sql, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete orphaned heartbeats: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // StaleHeartbeatSideTable returns run_ids with a heartbeat older than the
 // threshold. Paired with ListStaleRuns as a supplement when the side table
 // path is enabled.
