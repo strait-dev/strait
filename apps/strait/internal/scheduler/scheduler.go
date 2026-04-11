@@ -49,6 +49,7 @@ type Scheduler struct {
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
+	priorityPromoter         *PriorityPromoter
 	wg                       conc.WaitGroup
 }
 
@@ -115,6 +116,14 @@ func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerO
 func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption {
 	return func(s *Scheduler) {
 		s.concurrentReconciler = reconciler
+	}
+}
+
+// WithPriorityPromoter enables Phase 4 priority aging via a dedicated
+// scheduler goroutine instead of a mutable dequeue ORDER BY.
+func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
+	return func(s *Scheduler) {
+		s.priorityPromoter = p
 	}
 }
 
@@ -223,6 +232,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.contractExpiryChecker != nil {
 		safeGo(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+	}
+	if s.priorityPromoter != nil {
+		safeGo(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

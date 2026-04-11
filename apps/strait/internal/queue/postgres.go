@@ -19,17 +19,18 @@ import (
 
 type PostgresQueue struct {
 	db               store.DBTX
-	priorityAging    bool
 	statementTimeout time.Duration
 	metrics          *QueueMetrics
 }
 
 type PostgresQueueOption func(*PostgresQueue)
 
-func WithPriorityAging(enabled bool) PostgresQueueOption {
-	return func(q *PostgresQueue) {
-		q.priorityAging = enabled
-	}
+// WithPriorityAging is deprecated and now a no-op. Priority aging is handled
+// by the scheduler.PriorityPromoter goroutine in Phase 4 instead of by a
+// mutable ORDER BY expression, which had to sort over every queued row. The
+// constructor option is kept so existing tests and call sites compile.
+func WithPriorityAging(_ bool) PostgresQueueOption {
+	return func(_ *PostgresQueue) {}
 }
 
 func WithStatementTimeout(d time.Duration) PostgresQueueOption {
@@ -57,11 +58,10 @@ func (q *PostgresQueue) setStatementTimeout(ctx context.Context) {
 	}
 }
 
+// dequeueOrderByClause always returns the static, index-servable ordering.
+// Starvation prevention is now handled by scheduler.PriorityPromoter which
+// bumps priority on aging rows; see Phase 4 in the reliability plan.
 func (q *PostgresQueue) dequeueOrderByClause() string {
-	if q.priorityAging {
-		return "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600 DESC, jr.created_at ASC"
-	}
-
 	return "jr.priority DESC, jr.created_at ASC"
 }
 

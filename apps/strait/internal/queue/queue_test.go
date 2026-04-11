@@ -305,12 +305,17 @@ func TestDequeueN_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
 	q := NewPostgresQueue(db, WithPriorityAging(true))
 	_, _ = q.DequeueN(context.Background(), 10)
 
-	if !strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueN() query missing priority aging formula: %s", query)
+	// Phase 4: priority aging is now handled by the scheduler promoter, not
+	// a mutable ORDER BY. WithPriorityAging is a no-op kept for compat.
+	if strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueN() query unexpectedly contains aging formula after Phase 4: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
+		t.Fatalf("DequeueN() query missing static priority ordering: %s", query)
 	}
 }
 
-func TestDequeueNByProject_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
+func TestDequeueNByProject_QueryUsesStaticPriorityOrdering(t *testing.T) {
 	t.Parallel()
 
 	var query string
@@ -324,8 +329,11 @@ func TestDequeueNByProject_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
 	q := NewPostgresQueue(db, WithPriorityAging(true))
 	_, _ = q.DequeueNByProject(context.Background(), 10, "proj-1")
 
-	if !strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueNByProject() query missing priority aging formula: %s", query)
+	if strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueNByProject() query unexpectedly contains aging formula: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
+		t.Fatalf("DequeueNByProject() query missing static priority ordering: %s", query)
 	}
 }
 

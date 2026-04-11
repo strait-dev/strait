@@ -837,6 +837,15 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
 			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
+			scheduler.WithPriorityPromoter(
+				scheduler.NewPriorityPromoter(dbPool, scheduler.PriorityPromoterConfig{
+					Interval:     60 * time.Second,
+					AgeThreshold: 5 * time.Minute,
+					MaxPriority:  1000,
+					BatchLimit:   500,
+					Logger:       slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
