@@ -64,6 +64,11 @@ type Config struct {
 	// lookup table instead of COUNT-over-active-rows CTE).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
 
+	// Phase 9: DLQ caps and overflow policy.
+	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
+	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
+	DLQOverflowPolicy string `env:"DLQ_OVERFLOW_POLICY" default:"drop_oldest"`
+
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`
 
