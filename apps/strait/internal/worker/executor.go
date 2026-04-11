@@ -127,6 +127,7 @@ type Executor struct {
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
 	claimCursor              *queue.ClaimCursor
+	useDenormalizedDequeue   bool
 }
 
 type ConcurrencyLimitProvider interface {
@@ -172,6 +173,9 @@ type ExecutorConfig struct {
 	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	// UseDenormalizedDequeue opts into the Phase 6 job_active_counts-backed
+	// dequeue path. Defaults to false so existing deployments are unaffected.
+	UseDenormalizedDequeue bool
 }
 
 const (
@@ -279,6 +283,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 		claimCursor:              queue.NewClaimCursor(60 * time.Second),
+		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
 	}
 }
 

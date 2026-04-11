@@ -60,6 +60,10 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
+	// Phase 6: toggle the denormalized dequeue path (uses job_active_counts
+	// lookup table instead of COUNT-over-active-rows CTE).
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
+
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`
 

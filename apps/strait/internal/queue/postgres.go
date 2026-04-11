@@ -404,6 +404,76 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	return q.DequeueNWithCursor(ctx, n, nil)
 }
 
+// DequeueNDenormalized is the Phase 6 variant that replaces the
+// COUNT-over-active-rows CTE with a lookup against the job_active_counts
+// table. The maintenance trigger guarantees the counter stays in sync with
+// the job_runs status transitions, so the dequeue hot path does a single
+// PK probe per candidate instead of scanning every in-flight row.
+//
+// Returns the same shape as DequeueN. Callers enable this variant via a
+// feature flag at the executor layer.
+func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNDenormalized")
+	defer span.End()
+
+	q.setStatementTimeout(ctx)
+
+	query := fmt.Sprintf(`
+		WITH claimed AS (
+			SELECT jr.id, jr.created_at
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = '%s'
+			  AND j.enabled = true
+			  AND NOT j.paused
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (j.max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < j.max_concurrency)
+			  AND (j.max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < j.max_concurrency_per_key)
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1
+		), updated AS (
+			UPDATE job_runs
+			SET status = '%s', started_at = NOW()
+			WHERE id IN (SELECT id FROM claimed)
+			RETURNING %s
+		)
+		SELECT %s
+		FROM updated
+		ORDER BY created_at ASC`, domain.StatusQueued, q.dequeueOrderByClause(), domain.StatusDequeued, dequeueColumns, dequeueColumns)
+
+	rows, err := q.db.Query(ctx, query, n)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue denormalized: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, n)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue denormalized scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue denormalized rows: %w", err)
+	}
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
+}
+
 // DequeueNWithCursor is the Phase 5 cursor-aware variant. When cursor is
 // non-nil and has a valid snapshot, its (created_at, id) pair is added to
 // the claim predicate so Postgres can skip past already-visited heap tuples

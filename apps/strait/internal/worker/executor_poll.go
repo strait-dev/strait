@@ -22,6 +22,13 @@ type cursorAwareQueue interface {
 	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
 }
 
+// denormalizedDequeuer is the optional Phase 6 interface for the
+// job_active_counts-backed dequeue path. Same pattern as cursorAwareQueue:
+// opt-in via type assertion to avoid expanding the base Queue interface.
+type denormalizedDequeuer interface {
+	DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
+}
+
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
 	if e.memoryPressureThreshold > 0 {
@@ -55,6 +62,15 @@ func (e *Executor) poll(ctx context.Context) {
 		runs, err = e.dequeueAcrossPartitions(ctx, available)
 	case e.dequeueStrategy == "fair_round_robin":
 		runs, err = e.queue.DequeueNFair(ctx, available)
+	case e.useDenormalizedDequeue:
+		// Phase 6: job_active_counts-backed dequeue. Skip cursor hint here;
+		// the denormalized path already avoids the COUNT scan that made the
+		// cursor most valuable.
+		if dq, ok := e.queue.(denormalizedDequeuer); ok {
+			runs, err = dq.DequeueNDenormalized(ctx, available)
+		} else {
+			runs, err = e.queue.DequeueN(ctx, available)
+		}
 	default:
 		// Phase 5: prefer cursor-aware dequeue when the concrete queue
 		// implementation supports it. Falls back to plain DequeueN for

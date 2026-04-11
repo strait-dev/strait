@@ -686,6 +686,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
 		DefaultRegion:           cfg.DefaultRegion,
+		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
 	}
 
 	// Only wire billing enforcement in the executor when explicitly enabled.
