@@ -149,8 +149,10 @@ type Metrics struct {
 	HTTPModeGateRejected      metric.Int64Counter
 
 	// Audit event metrics.
-	AuditEventsEmitted metric.Int64Counter
-	AuditEventsDropped metric.Int64Counter
+	AuditEventsEmitted     metric.Int64Counter
+	AuditEventsDropped     metric.Int64Counter
+	AuditEventsTruncated   metric.Int64Counter
+	AuditEventsDeadlettered metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -821,6 +823,16 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit events dropped (async buffer full or write failure)"),
 		metric.WithUnit("1"),
 	)
+	auditEventsTruncated, _ := meter.Int64Counter(
+		"strait.audit.events_truncated_total",
+		metric.WithDescription("Total audit events whose details were truncated for exceeding the size cap"),
+		metric.WithUnit("1"),
+	)
+	auditEventsDeadlettered, _ := meter.Int64Counter(
+		"strait.audit.events_deadlettered_total",
+		metric.WithDescription("Total audit events spilled to the deadletter table after retry exhaustion"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:               runTransitions,
@@ -909,6 +921,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		HTTPModeGateRejected:         httpModeGateRejected,
 		AuditEventsEmitted:           auditEventsEmitted,
 		AuditEventsDropped:           auditEventsDropped,
+		AuditEventsTruncated:         auditEventsTruncated,
+		AuditEventsDeadlettered:      auditEventsDeadlettered,
 	}
 
 	slog.Info("prometheus metrics enabled")

@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"strait/internal/domain"
@@ -11,6 +13,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// Alerting rules for this subsystem live in strait-dev/infra RUNBOOK.md
+// §audit-emit-health. The in-code health probe that feeds those alerts
+// is in internal/health/audit_probe.go.
 
 // auditAsyncBufferSize is the capacity of the buffered audit-event channel.
 // Large enough to absorb bursts on the job trigger hot path; small enough to
@@ -20,6 +26,12 @@ const auditAsyncBufferSize = 4096
 // auditAsyncShutdownTimeout bounds how long Close() waits for the drainer
 // to flush pending events before abandoning them.
 const auditAsyncShutdownTimeout = 5 * time.Second
+
+// auditMaxDetailsBytes caps the marshaled details payload. Oversize
+// payloads are replaced with a truncation marker before being handed to
+// the chain writer — the HMAC canonical form stays bounded and the DB
+// row size is predictable.
+const auditMaxDetailsBytes = 16 * 1024
 
 // startAuditAsyncDrain initializes the async audit-emit infrastructure:
 // a buffered channel and a single background goroutine that writes events
@@ -34,25 +46,49 @@ func (s *Server) startAuditAsyncDrain() {
 // drainAuditAsync runs in a dedicated goroutine. It reads from auditAsyncCh
 // and calls store.CreateAuditEvent for each event. It exits once the channel
 // is closed and fully drained.
+//
+// Every event is processed inside a deferred recover so a panic in one
+// event cannot kill the drainer and silently stop the audit log. Panics
+// are logged with a stack trace and metered as dropped events.
 func (s *Server) drainAuditAsync() {
 	defer close(s.auditAsyncDone)
 	for ev := range s.auditAsyncCh {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
-			slog.Warn("failed to create async audit event",
+		s.processAuditAsyncEvent(ev)
+	}
+}
+
+func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("audit drainer panic recovered",
 				"action", ev.Action,
 				"resource_type", ev.ResourceType,
 				"resource_id", ev.ResourceID,
-				"error", err)
+				"panic", r,
+				"stack", string(debug.Stack()))
 			if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-				s.metrics.AuditEventsDropped.Add(ctx, 1,
-					metric.WithAttributes(attribute.String("reason", "write_failed")))
+				s.metrics.AuditEventsDropped.Add(context.Background(), 1,
+					metric.WithAttributes(attribute.String("reason", "panic")))
 			}
-		} else if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
-			s.metrics.AuditEventsEmitted.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("mode", "async")))
 		}
-		cancel()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
+		slog.Warn("failed to create async audit event",
+			"action", ev.Action,
+			"resource_type", ev.ResourceType,
+			"resource_id", ev.ResourceID,
+			"error", err)
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "write_failed")))
+		}
+		return
+	}
+	if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
+		s.metrics.AuditEventsEmitted.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("mode", "async")))
 	}
 }
 
@@ -81,6 +117,70 @@ func (s *Server) stopAuditAsyncDrain() {
 	}
 }
 
+// marshalAndCapDetails marshals details to JSON and replaces the payload
+// with a truncation marker if it exceeds auditMaxDetailsBytes. This keeps
+// the HMAC chain input bounded and prevents a misbehaving handler from
+// ballooning the DB row.
+func (s *Server) marshalAndCapDetails(ctx context.Context, action string, details map[string]any) (json.RawMessage, bool, error) {
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(detailsJSON) <= auditMaxDetailsBytes {
+		return detailsJSON, false, nil
+	}
+	slog.Warn("audit event details exceeded size cap; truncating",
+		"action", action,
+		"original_bytes", len(detailsJSON),
+		"cap_bytes", auditMaxDetailsBytes)
+	if s.metrics != nil && s.metrics.AuditEventsTruncated != nil {
+		s.metrics.AuditEventsTruncated.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("action", action)))
+	}
+	marker := map[string]any{
+		"_truncated":     true,
+		"original_bytes": len(detailsJSON),
+		"cap_bytes":      auditMaxDetailsBytes,
+		"action":         action,
+	}
+	out, mErr := json.Marshal(marker)
+	if mErr != nil {
+		return nil, true, fmt.Errorf("marshal truncation marker: %w", mErr)
+	}
+	return out, true, nil
+}
+
+// validateActorForEmit rejects events with no actor when the context
+// asserts the caller is a user or api_key. A missing actor on a
+// user/api_key request is almost always a middleware bug and ships
+// unattributable events — for compliance, refuse them.
+//
+// An empty actor_type is treated as "internal / unknown" and is allowed
+// through (internal-secret callers, schedulers, and background workers
+// fall into this category and legitimately have no logical actor).
+func (s *Server) validateActorForEmit(ctx context.Context, action string) (actorID, actorType string, ok bool) {
+	actorID = actorFromContext(ctx)
+	actorType, _ = ctx.Value(ctxActorTypeKey).(string)
+	if actorID != "" {
+		return actorID, actorType, true
+	}
+	// Empty actor is only acceptable when the caller is a trusted
+	// internal path (empty type, "internal", "sse_token"). Explicit
+	// "user" or "api_key" with empty actor ID is a middleware bug.
+	switch actorType {
+	case "", "internal", "sse_token":
+		return actorID, actorType, true
+	}
+	slog.Error("audit emit rejected: missing actor on authenticated request",
+		"action", action,
+		"actor_type", actorType)
+	if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+		s.metrics.AuditEventsDropped.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("reason", "missing_actor")))
+	}
+	return "", "", false
+}
+
 // emitAuditEventAsync builds an audit event from the request context and
 // hands it off to the background drainer. Safe to call on hot paths: the
 // caller never blocks on the DB. If the buffer is full the event is dropped
@@ -103,16 +203,19 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		s.emitAuditEvent(ctx, action, resourceType, resourceID, details)
 		return
 	}
-	detailsJSON, err := json.Marshal(details)
+	actorID, actorType, ok := s.validateActorForEmit(ctx, action)
+	if !ok {
+		return
+	}
+	detailsJSON, _, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal async audit event details",
 			"action", action, "error", err)
 		return
 	}
-	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 	ev := &domain.AuditEvent{
 		ProjectID:    projectIDFromContext(ctx),
-		ActorID:      actorFromContext(ctx),
+		ActorID:      actorID,
 		ActorType:    actorType,
 		Action:       action,
 		ResourceType: resourceType,
@@ -146,4 +249,3 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 			"resource_id", resourceID)
 	}
 }
-

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"slices"
@@ -91,14 +90,17 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 			"action", action, "resource_type", resourceType, "resource_id", resourceID)
 		return
 	}
-	detailsJSON, err := json.Marshal(details)
+	actorID, actorType, ok := s.validateActorForEmit(ctx, action)
+	if !ok {
+		return
+	}
+	detailsJSON, _, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
 		return
 	}
-	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 	ev := &domain.AuditEvent{
-		ProjectID: projectIDFromContext(ctx), ActorID: actorFromContext(ctx), ActorType: actorType,
+		ProjectID: projectIDFromContext(ctx), ActorID: actorID, ActorType: actorType,
 		Action: action, ResourceType: resourceType, ResourceID: resourceID, Details: detailsJSON,
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
