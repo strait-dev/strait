@@ -69,6 +69,13 @@ func (s *Server) handleCreateCanaryDeployment(ctx context.Context, input *Create
 		return nil, huma.Error500InternalServerError("failed to create canary deployment")
 	}
 
+	s.emitAuditEvent(ctx, "canary_deployment.created", "canary_deployment", canary.ID, map[string]any{
+		"workflow_id":    req.WorkflowID,
+		"source_version": req.SourceVersion,
+		"target_version": req.TargetVersion,
+		"traffic_pct":    req.TrafficPct,
+	})
+
 	return &CreateCanaryOutput{Body: canary}, nil
 }
 
@@ -118,6 +125,11 @@ func (s *Server) handleUpdateCanaryDeployment(ctx context.Context, input *Update
 		return nil, huma.Error500InternalServerError("failed to load canary deployment")
 	}
 
+	s.emitAuditEvent(ctx, "canary_deployment.updated", "canary_deployment", input.WorkflowID, map[string]any{
+		"workflow_id": input.WorkflowID,
+		"traffic_pct": input.Body.TrafficPct,
+	})
+
 	return &UpdateCanaryOutput{Body: canary}, nil
 }
 
@@ -151,6 +163,10 @@ func (s *Server) handleRollbackCanaryDeployment(ctx context.Context, input *Roll
 	if err := s.store.CompleteCanaryDeployment(ctx, input.WorkflowID, "rolled_back"); err != nil {
 		return nil, huma.Error500InternalServerError("failed to finalize canary rollback")
 	}
+
+	s.emitAuditEvent(ctx, "canary_deployment.rolled_back", "canary_deployment", input.WorkflowID, map[string]any{
+		"workflow_id": input.WorkflowID,
+	})
 
 	return &RollbackCanaryOutput{Body: map[string]any{
 		"workflow_id": input.WorkflowID,

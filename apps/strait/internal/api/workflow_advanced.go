@@ -39,6 +39,13 @@ func (s *Server) handleUpsertWorkflowPolicy(ctx context.Context, input *UpsertWo
 	if err := s.store.UpsertWorkflowPolicy(ctx, policy); err != nil {
 		return nil, huma.Error500InternalServerError("failed to save workflow policy")
 	}
+	s.emitAuditEvent(ctx, "workflow_policy.upserted", "workflow_policy", input.ProjectID, map[string]any{
+		"project_id":                  input.ProjectID,
+		"max_fan_out":                 input.Body.MaxFanOut,
+		"max_depth":                   input.Body.MaxDepth,
+		"forbidden_step_types":        input.Body.ForbiddenStepTypes,
+		"require_approval_for_deploy": input.Body.RequireApprovalForDeploy,
+	})
 	return &UpsertWorkflowPolicyOutput{Body: policy}, nil
 }
 

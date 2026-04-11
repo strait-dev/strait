@@ -195,6 +195,14 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 		return nil, huma.Error500InternalServerError("failed to create workflow")
 	}
 
+	s.emitAuditEvent(ctx, "workflow.created", "workflow", wf.ID, map[string]any{
+		"name":       wf.Name,
+		"slug":       wf.Slug,
+		"step_count": len(steps),
+		"enabled":    wf.Enabled,
+		"cron":       wf.Cron,
+	})
+
 	return &CreateWorkflowOutput{Body: workflowResponse{Workflow: wf, Steps: steps}}, nil
 }
 
@@ -439,7 +447,20 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 				"active_runs_on_previous_version": count,
 				"new_version":                     wf.Version,
 			})
+		} else {
+			s.emitAuditEvent(ctx, "workflow.updated", "workflow", wf.ID, map[string]any{
+				"changes":             req,
+				"name":                wf.Name,
+				"previous_version_id": previousVersionID,
+				"new_version":         wf.Version,
+			})
 		}
+	} else {
+		s.emitAuditEvent(ctx, "workflow.updated", "workflow", wf.ID, map[string]any{
+			"changes":     req,
+			"name":        wf.Name,
+			"new_version": wf.Version,
+		})
 	}
 
 	return &UpdateWorkflowOutput{Body: resp}, nil
@@ -473,6 +494,11 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, input *DeleteWorkflow
 	if err := s.store.DeleteWorkflow(ctx, input.WorkflowID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete workflow")
 	}
+
+	s.emitAuditEvent(ctx, "workflow.deleted", "workflow", input.WorkflowID, map[string]any{
+		"name": wf.Name,
+		"slug": wf.Slug,
+	})
 
 	return nil, nil
 }
@@ -554,6 +580,12 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 		}
 	}
 	s.publishWorkflowRunHook(ctx, run, domain.WfStatusPending, run.Status, "trigger")
+
+	s.emitAuditEventAsync(ctx, "workflow.triggered", "workflow", workflowID, map[string]any{
+		"run_id":       run.ID,
+		"triggered_by": string(triggeredBy),
+		"tag_keys":     tagKeys(req.Tags),
+	})
 
 	return &TriggerWorkflowOutput{Body: run}, nil
 }
@@ -846,6 +878,10 @@ func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflow
 		if err := workflow.ValidateDAG(steps); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		s.emitAuditEvent(ctx, "workflow.dry_run", "workflow", input.WorkflowID, map[string]any{
+			"step_count": len(steps),
+			"mode":       "existing_steps",
+		})
 		return &DryRunWorkflowOutput{Body: map[string]any{"valid": true, "step_count": len(steps)}}, nil
 	}
 
@@ -860,6 +896,11 @@ func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflow
 	if err := workflow.ValidateDAG(steps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+
+	s.emitAuditEvent(ctx, "workflow.dry_run", "workflow", input.WorkflowID, map[string]any{
+		"step_count": len(steps),
+		"mode":       "request_steps",
+	})
 
 	return &DryRunWorkflowOutput{Body: map[string]any{"valid": true, "step_count": len(steps)}}, nil
 }
@@ -941,6 +982,12 @@ func (s *Server) handleWorkflowPlan(ctx context.Context, input *WorkflowPlanInpu
 		}
 		sort.Strings(queue)
 	}
+
+	s.emitAuditEvent(ctx, "workflow.plan_requested", "workflow", workflowID, map[string]any{
+		"step_count":       len(steps),
+		"override_count":   len(req.StepOverrides),
+		"workflow_version": wf.Version,
+	})
 
 	return &WorkflowPlanOutput{Body: map[string]any{
 		"workflow_id":       workflowID,
@@ -1211,6 +1258,13 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 		slog.Error("failed to clone workflow", "error", err)
 		return nil, huma.Error500InternalServerError("failed to clone workflow")
 	}
+
+	s.emitAuditEvent(ctx, "workflow.cloned", "workflow", newWf.ID, map[string]any{
+		"source_workflow_id": sourceID,
+		"new_name":           newWf.Name,
+		"new_slug":           newWf.Slug,
+		"step_count":         len(newSteps),
+	})
 
 	return &CloneWorkflowOutput{Body: workflowResponse{Workflow: newWf, Steps: newSteps}}, nil
 }
