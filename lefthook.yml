@@ -2,6 +2,7 @@ min_version: 2.1.5
 
 pre-commit:
   parallel: true
+  follow: true
   commands:
     gitleaks:
       run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
@@ -23,6 +24,7 @@ pre-commit:
 
 pre-push:
   parallel: true
+  follow: true
   commands:
     run_all:
       glob:
