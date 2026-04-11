@@ -1,522 +1,377 @@
 # AGENTS.md
 
-This file is the operating guide for contributors and AI agents working on this repository.
+Operating guide for contributors and AI agents working on this repository. **Read this before making changes.**
 
-**Read this document before making any change.**
 If instructions conflict, use this priority order:
 1. Direct user request
-2. Repository conventions in this file
+2. This file
 3. Existing code patterns
 4. Personal preference
 
+The same content lives in `CLAUDE.md` — keep both files in sync.
+
 ---
 
-## 1) What this project is
+## 1. What Strait is
 
-- **Project**: Strait
-- **Language**: Go 1.26
-- **Module**: `strait`
-- **Purpose**: Job execution/orchestration platform with:
-  - job definitions and triggering (HTTP dispatch + managed container execution)
-  - run lifecycle management (13-state FSM with pause/resume)
-  - workflow DAG orchestration (steps, approvals, sub-workflows, wait-for-event)
-  - managed execution (K8s containers, warm pool, cost tracking)
-  - SDK endpoints for in-run operations (progress, checkpoint, completion)
-  - ClickHouse analytics (optional, for run metrics and cost reporting)
-  - webhook delivery with retry, circuit breaker, and HMAC signing
-  - observability/metrics/tracing (OpenTelemetry + Prometheus)
+Strait is a job execution and workflow orchestration platform shipped as a single Go binary. PostgreSQL is the source of truth and the queue (`SELECT ... FOR UPDATE SKIP LOCKED`); Redis powers pub/sub and SSE; container workloads run on Docker or Kubernetes. The binary runs in `api`, `worker`, or `all` mode. Two editions (community and cloud) are selected at compile time via Go build tags.
 
-Runtime modes:
-- `api` (HTTP API)
-- `worker` (execution/scheduler)
-- `all` (combined)
-
-Core technical model:
-- PostgreSQL is the source of truth and queue backend (`SELECT ... FOR UPDATE SKIP LOCKED`)
-- Redis supports pub/sub and streaming integrations
-- Single binary deployment model
-
-Start here for high-level context:
+Read first:
 - `README.md`
-- `docs/introduction.mdx`
-- `docs/quickstart.mdx`
-- `docs/architecture.mdx`
+- `apps/docs/introduction.mdx` — feature overview
+- `apps/docs/quickstart.mdx` — 10-minute setup
+- `apps/docs/architecture.mdx` — internals and design rationale
+- `apps/docs/development/technology-choices.mdx` — why each library
+- `SELFHOST.md` — self-hosted deployment
 
 ---
 
-## 2) Repository map (how to navigate)
+## 2. Tech stack
 
-Top-level directories you will use most:
+- **Language**: Go 1.26 (toolchain 1.26.2), module `strait`, repo is a Bun + Turbo monorepo
+- **HTTP**: `go-chi/chi/v5` + `danielgtaylor/huma/v2` (OpenAPI generation)
+- **Database**: PostgreSQL via `jackc/pgx/v5` — no ORM. Migrations are embedded SQL.
+- **Cache / pub-sub**: `redis/go-redis/v9`, `eko/gocache`, `maypok86/otter`
+- **Concurrency**: `sourcegraph/conc`, `alitto/pond/v2`, `failsafe-go` for retries / circuit breakers
+- **Container runtimes**: `k8s.io/client-go`, Docker, BuildKit
+- **Analytics (optional)**: `ClickHouse/clickhouse-go/v2`
+- **Observability**: OpenTelemetry, Prometheus, Pyroscope, Sentry
+- **Helpers**: `samber/lo`, `samber/oops`, `samber/slog-multi`
+- **CLI internals**: `spf13/cobra` (the user-facing CLI lives in [strait-dev/cli](https://github.com/strait-dev/cli))
+- **JWT**: `golang-jwt/jwt/v5`
+- **Cloud-only billing**: `stripe/stripe-go/v82`
+- **Tests**: `testcontainers-go` for real Postgres / Redis in integration tests
+- **Tooling**: golangci-lint, lefthook, Biome, govulncheck, gitleaks
 
-- `apps/strait/cmd/strait/` — app entrypoint wiring (CLI has moved to [strait-dev/cli](https://github.com/strait-dev/cli))
-- `apps/strait/internal/api/` — HTTP routes, middleware, API auth paths
-  - `apps/strait/internal/api/sdk_resources.go` — in-container resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`)
-- `apps/strait/internal/worker/` — execution worker pool and dispatch behavior
-- `apps/strait/internal/workflow/` — DAG orchestration engine and step progression
-- `apps/strait/internal/compute/` — container runtime abstraction (K8s, Docker), warm machine pool, machine lifecycle, cost estimation
-  - `apps/strait/internal/compute/signals.go` — exit code classification (OOM, SIGTERM, SIGSEGV), crash log fetch, OOM preset upgrade logic
-- `apps/strait/internal/scheduler/` — cron/poller/reaper/retention/pool-pruner background loops
-- `apps/strait/internal/queue/` — dequeue/queue logic and concurrency-safe claiming
-- `apps/strait/internal/store/` — raw SQL data access layer
-  - `apps/strait/internal/store/job_preset_recommendations.go` — OOM-aware preset recommendation storage with 24h decay
-- `apps/strait/internal/domain/` — domain models, FSM types/errors
-- `apps/strait/internal/clickhouse/` — optional ClickHouse analytics export (run events, analytics, compute usage)
-- `apps/strait/internal/webhook/` — async webhook delivery with retry, circuit breaker, HMAC signing
-- `apps/strait/internal/cdc/` — change data capture via Sequin for real-time event streaming
-- `apps/strait/internal/pubsub/` — Redis-backed pub/sub for SSE streaming and event notifications
-- `apps/strait/internal/logdrain/` — external log forwarding (HTTP, Datadog, Splunk)
-- `apps/strait/internal/ratelimit/` — per-job and per-API rate limiting
-- `apps/strait/internal/crypto/` — secret encryption, API key hashing, signature verification
-- `apps/strait/internal/telemetry/` — OpenTelemetry tracing and Prometheus metrics
-- `apps/strait/internal/config/` — env var loading/defaults/validation
-- `apps/strait/internal/testutil/` — factories/assert helpers/cmp tools
-- `apps/strait/migrations/` — SQL migrations (embedded in binary)
-- `docs/` — product + dev + API + CLI docs
-
-Useful support files:
-- `.github/workflows/lint.yml`
-- `.github/workflows/test.yml`
-- `.golangci.yml`
-- `lefthook.yml`
-- `.env.example`
-- `docker-compose.yml`
+Runtime dependencies (see `apps/strait/docker-compose.yml`): PostgreSQL 18, Redis 8, Sequin (CDC). Self-host stack at the repo root: `docker-compose.selfhost.yml`.
 
 ---
 
-## 3) Documentation reading protocol (mandatory)
+## 3. Repository layout
 
-Before implementation, read docs intentionally instead of guessing.
+Monorepo. Top level:
 
-### 3.1 Use docs navigation as source of truth
-- `docs/docs.json` defines official docs structure/tabs/pages.
+- `apps/strait/` — the Go server (this is where most work happens)
+- `apps/docs/` — Mintlify docs (`.mdx` + `docs.json` nav)
+- `apps/website/` — marketing site
+- `apps/app/` — web app
+- `packages/` — shared TS packages (`ui`, `billing`, `config`, `deploy`, `monitoring`, `transactional`)
+- `.github/workflows/` — CI
+- `lefthook.yml` — git hooks
 
-### 3.2 Read by change type
+Inside `apps/strait/`:
 
-- **Runtime behavior**:
-  - `docs/architecture.mdx`
-  - `docs/concepts/runs.mdx`
-  - `docs/concepts/workflows.mdx`
-  - `docs/concepts/scheduling.mdx`
+- `cmd/strait/` — entrypoint, server wiring, migration runner (`main.go`, `server.go`, `services.go`, `migrate.go`)
+- `migrations/` — embedded SQL migrations
+- `schemas/strait.json` — generated OpenAPI spec
+- `k8s/` — example manifests + Grafana dashboards
+- `internal/` — application code:
 
-- **Configuration / env vars**:
-  - `apps/strait/internal/config/config.go`
-  - `docs/configuration/environment-variables.mdx`
-  - `.env.example`
-
-- **Database / queue / store / FSM**:
-  - `docs/development/database-schema.mdx`
-  - relevant files in `apps/strait/migrations/`
-  - `apps/strait/internal/store/*`, `apps/strait/internal/queue/*`
-
-- **CLI changes**:
-  - CLI has moved to [strait-dev/cli](https://github.com/strait-dev/cli)
-
-- **Auth / security changes**:
-  - `docs/guides/authentication.mdx`
-  - `docs/guides/security.mdx`
-
-- **Managed execution / compute**:
-  - `docs/concepts/managed-execution.mdx`
-  - `apps/strait/internal/compute/*`
-  - `apps/strait/internal/worker/executor_dispatch.go` (managedDispatch function)
-  - `apps/strait/internal/worker/executor.go` (pool wiring, pruner, shutdown drain)
-
-- **ClickHouse / analytics**:
-  - `docs/concepts/clickhouse-analytics.mdx`
-  - `apps/strait/internal/clickhouse/*`
-
-- **Webhooks / event delivery**:
-  - `docs/concepts/webhooks.mdx`
-  - `docs/concepts/webhook-subscriptions.mdx`
-  - `apps/strait/internal/webhook/*`
-
-- **Testing strategy**:
-  - `docs/development/testing.mdx`
-  - `apps/strait/internal/testutil/*`
-
-- **Public API contract**:
-  - `docs/api-reference/overview.mdx`
-  - `docs/openapi.yaml`
-
-### 3.3 Clarification rule (mandatory)
-
-**If you have any unresolved questions before implementing a plan, always ask the user and wait for feedback before proceeding.**
-
-Do not continue with assumptions that can change architecture, schema, API behavior, or user-facing semantics.
+| Package | Purpose |
+|---|---|
+| `api/` | HTTP handlers (chi + Huma), auth, RBAC, idempotency, request validation |
+| `worker/` | Dequeue loop, executor pool, dispatch, graceful drain |
+| `dispatcher/` | Routes runs to the correct compute runtime |
+| `workflow/` | DAG engine, step progression, conditionals, compensation/saga, durable waits |
+| `compute/` | K8s / Docker / HTTP runtimes, warm pool, cost estimation, signal classification |
+| `queue/` | Lock-free claim, concurrency control |
+| `scheduler/` | Cron, reaper, retention, pool pruner background loops |
+| `store/` | Raw `pgx/v5` data access, one file per table area |
+| `domain/` | Types, FSM states, edition gating |
+| `clickhouse/` | Optional analytics export, schema, exporter |
+| `webhook/` | HMAC delivery, retry, circuit breaker, dead-letter queue |
+| `cdc/` | Sequin-backed change data capture |
+| `pubsub/` | Redis (prod) / in-memory (test) pub/sub for SSE |
+| `logdrain/` | Datadog / Splunk / HTTP log forwarding |
+| `eventfilter/` | Event-trigger matching rules |
+| `notification/` | Slack / email / PagerDuty channels |
+| `health/` | Health checks and scoring |
+| `bundle/` | Code bundle upload + deploy pipeline |
+| `registry/` | Container registry abstraction (ECR, Docker Registry v2) |
+| `objectstore/` | S3-compatible storage |
+| `cache/` | Multi-layer caching primitives |
+| `dbscan/` | Anomaly detection on run metrics |
+| `debug/` | Debug bundle generation |
+| `crypto/` | Secret encryption, API key hashing, HMAC signing |
+| `ratelimit/` | Per-job, per-IP, per-project limits |
+| `telemetry/` | OTel tracing, Prometheus metrics, Pyroscope, Sentry |
+| `errors/` | Typed error helpers |
+| `httputil/` | HTTP client helpers (SSRF guards, timeouts) |
+| `config/` | Env var loading via `aconfig` |
+| `billing/` | Quotas, Stripe (cloud only) |
+| `loadtest/` | Throughput / chaos / endurance harness |
+| `e2e/` | End-to-end test suite |
+| `testutil/` | Test DB, factories, assertion helpers |
 
 ---
 
-## 4) Engineering rules (non-negotiable)
+## 4. Features and where to read more
 
-From project conventions (`docs/development/contributing.mdx`) + existing codebase practice:
+Map of platform capabilities. Each links to the doc that explains it in depth — read these instead of guessing.
 
-1. **No ORM**
-   - Use raw SQL with `pgx/v5` patterns in `apps/strait/internal/store`.
+**Execution and runs**
+- Jobs and 13-state run FSM — `apps/docs/concepts/jobs.mdx`, `apps/docs/concepts/runs.mdx`
+- Managed execution (K8s/Docker/HTTP runtimes, warm pool) — `apps/docs/concepts/managed-execution.mdx`
+- Versioning and policies — `apps/docs/concepts/versioning.mdx`
+- Job chaining — `apps/docs/concepts/job-chaining.mdx`
+- Batch operations — `apps/docs/concepts/batch-operations.mdx`
 
-2. **Concurrency discipline**
-   - Prefer structured concurrency (`sourcegraph/conc` and existing patterns).
-   - Do not introduce unmanaged goroutine patterns casually.
+**Workflows**
+- DAG runtime, sub-workflows, approvals — `apps/docs/concepts/workflows.mdx`, `apps/docs/concepts/dag-runtime.mdx`
+- Compensating transactions (saga) — `apps/docs/concepts/compensating-transactions.mdx`
+- Durable / long-running workflows — `apps/docs/concepts/durable-workflows.mdx`
+- Workflow simulator — `apps/docs/concepts/workflow-simulator.mdx`
+- Workflow test suites — `apps/docs/concepts/workflow-test-suites.mdx`
+- Workflow debugger — `apps/docs/concepts/workflow-debugger.mdx`
 
-3. **Worker/pool consistency**
-   - Reuse existing worker execution/pool patterns in `apps/strait/internal/worker`.
+**Resilience and operations**
+- Retry strategies — `apps/docs/concepts/retry-strategies.mdx`
+- Adaptive concurrency, resilience patterns — `apps/docs/concepts/adaptive-concurrency.mdx`, `apps/docs/concepts/resilience.mdx`
+- Canary deployments — `apps/docs/concepts/canary-deployments.mdx`
+- Cost budgets — `apps/docs/concepts/cost-budgets.mdx`
+- Environments (dev/stg/prd) — `apps/docs/concepts/environments.mdx`
 
-4. **Error handling**
-   - Wrap with `%w` and include contextual message.
+**Triggers and events**
+- Scheduling (cron) — `apps/docs/concepts/scheduling.mdx`
+- Event triggers and sources — `apps/docs/concepts/event-triggers.mdx`, `apps/docs/concepts/event-sources.mdx`
+- Outbound webhooks and subscriptions — `apps/docs/concepts/webhooks.mdx`, `apps/docs/concepts/webhook-subscriptions.mdx`
+- CDC — `apps/docs/concepts/cdc.mdx`
 
-5. **Collection helpers**
-   - Prefer `samber/lo` where it improves readability.
+**Observability**
+- ClickHouse analytics — `apps/docs/concepts/clickhouse-analytics.mdx`
+- Audit logging — `apps/docs/concepts/audit-logging.mdx`
+- Log drains — `apps/docs/concepts/log-drains.mdx`
+- Monitoring and alerts — `apps/docs/operations/monitoring-and-alerts.mdx`
 
-6. **Testing style**
-   - Use `apps/strait/internal/testutil` helpers, especially structural comparisons.
+**Security and operational guides**
+- Authentication — `apps/docs/guides/authentication.mdx`
+- RBAC — `apps/docs/guides/rbac.mdx`
+- OIDC — `apps/docs/guides/oidc.mdx`
+- API keys and rotation — `apps/docs/guides/api-key-rotation.mdx`
+- Security model — `apps/docs/guides/security.mdx`
+- Workflow approvals — `apps/docs/guides/workflow-approvals.mdx`
+- Idempotency — `apps/docs/guides/idempotency.mdx`
+- SDK integration — `apps/docs/guides/sdk-integration.mdx`
+- Performance tuning — `apps/docs/guides/performance-tuning.mdx`
+- Capacity planning — `apps/docs/guides/capacity-planning.mdx`
+- Deployment — `apps/docs/guides/deployment.mdx`
+- DAG operations playbook — `apps/docs/guides/dag-operations-playbook.mdx`
+- Debug bundles — `apps/docs/guides/debug-bundles.mdx`
 
-7. **No emojis**
-   - In code, comments, logs, docs, commits, PR text.
+**Reference**
+- API: `apps/docs/api-reference/` + `apps/strait/schemas/strait.json`
+- Configuration / env vars: `apps/docs/configuration/environment-variables.mdx` + `.env.example`
+- Database schema: `apps/docs/development/database-schema.mdx`
+- Architecture deep dive: `apps/docs/architecture.mdx`
+- Tech choices rationale: `apps/docs/development/technology-choices.mdx`
+- Contributing: `apps/docs/development/contributing.mdx`
+- Testing: `apps/docs/development/testing.mdx`
+
+If you have unresolved questions about scope, schema, API contracts, or user-facing semantics after reading the relevant docs, **ask the user before implementing.** Do not assume.
 
 ---
 
-## 5) Local setup and commands
+## 5. Editions
 
-### 5.1 Start dependencies
+Edition is set at compile time via Go build tags. The `STRAIT_EDITION` env var is ignored.
+
+- **Community** (`go build`): self-hosted, open source. Docker + K8s runtimes, no billing.
+- **Cloud** (`go build -tags cloud`): SaaS at strait.dev. All features, Stripe billing, multi-region.
+
+`domain.ParseEdition()` returns the compile-time edition. See `apps/strait/internal/domain/edition_community.go` and `edition_cloud.go`. Cloud-only files use `//go:build cloud`. Docker: `docker build --build-arg BUILD_TAGS=cloud`.
+
+---
+
+## 6. Local setup
+
 ```bash
-docker compose up -d
-```
+# 1. Start dependencies
+cd apps/strait && docker compose up -d
 
-### 5.2 Minimum required environment
-```bash
+# 2. Required env (see .env.example for the full list)
 export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
 export REDIS_URL=redis://localhost:6379
 export INTERNAL_SECRET=<32+ chars>
 export JWT_SIGNING_KEY=<32+ chars>
-```
 
-### 5.3 Run app
-```bash
+# 3. Run
 cd apps/strait && go run ./cmd/strait --mode all
 ```
 
-References:
-- `docs/quickstart.mdx`
-- `docs/development/contributing.mdx`
-- `docker-compose.yml`
-- `.env.example`
+Migrations are embedded and auto-applied on startup. To create a new pair manually:
+
+```bash
+cd apps/strait && go run ./cmd/strait migrate create <name>
+cd apps/strait && go run ./cmd/strait migrate up
+cd apps/strait && go run ./cmd/strait migrate status
+```
+
+Migration safety:
+- Never edit historical migrations.
+- Always ship `up` and `down` together (`NNNNNN_name.up.sql` / `NNNNNN_name.down.sql`).
 
 ---
 
-## 6) Validation commands (before proposing merge)
+## 7. Validation commands
 
-Run relevant commands for your scope:
+Run before pushing:
 
 ```bash
 cd apps/strait && go build ./...
+cd apps/strait && go build -tags cloud ./...
 cd apps/strait && go test ./...
 cd apps/strait && go test -race ./...
 cd apps/strait && golangci-lint run --timeout=5m ./...
 ```
 
-When applicable:
+When touching DB / queue / workflow / scheduler / pubsub:
 
 ```bash
 cd apps/strait && go test -tags integration ./...
-cd apps/strait && go test -bench . ./internal/...
 ```
 
-CI references:
-- `.github/workflows/lint.yml`
-- `.github/workflows/test.yml`
-- `.golangci.yml`
+Lefthook is mandatory:
 
-Git hooks:
 ```bash
 lefthook install
 ```
 
-**Lefthook is mandatory.** Never skip or bypass lefthook hooks (e.g. `--no-verify`). All pre-commit and commit-msg hooks must pass before a commit is accepted. If a hook fails, fix the underlying issue — do not circumvent it.
+Hook groups (`lefthook.yml`):
+- `pre-commit`: gitleaks (secrets) + Biome (TS/JS format)
+- `pre-push` on `master` / `main` / `release/*`: manypkg, typecheck affected, `bun run go:lint:fast`
+- `commit-msg`: enforces Conventional Commits
+
+**Never bypass hooks** with `--no-verify` or similar. Fix the underlying failure instead.
 
 ---
 
-## 7) Database and migration safety
+## 8. Planning protocol and implementation workflow (mandatory)
 
-1. Never edit historical migrations already merged.
-2. Add new migration pairs only:
-   - `NNNNNN_name.up.sql`
-   - `NNNNNN_name.down.sql`
-3. Create via helper command:
-```bash
-cd apps/strait && go run ./cmd/strait migrate create <name>
-```
-4. Validate locally:
-```bash
-cd apps/strait && go run ./cmd/strait migrate up
-cd apps/strait && go run ./cmd/strait migrate status
-```
+Canonical workflow for any non-trivial change. Follow this whenever you plan or implement work, and **always** when entering plan mode.
 
-References:
-- `docs/development/database-schema.mdx`
-- `apps/strait/cmd/strait/migrate.go`
+### 8.1 Before creating a plan
 
----
+1. Understand the request and constraints.
+2. Read the relevant docs (section 4) and the nearest code paths.
+3. Identify every unresolved question that could affect scope, schema, API contracts, or user-facing semantics.
+4. **Ask all unresolved questions and wait for answers before drafting the plan.** Never proceed on assumptions.
 
-## 8) Workflow for implementing changes
+### 8.2 Plan shape
 
-1. Understand request and constraints.
-2. Read relevant docs and nearest code paths.
-3. If ambiguous, ask user and wait.
-4. Share a concise implementation plan for non-trivial work.
-5. Implement minimal targeted change.
-6. Add/update tests (mandatory for new functionality and bug fixes).
-7. Update docs/contracts/config examples if needed.
-8. Run validations and report results (include exact test commands and outcomes).
+Every plan must be:
+- **Detailed and complete** — covers the full implementation end-to-end, not just the first slice.
+- **Separated into phases** — each phase is a coherent, independently verifiable unit of work.
+- **Presented inline in the conversation** — never write plan files (`PLAN.md`, design docs, etc.) unless the user explicitly asks for one.
 
-Keep scope narrow: one logical change per PR.
+For every phase, specify: goal, files to change or create, tests to add/update, validation commands.
 
----
+### 8.3 Per-phase execution loop
 
-## 9) DOs and DON'Ts
+Once the plan is approved, execute each phase in order. For every phase:
 
-### DO
-- Do confirm assumptions when requirements are ambiguous.
-- Do follow existing package boundaries and naming patterns.
-- Do keep changes small, focused, and reversible.
-- Do add tests for every new functionality.
-- Do include regression tests for bug fixes.
-- Do expand coverage when touching critical paths (worker, queue, workflow, scheduler, store).
-- Do maintain backward compatibility unless user requests breakage.
-- Do update:
-  - CLI docs for CLI behavior changes
-  - OpenAPI/docs for API shape changes
-  - env docs + `.env.example` for config changes
-- Do preserve observability (logs/metrics/traces) in critical paths.
+1. Implement the phase exactly as planned.
+2. Run the full validation suite:
+   ```bash
+   cd apps/strait && go build ./...
+   cd apps/strait && go test ./...
+   cd apps/strait && go test -race ./...
+   cd apps/strait && golangci-lint run --timeout=5m ./...
+   ```
+   Add `cd apps/strait && go test -tags integration ./...` when DB / queue / workflow / scheduler / pubsub behavior is touched.
+3. If a check fails:
+   - Fix small, local issues immediately and re-run until everything is green.
+   - **If the failure requires significantly more work than the phase contemplated** (architectural change, schema rework, cross-cutting refactor, newly ambiguous requirement) — **stop, report the situation to the user, and wait for direction.** Do not push through.
+4. Once **all** checks pass, commit the phase's changes with a Conventional Commit message (see section 10). Never use `--no-verify` or bypass lefthook.
+5. Proceed to the next phase **without asking permission**. Implement the entire plan to completion in one go.
 
-### DON'T
-- Don’t guess business rules, API contracts, or schema intent.
-- Don’t make unrelated refactors in the same PR.
-- Don’t ship new behavior without tests.
-- Don’t bypass failing tests/lint without explicit user approval.
-- Don’t weaken auth/security/SSRF protections.
-- Don’t alter shutdown behavior in ways that risk in-flight job loss.
-- Don’t mark work as complete without validation evidence.
+### 8.4 Plan adherence
+
+- Always follow the plan as agreed. If reality forces a deviation, stop, explain, and wait for the user to confirm before proceeding.
+- Never silently expand scope mid-phase.
+- Never skip validation or commit gates.
+- Tests live in the same phase as the behavior change — never deferred to a later phase.
+- Update docs / OpenAPI (`apps/strait/schemas/strait.json`) / `.env.example` in the same phase that introduces the change.
 
 ---
 
-## 10) Commit and PR conventions
+## 9. Engineering rules (non-negotiable)
 
-### 10.1 Conventional Commits (mandatory)
+1. **No ORM.** Raw SQL with `pgx/v5` patterns in `internal/store`.
+2. **Structured concurrency.** Use `sourcegraph/conc` and `alitto/pond/v2`. No casual goroutine fan-out.
+3. **Errors.** Wrap with `%w` and contextual messages. Use `samber/oops` for stack traces in critical paths.
+4. **Helpers.** Prefer `samber/lo` where it improves readability.
+5. **Tests.** Use `apps/strait/internal/testutil` helpers. Meaningful assertions, not just "no error".
+6. **Worker / pool consistency.** Reuse existing patterns in `internal/worker`. Don't fork dispatch logic.
+7. **No emojis.** In code, comments, logs, docs, commits, PR text — anywhere.
+8. **Observability is load-bearing.** Preserve traces / metrics / logs in critical paths (worker, queue, workflow, scheduler).
+9. **Auth boundaries.** Don't weaken SSRF guards, internal management secret flow, or SDK JWT run-token flow.
+10. **Graceful shutdown.** Don't alter shutdown behavior in ways that risk in-flight job loss.
 
-Every commit must follow Conventional Commits. No exceptions.
+---
 
-```text
-type(scope): short summary
-```
+## 10. Commits and PRs
+
+### Conventional Commits (mandatory)
+
+Format: `type(scope): summary`
+
+Allowed types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`. Use `!` for breaking changes and explain in the body. lowercase types, imperative summary, scope when useful.
 
 Examples:
 - `feat(worker): add retry jitter cap for webhook dispatch`
 - `fix(queue): prevent dequeue race on stale heartbeat`
-- `docs(cli): clarify runs watch output modes`
 - `test(workflow): add regression for fan-in completion`
 
-Allowed types:
-- `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`
+**Never** add:
+- "Co-Authored-By" lines
+- "Generated with Claude Code" or any AI attribution
+- Vague messages (`update`, `misc`, `fix stuff`)
 
-Rules:
-1. lowercase type/scope
-2. imperative summary
-3. include scope when useful
-4. use `!` for breaking changes and explain in body
-5. avoid vague messages (`update`, `misc`, `fix stuff`)
-6. **never** add "Co-Authored-By" lines (e.g. "Co-Authored-By: Claude") to commit messages
-7. **never** add AI attribution of any kind to commit messages
+### PR descriptions
 
-### 10.2 PR expectations (quality bar)
+Substantive, not boilerplate. Include:
+- **Summary** — what the PR does in plain language
+- **Why** — context and motivation
+- **What changed** — grouped by area
+- **Validation** — exact commands run + outcomes
+- **Tests added or updated** and why
+- **Docs / OpenAPI / env impact** (or explicit "none")
+- **Risks and follow-ups**
 
-PR descriptions must be clear, complete, and easy to review. Avoid short/vague descriptions.
-
-Every PR description should include:
-- **Summary**: what this PR does in plain language
-- **Why**: context/problem and motivation
-- **What changed**: key implementation points (grouped by area)
-- **Validation**: exact commands run + outcomes
-- **Testing impact**: what tests were added/updated and why
-- **Docs/contract impact**: OpenAPI/CLI/docs/env changes (or explicit “none”)
-- **Risk & rollout notes**: risks, mitigations, follow-ups
-
-### 10.2.1 PR description template (recommended)
-
-```md
-## Summary
-
-## Why
-
-## What Changed
-- 
-- 
-
-## Validation
-- Commands run:
-  - `cd apps/strait && go test ./...`
-  - `cd apps/strait && go test -race ./...`
-  - `cd apps/strait && golangci-lint run --timeout=5m ./...`
-- Result summary:
-
-## Testing Impact
-- New tests:
-- Updated tests:
-- Regression coverage:
-
-## Docs / Contract Impact
-- Docs updated:
-- OpenAPI updated:
-- Env/config updates:
-
-## Risks / Follow-ups
-- Risks:
-- Follow-up work:
-```
-
-### 10.2.2 PR description DON’Ts
-
-- Don’t omit **why** the change is needed.
-- Don’t paste generic text that could apply to any PR.
-- Don’t claim validation without listing commands/results.
-- Don’t skip test impact details for behavior changes.
-- **Never** add "Generated with Claude Code" or any AI attribution to PR descriptions.
-- **Never** add AI-generated boilerplate footers to PRs. Always write helpful, human-quality descriptions about what was actually worked on.
-
-### 10.3 PR testing notes template (mandatory)
-
-Use this section in every PR:
-
-```md
-## Testing Notes
-
-### Scope
-- Changed areas:
-- Risk level: low | medium | high
-
-### Tests Added/Updated
-- [ ] Unit tests
-- [ ] Integration tests
-- [ ] Regression tests
-- [ ] Race-sensitive tests
-
-Files:
-- `path/to/test_file_1.go`
-- `path/to/test_file_2.go`
-
-### Commands Run
-- `cd apps/strait && go test ./...`
-- `cd apps/strait && go test -race ./...`
-- `cd apps/strait && go test -tags integration ./...` (if applicable)
-- `cd apps/strait && golangci-lint run --timeout=5m ./...`
-
-### Results
-- Summary:
-- Any failing/skipped tests and why:
-- Follow-up test debt (if any):
-```
-
-If you skip any relevant test category, explicitly justify it in the PR.
+Never claim validation without listing the commands. Never paste generic boilerplate that could apply to any PR. Never add AI attribution footers.
 
 ---
 
-## 11) Consistency checklists
+## 11. DOs and DON'Ts
 
-### 11.1 API / CLI / docs consistency
+### Do
+- Confirm assumptions when requirements are ambiguous.
+- Follow existing package boundaries and naming patterns.
+- Keep changes small, focused, and reversible.
+- Add tests for new behavior; regression tests for bug fixes.
+- Maintain backward compatibility unless the user requests breakage.
+- Update OpenAPI (`apps/strait/schemas/strait.json`), docs, and `.env.example` when the surface changes.
 
-- [ ] API request/response shapes match `docs/openapi.yaml`
-- [ ] CLI flags/output documented in `docs/cli/*.mdx`
-- [ ] New env vars wired in `apps/strait/internal/config/config.go`
-- [ ] Env docs + `.env.example` updated
-- [ ] Feature flag behavior documented where relevant
-
-### 11.2 Testing expectations by change type
-
-- Domain logic -> table-driven unit tests
-- Concurrency/worker/scheduler -> race-aware tests
-- Store/query/queue changes -> integration coverage preferred
-- Workflow logic -> DAG/edge-case progression tests
-- Bug fix -> regression test
-- New functionality -> at least one happy-path test + relevant failure/edge-case tests
-
-Use `apps/strait/internal/testutil/*` helpers whenever possible.
-
-### 11.3 Testing quality bar (mandatory)
-
-We prioritize correctness and confidence over speed of merging.
-
-- Every behavior change should be protected by tests.
-- New functionality should include meaningful assertions (not only "no error").
-- For critical execution paths, prefer multiple tests covering:
-  - success path
-  - validation/error path
-  - retry/timeout behavior (when applicable)
-  - concurrency/race risks (when applicable)
-- When fixing defects, add a regression test that would fail before the fix.
-- If a test is hard to write, treat that as a design signal and improve seams/interfaces.
-
-Minimum validation expectation before handoff:
-
-```bash
-cd apps/strait && go test ./...
-cd apps/strait && go test -race ./...
-```
-
-And when touching DB/queue/workflow/scheduler behavior:
-
-```bash
-cd apps/strait && go test -tags integration ./...
-```
+### Don't
+- Guess business rules, API contracts, or schema intent.
+- Refactor unrelated code in the same PR.
+- Ship behavior without tests.
+- Bypass failing tests, lint, or hooks.
+- Weaken auth, RBAC, or SSRF guards.
+- Mark work as complete without validation evidence.
 
 ---
 
-## 12) Security and operations guardrails
+## 12. Definition of done
 
-- Never commit credentials/secrets/tokens.
-- Preserve auth model boundaries:
-  - internal management API secret flow
-  - SDK JWT run-token flow
-- Keep SSRF and endpoint validation safeguards intact.
-- Preserve graceful shutdown + in-flight job safety.
-- Be explicit when changing retries/timeouts/dead-letter behavior.
+A change is done only when:
 
-References:
-- `docs/guides/security.mdx`
-- `docs/guides/authentication.mdx`
-- `docs/architecture.mdx`
-
----
-
-## 13) Definition of done
-
-A change is done only when all apply:
-
-1. Code compiles (`cd apps/strait && go build ./...`)
-2. Relevant tests pass (including race/integration when needed)
-3. Lint passes
-4. Docs/contracts/config updated for behavior changes
-5. Migration rules followed (if schema changed)
-6. Summary provided: what changed, why, and how validated
-
----
-
-## 14) High-value reference index
-
-- `README.md`
-- `docs/architecture.mdx`
-- `docs/quickstart.mdx`
-- `docs/concepts/managed-execution.mdx`
-- `docs/concepts/clickhouse-analytics.mdx`
-- `docs/concepts/workflows.mdx`
-- `docs/concepts/runs.mdx`
-- `docs/development/contributing.mdx`
-- `docs/development/testing.mdx`
-- `docs/development/database-schema.mdx`
-- `docs/configuration/environment-variables.mdx`
-- `docs/openapi.yaml`
-- `docs/cli/`
-- `.github/workflows/lint.yml`
-- `.github/workflows/test.yml`
-- `.golangci.yml`
-- `lefthook.yml`
+1. Code builds for both editions (`go build ./...` and `go build -tags cloud ./...`).
+2. Relevant tests pass (unit, race, integration when applicable).
+3. Lint passes.
+4. Docs / OpenAPI / `.env.example` updated for behavior changes.
+5. Migration rules followed (paired up/down, never edit history).
+6. Summary provided: what changed, why, how validated.
 
 ---
 
