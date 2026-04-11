@@ -201,12 +201,30 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	}
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
 
-	// Apply statement_timeout to the API connection pool to prevent runaway queries.
-	if cfg.DBStatementTimeout > 0 {
-		if poolConfig.ConnConfig.RuntimeParams == nil {
-			poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	// Apply MVCC horizon guardrails and timeouts (Phase 1).
+	// These runtime params are applied to every connection in the pool via pgx's
+	// StartupMessage. They prevent stray long transactions from pinning pg_xmin
+	// and blocking autovacuum on hot queue tables.
+	if poolConfig.ConnConfig.RuntimeParams == nil {
+		poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	config.ApplyDBRuntimeParams(poolConfig.ConnConfig.RuntimeParams, cfg)
+	// transaction_timeout is Postgres 17+; set via AfterConnect and ignore errors
+	// so the pool still boots on older servers.
+	if cfg.DBTransactionTimeout > 0 {
+		prevAfterConnect := poolConfig.AfterConnect
+		timeoutMs := cfg.DBTransactionTimeout.Milliseconds()
+		poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if prevAfterConnect != nil {
+				if err := prevAfterConnect(ctx, conn); err != nil {
+					return err
+				}
+			}
+			if _, err := conn.Exec(ctx, fmt.Sprintf("SET transaction_timeout = %d", timeoutMs)); err != nil {
+				slog.Debug("transaction_timeout unsupported on this postgres version", "error", err)
+			}
+			return nil
 		}
-		poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", cfg.DBStatementTimeout.Milliseconds())
 	}
 
 	const maxRetries = 5
@@ -1086,6 +1104,27 @@ func startMaintenanceWorker(g *pool.ContextPool, queries *store.Queries) {
 				}
 			}
 		}
+	})
+}
+
+// startDBWatchdog launches the Phase 1 MVCC-horizon watchdog.
+func startDBWatchdog(g *pool.ContextPool, cfg *config.Config, dbPool *pgxpool.Pool) {
+	if !cfg.DBWatchdogEnabled {
+		slog.Info("db watchdog disabled via config")
+		return
+	}
+	watchdog, err := telemetry.NewDBWatchdog(dbPool, cfg.DBWatchdogInterval, cfg.DBLongTxnAlertThreshold, slog.Default())
+	if err != nil {
+		slog.Warn("failed to create db watchdog, skipping", "error", err)
+		return
+	}
+	g.Go(func(ctx context.Context) error {
+		slog.Info("db watchdog started",
+			"interval", cfg.DBWatchdogInterval,
+			"alert_threshold", cfg.DBLongTxnAlertThreshold,
+		)
+		watchdog.Run(ctx)
+		return nil
 	})
 }
 

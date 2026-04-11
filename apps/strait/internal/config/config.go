@@ -51,6 +51,15 @@ type Config struct {
 	DBHealthCheckPeriod time.Duration `env:"DB_HEALTH_CHECK_PERIOD" default:"30s"`
 	DBStatementTimeout  time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
 
+	// MVCC horizon guardrails (Phase 1). These prevent stray long transactions
+	// from pinning pg_xmin and blocking autovacuum on hot queue tables.
+	DBIdleInTransactionTimeout time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
+	DBLockTimeout              time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
+	DBTransactionTimeout       time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"0"`
+	DBLongTxnAlertThreshold    time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
+	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
+	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
+
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`
 
