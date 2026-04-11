@@ -86,6 +86,11 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create webhook subscription")
 	}
+	s.emitAuditEvent(ctx, "webhook_subscription.created", "webhook_subscription", sub.ID, map[string]any{
+		"url_host":    urlHost(req.WebhookURL),
+		"event_types": req.EventTypes,
+		"active":      active,
+	})
 	return &CreateWebhookSubscriptionOutput{Body: sub}, nil
 }
 
@@ -132,6 +137,10 @@ func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *Del
 		}
 		return nil, huma.Error500InternalServerError("failed to delete webhook subscription")
 	}
+	s.emitAuditEvent(ctx, "webhook_subscription.deleted", "webhook_subscription", input.ID, map[string]any{
+		"url_host":    urlHost(sub.WebhookURL),
+		"event_types": sub.EventTypes,
+	})
 	return nil, nil
 }
 

@@ -138,6 +138,14 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
 	}
 
+	s.emitAuditEvent(ctx, "audit.exported", "audit", projectID, map[string]any{
+		"from":          input.From,
+		"to":            input.To,
+		"format":        format,
+		"filter_actor":  input.ActorID,
+		"filter_resource_type": input.ResourceType,
+	})
+
 	// Return nil to signal that the response was already written.
 	return nil, nil
 }

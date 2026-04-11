@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -68,12 +69,33 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
+	s.emitAuditEvent(ctx, "webhook.tested", "webhook", "", map[string]any{
+		"url_host":    urlHost(req.URL),
+		"status_code": resp.StatusCode,
+		"success":     resp.StatusCode >= 200 && resp.StatusCode < 300,
+	})
+
 	return &TestWebhookOutput{Body: map[string]any{
 		"success":       resp.StatusCode >= 200 && resp.StatusCode < 300,
 		"status_code":   resp.StatusCode,
 		"latency_ms":    latencyMs,
 		"response_body": string(body),
 	}}, nil
+}
+
+// urlHost parses a URL and returns only its host component. Returns empty
+// string on parse failure. Used for audit events to avoid leaking query
+// strings or path segments that may contain secrets.
+func urlHost(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 type ReplayWebhookDeliveryInput struct {
@@ -99,5 +121,11 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to create replay delivery")
 	}
+
+	s.emitAuditEvent(ctx, "webhook.delivery_replayed", "webhook", input.ID, map[string]any{
+		"original_delivery_id": input.ID,
+		"job_id":               original.JobID,
+	})
+
 	return &ReplayWebhookDeliveryOutput{Body: replay}, nil
 }
