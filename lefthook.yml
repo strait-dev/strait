@@ -12,6 +12,7 @@ pre-commit:
     biome:
       glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
       run: bunx biome check --write --unsafe --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
       fail_text: "Biome check failed"
       timeout: 60s
       skip:
