@@ -58,6 +58,11 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 		return nil, huma.Error500InternalServerError("failed to create SSE token")
 	}
 
+	s.emitAuditEvent(ctx, "sse_token.created", "sse_token", projectID, map[string]any{
+		"expires_at":  expiresAt,
+		"scope_count": len(scopes),
+	})
+
 	out := &CreateSSETokenOutput{}
 	out.Body.Token = tokenString
 	out.Body.ExpiresAt = expiresAt

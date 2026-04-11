@@ -71,6 +71,12 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 		return nil, huma.Error500InternalServerError("failed to create secret")
 	}
 
+	s.emitAuditEvent(ctx, "secret.created", "secret", secret.ID, map[string]any{
+		"secret_key":  req.SecretKey,
+		"job_id":      req.JobID,
+		"environment": req.Environment,
+	})
+
 	return &CreateSecretOutput{Body: secret}, nil
 }
 
@@ -134,6 +140,12 @@ func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInpu
 		slog.Error("failed to delete secret", "error", err)
 		return nil, huma.Error500InternalServerError("failed to delete secret")
 	}
+
+	s.emitAuditEvent(ctx, "secret.deleted", "secret", input.SecretID, map[string]any{
+		"secret_key":  secret.SecretKey,
+		"job_id":      secret.JobID,
+		"environment": secret.Environment,
+	})
 
 	return nil, nil
 }

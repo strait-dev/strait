@@ -423,6 +423,17 @@ func (s *Server) handleSeedSystemRoles(ctx context.Context, _ *SeedSystemRolesIn
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list roles after seeding")
 	}
+	roleNames := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if r.IsSystem {
+			roleNames = append(roleNames, r.Name)
+		}
+	}
+	s.emitAuditEvent(ctx, "role.system_seeded", "role", projectID, map[string]any{
+		"project_id":     projectID,
+		"system_roles":   roleNames,
+		"roles_returned": len(roles),
+	})
 	return &SeedSystemRolesOutput{Body: roles}, nil
 }
 

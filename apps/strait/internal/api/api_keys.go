@@ -106,6 +106,14 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		slog.Warn("api key created without expiration; consider setting expires_in_days for security",
 			"key_id", key.ID, "project_id", key.ProjectID, "actor", actorFromContext(ctx))
 	}
+	s.emitAuditEvent(ctx, "api_key.created", "api_key", key.ID, map[string]any{
+		"name":                   key.Name,
+		"key_prefix":             key.KeyPrefix,
+		"scopes":                 key.Scopes,
+		"expires_at":             key.ExpiresAt,
+		"environment_id":         key.EnvironmentID,
+		"rotation_interval_days": req.RotationIntervalDays,
+	})
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
 }
 

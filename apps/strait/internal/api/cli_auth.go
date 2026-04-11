@@ -157,5 +157,12 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
 	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))
+
+	s.emitAuditEvent(ctx, "device_code.approved", "device_code", row.ID, map[string]any{
+		"user_code":  row.UserCode,
+		"api_key_id": apiKey.ID,
+		"project_id": req.ProjectID,
+	})
+
 	return &ApproveDeviceCodeOutput{Body: map[string]string{"status": "approved"}}, nil
 }
