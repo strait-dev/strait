@@ -1,5 +1,12 @@
 min_version: 2.1.5
 
+output:
+  - meta
+  - summary
+  - failure
+  - execution_info
+  - execution_out
+
 pre-commit:
   parallel: true
   follow: true
