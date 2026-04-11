@@ -277,6 +277,26 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 	return rows.Err()
 }
 
+// DeleteAuditEventsBefore deletes audit events older than cutoff for a
+// project. This is tail-only: only the oldest rows are removed, which
+// preserves chain verifiability (the earliest surviving event's
+// previous_hash becomes the chain anchor in VerifyAuditChain).
+//
+// Returns the number of rows deleted.
+func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, projectID string, cutoff time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBefore")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM audit_events
+		WHERE project_id = $1 AND created_at < $2
+	`, projectID, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete audit events before: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // VerifyAuditChain replays the audit event chain for a project in chronological
 // order and verifies that each event's HMAC signature is valid and that the
 // previous_hash linkage is unbroken.
@@ -306,7 +326,13 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		Valid:     true,
 	}
 
-	expectedPrevHash := ZeroHash
+	// expectedPrevHash is initialized from the first surviving event's
+	// previous_hash. When retention trims the tail, the earliest row's
+	// previous_hash points at an event that no longer exists — we take
+	// it as the chain start anchor and report it in ChainStart. For a
+	// pristine chain, this is ZeroHash.
+	var expectedPrevHash string
+	first := true
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -319,6 +345,12 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			result.FirstEventID = ev.ID
 		}
 		result.LastEventID = ev.ID
+
+		if first {
+			expectedPrevHash = ev.PreviousHash
+			result.ChainStart = ev.PreviousHash
+			first = false
+		}
 
 		// Check chain linkage.
 		if ev.PreviousHash != expectedPrevHash {

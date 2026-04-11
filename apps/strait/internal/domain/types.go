@@ -270,6 +270,12 @@ type AuditChainVerification struct {
 	LastEventID   string `json:"last_event_id,omitempty"`
 	BrokenAtID    string `json:"broken_at_id,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// ChainStart records the previous_hash of the first surviving event.
+	// When retention has trimmed the tail, this is not the ZeroHash — it
+	// is the signature of the (now deleted) event that preceded the first
+	// surviving event. Consumers can record this to prove continuity
+	// across retention windows.
+	ChainStart string `json:"chain_start,omitempty"`
 }
 
 type Job struct {
