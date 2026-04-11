@@ -172,6 +172,18 @@ func (q *Queries) ListPendingAgentMessages(ctx context.Context, limit int) ([]do
 	return messages, rows.Err()
 }
 
+// AgentMessageCursor is a compound cursor for paginating
+// ListAgentMessagesByAgent. Pagination-by-timestamp alone isn't safe
+// because two messages in the same agent chain can share a single
+// millisecond (back-to-back inserts in a tight loop). The `ID`
+// tie-breaker guarantees no-duplicate no-gap paging even under
+// collision. Callers construct a cursor from the last row of the
+// previous page: `&AgentMessageCursor{CreatedAt: last.CreatedAt, ID: last.ID}`.
+type AgentMessageCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+
 // ListAgentMessagesByAgent returns messages where the agent appears as
 // either source or target, newest first. Rewritten as a UNION ALL of
 // two index-backed subqueries because the original
@@ -179,7 +191,11 @@ func (q *Queries) ListPendingAgentMessages(ctx context.Context, limit int) ([]do
 // use either of idx_agent_messages_source_created or
 // idx_agent_messages_target. Each branch contributes up to `limit` rows;
 // the outer ORDER BY + LIMIT merges and trims to the final `limit`.
-func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentMessage, error) {
+//
+// Cursor pagination uses a row-value comparison on (created_at, id)
+// so two messages with identical created_at values still paginate
+// deterministically — see AgentMessageCursor for the rationale.
+func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, limit int, cursor *AgentMessageCursor) ([]domain.AgentMessage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAgentMessagesByAgent")
 	defer span.End()
 
@@ -194,35 +210,39 @@ func (q *Queries) ListAgentMessagesByAgent(ctx context.Context, agentID string, 
 	var query string
 	args := []any{agentID}
 	if cursor != nil {
+		// Row-value comparison: (created_at, id) < ($2, $3) is the
+		// Postgres idiom for "strictly earlier than this row". Works
+		// tuple-wise: if created_at < $2, the row matches; if
+		// created_at = $2, then id < $3 must hold.
 		query = `
 			(SELECT ` + columns + `
 			 FROM agent_messages
-			 WHERE source_agent_id = $1 AND created_at < $2
-			 ORDER BY created_at DESC
-			 LIMIT $3)
+			 WHERE source_agent_id = $1 AND (created_at, id) < ($2, $3)
+			 ORDER BY created_at DESC, id DESC
+			 LIMIT $4)
 			UNION ALL
 			(SELECT ` + columns + `
 			 FROM agent_messages
-			 WHERE target_agent_id = $1 AND created_at < $2
-			 ORDER BY created_at DESC
-			 LIMIT $3)
-			ORDER BY created_at DESC
-			LIMIT $3`
-		args = append(args, *cursor, limit)
+			 WHERE target_agent_id = $1 AND (created_at, id) < ($2, $3)
+			 ORDER BY created_at DESC, id DESC
+			 LIMIT $4)
+			ORDER BY created_at DESC, id DESC
+			LIMIT $4`
+		args = append(args, cursor.CreatedAt, cursor.ID, limit)
 	} else {
 		query = `
 			(SELECT ` + columns + `
 			 FROM agent_messages
 			 WHERE source_agent_id = $1
-			 ORDER BY created_at DESC
+			 ORDER BY created_at DESC, id DESC
 			 LIMIT $2)
 			UNION ALL
 			(SELECT ` + columns + `
 			 FROM agent_messages
 			 WHERE target_agent_id = $1
-			 ORDER BY created_at DESC
+			 ORDER BY created_at DESC, id DESC
 			 LIMIT $2)
-			ORDER BY created_at DESC
+			ORDER BY created_at DESC, id DESC
 			LIMIT $2`
 		args = append(args, limit)
 	}

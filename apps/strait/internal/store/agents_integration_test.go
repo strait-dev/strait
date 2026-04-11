@@ -1658,6 +1658,73 @@ func TestListRunsByJobAndAgentDeployment_RespectsLimitOffset(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Phase F4: ListAgentMessagesByAgent cursor tie-breaker
+// ---------------------------------------------------------------------------
+
+// TestListAgentMessagesByAgent_CursorTieBreakerOnIdenticalTimestamps
+// pins the Phase F4 fix: two messages landing in the same millisecond
+// must paginate deterministically with no duplicates and no gaps.
+// Before F4 the cursor was `*time.Time` alone, so `created_at < cursor`
+// would either include or exclude both tied rows depending on which
+// side of the inequality the existing row fell on.
+func TestListAgentMessagesByAgent_CursorTieBreakerOnIdenticalTimestamps(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+	fx := mustCreateAgentDeployFixture(t, ctx, q)
+
+	// Insert three messages with bit-for-bit identical created_at so
+	// we can exercise the tie-breaker. Use a raw SQL insert rather
+	// than CreateAgentMessage (which stamps NOW() server-side).
+	fixedAt := time.Now().UTC().Truncate(time.Microsecond)
+	ids := []string{"msg-f4-a-" + newID(), "msg-f4-b-" + newID(), "msg-f4-c-" + newID()}
+	for _, id := range ids {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO agent_messages (
+				id, project_id, source_agent_id, target_agent_id,
+				source_run_id, chain_id, chain_depth, payload, status, created_at
+			) VALUES ($1, $2, $3, $3, '', $4, 0, '{}'::jsonb, 'pending', $5)
+		`, id, fx.project.ID, fx.agent.ID, "chain-f4-"+newID(), fixedAt); err != nil {
+			t.Fatalf("INSERT agent_messages(%s) error = %v", id, err)
+		}
+	}
+
+	// Page through with page size 1. Expect to see all three IDs
+	// across three consecutive pages with no duplicates and no gaps.
+	seen := make(map[string]int)
+	var cursor *store.AgentMessageCursor
+	for page := 0; page < 5; page++ {
+		got, err := q.ListAgentMessagesByAgent(ctx, fx.agent.ID, 1, cursor)
+		if err != nil {
+			t.Fatalf("page %d: ListAgentMessagesByAgent error = %v", page, err)
+		}
+		if len(got) == 0 {
+			break
+		}
+		// The UNION ALL produces up to 2 rows per page (source branch +
+		// target branch) before the outer LIMIT; when source == target
+		// (as in this test) both branches return the same row and the
+		// outer LIMIT picks one. Walk everything the page returned.
+		for _, m := range got {
+			seen[m.ID]++
+			cursor = &store.AgentMessageCursor{CreatedAt: m.CreatedAt, ID: m.ID}
+		}
+	}
+
+	if len(seen) != 3 {
+		t.Fatalf("paged through %d unique messages, want 3 (%+v)", len(seen), seen)
+	}
+	for _, id := range ids {
+		if seen[id] == 0 {
+			t.Errorf("message %s missing from pagination output", id)
+		}
+		if seen[id] > 1 {
+			t.Errorf("message %s returned %d times (should be 1)", id, seen[id])
+		}
+	}
+}
+
 func TestListRunsByJobAndAgentDeployment_NullDeploymentIDExcluded(t *testing.T) {
 	// Runs without an agent_deployment_id must never match the filter.
 	ctx := context.Background()
