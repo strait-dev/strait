@@ -82,38 +82,50 @@ func (b *Backpressure) TryConsume(ctx context.Context, projectID string) error {
 	defer span.End()
 
 	// Upsert-then-decrement in a single statement so concurrent enqueues
-	// see an atomic view of the bucket. The WITH clause computes the
-	// refilled balance; the UPDATE decrements only when positive.
+	// see an atomic view of the bucket. The CTE computes the refilled
+	// balance and returns both the new token count and a boolean
+	// indicating whether the consume succeeded. A success with the
+	// bucket dropping to zero is still a success.
 	const sql = `
-		INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
-		VALUES ($1, $2 - 1, $2, $3, NOW(), NOW())
-		ON CONFLICT (project_id) DO UPDATE SET
-		  tokens = CASE
-		    WHEN LEAST(
-		        project_rate_limits.max_tokens,
-		        project_rate_limits.tokens +
-		          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec))::int
-		    ) > 0
-		    THEN LEAST(
-		        project_rate_limits.max_tokens,
-		        project_rate_limits.tokens +
-		          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec))::int
-		    ) - 1
-		    ELSE project_rate_limits.tokens
-		  END,
-		  last_refill_at = NOW(),
-		  updated_at = NOW()
-		RETURNING tokens, max_tokens, refill_per_sec`
+		WITH refilled AS (
+			SELECT
+				$1::text AS project_id,
+				LEAST(
+					COALESCE(rl.max_tokens, $2),
+					COALESCE(rl.tokens, $2) +
+						GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(rl.last_refill_at, NOW()))) * COALESCE(rl.refill_per_sec, $3))::int)
+				) AS available,
+				COALESCE(rl.max_tokens, $2) AS max_tokens,
+				COALESCE(rl.refill_per_sec, $3) AS refill_per_sec
+			FROM (SELECT 1) AS dummy
+			LEFT JOIN project_rate_limits rl ON rl.project_id = $1
+		),
+		upsert AS (
+			INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
+			SELECT project_id,
+				CASE WHEN available > 0 THEN available - 1 ELSE 0 END,
+				max_tokens, refill_per_sec, NOW(), NOW()
+			FROM refilled
+			ON CONFLICT (project_id) DO UPDATE SET
+				tokens = EXCLUDED.tokens,
+				last_refill_at = NOW(),
+				updated_at = NOW()
+			RETURNING tokens, max_tokens, refill_per_sec
+		)
+		SELECT u.tokens, u.max_tokens, u.refill_per_sec, r.available
+		FROM upsert u, refilled r`
 
-	var tokens, maxTokens, refill int
+	var tokens, maxTokens, refill, available int
 	err := b.db.QueryRow(ctx, sql, projectID, b.cfg.DefaultMaxTokens, b.cfg.DefaultRefillPerSec).
-		Scan(&tokens, &maxTokens, &refill)
+		Scan(&tokens, &maxTokens, &refill, &available)
 	if err != nil {
 		return fmt.Errorf("backpressure consume: %w", err)
 	}
-	// If tokens ended at 0 and the UPDATE kept it at 0 (couldn't
-	// decrement), the bucket was empty.
-	if tokens <= 0 {
+	// available is the pre-decrement balance. If it was zero the bucket
+	// was empty and this consume did not succeed.
+	if available <= 0 {
+		_ = tokens
+		_ = maxTokens
 		retryAfter := time.Second
 		if refill > 0 {
 			retryAfter = time.Duration(float64(time.Second) / float64(refill))

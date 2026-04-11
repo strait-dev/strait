@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -24,19 +26,34 @@ type OutboxRow struct {
 	CreatedAt      time.Time
 }
 
-// ClaimUnconsumedOutbox fetches up to `limit` unconsumed outbox rows
-// using FOR UPDATE SKIP LOCKED so multiple flushers are safe. The
-// caller must mark the rows consumed (ConsumeOutbox) in the same
-// transaction; uncommitted rows automatically return to the unclaimed
-// pool on rollback.
+// ClaimUnconsumedOutbox fetches up to `limit` unconsumed outbox rows on
+// the pool without a holding transaction. The caller must be aware that
+// SKIP LOCKED releases locks as soon as the statement returns, so this
+// variant is NOT safe for concurrent flushers. Use ClaimUnconsumedOutboxInTx
+// with a pgx.Tx when running multiple flushers.
 func (q *Queries) ClaimUnconsumedOutbox(ctx context.Context, limit int) ([]OutboxRow, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimUnconsumedOutbox")
 	defer span.End()
+	return claimOutboxOnConn(ctx, q.db, limit)
+}
 
+// ClaimUnconsumedOutboxInTx is the safe-for-concurrent-flushers variant:
+// the caller passes their own pgx.Tx, and FOR UPDATE SKIP LOCKED row
+// locks are held for the duration of that transaction. Commit marks the
+// claim durable; rollback returns the rows to the unclaimed pool.
+func ClaimUnconsumedOutboxInTx(ctx context.Context, tx pgx.Tx, limit int) ([]OutboxRow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimUnconsumedOutboxInTx")
+	defer span.End()
+	return claimOutboxOnConn(ctx, tx, limit)
+}
+
+// claimOutboxOnConn is the shared implementation; accepts anything with
+// a Query method so both *Queries.db and pgx.Tx work.
+func claimOutboxOnConn(ctx context.Context, q outboxQuerier, limit int) ([]OutboxRow, error) {
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := q.db.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT id, project_id, job_id, payload, metadata,
 		       idempotency_key, scheduled_at, priority, created_at
 		FROM enqueue_outbox
@@ -64,16 +81,37 @@ func (q *Queries) ClaimUnconsumedOutbox(ctx context.Context, limit int) ([]Outbo
 	return out, rows.Err()
 }
 
+// outboxQuerier is the minimal surface both pgx.Tx and DBTX satisfy.
+type outboxQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // MarkOutboxConsumed sets consumed_at=NOW() for each id. Called by the
 // flusher in the same transaction as the job_runs insert.
 func (q *Queries) MarkOutboxConsumed(ctx context.Context, ids []string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkOutboxConsumed")
 	defer span.End()
+	return markOutboxOnExec(ctx, q.db, ids)
+}
 
+// MarkOutboxConsumedInTx marks outbox rows consumed within the caller's
+// transaction. Used by the flusher pattern: Claim... (tx) -> enqueue ->
+// MarkOutboxConsumedInTx (same tx) -> Commit.
+func MarkOutboxConsumedInTx(ctx context.Context, tx pgx.Tx, ids []string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkOutboxConsumedInTx")
+	defer span.End()
+	return markOutboxOnExec(ctx, tx, ids)
+}
+
+type outboxExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func markOutboxOnExec(ctx context.Context, ex outboxExecer, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := q.db.Exec(ctx, `
+	_, err := ex.Exec(ctx, `
 		UPDATE enqueue_outbox SET consumed_at = NOW() WHERE id = ANY($1) AND consumed_at IS NULL
 	`, ids)
 	if err != nil {

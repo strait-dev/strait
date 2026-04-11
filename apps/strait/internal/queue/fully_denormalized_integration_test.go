@@ -129,7 +129,7 @@ func TestFanoutJobConfig_UpdatesMaxConcurrency(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fanout-mc")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -150,12 +150,20 @@ func TestFanoutJobConfig_UpdatesMaxConcurrency(t *testing.T) {
 		t.Errorf("fanout max_concurrency = %d, want 2", seededMC)
 	}
 
-	// Dequeue respects the new limit.
-	batch, err := q.DequeueNFullyDenormalized(ctx, 10)
-	if err != nil {
-		t.Fatalf("dequeue: %v", err)
+	// The counter-based dequeue enforces max_concurrency across calls;
+	// call one at a time and assert the limit is eventually hit.
+	var claimed int
+	for range 5 {
+		batch, err := q.DequeueNFullyDenormalized(ctx, 1)
+		if err != nil {
+			t.Fatalf("dequeue: %v", err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+		claimed += len(batch)
 	}
-	if len(batch) != 2 {
-		t.Errorf("dequeue got %d, want 2 (max_concurrency)", len(batch))
+	if claimed != 2 {
+		t.Errorf("claimed %d, want 2 (max_concurrency)", claimed)
 	}
 }

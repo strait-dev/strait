@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/queue"
+	"strait/internal/store"
 )
 
 func TestOutbox_WriteInTxHappyPath(t *testing.T) {
@@ -212,36 +213,43 @@ func TestOutbox_ConcurrentFlushersDoNotDuplicate(t *testing.T) {
 	// Write 20 entries.
 	tx, _ := testDB.Pool.Begin(ctx)
 	var entries []queue.OutboxEntry
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		entries = append(entries, queue.OutboxEntry{
 			ProjectID: job.ProjectID, JobID: job.ID,
 		})
 	}
 	_ = queue.WriteOutboxInTx(ctx, tx, entries)
 	_ = tx.Commit(ctx)
+	_ = st
 
-	// Two concurrent flushers claiming with SKIP LOCKED.
+	// Two concurrent flushers claiming with SKIP LOCKED. Each flusher
+	// must hold its own transaction so the row locks persist across the
+	// claim-then-mark-consumed-then-commit sequence.
 	type result struct {
 		ids []string
 	}
 	ch := make(chan result, 2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		go func() {
 			ftx, _ := testDB.Pool.Begin(ctx)
 			defer ftx.Rollback(ctx)
-			rows, _ := st.ClaimUnconsumedOutbox(ctx, 20)
+			rows, err := store.ClaimUnconsumedOutboxInTx(ctx, ftx, 20)
+			if err != nil {
+				ch <- result{}
+				return
+			}
 			var ids []string
 			for _, r := range rows {
 				ids = append(ids, r.ID)
 			}
-			_ = st.MarkOutboxConsumed(ctx, ids)
+			_ = store.MarkOutboxConsumedInTx(ctx, ftx, ids)
 			_ = ftx.Commit(ctx)
 			ch <- result{ids: ids}
 		}()
 	}
 
 	seen := map[string]bool{}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		r := <-ch
 		for _, id := range r.ids {
 			if seen[id] {

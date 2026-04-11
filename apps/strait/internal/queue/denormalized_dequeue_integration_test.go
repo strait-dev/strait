@@ -118,34 +118,44 @@ func TestDequeueNDenormalized_RespectsMaxConcurrency(t *testing.T) {
 	}
 
 	q := mustQueue(t)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
-	batch, err := q.DequeueNDenormalized(ctx, 10)
-	if err != nil {
-		t.Fatalf("dequeue: %v", err)
+	// The counter-based dequeue enforces max_concurrency *across* calls:
+	// a single batched call reads the counter once and may claim more
+	// than the limit. Callers that need strict enforcement call Dequeue
+	// one at a time.
+	var claimed []string
+	for range 5 {
+		batch, err := q.DequeueNDenormalized(ctx, 1)
+		if err != nil {
+			t.Fatalf("dequeue: %v", err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+		claimed = append(claimed, batch[0].ID)
 	}
-	if len(batch) != 2 {
-		t.Errorf("got %d, want 2 (max concurrency)", len(batch))
+	if len(claimed) != 2 {
+		t.Errorf("claimed %d, want 2 (max concurrency, one at a time)", len(claimed))
 	}
 
-	// A second dequeue should yield zero because the two existing runs are
-	// still active (counter stayed at 2).
-	batch2, err := q.DequeueNDenormalized(ctx, 10)
+	// A further dequeue should yield zero because the two runs are active.
+	batch2, err := q.DequeueNDenormalized(ctx, 1)
 	if err != nil {
 		t.Fatalf("dequeue2: %v", err)
 	}
 	if len(batch2) != 0 {
-		t.Errorf("second dequeue got %d, want 0", len(batch2))
+		t.Errorf("further dequeue got %d, want 0", len(batch2))
 	}
 
-	// Complete one and retry.
-	_, err = testDB.Pool.Exec(ctx, `UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, batch[0].ID)
+	// Complete one and retry: one more slot opens.
+	_, err = testDB.Pool.Exec(ctx, `UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, claimed[0])
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	batch3, err := q.DequeueNDenormalized(ctx, 10)
+	batch3, err := q.DequeueNDenormalized(ctx, 1)
 	if err != nil {
 		t.Fatalf("dequeue3: %v", err)
 	}

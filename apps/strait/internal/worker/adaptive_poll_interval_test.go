@@ -96,11 +96,7 @@ func FuzzAdaptivePoll_Bounds(f *testing.F) {
 	f.Add(uint8(10), uint8(100))
 	f.Fuzz(func(t *testing.T, empties, depth uint8) {
 		a := NewAdaptivePollInterval(1*time.Second, 100*time.Millisecond, 10*time.Second)
-		limit := int(empties)
-		if limit > 32 {
-			limit = 32
-		}
-		for range limit {
+		for range min(int(empties), 32) {
 			a.ObserveEmpty()
 		}
 		a.ObserveDepth(int64(depth) * 100)
