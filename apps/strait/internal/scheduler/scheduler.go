@@ -51,6 +51,7 @@ type Scheduler struct {
 	contractExpiryChecker    *ContractExpiryChecker
 	priorityPromoter         *PriorityPromoter
 	counterReconciler        *CounterReconciler
+	partitionEnsurer         *PartitionEnsurer
 	wg                       conc.WaitGroup
 }
 
@@ -132,6 +133,13 @@ func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
 func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 	return func(s *Scheduler) {
 		s.counterReconciler = r
+	}
+}
+
+// WithPartitionEnsurer enables R3 Phase 3 partition self-heal.
+func WithPartitionEnsurer(p *PartitionEnsurer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.partitionEnsurer = p
 	}
 }
 
@@ -246,6 +254,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.counterReconciler != nil {
 		safeGo(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
+	}
+	if s.partitionEnsurer != nil {
+		safeGo(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
