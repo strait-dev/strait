@@ -161,6 +161,23 @@ type Metrics struct {
 	AuditSIEMFailed         metric.Int64Counter
 	AuditSIEMCircuitOpen    metric.Int64Counter
 	AuditSIEMBatchSize      metric.Int64Histogram
+
+	// Audit async drainer queue saturation gauges (reported via
+	// ObserveAuditDrainer callback against an AuditDrainerStatsProvider).
+	AuditDrainerQueueDepth    metric.Int64ObservableGauge
+	AuditDrainerQueueCapacity metric.Int64ObservableGauge
+
+	// Audit export row-cap metric. Incremented whenever an export stream
+	// terminates because it reached the configured row cap, labeled by
+	// project_id.
+	AuditEventsExportCapped metric.Int64Counter
+
+	// Audit chain verification counters. ChainVerifyTotal increments on
+	// every verification attempt (pass or fail); ChainVerifyFailed only
+	// on failures, labeled by reason. Together they power a failure rate
+	// alert via failed/total.
+	AuditChainVerifyTotal  metric.Int64Counter
+	AuditChainVerifyFailed metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -881,6 +898,31 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Audit SIEM forwarded batch size in events"),
 		metric.WithUnit("1"),
 	)
+	auditDrainerQueueDepth, _ := meter.Int64ObservableGauge(
+		"strait.audit.drainer_queue_depth",
+		metric.WithDescription("Current depth of the async audit-emit drain channel"),
+		metric.WithUnit("1"),
+	)
+	auditDrainerQueueCapacity, _ := meter.Int64ObservableGauge(
+		"strait.audit.drainer_queue_capacity",
+		metric.WithDescription("Buffer capacity of the async audit-emit drain channel"),
+		metric.WithUnit("1"),
+	)
+	auditEventsExportCapped, _ := meter.Int64Counter(
+		"strait.audit.events_export_capped_total",
+		metric.WithDescription("Total audit exports that terminated because they hit the configured row cap, labeled by project_id"),
+		metric.WithUnit("1"),
+	)
+	auditChainVerifyTotal, _ := meter.Int64Counter(
+		"strait.audit.chain_verify_total",
+		metric.WithDescription("Total audit chain verification attempts (pass or fail)"),
+		metric.WithUnit("1"),
+	)
+	auditChainVerifyFailed, _ := meter.Int64Counter(
+		"strait.audit.chain_verify_failed_total",
+		metric.WithDescription("Total audit chain verification attempts that did not pass, labeled by reason"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:               runTransitions,
@@ -979,6 +1021,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditSIEMFailed:              auditSIEMFailed,
 		AuditSIEMCircuitOpen:         auditSIEMCircuitOpen,
 		AuditSIEMBatchSize:           auditSIEMBatchSize,
+		AuditDrainerQueueDepth:       auditDrainerQueueDepth,
+		AuditDrainerQueueCapacity:    auditDrainerQueueCapacity,
+		AuditEventsExportCapped:      auditEventsExportCapped,
+		AuditChainVerifyTotal:        auditChainVerifyTotal,
+		AuditChainVerifyFailed:       auditChainVerifyFailed,
 	}
 
 	slog.Info("prometheus metrics enabled")
@@ -1032,6 +1079,34 @@ func (m *Metrics) ObservePool(meter metric.Meter, pool PoolStatsProvider) error 
 		m.PoolSuccessfulTasks,
 		m.PoolFailedTasks,
 		m.PoolDroppedTasks,
+	)
+	return err
+}
+
+// AuditDrainerStatsProvider exposes the async audit-emit channel's
+// instantaneous depth and static capacity for the ObserveAuditDrainer
+// asynchronous gauge callback.
+type AuditDrainerStatsProvider interface {
+	AuditDrainerQueueDepth() int64
+	AuditDrainerQueueCapacity() int64
+}
+
+// ObserveAuditDrainer registers an asynchronous callback that reports
+// the audit async drainer's queue depth and capacity on every Prometheus
+// scrape. Call after both Metrics and the Server (which implements the
+// provider) are created.
+func (m *Metrics) ObserveAuditDrainer(meter metric.Meter, provider AuditDrainerStatsProvider) error {
+	if m.AuditDrainerQueueDepth == nil || m.AuditDrainerQueueCapacity == nil {
+		return nil
+	}
+	_, err := meter.RegisterCallback(
+		func(_ context.Context, o metric.Observer) error {
+			o.ObserveInt64(m.AuditDrainerQueueDepth, provider.AuditDrainerQueueDepth())
+			o.ObserveInt64(m.AuditDrainerQueueCapacity, provider.AuditDrainerQueueCapacity())
+			return nil
+		},
+		m.AuditDrainerQueueDepth,
+		m.AuditDrainerQueueCapacity,
 	)
 	return err
 }

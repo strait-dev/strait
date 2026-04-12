@@ -217,6 +217,98 @@ func TestAuditVerify_CLI_RequiresProjectFlag(t *testing.T) {
 	}
 }
 
+// TestAuditVerify_CLI_InvokesVerifyCounter asserts that a passing
+// verification triggers recordVerify exactly once and never touches
+// recordVerifyFailed. These hooks are the CLI's contract with the
+// telemetry package — production wiring binds them to the OTel
+// counters that feed strait_audit_chain_verify_total and
+// strait_audit_chain_verify_failed_total.
+func TestAuditVerify_CLI_InvokesVerifyCounter(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := baseDeps(&stdout, &stderr)
+
+	var total int
+	var failed int
+	var failedReason string
+	deps.recordVerify = func(_ context.Context) { total++ }
+	deps.recordVerifyFailed = func(_ context.Context, reason string) {
+		failed++
+		failedReason = reason
+	}
+
+	if err := runAuditVerify(context.Background(), deps, "proj_counter_ok", "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("recordVerify invocations = %d, want 1", total)
+	}
+	if failed != 0 {
+		t.Errorf("recordVerifyFailed invocations = %d (%s), want 0", failed, failedReason)
+	}
+}
+
+// TestAuditVerify_CLI_InvokesFailedCounter_ChainBroken covers the
+// Valid=false path: a non-nil result with Valid=false must record
+// "chain_broken" as the reason so the alert can distinguish a bad
+// chain from an unreachable verifier.
+func TestAuditVerify_CLI_InvokesFailedCounter_ChainBroken(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := baseDeps(&stdout, &stderr)
+	deps.verify = func(_ context.Context, projectID string) (*domain.AuditChainVerification, error) {
+		return &domain.AuditChainVerification{
+			ProjectID:  projectID,
+			Valid:      false,
+			BrokenAtID: "evt_bad",
+			Error:      "signature mismatch",
+		}, nil
+	}
+
+	var total int
+	var failedReasons []string
+	deps.recordVerify = func(_ context.Context) { total++ }
+	deps.recordVerifyFailed = func(_ context.Context, reason string) {
+		failedReasons = append(failedReasons, reason)
+	}
+
+	_ = runAuditVerify(context.Background(), deps, "proj_broken", "text")
+
+	if total != 1 {
+		t.Errorf("recordVerify invocations = %d, want 1", total)
+	}
+	if len(failedReasons) != 1 || failedReasons[0] != "chain_broken" {
+		t.Errorf("recordVerifyFailed = %v, want [chain_broken]", failedReasons)
+	}
+}
+
+// TestAuditVerify_CLI_InvokesFailedCounter_VerifierError asserts that
+// a non-nil error from the verify function maps to the
+// "verifier_error" reason label rather than "chain_broken". This split
+// matters operationally: "verifier_error" usually means
+// infra/DB/config issue; "chain_broken" means evidence tampering.
+func TestAuditVerify_CLI_InvokesFailedCounter_VerifierError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := baseDeps(&stdout, &stderr)
+	deps.verify = func(_ context.Context, _ string) (*domain.AuditChainVerification, error) {
+		return nil, errors.New("db down")
+	}
+
+	var total int
+	var failedReasons []string
+	deps.recordVerify = func(_ context.Context) { total++ }
+	deps.recordVerifyFailed = func(_ context.Context, reason string) {
+		failedReasons = append(failedReasons, reason)
+	}
+
+	_ = runAuditVerify(context.Background(), deps, "proj_db_down", "text")
+
+	if total != 1 {
+		t.Errorf("recordVerify invocations = %d, want 1", total)
+	}
+	if len(failedReasons) != 1 || failedReasons[0] != "verifier_error" {
+		t.Errorf("recordVerifyFailed = %v, want [verifier_error]", failedReasons)
+	}
+}
+
 func TestAuditVerify_CLI_InvalidOutputFlag(t *testing.T) {
 	cmd := newAuditCommand()
 	cmd.SetArgs([]string{"verify", "--project", "p", "--output", "xml"})

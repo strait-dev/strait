@@ -34,6 +34,14 @@ type auditVerifyDeps struct {
 	// actorID is the CLI operator identifier written on the self-audit
 	// event's actor_id column.
 	actorID string
+	// recordVerify increments the chain-verify total counter; called
+	// exactly once per verification attempt regardless of outcome.
+	// Optional — nil means metrics are disabled for this invocation
+	// (e.g. unit tests that don't care).
+	recordVerify func(ctx context.Context)
+	// recordVerifyFailed increments the chain-verify failed counter,
+	// labeled by reason. Called only on a non-passing outcome. Optional.
+	recordVerifyFailed func(ctx context.Context, reason string)
 }
 
 // auditVerifyOutput is the machine-readable shape produced when
@@ -162,10 +170,22 @@ func runAuditVerify(ctx context.Context, deps auditVerifyDeps, projectID, output
 	result, verr := deps.verify(ctx, projectID)
 	duration := deps.now().Sub(start)
 
+	if deps.recordVerify != nil {
+		deps.recordVerify(ctx)
+	}
+
 	passed := verr == nil && result != nil && result.Valid
 	status := "PASS"
 	if !passed {
 		status = "FAIL"
+	}
+
+	if !passed && deps.recordVerifyFailed != nil {
+		reason := "chain_broken"
+		if verr != nil {
+			reason = "verifier_error"
+		}
+		deps.recordVerifyFailed(ctx, reason)
 	}
 
 	// Emit self-audit first so the outcome is recorded regardless of

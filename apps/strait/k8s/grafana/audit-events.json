@@ -63,34 +63,23 @@
         "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
       },
       {
-        "title": "Deadletter total (proxy for drainer saturation)",
-        "description": "NOTE: metric strait_audit_drainer_queue_depth does not yet exist (see Phase 11 follow-ups). Showing cumulative deadletter count as the next-best saturation signal.",
-        "type": "stat",
+        "title": "Drainer queue depth vs capacity",
+        "description": "Instantaneous depth of the async audit-emit drain channel against its configured capacity. Sustained ratios above 0.9 trip the AuditDrainerSaturated alert.",
+        "type": "timeseries",
         "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
         "targets": [
           {
             "refId": "A",
-            "expr": "strait_audit_events_deadlettered_total",
-            "legendFormat": "deadlettered"
+            "expr": "strait_audit_drainer_queue_depth",
+            "legendFormat": "depth"
+          },
+          {
+            "refId": "B",
+            "expr": "strait_audit_drainer_queue_capacity",
+            "legendFormat": "capacity"
           }
         ],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "background"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 1 },
-                { "color": "red", "value": 10 }
-              ]
-            }
-          },
-          "overrides": []
-        }
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
       },
       {
         "title": "Reclaimer",
@@ -213,14 +202,37 @@
         "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 }
       },
       {
-        "title": "Chain verification + export cap (notes)",
-        "description": "NOTE: strait_audit_events_export_capped_total and strait_audit_chain_verify_failed_total are not yet emitted. Track audit.chain_verified outcomes via application logs until these metrics are wired. This panel is a placeholder for future work.",
-        "type": "text",
-        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 45 },
-        "options": {
-          "mode": "markdown",
-          "content": "**Pending metrics**\n\n- `strait_audit_events_export_capped_total` — increment when audit export hits its 24h row cap.\n- `strait_audit_chain_verify_failed_total` — increment on each failed chain verification run.\n\nUntil those are emitted, query logs for `audit.chain_verified` events to confirm integrity runs."
-        }
+        "title": "Export caps hit (24h)",
+        "description": "Count of audit export streams that terminated because they hit the configured row cap, aggregated per project over the last 24h.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (project_id) (increase(strait_audit_events_export_capped_total[24h]))",
+            "legendFormat": "{{project_id}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Chain verify failures",
+        "description": "Per-second rate of failed audit chain verification attempts, labeled by reason. Any non-zero value here trips the AuditChainVerificationFailed critical alert.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "rate(strait_audit_chain_verify_failed_total[5m])",
+            "legendFormat": "failed: {{reason}}"
+          },
+          {
+            "refId": "B",
+            "expr": "rate(strait_audit_chain_verify_total[5m])",
+            "legendFormat": "total"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
       }
     ]
   }

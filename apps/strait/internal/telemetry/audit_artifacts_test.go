@@ -51,6 +51,10 @@ func TestAuditDashboard_JSONValid(t *testing.T) {
 		"strait_audit_siem_forwarded_total",
 		"strait_audit_siem_failed_total",
 		"strait_audit_siem_circuit_open_total",
+		"strait_audit_drainer_queue_depth",
+		"strait_audit_drainer_queue_capacity",
+		"strait_audit_events_export_capped_total",
+		"strait_audit_chain_verify_failed_total",
 	}
 	body := string(raw)
 	for _, m := range want {

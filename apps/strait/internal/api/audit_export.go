@@ -18,6 +18,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/danielgtaylor/huma/v2"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -197,6 +199,10 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 			"exported": exported,
 			"cap":      rowCap,
 		})
+		if s.metrics != nil && s.metrics.AuditEventsExportCapped != nil {
+			s.metrics.AuditEventsExportCapped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("project_id", projectID)))
+		}
 	}
 
 	// Return nil to signal that the response was already written.

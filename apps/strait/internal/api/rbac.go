@@ -12,6 +12,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // validateCallerCanGrantPermissions checks that the caller's effective
@@ -680,9 +682,20 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChain
 	}
 
 	result, err := s.store.VerifyAuditChain(ctx, projectID)
+	if s.metrics != nil && s.metrics.AuditChainVerifyTotal != nil {
+		s.metrics.AuditChainVerifyTotal.Add(ctx, 1)
+	}
 	if err != nil {
 		slog.Error("failed to verify audit chain", "project_id", projectID, "error", err)
+		if s.metrics != nil && s.metrics.AuditChainVerifyFailed != nil {
+			s.metrics.AuditChainVerifyFailed.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "verifier_error")))
+		}
 		return nil, huma.Error500InternalServerError("failed to verify audit chain")
+	}
+	if !result.Valid && s.metrics != nil && s.metrics.AuditChainVerifyFailed != nil {
+		s.metrics.AuditChainVerifyFailed.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("reason", "chain_broken")))
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionAuditChainVerified, "audit", projectID, map[string]any{

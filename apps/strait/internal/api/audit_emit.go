@@ -158,6 +158,32 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 	}
 }
 
+// AuditDrainerQueueDepth returns the current number of buffered audit
+// events pending drain. Satisfies telemetry.AuditDrainerStatsProvider so
+// the observable gauge callback can report saturation without exposing
+// channel internals to callers outside this package.
+func (s *Server) AuditDrainerQueueDepth() int64 {
+	s.auditAsyncMu.RLock()
+	ch := s.auditAsyncCh
+	s.auditAsyncMu.RUnlock()
+	if ch == nil {
+		return 0
+	}
+	return int64(len(ch))
+}
+
+// AuditDrainerQueueCapacity returns the buffer capacity of the async
+// drainer channel (0 before startAuditAsyncDrain has been called).
+func (s *Server) AuditDrainerQueueCapacity() int64 {
+	s.auditAsyncMu.RLock()
+	ch := s.auditAsyncCh
+	s.auditAsyncMu.RUnlock()
+	if ch == nil {
+		return 0
+	}
+	return int64(cap(ch))
+}
+
 // stopAuditAsyncDrain closes the channel and waits for the drainer to finish
 // flushing pending events. Bounded by auditAsyncShutdownTimeout so a stalled
 // DB cannot indefinitely block server shutdown.
