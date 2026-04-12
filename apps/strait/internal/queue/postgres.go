@@ -689,6 +689,75 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 	return runs, nil
 }
 
+// DequeueNPartitioned claims up to n runs across the given project IDs
+// in a single round trip. Uses DISTINCT ON (project_id) for fair
+// scheduling so no single project can starve the others. Replaces the
+// N-round-trip loop in executor_poll.dequeueAcrossPartitions.
+func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectIDs []string) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNPartitioned")
+	defer span.End()
+
+	if len(projectIDs) == 0 {
+		return nil, nil
+	}
+
+	q.setStatementTimeout(ctx)
+	orderBy := q.dequeueOrderByClause()
+
+	query := fmt.Sprintf(`
+		WITH %s,
+		candidates AS (
+			SELECT DISTINCT ON (jr.project_id) jr.id
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			%s
+			WHERE jr.status = '%s'
+			  AND j.enabled = true
+			  AND NOT j.paused
+			  AND jr.project_id = ANY($2)
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  %s
+			ORDER BY jr.project_id, %s
+			FOR UPDATE OF jr SKIP LOCKED
+		),
+		claimed AS (
+			SELECT id FROM candidates LIMIT $1
+		),
+		updated AS (
+			UPDATE job_runs SET status = '%s', started_at = NOW()
+			WHERE id IN (SELECT id FROM claimed)
+			RETURNING %s
+		)
+		SELECT %s FROM updated ORDER BY created_at ASC`,
+		concurrencyCTEs, concurrencyJoins, domain.StatusQueued,
+		concurrencyWhere, orderBy,
+		domain.StatusDequeued, dequeueColumns, dequeueColumns,
+	)
+
+	rows, err := q.db.Query(ctx, query, n, projectIDs)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue partitioned: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, n)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue partitioned scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue partitioned rows: %w", err)
+	}
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
+}
+
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()
