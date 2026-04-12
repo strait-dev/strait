@@ -128,15 +128,15 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9,
 			       $11, $12, $13, $14, $15
 			FROM lock_and_prev
-			RETURNING previous_hash
+			RETURNING previous_hash, details
 		)
-		SELECT previous_hash FROM ins`
+		SELECT previous_hash, details FROM ins`
 
 	if err := q.db.QueryRow(ctx, atomicQuery,
 		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID, details,
 		ev.CreatedAt, ZeroHash,
 		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
-	).Scan(&ev.PreviousHash); err != nil {
+	).Scan(&ev.PreviousHash, &ev.Details); err != nil {
 		return fmt.Errorf("create audit event: %w", err)
 	}
 

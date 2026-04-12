@@ -16,11 +16,12 @@ package domain
 // oddities (job.delete, api_key.revoke, api_key.rotate) are kept verbatim so
 // existing audit rows continue to match filters in downstream tooling.
 
+//nolint:gosec // G101 false positives: these are audit action name constants, not hardcoded credentials.
 const (
 	// API keys.
-	AuditActionAPIKeyCreated  = "api_key.created" //nolint:gosec // audit action name, not a credential
-	AuditActionAPIKeyRevoked  = "api_key.revoke"  //nolint:gosec // audit action name, not a credential
-	AuditActionAPIKeyRotated  = "api_key.rotate"  //nolint:gosec // audit action name, not a credential
+	AuditActionAPIKeyCreated  = "api_key.created"
+	AuditActionAPIKeyRevoked  = "api_key.revoke"
+	AuditActionAPIKeyRotated  = "api_key.rotate"
 	AuditActionAPIKeyListRead = "api_key.list_read"
 
 	// Audit log self-audit + read access (SOC 2 requires audit of audit reads).
@@ -91,7 +92,7 @@ const (
 	AuditActionSecretRead     = "secret.read"
 
 	// SSE token.
-	AuditActionSSETokenCreated = "sse_token.created" //nolint:gosec // audit action name, not a credential
+	AuditActionSSETokenCreated = "sse_token.created"
 
 	// RBAC.
 	AuditActionRoleCreated           = "role.created"
@@ -144,7 +145,7 @@ const (
 	AuditActionWebhookDeliveryRetried          = "webhook_delivery.retried"
 	AuditActionWebhookSubscriptionCreated      = "webhook_subscription.created"
 	AuditActionWebhookSubscriptionDeleted      = "webhook_subscription.deleted"
-	AuditActionWebhookSubscriptionRotateSecret = "webhook_subscription.rotate_secret" //nolint:gosec // audit action name, not a credential
+	AuditActionWebhookSubscriptionRotateSecret = "webhook_subscription.rotate_secret"
 
 	// Log drains.
 	AuditActionLogDrainCreated = "log_drain.created"

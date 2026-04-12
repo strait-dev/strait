@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestAuditDeadletter_RoundTrip(t *testing.T) {
@@ -16,6 +17,11 @@ func TestAuditDeadletter_RoundTrip(t *testing.T) {
 	mustClean(t, ctx)
 
 	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-test-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
 
 	ev := &domain.AuditEvent{
 		ID:           "dlq-ev-1",
