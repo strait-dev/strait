@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,9 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/failsafe-go/failsafe-go"
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -25,7 +29,49 @@ const (
 	defaultSIEMFlushInterval = 10 * time.Second
 	minSIEMBufferSize        = 256
 	siemShutdownTimeout      = 5 * time.Second
+
+	// Resilience tunables. Retries follow 100ms → 400ms → 1.6s with full
+	// jitter, which is bounded above by roughly 2s + jitter — well under the
+	// 30s HTTP client deadline. The breaker opens for 30s after 5 consecutive
+	// failures; a single probe is allowed in half-open.
+	siemMaxRetryAttempts         = 3
+	siemBreakerFailureThreshold  = 5
+	siemBreakerHalfOpenSuccesses = 1
+	siemSubDLQCapacity           = 1024
 )
+
+// Tunables exposed as vars (not consts) so tests can shrink timings.
+var (
+	siemRetryInitialBackoff = 100 * time.Millisecond
+	siemRetryMaxBackoff     = 1600 * time.Millisecond
+	siemRetryBackoffFactor  = 4.0
+	siemBreakerOpenDuration = 30 * time.Second
+)
+
+// ErrSIEMCircuitOpen is returned when the SIEM circuit breaker is open and a
+// forward call was short-circuited without hitting the network.
+var ErrSIEMCircuitOpen = errors.New("audit SIEM circuit open")
+
+// terminalStatusError wraps a 4xx HTTP response so retry policy and caller
+// can distinguish "terminal reject" from "transient failure". 4xx responses
+// are not retried; the batch is dropped to the SIEM sub-DLQ.
+type terminalStatusError struct {
+	status int
+}
+
+func (e *terminalStatusError) Error() string {
+	return fmt.Sprintf("SIEM terminal status %d", e.status)
+}
+
+// retryableStatusError wraps a 5xx response. Retry policy treats it as
+// retryable; caller records it as a 5xx exhaustion on final failure.
+type retryableStatusError struct {
+	status int
+}
+
+func (e *retryableStatusError) Error() string {
+	return fmt.Sprintf("SIEM retryable status %d", e.status)
+}
 
 // AuditSIEMDrain forwards audit events to an external SIEM endpoint
 // as NDJSON over HTTP POST. Each batch is sent with a Bearer token.
@@ -49,6 +95,69 @@ type AuditSIEMDrain struct {
 	stopOnce    sync.Once
 	stopped     atomic.Bool
 	droppedFull metric.Int64Counter
+
+	// Resilience and metrics.
+	retryPolicy     failsafe.Policy[*http.Response]
+	breaker         circuitbreaker.CircuitBreaker[*http.Response]
+	breakerWasOpen  atomic.Bool
+	forwardedCount  metric.Int64Counter
+	failedCount     metric.Int64Counter
+	circuitOpenCnt  metric.Int64Counter
+	batchSizeHist   metric.Int64Histogram
+	subDLQ          *failureRingBuffer
+}
+
+// failureRingBuffer is a bounded FIFO that retains the last N events that
+// were dropped to the SIEM sub-DLQ (terminal 4xx or exhausted retries).
+// It is the in-memory forensic trail for "events that never reached the
+// SIEM" and is accessed by operators via DrainedFailures.
+type failureRingBuffer struct {
+	mu    sync.Mutex
+	items []failedForward
+	cap   int
+	next  int
+	size  int
+}
+
+// failedForward captures one event that could not be delivered to the SIEM.
+type failedForward struct {
+	Event  domain.AuditEvent
+	Reason string
+	When   time.Time
+}
+
+func newFailureRingBuffer(capacity int) *failureRingBuffer {
+	if capacity <= 0 {
+		capacity = siemSubDLQCapacity
+	}
+	return &failureRingBuffer{items: make([]failedForward, capacity), cap: capacity}
+}
+
+func (r *failureRingBuffer) add(ev domain.AuditEvent, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.items[r.next] = failedForward{Event: ev, Reason: reason, When: time.Now()}
+	r.next = (r.next + 1) % r.cap
+	if r.size < r.cap {
+		r.size++
+	}
+}
+
+func (r *failureRingBuffer) snapshot() []failedForward {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]failedForward, r.size)
+	start := (r.next - r.size + r.cap) % r.cap
+	for i := 0; i < r.size; i++ {
+		out[i] = r.items[(start+i)%r.cap]
+	}
+	return out
+}
+
+func (r *failureRingBuffer) len() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.size
 }
 
 // NewAuditSIEMDrain creates a new SIEM drain. Returns nil if endpoint is empty.
@@ -63,14 +172,61 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 	if flushInterval <= 0 {
 		flushInterval = defaultSIEMFlushInterval
 	}
-	return &AuditSIEMDrain{
+	d := &AuditSIEMDrain{
 		endpoint:      endpoint,
 		authToken:     authToken,
 		client:        &http.Client{Timeout: 30 * time.Second},
 		logger:        slog.Default(),
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
+		subDLQ:        newFailureRingBuffer(siemSubDLQCapacity),
 	}
+	d.retryPolicy = retrypolicy.NewBuilder[*http.Response]().
+		WithMaxRetries(siemMaxRetryAttempts - 1).
+		WithBackoffFactor(siemRetryInitialBackoff, siemRetryMaxBackoff, siemRetryBackoffFactor).
+		WithJitterFactor(1.0).
+		HandleIf(func(_ *http.Response, err error) bool {
+			if err == nil {
+				return false
+			}
+			var terminal *terminalStatusError
+			if errors.As(err, &terminal) {
+				return false
+			}
+			// Network errors and retryableStatusError are both retried.
+			return true
+		}).
+		ReturnLastFailure().
+		Build()
+	d.breaker = circuitbreaker.NewBuilder[*http.Response]().
+		WithFailureThreshold(siemBreakerFailureThreshold).
+		WithDelay(siemBreakerOpenDuration).
+		WithSuccessThreshold(siemBreakerHalfOpenSuccesses).
+		HandleIf(func(_ *http.Response, err error) bool {
+			if err == nil {
+				return false
+			}
+			// Terminal 4xx does NOT count toward breaker failures — the SIEM
+			// is healthy, the payload was rejected. Only network or 5xx flips
+			// the breaker.
+			var terminal *terminalStatusError
+			if errors.As(err, &terminal) {
+				return false
+			}
+			return true
+		}).
+		OnOpen(func(_ circuitbreaker.StateChangedEvent) {
+			d.breakerWasOpen.Store(true)
+			if d.circuitOpenCnt != nil {
+				d.circuitOpenCnt.Add(context.Background(), 1)
+			}
+			d.logger.Warn("audit SIEM circuit breaker opened",
+				"endpoint", d.endpoint,
+				"threshold", siemBreakerFailureThreshold,
+				"open_duration", siemBreakerOpenDuration)
+		}).
+		Build()
+	return d
 }
 
 // SetDroppedCounter wires an optional Prometheus/OTel counter that is
@@ -81,6 +237,38 @@ func (d *AuditSIEMDrain) SetDroppedCounter(c metric.Int64Counter) {
 		return
 	}
 	d.droppedFull = c
+}
+
+// SetMetrics wires optional Prometheus/OTel instruments for forward outcomes.
+// Any argument may be nil. Safe to call before or after Start.
+func (d *AuditSIEMDrain) SetMetrics(forwarded, failed, circuitOpen metric.Int64Counter, batchSize metric.Int64Histogram) {
+	if d == nil {
+		return
+	}
+	d.forwardedCount = forwarded
+	d.failedCount = failed
+	d.circuitOpenCnt = circuitOpen
+	d.batchSizeHist = batchSize
+}
+
+// DrainedFailures returns a snapshot of the in-memory SIEM sub-DLQ. Each
+// entry is an audit event that could not be delivered to the SIEM endpoint
+// (either a terminal 4xx or exhausted retries/circuit-open). The buffer is
+// bounded; oldest entries are overwritten once the capacity is reached.
+func (d *AuditSIEMDrain) DrainedFailures() []failedForward {
+	if d == nil || d.subDLQ == nil {
+		return nil
+	}
+	return d.subDLQ.snapshot()
+}
+
+// DrainedFailureCount returns the number of entries currently retained in
+// the SIEM sub-DLQ ring buffer.
+func (d *AuditSIEMDrain) DrainedFailureCount() int {
+	if d == nil || d.subDLQ == nil {
+		return 0
+	}
+	return d.subDLQ.len()
 }
 
 // Start launches the background forwarder goroutine. Safe to call multiple
@@ -204,41 +392,127 @@ func (d *AuditSIEMDrain) run(ctx context.Context) {
 }
 
 // ForwardBatch sends a slice of audit events to the SIEM endpoint as NDJSON.
+// The call is wrapped in a retry policy (3 attempts, exponential backoff with
+// full jitter, 5xx/network only) and a circuit breaker (opens after 5
+// consecutive failures for 30s, with a single half-open probe). Terminal 4xx
+// responses are NOT retried and the batch is recorded in the SIEM sub-DLQ.
 func (d *AuditSIEMDrain) ForwardBatch(ctx context.Context, events []domain.AuditEvent) error {
-	if len(events) == 0 {
+	if d == nil || len(events) == 0 {
 		return nil
 	}
 
+	// Serialize the batch once; every retry resends the same bytes.
+	payload, err := encodeNDJSONBatch(events)
+	if err != nil {
+		return err
+	}
+
+	doOnce := func() (*http.Response, error) {
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, bytes.NewReader(payload))
+		if rerr != nil {
+			return nil, fmt.Errorf("create SIEM request: %w", rerr)
+		}
+		req.Header.Set("Content-Type", "application/x-ndjson")
+		req.Header.Set("User-Agent", "Strait-Audit-SIEM/1.0")
+		if d.authToken != "" {
+			req.Header.Set("Authorization", "Bearer "+d.authToken)
+		}
+		resp, herr := d.client.Do(req)
+		if herr != nil {
+			return nil, herr
+		}
+		// Drain and close immediately — we only care about the status code.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return resp, &terminalStatusError{status: resp.StatusCode}
+		}
+		if resp.StatusCode >= 500 {
+			return resp, &retryableStatusError{status: resp.StatusCode}
+		}
+		return resp, nil
+	}
+
+	resp, execErr := failsafe.With[*http.Response](d.breaker, d.retryPolicy).
+		WithContext(ctx).
+		GetWithExecution(func(_ failsafe.Execution[*http.Response]) (*http.Response, error) {
+			return doOnce()
+		})
+
+	if execErr != nil {
+		d.recordFailure(ctx, events, execErr)
+		return execErr
+	}
+	_ = resp
+	d.recordSuccess(ctx, len(events))
+	d.logger.Info("audit events forwarded to SIEM",
+		"count", len(events), "endpoint", d.endpoint)
+	return nil
+}
+
+// encodeNDJSONBatch serializes events as newline-delimited JSON. Exposed at
+// package scope so the schema contract test can reuse the exact wire form.
+func encodeNDJSONBatch(events []domain.AuditEvent) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for i := range events {
 		if err := enc.Encode(&events[i]); err != nil {
-			return fmt.Errorf("encode audit event %d: %w", i, err)
+			return nil, fmt.Errorf("encode audit event %d: %w", i, err)
 		}
 	}
+	return buf.Bytes(), nil
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, &buf)
-	if err != nil {
-		return fmt.Errorf("create SIEM request: %w", err)
+// recordSuccess updates success metrics for a forwarded batch.
+func (d *AuditSIEMDrain) recordSuccess(ctx context.Context, n int) {
+	if d.forwardedCount != nil {
+		d.forwardedCount.Add(ctx, int64(n))
 	}
-	req.Header.Set("Content-Type", "application/x-ndjson")
-	req.Header.Set("User-Agent", "Strait-Audit-SIEM/1.0")
-	if d.authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+d.authToken)
+	if d.batchSizeHist != nil {
+		d.batchSizeHist.Record(ctx, int64(n))
 	}
+}
 
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("SIEM request failed: %w", err)
+// recordFailure classifies a forward failure, increments the correct
+// failed-total reason, and (for terminal or permanently-lost batches) spills
+// the events into the in-memory SIEM sub-DLQ.
+func (d *AuditSIEMDrain) recordFailure(ctx context.Context, events []domain.AuditEvent, err error) {
+	reason := classifyForwardError(err)
+	if d.failedCount != nil {
+		d.failedCount.Add(ctx, int64(len(events)),
+			metric.WithAttributes(attribute.String("reason", reason)))
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("SIEM returned status %d", resp.StatusCode)
+	for i := range events {
+		d.subDLQ.add(events[i], reason)
 	}
+	d.logger.Warn("audit SIEM batch forward failed",
+		"count", len(events),
+		"endpoint", d.endpoint,
+		"reason", reason,
+		"error", err)
+}
 
-	d.logger.Info("audit events forwarded to SIEM",
-		"count", len(events), "endpoint", d.endpoint, "status", resp.StatusCode)
-	return nil
+// classifyForwardError maps a ForwardBatch error into one of the four
+// metrics reasons: network_error, siem_4xx, siem_5xx_exhausted, circuit_open.
+func classifyForwardError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, ErrSIEMCircuitOpen) {
+		return "circuit_open"
+	}
+	var terminal *terminalStatusError
+	if errors.As(err, &terminal) {
+		return "siem_4xx"
+	}
+	var retryable *retryableStatusError
+	if errors.As(err, &retryable) {
+		return "siem_5xx_exhausted"
+	}
+	// failsafe-go's circuitbreaker.ErrOpen indicates the breaker short-
+	// circuited the call. Match by error string/type.
+	if errors.Is(err, circuitbreaker.ErrOpen) {
+		return "circuit_open"
+	}
+	return "network_error"
 }

@@ -157,6 +157,10 @@ type Metrics struct {
 	AuditReclaimerFailed    metric.Int64Counter
 	AuditRetentionDeleted   metric.Int64Counter
 	AuditSIEMDropped        metric.Int64Counter
+	AuditSIEMForwarded      metric.Int64Counter
+	AuditSIEMFailed         metric.Int64Counter
+	AuditSIEMCircuitOpen    metric.Int64Counter
+	AuditSIEMBatchSize      metric.Int64Histogram
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -857,6 +861,26 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit events dropped from the SIEM forwarding queue, labeled by reason"),
 		metric.WithUnit("1"),
 	)
+	auditSIEMForwarded, _ := meter.Int64Counter(
+		"strait.audit.siem_forwarded_total",
+		metric.WithDescription("Total audit events successfully forwarded to the SIEM endpoint"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMFailed, _ := meter.Int64Counter(
+		"strait.audit.siem_failed_total",
+		metric.WithDescription("Total audit SIEM forward failures, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMCircuitOpen, _ := meter.Int64Counter(
+		"strait.audit.siem_circuit_open_total",
+		metric.WithDescription("Total transitions of the audit SIEM circuit breaker into the open state"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMBatchSize, _ := meter.Int64Histogram(
+		"strait_audit_siem_batch_size",
+		metric.WithDescription("Audit SIEM forwarded batch size in events"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:               runTransitions,
@@ -951,6 +975,10 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditReclaimerFailed:         auditReclaimerFailed,
 		AuditRetentionDeleted:        auditRetentionDeleted,
 		AuditSIEMDropped:             auditSIEMDropped,
+		AuditSIEMForwarded:           auditSIEMForwarded,
+		AuditSIEMFailed:              auditSIEMFailed,
+		AuditSIEMCircuitOpen:         auditSIEMCircuitOpen,
+		AuditSIEMBatchSize:           auditSIEMBatchSize,
 	}
 
 	slog.Info("prometheus metrics enabled")

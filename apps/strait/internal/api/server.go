@@ -770,6 +770,12 @@ func NewServer(deps ServerDeps) *Server {
 	}
 	if srv.siemDrain != nil && deps.Metrics != nil {
 		srv.siemDrain.SetDroppedCounter(deps.Metrics.AuditSIEMDropped)
+		srv.siemDrain.SetMetrics(
+			deps.Metrics.AuditSIEMForwarded,
+			deps.Metrics.AuditSIEMFailed,
+			deps.Metrics.AuditSIEMCircuitOpen,
+			deps.Metrics.AuditSIEMBatchSize,
+		)
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
