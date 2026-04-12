@@ -199,9 +199,11 @@ func TestAuditChain_Tamper_ForgeEvent(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	// Insert a forged event at current time with a fabricated signature.
+	// Include the forensic columns (empty strings) so the SELECT in
+	// VerifyAuditChain can scan them without hitting NULL→string errors.
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at)
-		VALUES ($1, $2, 'forged', 'user', $3, 'probe', 'forged', '{}'::jsonb, $4, $5, NOW() + interval '1 minute')
+		INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at, remote_ip, user_agent, request_id, trace_id, schema_version)
+		VALUES ($1, $2, 'forged', 'user', $3, 'probe', 'forged', '{}'::jsonb, $4, $5, NOW() + interval '1 minute', '', '', '', '', 2)
 	`, "forged-id", projectID, domain.AuditActionJobCreated,
 		"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 		"0000000000000000000000000000000000000000000000000000000000000000",
