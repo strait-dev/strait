@@ -13,6 +13,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/crypto/hkdf"
@@ -287,67 +288,215 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 	return rows.Err()
 }
 
-// DeleteAuditEventsBefore deletes audit events older than cutoff for a
-// project. This is tail-only: only the oldest rows are removed, which
-// preserves chain verifiability (the earliest surviving event's
-// previous_hash becomes the chain anchor in VerifyAuditChain).
+// withTxInheritKeys runs fn inside a fresh transaction when q is pool-backed,
+// or inline on q when it is already tx-backed. The nested Queries inherits the
+// audit signing key and secret encryption key so audit writes produced by fn
+// (e.g. the retention tombstone) sign correctly.
+func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error) error {
+	begin, ok := q.db.(TxBeginner)
+	if !ok {
+		return fn(q)
+	}
+	return WithTx(ctx, begin, func(txQ *Queries) error {
+		txQ.auditSigningKey = q.auditSigningKey
+		txQ.secretEncryptionKey = q.secretEncryptionKey
+		return fn(txQ)
+	})
+}
+
+// writeRetentionTombstone inserts a tombstone anchor row for a project that
+// just had rows trimmed. It is called inside the same transaction as the
+// DELETE so the tombstone and the trim commit (or roll back) together.
 //
-// Returns the number of rows deleted.
+// The tombstone's previous_hash is the most recent surviving row's signature
+// (or ZeroHash if the trim removed every row in the project's chain). Its
+// details carry {deleted_count, trimmed_before, previous_hash}. The row is
+// inserted via CreateAuditEvent so it obtains a real HMAC signature chained
+// from the surviving tail — VerifyAuditChain then naturally accepts it as a
+// chain-valid forensic marker.
+func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string, cutoff time.Time, deleted int64) error {
+	// Read the max rotation_epoch for the project so the tombstone lives in
+	// the current epoch. If there are no surviving rows, default to 0.
+	var rotationEpoch int
+	if err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(MAX(rotation_epoch), 0)
+		FROM audit_events
+		WHERE project_id = $1
+	`, projectID).Scan(&rotationEpoch); err != nil {
+		return fmt.Errorf("tombstone: read rotation_epoch: %w", err)
+	}
+
+	// Capture the surviving chain tail signature for informational display in
+	// details. CreateAuditEvent will independently re-read and chain from the
+	// same tail via its CTE under pg_advisory_xact_lock.
+	var prevHash string
+	if err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(
+			(SELECT signature FROM audit_events
+			 WHERE project_id = $1 AND signature != ''
+			 ORDER BY created_at DESC LIMIT 1),
+			$2
+		)
+	`, projectID, ZeroHash).Scan(&prevHash); err != nil {
+		return fmt.Errorf("tombstone: read prev_hash: %w", err)
+	}
+
+	details, err := json.Marshal(map[string]any{
+		"deleted_count":  deleted,
+		"trimmed_before": cutoff.UTC().Format(time.RFC3339),
+		"previous_hash":  prevHash,
+	})
+	if err != nil {
+		return fmt.Errorf("tombstone: marshal details: %w", err)
+	}
+
+	ev := &domain.AuditEvent{
+		ProjectID:     projectID,
+		ActorID:       "system",
+		ActorType:     "system",
+		Action:        domain.AuditActionRetentionTrimmed,
+		ResourceType:  "audit_events",
+		ResourceID:    fmt.Sprintf("retention-%s", cutoff.UTC().Format(time.RFC3339)),
+		Details:       json.RawMessage(details),
+		IsAnchor:      true,
+		RotationEpoch: rotationEpoch,
+	}
+	if err := q.CreateAuditEvent(ctx, ev); err != nil {
+		return fmt.Errorf("tombstone: create anchor: %w", err)
+	}
+	return nil
+}
+
+// DeleteAuditEventsBefore deletes audit events older than cutoff for a
+// project and, if any rows were trimmed, writes a tombstone anchor row
+// (action=audit.retention_trimmed, is_anchor=true) inside the same
+// transaction. The tombstone gives a SOC 2 auditor positive forensic proof
+// that a retention trim happened.
+//
+// This is tail-only: only the oldest rows are removed, which preserves chain
+// verifiability (the earliest surviving event's previous_hash becomes the
+// chain anchor in VerifyAuditChain, followed by the tombstone as a positive
+// marker).
+//
+// Returns the number of event rows deleted (the tombstone is not counted).
 func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, projectID string, cutoff time.Time) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBefore")
 	defer span.End()
 
-	// An empty projectID means "trim across all projects" — callers that want
-	// per-project trimming pass a non-empty id. This lets the scheduler reap
-	// globally when no per-project overrides are configured.
-	var (
-		tag pgconn.CommandTag
-		err error
-	)
-	if projectID == "" {
-		tag, err = q.db.Exec(ctx, `
-			DELETE FROM audit_events
-			WHERE created_at < $1
-		`, cutoff)
-	} else {
-		tag, err = q.db.Exec(ctx, `
-			DELETE FROM audit_events
-			WHERE project_id = $1 AND created_at < $2
-		`, projectID, cutoff)
-	}
+	var deleted int64
+	err := q.withTxInheritKeys(ctx, func(tx *Queries) error {
+		var (
+			tag   pgconn.CommandTag
+			execE error
+		)
+		if projectID == "" {
+			tag, execE = tx.db.Exec(ctx, `
+				DELETE FROM audit_events
+				WHERE created_at < $1
+			`, cutoff)
+		} else {
+			tag, execE = tx.db.Exec(ctx, `
+				DELETE FROM audit_events
+				WHERE project_id = $1 AND created_at < $2
+			`, projectID, cutoff)
+		}
+		if execE != nil {
+			return fmt.Errorf("delete audit events before: %w", execE)
+		}
+		deleted = tag.RowsAffected()
+		if deleted == 0 || projectID == "" {
+			// No tombstone on zero deletes. An empty projectID is a legacy
+			// "trim globally" path kept for callers that don't know the
+			// per-project membership; the scheduler uses
+			// DeleteAuditEventsBeforeExcluding which emits one tombstone per
+			// affected project instead.
+			return nil
+		}
+		return tx.writeRetentionTombstone(ctx, projectID, cutoff, deleted)
+	})
 	if err != nil {
-		return 0, fmt.Errorf("delete audit events before: %w", err)
+		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	return deleted, nil
 }
 
 // DeleteAuditEventsBeforeExcluding trims audit events across all projects
 // except those listed in excludeProjectIDs. Used by the retention reaper to
 // apply the server-wide default to every project that does not have a
 // per-project override in project_quotas.audit_retention_days.
+//
+// Emits one tombstone anchor row per affected project. The set of affected
+// projects is computed inside the transaction (distinct project_ids with
+// rows < cutoff and not excluded) so the tombstone set exactly mirrors the
+// trim scope.
 func (q *Queries) DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff time.Time, excludeProjectIDs []string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBeforeExcluding")
 	defer span.End()
 
-	var (
-		tag pgconn.CommandTag
-		err error
-	)
-	if len(excludeProjectIDs) == 0 {
-		tag, err = q.db.Exec(ctx, `
-			DELETE FROM audit_events
-			WHERE created_at < $1
-		`, cutoff)
-	} else {
-		tag, err = q.db.Exec(ctx, `
-			DELETE FROM audit_events
-			WHERE created_at < $1 AND project_id <> ALL($2::text[])
-		`, cutoff, excludeProjectIDs)
-	}
+	var total int64
+	err := q.withTxInheritKeys(ctx, func(tx *Queries) error {
+		// Discover affected projects before the DELETE so we can emit one
+		// tombstone per project after trimming.
+		var (
+			rows pgx.Rows
+			e    error
+		)
+		if len(excludeProjectIDs) == 0 {
+			rows, e = tx.db.Query(ctx, `
+				SELECT DISTINCT project_id
+				FROM audit_events
+				WHERE created_at < $1
+			`, cutoff)
+		} else {
+			rows, e = tx.db.Query(ctx, `
+				SELECT DISTINCT project_id
+				FROM audit_events
+				WHERE created_at < $1 AND project_id <> ALL($2::text[])
+			`, cutoff, excludeProjectIDs)
+		}
+		if e != nil {
+			return fmt.Errorf("discover affected projects: %w", e)
+		}
+		var affected []string
+		for rows.Next() {
+			var pid string
+			if scanErr := rows.Scan(&pid); scanErr != nil {
+				rows.Close()
+				return fmt.Errorf("scan affected project: %w", scanErr)
+			}
+			affected = append(affected, pid)
+		}
+		rows.Close()
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return fmt.Errorf("rows err: %w", rowsErr)
+		}
+
+		// Trim per-project so we know the exact delete count for each
+		// tombstone. One statement per project keeps the tombstone's
+		// deleted_count honest.
+		for _, pid := range affected {
+			tag, execE := tx.db.Exec(ctx, `
+				DELETE FROM audit_events
+				WHERE project_id = $1 AND created_at < $2
+			`, pid, cutoff)
+			if execE != nil {
+				return fmt.Errorf("delete audit events before (project %s): %w", pid, execE)
+			}
+			n := tag.RowsAffected()
+			if n == 0 {
+				continue
+			}
+			total += n
+			if err := tx.writeRetentionTombstone(ctx, pid, cutoff, n); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("delete audit events before excluding: %w", err)
+		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	return total, nil
 }
 
 // VerifyAuditChain replays the audit event chain for a project in chronological

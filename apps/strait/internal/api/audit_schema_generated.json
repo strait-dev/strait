@@ -236,6 +236,37 @@
         "bearer"
       ]
     },
+    "audit.retention_trimmed": {
+      "type": "object",
+      "description": "Retention reaper trimmed old audit rows; writes a tombstone anchor row giving positive forensic proof of the trim (count, cutoff, and chain tail at trim time).",
+      "properties": {
+        "deleted_count": {
+          "type": "string",
+          "description": "required"
+        },
+        "previous_hash": {
+          "type": "string",
+          "description": "required"
+        },
+        "trimmed_before": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["deleted_count", "trimmed_before", "previous_hash"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "audit.single_read": {
       "type": "object",
       "description": "Single audit event read.",

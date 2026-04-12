@@ -81,6 +81,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Forbidden:   []string{"key", "new_key", "secret_material"},
 		Description: "Audit HMAC signing key rotation; writes a forensic anchor row that boundary-stitches the chain across epochs.",
 	},
+	AuditActionRetentionTrimmed: {
+		Required:    []string{"deleted_count", "trimmed_before", "previous_hash"},
+		Description: "Retention reaper trimmed old audit rows; writes a tombstone anchor row giving positive forensic proof of the trim (count, cutoff, and chain tail at trim time).",
+	},
 
 	// Device code.
 	AuditActionDeviceCodeApproved: {
