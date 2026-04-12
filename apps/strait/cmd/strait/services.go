@@ -874,6 +874,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:     slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithOutboxFlusher(
+				scheduler.NewOutboxFlusher(dbPool, q, scheduler.OutboxFlusherConfig{
+					Interval:  time.Second,
+					BatchSize: 500,
+					Logger:    slog.Default(),
+				}),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))

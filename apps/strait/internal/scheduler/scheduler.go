@@ -54,6 +54,7 @@ type Scheduler struct {
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
 	dlqAgeOut                *DLQAgeOut
+	outboxFlusher            *OutboxFlusher
 	wg                       conc.WaitGroup
 }
 
@@ -156,6 +157,13 @@ func WithPartitionTuner(p *PartitionTuner) SchedulerOption {
 func WithDLQAgeOut(a *DLQAgeOut) SchedulerOption {
 	return func(s *Scheduler) {
 		s.dlqAgeOut = a
+	}
+}
+
+// WithOutboxFlusher enables R4 Phase 2 outbox promotion.
+func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
+	return func(s *Scheduler) {
+		s.outboxFlusher = f
 	}
 }
 
@@ -279,6 +287,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.dlqAgeOut != nil {
 		safeGo(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
+	}
+	if s.outboxFlusher != nil {
+		safeGo(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
