@@ -74,7 +74,6 @@ func TestEmitAuditEvent_RejectsMissingActorOnUserRequest(t *testing.T) {
 	t.Parallel()
 
 	for _, actorType := range []string{"user", "api_key"} {
-		actorType := actorType
 		t.Run(actorType, func(t *testing.T) {
 			var called atomic.Int32
 			ms := &APIStoreMock{

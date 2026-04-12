@@ -94,7 +94,7 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 	if !ok {
 		return
 	}
-	detailsJSON, _, err := s.marshalAndCapDetails(ctx, action, details)
+	detailsJSON, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
 		return
@@ -656,10 +656,10 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 		return nil, huma.Error500InternalServerError("failed to list audit events")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAuditListRead, "audit", projectID, map[string]any{
-		"count":          len(events),
-		"filter_actor":   input.ActorID,
-		"filter_rtype":   input.ResourceType,
-		"filter_rid":     input.ResourceID,
+		"count":        len(events),
+		"filter_actor": input.ActorID,
+		"filter_rtype": input.ResourceType,
+		"filter_rid":   input.ResourceID,
 	})
 	return &ListAuditEventsOutput{Body: paginatedResult(events, limit, func(ev domain.AuditEvent) string { return ev.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }

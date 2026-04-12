@@ -72,11 +72,11 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 		return nil, huma.Error500InternalServerError("failed to create log drain")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionLogDrainCreated, "log_drain", drain.ID, map[string]any{
-		"name":         drain.Name,
-		"drain_type":   drain.DrainType,
+		"name":          drain.Name,
+		"drain_type":    drain.DrainType,
 		"endpoint_host": urlHost(drain.EndpointURL),
-		"auth_type":    drain.AuthType,
-		"enabled":      drain.Enabled,
+		"auth_type":     drain.AuthType,
+		"enabled":       drain.Enabled,
 	})
 	return &CreateLogDrainOutput{Body: drain}, nil
 }
@@ -178,9 +178,9 @@ func (s *Server) handleUpdateLogDrain(ctx context.Context, input *UpdateLogDrain
 		changedFields = append(changedFields, k)
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionLogDrainUpdated, "log_drain", drainID, map[string]any{
-		"name":             drain.Name,
-		"endpoint_host":    urlHost(drain.EndpointURL),
-		"changed_fields":   changedFields,
+		"name":                drain.Name,
+		"endpoint_host":       urlHost(drain.EndpointURL),
+		"changed_fields":      changedFields,
 		"auth_config_changed": req.AuthConfig != nil,
 	})
 	return &UpdateLogDrainOutput{Body: drain}, nil

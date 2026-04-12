@@ -69,9 +69,9 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionEnvironmentCreated, "environment", env.ID, map[string]any{
-		"name":         env.Name,
-		"slug":         env.Slug,
-		"parent_id":    env.ParentID,
+		"name":          env.Name,
+		"slug":          env.Slug,
+		"parent_id":     env.ParentID,
 		"variable_keys": tagKeys(env.Variables),
 	})
 

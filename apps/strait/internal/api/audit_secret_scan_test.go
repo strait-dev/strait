@@ -159,7 +159,6 @@ func TestAuditDetails_SecretScannerCatchesInjected(t *testing.T) {
 	// Build a value containing the string and assert the scanner flags it
 	// (or correctly passes the benign zero-byte case above).
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			hits := scanForSecrets(map[string]any{"leak": tc.value})
 			if tc.want == "" {
@@ -196,21 +195,21 @@ func TestAuditDetails_ScannerIgnoresBenign(t *testing.T) {
 	t.Parallel()
 
 	benign := []any{
-		"01HXABCXYZ1234567890ABCDEF",                   // ULID
-		"550e8400-e29b-41d4-a716-446655440000",         // UUID
-		"proj_abc123",                                  // project id
-		"my-job-slug",                                  // slug
-		"2026-04-11T12:00:00Z",                         // timestamp
-		"abc123def456abc123def456abc123de",             // 32-char hex — not a key shape
-		"/v1/jobs/job-123",                             // url path
-		"https://example.com/webhook",                  // url
-		"user@example.com",                             // email
-		"hello world",                                  // arbitrary text
-		float64(42),                                    // number
-		true,                                           // bool
-		nil,                                            // nil
-		map[string]any{"k": "v"},                       // map
-		[]any{"a", "b", "c"},                           // slice
+		"01HXABCXYZ1234567890ABCDEF",           // ULID
+		"550e8400-e29b-41d4-a716-446655440000", // UUID
+		"proj_abc123",                          // project id
+		"my-job-slug",                          // slug
+		"2026-04-11T12:00:00Z",                 // timestamp
+		"abc123def456abc123def456abc123de",     // 32-char hex — not a key shape
+		"/v1/jobs/job-123",                     // url path
+		"https://example.com/webhook",          // url
+		"user@example.com",                     // email
+		"hello world",                          // arbitrary text
+		float64(42),                            // number
+		true,                                   // bool
+		nil,                                    // nil
+		map[string]any{"k": "v"},               // map
+		[]any{"a", "b", "c"},                   // slice
 	}
 
 	for i, v := range benign {

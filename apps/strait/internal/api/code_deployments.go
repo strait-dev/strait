@@ -124,8 +124,8 @@ func (s *Server) handleCreateCodeDeployment(ctx context.Context, input *CreateCo
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionCodeDeploymentCreated, "code_deployment", deployment.ID, map[string]any{
-		"job_id":           deployment.JobID,
-		"runtime":          string(deployment.Runtime),
+		"job_id":            deployment.JobID,
+		"runtime":           string(deployment.Runtime),
 		"source_size_bytes": deployment.SourceSizeBytes,
 	})
 

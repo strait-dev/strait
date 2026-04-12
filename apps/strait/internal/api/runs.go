@@ -244,8 +244,8 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunCancelled, "run", run.ID, map[string]any{
-		"job_id":           run.JobID,
-		"previous_status":  string(run.Status),
+		"job_id":            run.JobID,
+		"previous_status":   string(run.Status),
 		"children_canceled": canceledCount,
 	})
 
@@ -940,9 +940,9 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunBulkReplayed, "run", "", map[string]any{
-		"count":    replayed,
-		"total":    len(req.RunIDs),
-		"run_ids":  req.RunIDs,
+		"count":   replayed,
+		"total":   len(req.RunIDs),
+		"run_ids": req.RunIDs,
 	})
 
 	return &BulkReplayRunsOutput{Body: map[string]any{"results": results, "total": len(req.RunIDs), "replayed": replayed}}, nil

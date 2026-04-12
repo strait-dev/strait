@@ -41,7 +41,7 @@ func TestEmitAuditEventAsync_OrderingAndContextSnapshot(t *testing.T) {
 	baseCtx = context.WithValue(baseCtx, ctxActorIDKey, "actor-async")
 	baseCtx = context.WithValue(baseCtx, ctxActorTypeKey, "user")
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ctx, cancel := context.WithCancel(baseCtx)
 		srv.emitAuditEventAsync(ctx, "job.triggered", "job", "job-1", map[string]any{"i": i})
 		cancel()
@@ -108,7 +108,7 @@ func TestEmitAuditEventAsync_ShutdownFlush(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		srv.emitAuditEventAsync(ctx, "job.triggered", "job", "job-1", map[string]any{"i": i})
 	}
 
@@ -145,7 +145,7 @@ func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
 	total := auditAsyncBufferSize + 500
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < total; i++ {
+		for range total {
 			srv.emitAuditEventAsync(ctx, "job.triggered", "job", "job-1", nil)
 		}
 		close(done)

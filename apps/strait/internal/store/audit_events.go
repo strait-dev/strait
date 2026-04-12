@@ -86,7 +86,12 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	}
 
 	// Use client-side timestamp so all fields are known for signature computation.
-	ev.CreatedAt = time.Now().UTC()
+	// Truncate to microseconds: Postgres TIMESTAMPTZ stores microsecond precision,
+	// so the signature must be computed from the same precision that will be read
+	// back by VerifyAuditChain. Without this, the nanosecond remainder in the Go
+	// time.Time gets truncated on the Postgres round-trip and the recomputed
+	// signature no longer matches.
+	ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 
 	// Default schema version for new events.
 	if ev.SchemaVersion == 0 {

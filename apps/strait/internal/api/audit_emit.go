@@ -93,7 +93,7 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 	// log the full event as a last-resort forensic record.
 	var lastErr error
 	attempts := len(auditRetryDelays) + 1
-	for attempt := 0; attempt < attempts; attempt++ {
+	for attempt := range attempts {
 		if attempt > 0 {
 			time.Sleep(auditRetryDelays[attempt-1])
 		}
@@ -180,13 +180,13 @@ func (s *Server) stopAuditAsyncDrain() {
 // with a truncation marker if it exceeds auditMaxDetailsBytes. This keeps
 // the HMAC chain input bounded and prevents a misbehaving handler from
 // ballooning the DB row.
-func (s *Server) marshalAndCapDetails(ctx context.Context, action string, details map[string]any) (json.RawMessage, bool, error) {
+func (s *Server) marshalAndCapDetails(ctx context.Context, action string, details map[string]any) (json.RawMessage, error) {
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if len(detailsJSON) <= auditMaxDetailsBytes {
-		return detailsJSON, false, nil
+		return detailsJSON, nil
 	}
 	slog.Warn("audit event details exceeded size cap; truncating",
 		"action", action,
@@ -204,9 +204,9 @@ func (s *Server) marshalAndCapDetails(ctx context.Context, action string, detail
 	}
 	out, mErr := json.Marshal(marker)
 	if mErr != nil {
-		return nil, true, fmt.Errorf("marshal truncation marker: %w", mErr)
+		return nil, fmt.Errorf("marshal truncation marker: %w", mErr)
 	}
-	return out, true, nil
+	return out, nil
 }
 
 // validateActorForEmit rejects events with no actor when the context
@@ -266,7 +266,7 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 	if !ok {
 		return
 	}
-	detailsJSON, _, err := s.marshalAndCapDetails(ctx, action, details)
+	detailsJSON, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal async audit event details",
 			"action", action, "error", err)

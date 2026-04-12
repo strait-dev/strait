@@ -47,41 +47,41 @@ var orderingExempt = map[string]string{
 	// workflow_runs.go: several handlers load-then-mutate-then-reload, which
 	// confuses the AST ordering check because the Get call textually precedes
 	// the mutation. These are audited by the negative-path test instead.
-	"handleCancelWorkflowRun":        "load-mutate-reload pattern",
-	"handlePauseWorkflowRun":         "load-mutate-reload pattern",
-	"handleResumeWorkflowRun":        "load-mutate-reload pattern",
-	"handleRetryWorkflowRun":         "load-mutate-reload pattern",
-	"handleApproveWorkflowStep":      "callback-based, store call is inside callback",
-	"handleSkipWorkflowStep":         "callback-based, store call is inside callback",
+	"handleCancelWorkflowRun":         "load-mutate-reload pattern",
+	"handlePauseWorkflowRun":          "load-mutate-reload pattern",
+	"handleResumeWorkflowRun":         "load-mutate-reload pattern",
+	"handleRetryWorkflowRun":          "load-mutate-reload pattern",
+	"handleApproveWorkflowStep":       "callback-based, store call is inside callback",
+	"handleSkipWorkflowStep":          "callback-based, store call is inside callback",
 	"handleForceCompleteWorkflowStep": "callback-based, store call is inside callback",
-	"handleRetryWorkflowStep":        "callback-based, store call is inside callback",
-	"handleReplayWorkflowSubtree":    "iterates UpdateStepRunStatus",
-	"handleCompensateWorkflowRun":    "load-mutate-reload pattern",
+	"handleRetryWorkflowStep":         "callback-based, store call is inside callback",
+	"handleReplayWorkflowSubtree":     "iterates UpdateStepRunStatus",
+	"handleCompensateWorkflowRun":     "load-mutate-reload pattern",
 
 	// Job pause/resume: we call GetJob first, then PauseJob, then GetJob
 	// again. The first Get is not a mutation but precedes the emit textually.
-	"handlePauseJob":       "load-mutate-reload pattern",
-	"handleResumeJob":      "load-mutate-reload pattern",
-	"handleDeleteJob":      "GetJob before DeleteJob",
-	"handleCloneJob":       "GetJob(source) then CreateJob(clone)",
-	"handleCancelRun":      "GetRun before UpdateRunStatus",
-	"handleReplayRun":      "GetRun(original) then Enqueue(replay)",
-	"handleRescheduleRun":  "GetRun before RescheduleRun",
-	"handlePauseRun":       "GetRun before UpdateRunStatus",
-	"handleResumeRun":      "GetRun before UpdateRunStatus",
-	"handleRestartRun":     "GetRun before UpdateRunStatus",
-	"handleUpdateJob":      "GetJob before UpdateJob",
+	"handlePauseJob":      "load-mutate-reload pattern",
+	"handleResumeJob":     "load-mutate-reload pattern",
+	"handleDeleteJob":     "GetJob before DeleteJob",
+	"handleCloneJob":      "GetJob(source) then CreateJob(clone)",
+	"handleCancelRun":     "GetRun before UpdateRunStatus",
+	"handleReplayRun":     "GetRun(original) then Enqueue(replay)",
+	"handleRescheduleRun": "GetRun before RescheduleRun",
+	"handlePauseRun":      "GetRun before UpdateRunStatus",
+	"handleResumeRun":     "GetRun before UpdateRunStatus",
+	"handleRestartRun":    "GetRun before UpdateRunStatus",
+	"handleUpdateJob":     "GetJob before UpdateJob",
 
 	// RBAC: handleRemoveMember performs GetMemberRole then RemoveMemberRole.
-	"handleRemoveMember":     "GetMemberRole before RemoveMemberRole",
-	"handleDeleteJobGroup":   "GetJobGroup before DeleteJobGroup",
-	"handleUpdateJobGroup":   "GetJobGroup before UpdateJobGroup",
+	"handleRemoveMember":         "GetMemberRole before RemoveMemberRole",
+	"handleDeleteJobGroup":       "GetJobGroup before DeleteJobGroup",
+	"handleUpdateJobGroup":       "GetJobGroup before UpdateJobGroup",
 	"handlePauseAllJobsByGroup":  "GetJobGroup before PauseJobsByGroup",
 	"handleResumeAllJobsByGroup": "GetJobGroup before ResumeJobsByGroup",
 
 	// environments, notification channels, event sources: load-then-mutate.
-	"handleUpdateEnvironment":      "GetEnvironment before UpdateEnvironment",
-	"handleDeleteEnvironment":      "GetEnvironment before DeleteEnvironment",
+	"handleUpdateEnvironment":         "GetEnvironment before UpdateEnvironment",
+	"handleDeleteEnvironment":         "GetEnvironment before DeleteEnvironment",
 	"handleUpdateNotificationChannel": "GetNotificationChannel before UpdateNotificationChannel",
 	"handleDeleteEventSubscription":   "GetEventSubscription before DeleteEventSubscription",
 
@@ -95,13 +95,13 @@ var orderingExempt = map[string]string{
 	"handleRollbackCanaryDeployment": "Get before UpdateCanaryDeploymentTraffic",
 
 	// Webhooks: test / replay both do reads first.
-	"handleTestWebhook":            "sends HTTP request; store write is irrelevant",
-	"handleReplayWebhookDelivery":  "Get before Replay",
-	"handleRetryWebhookDelivery":   "Get before Retry",
+	"handleTestWebhook":           "sends HTTP request; store write is irrelevant",
+	"handleReplayWebhookDelivery": "Get before Replay",
+	"handleRetryWebhookDelivery":  "Get before Retry",
 
 	// event trigger: Get then update.
-	"handleSendEvent":         "Get before UpdateEventTriggerStatus",
-	"handleSendEventByPrefix": "iterate then batch update",
+	"handleSendEvent":          "Get before UpdateEventTriggerStatus",
+	"handleSendEventByPrefix":  "iterate then batch update",
 	"handleCancelEventTrigger": "Get before UpdateEventTriggerStatus",
 	"handlePurgeEventTriggers": "branch-based: dry run vs real delete",
 

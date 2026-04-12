@@ -188,8 +188,8 @@ func (s *Server) handleUpdateEventSource(ctx context.Context, input *UpdateEvent
 		changedFields = append(changedFields, k)
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionEventSourceUpdated, "event_source", input.SourceID, map[string]any{
-		"changed_fields":  changedFields,
-		"secret_changed":  req.SignatureSecret != nil,
+		"changed_fields": changedFields,
+		"secret_changed": req.SignatureSecret != nil,
 	})
 	return nil, nil
 }

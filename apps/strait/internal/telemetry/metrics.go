@@ -149,9 +149,9 @@ type Metrics struct {
 	HTTPModeGateRejected      metric.Int64Counter
 
 	// Audit event metrics.
-	AuditEventsEmitted     metric.Int64Counter
-	AuditEventsDropped     metric.Int64Counter
-	AuditEventsTruncated   metric.Int64Counter
+	AuditEventsEmitted      metric.Int64Counter
+	AuditEventsDropped      metric.Int64Counter
+	AuditEventsTruncated    metric.Int64Counter
 	AuditEventsDeadlettered metric.Int64Counter
 }
 

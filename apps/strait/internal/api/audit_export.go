@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -226,7 +227,7 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 		exported++
 		return nil
 	})
-	if err != nil && err != errExportCapReached {
+	if err != nil && !errors.Is(err, errExportCapReached) {
 		return exported, capped, err
 	}
 	if capped {
@@ -260,7 +261,7 @@ func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher htt
 		}
 		return nil
 	})
-	if err != nil && err != errExportCapReached {
+	if err != nil && !errors.Is(err, errExportCapReached) {
 		return exported, capped, err
 	}
 	if capped {
@@ -302,7 +303,7 @@ func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.
 		}
 		return nil
 	})
-	if err != nil && err != errExportCapReached {
+	if err != nil && !errors.Is(err, errExportCapReached) {
 		return exported, capped, err
 	}
 	if capped {
@@ -310,7 +311,7 @@ func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.
 		if !first {
 			_, _ = w.Write([]byte(","))
 		}
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"_capped":true,"exported":%d}`, exported)))
+		_, _ = w.Write(fmt.Appendf(nil, `{"_capped":true,"exported":%d}`, exported))
 	}
 	if _, err := w.Write([]byte("]")); err != nil {
 		return exported, capped, fmt.Errorf("write json close bracket: %w", err)

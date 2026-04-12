@@ -19,7 +19,7 @@ func TestStreamAuditJSON_EmitsCapMarker(t *testing.T) {
 
 	ms := &APIStoreMock{
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
-			for i := 0; i < 20; i++ {
+			for i := range 20 {
 				ev := &domain.AuditEvent{
 					ID:        "ev-" + itoaBench(i),
 					ProjectID: "proj-1",
@@ -69,7 +69,7 @@ func TestStreamAuditNDJSON_EmitsCapMarker(t *testing.T) {
 
 	ms := &APIStoreMock{
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				ev := &domain.AuditEvent{
 					ID:     "ev-" + itoaBench(i),
 					Action: domain.AuditActionJobCreated,

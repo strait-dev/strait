@@ -76,7 +76,7 @@ func BenchmarkEmitAuditEventAsync_EmptyDetails(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-1", nil)
 	}
 }
@@ -108,7 +108,7 @@ func BenchmarkEmitAuditEventAsync_SmallDetails(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-1", details)
 	}
 }
@@ -139,7 +139,7 @@ func BenchmarkEmitAuditEvent_Sync(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		srv.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", "job-1", details)
 	}
 }
@@ -155,8 +155,8 @@ func BenchmarkMarshalAndCapDetails_UnderCap(b *testing.B) {
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _ = srv.marshalAndCapDetails(context.Background(), domain.AuditActionJobCreated, details)
+	for range b.N {
+		_, _ = srv.marshalAndCapDetails(context.Background(), domain.AuditActionJobCreated, details)
 	}
 }
 
@@ -169,8 +169,8 @@ func BenchmarkMarshalAndCapDetails_OverCap(b *testing.B) {
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _ = srv.marshalAndCapDetails(context.Background(), domain.AuditActionJobCreated, big)
+	for range b.N {
+		_, _ = srv.marshalAndCapDetails(context.Background(), domain.AuditActionJobCreated, big)
 	}
 }
 

@@ -199,8 +199,8 @@ func (s *Server) handleCancelWorkflowRun(ctx context.Context, input *CancelWorkf
 	s.publishWorkflowRunHook(ctx, updatedRun, run.Status, domain.WfStatusCanceled, "cancel")
 
 	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunCancelled, "workflow_run", run.ID, map[string]any{
-		"workflow_id":      run.WorkflowID,
-		"previous_status":  string(run.Status),
+		"workflow_id":     run.WorkflowID,
+		"previous_status": string(run.Status),
 	})
 
 	return &CancelWorkflowRunOutput{Body: updatedRun}, nil
@@ -1142,8 +1142,8 @@ func (s *Server) handleBulkCancelWorkflowRuns(ctx context.Context, input *BulkCa
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunBulkCancelled, "workflow_run", "", map[string]any{
-		"count":           len(canceled),
-		"total":           len(req.WorkflowRunIDs),
+		"count":            len(canceled),
+		"total":            len(req.WorkflowRunIDs),
 		"workflow_run_ids": canceled,
 	})
 

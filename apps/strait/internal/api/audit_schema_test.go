@@ -26,7 +26,7 @@ func TestAuditSchemaGeneratedIsFresh(t *testing.T) {
 		t.Skipf("repo root not found: %v", err)
 	}
 
-	cmd := exec.Command("go", "run", "./cmd/gen-audit-schema") //nolint:gosec // fixed args
+	cmd := exec.Command("go", "run", "./cmd/gen-audit-schema")
 	cmd.Dir = repoRoot
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -36,7 +36,7 @@ func TestAuditSchemaGeneratedIsFresh(t *testing.T) {
 	}
 
 	committedPath := filepath.Join(repoRoot, "internal/api/audit_schema_generated.json")
-	committed, err := os.ReadFile(committedPath) //nolint:gosec // test-only fixed path
+	committed, err := os.ReadFile(committedPath)
 	if err != nil {
 		t.Fatalf("read committed schema: %v", err)
 	}

@@ -583,7 +583,7 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 
 	s.emitAuditEventAsync(ctx, domain.AuditActionWorkflowTriggered, "workflow", workflowID, map[string]any{
 		"run_id":       run.ID,
-		"triggered_by": string(triggeredBy),
+		"triggered_by": triggeredBy,
 		"tag_keys":     tagKeys(req.Tags),
 	})
 

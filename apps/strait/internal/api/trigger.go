@@ -518,12 +518,12 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
-		"run_id":                 run.ID,
-		"scheduled_at":            scheduledAt,
-		"priority":                req.Priority,
-		"idempotency_key_hash":    hashIdempotencyKey(idempotencyKey),
-		"tag_keys":                tagKeys(runTags),
-		"triggered_by":            string(run.TriggeredBy),
+		"run_id":               run.ID,
+		"scheduled_at":         scheduledAt,
+		"priority":             req.Priority,
+		"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
+		"tag_keys":             tagKeys(runTags),
+		"triggered_by":         run.TriggeredBy,
 	})
 
 	return &TriggerJobOutput{Body: map[string]any{

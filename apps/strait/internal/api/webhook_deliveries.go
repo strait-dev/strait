@@ -108,7 +108,7 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionWebhookDeliveryRetried, "webhook_delivery", deliveryID, map[string]any{
 		"subscription_id": d.SubscriptionID,
-		"previous_status": string(d.Status),
+		"previous_status": d.Status,
 	})
 	return &RetryWebhookDeliveryOutput{Body: retried}, nil
 }

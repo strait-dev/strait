@@ -18,17 +18,17 @@ package domain
 
 const (
 	// API keys.
-	AuditActionAPIKeyCreated = "api_key.created"
-	AuditActionAPIKeyRevoked = "api_key.revoke"
-	AuditActionAPIKeyRotated = "api_key.rotate"
+	AuditActionAPIKeyCreated  = "api_key.created" //nolint:gosec // audit action name, not a credential
+	AuditActionAPIKeyRevoked  = "api_key.revoke"  //nolint:gosec // audit action name, not a credential
+	AuditActionAPIKeyRotated  = "api_key.rotate"  //nolint:gosec // audit action name, not a credential
 	AuditActionAPIKeyListRead = "api_key.list_read"
 
 	// Audit log self-audit + read access (SOC 2 requires audit of audit reads).
-	AuditActionAuditExported       = "audit.exported"
-	AuditActionAuditExportCapped   = "audit.export_capped"
-	AuditActionAuditListRead       = "audit.list_read"
-	AuditActionAuditSingleRead     = "audit.single_read"
-	AuditActionAuditChainVerified  = "audit.chain_verified"
+	AuditActionAuditExported      = "audit.exported"
+	AuditActionAuditExportCapped  = "audit.export_capped"
+	AuditActionAuditListRead      = "audit.list_read"
+	AuditActionAuditSingleRead    = "audit.single_read"
+	AuditActionAuditChainVerified = "audit.chain_verified"
 
 	// CLI / device code.
 	AuditActionDeviceCodeApproved = "device_code.approved"
@@ -91,19 +91,19 @@ const (
 	AuditActionSecretRead     = "secret.read"
 
 	// SSE token.
-	AuditActionSSETokenCreated = "sse_token.created"
+	AuditActionSSETokenCreated = "sse_token.created" //nolint:gosec // audit action name, not a credential
 
 	// RBAC.
-	AuditActionRoleCreated             = "role.created"
-	AuditActionRoleUpdated             = "role.updated"
-	AuditActionRoleDeleted             = "role.deleted"
-	AuditActionRoleSystemSeeded        = "role.system_seeded"
-	AuditActionPermissionGranted       = "permission.granted"
-	AuditActionPermissionRevoked       = "permission.revoked"
-	AuditActionResourcePolicyCreated   = "resource_policy.created"
-	AuditActionResourcePolicyDeleted   = "resource_policy.deleted"
-	AuditActionTagPolicyCreated        = "tag_policy.created"
-	AuditActionTagPolicyDeleted        = "tag_policy.deleted"
+	AuditActionRoleCreated           = "role.created"
+	AuditActionRoleUpdated           = "role.updated"
+	AuditActionRoleDeleted           = "role.deleted"
+	AuditActionRoleSystemSeeded      = "role.system_seeded"
+	AuditActionPermissionGranted     = "permission.granted"
+	AuditActionPermissionRevoked     = "permission.revoked"
+	AuditActionResourcePolicyCreated = "resource_policy.created"
+	AuditActionResourcePolicyDeleted = "resource_policy.deleted"
+	AuditActionTagPolicyCreated      = "tag_policy.created"
+	AuditActionTagPolicyDeleted      = "tag_policy.deleted"
 
 	// Workflows (lifecycle).
 	AuditActionWorkflowCreated         = "workflow.created"
@@ -139,12 +139,12 @@ const (
 	AuditActionCanaryDeploymentRolledBack = "canary_deployment.rolled_back"
 
 	// Webhooks.
-	AuditActionWebhookTested            = "webhook.tested"
-	AuditActionWebhookDeliveryReplayed  = "webhook.delivery_replayed"
-	AuditActionWebhookDeliveryRetried   = "webhook_delivery.retried"
-	AuditActionWebhookSubscriptionCreated     = "webhook_subscription.created"
-	AuditActionWebhookSubscriptionDeleted     = "webhook_subscription.deleted"
-	AuditActionWebhookSubscriptionRotateSecret = "webhook_subscription.rotate_secret"
+	AuditActionWebhookTested                   = "webhook.tested"
+	AuditActionWebhookDeliveryReplayed         = "webhook.delivery_replayed"
+	AuditActionWebhookDeliveryRetried          = "webhook_delivery.retried"
+	AuditActionWebhookSubscriptionCreated      = "webhook_subscription.created"
+	AuditActionWebhookSubscriptionDeleted      = "webhook_subscription.deleted"
+	AuditActionWebhookSubscriptionRotateSecret = "webhook_subscription.rotate_secret" //nolint:gosec // audit action name, not a credential
 
 	// Log drains.
 	AuditActionLogDrainCreated = "log_drain.created"
@@ -157,21 +157,21 @@ const (
 	AuditActionNotificationChannelDeleted = "notification_channel.deleted"
 
 	// Event sources + subscriptions + triggers.
-	AuditActionEventSourceCreated    = "event_source.created"
-	AuditActionEventSourceUpdated    = "event_source.updated"
-	AuditActionEventSourceDeleted    = "event_source.deleted"
-	AuditActionEventSourceSubscribed = "event_source.subscribed"
-	AuditActionEventSourceDispatched = "event_source.dispatched"
+	AuditActionEventSourceCreated       = "event_source.created"
+	AuditActionEventSourceUpdated       = "event_source.updated"
+	AuditActionEventSourceDeleted       = "event_source.deleted"
+	AuditActionEventSourceSubscribed    = "event_source.subscribed"
+	AuditActionEventSourceDispatched    = "event_source.dispatched"
 	AuditActionEventSubscriptionDeleted = "event_subscription.deleted"
-	AuditActionEventSent              = "event.sent"
-	AuditActionEventSentByPrefix      = "event.sent_by_prefix"
-	AuditActionEventTriggerCancelled  = "event_trigger.cancelled"
-	AuditActionEventTriggerPurged     = "event_trigger.purged"
+	AuditActionEventSent                = "event.sent"
+	AuditActionEventSentByPrefix        = "event.sent_by_prefix"
+	AuditActionEventTriggerCancelled    = "event_trigger.cancelled"
+	AuditActionEventTriggerPurged       = "event_trigger.purged"
 
 	// Deployments.
-	AuditActionCodeDeploymentCreated    = "code_deployment.created"
-	AuditActionCodeDeploymentConfirmed  = "code_deployment.confirmed"
-	AuditActionCodeDeploymentRolledBack = "code_deployment.rolled_back"
+	AuditActionCodeDeploymentCreated       = "code_deployment.created"
+	AuditActionCodeDeploymentConfirmed     = "code_deployment.confirmed"
+	AuditActionCodeDeploymentRolledBack    = "code_deployment.rolled_back"
 	AuditActionDeploymentVersionCreated    = "deployment_version.created"
 	AuditActionDeploymentVersionFinalized  = "deployment_version.finalized"
 	AuditActionDeploymentVersionPromoted   = "deployment_version.promoted"
