@@ -52,7 +52,11 @@ const auditMaxDetailsBytes = 16 * 1024
 // sequentially via store.CreateAuditEvent. Sequential drain preserves the
 // HMAC chain ordering even though requests are processed concurrently.
 func (s *Server) startAuditAsyncDrain() {
-	s.auditAsyncCh = make(chan *domain.AuditEvent, auditAsyncBufferSize)
+	bufSize := s.auditAsyncBufferSize
+	if bufSize <= 0 {
+		bufSize = auditAsyncBufferSize
+	}
+	s.auditAsyncCh = make(chan *domain.AuditEvent, bufSize)
 	s.auditAsyncDone = make(chan struct{})
 	go s.drainAuditAsync()
 }
@@ -297,6 +301,22 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 			s.metrics.AuditEventsDropped.Add(ctx, 1,
 				metric.WithAttributes(attribute.String("reason", "stopped")))
 		}
+		return
+	}
+
+	// Backpressure: when buffer >75% full, fall back to sync write instead of
+	// risking a drop. This preserves the event at the cost of a small latency
+	// hit on the request goroutine.
+	if len(ch) > cap(ch)*3/4 {
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "backpressure_sync_fallback")))
+		}
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if syncErr := s.store.CreateAuditEvent(syncCtx, ev); syncErr != nil {
+			slog.Warn("backpressure sync audit write failed", "action", action, "error", syncErr)
+		}
+		syncCancel()
 		return
 	}
 

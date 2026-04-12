@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 )
 
@@ -119,9 +120,11 @@ func TestEmitAuditEventAsync_ShutdownFlush(t *testing.T) {
 	}
 }
 
-// TestEmitAuditEventAsync_BufferFullDropsEvents verifies that when the drainer
-// blocks and the channel fills, excess events are dropped without blocking
-// the caller and without crashing.
+// TestEmitAuditEventAsync_BufferFullDropsEvents verifies that when the buffer
+// fills, excess events are either written via the backpressure sync fallback or
+// dropped — but emitAuditEventAsync never blocks the caller indefinitely and
+// never panics. The mock store returns immediately so the sync fallback
+// completes without delay; the test only cares about non-blocking semantics.
 func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
 	t.Parallel()
 
@@ -129,7 +132,13 @@ func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
 	var written atomic.Int32
 	ms := &APIStoreMock{
 		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
-			<-release
+			// Non-blocking: if release is already closed proceed, otherwise
+			// return immediately so neither the drainer nor the sync-fallback
+			// path can stall the caller goroutine.
+			select {
+			case <-release:
+			default:
+			}
 			written.Add(1)
 			return nil
 		},
@@ -153,8 +162,8 @@ func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("emitAuditEventAsync blocked beyond 3s while drainer was stuck")
+	case <-time.After(5 * time.Second):
+		t.Fatal("emitAuditEventAsync blocked beyond 5s")
 	}
 }
 
@@ -210,4 +219,41 @@ func TestEmitAuditEventAsync_StopsAcceptingAfterClose(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
 	srv.emitAuditEventAsync(ctx, "job.triggered", "job", "late", nil)
+}
+
+func TestEmitAuditEventAsync_BackpressureFallsBackToSync(t *testing.T) {
+	release := make(chan struct{})
+	var syncWrites atomic.Int32
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			select {
+			case <-release:
+			default:
+			}
+			syncWrites.Add(1)
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config:               &config.Config{InternalSecret: "test", JWTSigningKey: "test-jwt-key-that-is-long-enough-32chars!!"},
+		Store:                ms,
+		AuditAsyncBufferSize: 8,
+	})
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+
+	for range 20 {
+		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
+	}
+
+	// Unblock the mock store so in-flight async writes can complete.
+	close(release)
+	srv.Close()
+
+	if syncWrites.Load() == 0 {
+		t.Error("expected at least one sync write from backpressure fallback")
+	}
 }

@@ -569,11 +569,12 @@ type Server struct {
 	// Async audit event drain for hot-path handlers (job trigger, bulk trigger).
 	// A single goroutine reads from auditAsyncCh and writes events sequentially
 	// via store.CreateAuditEvent, preserving HMAC chain ordering.
-	auditAsyncCh       chan *domain.AuditEvent
-	auditAsyncDone     chan struct{}
-	auditAsyncMu       sync.RWMutex
-	auditAsyncStopOnce sync.Once
-	auditAsyncStopped  bool
+	auditAsyncCh         chan *domain.AuditEvent
+	auditAsyncDone       chan struct{}
+	auditAsyncMu         sync.RWMutex
+	auditAsyncStopOnce   sync.Once
+	auditAsyncStopped    bool
+	auditAsyncBufferSize int // 0 means use the package-level constant default
 }
 
 // acquireSSEConn attempts to reserve an SSE connection slot for the given project.
@@ -702,7 +703,8 @@ type ServerDeps struct {
 	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version            string                   // Build version (injected via ldflags).
 	CDCWebhookReceiver http.Handler             // Optional: enables CDC webhook push endpoint.
-	ObjectStore        objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
+	ObjectStore          objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
+	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -771,6 +773,11 @@ func NewServer(deps ServerDeps) *Server {
 		srv.runInTx = func(_ context.Context, fn func(s APIStore) error) error {
 			return fn(srv.store)
 		}
+	}
+
+	srv.auditAsyncBufferSize = deps.AuditAsyncBufferSize
+	if srv.auditAsyncBufferSize < 256 {
+		srv.auditAsyncBufferSize = auditAsyncBufferSize // fallback to constant default
 	}
 
 	srv.router = srv.routes()
