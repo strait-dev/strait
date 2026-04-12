@@ -1,0 +1,103 @@
+---
+title: "DLQ recovery runbook"
+description: "Audited, RBAC-gated HTTP endpoints for recovering dead-lettered runs without manual SQL."
+---
+
+The Strait queue moves a run to `dead_letter` once it has exhausted all
+retry attempts, failed dependency checks that cannot be satisfied, or
+tripped a protective circuit. The admin DLQ endpoints under
+`/v1/admin/dlq` give on-call operators a controlled, audited surface for
+recovery — replacing the manual SQL that previous runbooks required.
+
+## Endpoints
+
+All endpoints live under `/v1/admin/dlq` and require a bearer token or
+internal secret. The caller's effective scopes must include the scope
+listed below; internal-secret callers are fully trusted and bypass the
+scope check.
+
+| Method | Path | Scope | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/v1/admin/dlq` | `dlq:read` | Paginated listing of dead-letter runs for the caller's project. Supports `job_id`, `masked`, `limit`, and `cursor` query parameters. |
+| `POST` | `/v1/admin/dlq/{run_id}/replay` | `dlq:replay` | Re-enqueues a dead-letter run via the existing `ReplayDeadLetterRun` CAS path and records a `replayed_run_id` back-pointer on the original row. |
+| `POST` | `/v1/admin/dlq/{run_id}/unmask` | `dlq:replay` | Clears `visible_until` on a dead-letter row so it is no longer hidden by the DLQ age-out masker. |
+| `POST` | `/v1/admin/dlq/{run_id}/purge` | `dlq:purge` | Hard-deletes a dead-letter run. Irreversible — log context via the audit trail before calling. |
+
+## RBAC
+
+Three new scopes are added to the platform:
+
+- `dlq:read` — granted by default to the `viewer` and `operator` system roles.
+- `dlq:replay` — granted by default to the `operator` system role.
+- `dlq:purge` — NOT granted by default. Assign it explicitly on a role
+  that is tightly audited; the scope escalation check in
+  `handleCreateAPIKey` enforces that only callers holding `dlq:purge`
+  can issue keys that carry it.
+
+The `admin` system role has the wildcard scope and therefore inherits
+all three permissions implicitly.
+
+## Auditing
+
+Every mutation writes a row into `audit_events`:
+
+- `action` = `dlq.replay`, `dlq.unmask`, or `dlq.purge`
+- `resource_type` = `job_run`
+- `resource_id` = the target run id
+- `details.before` / `details.after` capture the pre- and post-mutation
+  state (status, masked flag, replayed pointer, etc.)
+
+Use the standard `/v1/audit-events` endpoint to retrieve the trail. The
+HMAC chain signing applies to DLQ actions just like any other audited
+control-plane operation, so post-hoc tampering is detectable.
+
+## Example: replay a dead-letter run
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  https://api.strait.dev/v1/admin/dlq/01JC4R9D5VJ7KN5WM7N5K2JCE9/replay
+```
+
+Response (abbreviated):
+
+```json
+{
+  "id": "01JC4R9D5VJ7KN5WM7N5K2JCE9",
+  "status": "queued",
+  "attempt": 1
+}
+```
+
+After the call, the row referenced by `id` is back in the queue and its
+`replayed_run_id` column points to the new run's id. The row is no longer
+counted towards the DLQ depth gauge on the next scrape.
+
+## Example: list dead-letter runs for a specific job
+
+```bash
+curl -H "Authorization: Bearer $STRAIT_API_KEY" \
+  "https://api.strait.dev/v1/admin/dlq?job_id=send-welcome-email&limit=50"
+```
+
+## Diagnostic workflow
+
+1. Spot the spike on the `StraitDLQGrowing` alert or the DLQ panel in
+   the Grafana "Queue Internals" row.
+2. Call `GET /v1/admin/dlq` scoped to the affected project and (if
+   known) job to enumerate candidates.
+3. For each candidate, inspect the run's `error`, `error_class`, and
+   last event via the standard run endpoints — understand the cause
+   before replaying. Replaying a poison pill without addressing the
+   root cause produces a tight failure loop.
+4. Fix the upstream bug, deploy the fix, then `POST /replay` for the
+   affected runs. Use `POST /unmask` first if the row has been age-out
+   masked and you want it to appear in dashboards again.
+5. Reserve `POST /purge` for rows that must not be retained for
+   compliance reasons; the action is irreversible.
+
+## Related
+
+- [Retry strategies](../concepts/retry-strategies)
+- [Runs](../concepts/runs)
+- [Monitoring and alerts](./monitoring-and-alerts)

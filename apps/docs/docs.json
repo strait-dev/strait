@@ -31,12 +31,7 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": [
-              "introduction",
-              "quickstart",
-              "architecture",
-              "changelog"
-            ]
+            "pages": ["introduction", "quickstart", "architecture", "changelog"]
           },
           {
             "group": "Core Concepts",
@@ -113,7 +108,8 @@
               "operations/oidc-rollout",
               "operations/rbac-policy-rollout",
               "operations/api-key-rotation-rollout",
-              "operations/incident-response-authz"
+              "operations/incident-response-authz",
+              "operations/dlq-recovery"
             ]
           },
           {
@@ -150,9 +146,7 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": [
-              "api-reference/overview"
-            ]
+            "pages": ["api-reference/overview"]
           },
           {
             "group": "Endpoints",
@@ -165,9 +159,7 @@
         "groups": [
           {
             "group": "CLI Reference",
-            "pages": [
-              "cli/overview"
-            ]
+            "pages": ["cli/overview"]
           }
         ]
       },
@@ -176,10 +168,7 @@
         "groups": [
           {
             "group": "Billing",
-            "pages": [
-              "billing/pricing",
-              "billing/faq"
-            ]
+            "pages": ["billing/pricing", "billing/faq"]
           }
         ]
       }
