@@ -211,10 +211,11 @@ var SystemRolePermissions = map[string][]string{
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeStatsRead, ScopeRBACManage,
 		ScopeProjectsRead, ScopeProjectsWrite,
+		ScopeDLQRead, ScopeDLQReplay,
 	},
 	"viewer": {
 		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,
-		ScopeProjectsRead,
+		ScopeProjectsRead, ScopeDLQRead,
 	},
 	"triggerer": {
 		ScopeJobsRead, ScopeJobsTrigger,
@@ -487,8 +488,12 @@ type JobRun struct {
 	PinnedImageDigest string `json:"pinned_image_digest,omitempty"`
 	// IsRollback is true when this run was created after a RollbackToDeployment
 	// call, meaning the job is using an older deployment rather than the latest build.
-	IsRollback bool      `json:"is_rollback,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	IsRollback bool `json:"is_rollback,omitempty"`
+	// ReplayedRunID is set on a dead-letter run after it has been successfully
+	// replayed via the admin DLQ endpoint; points to the new run that superseded
+	// it. NULL for runs that have not been replayed.
+	ReplayedRunID string    `json:"replayed_run_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type BatchOperation struct {
