@@ -156,6 +156,7 @@ type Metrics struct {
 	AuditReclaimerSuccess   metric.Int64Counter
 	AuditReclaimerFailed    metric.Int64Counter
 	AuditRetentionDeleted   metric.Int64Counter
+	AuditSIEMDropped        metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -851,6 +852,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit events deleted by the retention reaper, labeled by project_id"),
 		metric.WithUnit("1"),
 	)
+	auditSIEMDropped, _ := meter.Int64Counter(
+		"strait.audit.siem_dropped_total",
+		metric.WithDescription("Total audit events dropped from the SIEM forwarding queue, labeled by reason"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:               runTransitions,
@@ -944,6 +950,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditReclaimerSuccess:        auditReclaimerSuccess,
 		AuditReclaimerFailed:         auditReclaimerFailed,
 		AuditRetentionDeleted:        auditRetentionDeleted,
+		AuditSIEMDropped:             auditSIEMDropped,
 	}
 
 	slog.Info("prometheus metrics enabled")

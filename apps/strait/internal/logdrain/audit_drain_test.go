@@ -37,7 +37,7 @@ func TestAuditSIEMDrain_ForwardBatch_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	drain := NewAuditSIEMDrain(srv.URL, "test-token")
+	drain := NewAuditSIEMDrain(srv.URL, "test-token", 0, 0)
 	events := []domain.AuditEvent{
 		{ID: "ev-1", Action: "job.created", ProjectID: "p1"},
 		{ID: "ev-2", Action: "job.deleted", ProjectID: "p1"},
@@ -61,7 +61,7 @@ func TestAuditSIEMDrain_ForwardBatch_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	drain := NewAuditSIEMDrain(srv.URL, "token")
+	drain := NewAuditSIEMDrain(srv.URL, "token", 0, 0)
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{{ID: "ev-1"}})
 	if err == nil {
 		t.Fatal("expected error on 500 response")
@@ -70,7 +70,7 @@ func TestAuditSIEMDrain_ForwardBatch_ServerError(t *testing.T) {
 
 func TestAuditSIEMDrain_ForwardBatch_EmptyBatch(t *testing.T) {
 	t.Parallel()
-	drain := NewAuditSIEMDrain("https://example.com", "token")
+	drain := NewAuditSIEMDrain("https://example.com", "token", 0, 0)
 	if err := drain.ForwardBatch(context.Background(), nil); err != nil {
 		t.Fatalf("empty batch should not error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestAuditSIEMDrain_ForwardBatch_EmptyBatch(t *testing.T) {
 
 func TestNewAuditSIEMDrain_EmptyEndpoint(t *testing.T) {
 	t.Parallel()
-	if drain := NewAuditSIEMDrain("", "token"); drain != nil {
+	if drain := NewAuditSIEMDrain("", "token", 0, 0); drain != nil {
 		t.Error("expected nil drain for empty endpoint")
 	}
 }
@@ -93,7 +93,7 @@ func TestAuditSIEMDrain_ForwardBatch_NoAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	drain := NewAuditSIEMDrain(srv.URL, "")
+	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
 	if err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{{ID: "ev-1"}}); err != nil {
 		t.Fatalf("ForwardBatch: %v", err)
 	}

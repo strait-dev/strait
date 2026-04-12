@@ -109,6 +109,9 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 				s.metrics.AuditEventsEmitted.Add(context.Background(), 1,
 					metric.WithAttributes(attribute.String("mode", "async")))
 			}
+			if s.siemDrain != nil {
+				s.siemDrain.Enqueue(*ev)
+			}
 			return
 		}
 		lastErr = err

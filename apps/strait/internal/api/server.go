@@ -21,6 +21,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/httputil"
+	"strait/internal/logdrain"
 	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
@@ -575,6 +576,11 @@ type Server struct {
 	auditAsyncStopOnce   sync.Once
 	auditAsyncStopped    bool
 	auditAsyncBufferSize int // 0 means use the package-level constant default
+
+	// Optional SIEM forwarder. When non-nil, every successfully persisted
+	// audit event is also enqueued for async batched forwarding to the
+	// configured external SIEM endpoint.
+	siemDrain *logdrain.AuditSIEMDrain
 }
 
 // acquireSSEConn attempts to reserve an SSE connection slot for the given project.
@@ -705,6 +711,7 @@ type ServerDeps struct {
 	CDCWebhookReceiver   http.Handler             // Optional: enables CDC webhook push endpoint.
 	ObjectStore          objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
 	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
+	SIEMDrain            *logdrain.AuditSIEMDrain // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -759,6 +766,10 @@ func NewServer(deps ServerDeps) *Server {
 		startedAt:          time.Now(),
 		cdcWebhookReceiver: deps.CDCWebhookReceiver,
 		objectStore:        deps.ObjectStore,
+		siemDrain:          deps.SIEMDrain,
+	}
+	if srv.siemDrain != nil && deps.Metrics != nil {
+		srv.siemDrain.SetDroppedCounter(deps.Metrics.AuditSIEMDropped)
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
@@ -782,6 +793,9 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv.router = srv.routes()
 	srv.startAuditAsyncDrain()
+	if srv.siemDrain != nil {
+		srv.siemDrain.Start(context.Background())
+	}
 	return srv
 }
 
@@ -815,6 +829,11 @@ func (s *Server) Close() {
 		s.bgPool.StopAndWait()
 	}
 	s.stopAuditAsyncDrain()
+	if s.siemDrain != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s.siemDrain.Stop(ctx)
+		cancel()
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
