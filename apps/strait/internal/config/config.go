@@ -48,6 +48,7 @@ type Config struct {
 	AuditSIEMAuthToken        string        `env:"AUDIT_SIEM_AUTH_TOKEN"`
 	AuditSIEMBatchSize        int           `env:"AUDIT_SIEM_BATCH_SIZE" default:"100"`
 	AuditSIEMFlushInterval    time.Duration `env:"AUDIT_SIEM_FLUSH_INTERVAL" default:"10s"`
+	AuditDLQReclaimBatch      int           `env:"AUDIT_DLQ_RECLAIM_BATCH" default:"200"`
 
 	// Database connection pool tuning
 	DBMaxConns          int32         `env:"DB_MAX_CONNS" default:"50"`
@@ -461,6 +462,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.AuditAsyncBufferSize < 256 {
 		return nil, &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
+	}
+	if cfg.AuditDLQReclaimBatch <= 0 {
+		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_RECLAIM_BATCH", Message: "must be > 0"}
 	}
 	if cfg.AuditSIEMEndpoint != "" && cfg.AuditSIEMAuthToken == "" {
 		return nil, &domain.ConfigError{Field: "AUDIT_SIEM_AUTH_TOKEN", Message: "is required when AUDIT_SIEM_ENDPOINT is set"}

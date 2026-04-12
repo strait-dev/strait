@@ -153,6 +153,8 @@ type Metrics struct {
 	AuditEventsDropped      metric.Int64Counter
 	AuditEventsTruncated    metric.Int64Counter
 	AuditEventsDeadlettered metric.Int64Counter
+	AuditReclaimerSuccess   metric.Int64Counter
+	AuditReclaimerFailed    metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -833,6 +835,16 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit events spilled to the deadletter table after retry exhaustion"),
 		metric.WithUnit("1"),
 	)
+	auditReclaimerSuccess, _ := meter.Int64Counter(
+		"strait.audit.reclaimer_success_total",
+		metric.WithDescription("Total audit deadletter events successfully reclaimed into the primary chain"),
+		metric.WithUnit("1"),
+	)
+	auditReclaimerFailed, _ := meter.Int64Counter(
+		"strait.audit.reclaimer_failed_total",
+		metric.WithDescription("Total audit deadletter reclaim attempts that failed, labeled by reason"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:               runTransitions,
@@ -923,6 +935,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditEventsDropped:           auditEventsDropped,
 		AuditEventsTruncated:         auditEventsTruncated,
 		AuditEventsDeadlettered:      auditEventsDeadlettered,
+		AuditReclaimerSuccess:        auditReclaimerSuccess,
+		AuditReclaimerFailed:         auditReclaimerFailed,
 	}
 
 	slog.Info("prometheus metrics enabled")

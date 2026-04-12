@@ -164,6 +164,7 @@ type Reaper struct {
 	reminderSent              map[string]time.Time
 	orgRetention              OrgRetentionResolver
 	auditRetentionDefaultDays int
+	auditDLQReclaimBatch      int
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {

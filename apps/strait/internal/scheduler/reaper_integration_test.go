@@ -92,6 +92,18 @@ func (baseReaperStore) ListReceivedEventTriggersWithStaleSteps(_ context.Context
 func (baseReaperStore) DeleteEventTriggersFinishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+func (baseReaperStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	return nil, nil, nil
+}
+func (baseReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+func (baseReaperStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // 1. monitorQueueDepth
