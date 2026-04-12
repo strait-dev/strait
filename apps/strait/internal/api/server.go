@@ -142,6 +142,9 @@ type RunStore interface {
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	UnmaskDLQRun(ctx context.Context, runID string) error
+	PurgeDLQRun(ctx context.Context, runID string) error
+	MarkRunReplayed(ctx context.Context, originalRunID, replayedByRunID string) error
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	UpdateHeartbeat(ctx context.Context, id string) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
