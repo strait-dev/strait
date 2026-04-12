@@ -117,6 +117,7 @@
             "pages": [
               "development/contributing",
               "development/testing",
+              "development/benchmarking",
               "development/database-schema",
               "development/technology-choices",
               "migrations"
