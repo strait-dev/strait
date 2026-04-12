@@ -124,11 +124,64 @@ func (b *Backpressure) TryConsume(ctx context.Context, projectID string) error {
 	// available is the pre-decrement balance. If it was zero the bucket
 	// was empty and this consume did not succeed.
 	if available <= 0 {
-		_ = tokens
-		_ = maxTokens
 		retryAfter := time.Second
 		if refill > 0 {
 			retryAfter = time.Duration(float64(time.Second) / float64(refill))
+		}
+		return &ThrottledError{ProjectID: projectID, RetryAfter: retryAfter}
+	}
+	return nil
+}
+
+// TryConsumeN reserves n tokens from the project's bucket. Used by
+// EnqueueBatch so the batch is rejected atomically when the bucket
+// cannot satisfy the full request.
+func (b *Backpressure) TryConsumeN(ctx context.Context, projectID string, n int) error {
+	if b == nil || !b.enabled || projectID == "" || n <= 0 {
+		return nil
+	}
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsumeN")
+	defer span.End()
+
+	const sql = `
+		WITH refilled AS (
+			SELECT
+				$1::text AS project_id,
+				LEAST(
+					COALESCE(rl.max_tokens, $2),
+					COALESCE(rl.tokens, $2) +
+						GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(rl.last_refill_at, NOW()))) * COALESCE(rl.refill_per_sec, $3))::int)
+				) AS available,
+				COALESCE(rl.max_tokens, $2) AS max_tokens,
+				COALESCE(rl.refill_per_sec, $3) AS refill_per_sec
+			FROM (SELECT 1) AS dummy
+			LEFT JOIN project_rate_limits rl ON rl.project_id = $1
+		),
+		upsert AS (
+			INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
+			SELECT project_id,
+				CASE WHEN available >= $4 THEN available - $4 ELSE 0 END,
+				max_tokens, refill_per_sec, NOW(), NOW()
+			FROM refilled
+			ON CONFLICT (project_id) DO UPDATE SET
+				tokens = EXCLUDED.tokens,
+				last_refill_at = NOW(),
+				updated_at = NOW()
+			RETURNING tokens, max_tokens, refill_per_sec
+		)
+		SELECT u.tokens, u.max_tokens, u.refill_per_sec, r.available
+		FROM upsert u, refilled r`
+
+	var tokens, maxTokens, refill, available int
+	err := b.db.QueryRow(ctx, sql, projectID, b.cfg.DefaultMaxTokens, b.cfg.DefaultRefillPerSec, n).
+		Scan(&tokens, &maxTokens, &refill, &available)
+	if err != nil {
+		return fmt.Errorf("backpressure consume N: %w", err)
+	}
+	if available < n {
+		retryAfter := time.Second
+		if refill > 0 {
+			retryAfter = time.Duration(float64(time.Second) * float64(n-available) / float64(refill))
 		}
 		return &ThrottledError{ProjectID: projectID, RetryAfter: retryAfter}
 	}
