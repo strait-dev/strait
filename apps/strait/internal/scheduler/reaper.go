@@ -142,23 +142,23 @@ type OrgRetentionResolver interface {
 }
 
 type Reaper struct {
-	store                 ReaperStore
-	interval              time.Duration
-	staleThreshold        time.Duration
-	workflowRetention     time.Duration
-	eventTriggerRetention time.Duration
-	stalledThreshold      time.Duration
-	deleteBatchLimit      int
-	advisoryLocker        AdvisoryLocker
-	shortRetention        time.Duration
-	longRetention         time.Duration
-	retentionEnabled      bool
-	workflowCallback      WorkflowCallback
-	machineDestroyer      MachineDestroyer
-	chExporter            *clickhouse.Exporter
-	metrics               *telemetry.Metrics
-	logger                *slog.Logger
-	stalledAction         string
+	store                     ReaperStore
+	interval                  time.Duration
+	staleThreshold            time.Duration
+	workflowRetention         time.Duration
+	eventTriggerRetention     time.Duration
+	stalledThreshold          time.Duration
+	deleteBatchLimit          int
+	advisoryLocker            AdvisoryLocker
+	shortRetention            time.Duration
+	longRetention             time.Duration
+	retentionEnabled          bool
+	workflowCallback          WorkflowCallback
+	machineDestroyer          MachineDestroyer
+	chExporter                *clickhouse.Exporter
+	metrics                   *telemetry.Metrics
+	logger                    *slog.Logger
+	stalledAction             string
 	dlqAlertCooldown          map[string]time.Time
 	queueAlertCooldown        map[string]time.Time
 	reminderSent              map[string]time.Time

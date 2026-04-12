@@ -679,30 +679,30 @@ type UsageService interface {
 
 // ServerDeps holds all dependencies required to construct a Server.
 type ServerDeps struct {
-	Config             *config.Config
-	Store              APIStore
-	AnalyticsStore     AnalyticsStore // Optional: ClickHouse-backed analytics queries.
-	Queue              queue.Queue
-	PubSub             pubsub.Publisher
-	MetricsHandler     http.Handler
-	Pinger             Pinger
-	HealthRegistry     *health.Registry
-	WorkflowCallback   WorkflowCallback
-	WorkflowEngine     WorkflowTrigger
-	Metrics            *telemetry.Metrics
-	TxPool             store.TxBeginner // Optional: enables transactional event trigger sends.
-	ActorSyncer        ActorSyncer
-	PoolStatter        PoolStatter              // Optional: enables DB pool backpressure middleware.
-	RedisClient        *redis.Client            // Optional: enables per-project/key rate limiting.
-	Encryptor          Encryptor                // Optional: enables event source signature encryption.
-	ContainerRuntime   compute.ContainerRuntime // Optional: enables managed container stop on cancel.
-	StripeWebhook      http.Handler             // Optional: Stripe billing webhook handler.
-	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
-	UsageService       UsageService             // Optional: enables usage endpoint.
-	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
-	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
-	Version            string                   // Build version (injected via ldflags).
-	CDCWebhookReceiver http.Handler             // Optional: enables CDC webhook push endpoint.
+	Config               *config.Config
+	Store                APIStore
+	AnalyticsStore       AnalyticsStore // Optional: ClickHouse-backed analytics queries.
+	Queue                queue.Queue
+	PubSub               pubsub.Publisher
+	MetricsHandler       http.Handler
+	Pinger               Pinger
+	HealthRegistry       *health.Registry
+	WorkflowCallback     WorkflowCallback
+	WorkflowEngine       WorkflowTrigger
+	Metrics              *telemetry.Metrics
+	TxPool               store.TxBeginner // Optional: enables transactional event trigger sends.
+	ActorSyncer          ActorSyncer
+	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
+	RedisClient          *redis.Client            // Optional: enables per-project/key rate limiting.
+	Encryptor            Encryptor                // Optional: enables event source signature encryption.
+	ContainerRuntime     compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
+	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
+	UsageService         UsageService             // Optional: enables usage endpoint.
+	CHExporter           *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
+	Edition              domain.Edition           // Edition controls feature gating (community vs cloud).
+	Version              string                   // Build version (injected via ldflags).
+	CDCWebhookReceiver   http.Handler             // Optional: enables CDC webhook push endpoint.
 	ObjectStore          objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
 	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
 }

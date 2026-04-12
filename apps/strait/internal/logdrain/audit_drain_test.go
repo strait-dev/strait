@@ -27,7 +27,7 @@ func TestAuditSIEMDrain_ForwardBatch_Success(t *testing.T) {
 			t.Errorf("wrong user agent: %s", r.Header.Get("User-Agent"))
 		}
 		body, _ := io.ReadAll(r.Body)
-		for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(string(body)), "\n") {
 			var ev domain.AuditEvent
 			if err := json.Unmarshal([]byte(line), &ev); err == nil {
 				received = append(received, ev)
