@@ -313,6 +313,20 @@ func (m *mockReaperStore) CancelJobRunsByWorkflowRun(ctx context.Context, workfl
 	return 0, nil
 }
 
+// Audit reaper interface stubs for mockReaperStore.
+func (m *mockReaperStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	return nil, nil, nil
+}
+func (m *mockReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+func (m *mockReaperStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
+	return nil
+}
+
 // mockMachineDestroyer implements MachineDestroyer for testing.
 type mockMachineDestroyer struct {
 	stopFn    func(ctx context.Context, machineID string) error
