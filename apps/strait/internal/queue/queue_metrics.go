@@ -40,6 +40,7 @@ type QueueMetrics struct {
 
 	// Phase 2 reliability instruments.
 	EventChannelSaturationRatio metric.Float64Gauge
+	SchedulerShutdownTimeouts   metric.Int64Counter
 }
 
 var (
@@ -222,6 +223,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dlq oldest unmasked age gauge: %w", err)
 	}
+	schedulerShutdownTimeouts, err := meter.Int64Counter(
+		"strait.scheduler.shutdown_timeouts_total",
+		metric.WithDescription("Scheduler background components that exceeded the configured shutdown deadline"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scheduler shutdown timeouts counter: %w", err)
+	}
 	eventChannelSaturation, err := meter.Float64Gauge(
 		"strait.worker.event_channel_saturation_ratio",
 		metric.WithDescription("Fraction of the executor event channel buffer in use (0.0-1.0)"),
@@ -252,6 +261,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		RetryAttempts:               retryAttempts,
 		DLQOldestUnmaskedAge:        dlqOldestAge,
 		EventChannelSaturationRatio: eventChannelSaturation,
+		SchedulerShutdownTimeouts:   schedulerShutdownTimeouts,
 	}, nil
 }
 

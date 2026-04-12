@@ -106,6 +106,12 @@ type Config struct {
 	// for tolerance of bursty subscriber latency before events start dropping.
 	WorkerEventChannelSize int `env:"WORKER_EVENT_CHANNEL_SIZE" default:"1024"`
 
+	// SchedulerComponentShutdownTimeout bounds how long Scheduler.Stop will wait
+	// for any single background component to exit before emitting a warning and
+	// moving on. A stuck component past this deadline increments
+	// strait.scheduler.shutdown_timeouts_total and is reported in logs.
+	SchedulerComponentShutdownTimeout time.Duration `env:"SCHEDULER_COMPONENT_SHUTDOWN_TIMEOUT" default:"15s"`
+
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 

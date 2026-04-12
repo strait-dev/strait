@@ -57,6 +57,8 @@ type Scheduler struct {
 	outboxFlusher            *OutboxFlusher
 	planDriftMonitor         *PlanDriftMonitor
 	wg                       conc.WaitGroup
+	tracker                  componentTracker
+	componentShutdownTimeout time.Duration
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -78,7 +80,8 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		statsAggregator:       NewStatsAggregator(s),
 		budgetMonitor:         NewBudgetMonitor(s, nil, 5*time.Minute),
 		costEstimateRefresher: NewCostEstimateRefresher(s, time.Hour),
-		memoryCleanup:         NewMemoryCleanup(s, 5*time.Minute),
+		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
+		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -248,59 +251,59 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
-	safeGo(&s.wg, "poller", func() { s.poller.Run(ctx) })
-	safeGo(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
-	safeGo(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
-	safeGo(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
-	safeGo(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
-	safeGo(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
-	safeGo(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
-	safeGo(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
-	safeGo(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
+	s.tracker.track(&s.wg, "poller", func() { s.poller.Run(ctx) })
+	s.tracker.track(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
+	s.tracker.track(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
+	s.tracker.track(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
+	s.tracker.track(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
+	s.tracker.track(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
+	s.tracker.track(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
+	s.tracker.track(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
+	s.tracker.track(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
 	if s.usageFlusher != nil {
-		safeGo(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
+		s.tracker.track(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
 	}
 	if s.concurrentReconciler != nil {
-		safeGo(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
+		s.tracker.track(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
 	}
 	if s.downgradeApplier != nil {
-		safeGo(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
+		s.tracker.track(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
 	}
 	if s.anomalyMonitor != nil {
-		safeGo(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
+		s.tracker.track(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
 	}
 	if s.gracePeriodEnforcer != nil {
-		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+		s.tracker.track(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
 	}
 	if s.staleSubscriptionChecker != nil {
-		safeGo(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
+		s.tracker.track(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
 	}
 	if s.webhookMessageCleanup != nil {
-		safeGo(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
+		s.tracker.track(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
 	}
 	if s.contractExpiryChecker != nil {
-		safeGo(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+		s.tracker.track(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
 	}
 	if s.priorityPromoter != nil {
-		safeGo(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
+		s.tracker.track(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
 	}
 	if s.counterReconciler != nil {
-		safeGo(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
+		s.tracker.track(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
 	}
 	if s.partitionEnsurer != nil {
-		safeGo(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
+		s.tracker.track(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
 	}
 	if s.partitionTuner != nil {
-		safeGo(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
+		s.tracker.track(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
 	}
 	if s.dlqAgeOut != nil {
-		safeGo(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
+		s.tracker.track(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
 	}
 	if s.outboxFlusher != nil {
-		safeGo(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
+		s.tracker.track(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
 	}
 	if s.planDriftMonitor != nil {
-		safeGo(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
+		s.tracker.track(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")
@@ -310,6 +313,19 @@ func (s *Scheduler) Start(ctx context.Context) error {
 func (s *Scheduler) Stop() {
 	stopCtx := s.cron.Stop()
 	<-stopCtx.Done()
+
+	timeout := s.componentShutdownTimeout
+	if timeout <= 0 {
+		timeout = defaultComponentShutdownTimeout
+	}
+
+	// Wait per-component with a bounded deadline so a single stuck goroutine
+	// can no longer pin the entire shutdown path. Components past the
+	// deadline are logged and counted on strait.scheduler.shutdown_timeouts_total;
+	// we then wait for the remainder via the aggregate WaitGroup so any
+	// still-live goroutines that return cleanly after we've moved on do not
+	// leak panics.
+	timedOut := s.tracker.waitWithTimeout(context.Background(), timeout)
 	s.wg.Wait()
-	slog.Info("scheduler stopped")
+	slog.Info("scheduler stopped", "timed_out_components", timedOut)
 }
