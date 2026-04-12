@@ -23,14 +23,28 @@ import (
 
 const maxExportWindow = 90 * 24 * time.Hour
 
-// maxExportRows caps the number of rows streamed in a single export to
-// prevent a compromised key from exfiltrating the entire audit log in
-// one request. If the stream hits this cap, the JSON/CSV/NDJSON writer
-// emits a trailing {"_capped": true, "exported": N} marker and
-// terminates cleanly. The caller can paginate with from/to.
+// defaultMaxExportRows is the fallback row cap used when neither a
+// per-project override (project_quotas.audit_export_row_cap) nor a
+// server default (config.AuditExportRowCapDefault) is configured. If
+// the stream hits the effective cap, the JSON/CSV/NDJSON writer emits
+// a trailing {"_capped": true, "exported": N} marker and terminates
+// cleanly. The caller can paginate with from/to.
 //
 // Exposed as a package variable so tests can shrink it.
-var maxExportRows = 1_000_000
+var defaultMaxExportRows int64 = 1_000_000
+
+// resolveExportRowCap returns the row cap to apply to this export. The
+// precedence is per-project override > configured default > package
+// default. 0 at any level means "fall through to the next tier".
+func (s *Server) resolveExportRowCap(ctx context.Context, projectID string) int64 {
+	if cap, err := s.store.GetAuditExportRowCap(ctx, projectID); err == nil && cap > 0 {
+		return cap
+	}
+	if s.config != nil && s.config.AuditExportRowCapDefault > 0 {
+		return s.config.AuditExportRowCapDefault
+	}
+	return defaultMaxExportRows
+}
 
 // maxExportsPerProjectPerHour caps how many exports a single project
 // can issue per hour. This is a DoS + data-leak rate limit — a
@@ -144,15 +158,17 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	flusher, canFlush := w.(http.Flusher)
 
+	rowCap := s.resolveExportRowCap(ctx, projectID)
+
 	var exported int
 	var capped bool
 	switch format {
 	case "csv":
-		exported, capped, err = s.streamAuditCSV(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		exported, capped, err = s.streamAuditCSV(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
 	case "ndjson":
-		exported, capped, err = s.streamAuditNDJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		exported, capped, err = s.streamAuditNDJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
 	default:
-		exported, capped, err = s.streamAuditJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to)
+		exported, capped, err = s.streamAuditJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
 	}
 
 	if err != nil {
@@ -179,7 +195,7 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	if capped {
 		s.emitAuditEvent(ctx, domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
 			"exported": exported,
-			"cap":      maxExportRows,
+			"cap":      rowCap,
 		})
 	}
 
@@ -191,7 +207,7 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 // stream once maxExportRows have been written.
 var errExportCapReached = fmt.Errorf("audit export row cap reached")
 
-func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) (int, bool, error) {
+func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {
 	cw := csv.NewWriter(w)
 	header := []string{"id", "project_id", "actor_id", "actor_type", "action", "resource_type", "resource_id", "details", "created_at", "remote_ip", "user_agent", "request_id", "trace_id", "schema_version"}
 	if err := cw.Write(header); err != nil {
@@ -201,7 +217,7 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 	exported := 0
 	capped := false
 	err := s.store.StreamAuditEvents(ctx, projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
-		if exported >= maxExportRows {
+		if int64(exported) >= rowCap {
 			capped = true
 			return errExportCapReached
 		}
@@ -242,13 +258,13 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 	return exported, capped, cw.Error()
 }
 
-func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) (int, bool, error) {
+func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {
 	enc := json.NewEncoder(w)
 	exported := 0
 	capped := false
 
 	err := s.store.StreamAuditEvents(ctx, projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
-		if exported >= maxExportRows {
+		if int64(exported) >= rowCap {
 			capped = true
 			return errExportCapReached
 		}
@@ -270,7 +286,7 @@ func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher htt
 	return exported, capped, nil
 }
 
-func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time) (int, bool, error) {
+func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {
 	if _, err := w.Write([]byte("[")); err != nil {
 		return 0, false, fmt.Errorf("write json open bracket: %w", err)
 	}
@@ -279,7 +295,7 @@ func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.
 	exported := 0
 	capped := false
 	err := s.store.StreamAuditEvents(ctx, projectID, actorID, resourceType, from, to, func(ev *domain.AuditEvent) error {
-		if exported >= maxExportRows {
+		if int64(exported) >= rowCap {
 			capped = true
 			return errExportCapReached
 		}

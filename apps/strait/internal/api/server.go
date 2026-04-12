@@ -405,6 +405,8 @@ type RBACStore interface {
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+	GetAuditExportRowCap(ctx context.Context, projectID string) (int64, error)
+	SetAuditExportRowCap(ctx context.Context, projectID string, cap int64) error
 
 	// Data export streaming.
 	StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error

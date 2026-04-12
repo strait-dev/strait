@@ -49,6 +49,7 @@ type Config struct {
 	AuditSIEMBatchSize        int           `env:"AUDIT_SIEM_BATCH_SIZE" default:"100"`
 	AuditSIEMFlushInterval    time.Duration `env:"AUDIT_SIEM_FLUSH_INTERVAL" default:"10s"`
 	AuditDLQReclaimBatch      int           `env:"AUDIT_DLQ_RECLAIM_BATCH" default:"200"`
+	AuditExportRowCapDefault  int64         `env:"AUDIT_EXPORT_ROW_CAP_DEFAULT" default:"1000000"`
 
 	// Database connection pool tuning
 	DBMaxConns          int32         `env:"DB_MAX_CONNS" default:"50"`

@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -48,4 +50,54 @@ func (q *Queries) ListAuditRetentionOverrides(ctx context.Context) ([]AuditReten
 		return nil, fmt.Errorf("iterate audit retention overrides: %w", err)
 	}
 	return out, nil
+}
+
+// GetAuditExportRowCap returns the per-project override for the maximum
+// number of rows a single audit export may stream. A return value of 0
+// means "no override" — the caller must fall back to the server-wide
+// default (config.AuditExportRowCapDefault).
+//
+// Absent rows (projects with no project_quotas entry) yield 0 as well,
+// so a project without any quota row is indistinguishable from a project
+// that explicitly inherits the default.
+func (q *Queries) GetAuditExportRowCap(ctx context.Context, projectID string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditExportRowCap")
+	defer span.End()
+
+	var cap int64
+	err := q.db.QueryRow(ctx, `
+		SELECT audit_export_row_cap
+		FROM project_quotas
+		WHERE project_id = $1
+	`, projectID).Scan(&cap)
+	if err != nil {
+		// No row yet — treat as "inherit default".
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("get audit export row cap: %w", err)
+	}
+	return cap, nil
+}
+
+// SetAuditExportRowCap persists a per-project override for the audit
+// export row cap. 0 means "inherit the server default". Negative values
+// are rejected by the API handler before this is called — the store
+// enforces no extra validation.
+//
+// Upserts into project_quotas so a project without any prior quota row
+// still gets its cap recorded. Every other column keeps its default.
+func (q *Queries) SetAuditExportRowCap(ctx context.Context, projectID string, cap int64) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetAuditExportRowCap")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO project_quotas (project_id, audit_export_row_cap)
+		VALUES ($1, $2)
+		ON CONFLICT (project_id) DO UPDATE SET audit_export_row_cap = EXCLUDED.audit_export_row_cap
+	`, projectID, cap)
+	if err != nil {
+		return fmt.Errorf("set audit export row cap: %w", err)
+	}
+	return nil
 }

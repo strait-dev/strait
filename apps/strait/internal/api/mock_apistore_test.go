@@ -331,6 +331,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetAuditEventDeadletterFunc: func(ctx context.Context, id string, projectID string) (*domain.AuditEvent, error) {
 //				panic("mock out the GetAuditEventDeadletter method")
 //			},
+//			GetAuditExportRowCapFunc: func(ctx context.Context, projectID string) (int64, error) {
+//				panic("mock out the GetAuditExportRowCap method")
+//			},
 //			GetBatchOperationFunc: func(ctx context.Context, batchID string, projectID string) (*domain.BatchOperation, error) {
 //				panic("mock out the GetBatchOperation method")
 //			},
@@ -735,6 +738,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			SetActiveDeploymentFunc: func(ctx context.Context, jobID string, deploymentID string, projectID string) error {
 //				panic("mock out the SetActiveDeployment method")
+//			},
+//			SetAuditExportRowCapFunc: func(ctx context.Context, projectID string, cap int64) error {
+//				panic("mock out the SetAuditExportRowCap method")
 //			},
 //			SetEventTriggerSentByFunc: func(ctx context.Context, id string, sentBy string) error {
 //				panic("mock out the SetEventTriggerSentBy method")
@@ -1172,6 +1178,9 @@ type APIStoreMock struct {
 	// GetAuditEventDeadletterFunc mocks the GetAuditEventDeadletter method.
 	GetAuditEventDeadletterFunc func(ctx context.Context, id string, projectID string) (*domain.AuditEvent, error)
 
+	// GetAuditExportRowCapFunc mocks the GetAuditExportRowCap method.
+	GetAuditExportRowCapFunc func(ctx context.Context, projectID string) (int64, error)
+
 	// GetBatchOperationFunc mocks the GetBatchOperation method.
 	GetBatchOperationFunc func(ctx context.Context, batchID string, projectID string) (*domain.BatchOperation, error)
 
@@ -1576,6 +1585,9 @@ type APIStoreMock struct {
 
 	// SetActiveDeploymentFunc mocks the SetActiveDeployment method.
 	SetActiveDeploymentFunc func(ctx context.Context, jobID string, deploymentID string, projectID string) error
+
+	// SetAuditExportRowCapFunc mocks the SetAuditExportRowCap method.
+	SetAuditExportRowCapFunc func(ctx context.Context, projectID string, cap int64) error
 
 	// SetEventTriggerSentByFunc mocks the SetEventTriggerSentBy method.
 	SetEventTriggerSentByFunc func(ctx context.Context, id string, sentBy string) error
@@ -2521,6 +2533,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
+		// GetAuditExportRowCap holds details about calls to the GetAuditExportRowCap method.
+		GetAuditExportRowCap []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
@@ -3841,6 +3860,15 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// SetAuditExportRowCap holds details about calls to the SetAuditExportRowCap method.
+		SetAuditExportRowCap []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Cap is the cap argument value.
+			Cap int64
+		}
 		// SetEventTriggerSentBy holds details about calls to the SetEventTriggerSentBy method.
 		SetEventTriggerSentBy []struct {
 			// Ctx is the ctx argument value.
@@ -4313,6 +4341,7 @@ type APIStoreMock struct {
 	lockGetActiveCanaryDeployment          sync.RWMutex
 	lockGetApprovalStats                   sync.RWMutex
 	lockGetAuditEventDeadletter            sync.RWMutex
+	lockGetAuditExportRowCap               sync.RWMutex
 	lockGetBatchOperation                  sync.RWMutex
 	lockGetCodeDeployment                  sync.RWMutex
 	lockGetComputeCostAnalytics            sync.RWMutex
@@ -4448,6 +4477,7 @@ type APIStoreMock struct {
 	lockRotateWebhookSecret                sync.RWMutex
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetActiveDeployment                sync.RWMutex
+	lockSetAuditExportRowCap               sync.RWMutex
 	lockSetEventTriggerSentBy              sync.RWMutex
 	lockStreamAuditEvents                  sync.RWMutex
 	lockStreamJobs                         sync.RWMutex
@@ -8758,6 +8788,46 @@ func (mock *APIStoreMock) GetAuditEventDeadletterCalls() []struct {
 	mock.lockGetAuditEventDeadletter.RLock()
 	calls = mock.calls.GetAuditEventDeadletter
 	mock.lockGetAuditEventDeadletter.RUnlock()
+	return calls
+}
+
+// GetAuditExportRowCap calls GetAuditExportRowCapFunc.
+func (mock *APIStoreMock) GetAuditExportRowCap(ctx context.Context, projectID string) (int64, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockGetAuditExportRowCap.Lock()
+	mock.calls.GetAuditExportRowCap = append(mock.calls.GetAuditExportRowCap, callInfo)
+	mock.lockGetAuditExportRowCap.Unlock()
+	if mock.GetAuditExportRowCapFunc == nil {
+		var (
+			nOut   int64
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.GetAuditExportRowCapFunc(ctx, projectID)
+}
+
+// GetAuditExportRowCapCalls gets all the calls that were made to GetAuditExportRowCap.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetAuditExportRowCapCalls())
+func (mock *APIStoreMock) GetAuditExportRowCapCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+	}
+	mock.lockGetAuditExportRowCap.RLock()
+	calls = mock.calls.GetAuditExportRowCap
+	mock.lockGetAuditExportRowCap.RUnlock()
 	return calls
 }
 
@@ -14890,6 +14960,49 @@ func (mock *APIStoreMock) SetActiveDeploymentCalls() []struct {
 	mock.lockSetActiveDeployment.RLock()
 	calls = mock.calls.SetActiveDeployment
 	mock.lockSetActiveDeployment.RUnlock()
+	return calls
+}
+
+// SetAuditExportRowCap calls SetAuditExportRowCapFunc.
+func (mock *APIStoreMock) SetAuditExportRowCap(ctx context.Context, projectID string, cap int64) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Cap       int64
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Cap:       cap,
+	}
+	mock.lockSetAuditExportRowCap.Lock()
+	mock.calls.SetAuditExportRowCap = append(mock.calls.SetAuditExportRowCap, callInfo)
+	mock.lockSetAuditExportRowCap.Unlock()
+	if mock.SetAuditExportRowCapFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.SetAuditExportRowCapFunc(ctx, projectID, cap)
+}
+
+// SetAuditExportRowCapCalls gets all the calls that were made to SetAuditExportRowCap.
+// Check the length with:
+//
+//	len(mockedAPIStore.SetAuditExportRowCapCalls())
+func (mock *APIStoreMock) SetAuditExportRowCapCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Cap       int64
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Cap       int64
+	}
+	mock.lockSetAuditExportRowCap.RLock()
+	calls = mock.calls.SetAuditExportRowCap
+	mock.lockSetAuditExportRowCap.RUnlock()
 	return calls
 }
 

@@ -1124,6 +1124,13 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleDropDeadletter)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-audit-export-cap", Method: http.MethodPut, Path: "/v1/projects/{id}/quotas/audit-export-cap",
+		Summary:     "Update audit export row cap",
+		Description: "Sets the per-project row cap applied to audit export streams. 0 re-inherits the server default. Admin-only, audited.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleUpdateAuditExportCap)
+
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-resource-policy", Method: http.MethodPost, Path: "/v1/resource-policies",

@@ -209,6 +209,33 @@
         "bearer"
       ]
     },
+    "audit.export_cap_updated": {
+      "type": "object",
+      "description": "Admin operator updated the per-project audit export row cap. old_cap and new_cap are BIGINT values; 0 denotes inherit-from-default.",
+      "properties": {
+        "new_cap": {
+          "type": "string",
+          "description": "required"
+        },
+        "old_cap": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["old_cap", "new_cap"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "audit.export_capped": {
       "type": "object",
       "description": "Audit export terminated early due to row cap.",

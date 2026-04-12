@@ -97,6 +97,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"deadletter_id", "reason"},
 		Description: "Admin operator permanently dropped a deadletter entry, accepting data loss.",
 	},
+	AuditActionExportCapUpdated: {
+		Required:    []string{"old_cap", "new_cap"},
+		Description: "Admin operator updated the per-project audit export row cap. old_cap and new_cap are BIGINT values; 0 denotes inherit-from-default.",
+	},
 
 	// Device code.
 	AuditActionDeviceCodeApproved: {

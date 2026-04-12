@@ -13,9 +13,7 @@ import (
 // TestStreamAuditJSON_EmitsCapMarker verifies that the JSON streaming
 // path stops at maxExportRows and emits a trailing _capped marker.
 func TestStreamAuditJSON_EmitsCapMarker(t *testing.T) {
-	orig := maxExportRows
-	maxExportRows = 5
-	t.Cleanup(func() { maxExportRows = orig })
+	const cap int64 = 5
 
 	ms := &APIStoreMock{
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
@@ -37,7 +35,7 @@ func TestStreamAuditJSON_EmitsCapMarker(t *testing.T) {
 
 	var buf bytes.Buffer
 	exported, capped, err := srv.streamAuditJSON(context.Background(), &buf, nil, false,
-		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now())
+		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now(), cap)
 	if err != nil {
 		t.Fatalf("streamAuditJSON: %v", err)
 	}
@@ -63,9 +61,7 @@ func TestStreamAuditJSON_EmitsCapMarker(t *testing.T) {
 
 // TestStreamAuditNDJSON_EmitsCapMarker same for ndjson path.
 func TestStreamAuditNDJSON_EmitsCapMarker(t *testing.T) {
-	orig := maxExportRows
-	maxExportRows = 3
-	t.Cleanup(func() { maxExportRows = orig })
+	const cap int64 = 3
 
 	ms := &APIStoreMock{
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
@@ -85,7 +81,7 @@ func TestStreamAuditNDJSON_EmitsCapMarker(t *testing.T) {
 
 	var buf bytes.Buffer
 	exported, capped, err := srv.streamAuditNDJSON(context.Background(), &buf, nil, false,
-		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now())
+		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now(), cap)
 	if err != nil {
 		t.Fatalf("streamAuditNDJSON: %v", err)
 	}
