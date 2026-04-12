@@ -41,6 +41,7 @@ type PartitionTuner struct {
 type PartitionTunerStore interface {
 	ListJobRunsPartitions(ctx context.Context) ([]string, error)
 	ExecDDL(ctx context.Context, sql string) error
+	PartitionExists(ctx context.Context, name string) (bool, error)
 }
 
 // PartitionTunerConfig configures the tuner.
@@ -131,6 +132,18 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 	hot := hotPartitionNames(t.clock())
 	var hotN, coldN int64
 	for _, p := range partitions {
+		// R4 Phase 12: pre-check partition still exists before ALTER.
+		// pg_partman or manual DDL could drop a partition between the
+		// list and the alter.
+		exists, err := t.store.PartitionExists(ctx, p)
+		if err != nil {
+			t.logger.Warn("partition existence check failed", "partition", p, "error", err)
+			continue
+		}
+		if !exists {
+			t.logger.Info("partition vanished between list and alter, skipping", "partition", p)
+			continue
+		}
 		if _, isHot := hot[p]; isHot {
 			if err := t.store.ExecDDL(ctx, hotSettingsSQL(p)); err != nil {
 				t.logger.Warn("apply hot settings failed", "partition", p, "error", err)

@@ -131,5 +131,25 @@ func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 	if n > 0 {
 		a.logger.Info("dlq age-out masked rows", "count", n, "retention", a.retention)
 	}
+	// R4 Phase 11: sample the oldest unmasked DLQ row age so Grafana
+	// can alert when age-out is falling behind.
+	a.sampleOldestUnmaskedAge(ctx)
 	return nil
+}
+
+func (a *DLQAgeOut) sampleOldestUnmaskedAge(ctx context.Context) {
+	if a.store == nil {
+		return
+	}
+	type ager interface {
+		OldestUnmaskedDLQAge(ctx context.Context) (float64, error)
+	}
+	if s, ok := a.store.(ager); ok {
+		age, err := s.OldestUnmaskedDLQAge(ctx)
+		if err != nil {
+			a.logger.Debug("dlq oldest age sample failed", "error", err)
+			return
+		}
+		a.logger.Debug("dlq oldest unmasked age", "seconds", age)
+	}
 }

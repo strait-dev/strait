@@ -53,7 +53,7 @@ func (q *Queries) ensureMonthPartition(ctx context.Context, month time.Time) err
 	end := startOfMonth(addMonths(month, 1))
 	name := fmt.Sprintf("job_runs_p%04d_%02d", start.Year(), int(start.Month()))
 
-	exists, err := q.partitionExists(ctx, name)
+	exists, err := q.PartitionExists(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (q *Queries) ensureMonthPartition(ctx context.Context, month time.Time) err
 	if err := q.createPartitionViaPartman(ctx, month); err == nil {
 		// Verify it actually created the partition; pg_partman will
 		// quietly succeed even if the install is stale.
-		exists, err := q.partitionExists(ctx, name)
+		exists, err := q.PartitionExists(ctx, name)
 		if err != nil {
 			return err
 		}
@@ -110,9 +110,9 @@ $$`
 	return nil
 }
 
-// partitionExists returns true when the given partition relation is
+// PartitionExists returns true when the given partition relation is
 // present in pg_class.
-func (q *Queries) partitionExists(ctx context.Context, name string) (bool, error) {
+func (q *Queries) PartitionExists(ctx context.Context, name string) (bool, error) {
 	var present bool
 	err := q.db.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = $1 AND relkind = 'r')`, name,

@@ -13,10 +13,18 @@ type fakeTunerStore struct {
 	ddls       []string
 	listErr    error
 	execErr    error
+	missing    map[string]bool
 }
 
 func (f *fakeTunerStore) ListJobRunsPartitions(_ context.Context) ([]string, error) {
 	return f.partitions, f.listErr
+}
+
+func (f *fakeTunerStore) PartitionExists(_ context.Context, name string) (bool, error) {
+	if f.missing != nil && f.missing[name] {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (f *fakeTunerStore) ExecDDL(_ context.Context, sql string) error {

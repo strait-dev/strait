@@ -77,6 +77,25 @@ func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, l
 	return tag.RowsAffected(), nil
 }
 
+// OldestUnmaskedDLQAge returns the age in seconds of the oldest visible
+// dead_letter row (finished_at). Returns 0 if no visible DLQ rows exist.
+// Used by the R4 Phase 11 gauge so Grafana can alert when age-out falls
+// behind.
+func (q *Queries) OldestUnmaskedDLQAge(ctx context.Context) (float64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.OldestUnmaskedDLQAge")
+	defer span.End()
+	var age float64
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(finished_at))), 0)
+		FROM job_runs
+		WHERE status = 'dead_letter' AND visible_until IS NULL AND finished_at IS NOT NULL
+	`).Scan(&age)
+	if err != nil {
+		return 0, fmt.Errorf("oldest unmasked dlq age: %w", err)
+	}
+	return age, nil
+}
+
 // MaskOldestDLQRow soft-deletes the single oldest dead_letter row for
 // (projectID, jobID). Used by the drop_oldest overflow policy to make room
 // for a new failure without letting the DLQ grow unbounded.
