@@ -101,6 +101,11 @@ type Config struct {
 
 	WorkerDrainTimeout time.Duration `env:"WORKER_DRAIN_TIMEOUT" default:"30s"`
 
+	// WorkerEventChannelSize configures the buffered capacity of the executor's
+	// internal run-lifecycle event channel. Increasing this value trades memory
+	// for tolerance of bursty subscriber latency before events start dropping.
+	WorkerEventChannelSize int `env:"WORKER_EVENT_CHANNEL_SIZE" default:"1024"`
+
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 

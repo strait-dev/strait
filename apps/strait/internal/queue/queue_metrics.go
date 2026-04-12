@@ -37,6 +37,9 @@ type QueueMetrics struct {
 	EventChannelDropped         metric.Int64Counter
 	RetryAttempts               metric.Float64Histogram
 	DLQOldestUnmaskedAge        metric.Float64Gauge
+
+	// Phase 2 reliability instruments.
+	EventChannelSaturationRatio metric.Float64Gauge
 }
 
 var (
@@ -219,7 +222,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dlq oldest unmasked age gauge: %w", err)
 	}
-
+	eventChannelSaturation, err := meter.Float64Gauge(
+		"strait.worker.event_channel_saturation_ratio",
+		metric.WithDescription("Fraction of the executor event channel buffer in use (0.0-1.0)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("event channel saturation gauge: %w", err)
+	}
 	return &QueueMetrics{
 		OldestQueuedAge:   oldestAge,
 		DequeueScanRows:   scanRows,
@@ -241,6 +251,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		EventChannelDropped:         eventChannelDropped,
 		RetryAttempts:               retryAttempts,
 		DLQOldestUnmaskedAge:        dlqOldestAge,
+		EventChannelSaturationRatio: eventChannelSaturation,
 	}, nil
 }
 

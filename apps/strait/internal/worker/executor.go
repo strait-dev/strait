@@ -131,6 +131,9 @@ type Executor struct {
 	claimCursor              *queue.ClaimCursor
 	useDenormalizedDequeue   bool
 	dbCircuit                *queue.DBCircuit
+	eventChannelSize         int
+	saturationWarnMu         sync.Mutex
+	saturationLastWarn       map[string]time.Time
 }
 
 type ConcurrencyLimitProvider interface {
@@ -182,11 +185,19 @@ type ExecutorConfig struct {
 	// DBCircuitConfig configures the R4 Phase 1 circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.
 	DBCircuitConfig queue.DBCircuitConfig
+	// EventChannelSize overrides the default (1024) buffered capacity of the
+	// run-lifecycle event channel. Zero/negative values fall back to the
+	// default. Values below 16 are clamped to 16.
+	EventChannelSize int
 }
 
 const (
 	defaultCircuitFailureThreshold = 5
 	defaultCircuitOpenDuration     = time.Minute
+	defaultEventChannelSize        = 1024
+	minEventChannelSize            = 16
+	eventChannelSaturationRatio    = 0.8
+	eventChannelWarnInterval       = 30 * time.Second
 )
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -267,7 +278,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
 		webhookMaxRetry:          whMaxAttempts,
-		eventCh:                  make(chan runEventEnvelope, 256),
+		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
+		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),
+		saturationLastWarn:       make(map[string]time.Time),
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
@@ -342,13 +355,67 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 
 	select {
 	case e.eventCh <- runEventEnvelope{ctx: ctx, event: event}:
+		e.sampleEventChannelSaturation(ctx, string(event.Type))
 	default:
-		e.logger.Warn("event channel full, dropping event",
-			"type", event.Type,
-			"run_id", event.Run.ID,
-		)
+		if e.shouldLogSaturation(string(event.Type)) {
+			e.logger.Warn("event channel full, dropping event",
+				"type", event.Type,
+				"run_id", event.Run.ID,
+			)
+		}
 		recordEventChannelDrop(ctx, string(event.Type))
 	}
+}
+
+// resolveEventChannelSize applies defaults and a lower bound to the configured
+// event channel capacity.
+func resolveEventChannelSize(configured int) int {
+	if configured <= 0 {
+		return defaultEventChannelSize
+	}
+	if configured < minEventChannelSize {
+		return minEventChannelSize
+	}
+	return configured
+}
+
+// sampleEventChannelSaturation records the current channel fill ratio and emits
+// a rate-limited warning log plus the saturation gauge whenever it exceeds the
+// threshold. Per-kind throttling prevents log floods under sustained pressure.
+func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string) {
+	if e.eventChannelSize <= 0 {
+		return
+	}
+	ratio := float64(len(e.eventCh)) / float64(e.eventChannelSize)
+	qm, err := queue.Metrics()
+	if err == nil && qm != nil && qm.EventChannelSaturationRatio != nil {
+		qm.EventChannelSaturationRatio.Record(ctx, ratio)
+	}
+	if ratio > eventChannelSaturationRatio && e.shouldLogSaturation(kind) {
+		e.logger.Warn("event channel saturated",
+			"kind", kind,
+			"ratio", ratio,
+			"depth", len(e.eventCh),
+			"capacity", e.eventChannelSize,
+		)
+	}
+}
+
+// shouldLogSaturation returns true at most once per eventChannelWarnInterval
+// per event kind, so the warn log survives sustained backpressure without
+// spamming.
+func (e *Executor) shouldLogSaturation(kind string) bool {
+	e.saturationWarnMu.Lock()
+	defer e.saturationWarnMu.Unlock()
+	if e.saturationLastWarn == nil {
+		e.saturationLastWarn = make(map[string]time.Time)
+	}
+	now := time.Now()
+	if last, ok := e.saturationLastWarn[kind]; ok && now.Sub(last) < eventChannelWarnInterval {
+		return false
+	}
+	e.saturationLastWarn[kind] = now
+	return true
 }
 
 // recordEventChannelDrop increments the drop counter labelled by event kind.
