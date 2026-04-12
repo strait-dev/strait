@@ -132,6 +132,83 @@
         "bearer"
       ]
     },
+    "audit.deadletter_dropped": {
+      "type": "object",
+      "description": "Admin operator permanently dropped a deadletter entry, accepting data loss.",
+      "properties": {
+        "deadletter_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "reason": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["deadletter_id", "reason"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.deadletter_read": {
+      "type": "object",
+      "description": "Admin operator listed audit deadletter queue entries. Filter records the serialized query params with any secret-shaped values redacted.",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["filter"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.deadletter_replayed": {
+      "type": "object",
+      "description": "Admin operator manually replayed a deadletter entry into the audit chain; DLQ row deleted on success.",
+      "properties": {
+        "deadletter_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "new_event_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["deadletter_id", "new_event_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "audit.export_capped": {
       "type": "object",
       "description": "Audit export terminated early due to row cap.",

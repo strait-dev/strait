@@ -32,6 +32,9 @@ const (
 	AuditActionAuditChainVerified = "audit.chain_verified"
 	AuditActionKeyRotated         = "audit.key_rotated"
 	AuditActionRetentionTrimmed   = "audit.retention_trimmed"
+	AuditActionDeadletterRead     = "audit.deadletter_read"
+	AuditActionDeadletterReplayed = "audit.deadletter_replayed"
+	AuditActionDeadletterDropped  = "audit.deadletter_dropped"
 
 	// CLI / device code.
 	AuditActionDeviceCodeApproved = "device_code.approved"
@@ -204,6 +207,9 @@ var allAuditActions = map[string]struct{}{
 	AuditActionAuditChainVerified:              {},
 	AuditActionKeyRotated:                      {},
 	AuditActionRetentionTrimmed:                {},
+	AuditActionDeadletterRead:                  {},
+	AuditActionDeadletterReplayed:              {},
+	AuditActionDeadletterDropped:               {},
 	AuditActionDeviceCodeApproved:              {},
 	AuditActionProjectCreated:                  {},
 	AuditActionProjectDeleted:                  {},

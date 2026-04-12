@@ -3,11 +3,14 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -101,6 +104,108 @@ func (q *Queries) ListAuditEventsDeadletter(ctx context.Context, limit int) ([]d
 		dlqIDs = append(dlqIDs, ev.ID)
 	}
 	return events, dlqIDs, rows.Err()
+}
+
+// ListAuditEventsDeadletterByProject returns deadletter events filtered by
+// project_id for admin inspection. Tenant isolation is enforced structurally:
+// the project_id is a required filter, not an optional one.
+//
+// Ordered by queued_at ASC (oldest first). Pagination uses a queued_at cursor
+// encoded as RFC3339Nano; an empty cursor starts from the oldest row.
+func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projectID string, limit int, cursor string) ([]domain.AuditEvent, []string, []string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAuditEventsDeadletterByProject")
+	defer span.End()
+
+	if projectID == "" {
+		return nil, nil, nil, fmt.Errorf("project_id is required")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var rows pgx.Rows
+	var err error
+	if cursor == "" {
+		rows, err = q.db.Query(ctx, `
+			SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+			       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+			       queued_at
+			FROM audit_events_deadletter
+			WHERE project_id = $1
+			ORDER BY queued_at ASC, id ASC
+			LIMIT $2
+		`, projectID, limit)
+	} else {
+		cursorTime, parseErr := time.Parse(time.RFC3339Nano, cursor)
+		if parseErr != nil {
+			return nil, nil, nil, fmt.Errorf("invalid cursor: %w", parseErr)
+		}
+		rows, err = q.db.Query(ctx, `
+			SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+			       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+			       queued_at
+			FROM audit_events_deadletter
+			WHERE project_id = $1 AND queued_at > $2
+			ORDER BY queued_at ASC, id ASC
+			LIMIT $3
+		`, projectID, cursorTime, limit)
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list audit deadletter by project: %w", err)
+	}
+	defer rows.Close()
+
+	var events []domain.AuditEvent
+	var ids []string
+	var cursors []string
+	for rows.Next() {
+		var ev domain.AuditEvent
+		var queuedAt time.Time
+		if scanErr := rows.Scan(
+			&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
+			&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
+			&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion,
+			&queuedAt,
+		); scanErr != nil {
+			return nil, nil, nil, fmt.Errorf("scan audit deadletter row: %w", scanErr)
+		}
+		events = append(events, ev)
+		ids = append(ids, ev.ID)
+		cursors = append(cursors, queuedAt.Format(time.RFC3339Nano))
+	}
+	return events, ids, cursors, rows.Err()
+}
+
+// GetAuditEventDeadletter fetches a single deadletter event by id,
+// constrained to projectID for tenant isolation. Returns ErrNotFound-style
+// nil, nil when the row doesn't exist or belongs to a different project —
+// callers must map nil to a 404 without leaking cross-tenant existence.
+func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID string) (*domain.AuditEvent, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditEventDeadletter")
+	defer span.End()
+
+	if id == "" || projectID == "" {
+		return nil, fmt.Errorf("id and project_id are required")
+	}
+
+	var ev domain.AuditEvent
+	err := q.db.QueryRow(ctx, `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
+		FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2
+	`, id, projectID).Scan(
+		&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
+		&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
+		&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get audit deadletter: %w", err)
+	}
+	return &ev, nil
 }
 
 // DeleteAuditEventDeadletter removes a single row from the deadletter

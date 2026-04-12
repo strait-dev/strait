@@ -85,6 +85,18 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"deleted_count", "trimmed_before", "previous_hash"},
 		Description: "Retention reaper trimmed old audit rows; writes a tombstone anchor row giving positive forensic proof of the trim (count, cutoff, and chain tail at trim time).",
 	},
+	AuditActionDeadletterRead: {
+		Required:    []string{"filter"},
+		Description: "Admin operator listed audit deadletter queue entries. Filter records the serialized query params with any secret-shaped values redacted.",
+	},
+	AuditActionDeadletterReplayed: {
+		Required:    []string{"deadletter_id", "new_event_id"},
+		Description: "Admin operator manually replayed a deadletter entry into the audit chain; DLQ row deleted on success.",
+	},
+	AuditActionDeadletterDropped: {
+		Required:    []string{"deadletter_id", "reason"},
+		Description: "Admin operator permanently dropped a deadletter entry, accepting data loss.",
+	},
 
 	// Device code.
 	AuditActionDeviceCodeApproved: {

@@ -399,6 +399,9 @@ type RBACStore interface {
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	CreateAuditEventDeadletter(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error
 	CountAuditEventsDeadletter(ctx context.Context) (int64, error)
+	ListAuditEventsDeadletterByProject(ctx context.Context, projectID string, limit int, cursor string) ([]domain.AuditEvent, []string, []string, error)
+	GetAuditEventDeadletter(ctx context.Context, id, projectID string) (*domain.AuditEvent, error)
+	DeleteAuditEventDeadletter(ctx context.Context, id string) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)

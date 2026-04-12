@@ -1105,6 +1105,25 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleVerifyAuditChain)
 
+	// -- Audit deadletter (admin) --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-audit-deadletter", Method: http.MethodGet, Path: "/v1/audit/deadletter",
+		Summary: "List audit deadletter entries", Description: "Returns a paginated list of audit events that failed to persist to the chain and are awaiting reclamation. Admin-only.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "replay-audit-deadletter", Method: http.MethodPost, Path: "/v1/audit/deadletter/{id}/replay",
+		Summary: "Replay an audit deadletter entry", Description: "Moves a deadletter entry into the primary audit chain and removes it from the DLQ on success. Admin-only.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleReplayDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "drop-audit-deadletter", Method: http.MethodDelete, Path: "/v1/audit/deadletter/{id}",
+		Summary: "Drop an audit deadletter entry", Description: "Permanently deletes a deadletter entry, accepting data loss. Admin-only. The drop itself is audited.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleDropDeadletter)
+
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-resource-policy", Method: http.MethodPost, Path: "/v1/resource-policies",
