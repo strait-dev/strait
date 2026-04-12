@@ -188,6 +188,9 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
+	// Stable across retries of the same run so subscribers can dedup
+	// replays on a signal that does not change with attempt count.
+	req.Header.Set("X-Strait-Replay-Key", "rk_"+run.ID)
 	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := webhookClient.Do(req)
@@ -253,6 +256,9 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
+	// Stable across retries of the same run so subscribers can dedup
+	// replays on a signal that does not change with attempt count.
+	req.Header.Set("X-Strait-Replay-Key", "rk_"+run.ID)
 	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := client.Do(req)

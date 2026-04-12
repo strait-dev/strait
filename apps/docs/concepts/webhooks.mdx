@@ -48,6 +48,10 @@ To ensure the webhook was sent by Strait, signed deliveries include:
 - `X-Strait-Timestamp`: Unix timestamp used in signature generation
 - `X-Strait-Signature`: `sha256=<signature>`
 - `X-Webhook-Signature`: compatibility header for existing consumers
+- `X-Strait-Delivery-ID`: unique id for this delivery row (event-trigger path)
+- `X-Strait-Attempt`: `current/max` attempt counter for this delivery
+- `X-Strait-Idempotency-Key`: `<delivery_id>:<attempt>` — changes on every retry
+- `X-Strait-Replay-Key`: stable across every retry of the same delivery (derived deterministically from the delivery id). Use this header to dedup replays in your subscriber without tracking per-attempt state.
 
 **Algorithm:** HMAC-SHA256 using `webhook_secret` as key and `{timestamp}.{raw-json-body}` as the signed payload. The timestamp is included in the signed payload to provide replay protection -- receivers should reject deliveries where the timestamp is more than 5 minutes old.
 

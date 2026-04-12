@@ -895,6 +895,121 @@ func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
 	}
 }
 
+func TestReplayKeyFromDeliveryID(t *testing.T) {
+	t.Parallel()
+	if got := replayKeyFromDeliveryID(""); got != "" {
+		t.Fatalf("empty delivery id should yield empty key, got %q", got)
+	}
+	if got := replayKeyFromDeliveryID("whd-42"); got != "rk_whd-42" {
+		t.Fatalf("unexpected replay key: %q", got)
+	}
+}
+
+// TestAttemptDelivery_ReplayKeyStableAcrossRetries asserts that the new
+// X-Strait-Replay-Key header is identical across retries of the same delivery
+// row, unlike X-Strait-Idempotency-Key which intentionally changes per
+// attempt. This gives subscribers a stable dedup key that survives replays.
+func TestAttemptDelivery_ReplayKeyStableAcrossRetries(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var replayKeys []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		replayKeys = append(replayKeys, r.Header.Get("X-Strait-Replay-Key"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-replay-1",
+		RunID:       "run-1",
+		JobID:       "job-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	for _, d := range ms.getDeliveries() {
+		if d.ID == "whd-replay-1" {
+			retryNow := time.Now().Add(-time.Second)
+			d.NextRetryAt = &retryNow
+		}
+	}
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(replayKeys) < 2 {
+		t.Fatalf("expected at least 2 attempts, got %d", len(replayKeys))
+	}
+	want := "rk_whd-replay-1"
+	for i, got := range replayKeys {
+		if got != want {
+			t.Fatalf("attempt %d: X-Strait-Replay-Key=%q, want %q", i, got, want)
+		}
+	}
+}
+
+// TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries asserts that distinct
+// delivery rows produce distinct replay keys (derived from the delivery id).
+func TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	seen := make(map[string]bool)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.Header.Get("X-Strait-Replay-Key")] = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	ids := []string{"whd-a", "whd-b", "whd-c"}
+	for _, id := range ids {
+		d := &domain.WebhookDelivery{
+			ID:          id,
+			RunID:       "run-" + id,
+			JobID:       "job-1",
+			WebhookURL:  ts.URL,
+			Status:      domain.WebhookStatusPending,
+			Attempts:    0,
+			MaxAttempts: 3,
+			NextRetryAt: &now,
+			LastError:   `{"k":"v"}`,
+		}
+		if err := ms.CreateWebhookDelivery(context.Background(), d); err != nil {
+			t.Fatalf("create delivery: %v", err)
+		}
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range ids {
+		if !seen["rk_"+id] {
+			t.Fatalf("expected replay key rk_%s not observed; saw %v", id, seen)
+		}
+	}
+}
+
 func TestAttemptDelivery_IdempotencyKeyHeader(t *testing.T) {
 	t.Parallel()
 

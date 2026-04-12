@@ -764,6 +764,10 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
 	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
+	// X-Strait-Replay-Key is stable across retries of the same physical
+	// delivery row, so subscribers can dedup independently of the attempt
+	// counter-based idempotency key.
+	req.Header.Set("X-Strait-Replay-Key", replayKeyFromDeliveryID(d.ID))
 
 	// Sign the payload with the subscription's HMAC secret.
 	if d.SubscriptionID != "" {
@@ -1004,4 +1008,16 @@ func extractDomain(rawURL string) string {
 		return "unknown"
 	}
 	return u.Host
+}
+
+// replayKeyFromDeliveryID derives a subscriber-visible replay key that is
+// stable across every retry of the same physical delivery row. Subscribers
+// can use it to dedup replays independently of the attempt-counter-based
+// X-Strait-Idempotency-Key header. The key is deterministic in the delivery
+// id by construction, so no server-side persistence is required.
+func replayKeyFromDeliveryID(deliveryID string) string {
+	if deliveryID == "" {
+		return ""
+	}
+	return "rk_" + deliveryID
 }
