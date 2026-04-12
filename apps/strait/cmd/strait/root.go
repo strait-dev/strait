@@ -25,6 +25,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newServerCommand())
 	cmd.AddCommand(newMigrateCommand())
 	cmd.AddCommand(newVersionCommand())
+	cmd.AddCommand(newAuditCommand())
 
 	rawArgs := os.Args[1:]
 	cmd.SetArgs(normalizeLegacyArgs(rawArgs))
@@ -43,6 +44,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"migrate": {},
 		"version": {},
 		"help":    {},
+		"audit":   {},
 	}
 
 	first := args[0]
