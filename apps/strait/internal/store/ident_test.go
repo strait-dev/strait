@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -29,10 +30,7 @@ func TestValidateIdent_Invalid(t *testing.T) {
 }
 
 func TestValidateIdent_TooLong(t *testing.T) {
-	long := ""
-	for range 129 {
-		long += "a"
-	}
+	long := strings.Repeat("a", 129)
 	if err := ValidateIdent(long); err == nil {
 		t.Error("expected too-long error")
 	}

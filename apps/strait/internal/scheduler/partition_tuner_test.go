@@ -238,7 +238,7 @@ func (s *slowTunerStore) ExecDDL(_ context.Context, sql string) error {
 
 func TestPartitionTuner_ParallelExec(t *testing.T) {
 	parts := make([]string, 0, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		parts = append(parts, "job_runs_p2020_"+string(rune('0'+i/10))+string(rune('0'+i%10)))
 	}
 	s := &slowTunerStore{partitions: parts, delay: 10 * time.Millisecond}
@@ -267,7 +267,7 @@ func TestPartitionTuner_ParallelExec(t *testing.T) {
 	if got != len(parts) {
 		t.Errorf("ddls count = %d, want %d", got, len(parts))
 	}
-	if int64(int(tu.ColdCount())) != int64(len(parts)) {
+	if tu.ColdCount() != int64(len(parts)) {
 		t.Errorf("coldCount = %d, want %d", tu.ColdCount(), len(parts))
 	}
 }

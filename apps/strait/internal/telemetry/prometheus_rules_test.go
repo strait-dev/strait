@@ -74,8 +74,8 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 			for _, tok := range tokenRe.FindAllString(r.Expr, -1) {
 				base := tok
 				for _, s := range suffixes {
-					if strings.HasSuffix(base, s) {
-						base = strings.TrimSuffix(base, s)
+					if trimmed, ok := strings.CutSuffix(base, s); ok {
+						base = trimmed
 						break
 					}
 				}
@@ -83,8 +83,8 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 				// strait_webhook_deliveries_total) or as OTel dotted
 				// counters where the exporter appends _total. Try both.
 				candidates := []string{base}
-				if strings.HasSuffix(base, "_total") {
-					candidates = append(candidates, strings.TrimSuffix(base, "_total"))
+				if trimmed, ok := strings.CutSuffix(base, "_total"); ok {
+					candidates = append(candidates, trimmed)
 				}
 				found := false
 				for _, c := range candidates {
@@ -171,7 +171,7 @@ func moduleRoot(t *testing.T) string {
 		t.Fatalf("getwd: %v", err)
 	}
 	dir := wd
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}

@@ -64,7 +64,7 @@ func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID str
 	_ = s.store.CreateAuditEvent(ctx, ev)
 }
 
-// -- GET /v1/admin/dlq ----------------------------------------------------
+// GET /v1/admin/dlq.
 
 // ListAdminDLQInput is the typed input for the admin DLQ listing endpoint.
 type ListAdminDLQInput struct {
@@ -118,7 +118,7 @@ func (s *Server) handleAdminListDLQ(ctx context.Context, input *ListAdminDLQInpu
 	})}, nil
 }
 
-// -- POST /v1/admin/dlq/{run_id}/replay ----------------------------------
+// POST /v1/admin/dlq/{run_id}/replay.
 
 // AdminDLQRunInput is the shared typed input for per-run DLQ mutations.
 type AdminDLQRunInput struct {
@@ -172,7 +172,7 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 	return &AdminReplayDLQOutput{Body: run}, nil
 }
 
-// -- POST /v1/admin/dlq/{run_id}/unmask ----------------------------------
+// POST /v1/admin/dlq/{run_id}/unmask.
 
 // AdminDLQAckOutput is a minimal success envelope for unmask/purge.
 type AdminDLQAckOutput struct {
@@ -220,7 +220,7 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 	return out, nil
 }
 
-// -- POST /v1/admin/dlq/{run_id}/purge -----------------------------------
+// POST /v1/admin/dlq/{run_id}/purge.
 
 func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInput) (*AdminDLQAckOutput, error) {
 	if err := s.requireAdminScope(ctx, domain.ScopeDLQPurge); err != nil {

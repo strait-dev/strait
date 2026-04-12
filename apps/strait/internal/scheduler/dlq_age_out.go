@@ -180,7 +180,6 @@ func (a *DLQAgeOut) scanPartitionsParallel(ctx context.Context) {
 	var wg sync.WaitGroup
 	var candidates atomic.Int64
 	for _, p := range parts {
-		p := p
 		wg.Add(1)
 		pool.Submit(func() {
 			defer wg.Done()

@@ -66,15 +66,13 @@ func TestTracer_ContextCancelShortCircuits(t *testing.T) {
 func TestTracer_SetRulesConcurrent(t *testing.T) {
 	tr := New()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
 				tr.SetRules([]Rule{{Delay: time.Microsecond}})
 				_ = tr.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "q"})
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if tr.TotalCount() != 800 {

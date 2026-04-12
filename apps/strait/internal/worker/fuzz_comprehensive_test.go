@@ -56,7 +56,7 @@ func FuzzDLQCapInvariant(f *testing.F) {
 		cfg := DLQCapConfig{MaxPerJob: perJob, MaxPerProject: perProject, Policy: DLQOverflowReject}
 		e := NewDLQCapEnforcer(s, cfg, nil)
 		var depth int
-		for i := uint8(0); i < 8; i++ {
+		for i := range uint8(8) {
 			if ops&(1<<i) != 0 {
 				proceed, _ := e.EnforceBeforeTransition(context.Background(), "p", "j")
 				if proceed {

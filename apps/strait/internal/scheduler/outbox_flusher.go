@@ -99,7 +99,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 		f.errors.Add(1)
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
 	if err != nil {

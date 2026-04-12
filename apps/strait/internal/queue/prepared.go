@@ -23,9 +23,9 @@ import (
 // PreparedStatements holds named prepared statements for each dequeue
 // variant. Nil means "not prepared yet; use raw SQL".
 type PreparedStatements struct {
-	DequeueN                 string
-	DequeueNFair             string
-	DequeueNDenormalized     string
+	DequeueN                  string
+	DequeueNFair              string
+	DequeueNDenormalized      string
 	DequeueNFullyDenormalized string
 }
 
@@ -37,9 +37,9 @@ func PrepareDequeueStatements(ctx context.Context, pool *pgxpool.Pool, logger *s
 		logger = slog.Default()
 	}
 	ps := &PreparedStatements{
-		DequeueN:                 "strait_dequeue_n",
-		DequeueNFair:             "strait_dequeue_n_fair",
-		DequeueNDenormalized:     "strait_dequeue_n_denorm",
+		DequeueN:                  "strait_dequeue_n",
+		DequeueNFair:              "strait_dequeue_n_fair",
+		DequeueNDenormalized:      "strait_dequeue_n_denorm",
 		DequeueNFullyDenormalized: "strait_dequeue_n_fulldn",
 	}
 

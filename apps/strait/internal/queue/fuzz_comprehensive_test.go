@@ -16,7 +16,7 @@ import (
 // arbitrary input. The seed corpus covers known edge cases; the fuzzer
 // explores everything else.
 
-// --- Backpressure token math ---
+// Backpressure token math.
 
 func FuzzBackpressureTokenMath(f *testing.F) {
 	f.Add(100, 10, 5, int64(60))
@@ -31,10 +31,7 @@ func FuzzBackpressureTokenMath(f *testing.F) {
 			return
 		}
 		// Simulate the refill formula from backpressure.go CTE.
-		refilled := tokens + int(elapsedSec)*refillPerSec
-		if refilled > maxTokens {
-			refilled = maxTokens
-		}
+		refilled := min(tokens+int(elapsedSec)*refillPerSec, maxTokens)
 		if refilled < 0 {
 			t.Errorf("refilled = %d, must be >= 0", refilled)
 		}
@@ -44,7 +41,7 @@ func FuzzBackpressureTokenMath(f *testing.F) {
 	})
 }
 
-// --- Circuit breaker transitions ---
+// Circuit breaker transitions.
 
 func FuzzCircuitBreakerStateAlwaysValid(f *testing.F) {
 	f.Add(uint8(0xFF), uint8(20), int64(100))
@@ -77,7 +74,7 @@ func FuzzCircuitBreakerStateAlwaysValid(f *testing.F) {
 	})
 }
 
-// --- Claim cursor monotonicity ---
+// Claim cursor monotonicity.
 
 func FuzzClaimCursorMonotonicity(f *testing.F) {
 	f.Add(int64(0), "a", int64(1000), "b")
@@ -102,7 +99,7 @@ func FuzzClaimCursorMonotonicity(f *testing.F) {
 	})
 }
 
-// --- Priority promoter bounds ---
+// Priority promoter bounds.
 
 func FuzzPriorityPromoterBounds(f *testing.F) {
 	f.Add(0, 1000, 5)
@@ -115,18 +112,15 @@ func FuzzPriorityPromoterBounds(f *testing.F) {
 		if maxPri > 1<<20 {
 			return
 		}
-		// Simulate LEAST(priority + increment, maxPri)
-		result := current + increment
-		if result > maxPri {
-			result = maxPri
-		}
+		// Simulate LEAST(priority + increment, maxPri).
+		result := min(current+increment, maxPri)
 		if result < 0 || result > maxPri {
 			t.Errorf("promoted = %d, want [0, %d]", result, maxPri)
 		}
 	})
 }
 
-// --- Retry backoff bounds ---
+// Retry backoff bounds.
 
 func FuzzRetryBackoffBounds(f *testing.F) {
 	f.Add(1, "exponential", 1, 3600)
@@ -165,7 +159,7 @@ func FuzzRetryBackoffBounds(f *testing.F) {
 	})
 }
 
-// --- Partition name parsing ---
+// Partition name parsing.
 
 func FuzzPartitionNameFormat(f *testing.F) {
 	f.Add(2026, 4)
@@ -187,7 +181,7 @@ func FuzzPartitionNameFormat(f *testing.F) {
 // Adaptive poll and DLQ cap fuzz targets live in their respective
 // packages (worker and worker) since the types aren't exported to queue.
 
-// --- RunStatus Scan round-trip ---
+// RunStatus Scan round-trip.
 
 func FuzzRunStatusScanRoundTrip(f *testing.F) {
 	for _, s := range []string{"queued", "dequeued", "executing", "completed", "dead_letter"} {
@@ -221,7 +215,7 @@ func FuzzRunStatusScanRoundTrip(f *testing.F) {
 	})
 }
 
-// --- ErrorClass round-trip ---
+// ErrorClass round-trip.
 
 func FuzzErrorClassRoundTrip(f *testing.F) {
 	for _, s := range []string{"timeout", "auth", "client", "server", "unknown"} {
@@ -252,7 +246,7 @@ func FuzzErrorClassRoundTrip(f *testing.F) {
 	})
 }
 
-// --- SafeQuoteIdent ---
+// SafeQuoteIdent.
 
 func FuzzSafeQuoteIdentNeverProducesInjection(f *testing.F) {
 	f.Add("job_runs")
@@ -277,7 +271,7 @@ func FuzzSafeQuoteIdentNeverProducesInjection(f *testing.F) {
 	})
 }
 
-// --- Payload encoding round-trip ---
+// Payload encoding round-trip.
 
 func FuzzPayloadJSONRoundTrip(f *testing.F) {
 	f.Add(`{"key":"value"}`)
@@ -314,7 +308,7 @@ func FuzzPayloadJSONRoundTrip(f *testing.F) {
 	})
 }
 
-// --- Concurrency key normalization ---
+// Concurrency key normalization.
 
 func FuzzConcurrencyKeyNormalization(f *testing.F) {
 	f.Add("")
@@ -338,7 +332,7 @@ func FuzzConcurrencyKeyNormalization(f *testing.F) {
 	})
 }
 
-// --- Idempotency key no false collision ---
+// Idempotency key no false collision.
 
 func FuzzIdempotencyKeyNoFalseCollision(f *testing.F) {
 	f.Add("key-a", "key-b")
@@ -359,7 +353,7 @@ func FuzzIdempotencyKeyNoFalseCollision(f *testing.F) {
 	})
 }
 
-// --- Queue metrics partition label cardinality (extended) ---
+// Queue metrics partition label cardinality (extended).
 
 func FuzzMetricsPartitionStatsNoPanic(f *testing.F) {
 	f.Add("job_runs_p2026_04", int64(100), int64(5), int64(200), int64(180))
@@ -391,7 +385,7 @@ func FuzzMetricsPartitionStatsNoPanic(f *testing.F) {
 	})
 }
 
-// --- Math helpers never overflow ---
+// Math helpers never overflow.
 
 func FuzzExponentialBackoffNoOverflow(f *testing.F) {
 	f.Add(1, 30)

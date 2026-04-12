@@ -148,7 +148,6 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 	var hotN, coldN atomic.Int64
 	var wg sync.WaitGroup
 	for _, p := range partitions {
-		p := p
 		wg.Add(1)
 		pool.Submit(func() {
 			defer wg.Done()

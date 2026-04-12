@@ -74,12 +74,12 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
 			WithStalledAction(cfg.StalledWorkflowAction),
-		indexMaintainer:       NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
-		debouncePoller:        NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
-		batchFlusher:          NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator:       NewStatsAggregator(s),
-		budgetMonitor:         NewBudgetMonitor(s, nil, 5*time.Minute),
-		costEstimateRefresher: NewCostEstimateRefresher(s, time.Hour),
+		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator:          NewStatsAggregator(s),
+		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
+		costEstimateRefresher:    NewCostEstimateRefresher(s, time.Hour),
 		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
