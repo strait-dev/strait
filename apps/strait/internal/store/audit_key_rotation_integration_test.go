@@ -458,13 +458,20 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 		t.Error("epoch 1 and epoch 2 keys are identical")
 	}
 
+	// Expected rows: 3.
+	//   - epoch 0: bootstrapped by the first insertTestChain CreateAuditEvent
+	//     call via resolveSigningKeyForEpoch (caveat-1 fix — signer and
+	//     verifier must agree on a stable per-epoch key even before any
+	//     rotation has occurred).
+	//   - epoch 1: written explicitly by the first RotateAuditSigningKey.
+	//   - epoch 2: written explicitly by the second RotateAuditSigningKey.
 	var count int
 	if err := testDB.Pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM audit_signing_keys WHERE project_id = $1
 	`, projectID).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("audit_signing_keys rows = %d, want 2", count)
+	if count != 3 {
+		t.Errorf("audit_signing_keys rows = %d, want 3 (epoch 0 bootstrap + 2 rotations)", count)
 	}
 }
