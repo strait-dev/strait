@@ -153,7 +153,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	// 3. If this UPDATE fails, the event has an empty signature which
 	//    VerifyAuditChain will detect, but the chain linkage remains intact.
 	if q.auditSigningKey != nil {
-		ev.Signature = ComputeAuditSignature(ev, q.auditSigningKey)
+		signingKey, err := q.resolveSigningKeyForEpoch(ctx, ev.ProjectID, ev.RotationEpoch)
+		if err != nil {
+			return err
+		}
+		ev.Signature = ComputeAuditSignature(ev, signingKey)
 		if _, err := q.db.Exec(ctx, `UPDATE audit_events SET signature = $1 WHERE id = $2`,
 			ev.Signature, ev.ID,
 		); err != nil {
@@ -162,6 +166,55 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	}
 
 	return nil
+}
+
+// resolveSigningKeyForEpoch returns the per-epoch HMAC signing key used for
+// both signing and verification. When secretEncryptionKey is configured, the
+// key is looked up in audit_signing_keys and, on first write for an epoch,
+// bootstrapped from q.auditSigningKey so signer and verifier converge on a
+// stable per-epoch key independent of in-memory mutations. When no encryption
+// key is configured (unit-test / pre-rotation installs), the in-memory
+// q.auditSigningKey is used directly — matching the legacy behavior.
+func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID string, epoch int) ([]byte, error) {
+	if q.secretEncryptionKey == "" {
+		return q.auditSigningKey, nil
+	}
+	stored, err := q.GetAuditSigningKey(ctx, projectID, epoch)
+	if err != nil {
+		return nil, fmt.Errorf("resolve signing key: %w", err)
+	}
+	if stored != nil {
+		return stored, nil
+	}
+	// Bootstrap: persist the current in-memory signing key as the stable
+	// per-epoch key for this (project, epoch). Races are resolved by
+	// ON CONFLICT DO NOTHING followed by a re-read.
+	envelopeKey, err := q.secretKey()
+	if err != nil {
+		return nil, fmt.Errorf("resolve signing key: envelope: %w", err)
+	}
+	ciphertext, err := encryptAuditKey(q.auditSigningKey, envelopeKey)
+	if err != nil {
+		return nil, fmt.Errorf("resolve signing key: encrypt: %w", err)
+	}
+	if _, err := q.db.Exec(ctx, `
+		INSERT INTO audit_signing_keys (project_id, rotation_epoch, key_material)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (project_id, rotation_epoch) DO NOTHING
+	`, projectID, epoch, ciphertext); err != nil {
+		return nil, fmt.Errorf("resolve signing key: bootstrap insert: %w", err)
+	}
+	// Re-read: on conflict, the winning row's ciphertext is what both future
+	// signers and verifiers must use.
+	stored, err = q.GetAuditSigningKey(ctx, projectID, epoch)
+	if err != nil {
+		return nil, fmt.Errorf("resolve signing key: re-read: %w", err)
+	}
+	if stored == nil {
+		// Should not happen — we just inserted. Fall back to in-memory.
+		return q.auditSigningKey, nil
+	}
+	return stored, nil
 }
 
 func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error) {
