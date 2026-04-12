@@ -4,11 +4,19 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/alitto/pond/v2"
+
 	"strait/internal/queue"
 )
+
+// dlqAgeOutScanPoolSize bounds the concurrent per-partition candidate
+// scans. The subsequent UPDATE is single-threaded to avoid lock
+// contention.
+const dlqAgeOutScanPoolSize = 4
 
 // R3 Phase 5: DLQ age-out archiver.
 //
@@ -27,6 +35,16 @@ const dlqAgeOutAdvisoryLockID int64 = 0x5374446C5130 // "StDlQ0"
 // DLQAgeOutStore is the minimal store interface the archiver needs.
 type DLQAgeOutStore interface {
 	MaskOldDLQRows(ctx context.Context, retention time.Duration, limit int) (int64, error)
+}
+
+// DLQPartitionScanner is an optional extension to DLQAgeOutStore. When
+// implemented, the archiver fans per-partition candidate scans out
+// across a bounded pool before invoking the serial MaskOldDLQRows. The
+// scan itself is a hint that primes caches / warms statistics — the
+// canonical delete still runs through MaskOldDLQRows.
+type DLQPartitionScanner interface {
+	ListDLQPartitions(ctx context.Context) ([]string, error)
+	ScanDLQPartitionCandidates(ctx context.Context, partition string, retention time.Duration, limit int) (int64, error)
 }
 
 // DLQAgeOut archives stale dead_letter rows.
@@ -125,6 +143,8 @@ func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 		}()
 	}
 
+	a.scanPartitionsParallel(ctx)
+
 	n, err := a.store.MaskOldDLQRows(ctx, a.retention, a.batchLimit)
 	if err != nil {
 		return fmt.Errorf("mask old dlq rows: %w", err)
@@ -137,6 +157,47 @@ func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 	// can alert when age-out is falling behind.
 	a.sampleOldestUnmaskedAge(ctx)
 	return nil
+}
+
+// scanPartitionsParallel runs per-partition read-only candidate scans
+// through a bounded pond pool. It logs candidate counts but does not
+// mutate any row — the canonical MaskOldDLQRows update runs serially
+// afterwards.
+func (a *DLQAgeOut) scanPartitionsParallel(ctx context.Context) {
+	scanner, ok := a.store.(DLQPartitionScanner)
+	if !ok {
+		return
+	}
+	parts, err := scanner.ListDLQPartitions(ctx)
+	if err != nil {
+		a.logger.Debug("list dlq partitions failed", "error", err)
+		return
+	}
+	if len(parts) == 0 {
+		return
+	}
+	pool := pond.NewPool(dlqAgeOutScanPoolSize)
+	var wg sync.WaitGroup
+	var candidates atomic.Int64
+	for _, p := range parts {
+		p := p
+		wg.Add(1)
+		pool.Submit(func() {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				return
+			}
+			n, err := scanner.ScanDLQPartitionCandidates(ctx, p, a.retention, a.batchLimit)
+			if err != nil {
+				a.logger.Debug("dlq partition scan failed", "partition", p, "error", err)
+				return
+			}
+			candidates.Add(n)
+		})
+	}
+	wg.Wait()
+	pool.StopAndWait()
+	a.logger.Debug("dlq partition scan complete", "partitions", len(parts), "candidates", candidates.Load())
 }
 
 func (a *DLQAgeOut) sampleOldestUnmaskedAge(ctx context.Context) {

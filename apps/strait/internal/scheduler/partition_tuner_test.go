@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type fakeTunerStore struct {
 	partitions []string
+	mu         sync.Mutex
 	ddls       []string
 	listErr    error
 	execErr    error
@@ -31,8 +34,18 @@ func (f *fakeTunerStore) ExecDDL(_ context.Context, sql string) error {
 	if f.execErr != nil {
 		return f.execErr
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ddls = append(f.ddls, sql)
 	return nil
+}
+
+func (f *fakeTunerStore) DDLs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.ddls))
+	copy(out, f.ddls)
+	return out
 }
 
 func TestPartitionTuner_HotPartitionNames_CurrentAndPrev(t *testing.T) {
@@ -83,13 +96,13 @@ func TestPartitionTuner_AppliesHotThenCold(t *testing.T) {
 	}
 	// Verify the hot DDLs target the correct partitions.
 	var hotDDLs int
-	for _, sql := range s.ddls {
+	for _, sql := range s.DDLs() {
 		if strings.Contains(sql, "SET (") && (strings.Contains(sql, "job_runs_p2026_04") || strings.Contains(sql, "job_runs_p2026_03")) {
 			hotDDLs++
 		}
 	}
 	if hotDDLs != 2 {
-		t.Errorf("expected 2 hot SET DDLs, got %d (all ddls: %v)", hotDDLs, s.ddls)
+		t.Errorf("expected 2 hot SET DDLs, got %d (all ddls: %v)", hotDDLs, s.DDLs())
 	}
 }
 
@@ -132,7 +145,7 @@ func TestPartitionTuner_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	tu := NewPartitionTuner(s, PartitionTunerConfig{}).WithAdvisoryLocker(locker)
 	_ = tu.runOnce(context.Background())
-	if len(s.ddls) != 0 {
+	if len(s.DDLs()) != 0 {
 		t.Errorf("should not exec without lock")
 	}
 }
@@ -167,7 +180,9 @@ func TestPartitionTuner_RotatesHotAsTimeAdvances(t *testing.T) {
 	if tu.HotCount() != 2 {
 		t.Errorf("month 4 hot = %d, want 2", tu.HotCount())
 	}
+	s.mu.Lock()
 	s.ddls = nil
+	s.mu.Unlock()
 
 	// Now simulate month 5: hot = {04, 05}
 	tu.clock = func() time.Time { return time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC) }
@@ -177,13 +192,83 @@ func TestPartitionTuner_RotatesHotAsTimeAdvances(t *testing.T) {
 	}
 	// 03 should now be cold.
 	var coldFor03 bool
-	for _, sql := range s.ddls {
+	for _, sql := range s.DDLs() {
 		if strings.Contains(sql, "job_runs_p2026_03") && strings.Contains(sql, "RESET") {
 			coldFor03 = true
 		}
 	}
 	if !coldFor03 {
-		t.Errorf("expected 2026_03 to be RESET after month rotation; ddls: %v", s.ddls)
+		t.Errorf("expected 2026_03 to be RESET after month rotation; ddls: %v", s.DDLs())
+	}
+}
+
+// slowTunerStore exposes any ordering or race hazards in the
+// parallelized ALTER path by sleeping inside ExecDDL and tracking the
+// peak concurrent executors.
+type slowTunerStore struct {
+	mu         sync.Mutex
+	partitions []string
+	ddls       []string
+	active     atomic.Int32
+	peak       atomic.Int32
+	delay      time.Duration
+}
+
+func (s *slowTunerStore) ListJobRunsPartitions(_ context.Context) ([]string, error) {
+	return s.partitions, nil
+}
+func (s *slowTunerStore) PartitionExists(_ context.Context, _ string) (bool, error) {
+	return true, nil
+}
+func (s *slowTunerStore) ExecDDL(_ context.Context, sql string) error {
+	n := s.active.Add(1)
+	defer s.active.Add(-1)
+	for {
+		peak := s.peak.Load()
+		if n <= peak || s.peak.CompareAndSwap(peak, n) {
+			break
+		}
+	}
+	time.Sleep(s.delay)
+	s.mu.Lock()
+	s.ddls = append(s.ddls, sql)
+	s.mu.Unlock()
+	return nil
+}
+
+func TestPartitionTuner_ParallelExec(t *testing.T) {
+	parts := make([]string, 0, 16)
+	for i := 0; i < 16; i++ {
+		parts = append(parts, "job_runs_p2020_"+string(rune('0'+i/10))+string(rune('0'+i%10)))
+	}
+	s := &slowTunerStore{partitions: parts, delay: 10 * time.Millisecond}
+	tu := NewPartitionTuner(s, PartitionTunerConfig{
+		Clock: func() time.Time { return time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC) },
+	})
+	start := time.Now()
+	if err := tu.runOnce(context.Background()); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+	elapsed := time.Since(start)
+	// Serial would be 16 * 10ms = 160ms. With pool size 4 we expect
+	// ~40ms plus scheduling slack.
+	if elapsed > 140*time.Millisecond {
+		t.Errorf("expected parallel execution, elapsed=%v", elapsed)
+	}
+	if peak := s.peak.Load(); peak < 2 {
+		t.Errorf("expected concurrent executors, peak=%d", peak)
+	}
+	if peak := s.peak.Load(); peak > partitionTunerPoolSize {
+		t.Errorf("peak=%d exceeds pool size %d", peak, partitionTunerPoolSize)
+	}
+	s.mu.Lock()
+	got := len(s.ddls)
+	s.mu.Unlock()
+	if got != len(parts) {
+		t.Errorf("ddls count = %d, want %d", got, len(parts))
+	}
+	if int64(int(tu.ColdCount())) != int64(len(parts)) {
+		t.Errorf("coldCount = %d, want %d", tu.ColdCount(), len(parts))
 	}
 }
 

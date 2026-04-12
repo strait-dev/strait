@@ -6,11 +6,18 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/alitto/pond/v2"
+
 	"strait/internal/store"
 )
+
+// partitionTunerPoolSize bounds the concurrent ALTER TABLE calls. Four
+// is enough to overlap IO without saturating the DB lock manager.
+const partitionTunerPoolSize = 4
 
 // R3 Phase 4: per-partition autovacuum tuner.
 //
@@ -132,38 +139,52 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 	}
 
 	hot := hotPartitionNames(t.clock())
-	var hotN, coldN int64
+
+	// R4 Phase 4: apply per-partition ALTER TABLE calls through a bounded
+	// pond pool so a long list does not serialize behind each DDL round
+	// trip. The work is ordering-independent; we aggregate counters via
+	// atomics and log errors per partition.
+	pool := pond.NewPool(partitionTunerPoolSize)
+	var hotN, coldN atomic.Int64
+	var wg sync.WaitGroup
 	for _, p := range partitions {
-		// R4 Phase 12: pre-check partition still exists before ALTER.
-		// pg_partman or manual DDL could drop a partition between the
-		// list and the alter.
-		exists, err := t.store.PartitionExists(ctx, p)
-		if err != nil {
-			t.logger.Warn("partition existence check failed", "partition", p, "error", err)
-			continue
-		}
-		if !exists {
-			t.logger.Info("partition vanished between list and alter, skipping", "partition", p)
-			continue
-		}
-		if _, isHot := hot[p]; isHot {
-			if err := t.store.ExecDDL(ctx, hotSettingsSQL(p)); err != nil {
-				t.logger.Warn("apply hot settings failed", "partition", p, "error", err)
-				continue
+		p := p
+		wg.Add(1)
+		pool.Submit(func() {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				return
 			}
-			hotN++
-		} else {
+			exists, err := t.store.PartitionExists(ctx, p)
+			if err != nil {
+				t.logger.Warn("partition existence check failed", "partition", p, "error", err)
+				return
+			}
+			if !exists {
+				t.logger.Info("partition vanished between list and alter, skipping", "partition", p)
+				return
+			}
+			if _, isHot := hot[p]; isHot {
+				if err := t.store.ExecDDL(ctx, hotSettingsSQL(p)); err != nil {
+					t.logger.Warn("apply hot settings failed", "partition", p, "error", err)
+					return
+				}
+				hotN.Add(1)
+				return
+			}
 			if err := t.store.ExecDDL(ctx, resetSettingsSQL(p)); err != nil {
 				t.logger.Warn("reset settings failed", "partition", p, "error", err)
-				continue
+				return
 			}
-			coldN++
-		}
+			coldN.Add(1)
+		})
 	}
-	t.hotCount.Store(hotN)
-	t.coldCount.Store(coldN)
+	wg.Wait()
+	pool.StopAndWait()
+	t.hotCount.Store(hotN.Load())
+	t.coldCount.Store(coldN.Load())
 	t.logger.Info("partition tuner complete",
-		"hot", hotN, "cold", coldN, "total", len(partitions),
+		"hot", hotN.Load(), "cold", coldN.Load(), "total", len(partitions),
 	)
 	return nil
 }
