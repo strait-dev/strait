@@ -1,0 +1,227 @@
+{
+  "dashboard": {
+    "uid": "strait-audit-events",
+    "title": "Strait — Audit Events",
+    "description": "Observability for the audit event pipeline: emit, deadletter reclaim, retention, SIEM forward, and chain verification.",
+    "tags": ["strait", "audit", "soc2", "security"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "timepicker": {},
+    "templating": {
+      "list": [
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            { "selected": false, "text": "1m", "value": "1m" },
+            { "selected": true, "text": "5m", "value": "5m" },
+            { "selected": false, "text": "15m", "value": "15m" },
+            { "selected": false, "text": "1h", "value": "1h" }
+          ],
+          "current": { "text": "5m", "value": "5m" },
+          "hide": 0
+        }
+      ]
+    },
+    "panels": [
+      {
+        "title": "Emit pipeline",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+      },
+      {
+        "title": "Emit pipeline rates",
+        "description": "Per-second rates across the async emit pipeline. Expect emitted to dominate; dropped/truncated/deadlettered should be near zero.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 16, "x": 0, "y": 1 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "rate(strait_audit_events_emitted_total[5m])",
+            "legendFormat": "emitted"
+          },
+          {
+            "refId": "B",
+            "expr": "rate(strait_audit_events_dropped_total[5m])",
+            "legendFormat": "dropped"
+          },
+          {
+            "refId": "C",
+            "expr": "rate(strait_audit_events_truncated_total[5m])",
+            "legendFormat": "truncated"
+          },
+          {
+            "refId": "D",
+            "expr": "rate(strait_audit_events_deadlettered_total[5m])",
+            "legendFormat": "deadlettered"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Deadletter total (proxy for drainer saturation)",
+        "description": "NOTE: metric strait_audit_drainer_queue_depth does not yet exist (see Phase 11 follow-ups). Showing cumulative deadletter count as the next-best saturation signal.",
+        "type": "stat",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "strait_audit_events_deadlettered_total",
+            "legendFormat": "deadlettered"
+          }
+        ],
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"] },
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 10 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "title": "Reclaimer",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+      },
+      {
+        "title": "Reclaimer success vs failure",
+        "description": "DLQ reclaim outcomes. Failures are labeled by reason.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "rate(strait_audit_reclaimer_success_total[5m])",
+            "legendFormat": "success"
+          },
+          {
+            "refId": "B",
+            "expr": "rate(strait_audit_reclaimer_failed_total[5m]) by (reason)",
+            "legendFormat": "failed: {{reason}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Retention",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+      },
+      {
+        "title": "Retention deletions per project (hourly)",
+        "description": "Sum of retention reaper deletions per project, aggregated at 1h.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (project_id) (rate(strait_audit_retention_deleted_total[1h]))",
+            "legendFormat": "{{project_id}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "SIEM",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+      },
+      {
+        "title": "SIEM batch size (quantiles)",
+        "description": "Histogram quantiles of the audit SIEM batch size.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_audit_siem_batch_size_bucket[5m])))",
+            "legendFormat": "p50"
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_audit_siem_batch_size_bucket[5m])))",
+            "legendFormat": "p95"
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_audit_siem_batch_size_bucket[5m])))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "SIEM forwarded vs failed",
+        "description": "Stacked per-second rates of SIEM forwarding outcomes.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "rate(strait_audit_siem_forwarded_total[5m])",
+            "legendFormat": "forwarded"
+          },
+          {
+            "refId": "B",
+            "expr": "rate(strait_audit_siem_failed_total[5m]) by (reason)",
+            "legendFormat": "failed: {{reason}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "custom": { "stacking": { "mode": "normal", "group": "A" } }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "title": "SIEM circuit breaker opens",
+        "description": "Counter of SIEM circuit breaker open transitions.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "strait_audit_siem_circuit_open_total",
+            "legendFormat": "circuit_open_total"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Chain + Export",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 }
+      },
+      {
+        "title": "Chain verification + export cap (notes)",
+        "description": "NOTE: strait_audit_events_export_capped_total and strait_audit_chain_verify_failed_total are not yet emitted. Track audit.chain_verified outcomes via application logs until these metrics are wired. This panel is a placeholder for future work.",
+        "type": "text",
+        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 45 },
+        "options": {
+          "mode": "markdown",
+          "content": "**Pending metrics**\n\n- `strait_audit_events_export_capped_total` — increment when audit export hits its 24h row cap.\n- `strait_audit_chain_verify_failed_total` — increment on each failed chain verification run.\n\nUntil those are emitted, query logs for `audit.chain_verified` events to confirm integrity runs."
+        }
+      }
+    ]
+  }
+}

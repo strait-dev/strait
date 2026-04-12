@@ -1,0 +1,71 @@
+# Prometheus alert rules for the Strait audit subsystem.
+#
+# Load via Prometheus `rule_files:` or a PrometheusRule CRD in Kubernetes.
+#
+# NOTE: Some metrics referenced here are not yet emitted by the application
+# (see FIXME comments). Alerts using those metrics are wired as a best-effort
+# stand-in and MUST be revisited when the metrics ship.
+groups:
+  - name: strait-audit
+    interval: 30s
+    rules:
+      - alert: AuditDLQRising
+        expr: rate(strait_audit_events_deadlettered_total[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: audit
+        annotations:
+          summary: "Audit deadletter queue is growing"
+          description: |
+            Audit events are spilling to the deadletter table faster than the
+            reclaimer can drain them. Investigate `audit_deadletter` rows and
+            reclaimer_failed_total{reason=...} for the underlying cause.
+
+      # FIXME: strait_audit_drainer_queue_depth and _queue_capacity are not yet
+      # emitted by internal/api/audit_emit.go. Until they are, this alert fires
+      # on sustained dropped-event rate as a stand-in for saturation (the async
+      # buffer dropping is the symptom a depth/capacity gauge would reveal).
+      - alert: AuditDrainerSaturated
+        expr: rate(strait_audit_events_dropped_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: audit
+        annotations:
+          summary: "Audit async drainer is shedding load (stand-in for queue depth)"
+          description: |
+            The audit async buffer is dropping events, which indicates the
+            drainer cannot keep up with emit throughput. Replace this expr with
+            `strait_audit_drainer_queue_depth / strait_audit_drainer_queue_capacity > 0.9`
+            once those gauges are exported.
+
+      - alert: AuditSIEMForwardFailing
+        expr: increase(strait_audit_siem_circuit_open_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: audit
+        annotations:
+          summary: "Audit SIEM forwarder circuit breaker opened"
+          description: |
+            The audit SIEM forwarder transitioned to the open state in the last
+            five minutes. Check the destination endpoint health and
+            strait_audit_siem_failed_total{reason=...} for the failure class.
+
+      # FIXME: strait_audit_chain_verify_failed_total is not yet emitted. When
+      # the periodic chain verifier lands, wire this alert to that counter.
+      # For now we alert on reclaimer failures as a proxy for chain health
+      # degradation.
+      - alert: AuditChainVerificationFailed
+        expr: increase(strait_audit_reclaimer_failed_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: audit
+        annotations:
+          summary: "Audit chain integrity signal degraded (proxy)"
+          description: |
+            Using strait_audit_reclaimer_failed_total as a proxy until
+            strait_audit_chain_verify_failed_total is emitted. Replace with the
+            real metric once the chain verifier is wired.
