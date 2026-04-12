@@ -598,6 +598,49 @@ func TestStreamAuditEvents(t *testing.T) {
 	}
 }
 
+// TestGetAuditEvent verifies tenant-isolated single-event reads.
+func TestGetAuditEvent(t *testing.T) {
+	ctx := context.Background()
+	q := covStore(t)
+	covClean(t, ctx)
+
+	projectA := "proj-a-" + covID()
+	projectB := "proj-b-" + covID()
+
+	ev := &domain.AuditEvent{
+		ProjectID:    projectA,
+		ActorID:      "user-a",
+		ActorType:    "user",
+		Action:       "job.create",
+		ResourceType: "job",
+		ResourceID:   covID(),
+		Details:      json.RawMessage(`{}`),
+	}
+	if err := q.CreateAuditEvent(ctx, ev); err != nil {
+		t.Fatalf("CreateAuditEvent: %v", err)
+	}
+
+	got, err := q.GetAuditEvent(ctx, projectA, ev.ID)
+	if err != nil {
+		t.Fatalf("GetAuditEvent(own project): %v", err)
+	}
+	if got.ID != ev.ID || got.ProjectID != projectA {
+		t.Fatalf("GetAuditEvent returned %+v, want id=%s project=%s", got, ev.ID, projectA)
+	}
+
+	// Cross-tenant must surface as ErrAuditEventNotFound, never the row.
+	_, err = q.GetAuditEvent(ctx, projectB, ev.ID)
+	if !errors.Is(err, store.ErrAuditEventNotFound) {
+		t.Fatalf("GetAuditEvent(cross-tenant) err = %v, want ErrAuditEventNotFound", err)
+	}
+
+	// Unknown id.
+	_, err = q.GetAuditEvent(ctx, projectA, "ev-does-not-exist")
+	if !errors.Is(err, store.ErrAuditEventNotFound) {
+		t.Fatalf("GetAuditEvent(unknown) err = %v, want ErrAuditEventNotFound", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Store utilities
 // ---------------------------------------------------------------------------

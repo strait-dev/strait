@@ -121,6 +121,44 @@ func (s *Server) handleListSecrets(ctx context.Context, input *ListSecretsInput)
 	})}, nil
 }
 
+// GetSecretInput is the typed input for reading a single secret.
+type GetSecretInput struct {
+	SecretID string `path:"secretID"`
+}
+
+// GetSecretOutput is the typed output for reading a single secret.
+// The body never includes the encrypted or decrypted value.
+type GetSecretOutput struct {
+	Body *domain.JobSecret
+}
+
+// handleGetSecret returns metadata for a single secret scoped to the caller's
+// project. The secret value is never included in the response. The read is
+// audited as secret.read with secret_id + name (key) — no key material.
+func (s *Server) handleGetSecret(ctx context.Context, input *GetSecretInput) (*GetSecretOutput, error) {
+	secret, err := s.store.GetJobSecret(ctx, input.SecretID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobSecretNotFound) {
+			return nil, huma.Error404NotFound("secret not found")
+		}
+		slog.Error("failed to get secret", "error", err)
+		return nil, huma.Error500InternalServerError("failed to get secret")
+	}
+	if err := requireProjectMatch(ctx, secret.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("secret not found")
+	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionSecretRead, "secret", secret.ID, map[string]any{
+		"secret_id":   secret.ID,
+		"name":        secret.SecretKey,
+		"secret_key":  secret.SecretKey,
+		"job_id":      secret.JobID,
+		"environment": secret.Environment,
+	})
+
+	return &GetSecretOutput{Body: secret}, nil
+}
+
 // DeleteSecretInput is the typed input for deleting a secret.
 type DeleteSecretInput struct {
 	SecretID string `path:"secretID"`

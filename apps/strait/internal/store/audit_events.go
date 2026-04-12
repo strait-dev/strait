@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -234,6 +235,39 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 	}
 
 	return events, rows.Err()
+}
+
+// GetAuditEvent fetches a single audit event by id, scoped to the
+// caller's project. Returns ErrAuditEventNotFound when the row does
+// not exist within the project — cross-tenant reads are surfaced as
+// a plain not-found to avoid leaking existence of rows in other
+// projects.
+func (q *Queries) GetAuditEvent(ctx context.Context, projectID, id string) (*domain.AuditEvent, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditEvent")
+	defer span.End()
+
+	const query = `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
+		       remote_ip, user_agent, request_id, trace_id, schema_version,
+		       is_anchor, rotation_epoch
+		FROM audit_events
+		WHERE id = $1 AND project_id = $2`
+
+	var ev domain.AuditEvent
+	err := q.db.QueryRow(ctx, query, id, projectID).Scan(
+		&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType,
+		&ev.Action, &ev.ResourceType, &ev.ResourceID,
+		&ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt,
+		&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID,
+		&ev.SchemaVersion, &ev.IsAnchor, &ev.RotationEpoch,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAuditEventNotFound
+		}
+		return nil, fmt.Errorf("get audit event: %w", err)
+	}
+	return &ev, nil
 }
 
 func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error {

@@ -401,6 +401,13 @@
     "audit.single_read": {
       "type": "object",
       "description": "Single audit event read.",
+      "properties": {
+        "target_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["target_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2298,16 +2305,22 @@
       "type": "object",
       "description": "Single secret metadata read (never the decrypted value).",
       "properties": {
-        "secret_key": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "secret_id": {
           "type": "string",
           "description": "required"
         }
       },
-      "required": ["secret_key"],
+      "required": ["secret_id", "name"],
       "x-forbidden-keys": [
         "value",
         "encrypted_value",
         "plaintext",
+        "key",
+        "key_material",
         "secret",
         "value",
         "password",

@@ -328,6 +328,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetApprovalStatsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error) {
 //				panic("mock out the GetApprovalStats method")
 //			},
+//			GetAuditEventFunc: func(ctx context.Context, projectID string, id string) (*domain.AuditEvent, error) {
+//				panic("mock out the GetAuditEvent method")
+//			},
 //			GetAuditEventDeadletterFunc: func(ctx context.Context, id string, projectID string) (*domain.AuditEvent, error) {
 //				panic("mock out the GetAuditEventDeadletter method")
 //			},
@@ -1180,6 +1183,9 @@ type APIStoreMock struct {
 
 	// GetApprovalStatsFunc mocks the GetApprovalStats method.
 	GetApprovalStatsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error)
+
+	// GetAuditEventFunc mocks the GetAuditEvent method.
+	GetAuditEventFunc func(ctx context.Context, projectID string, id string) (*domain.AuditEvent, error)
 
 	// GetAuditEventDeadletterFunc mocks the GetAuditEventDeadletter method.
 	GetAuditEventDeadletterFunc func(ctx context.Context, id string, projectID string) (*domain.AuditEvent, error)
@@ -2538,6 +2544,15 @@ type APIStoreMock struct {
 			From time.Time
 			// To is the to argument value.
 			To time.Time
+		}
+		// GetAuditEvent holds details about calls to the GetAuditEvent method.
+		GetAuditEvent []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// ID is the id argument value.
+			ID string
 		}
 		// GetAuditEventDeadletter holds details about calls to the GetAuditEventDeadletter method.
 		GetAuditEventDeadletter []struct {
@@ -4368,6 +4383,7 @@ type APIStoreMock struct {
 	lockGetAPIKeyByID                      sync.RWMutex
 	lockGetActiveCanaryDeployment          sync.RWMutex
 	lockGetApprovalStats                   sync.RWMutex
+	lockGetAuditEvent                      sync.RWMutex
 	lockGetAuditEventDeadletter            sync.RWMutex
 	lockGetAuditExportRowCap               sync.RWMutex
 	lockGetAuditRetentionDays              sync.RWMutex
@@ -8774,6 +8790,50 @@ func (mock *APIStoreMock) GetApprovalStatsCalls() []struct {
 	mock.lockGetApprovalStats.RLock()
 	calls = mock.calls.GetApprovalStats
 	mock.lockGetApprovalStats.RUnlock()
+	return calls
+}
+
+// GetAuditEvent calls GetAuditEventFunc.
+func (mock *APIStoreMock) GetAuditEvent(ctx context.Context, projectID string, id string) (*domain.AuditEvent, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		ID        string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
+	}
+	mock.lockGetAuditEvent.Lock()
+	mock.calls.GetAuditEvent = append(mock.calls.GetAuditEvent, callInfo)
+	mock.lockGetAuditEvent.Unlock()
+	if mock.GetAuditEventFunc == nil {
+		var (
+			auditEventOut *domain.AuditEvent
+			errOut        error
+		)
+		return auditEventOut, errOut
+	}
+	return mock.GetAuditEventFunc(ctx, projectID, id)
+}
+
+// GetAuditEventCalls gets all the calls that were made to GetAuditEvent.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetAuditEventCalls())
+func (mock *APIStoreMock) GetAuditEventCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	ID        string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		ID        string
+	}
+	mock.lockGetAuditEvent.RLock()
+	calls = mock.calls.GetAuditEvent
+	mock.lockGetAuditEvent.RUnlock()
 	return calls
 }
 

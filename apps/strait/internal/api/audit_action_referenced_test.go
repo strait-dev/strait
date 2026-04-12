@@ -18,14 +18,7 @@ import (
 // cmd/strait/audit_verify.go for audit.chain_verified). Every entry in this
 // map needs a reason — the default stance is "a defined audit action const
 // must be emitted by at least one call site".
-//
-// TODO: wire these read-path emitters in a future phase. Single-event GET
-// handlers for /v1/audit/{id} and /v1/secrets/{id} are currently list-only;
-// once they land, emit the corresponding const and drop the allowlist entry.
-var auditActionReferenceAllowlist = map[string]string{
-	"AuditActionAuditSingleRead": "TODO: single-event GET /v1/audit/{id} handler not yet implemented",
-	"AuditActionSecretRead":      "TODO: single-secret GET /v1/secrets/{id} read-audit not yet emitted",
-}
+var auditActionReferenceAllowlist = map[string]string{}
 
 // TestEveryAuditActionConstHasCallSite walks the full set of files that are
 // allowed to emit audit events and asserts that every AuditAction* constant

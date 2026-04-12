@@ -56,6 +56,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListSecrets)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "get-secret", Method: http.MethodGet, Path: "/v1/secrets/{secretID}",
+		Summary: "Get a secret", Description: "Returns metadata for a single secret. The encrypted and decrypted values are never included.",
+		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetSecret)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "delete-secret", Method: http.MethodDelete, Path: "/v1/secrets/{secretID}",
 		Summary: "Delete a secret", Description: "Permanently deletes a secret.",
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -1079,6 +1085,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Export audit events", Description: "Exports audit events as CSV or JSON for compliance and reporting.",
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleExportAuditEvents)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-audit-event", Method: http.MethodGet, Path: "/v1/audit-events/{id}",
+		Summary: "Get an audit event", Description: "Returns a single audit event scoped to the current project. The read itself is audited.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetAuditEvent)
 
 	// -- Data Export --
 	RegisterTypedOp(api, OpMeta{

@@ -21,6 +21,7 @@ var (
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
+	ErrAuditEventNotFound           = errors.New("audit event not found")
 	ErrRunNotFound                  = errors.New("run not found")
 	ErrRunConflict                  = errors.New("run status update conflict")
 	ErrWorkflowNotFound             = errors.New("workflow not found")

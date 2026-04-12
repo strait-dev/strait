@@ -71,6 +71,7 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Audit log list read.",
 	},
 	AuditActionAuditSingleRead: {
+		Required:    []string{"target_id"},
 		Description: "Single audit event read.",
 	},
 	AuditActionAuditChainVerified: {
@@ -287,8 +288,8 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Secret list read.",
 	},
 	AuditActionSecretRead: {
-		Required:    []string{"secret_key"},
-		Forbidden:   []string{"value", "encrypted_value", "plaintext"},
+		Required:    []string{"secret_id", "name"},
+		Forbidden:   []string{"value", "encrypted_value", "plaintext", "key", "key_material"},
 		Description: "Single secret metadata read (never the decrypted value).",
 	},
 
