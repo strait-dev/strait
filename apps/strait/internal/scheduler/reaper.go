@@ -55,6 +55,8 @@ type ReaperStore interface {
 	DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
 	DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
 	DeleteAuditEventsBefore(ctx context.Context, projectID string, cutoff time.Time) (int64, error)
+	DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff time.Time, excludeProjectIDs []string) (int64, error)
+	ListAuditRetentionOverrides(ctx context.Context) ([]store.AuditRetentionOverride, error)
 	ListAuditEventsDeadletter(ctx context.Context, limit int) ([]domain.AuditEvent, []string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id string) error

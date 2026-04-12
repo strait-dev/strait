@@ -13,6 +13,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/crypto/hkdf"
 )
@@ -292,12 +293,55 @@ func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, projectID string,
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBefore")
 	defer span.End()
 
-	tag, err := q.db.Exec(ctx, `
-		DELETE FROM audit_events
-		WHERE project_id = $1 AND created_at < $2
-	`, projectID, cutoff)
+	// An empty projectID means "trim across all projects" — callers that want
+	// per-project trimming pass a non-empty id. This lets the scheduler reap
+	// globally when no per-project overrides are configured.
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	if projectID == "" {
+		tag, err = q.db.Exec(ctx, `
+			DELETE FROM audit_events
+			WHERE created_at < $1
+		`, cutoff)
+	} else {
+		tag, err = q.db.Exec(ctx, `
+			DELETE FROM audit_events
+			WHERE project_id = $1 AND created_at < $2
+		`, projectID, cutoff)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("delete audit events before: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteAuditEventsBeforeExcluding trims audit events across all projects
+// except those listed in excludeProjectIDs. Used by the retention reaper to
+// apply the server-wide default to every project that does not have a
+// per-project override in project_quotas.audit_retention_days.
+func (q *Queries) DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff time.Time, excludeProjectIDs []string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBeforeExcluding")
+	defer span.End()
+
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	if len(excludeProjectIDs) == 0 {
+		tag, err = q.db.Exec(ctx, `
+			DELETE FROM audit_events
+			WHERE created_at < $1
+		`, cutoff)
+	} else {
+		tag, err = q.db.Exec(ctx, `
+			DELETE FROM audit_events
+			WHERE created_at < $1 AND project_id <> ALL($2::text[])
+		`, cutoff, excludeProjectIDs)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("delete audit events before excluding: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }

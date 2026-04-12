@@ -95,6 +95,12 @@ func (baseReaperStore) DeleteEventTriggersFinishedBefore(_ context.Context, _ ti
 func (baseReaperStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
 	return 0, nil
 }
+func (baseReaperStore) DeleteAuditEventsBeforeExcluding(_ context.Context, _ time.Time, _ []string) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) ListAuditRetentionOverrides(_ context.Context) ([]store.AuditRetentionOverride, error) {
+	return nil, nil
+}
 func (baseReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
 	return nil, nil, nil
 }

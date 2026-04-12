@@ -30,9 +30,14 @@ func (r *Reaper) WithAuditDLQReclaimBatch(n int) *Reaper {
 	return r
 }
 
-// reapAuditEvents deletes audit events older than the configured retention window.
-// The projectID is intentionally left empty so the store deletes across all projects
-// using the server-wide default.
+// reapAuditEvents deletes audit events older than the configured retention
+// window. Per-project overrides in project_quotas.audit_retention_days take
+// precedence over the server-wide default. A project-level override of 0
+// disables retention trimming for that project entirely.
+//
+// For projects without an override, a single sweep applies the default,
+// skipping the projects that have an override row (whether positive or 0)
+// so the per-project decision is final.
 func (r *Reaper) reapAuditEvents(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.reapAuditEvents")
 	defer span.End()
@@ -41,18 +46,62 @@ func (r *Reaper) reapAuditEvents(ctx context.Context) {
 		return
 	}
 
-	cutoff := time.Now().Add(-time.Duration(r.auditRetentionDefaultDays) * 24 * time.Hour)
-	deleted, err := r.store.DeleteAuditEventsBefore(ctx, "", cutoff)
+	overrides, err := r.store.ListAuditRetentionOverrides(ctx)
 	if err != nil {
-		r.logger.Error("failed to reap audit events", "error", err)
+		r.logger.Error("failed to list audit retention overrides", "error", err)
+		r.recordOperation(ctx, "audit_retention", "error")
+		return
+	}
+
+	now := time.Now()
+	excluded := make([]string, 0, len(overrides))
+	for _, ov := range overrides {
+		excluded = append(excluded, ov.ProjectID)
+		if ov.Days <= 0 {
+			// Disabled — skip trimming for this project.
+			continue
+		}
+		cutoff := now.Add(-time.Duration(ov.Days) * 24 * time.Hour)
+		deleted, err := r.store.DeleteAuditEventsBefore(ctx, ov.ProjectID, cutoff)
+		if err != nil {
+			r.logger.Error("failed to reap audit events for project",
+				"project_id", ov.ProjectID, "error", err)
+			r.recordOperation(ctx, "audit_retention", "error")
+			continue
+		}
+		if deleted > 0 {
+			r.logger.Info("reaped old audit events (override)",
+				"project_id", ov.ProjectID, "deleted", deleted, "cutoff", cutoff)
+			r.recordDeleted(ctx, "audit_events", deleted)
+			r.recordAuditRetentionDeleted(ctx, ov.ProjectID, deleted)
+		}
+	}
+
+	// Default sweep across every project without an override.
+	defaultCutoff := now.Add(-time.Duration(r.auditRetentionDefaultDays) * 24 * time.Hour)
+	deleted, err := r.store.DeleteAuditEventsBeforeExcluding(ctx, defaultCutoff, excluded)
+	if err != nil {
+		r.logger.Error("failed to reap audit events (default)", "error", err)
 		r.recordOperation(ctx, "audit_retention", "error")
 		return
 	}
 	if deleted > 0 {
-		r.logger.Info("reaped old audit events", "deleted", deleted, "cutoff", cutoff)
+		r.logger.Info("reaped old audit events", "deleted", deleted, "cutoff", defaultCutoff)
 		r.recordDeleted(ctx, "audit_events", deleted)
+		r.recordAuditRetentionDeleted(ctx, "", deleted)
 	}
 	r.recordOperation(ctx, "audit_retention", "ok")
+}
+
+// recordAuditRetentionDeleted increments the retention deletion counter with
+// a project_id attribute (empty string identifies the default global sweep).
+func (r *Reaper) recordAuditRetentionDeleted(ctx context.Context, projectID string, n int64) {
+	if r.metrics == nil || n <= 0 {
+		return
+	}
+	r.metrics.AuditRetentionDeleted.Add(ctx, n, metric.WithAttributes(
+		attribute.String("project_id", projectID),
+	))
 }
 
 // recordReclaimerSuccess increments the reclaimer success counter.

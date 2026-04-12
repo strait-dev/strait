@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 // fakeAuditReclaimerStore is a minimal ReaperStore implementation that
@@ -51,6 +52,14 @@ func (f *fakeAuditReclaimerStore) DeleteAuditEventDeadletter(ctx context.Context
 
 func (f *fakeAuditReclaimerStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
 	return 0, nil
+}
+
+func (f *fakeAuditReclaimerStore) DeleteAuditEventsBeforeExcluding(_ context.Context, _ time.Time, _ []string) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeAuditReclaimerStore) ListAuditRetentionOverrides(_ context.Context) ([]store.AuditRetentionOverride, error) {
+	return nil, nil
 }
 
 func newFakeDLQEvents(n int) ([]domain.AuditEvent, []string) {
@@ -169,4 +178,100 @@ func TestReclaimAuditDeadletter_ListError_RecordsOperation(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	// Must not panic and must return cleanly.
 	r.reclaimAuditDeadletter(ctx)
+}
+
+// fakeAuditRetentionStore captures DeleteAuditEventsBefore calls per project
+// so we can assert the reaper honors per-project overrides from
+// project_quotas.audit_retention_days.
+type fakeAuditRetentionStore struct {
+	mockReaperStore
+
+	overrides []store.AuditRetentionOverride
+
+	perProjectCalls map[string]int
+	excludingCalls  []struct {
+		excluded []string
+	}
+}
+
+func newFakeAuditRetentionStore(overrides []store.AuditRetentionOverride) *fakeAuditRetentionStore {
+	return &fakeAuditRetentionStore{
+		overrides:       overrides,
+		perProjectCalls: map[string]int{},
+	}
+}
+
+func (f *fakeAuditRetentionStore) ListAuditRetentionOverrides(_ context.Context) ([]store.AuditRetentionOverride, error) {
+	return f.overrides, nil
+}
+
+func (f *fakeAuditRetentionStore) DeleteAuditEventsBefore(_ context.Context, projectID string, _ time.Time) (int64, error) {
+	f.perProjectCalls[projectID]++
+	return 0, nil
+}
+
+func (f *fakeAuditRetentionStore) DeleteAuditEventsBeforeExcluding(_ context.Context, _ time.Time, excluded []string) (int64, error) {
+	cp := append([]string(nil), excluded...)
+	f.excludingCalls = append(f.excludingCalls, struct{ excluded []string }{excluded: cp})
+	return 0, nil
+}
+
+func TestReapAuditEvents_CallsPerProjectOverrides(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeAuditRetentionStore([]store.AuditRetentionOverride{
+		{ProjectID: "proj-a", Days: 30},
+		{ProjectID: "proj-b", Days: 7},
+	})
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(365)
+	r.reapAuditEvents(ctx)
+
+	if got := fake.perProjectCalls["proj-a"]; got != 1 {
+		t.Errorf("DeleteAuditEventsBefore(proj-a) calls = %d, want 1", got)
+	}
+	if got := fake.perProjectCalls["proj-b"]; got != 1 {
+		t.Errorf("DeleteAuditEventsBefore(proj-b) calls = %d, want 1", got)
+	}
+	if len(fake.excludingCalls) != 1 {
+		t.Fatalf("DeleteAuditEventsBeforeExcluding calls = %d, want 1", len(fake.excludingCalls))
+	}
+	excluded := fake.excludingCalls[0].excluded
+	if len(excluded) != 2 {
+		t.Fatalf("excluded projects = %v, want both override projects", excluded)
+	}
+}
+
+func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeAuditRetentionStore([]store.AuditRetentionOverride{
+		{ProjectID: "proj-disabled", Days: 0},
+		{ProjectID: "proj-active", Days: 14},
+	})
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(365)
+	r.reapAuditEvents(ctx)
+
+	if got := fake.perProjectCalls["proj-disabled"]; got != 0 {
+		t.Errorf("disabled project should not be trimmed, got %d calls", got)
+	}
+	if got := fake.perProjectCalls["proj-active"]; got != 1 {
+		t.Errorf("active project trim calls = %d, want 1", got)
+	}
+	if len(fake.excludingCalls) != 1 {
+		t.Fatalf("default sweep must still run once, got %d", len(fake.excludingCalls))
+	}
+	// The disabled project must still be excluded from the default sweep so
+	// it is not silently trimmed by the global default.
+	excluded := fake.excludingCalls[0].excluded
+	var seenDisabled bool
+	for _, p := range excluded {
+		if p == "proj-disabled" {
+			seenDisabled = true
+		}
+	}
+	if !seenDisabled {
+		t.Errorf("default sweep excluded = %v, want to contain proj-disabled", excluded)
+	}
 }
