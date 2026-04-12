@@ -105,6 +105,7 @@
             "group": "Operations",
             "pages": [
               "operations/monitoring-and-alerts",
+              "operations/alert-runbooks",
               "operations/oidc-rollout",
               "operations/rbac-policy-rollout",
               "operations/api-key-rotation-rollout",

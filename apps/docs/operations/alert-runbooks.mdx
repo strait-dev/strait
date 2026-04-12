@@ -1,0 +1,273 @@
+---
+title: "Alert runbooks"
+description: "On-call runbooks for Strait Prometheus alerts: symptom, impact, diagnosis, remediation, and escalation for every rule in k8s/prometheus-rules.yaml."
+---
+
+This runbook covers every alert defined in
+`apps/strait/k8s/prometheus-rules.yaml`. Each section is linked from the
+`runbook_url` annotation on its rule. Sections follow a consistent shape:
+Symptom, Impact, Diagnosis, Remediation, Escalation.
+
+All PromQL assumes the OpenTelemetry Prometheus exporter naming
+convention — dotted instrument names (`strait.queue.depth`) are exposed
+as underscore-separated (`strait_queue_depth`), histograms carry the
+`_bucket` / `_sum` / `_count` suffixes, and monotonic counters carry
+`_total`.
+
+## StraitQueueDepthHigh
+
+**Symptom.** `max(strait_queue_depth) > 10000` for 5 minutes.
+
+**Impact.** The hottest partition is backing up. End-to-end run latency
+is rising and SSE consumers may observe stale state.
+
+**Diagnosis.**
+
+- Grafana: "Queue health" dashboard, "Queue depth by status" panel.
+- Which partition is hot?
+  ```
+  topk(5, strait_queue_depth) by (partition, status)
+  ```
+- Is it an enqueue spike or a dequeue stall? Compare rate of new runs
+  (`strait_runs_started_total`) against worker utilisation
+  (`strait_queue_partition_dequeue_lag_seconds`).
+
+**Remediation.**
+
+1. Scale worker replicas. Confirm pool saturation via
+   `strait_queue_backpressure_tokens_available`.
+2. If a single job is hot, raise its `concurrency` or investigate
+   per-job backpressure.
+3. Check Postgres: long-running queries, autovacuum on the partition,
+   `strait_queue_dead_tuple_ratio`.
+
+**Escalation.** If depth keeps climbing after scaling, page the queue
+on-call. Prolonged saturation risks downstream SLA breach.
+
+## StraitDLQGrowing
+
+**Symptom.** `rate(strait_dlq_depth[5m]) > 0` for 15 minutes.
+
+**Impact.** A systematic failure is pushing runs to the dead-letter
+queue faster than operators are triaging. Eventual customer-visible
+failure-count spike.
+
+**Diagnosis.**
+
+- Top offending jobs:
+  ```
+  topk(10, strait_dlq_depth) by (job_id)
+  ```
+- Inspect the most recent DLQ entries via `GET /v1/admin/dlq` and the
+  DLQ recovery runbook (`operations/dlq-recovery`).
+- Correlate with `strait_webhook_deliveries_total` failures or external
+  dependency errors.
+
+**Remediation.**
+
+1. Identify the failure class (user code bug, dependency outage,
+   misconfiguration).
+2. Replay recoverable runs via
+   `POST /v1/admin/dlq/{run_id}/replay`.
+3. Purge non-recoverable runs with an audit trail.
+
+**Escalation.** Page the domain owner for the offending job if the
+cause is business-logic. Otherwise, treat as a platform incident.
+
+## StraitDLQOldestUnmaskedAged
+
+**Symptom.** `strait_queue_dlq_oldest_unmasked_age_seconds > 86400`.
+
+**Impact.** A dead-letter row has been waiting for triage for more
+than 24 hours. Indicates operator inattention, not a spike.
+
+**Diagnosis.**
+
+- Pull the oldest visible DLQ rows:
+  ```
+  GET /v1/admin/dlq?order=oldest&limit=20
+  ```
+- Cross-reference with ticketing — is triage blocked on someone?
+
+**Remediation.** Replay, purge, or explicitly mask after investigation.
+Follow `operations/dlq-recovery`.
+
+**Escalation.** Non-paging but tracked. If it ages past 72h, escalate
+to platform lead.
+
+## StraitCircuitBreakerOpen
+
+**Symptom.**
+`increase(strait_queue_circuit_state_transitions_total{to="open"}[5m]) > 0`.
+**Page-level.**
+
+**Impact.** The database circuit breaker tripped. Queue claim and
+worker dispatch are halted or severely degraded; runs are not making
+progress.
+
+**Diagnosis.**
+
+- Breaker history:
+  ```
+  sum by (from, to) (rate(strait_queue_circuit_state_transitions_total[15m]))
+  ```
+- Postgres health: connection count, replication lag, CPU, disk.
+- `strait_queue_partition_dequeue_lag_seconds` p99.
+
+**Remediation.**
+
+1. Stabilise Postgres. The breaker will half-open and close as error
+   rate drops.
+2. If the breaker is flapping, raise its error threshold temporarily
+   via config; do not disable.
+3. For a confirmed Postgres outage, initiate the DB failover runbook.
+
+**Escalation.** Immediate page to DB on-call. This is a SEV-2 by
+default, SEV-1 if sustained longer than 15 minutes.
+
+## StraitEventChannelDropping
+
+**Symptom.** `rate(strait_worker_event_channel_dropped_total[5m]) > 0`
+for 5 minutes.
+
+**Impact.** Executor lifecycle events are being lost. SSE, audit, and
+CDC fan-out observe gaps; event-trigger workflows may miss signals.
+
+**Diagnosis.**
+
+- Saturation:
+  `strait_worker_event_channel_saturation_ratio`.
+- Is the publisher outpacing consumers, or is the consumer stalled?
+  Check SSE hub backlog and CDC consumer lag.
+
+**Remediation.**
+
+1. Raise `STRAIT_WORKER_EVENT_CHANNEL_SIZE` (Phase 2 knob).
+2. Investigate slow consumers — Redis health, SSE client count.
+
+**Escalation.** Warning-level. Escalate to queue on-call if drops
+persist past 30 minutes.
+
+## StraitSchedulerShutdownTimeout
+
+**Symptom.** `increase(strait_scheduler_shutdown_timeouts_total[1h]) > 0`.
+**Page-level.**
+
+**Impact.** A scheduler background component did not finish shutting
+down within its deadline. Risks in-flight state loss and duplicated
+work on the next start.
+
+**Diagnosis.**
+
+- Which component? The metric is labelled by `component`:
+  ```
+  sum by (component) (increase(strait_scheduler_shutdown_timeouts_total[1h]))
+  ```
+- Look at the recent deploy / rollout — was this correlated with a
+  restart?
+
+**Remediation.**
+
+1. For the offending component, raise its per-component shutdown
+   timeout via config (Phase 2 knob).
+2. Investigate why the component is not respecting ctx cancellation.
+   Long SQL? Blocking HTTP call?
+
+**Escalation.** Page platform on-call during a deploy; otherwise
+treat as a next-business-day investigation.
+
+## StraitOutboxLagHigh
+
+**Symptom.**
+`histogram_quantile(0.99, rate(strait_queue_outbox_lag_seconds_bucket[5m])) > 60`
+for 10 minutes.
+
+**Impact.** Webhook, CDC, and event-trigger propagation are lagging
+behind run completion. Subscribers observe delayed events.
+
+**Diagnosis.**
+
+- p50/p95/p99 panel in the queue dashboard.
+- Flusher health — are rows staying unflushed, or is the flusher
+  itself slow?
+- Redis pub-sub backlog.
+
+**Remediation.**
+
+1. Scale the outbox flusher (or verify it is running at all — Phase 0
+   wiring regression).
+2. Check downstream consumers (webhook subscriber health).
+
+**Escalation.** Warning. Escalate if p99 exceeds 5 minutes.
+
+## StraitCounterDriftHigh
+
+**Symptom.** `max(strait_queue_counter_drift) > 10` for 15 minutes.
+
+**Impact.** Trigger-maintained counters (`job_active_counts`,
+`dlq_counts`) disagree with ground truth. Admission control and
+quota checks are operating on stale numbers; users may see spurious
+throttling or over-admission.
+
+**Diagnosis.**
+
+- Reconciler logs — the counter reconciler records drift events with
+  table + key.
+- Recent migrations or DDL changes to the counter triggers?
+
+**Remediation.**
+
+1. Run the counter reconciliation job to rebuild from ground truth.
+2. If drift reappears, the trigger is buggy — roll back the related
+   migration or patch the trigger.
+
+**Escalation.** Warning. Page if drift re-emerges within 1 hour of
+reconciliation.
+
+## StraitHeartbeatReclaimsSurge
+
+**Symptom.** `rate(strait_queue_heartbeat_reclaims_total[5m]) > 1` for
+10 minutes.
+**Page-level.**
+
+**Impact.** Runs are being reclaimed after stuck heartbeats at a
+sustained rate. Workers are crashing, losing DB connectivity, or a
+schema-version mismatch is causing heartbeat writes to fail.
+
+**Diagnosis.**
+
+- Worker restart loop? Check Kubernetes events and pod crashloops.
+- Correlate with `strait_queue_notify_reconnects_total` — a LISTEN
+  connection churn suggests network or pgbouncer instability.
+- Verify `schema_version` row matches the binary's embedded
+  migration number (see `store.ErrSchemaMismatch`).
+
+**Remediation.**
+
+1. Stabilise workers (roll back, scale, restart).
+2. If schema mismatch: pin the binary version, run pending migrations,
+   then redeploy.
+
+**Escalation.** Immediate page to platform on-call.
+
+## StraitNotifyDroppedSurge
+
+**Symptom.** `rate(strait_queue_notify_dropped_total[5m]) > 0` for 10
+minutes.
+
+**Impact.** LISTEN/NOTIFY wake-ups are being dropped because the wake
+channel is full. Workers fall back to periodic polling; end-to-end
+dispatch latency rises from sub-second to the polling interval.
+
+**Diagnosis.**
+
+- Concurrent dequeue pressure — how many workers are contending for
+  the same partition?
+- Recent changes to the wake channel buffer size.
+
+**Remediation.**
+
+1. Raise the wake channel buffer.
+2. Scale workers horizontally so fewer contend per partition.
+
+**Escalation.** Warning. Escalate if dispatch latency breaches SLO.
