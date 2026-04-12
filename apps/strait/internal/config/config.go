@@ -42,6 +42,12 @@ type Config struct {
 	OTELEndpoint              string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 	WorkflowRunRetentionDays  int           `env:"WORKFLOW_RUN_RETENTION_DAYS" default:"30"`
 	EventTriggerRetentionDays int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
+	AuditRetentionDefaultDays int           `env:"AUDIT_RETENTION_DEFAULT_DAYS" default:"365"`
+	AuditAsyncBufferSize      int           `env:"AUDIT_ASYNC_BUFFER_SIZE" default:"4096"`
+	AuditSIEMEndpoint         string        `env:"AUDIT_SIEM_ENDPOINT"`
+	AuditSIEMAuthToken        string        `env:"AUDIT_SIEM_AUTH_TOKEN"`
+	AuditSIEMBatchSize        int           `env:"AUDIT_SIEM_BATCH_SIZE" default:"100"`
+	AuditSIEMFlushInterval    time.Duration `env:"AUDIT_SIEM_FLUSH_INTERVAL" default:"10s"`
 
 	// Database connection pool tuning
 	DBMaxConns          int32         `env:"DB_MAX_CONNS" default:"50"`
@@ -448,6 +454,16 @@ func Load() (*Config, error) {
 			}
 			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
 		}
+	}
+
+	if cfg.AuditRetentionDefaultDays < 0 {
+		return nil, &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
+	}
+	if cfg.AuditAsyncBufferSize < 256 {
+		return nil, &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
+	}
+	if cfg.AuditSIEMEndpoint != "" && cfg.AuditSIEMAuthToken == "" {
+		return nil, &domain.ConfigError{Field: "AUDIT_SIEM_AUTH_TOKEN", Message: "is required when AUDIT_SIEM_ENDPOINT is set"}
 	}
 
 	slog.Info("config loaded",
