@@ -36,6 +36,7 @@ const (
 	AuditActionDeadletterReplayed = "audit.deadletter_replayed"
 	AuditActionDeadletterDropped  = "audit.deadletter_dropped"
 	AuditActionExportCapUpdated   = "audit.export_cap_updated"
+	AuditActionRetentionUpdated   = "audit.retention_updated"
 
 	// CLI / device code.
 	AuditActionDeviceCodeApproved = "device_code.approved"
@@ -212,6 +213,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionDeadletterReplayed:              {},
 	AuditActionDeadletterDropped:               {},
 	AuditActionExportCapUpdated:                {},
+	AuditActionRetentionUpdated:                {},
 	AuditActionDeviceCodeApproved:              {},
 	AuditActionProjectCreated:                  {},
 	AuditActionProjectDeleted:                  {},

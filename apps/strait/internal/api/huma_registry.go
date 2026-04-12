@@ -1131,6 +1131,20 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
 	}, s.handleUpdateAuditExportCap)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-audit-retention", Method: http.MethodGet, Path: "/v1/projects/{id}/audit/retention",
+		Summary:     "Get audit retention override",
+		Description: "Returns the per-project audit retention window (days). Reports whether the value is inherited from the server default or explicitly overridden (including the explicit 0 = disable-trim case). Admin-only.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleGetAuditRetention)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "set-audit-retention", Method: http.MethodPut, Path: "/v1/projects/{id}/audit/retention",
+		Summary:     "Update audit retention override",
+		Description: "Sets the per-project audit retention window (days). 0 disables retention trimming for the project; negative values are rejected. Admin-only, audited.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleSetAuditRetention)
+
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-resource-policy", Method: http.MethodPost, Path: "/v1/resource-policies",

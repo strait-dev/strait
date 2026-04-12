@@ -52,6 +52,65 @@ func (q *Queries) ListAuditRetentionOverrides(ctx context.Context) ([]AuditReten
 	return out, nil
 }
 
+// GetAuditRetentionDays returns the per-project audit retention override
+// in project_quotas.audit_retention_days. The second return value reports
+// whether an explicit override row is present:
+//
+//   - (N, true, nil)  — project has an explicit override (including N = 0,
+//     which means "disable retention trimming for this project").
+//   - (0, false, nil) — no override row exists; the caller should fall back
+//     to config.AuditRetentionDefaultDays.
+//
+// The distinction matters: an explicit 0 must NOT be confused with absence.
+// An absent row means "inherit the default"; an explicit 0 means "never
+// trim" and the reaper honors that by skipping the project (Phase 2).
+func (q *Queries) GetAuditRetentionDays(ctx context.Context, projectID string) (int, bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditRetentionDays")
+	defer span.End()
+
+	var days *int
+	err := q.db.QueryRow(ctx, `
+		SELECT audit_retention_days
+		FROM project_quotas
+		WHERE project_id = $1
+	`, projectID).Scan(&days)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("get audit retention days: %w", err)
+	}
+	if days == nil {
+		// Row exists but audit_retention_days is NULL — equivalent to
+		// "no override" for reaper purposes.
+		return 0, false, nil
+	}
+	return *days, true, nil
+}
+
+// SetAuditRetentionDays persists a per-project audit retention override.
+// A value of 0 is a legitimate, meaningful setting: it tells the reaper
+// to skip the project entirely. Negative values are rejected by the API
+// handler before this method is called — the store performs no extra
+// validation.
+//
+// Upserts into project_quotas so a project without any prior quota row
+// still gets its retention recorded without disturbing other columns.
+func (q *Queries) SetAuditRetentionDays(ctx context.Context, projectID string, days int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetAuditRetentionDays")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO project_quotas (project_id, audit_retention_days)
+		VALUES ($1, $2)
+		ON CONFLICT (project_id) DO UPDATE SET audit_retention_days = EXCLUDED.audit_retention_days
+	`, projectID, days)
+	if err != nil {
+		return fmt.Errorf("set audit retention days: %w", err)
+	}
+	return nil
+}
+
 // GetAuditExportRowCap returns the per-project override for the maximum
 // number of rows a single audit export may stream. A return value of 0
 // means "no override" — the caller must fall back to the server-wide

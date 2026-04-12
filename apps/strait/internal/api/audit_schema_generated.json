@@ -371,6 +371,33 @@
         "bearer"
       ]
     },
+    "audit.retention_updated": {
+      "type": "object",
+      "description": "Admin operator updated the per-project audit retention window (days). 0 disables retention trimming for the project; a negative value is rejected at the API layer.",
+      "properties": {
+        "new_days": {
+          "type": "string",
+          "description": "required"
+        },
+        "old_days": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["old_days", "new_days"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "audit.single_read": {
       "type": "object",
       "description": "Single audit event read.",

@@ -60,6 +60,7 @@ var handlerActionPayloads = map[string]map[string]any{
 	domain.AuditActionDeadletterReplayed:              {"deadletter_id": "dlq-1", "new_event_id": "ev-new-1"},
 	domain.AuditActionDeadletterDropped:               {"deadletter_id": "dlq-1", "reason": "operator_drop"},
 	domain.AuditActionExportCapUpdated:                {"old_cap": int64(1000), "new_cap": int64(500), "row_cap": int64(500)},
+	domain.AuditActionRetentionUpdated:                {"old_days": 365, "new_days": 30},
 	domain.AuditActionDeviceCodeApproved:              {"user_code": "ABCD-1234", "api_key_id": "key-1"},
 	domain.AuditActionProjectCreated:                  {"name": "My Project", "org_id": "org-1"},
 	domain.AuditActionProjectDeleted:                  nil,

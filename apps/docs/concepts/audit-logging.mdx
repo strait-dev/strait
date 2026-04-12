@@ -46,6 +46,15 @@ No additional configuration is required to start capturing events.
 
 Events are stored in the primary database for persistence and are also emitted to the internal event system, allowing for real-time monitoring or integration with external logging providers.
 
+## Retention overrides
+
+By default, every project retains audit events for the server-wide window (`AUDIT_RETENTION_DEFAULT_DAYS`, 365 days). Admins can override this per project through two endpoints:
+
+- `GET /v1/projects/{id}/audit/retention` — returns `{days, inherited_from_default}`. When no override is set, `days` is the server default and `inherited_from_default` is `true`.
+- `PUT /v1/projects/{id}/audit/retention` — body `{days}`. `days > 0` overrides the default; `days = 0` disables retention trimming entirely for the project (audit events are never deleted by the reaper); `days < 0` is rejected with 400.
+
+Both endpoints require admin access, are tenant-isolated to the authenticated project, and every successful `PUT` emits an `audit.retention_updated` event recording `old_days` and `new_days` for the audit trail.
+
 ## Related Concepts
 
 - [Authentication](/guides/authentication)
