@@ -16,10 +16,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "warning_threshold",
-        "critical_threshold"
-      ],
+      "required": ["warning_threshold", "critical_threshold"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -46,10 +43,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "key_prefix"
-      ],
+      "required": ["name", "key_prefix"],
       "x-forbidden-keys": [
         "key",
         "rawKey",
@@ -106,9 +100,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "new_key_id"
-      ],
+      "required": ["new_key_id"],
       "x-forbidden-keys": [
         "key",
         "rawKey",
@@ -149,9 +141,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "exported"
-      ],
+      "required": ["exported"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -182,12 +172,42 @@
           "description": "required"
         }
       },
-      "required": [
-        "from",
-        "to",
-        "format"
-      ],
+      "required": ["from", "to", "format"],
       "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.key_rotated": {
+      "type": "object",
+      "description": "Audit HMAC signing key rotation; writes a forensic anchor row that boundary-stitches the chain across epochs.",
+      "properties": {
+        "new_epoch": {
+          "type": "string",
+          "description": "required"
+        },
+        "previous_epoch": {
+          "type": "string",
+          "description": "required"
+        },
+        "rotated_by": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["previous_epoch", "new_epoch", "rotated_by"],
+      "x-forbidden-keys": [
+        "key",
+        "new_key",
+        "secret_material",
         "secret",
         "value",
         "password",
@@ -281,9 +301,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_id"
-      ],
+      "required": ["workflow_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -310,10 +328,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_id",
-        "traffic_pct"
-      ],
+      "required": ["workflow_id", "traffic_pct"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -340,10 +355,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id",
-        "runtime"
-      ],
+      "required": ["job_id", "runtime"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -370,10 +382,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id",
-        "runtime"
-      ],
+      "required": ["job_id", "runtime"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -396,9 +405,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -421,9 +428,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "environment"
-      ],
+      "required": ["environment"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -446,9 +451,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "environment"
-      ],
+      "required": ["environment"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -471,9 +474,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "environment"
-      ],
+      "required": ["environment"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -496,9 +497,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "environment"
-      ],
+      "required": ["environment"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -525,10 +524,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "user_code",
-        "api_key_id"
-      ],
+      "required": ["user_code", "api_key_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -551,9 +547,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "monthly_usage_email"
-      ],
+      "required": ["monthly_usage_email"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -580,10 +574,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "slug"
-      ],
+      "required": ["name", "slug"],
       "x-forbidden-keys": [
         "variables",
         "secret",
@@ -623,9 +614,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "changed_fields"
-      ],
+      "required": ["changed_fields"],
       "x-forbidden-keys": [
         "variables",
         "secret",
@@ -649,9 +638,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "event_key"
-      ],
+      "required": ["event_key"],
       "x-forbidden-keys": [
         "payload",
         "secret",
@@ -675,9 +662,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "prefix"
-      ],
+      "required": ["prefix"],
       "x-forbidden-keys": [
         "payload",
         "secret",
@@ -701,9 +686,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "x-forbidden-keys": [
         "signature_secret",
         "signature_secret_enc",
@@ -748,10 +731,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "source_name",
-        "dispatched"
-      ],
+      "required": ["source_name", "dispatched"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -782,11 +762,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "subscription_id",
-        "target_type",
-        "target_id"
-      ],
+      "required": ["subscription_id", "target_type", "target_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -809,9 +785,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "changed_fields"
-      ],
+      "required": ["changed_fields"],
       "x-forbidden-keys": [
         "signature_secret",
         "signature_secret_enc",
@@ -836,9 +810,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "source_id"
-      ],
+      "required": ["source_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -861,9 +833,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "event_key"
-      ],
+      "required": ["event_key"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -886,9 +856,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "older_than_days"
-      ],
+      "required": ["older_than_days"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -911,9 +879,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "count"
-      ],
+      "required": ["count"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -936,9 +902,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "count"
-      ],
+      "required": ["count"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -961,9 +925,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "count"
-      ],
+      "required": ["count"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -990,10 +952,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "batch_id",
-        "total"
-      ],
+      "required": ["batch_id", "total"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1024,11 +983,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "source_job_id",
-        "new_name",
-        "new_slug"
-      ],
+      "required": ["source_job_id", "new_name", "new_slug"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1059,11 +1014,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "slug",
-        "execution_mode"
-      ],
+      "required": ["name", "slug", "execution_mode"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1134,9 +1085,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "run_id"
-      ],
+      "required": ["run_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1159,9 +1108,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "changes"
-      ],
+      "required": ["changes"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1192,11 +1139,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id",
-        "depends_on_job_id",
-        "condition"
-      ],
+      "required": ["job_id", "depends_on_job_id", "condition"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1219,9 +1162,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1248,10 +1189,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "slug"
-      ],
+      "required": ["name", "slug"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1342,10 +1280,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "format",
-        "project_id"
-      ],
+      "required": ["format", "project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1372,10 +1307,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "drain_type"
-      ],
+      "required": ["name", "drain_type"],
       "x-forbidden-keys": [
         "endpoint_url",
         "auth_config",
@@ -1417,9 +1349,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "changed_fields"
-      ],
+      "required": ["changed_fields"],
       "x-forbidden-keys": [
         "endpoint_url",
         "auth_config",
@@ -1449,10 +1379,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "channel_type"
-      ],
+      "required": ["name", "channel_type"],
       "x-forbidden-keys": [
         "config",
         "webhook_url",
@@ -1498,10 +1425,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "channel_type"
-      ],
+      "required": ["name", "channel_type"],
       "x-forbidden-keys": [
         "config",
         "webhook_url",
@@ -1531,10 +1455,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "user_id",
-        "project_id"
-      ],
+      "required": ["user_id", "project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1561,10 +1482,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "user_id",
-        "project_id"
-      ],
+      "required": ["user_id", "project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1591,10 +1509,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "org_id"
-      ],
+      "required": ["name", "org_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1637,10 +1552,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "budget_microusd",
-        "action"
-      ],
+      "required": ["budget_microusd", "action"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1663,9 +1575,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "changes"
-      ],
+      "required": ["changes"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1700,12 +1610,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "resource_type",
-        "resource_id",
-        "user_id",
-        "actions"
-      ],
+      "required": ["resource_type", "resource_id", "user_id", "actions"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1748,10 +1653,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "permissions"
-      ],
+      "required": ["name", "permissions"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1790,9 +1692,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "project_id"
-      ],
+      "required": ["project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1815,9 +1715,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "changes"
-      ],
+      "required": ["changes"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1840,9 +1738,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "total"
-      ],
+      "required": ["total"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1865,9 +1761,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "project_id"
-      ],
+      "required": ["project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1890,9 +1784,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "count"
-      ],
+      "required": ["count"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1915,9 +1807,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "count"
-      ],
+      "required": ["count"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1940,9 +1830,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1965,9 +1853,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "enabled"
-      ],
+      "required": ["enabled"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2006,9 +1892,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2035,10 +1919,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "original_run_id",
-        "job_id"
-      ],
+      "required": ["original_run_id", "job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2061,9 +1942,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2090,10 +1969,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id",
-        "new_scheduled_at"
-      ],
+      "required": ["job_id", "new_scheduled_at"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2116,9 +1992,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2141,9 +2015,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2178,12 +2050,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "format",
-        "from",
-        "to",
-        "project_id"
-      ],
+      "required": ["format", "from", "to", "project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2206,9 +2073,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "secret_key"
-      ],
+      "required": ["secret_key"],
       "x-forbidden-keys": [
         "value",
         "encrypted_value",
@@ -2234,9 +2099,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "secret_key"
-      ],
+      "required": ["secret_key"],
       "x-forbidden-keys": [
         "value",
         "encrypted_value",
@@ -2278,9 +2141,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "secret_key"
-      ],
+      "required": ["secret_key"],
       "x-forbidden-keys": [
         "value",
         "encrypted_value",
@@ -2310,10 +2171,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "limit_microusd",
-        "action"
-      ],
+      "required": ["limit_microusd", "action"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2336,9 +2194,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "expires_at"
-      ],
+      "required": ["expires_at"],
       "x-forbidden-keys": [
         "token",
         "secret",
@@ -2374,12 +2230,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "tag_key",
-        "resource_type",
-        "user_id",
-        "actions"
-      ],
+      "required": ["tag_key", "resource_type", "user_id", "actions"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2426,11 +2277,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "format",
-        "from",
-        "to"
-      ],
+      "required": ["format", "from", "to"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2469,9 +2316,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "url_host"
-      ],
+      "required": ["url_host"],
       "x-forbidden-keys": [
         "url",
         "secret",
@@ -2496,9 +2341,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "subscription_id"
-      ],
+      "required": ["subscription_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2525,10 +2368,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "url_host",
-        "event_types"
-      ],
+      "required": ["url_host", "event_types"],
       "x-forbidden-keys": [
         "url",
         "secret",
@@ -2554,9 +2394,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "url_host"
-      ],
+      "required": ["url_host"],
       "x-forbidden-keys": [
         "url",
         "secret",
@@ -2585,10 +2423,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "grace_expires_at",
-        "grace_period_minutes"
-      ],
+      "required": ["grace_expires_at", "grace_period_minutes"],
       "x-forbidden-keys": [
         "secret",
         "new_secret",
@@ -2617,10 +2452,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "source_workflow_id",
-        "new_name"
-      ],
+      "required": ["source_workflow_id", "new_name"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2647,10 +2479,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "name",
-        "slug"
-      ],
+      "required": ["name", "slug"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2721,9 +2550,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "run_id"
-      ],
+      "required": ["run_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2746,9 +2573,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "new_version"
-      ],
+      "required": ["new_version"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2775,10 +2600,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "previous_version_id",
-        "new_version"
-      ],
+      "required": ["previous_version_id", "new_version"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2801,9 +2623,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "project_id"
-      ],
+      "required": ["project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2826,9 +2646,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "total"
-      ],
+      "required": ["total"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2851,9 +2669,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "total"
-      ],
+      "required": ["total"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2876,9 +2692,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_id"
-      ],
+      "required": ["workflow_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2901,9 +2715,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_id"
-      ],
+      "required": ["workflow_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2926,9 +2738,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_id"
-      ],
+      "required": ["workflow_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2951,9 +2761,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_id"
-      ],
+      "required": ["workflow_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -2976,9 +2784,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "original_run_id"
-      ],
+      "required": ["original_run_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -3001,9 +2807,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "from_step_ref"
-      ],
+      "required": ["from_step_ref"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -3034,11 +2838,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_run_id",
-        "step_ref",
-        "approver"
-      ],
+      "required": ["workflow_run_id", "step_ref", "approver"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -3065,10 +2865,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_run_id",
-        "step_ref"
-      ],
+      "required": ["workflow_run_id", "step_ref"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -3095,10 +2892,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_run_id",
-        "step_ref"
-      ],
+      "required": ["workflow_run_id", "step_ref"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -3125,10 +2919,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "workflow_run_id",
-        "step_ref"
-      ],
+      "required": ["workflow_run_id", "step_ref"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -3155,10 +2946,7 @@
           "description": "required"
         }
       },
-      "required": [
-        "format",
-        "project_id"
-      ],
+      "required": ["format", "project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",

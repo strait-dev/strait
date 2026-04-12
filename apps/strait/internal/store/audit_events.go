@@ -124,10 +124,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			INSERT INTO audit_events (
 				id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 				details, signature, previous_hash, created_at,
-				remote_ip, user_agent, request_id, trace_id, schema_version
+				remote_ip, user_agent, request_id, trace_id, schema_version,
+				is_anchor, rotation_epoch
 			)
 			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9,
-			       $11, $12, $13, $14, $15
+			       $11, $12, $13, $14, $15, $16, $17
 			FROM lock_and_prev
 			RETURNING previous_hash, details
 		)
@@ -137,6 +138,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID, details,
 		ev.CreatedAt, ZeroHash,
 		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
+		ev.IsAnchor, ev.RotationEpoch,
 	).Scan(&ev.PreviousHash, &ev.Details); err != nil {
 		return fmt.Errorf("create audit event: %w", err)
 	}
@@ -166,7 +168,8 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 
 	query := `
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
-		       remote_ip, user_agent, request_id, trace_id, schema_version
+		       remote_ip, user_agent, request_id, trace_id, schema_version,
+		       is_anchor, rotation_epoch
 		FROM audit_events
 		WHERE project_id = $1`
 	args := []any{projectID}
@@ -223,7 +226,7 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 	events := make([]domain.AuditEvent, 0, limit)
 	for rows.Next() {
 		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion, &ev.IsAnchor, &ev.RotationEpoch); err != nil {
 			return nil, fmt.Errorf("scan audit event: %w", err)
 		}
 		events = append(events, ev)
@@ -238,7 +241,8 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 
 	query := `
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
-		       remote_ip, user_agent, request_id, trace_id, schema_version
+		       remote_ip, user_agent, request_id, trace_id, schema_version,
+		       is_anchor, rotation_epoch
 		FROM audit_events
 		WHERE project_id = $1`
 	args := []any{projectID}
@@ -272,7 +276,7 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 
 	for rows.Next() {
 		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion, &ev.IsAnchor, &ev.RotationEpoch); err != nil {
 			return fmt.Errorf("scan audit event: %w", err)
 		}
 		if err := fn(&ev); err != nil {
@@ -357,12 +361,27 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		return nil, fmt.Errorf("audit signing key is not configured")
 	}
 
+	// Ordering: rotation_epoch ASC, then created_at ASC. Anchor rows are
+	// the first row of their new epoch by construction (they are inserted
+	// under the newly-bumped epoch before any other post-rotation writes).
+	// Within an epoch, created_at preserves insertion order as the chain
+	// serialization is HMAC-bound to previous_hash.
+	//
+	// Anchor handling: when an anchor row (is_anchor=true) is encountered,
+	// it must still HMAC-verify against the current signing key and its
+	// previous_hash must match the tail of the previous epoch. After the
+	// anchor verifies, expectedPrevHash is advanced to the anchor's own
+	// signature — post-rotation events chain from the anchor. The plan's
+	// deferred per-epoch key derivation is intentionally out of scope here:
+	// a single signing key verifies all rows, and anchors exist purely as
+	// positive forensic markers of when a rotation occurred.
 	query := `
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
-		       remote_ip, user_agent, request_id, trace_id, schema_version
+		       remote_ip, user_agent, request_id, trace_id, schema_version,
+		       is_anchor, rotation_epoch
 		FROM audit_events
 		WHERE project_id = $1
-		ORDER BY created_at ASC`
+		ORDER BY rotation_epoch ASC, created_at ASC`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {
@@ -385,7 +404,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	for rows.Next() {
 		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion, &ev.IsAnchor, &ev.RotationEpoch); err != nil {
 			return nil, fmt.Errorf("verify audit chain scan: %w", err)
 		}
 
@@ -401,7 +420,10 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			first = false
 		}
 
-		// Check chain linkage.
+		// Check chain linkage. Anchor rows MUST also match — they stitch
+		// the chain by HMAC-binding to the previous epoch's tail in their
+		// previous_hash column. Accepting a mismatch here would let a
+		// forger insert a fabricated anchor to mask tampering.
 		if ev.PreviousHash != expectedPrevHash {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
@@ -409,7 +431,9 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			return result, nil
 		}
 
-		// Recompute and verify signature.
+		// Recompute and verify signature. Anchors must HMAC-verify under
+		// the current signing key just like every other row — this is the
+		// only thing preventing a forged anchor.
 		expected := ComputeAuditSignature(&ev, q.auditSigningKey)
 		if ev.Signature != expected {
 			result.Valid = false

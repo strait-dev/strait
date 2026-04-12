@@ -76,6 +76,11 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	AuditActionAuditChainVerified: {
 		Description: "Audit chain verification endpoint was invoked.",
 	},
+	AuditActionKeyRotated: {
+		Required:    []string{"previous_epoch", "new_epoch", "rotated_by"},
+		Forbidden:   []string{"key", "new_key", "secret_material"},
+		Description: "Audit HMAC signing key rotation; writes a forensic anchor row that boundary-stitches the chain across epochs.",
+	},
 
 	// Device code.
 	AuditActionDeviceCodeApproved: {

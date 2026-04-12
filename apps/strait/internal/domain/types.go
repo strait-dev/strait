@@ -254,6 +254,16 @@ type AuditEvent struct {
 	RequestID     string          `json:"request_id,omitempty"`
 	TraceID       string          `json:"trace_id,omitempty"`
 	SchemaVersion uint16          `json:"schema_version,omitempty"`
+	// IsAnchor marks the row as a chain-boundary anchor (e.g. signing key
+	// rotation). Anchors are out-of-band forensic markers: they are NOT
+	// part of the canonical HMAC form, but the verifier honors them as
+	// epoch boundaries so a rotation does not invalidate pre-rotation
+	// signatures.
+	IsAnchor bool `json:"is_anchor,omitempty"`
+	// RotationEpoch is the signing key epoch under which this row was
+	// written. Epoch 0 is the initial key. Monotonically increasing per
+	// project. Also not part of the canonical HMAC form.
+	RotationEpoch int `json:"rotation_epoch,omitempty"`
 }
 
 // AuditEventSchemaVersionCurrent is the schema version stamped on new

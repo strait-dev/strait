@@ -54,6 +54,7 @@ var handlerActionPayloads = map[string]map[string]any{
 	domain.AuditActionAuditListRead:                   {"count": 100},
 	domain.AuditActionAuditSingleRead:                 {"id": "ev-1"},
 	domain.AuditActionAuditChainVerified:              {"events_checked": 500, "valid": true},
+	domain.AuditActionKeyRotated:                      {"previous_epoch": 1, "new_epoch": 2, "rotated_by": "actor-1"},
 	domain.AuditActionDeviceCodeApproved:              {"user_code": "ABCD-1234", "api_key_id": "key-1"},
 	domain.AuditActionProjectCreated:                  {"name": "My Project", "org_id": "org-1"},
 	domain.AuditActionProjectDeleted:                  nil,
