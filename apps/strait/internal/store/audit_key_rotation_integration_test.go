@@ -12,6 +12,8 @@ import (
 	"strait/internal/store"
 )
 
+const testEncKey = "test-encryption-key-32bytes!!!!"
+
 // TestRotateAuditSigningKey_EmitsAnchor asserts that rotation writes a
 // single anchor row with action=audit.key_rotated, is_anchor=true, and
 // monotonically-increasing rotation_epoch, with the correct details shape.
@@ -20,6 +22,7 @@ func TestRotateAuditSigningKey_EmitsAnchor(t *testing.T) {
 	mustClean(t, ctx)
 
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	key, _ := store.DeriveAuditSigningKey("rotate-anchor-secret")
 	q.SetAuditSigningKey(key)
 
@@ -79,6 +82,7 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 	mustClean(t, ctx)
 
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	key, _ := store.DeriveAuditSigningKey("rotate-boundary-secret")
 	q.SetAuditSigningKey(key)
 
@@ -139,6 +143,7 @@ func TestVerifyAuditChain_ForgedAnchor_Fails(t *testing.T) {
 	mustClean(t, ctx)
 
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	key, _ := store.DeriveAuditSigningKey("rotate-forge-secret")
 	q.SetAuditSigningKey(key)
 
@@ -179,6 +184,7 @@ func TestRotateAuditSigningKey_SerializedUnderContention(t *testing.T) {
 	mustClean(t, ctx)
 
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	key, _ := store.DeriveAuditSigningKey("rotate-contention-secret")
 	q.SetAuditSigningKey(key)
 
@@ -224,5 +230,241 @@ func TestRotateAuditSigningKey_SerializedUnderContention(t *testing.T) {
 	}
 	if !result.Valid {
 		t.Fatalf("chain invalid after concurrent rotations: %s", result.Error)
+	}
+}
+
+// TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration drives 50
+// concurrent rotations against a single project. The advisory lock plus
+// the unique partial index on (project_id, rotation_epoch) WHERE is_anchor
+// must guarantee that every rotation receives a distinct, monotonically
+// increasing epoch and that no second-loser unique-violation leaks to
+// callers — retries happen transparently inside RotateAuditSigningKey.
+func TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	key, _ := store.DeriveAuditSigningKey("rotate-unique-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-rotate-unique"
+	insertTestChain(ctx, t, q, projectID, 2)
+
+	const n = 50
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		epochs = make([]int, 0, n)
+		errs   = make([]error, 0)
+	)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e, err := q.RotateAuditSigningKey(ctx, projectID, "actor-heavy")
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			epochs = append(epochs, e)
+		}()
+	}
+	wg.Wait()
+
+	if len(errs) > 0 {
+		t.Fatalf("rotation errors leaked: %v", errs)
+	}
+	if len(epochs) != n {
+		t.Fatalf("got %d epochs, want %d", len(epochs), n)
+	}
+	seen := make(map[int]struct{}, n)
+	minEpoch, maxEpoch := epochs[0], epochs[0]
+	for _, e := range epochs {
+		if _, dup := seen[e]; dup {
+			t.Errorf("duplicate epoch %d", e)
+		}
+		seen[e] = struct{}{}
+		if e < minEpoch {
+			minEpoch = e
+		}
+		if e > maxEpoch {
+			maxEpoch = e
+		}
+	}
+	if minEpoch != 1 || maxEpoch != n {
+		t.Errorf("epoch range = [%d,%d], want [1,%d]", minEpoch, maxEpoch, n)
+	}
+
+	// Verify the chain is still intact — every rotation's anchor verifies
+	// under its own epoch's stored key.
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("chain invalid after %d rotations: %s (broken at %s)", n, result.Error, result.BrokenAtID)
+	}
+}
+
+// TestVerifyAuditChain_RealPerEpochKeys asserts that post-rotation events
+// verify under the NEW epoch's stored key — not the global fallback.
+// Swapping the global key after rotation still permits verification of
+// the post-rotation segment, which is only possible if VerifyAuditChain
+// is loading epoch-specific keys from audit_signing_keys.
+func TestVerifyAuditChain_RealPerEpochKeys(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	globalKey, _ := store.DeriveAuditSigningKey("per-epoch-secret")
+	q.SetAuditSigningKey(globalKey)
+
+	projectID := "proj-per-epoch"
+	insertTestChain(ctx, t, q, projectID, 3)
+
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	// Emit post-rotation events under epoch 1. CreateAuditEvent signs
+	// with q.auditSigningKey (still the global key here) — but the
+	// verify path looks up epoch 1's stored key. For the post-rotation
+	// events to verify, we need to emit them signed under the epoch-1
+	// key. Do that by fetching the stored key and switching it in.
+	epochKey, err := q.GetAuditSigningKey(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetAuditSigningKey: %v", err)
+	}
+	if epochKey == nil {
+		t.Fatal("expected stored epoch-1 key, got nil")
+	}
+	q.SetAuditSigningKey(epochKey)
+
+	for i := 0; i < 3; i++ {
+		ev := &domain.AuditEvent{
+			ProjectID:     projectID,
+			ActorID:       "actor",
+			ActorType:     "user",
+			Action:        domain.AuditActionJobCreated,
+			ResourceType:  "job",
+			ResourceID:    "post",
+			Details:       json.RawMessage(`{"i":0}`),
+			RotationEpoch: 1,
+		}
+		if err := q.CreateAuditEvent(ctx, ev); err != nil {
+			t.Fatalf("CreateAuditEvent post %d: %v", i, err)
+		}
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("chain invalid: %s", result.Error)
+	}
+	if result.EventsChecked != 7 {
+		t.Errorf("EventsChecked = %d, want 7", result.EventsChecked)
+	}
+}
+
+// TestVerifyAuditChain_WrongEpochKey_Fails corrupts the stored key
+// material for epoch 1 and asserts that verification fails at the first
+// epoch-1 row (the anchor) because the recomputed HMAC no longer matches.
+func TestVerifyAuditChain_WrongEpochKey_Fails(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	globalKey, _ := store.DeriveAuditSigningKey("wrong-epoch-secret")
+	q.SetAuditSigningKey(globalKey)
+
+	projectID := "proj-wrong-epoch"
+	insertTestChain(ctx, t, q, projectID, 2)
+
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	// Overwrite the stored epoch-1 key material with garbage bytes.
+	// AES-GCM decryption will fail the auth tag check and return an
+	// error, which VerifyAuditChain surfaces — a distinct negative
+	// outcome from "signature mismatch". Both outcomes prove the
+	// verifier consulted the stored per-epoch key.
+	garbage := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE audit_signing_keys
+		SET key_material = $1
+		WHERE project_id = $2 AND rotation_epoch = 1
+	`, garbage, projectID); err != nil {
+		t.Fatalf("overwrite key_material: %v", err)
+	}
+
+	result, verr := q.VerifyAuditChain(ctx, projectID)
+	// Either the decrypt fails (returned as error) or the HMAC check
+	// fails (returned with result.Valid=false). Both are acceptable
+	// negative outcomes — they prove the verifier actually consults the
+	// per-epoch stored key.
+	if verr == nil && result.Valid {
+		t.Fatal("expected verification failure after corrupting epoch-1 key")
+	}
+}
+
+// TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch asserts that two
+// rotations produce two distinct rows in audit_signing_keys with
+// different key_material.
+func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	globalKey, _ := store.DeriveAuditSigningKey("distinct-secret")
+	q.SetAuditSigningKey(globalKey)
+
+	projectID := "proj-distinct"
+	insertTestChain(ctx, t, q, projectID, 1)
+
+	for i := 0; i < 2; i++ {
+		if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
+			t.Fatalf("rotate %d: %v", i, err)
+		}
+	}
+
+	k1, err := q.GetAuditSigningKey(ctx, projectID, 1)
+	if err != nil || k1 == nil {
+		t.Fatalf("epoch 1 key: %v / nil=%v", err, k1 == nil)
+	}
+	k2, err := q.GetAuditSigningKey(ctx, projectID, 2)
+	if err != nil || k2 == nil {
+		t.Fatalf("epoch 2 key: %v / nil=%v", err, k2 == nil)
+	}
+	if len(k1) != 32 || len(k2) != 32 {
+		t.Errorf("key lengths = %d,%d, want 32,32", len(k1), len(k2))
+	}
+	same := true
+	for i := range k1 {
+		if k1[i] != k2[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Error("epoch 1 and epoch 2 keys are identical")
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM audit_signing_keys WHERE project_id = $1
+	`, projectID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("audit_signing_keys rows = %d, want 2", count)
 	}
 }

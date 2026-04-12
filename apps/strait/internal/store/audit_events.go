@@ -516,14 +516,14 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	// Within an epoch, created_at preserves insertion order as the chain
 	// serialization is HMAC-bound to previous_hash.
 	//
-	// Anchor handling: when an anchor row (is_anchor=true) is encountered,
-	// it must still HMAC-verify against the current signing key and its
-	// previous_hash must match the tail of the previous epoch. After the
-	// anchor verifies, expectedPrevHash is advanced to the anchor's own
-	// signature — post-rotation events chain from the anchor. The plan's
-	// deferred per-epoch key derivation is intentionally out of scope here:
-	// a single signing key verifies all rows, and anchors exist purely as
-	// positive forensic markers of when a rotation occurred.
+	// Per-epoch keys: rows are grouped by rotation_epoch and verified
+	// under the key stored in audit_signing_keys for that (project, epoch).
+	// Epoch 0 has no stored key — we fall back to the configured global
+	// q.auditSigningKey for backwards compatibility with chains that
+	// predate per-epoch key derivation. Anchor rows must verify under
+	// their OWN epoch's (new) key, not the previous epoch's, because
+	// post-rotation events chain from the anchor and verify under the
+	// same new key.
 	query := `
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
 		       remote_ip, user_agent, request_id, trace_id, schema_version,
@@ -551,6 +551,31 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	var expectedPrevHash string
 	first := true
 
+	// epochKeyCache memoizes the per-epoch signing key for the scan so we
+	// don't re-decrypt on every row. A nil value means "no stored key —
+	// use the global fallback" (only valid for epoch 0).
+	epochKeyCache := make(map[int][]byte)
+	keyFor := func(epoch int) ([]byte, error) {
+		if k, ok := epochKeyCache[epoch]; ok {
+			if k != nil {
+				return k, nil
+			}
+			return q.auditSigningKey, nil
+		}
+		stored, err := q.GetAuditSigningKey(ctx, projectID, epoch)
+		if err != nil {
+			return nil, err
+		}
+		epochKeyCache[epoch] = stored
+		if stored != nil {
+			return stored, nil
+		}
+		if epoch != 0 {
+			return nil, fmt.Errorf("verify audit chain: no stored key for epoch %d", epoch)
+		}
+		return q.auditSigningKey, nil
+	}
+
 	for rows.Next() {
 		var ev domain.AuditEvent
 		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion, &ev.IsAnchor, &ev.RotationEpoch); err != nil {
@@ -569,10 +594,6 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			first = false
 		}
 
-		// Check chain linkage. Anchor rows MUST also match — they stitch
-		// the chain by HMAC-binding to the previous epoch's tail in their
-		// previous_hash column. Accepting a mismatch here would let a
-		// forger insert a fabricated anchor to mask tampering.
 		if ev.PreviousHash != expectedPrevHash {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
@@ -580,10 +601,11 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			return result, nil
 		}
 
-		// Recompute and verify signature. Anchors must HMAC-verify under
-		// the current signing key just like every other row — this is the
-		// only thing preventing a forged anchor.
-		expected := ComputeAuditSignature(&ev, q.auditSigningKey)
+		key, keyErr := keyFor(ev.RotationEpoch)
+		if keyErr != nil {
+			return nil, keyErr
+		}
+		expected := ComputeAuditSignature(&ev, key)
 		if ev.Signature != expected {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
