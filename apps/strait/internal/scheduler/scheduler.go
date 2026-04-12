@@ -55,6 +55,7 @@ type Scheduler struct {
 	partitionTuner           *PartitionTuner
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
+	planDriftMonitor         *PlanDriftMonitor
 	wg                       conc.WaitGroup
 }
 
@@ -164,6 +165,13 @@ func WithDLQAgeOut(a *DLQAgeOut) SchedulerOption {
 func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
 	return func(s *Scheduler) {
 		s.outboxFlusher = f
+	}
+}
+
+// WithPlanDriftMonitor enables R4 Phase 3 daily plan drift detection.
+func WithPlanDriftMonitor(m *PlanDriftMonitor) SchedulerOption {
+	return func(s *Scheduler) {
+		s.planDriftMonitor = m
 	}
 }
 
@@ -290,6 +298,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.outboxFlusher != nil {
 		safeGo(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
+	}
+	if s.planDriftMonitor != nil {
+		safeGo(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

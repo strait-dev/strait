@@ -140,6 +140,7 @@ func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
 		"job_runs_notify_queue_wake",
 		"job_runs_active_counts_trg",
 		"job_runs_dlq_counts_trg",
+		"job_runs_seed_job_config_trg",
 	}
 	for _, name := range required {
 		var present bool

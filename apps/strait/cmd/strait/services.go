@@ -881,6 +881,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:    slog.Default(),
 				}),
 			),
+			scheduler.WithPlanDriftMonitor(
+				scheduler.NewPlanDriftMonitor(queries, scheduler.PlanDriftMonitorConfig{
+					Queries:  scheduler.DefaultWatchedQueries(),
+					Interval: 24 * time.Hour,
+					Logger:   slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
