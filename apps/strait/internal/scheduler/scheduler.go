@@ -64,7 +64,8 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
-			WithStalledAction(cfg.StalledWorkflowAction),
+			WithStalledAction(cfg.StalledWorkflowAction).
+			WithAuditRetention(cfg.AuditRetentionDefaultDays),
 		indexMaintainer:       NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:        NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:          NewBatchFlusher(s, q, cfg.BatchFlushInterval),

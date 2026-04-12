@@ -54,6 +54,10 @@ type ReaperStore interface {
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 	DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
 	DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error)
+	DeleteAuditEventsBefore(ctx context.Context, projectID string, cutoff time.Time) (int64, error)
+	ListAuditEventsDeadletter(ctx context.Context, limit int) ([]domain.AuditEvent, []string, error)
+	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
+	DeleteAuditEventDeadletter(ctx context.Context, id string) error
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
@@ -155,10 +159,11 @@ type Reaper struct {
 	metrics               *telemetry.Metrics
 	logger                *slog.Logger
 	stalledAction         string
-	dlqAlertCooldown      map[string]time.Time
-	queueAlertCooldown    map[string]time.Time
-	reminderSent          map[string]time.Time
-	orgRetention          OrgRetentionResolver
+	dlqAlertCooldown          map[string]time.Time
+	queueAlertCooldown        map[string]time.Time
+	reminderSent              map[string]time.Time
+	orgRetention              OrgRetentionResolver
+	auditRetentionDefaultDays int
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -313,6 +318,8 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapStuckWebhookDeliveries(ctx)
 	r.monitorQueueDepth(ctx)
 	r.autoRotateAPIKeys(ctx)
+	r.reapAuditEvents(ctx)
+	r.reclaimAuditDeadletter(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -350,6 +357,8 @@ func (r *Reaper) Run(ctx context.Context) {
 			r.reapTerminalRetention(loopCtx)
 			r.reapPerOrgRetention(loopCtx)
 		}
+		r.reapAuditEvents(loopCtx)
+		r.reclaimAuditDeadletter(loopCtx)
 	})
 	loop.Run(ctx)
 }
