@@ -67,3 +67,51 @@ func (q *Queries) CountAuditEventsDeadletter(ctx context.Context) (int64, error)
 	}
 	return n, nil
 }
+
+// ListAuditEventsDeadletter returns the oldest deadletter events for
+// reclamation. Results are ordered by queued_at ASC (oldest first).
+func (q *Queries) ListAuditEventsDeadletter(ctx context.Context, limit int) ([]domain.AuditEvent, []string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAuditEventsDeadletter")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
+		FROM audit_events_deadletter
+		ORDER BY queued_at ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list audit deadletter: %w", err)
+	}
+	defer rows.Close()
+
+	var events []domain.AuditEvent
+	var dlqIDs []string
+	for rows.Next() {
+		var ev domain.AuditEvent
+		if err := rows.Scan(
+			&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
+			&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
+			&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion,
+		); err != nil {
+			return nil, nil, fmt.Errorf("scan audit deadletter: %w", err)
+		}
+		events = append(events, ev)
+		dlqIDs = append(dlqIDs, ev.ID)
+	}
+	return events, dlqIDs, rows.Err()
+}
+
+// DeleteAuditEventDeadletter removes a single row from the deadletter
+// after successful reclamation into the primary audit_events table.
+func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventDeadletter")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx, `DELETE FROM audit_events_deadletter WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete audit deadletter: %w", err)
+	}
+	return nil
+}
