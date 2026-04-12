@@ -60,6 +60,30 @@ func TestAuditProbe_Name(t *testing.T) {
 	}
 }
 
+func TestAuditProbe_IntegrationWithRegistry(t *testing.T) {
+	t.Parallel()
+	reg := NewRegistry()
+	counter := &fakeDLQCounter{count: 5}
+	reg.Register(NewAuditProbe(counter))
+
+	result := reg.CheckAll(context.Background())
+	if result.Status != StatusDegraded {
+		t.Errorf("status = %q, want degraded when DLQ has rows", result.Status)
+	}
+	found := false
+	for _, c := range result.Components {
+		if c.Name == "audit_emit_health" {
+			found = true
+			if c.Status != StatusDown {
+				t.Errorf("component status = %q, want down", c.Status)
+			}
+		}
+	}
+	if !found {
+		t.Error("audit_emit_health component not found in CheckAll results")
+	}
+}
+
 func containsSubstring(haystack, needle string) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		if haystack[i:i+len(needle)] == needle {

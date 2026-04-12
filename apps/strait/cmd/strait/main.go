@@ -374,6 +374,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if rdb != nil {
 		healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
 	}
+	healthReg.Register(health.NewAuditProbe(queries))
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {

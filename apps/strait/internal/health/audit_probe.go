@@ -22,7 +22,7 @@ type AuditDeadletterCounter interface {
 // degraded (not down) on a non-empty deadletter, so ops can page
 // without taking the service out.
 func NewAuditProbe(store AuditDeadletterCounter) Checker {
-	return NewChecker("audit_emit_health", func(ctx context.Context) error {
+	return NewCriticalChecker("audit_emit_health", false, func(ctx context.Context) error {
 		if store == nil {
 			return nil
 		}
