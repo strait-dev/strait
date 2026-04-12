@@ -613,6 +613,16 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/compensation-plan", TypedHandler(s, http.StatusOK, s.handleGetCompensationPlan))
 			})
 		})
+
+		// Admin DLQ recovery endpoints. RBAC is enforced in-handler via
+		// the dlq:read / dlq:replay / dlq:purge scopes; each mutation
+		// writes an audit_events row with actor and before/after state.
+		r.Route("/admin/dlq", func(r chi.Router) {
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListDLQ))
+			r.Post("/{run_id}/replay", TypedHandler(s, http.StatusOK, s.handleAdminReplayDLQ))
+			r.Post("/{run_id}/unmask", TypedHandler(s, http.StatusOK, s.handleAdminUnmaskDLQ))
+			r.Post("/{run_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeDLQ))
+		})
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {

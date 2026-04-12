@@ -422,6 +422,31 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Environments"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleGetResolvedVariables)
 
+	// -- Admin DLQ --
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-list-dlq", Method: http.MethodGet, Path: "/v1/admin/dlq",
+		Summary: "List dead-letter runs (admin)", Description: "Admin-only paginated listing of dead-letter runs with optional job_id and masked filters.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleAdminListDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-replay-dlq", Method: http.MethodPost, Path: "/v1/admin/dlq/{run_id}/replay",
+		Summary: "Replay a dead-letter run (admin)", Description: "Re-enqueues a dead-letter run via the admin path and records an audit event. Requires the dlq:replay scope.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleAdminReplayDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-unmask-dlq", Method: http.MethodPost, Path: "/v1/admin/dlq/{run_id}/unmask",
+		Summary: "Unmask a dead-letter run (admin)", Description: "Clears visible_until on a dead-letter run so it is no longer hidden by the age-out masker. Requires the dlq:replay scope.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleAdminUnmaskDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-purge-dlq", Method: http.MethodPost, Path: "/v1/admin/dlq/{run_id}/purge",
+		Summary: "Purge a dead-letter run (admin)", Description: "Hard-deletes a dead-letter run. Requires the dlq:purge scope.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleAdminPurgeDLQ)
+
 	// -- Runs --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-runs", Method: http.MethodGet, Path: "/v1/runs",
