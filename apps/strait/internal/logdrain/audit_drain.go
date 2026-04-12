@@ -207,10 +207,7 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 			// is healthy, the payload was rejected. Only network or 5xx flips
 			// the breaker.
 			var terminal *terminalStatusError
-			if errors.As(err, &terminal) {
-				return false
-			}
-			return true
+			return !errors.As(err, &terminal)
 		}).
 		OnOpen(func(_ circuitbreaker.StateChangedEvent) {
 			d.breakerWasOpen.Store(true)
