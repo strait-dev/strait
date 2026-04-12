@@ -3,12 +3,26 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+func uniqueJobIDs(entries []OutboxEntry) []string {
+	seen := make(map[string]struct{}, len(entries))
+	var out []string
+	for _, e := range entries {
+		if _, ok := seen[e.JobID]; ok {
+			continue
+		}
+		seen[e.JobID] = struct{}{}
+		out = append(out, e.JobID)
+	}
+	return out
+}
 
 // R3 Phase 8: transactional outbox primitive.
 //
@@ -30,9 +44,14 @@ type OutboxEntry struct {
 	Priority       int
 }
 
+// ErrOutboxJobNotFound is returned by WriteOutboxInTx when a job_id
+// in the entry batch does not exist in the jobs table.
+var ErrOutboxJobNotFound = errors.New("outbox: job not found")
+
 // WriteOutboxInTx inserts outbox entries within the caller's transaction.
 // Auto-generates IDs if unset; idempotent on primary-key conflict so the
-// caller's retry loop doesn't double-write.
+// caller's retry loop doesn't double-write. Validates that every
+// referenced job_id exists.
 func WriteOutboxInTx(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -46,6 +65,17 @@ func WriteOutboxInTx(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) erro
 		}
 		if entries[i].JobID == "" {
 			return fmt.Errorf("outbox entry %d: job_id required", i)
+		}
+	}
+	// Validate all unique job_ids exist in a single round trip.
+	jobIDs := uniqueJobIDs(entries)
+	for _, jid := range jobIDs {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id = $1)`, jid).Scan(&exists); err != nil {
+			return fmt.Errorf("validate job_id %s: %w", jid, err)
+		}
+		if !exists {
+			return fmt.Errorf("%w: %s", ErrOutboxJobNotFound, jid)
 		}
 	}
 	const sql = `
