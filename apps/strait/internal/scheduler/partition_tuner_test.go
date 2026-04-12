@@ -267,7 +267,7 @@ func TestPartitionTuner_ParallelExec(t *testing.T) {
 	if got != len(parts) {
 		t.Errorf("ddls count = %d, want %d", got, len(parts))
 	}
-	if tu.ColdCount() != int64(len(parts)) {
+	if tu.ColdCount() != len(parts) {
 		t.Errorf("coldCount = %d, want %d", tu.ColdCount(), len(parts))
 	}
 }
