@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -55,37 +56,46 @@ func (e *Executor) poll(ctx context.Context) {
 		available = e.maxDequeueBatchSize
 	}
 
+	// R4 Phase 1: short-circuit when the DB circuit breaker is open so
+	// we don't pile up goroutines on a slow Postgres.
+	if e.dbCircuit != nil && e.dbCircuit.State() == queue.CircuitOpen {
+		e.logger.Debug("poll skipped: db circuit open")
+		return
+	}
+
 	var runs []domain.JobRun
 	var err error
-	switch {
-	case len(e.partitionCycle) > 0:
-		runs, err = e.dequeueAcrossPartitions(ctx, available)
-	case e.dequeueStrategy == "fair_round_robin":
-		runs, err = e.queue.DequeueNFair(ctx, available)
-	case e.useDenormalizedDequeue:
-		// Phase 6: job_active_counts-backed dequeue. Skip cursor hint here;
-		// the denormalized path already avoids the COUNT scan that made the
-		// cursor most valuable.
-		if dq, ok := e.queue.(denormalizedDequeuer); ok {
-			runs, err = dq.DequeueNDenormalized(ctx, available)
-		} else {
-			runs, err = e.queue.DequeueN(ctx, available)
+
+	dequeueErr := e.dbCircuit.Do(ctx, func(innerCtx context.Context) error {
+		switch {
+		case len(e.partitionCycle) > 0:
+			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
+		case e.dequeueStrategy == "fair_round_robin":
+			runs, err = e.queue.DequeueNFair(innerCtx, available)
+		case e.useDenormalizedDequeue:
+			if dq, ok := e.queue.(denormalizedDequeuer); ok {
+				runs, err = dq.DequeueNDenormalized(innerCtx, available)
+			} else {
+				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
+		default:
+			if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
+				runs, err = cq.DequeueNWithCursor(innerCtx, available, e.claimCursor)
+			} else {
+				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
 		}
-	default:
-		// Phase 5: prefer cursor-aware dequeue when the concrete queue
-		// implementation supports it. Falls back to plain DequeueN for
-		// tests that pass a mock.
-		if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
-			runs, err = cq.DequeueNWithCursor(ctx, available, e.claimCursor)
-		} else {
-			runs, err = e.queue.DequeueN(ctx, available)
-		}
-	}
+		return err
+	})
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
 	}
-	if err != nil {
-		e.logger.Error("dequeue failed", "error", err)
+	if dequeueErr != nil {
+		if errors.Is(dequeueErr, queue.ErrCircuitOpen) {
+			e.logger.Debug("poll: db circuit open, skipping")
+		} else {
+			e.logger.Error("dequeue failed", "error", dequeueErr)
+		}
 		return
 	}
 	if len(runs) == 0 {

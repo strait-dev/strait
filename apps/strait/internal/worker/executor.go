@@ -128,6 +128,7 @@ type Executor struct {
 	runStarted               atomic.Bool
 	claimCursor              *queue.ClaimCursor
 	useDenormalizedDequeue   bool
+	dbCircuit                *queue.DBCircuit
 }
 
 type ConcurrencyLimitProvider interface {
@@ -176,6 +177,9 @@ type ExecutorConfig struct {
 	// UseDenormalizedDequeue opts into the Phase 6 job_active_counts-backed
 	// dequeue path. Defaults to false so existing deployments are unaffected.
 	UseDenormalizedDequeue bool
+	// DBCircuitConfig configures the R4 Phase 1 circuit breaker for the
+	// dequeue hot path. Zero values fall back to defaults.
+	DBCircuitConfig queue.DBCircuitConfig
 }
 
 const (
@@ -284,6 +288,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		done:                     make(chan struct{}),
 		claimCursor:              queue.NewClaimCursor(60 * time.Second),
 		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
+		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
 	}
 }
 
