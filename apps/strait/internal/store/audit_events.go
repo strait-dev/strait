@@ -304,6 +304,17 @@ func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error
 	})
 }
 
+// tombstoneInsertHook is a test-only injection point invoked immediately
+// before the tombstone anchor insert inside writeRetentionTombstone. When
+// non-nil and it returns a non-nil error, writeRetentionTombstone aborts
+// with that error — which (because the tombstone runs inside the same
+// transaction as the DELETE) triggers a rollback of the trim. Production
+// builds leave this nil and it is a true no-op. Do not expose through any
+// public API.
+//
+//nolint:gochecknoglobals // test seam
+var tombstoneInsertHook func(ctx context.Context) error
+
 // writeRetentionTombstone inserts a tombstone anchor row for a project that
 // just had rows trimmed. It is called inside the same transaction as the
 // DELETE so the tombstone and the trim commit (or roll back) together.
@@ -360,6 +371,11 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		Details:       json.RawMessage(details),
 		IsAnchor:      true,
 		RotationEpoch: rotationEpoch,
+	}
+	if hook := tombstoneInsertHook; hook != nil {
+		if err := hook(ctx); err != nil {
+			return fmt.Errorf("tombstone: pre-insert hook: %w", err)
+		}
 	}
 	if err := q.CreateAuditEvent(ctx, ev); err != nil {
 		return fmt.Errorf("tombstone: create anchor: %w", err)

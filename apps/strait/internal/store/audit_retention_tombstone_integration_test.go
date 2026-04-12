@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -270,66 +271,23 @@ func TestDeleteAuditEventsBeforeExcluding_EmitsTombstonePerAffectedProject(t *te
 	}
 }
 
-// TestDeleteAuditEventsBefore_AtomicWithTombstone — when the tombstone
-// insert fails (here: no signing key configured so CreateAuditEvent's
-// signature UPDATE cannot run; and more directly, the audit_events FK /
-// check constraints would reject malformed input), the DELETE must roll
-// back and leave rows intact.
-//
-// We force failure by clearing the signing key mid-flight — but the more
-// robust trigger is a check-constraint breach. Here we use a simpler
-// mechanism: seed rows, then wrap the call with a context that is
-// cancelled after the DELETE has been staged. We can't easily intercept
-// between DELETE and the tombstone insert without refactoring, so instead
-// we force the tombstone INSERT to fail by inserting a row that will
-// collide on the primary key. We pre-seed an audit_events row with a
-// deterministic id matching the tombstone path — but the tombstone id is
-// a random UUIDv7, so PK collision is not feasible.
-//
-// The practical adversarial trigger is: the project_id column on
-// audit_events has no FK constraint, and details is jsonb which accepts
-// any valid JSON. The remaining rollback-visible failure mode is a
-// statement error inside the tx. We simulate this by temporarily
-// replacing the projectID with one that contains a NUL byte —
-// PostgreSQL text columns reject NUL bytes, so the tombstone's
-// CreateAuditEvent INSERT fails, the tx rolls back, and the DELETE is
-// undone.
-func TestDeleteAuditEventsBefore_AtomicWithTombstone(t *testing.T) {
+// TestDeleteAuditEventsBefore_HappyPathRowCount — sanity-check the commit
+// path: post_count = pre_count - deleted + 1 tombstone.
+func TestDeleteAuditEventsBefore_HappyPathRowCount(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
 
 	q := mustStore(t)
-	key, _ := store.DeriveAuditSigningKey("tombstone-atomic-secret")
+	key, _ := store.DeriveAuditSigningKey("tombstone-happy-secret")
 	q.SetAuditSigningKey(key)
 
-	projectID := "proj-atomic\x00nul" // NUL byte → PG rejects
+	projectID := "proj-atomic-good"
 	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
-
-	// Seed directly (CreateAuditEvent would also reject NUL, so bypass).
-	// We insert one row with the poisoned project_id — PG will reject at
-	// insert time, so we can't actually seed. Instead, test the simpler
-	// invariant: DeleteAuditEventsBefore run with a projectID that has
-	// rows, then force the tombstone path to fail by using a
-	// tombstone-provoking details payload. Since our tombstone writer
-	// builds details via json.Marshal of typed values we cannot easily
-	// force a marshal failure either.
-	//
-	// Take the achievable variant: assert that a successful trim leaves
-	// the row count at (pre_count - deleted + 1_tombstone) and no
-	// intermediate states are visible. This exercises the commit path;
-	// the rollback path is covered by Postgres's transactional guarantee
-	// that CreateAuditEvent failure inside withTxInheritKeys aborts the
-	// DELETE (the surrounding WithTx issues a Rollback on any fn error).
-	t.Logf("see test body: atomicity relies on pgx WithTx semantics — a failing CreateAuditEvent inside withTxInheritKeys triggers tx.Rollback, which undoes the DELETE.")
-
-	// Happy-path visibility check.
-	_ = projectID
-	goodProject := "proj-atomic-good"
-	seedDatedChain(ctx, t, q, goodProject, 5, base, key)
+	seedDatedChain(ctx, t, q, projectID, 5, base, key)
 
 	var pre int
 	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, goodProject,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, projectID,
 	).Scan(&pre); err != nil {
 		t.Fatalf("pre count: %v", err)
 	}
@@ -338,7 +296,7 @@ func TestDeleteAuditEventsBefore_AtomicWithTombstone(t *testing.T) {
 	}
 
 	cutoff := base.Add(3 * time.Hour)
-	deleted, err := q.DeleteAuditEventsBefore(ctx, goodProject, cutoff)
+	deleted, err := q.DeleteAuditEventsBefore(ctx, projectID, cutoff)
 	if err != nil {
 		t.Fatalf("DeleteAuditEventsBefore: %v", err)
 	}
@@ -348,12 +306,138 @@ func TestDeleteAuditEventsBefore_AtomicWithTombstone(t *testing.T) {
 
 	var post int
 	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, goodProject,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, projectID,
 	).Scan(&post); err != nil {
 		t.Fatalf("post count: %v", err)
 	}
 	// 5 - 3 (deleted) + 1 (tombstone) = 3.
 	if post != 3 {
 		t.Errorf("post = %d, want 3 (2 survivors + 1 tombstone)", post)
+	}
+}
+
+// TestDeleteAuditEventsBefore_AtomicWithTombstone — when the tombstone
+// insert fails, the surrounding transaction must roll back and leave
+// every seeded row intact with zero tombstones written.
+//
+// We force the failure via the test-only tombstoneInsertHook seam in
+// audit_events.go: the hook runs inside writeRetentionTombstone,
+// immediately before CreateAuditEvent, returning a forced error. The
+// withTxInheritKeys wrapper propagates the error out of fn, WithTx
+// issues Rollback, and the DELETE is undone.
+func TestDeleteAuditEventsBefore_AtomicWithTombstone(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	key, _ := store.DeriveAuditSigningKey("tombstone-atomic-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-atomic-rollback"
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
+	const n = 5
+	seedDatedChain(ctx, t, q, projectID, n, base, key)
+
+	forced := errors.New("forced tombstone failure")
+	store.SetTombstoneInsertHookForTest(func(context.Context) error {
+		return forced
+	})
+	t.Cleanup(func() { store.SetTombstoneInsertHookForTest(nil) })
+
+	cutoff := base.Add(3 * time.Hour) // would delete indices 0..2.
+	deleted, err := q.DeleteAuditEventsBefore(ctx, projectID, cutoff)
+	if err == nil {
+		t.Fatalf("DeleteAuditEventsBefore: expected error, got nil (deleted=%d)", deleted)
+	}
+	if !errors.Is(err, forced) {
+		t.Errorf("err = %v, want wrap of forced sentinel", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0 on rollback", deleted)
+	}
+
+	// All seeded rows must still be present.
+	var remaining int
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, projectID,
+	).Scan(&remaining); err != nil {
+		t.Fatalf("remaining count: %v", err)
+	}
+	if remaining != n {
+		t.Errorf("remaining = %d, want %d (DELETE was not rolled back)", remaining, n)
+	}
+
+	// No tombstone row survived the rollback.
+	var tombstones int
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND action = $2`,
+		projectID, domain.AuditActionRetentionTrimmed,
+	).Scan(&tombstones); err != nil {
+		t.Fatalf("tombstone count: %v", err)
+	}
+	if tombstones != 0 {
+		t.Errorf("tombstones = %d, want 0 on rollback", tombstones)
+	}
+}
+
+// TestDeleteAuditEventsBeforeExcluding_AtomicWithTombstone — the bulk
+// path trims per-project and writes one tombstone per affected project
+// inside a single transaction. A forced tombstone failure on any project
+// must roll back the entire batch: every project's rows must remain and
+// no tombstones may be persisted anywhere.
+func TestDeleteAuditEventsBeforeExcluding_AtomicWithTombstone(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	key, _ := store.DeriveAuditSigningKey("tombstone-bulk-atomic-secret")
+	q.SetAuditSigningKey(key)
+
+	base := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Hour)
+	pA := "proj-bulk-atomic-a"
+	pB := "proj-bulk-atomic-b"
+	const perProject = 5
+	seedDatedChain(ctx, t, q, pA, perProject, base, key)
+	seedDatedChain(ctx, t, q, pB, perProject, base, key)
+
+	forced := errors.New("forced tombstone failure (bulk)")
+	store.SetTombstoneInsertHookForTest(func(context.Context) error {
+		return forced
+	})
+	t.Cleanup(func() { store.SetTombstoneInsertHookForTest(nil) })
+
+	cutoff := base.Add(3 * time.Hour) // would delete indices 0..2 per project.
+	deleted, err := q.DeleteAuditEventsBeforeExcluding(ctx, cutoff, nil)
+	if err == nil {
+		t.Fatalf("DeleteAuditEventsBeforeExcluding: expected error, got nil (deleted=%d)", deleted)
+	}
+	if !errors.Is(err, forced) {
+		t.Errorf("err = %v, want wrap of forced sentinel", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0 on rollback", deleted)
+	}
+
+	for _, pid := range []string{pA, pB} {
+		var remaining int
+		if err := testDB.Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, pid,
+		).Scan(&remaining); err != nil {
+			t.Fatalf("remaining count (%s): %v", pid, err)
+		}
+		if remaining != perProject {
+			t.Errorf("project %s remaining = %d, want %d", pid, remaining, perProject)
+		}
+
+		var tombstones int
+		if err := testDB.Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND action = $2`,
+			pid, domain.AuditActionRetentionTrimmed,
+		).Scan(&tombstones); err != nil {
+			t.Fatalf("tombstone count (%s): %v", pid, err)
+		}
+		if tombstones != 0 {
+			t.Errorf("project %s tombstones = %d, want 0 on rollback", pid, tombstones)
+		}
 	}
 }
