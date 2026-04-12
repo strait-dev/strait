@@ -407,7 +407,7 @@ type RBACStore interface {
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
 	GetAuditExportRowCap(ctx context.Context, projectID string) (int64, error)
-	SetAuditExportRowCap(ctx context.Context, projectID string, cap int64) error
+	SetAuditExportRowCap(ctx context.Context, projectID string, rowCap int64) error
 	GetAuditRetentionDays(ctx context.Context, projectID string) (int, bool, error)
 	SetAuditRetentionDays(ctx context.Context, projectID string, days int) error
 

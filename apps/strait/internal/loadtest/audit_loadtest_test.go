@@ -57,7 +57,7 @@ func TestAuditLoad_Burst(t *testing.T) {
 		n = 50_000
 	}
 	start := time.Now()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h.Emit(buildEvent(i))
 	}
 	burstDur := time.Since(start)
@@ -206,7 +206,7 @@ func TestAuditLoad_SIEMDown(t *testing.T) {
 	// can reach a forward attempt; we want events to actually be
 	// forwarded, fail with 5xx, and land in the sub-DLQ.
 	const n = 200
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h.Emit(buildEvent(i))
 		if i%25 == 0 {
 			time.Sleep(time.Millisecond)

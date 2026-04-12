@@ -193,4 +193,3 @@ func TestHandleVerifyAuditChain_CountsVerifierError(t *testing.T) {
 		t.Errorf("chain_verify_total = %d, want 1 (every attempt counted, pass or fail)", sum)
 	}
 }
-

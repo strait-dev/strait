@@ -91,21 +91,21 @@ type AuditEmitHarness struct {
 	stopO  sync.Once
 
 	// Atomic counters.
-	emitted       atomic.Int64
-	persisted     atomic.Int64
-	deadlettered  atomic.Int64
-	dropped       atomic.Int64
-	dlqFailed     atomic.Int64
-	peakQueue     atomic.Int64
-	pollerStopCh  chan struct{}
-	pollerDone    chan struct{}
+	emitted      atomic.Int64
+	persisted    atomic.Int64
+	deadlettered atomic.Int64
+	dropped      atomic.Int64
+	dlqFailed    atomic.Int64
+	peakQueue    atomic.Int64
+	pollerStopCh chan struct{}
+	pollerDone   chan struct{}
 
 	// Latency ring buffer. Guarded by latMu.
-	latMu    sync.Mutex
-	latBuf   []time.Duration
-	latNext  int
-	latSize  int
-	latCap   int
+	latMu   sync.Mutex
+	latBuf  []time.Duration
+	latNext int
+	latSize int
+	latCap  int
 }
 
 // NewAuditEmitHarness builds a harness around the given store + optional
@@ -250,7 +250,7 @@ func (h *AuditEmitHarness) drain() {
 func (h *AuditEmitHarness) processOne(ev *domain.AuditEvent) {
 	var lastErr error
 	attempts := len(h.cfg.RetryDelays) + 1
-	for attempt := 0; attempt < attempts; attempt++ {
+	for attempt := range attempts {
 		if attempt > 0 {
 			time.Sleep(h.cfg.RetryDelays[attempt-1])
 		}
@@ -303,7 +303,7 @@ func (h *AuditEmitHarness) pollQueueDepth() {
 	}
 }
 
-// --- Test-friendly in-memory store ---
+// --- Test-friendly in-memory store ---.
 
 // MemoryAuditStore is a thread-safe in-memory AuditEmitStore used by
 // the harness tests. It can be toggled between healthy and failing modes

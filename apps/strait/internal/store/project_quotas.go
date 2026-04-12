@@ -123,12 +123,12 @@ func (q *Queries) GetAuditExportRowCap(ctx context.Context, projectID string) (i
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditExportRowCap")
 	defer span.End()
 
-	var cap int64
+	var rowCap int64
 	err := q.db.QueryRow(ctx, `
 		SELECT audit_export_row_cap
 		FROM project_quotas
 		WHERE project_id = $1
-	`, projectID).Scan(&cap)
+	`, projectID).Scan(&rowCap)
 	if err != nil {
 		// No row yet — treat as "inherit default".
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -136,7 +136,7 @@ func (q *Queries) GetAuditExportRowCap(ctx context.Context, projectID string) (i
 		}
 		return 0, fmt.Errorf("get audit export row cap: %w", err)
 	}
-	return cap, nil
+	return rowCap, nil
 }
 
 // SetAuditExportRowCap persists a per-project override for the audit
@@ -146,7 +146,7 @@ func (q *Queries) GetAuditExportRowCap(ctx context.Context, projectID string) (i
 //
 // Upserts into project_quotas so a project without any prior quota row
 // still gets its cap recorded. Every other column keeps its default.
-func (q *Queries) SetAuditExportRowCap(ctx context.Context, projectID string, cap int64) error {
+func (q *Queries) SetAuditExportRowCap(ctx context.Context, projectID string, rowCap int64) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetAuditExportRowCap")
 	defer span.End()
 
@@ -154,7 +154,7 @@ func (q *Queries) SetAuditExportRowCap(ctx context.Context, projectID string, ca
 		INSERT INTO project_quotas (project_id, audit_export_row_cap)
 		VALUES ($1, $2)
 		ON CONFLICT (project_id) DO UPDATE SET audit_export_row_cap = EXCLUDED.audit_export_row_cap
-	`, projectID, cap)
+	`, projectID, rowCap)
 	if err != nil {
 		return fmt.Errorf("set audit export row cap: %w", err)
 	}

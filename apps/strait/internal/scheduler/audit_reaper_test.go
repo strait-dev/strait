@@ -65,7 +65,7 @@ func (f *fakeAuditReclaimerStore) ListAuditRetentionOverrides(_ context.Context)
 func newFakeDLQEvents(n int) ([]domain.AuditEvent, []string) {
 	events := make([]domain.AuditEvent, n)
 	ids := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := "dlq-" + time.Now().Format("20060102150405") + "-" + itoa(i)
 		events[i] = domain.AuditEvent{
 			ID:        id,

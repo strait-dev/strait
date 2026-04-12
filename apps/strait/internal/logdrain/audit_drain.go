@@ -97,14 +97,14 @@ type AuditSIEMDrain struct {
 	droppedFull metric.Int64Counter
 
 	// Resilience and metrics.
-	retryPolicy     failsafe.Policy[*http.Response]
-	breaker         circuitbreaker.CircuitBreaker[*http.Response]
-	breakerWasOpen  atomic.Bool
-	forwardedCount  metric.Int64Counter
-	failedCount     metric.Int64Counter
-	circuitOpenCnt  metric.Int64Counter
-	batchSizeHist   metric.Int64Histogram
-	subDLQ          *failureRingBuffer
+	retryPolicy    failsafe.Policy[*http.Response]
+	breaker        circuitbreaker.CircuitBreaker[*http.Response]
+	breakerWasOpen atomic.Bool
+	forwardedCount metric.Int64Counter
+	failedCount    metric.Int64Counter
+	circuitOpenCnt metric.Int64Counter
+	batchSizeHist  metric.Int64Histogram
+	subDLQ         *failureRingBuffer
 }
 
 // failureRingBuffer is a bounded FIFO that retains the last N events that
@@ -113,14 +113,14 @@ type AuditSIEMDrain struct {
 // SIEM" and is accessed by operators via DrainedFailures.
 type failureRingBuffer struct {
 	mu    sync.Mutex
-	items []failedForward
+	items []FailedForward
 	cap   int
 	next  int
 	size  int
 }
 
-// failedForward captures one event that could not be delivered to the SIEM.
-type failedForward struct {
+// FailedForward captures one event that could not be delivered to the SIEM.
+type FailedForward struct {
 	Event  domain.AuditEvent
 	Reason string
 	When   time.Time
@@ -130,25 +130,25 @@ func newFailureRingBuffer(capacity int) *failureRingBuffer {
 	if capacity <= 0 {
 		capacity = siemSubDLQCapacity
 	}
-	return &failureRingBuffer{items: make([]failedForward, capacity), cap: capacity}
+	return &failureRingBuffer{items: make([]FailedForward, capacity), cap: capacity}
 }
 
 func (r *failureRingBuffer) add(ev domain.AuditEvent, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.items[r.next] = failedForward{Event: ev, Reason: reason, When: time.Now()}
+	r.items[r.next] = FailedForward{Event: ev, Reason: reason, When: time.Now()}
 	r.next = (r.next + 1) % r.cap
 	if r.size < r.cap {
 		r.size++
 	}
 }
 
-func (r *failureRingBuffer) snapshot() []failedForward {
+func (r *failureRingBuffer) snapshot() []FailedForward {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]failedForward, r.size)
+	out := make([]FailedForward, r.size)
 	start := (r.next - r.size + r.cap) % r.cap
-	for i := 0; i < r.size; i++ {
+	for i := range r.size {
 		out[i] = r.items[(start+i)%r.cap]
 	}
 	return out
@@ -182,7 +182,7 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 		subDLQ:        newFailureRingBuffer(siemSubDLQCapacity),
 	}
 	d.retryPolicy = retrypolicy.NewBuilder[*http.Response]().
-		WithMaxRetries(siemMaxRetryAttempts - 1).
+		WithMaxRetries(siemMaxRetryAttempts-1).
 		WithBackoffFactor(siemRetryInitialBackoff, siemRetryMaxBackoff, siemRetryBackoffFactor).
 		WithJitterFactor(1.0).
 		HandleIf(func(_ *http.Response, err error) bool {
@@ -190,11 +190,8 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 				return false
 			}
 			var terminal *terminalStatusError
-			if errors.As(err, &terminal) {
-				return false
-			}
 			// Network errors and retryableStatusError are both retried.
-			return true
+			return !errors.As(err, &terminal)
 		}).
 		ReturnLastFailure().
 		Build()
@@ -255,7 +252,7 @@ func (d *AuditSIEMDrain) SetMetrics(forwarded, failed, circuitOpen metric.Int64C
 // entry is an audit event that could not be delivered to the SIEM endpoint
 // (either a terminal 4xx or exhausted retries/circuit-open). The buffer is
 // bounded; oldest entries are overwritten once the capacity is reached.
-func (d *AuditSIEMDrain) DrainedFailures() []failedForward {
+func (d *AuditSIEMDrain) DrainedFailures() []FailedForward {
 	if d == nil || d.subDLQ == nil {
 		return nil
 	}
@@ -279,10 +276,7 @@ func (d *AuditSIEMDrain) Start(ctx context.Context) {
 		return
 	}
 	d.startOnce.Do(func() {
-		bufSize := d.batchSize * 4
-		if bufSize < minSIEMBufferSize {
-			bufSize = minSIEMBufferSize
-		}
+		bufSize := max(d.batchSize*4, minSIEMBufferSize)
 		d.ch = make(chan domain.AuditEvent, bufSize)
 		d.done = make(chan struct{})
 		go d.run(ctx)

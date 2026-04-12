@@ -51,7 +51,7 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	const flood = 2000
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < flood; i++ {
+		for range flood {
 			drain.Enqueue(domain.AuditEvent{ID: "ev", Action: "a"})
 		}
 		close(done)
@@ -84,10 +84,10 @@ func TestAuditSIEMDrain_StartStopRacefree(t *testing.T) {
 
 	before := runtime.NumGoroutine()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		drain := NewAuditSIEMDrain(srv.URL, "", 5, 20*time.Millisecond)
 		drain.Start(context.Background())
-		for j := 0; j < 20; j++ {
+		for range 20 {
 			drain.Enqueue(domain.AuditEvent{ID: "ev", Action: "a"})
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

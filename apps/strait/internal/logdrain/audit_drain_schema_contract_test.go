@@ -117,7 +117,7 @@ func buildSampleEvent(t *testing.T, action string) domain.AuditEvent {
 // splitNDJSON separates a NDJSON payload into non-empty lines.
 func splitNDJSON(payload []byte) [][]byte {
 	out := make([][]byte, 0)
-	for _, raw := range bytes.Split(payload, []byte{'\n'}) {
+	for raw := range bytes.SplitSeq(payload, []byte{'\n'}) {
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 {
 			continue

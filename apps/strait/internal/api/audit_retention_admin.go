@@ -43,9 +43,9 @@ type GetAuditRetentionOutput struct {
 // distinguishes "no override present" from "explicit override of N" —
 // including the important N = 0 case (explicitly disabled).
 type GetAuditRetentionResponse struct {
-	ProjectID           string `json:"project_id"`
-	Days                int    `json:"days"`
-	InheritedFromDefault bool  `json:"inherited_from_default"`
+	ProjectID            string `json:"project_id"`
+	Days                 int    `json:"days"`
+	InheritedFromDefault bool   `json:"inherited_from_default"`
 }
 
 // UpdateAuditRetentionInput is the PUT body. Days is an int (project

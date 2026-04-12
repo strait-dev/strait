@@ -1238,7 +1238,7 @@ func TestEnvExample_ListsAllAuditVars(t *testing.T) {
 	var found string
 	var tried []string
 	dir := start
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		candidate := filepath.Join(dir, ".env.example")
 		tried = append(tried, candidate)
 		if _, err := os.Stat(candidate); err == nil {

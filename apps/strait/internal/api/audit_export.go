@@ -39,8 +39,8 @@ var defaultMaxExportRows int64 = 1_000_000
 // precedence is per-project override > configured default > package
 // default. 0 at any level means "fall through to the next tier".
 func (s *Server) resolveExportRowCap(ctx context.Context, projectID string) int64 {
-	if cap, err := s.store.GetAuditExportRowCap(ctx, projectID); err == nil && cap > 0 {
-		return cap
+	if rowCap, err := s.store.GetAuditExportRowCap(ctx, projectID); err == nil && rowCap > 0 {
+		return rowCap
 	}
 	if s.config != nil && s.config.AuditExportRowCapDefault > 0 {
 		return s.config.AuditExportRowCapDefault
@@ -140,17 +140,7 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		w.Header().Set("Trailer", "X-Audit-Signature")
 	}
 
-	switch format {
-	case "csv":
-		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.csv")
-	case "ndjson":
-		w.Header().Set("Content-Type", "application/x-ndjson")
-		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.ndjson")
-	default:
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.json")
-	}
+	setExportFormatHeaders(w, format)
 
 	// Wrap writer to tee into HMAC hash.
 	var out io.Writer = w
@@ -162,16 +152,7 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	rowCap := s.resolveExportRowCap(ctx, projectID)
 
-	var exported int
-	var capped bool
-	switch format {
-	case "csv":
-		exported, capped, err = s.streamAuditCSV(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
-	case "ndjson":
-		exported, capped, err = s.streamAuditNDJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
-	default:
-		exported, capped, err = s.streamAuditJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
-	}
+	exported, capped, err := s.streamAuditByFormat(ctx, format, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
 
 	if err != nil {
 		// Headers already sent; best-effort logging only.
@@ -207,6 +188,34 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	// Return nil to signal that the response was already written.
 	return nil, nil
+}
+
+// setExportFormatHeaders writes Content-Type and Content-Disposition headers
+// for the chosen export format.
+func setExportFormatHeaders(w http.ResponseWriter, format string) {
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.csv")
+	case "ndjson":
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.ndjson")
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", "attachment; filename=audit-events.json")
+	}
+}
+
+// streamAuditByFormat dispatches to the correct per-format streaming writer.
+func (s *Server) streamAuditByFormat(ctx context.Context, format string, out io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {
+	switch format {
+	case "csv":
+		return s.streamAuditCSV(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
+	case "ndjson":
+		return s.streamAuditNDJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
+	default:
+		return s.streamAuditJSON(ctx, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
+	}
 }
 
 // errExportCapReached is a sentinel used internally to stop the store

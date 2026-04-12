@@ -101,12 +101,12 @@ func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
 	}
 
 	var (
-		mu                sync.Mutex
-		createdEvents     []domain.AuditEvent
-		deletedDLQID      string
-		selfAuditFound    bool
-		selfAuditEventID  string
-		selfAuditDLQID    string
+		mu               sync.Mutex
+		createdEvents    []domain.AuditEvent
+		deletedDLQID     string
+		selfAuditFound   bool
+		selfAuditEventID string
+		selfAuditDLQID   string
 	)
 
 	ms := &APIStoreMock{
@@ -280,9 +280,9 @@ func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
 
 	seed := &domain.AuditEvent{ID: "dlq-1", ProjectID: "proj-a", Action: domain.AuditActionJobTriggered, CreatedAt: time.Now().UTC()}
 	var (
-		mu            sync.Mutex
-		deleteCalled  bool
-		selfAuditHit  bool
+		mu           sync.Mutex
+		deleteCalled bool
+		selfAuditHit bool
 	)
 
 	ms := &APIStoreMock{

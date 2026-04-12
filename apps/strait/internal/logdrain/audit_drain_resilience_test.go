@@ -125,7 +125,7 @@ func TestAuditSIEMDrain_CircuitOpens(t *testing.T) {
 
 	// 5 consecutive batch-forward calls, each exhausts retries — each
 	// counts as 1 failure toward the breaker's threshold.
-	for i := 0; i < siemBreakerFailureThreshold; i++ {
+	for i := range siemBreakerFailureThreshold {
 		if err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")}); err == nil {
 			t.Fatalf("iteration %d: expected error", i)
 		}
@@ -164,7 +164,7 @@ func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
 	defer srv.Close()
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
-	for i := 0; i < siemBreakerFailureThreshold; i++ {
+	for range siemBreakerFailureThreshold {
 		_ = drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")})
 	}
 	if !drain.breakerWasOpen.Load() {

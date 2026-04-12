@@ -41,7 +41,7 @@ func newServerWithSIEM(t *testing.T, s APIStore, endpoint string, batchSize int,
 // the list of audit-event IDs/actions it contains.
 func countSIEMLines(body []byte) int {
 	count := 0
-	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(body)), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -78,7 +78,7 @@ func TestAuditSIEMForward_BatchesEventsFromDrainer(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
 	const total = 100
-	for i := 0; i < total; i++ {
+	for i := range total {
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-x", map[string]any{"i": i})
 	}
 
@@ -124,7 +124,7 @@ func TestAuditSIEMForward_EmptyEndpoint_Noop(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-x", nil)
 	}
 	s.Close()
@@ -161,7 +161,7 @@ func TestAuditSIEMForward_ShutdownFlushesPending(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
 	const total = 5
-	for i := 0; i < total; i++ {
+	for range total {
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-x", nil)
 	}
 

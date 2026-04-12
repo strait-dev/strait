@@ -212,7 +212,7 @@ func TestExportAuditEvents_PerProjectCap(t *testing.T) {
 	ms := &APIStoreMock{
 		GetAuditExportRowCapFunc: func(_ context.Context, _ string) (int64, error) { return cap, nil },
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
-			for i := 0; i < seeded; i++ {
+			for range seeded {
 				ev := &domain.AuditEvent{
 					ID:        "ev",
 					ProjectID: "proj-a",

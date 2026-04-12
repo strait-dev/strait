@@ -69,9 +69,9 @@ type alertFile struct {
 	Groups []struct {
 		Name  string `yaml:"name"`
 		Rules []struct {
-			Alert string `yaml:"alert"`
-			Expr  string `yaml:"expr"`
-			For   string `yaml:"for"`
+			Alert  string            `yaml:"alert"`
+			Expr   string            `yaml:"expr"`
+			For    string            `yaml:"for"`
 			Labels map[string]string `yaml:"labels"`
 		} `yaml:"rules"`
 	} `yaml:"groups"`
