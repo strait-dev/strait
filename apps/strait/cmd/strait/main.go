@@ -17,6 +17,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/queue"
+	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/webhook"
@@ -401,6 +402,15 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {
 		slog.Warn("STRIPE_WEBHOOK_SECRET is empty -- Stripe webhook signature verification is DISABLED")
+	}
+
+	// R4 hardening: startup safety checks. These are the "fail loud"
+	// mechanisms that prevent silent corruption.
+	if err := scheduler.EnsureQueueTriggersPresent(ctx, dbPool); err != nil {
+		return fmt.Errorf("queue trigger check: %w", err)
+	}
+	if err := queries.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion); err != nil {
+		return fmt.Errorf("schema version: %w", err)
 	}
 
 	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries, chExporter)

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"strait/internal/store"
 )
 
 // R3 Phase 4: per-partition autovacuum tuner.
@@ -179,25 +181,29 @@ func hotPartitionNames(now time.Time) map[string]struct{} {
 }
 
 func hotSettingsSQL(partition string) string {
+	quoted, err := store.SafeQuoteIdent(partition)
+	if err != nil {
+		return "" // caller will get an empty SQL error
+	}
 	return fmt.Sprintf(`ALTER TABLE %s SET (
         autovacuum_vacuum_scale_factor = 0.01,
         autovacuum_analyze_scale_factor = 0.005,
         autovacuum_vacuum_cost_delay = 2,
         autovacuum_vacuum_insert_scale_factor = 0.01
-    )`, quoteIdent(partition))
+    )`, quoted)
 }
 
 func resetSettingsSQL(partition string) string {
+	quoted, err := store.SafeQuoteIdent(partition)
+	if err != nil {
+		return ""
+	}
 	return fmt.Sprintf(`ALTER TABLE %s RESET (
         autovacuum_vacuum_scale_factor,
         autovacuum_analyze_scale_factor,
         autovacuum_vacuum_cost_delay,
         autovacuum_vacuum_insert_scale_factor
-    )`, quoteIdent(partition))
-}
-
-func quoteIdent(s string) string {
-	return `"` + s + `"`
+    )`, quoted)
 }
 
 // parsePartitionMonth extracts (year, month) from names like

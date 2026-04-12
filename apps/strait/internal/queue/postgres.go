@@ -21,6 +21,7 @@ type PostgresQueue struct {
 	db               store.DBTX
 	statementTimeout time.Duration
 	metrics          *QueueMetrics
+	backpressure     *Backpressure
 }
 
 type PostgresQueueOption func(*PostgresQueue)
@@ -36,6 +37,14 @@ func WithPriorityAging(_ bool) PostgresQueueOption {
 func WithStatementTimeout(d time.Duration) PostgresQueueOption {
 	return func(q *PostgresQueue) {
 		q.statementTimeout = d
+	}
+}
+
+// WithBackpressureController attaches a backpressure controller so
+// EnqueueBatch consults the token bucket before inserting rows.
+func WithBackpressureController(bp *Backpressure) PostgresQueueOption {
+	return func(q *PostgresQueue) {
+		q.backpressure = bp
 	}
 }
 
@@ -209,6 +218,14 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 
 	if len(runs) == 0 {
 		return 0, nil
+	}
+
+	// R4 hardening: consult backpressure before inserting.
+	if q.backpressure != nil && len(runs) > 0 {
+		projectID := runs[0].ProjectID
+		if err := q.backpressure.TryConsumeN(ctx, projectID, len(runs)); err != nil {
+			return 0, err
+		}
 	}
 
 	copier, ok := q.db.(CopyFromer)

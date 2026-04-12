@@ -76,9 +76,13 @@ func (q *Queries) ensureMonthPartition(ctx context.Context, month time.Time) err
 
 	// Fallback: raw CREATE TABLE PARTITION OF. Uses IF NOT EXISTS so
 	// a concurrent ensurer cannot race us into a duplicate-name error.
+	quoted, err := SafeQuoteIdent(name)
+	if err != nil {
+		return fmt.Errorf("invalid partition name %q: %w", name, err)
+	}
 	sql := fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s PARTITION OF job_runs FOR VALUES FROM ('%s') TO ('%s')`,
-		quoteIdent(name),
+		quoted,
 		start.Format("2006-01-02"),
 		end.Format("2006-01-02"),
 	)
@@ -168,13 +172,6 @@ func addMonths(t time.Time, n int) time.Time {
 func startOfMonth(t time.Time) time.Time {
 	y, m, _ := t.UTC().Date()
 	return time.Date(y, m, 1, 0, 0, 0, 0, time.UTC)
-}
-
-// quoteIdent wraps an identifier in double quotes for safe interpolation
-// into CREATE TABLE statements. The identifier is assumed to come from
-// code, not user input.
-func quoteIdent(s string) string {
-	return `"` + s + `"`
 }
 
 // ExecDDL runs a single DDL statement via the underlying pool. Used by
