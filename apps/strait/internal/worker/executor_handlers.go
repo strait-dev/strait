@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/getsentry/sentry-go"
@@ -21,6 +22,16 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// recordRetryAttempt samples the attempt number each time a run is
+// re-enqueued for retry. No-op if queue metrics were never initialised.
+func recordRetryAttempt(ctx context.Context, attempt int) {
+	qm, err := queue.Metrics()
+	if err != nil || qm == nil || qm.RetryAttempts == nil {
+		return
+	}
+	qm.RetryAttempts.Record(ctx, float64(attempt))
+}
 
 func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
@@ -327,6 +338,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"attempt", run.Attempt+1,
 				"next_retry_at", retryAt,
 			)
+			recordRetryAttempt(ctx, run.Attempt+1)
 			e.emit(ctx, RunLifecycleEvent{
 				Type: EventRetried, Run: run, Job: job,
 				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
@@ -440,6 +452,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				"error", err,
 			)
 		} else {
+			recordRetryAttempt(ctx, run.Attempt+1)
 			e.emit(ctx, RunLifecycleEvent{
 				Type: EventRetried, Run: run, Job: job,
 				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,

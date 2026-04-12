@@ -111,6 +111,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 	}
 
 	var promoted []string
+	qm, _ := queue.Metrics()
 	for _, row := range rows {
 		run := f.toJobRun(row)
 		if err := f.queue.Enqueue(ctx, run); err != nil {
@@ -119,6 +120,9 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 			)
 			f.errors.Add(1)
 			continue
+		}
+		if qm != nil && qm.OutboxLag != nil && !row.CreatedAt.IsZero() {
+			qm.OutboxLag.Record(ctx, time.Since(row.CreatedAt).Seconds())
 		}
 		promoted = append(promoted, row.ID)
 	}

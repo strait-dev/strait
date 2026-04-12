@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"time"
+
+	"strait/internal/queue"
 )
 
 // R3 Phase 5: DLQ age-out archiver.
@@ -151,5 +153,8 @@ func (a *DLQAgeOut) sampleOldestUnmaskedAge(ctx context.Context) {
 			return
 		}
 		a.logger.Debug("dlq oldest unmasked age", "seconds", age)
+		if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil && qm.DLQOldestUnmaskedAge != nil {
+			qm.DLQOldestUnmaskedAge.Record(ctx, age)
+		}
 	}
 }

@@ -187,3 +187,37 @@ func (b *Backpressure) TryConsumeN(ctx context.Context, projectID string, n int)
 	}
 	return nil
 }
+
+// TokenSample is a point-in-time read of a project's bucket.
+type TokenSample struct {
+	ProjectID string
+	Tokens    int64
+}
+
+// SampleAvailableTokens reads up to sampleN project buckets ordered by
+// most-recently-updated. Used by a scheduler sampler to populate the
+// backpressure_tokens_available gauge. Read-only and index-friendly.
+func (b *Backpressure) SampleAvailableTokens(ctx context.Context, sampleN int) ([]TokenSample, error) {
+	if b == nil || !b.enabled || sampleN <= 0 {
+		return nil, nil
+	}
+	rows, err := b.db.Query(ctx, `
+		SELECT project_id, tokens
+		FROM project_rate_limits
+		ORDER BY updated_at DESC NULLS LAST
+		LIMIT $1
+	`, sampleN)
+	if err != nil {
+		return nil, fmt.Errorf("sample backpressure tokens: %w", err)
+	}
+	defer rows.Close()
+	out := make([]TokenSample, 0, sampleN)
+	for rows.Next() {
+		var s TokenSample
+		if err := rows.Scan(&s.ProjectID, &s.Tokens); err != nil {
+			return nil, fmt.Errorf("scan sample: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}

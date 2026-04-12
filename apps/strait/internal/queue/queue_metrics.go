@@ -27,6 +27,16 @@ type QueueMetrics struct {
 	MaskedRowsPending metric.Int64Gauge
 	// Round 2 Phase 3: absolute drift observed by the counter reconciler.
 	CounterDrift metric.Int64Gauge
+
+	// Phase 1 hot-path instruments.
+	PartitionDequeueLag         metric.Float64Histogram
+	ClaimToStart                metric.Float64Histogram
+	CircuitStateTransitions     metric.Int64Counter
+	OutboxLag                   metric.Float64Histogram
+	BackpressureTokensAvailable metric.Int64Gauge
+	EventChannelDropped         metric.Int64Counter
+	RetryAttempts               metric.Float64Histogram
+	DLQOldestUnmaskedAge        metric.Float64Gauge
 }
 
 var (
@@ -141,6 +151,75 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("counter drift gauge: %w", err)
 	}
 
+	partitionDequeueLag, err := meter.Float64Histogram(
+		"strait.queue.partition_dequeue_lag_seconds",
+		metric.WithDescription("Wall-clock duration of a DequeueNPartitioned call per partition"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("partition dequeue lag histogram: %w", err)
+	}
+	claimToStart, err := meter.Float64Histogram(
+		"strait.queue.claim_to_start_seconds",
+		metric.WithDescription("Time between a run being claimed by the executor and the start of user work"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("claim to start histogram: %w", err)
+	}
+	circuitTransitions, err := meter.Int64Counter(
+		"strait.queue.circuit_state_transitions_total",
+		metric.WithDescription("DB circuit breaker state transitions, labelled by from/to"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("circuit state transitions counter: %w", err)
+	}
+	outboxLag, err := meter.Float64Histogram(
+		"strait.queue.outbox_lag_seconds",
+		metric.WithDescription("Age of an outbox row at the time the flusher promoted it"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300, 900),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("outbox lag histogram: %w", err)
+	}
+	backpressureTokens, err := meter.Int64Gauge(
+		"strait.queue.backpressure_tokens_available",
+		metric.WithDescription("Available backpressure tokens per project (sampled)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("backpressure tokens gauge: %w", err)
+	}
+	eventChannelDropped, err := meter.Int64Counter(
+		"strait.worker.event_channel_dropped_total",
+		metric.WithDescription("Executor lifecycle events dropped because the event channel was full or closed"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("event channel dropped counter: %w", err)
+	}
+	retryAttempts, err := meter.Float64Histogram(
+		"strait.worker.retry_attempts",
+		metric.WithDescription("Attempt number observed when a run was re-enqueued for retry"),
+		metric.WithUnit("1"),
+		metric.WithExplicitBucketBoundaries(1, 2, 3, 4, 5, 7, 10, 15, 20),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("retry attempts histogram: %w", err)
+	}
+	dlqOldestAge, err := meter.Float64Gauge(
+		"strait.queue.dlq_oldest_unmasked_age_seconds",
+		metric.WithDescription("Age in seconds of the oldest visible dead-letter row"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dlq oldest unmasked age gauge: %w", err)
+	}
+
 	return &QueueMetrics{
 		OldestQueuedAge:   oldestAge,
 		DequeueScanRows:   scanRows,
@@ -153,6 +232,15 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		RetryScheduleLag:  retryLag,
 		MaskedRowsPending: masked,
 		CounterDrift:      counterDrift,
+
+		PartitionDequeueLag:         partitionDequeueLag,
+		ClaimToStart:                claimToStart,
+		CircuitStateTransitions:     circuitTransitions,
+		OutboxLag:                   outboxLag,
+		BackpressureTokensAvailable: backpressureTokens,
+		EventChannelDropped:         eventChannelDropped,
+		RetryAttempts:               retryAttempts,
+		DLQOldestUnmaskedAge:        dlqOldestAge,
 	}, nil
 }
 

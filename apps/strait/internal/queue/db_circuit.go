@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // Round 2 Phase 4: DB circuit breaker for the queue hot path.
@@ -108,6 +111,26 @@ func NewDBCircuit(cfg DBCircuitConfig) *DBCircuit {
 	return &DBCircuit{cfg: d, state: CircuitClosed}
 }
 
+// recordTransitionLocked emits a transition counter for the given from→to
+// change. Caller must hold c.mu. A no-op when the singleton queue metrics
+// have not been initialised (tests without an OTEL provider).
+func (c *DBCircuit) recordTransitionLocked(from, to DBCircuitState) {
+	if from == to {
+		return
+	}
+	c.state = to
+	qm, err := Metrics()
+	if err != nil || qm == nil || qm.CircuitStateTransitions == nil {
+		return
+	}
+	qm.CircuitStateTransitions.Add(context.Background(), 1,
+		metric.WithAttributes(
+			attribute.String("from", from.String()),
+			attribute.String("to", to.String()),
+		),
+	)
+}
+
 // State returns the current circuit state. Concurrency-safe.
 func (c *DBCircuit) State() DBCircuitState {
 	c.mu.Lock()
@@ -118,7 +141,7 @@ func (c *DBCircuit) State() DBCircuitState {
 // stateLocked is State without the mutex (caller holds it).
 func (c *DBCircuit) stateLocked() DBCircuitState {
 	if c.state == CircuitOpen && c.cfg.Clock().After(c.openAt.Add(c.currentOpenDuration())) {
-		c.state = CircuitHalfOpen
+		c.recordTransitionLocked(CircuitOpen, CircuitHalfOpen)
 	}
 	return c.state
 }
@@ -159,7 +182,8 @@ func (c *DBCircuit) recordSuccess() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.state == CircuitHalfOpen || c.state == CircuitClosed {
-		c.state = CircuitClosed
+		prev := c.state
+		c.recordTransitionLocked(prev, CircuitClosed)
 		c.fails = c.fails[:0]
 		c.attempt = 0
 	}
@@ -178,7 +202,7 @@ func (c *DBCircuit) recordFailure(err error, halfOpen bool) {
 	now := c.cfg.Clock()
 	if halfOpen {
 		c.attempt++
-		c.state = CircuitOpen
+		c.recordTransitionLocked(CircuitHalfOpen, CircuitOpen)
 		c.openAt = now
 		c.cfg.Logger.Warn("db circuit: re-opened after half-open probe failure",
 			"attempt", c.attempt, "open_for", c.currentOpenDuration(),
@@ -196,7 +220,7 @@ func (c *DBCircuit) recordFailure(err error, halfOpen bool) {
 	kept = append(kept, now)
 	c.fails = kept
 	if len(c.fails) >= c.cfg.FailureThreshold {
-		c.state = CircuitOpen
+		c.recordTransitionLocked(CircuitClosed, CircuitOpen)
 		c.openAt = now
 		c.attempt = 1
 		c.cfg.Logger.Warn("db circuit: opened",

@@ -13,6 +13,8 @@ import (
 	"strait/internal/queue"
 
 	"github.com/getsentry/sentry-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
@@ -117,6 +119,9 @@ func (e *Executor) poll(ctx context.Context) {
 
 		execCtx := context.WithoutCancel(ctx)
 		e.pool.Submit(execCtx, func() {
+			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil && run.StartedAt != nil {
+				qm.ClaimToStart.Record(execCtx, time.Since(*run.StartedAt).Seconds())
+			}
 			defer func() {
 				if r := recover(); r != nil {
 					sentry.WithScope(func(scope *sentry.Scope) {
@@ -155,11 +160,17 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 
 	remaining := capacity
 	iterations := len(e.partitionCycle)
+	qm, _ := queue.Metrics()
 	for i := 0; i < iterations && remaining > 0; i++ {
 		partition := e.partitionCycle[e.nextPartition%len(e.partitionCycle)]
 		e.nextPartition = (e.nextPartition + 1) % len(e.partitionCycle)
 
+		partStart := time.Now()
 		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
+		if qm != nil {
+			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds(),
+				metric.WithAttributes(attribute.String("partition", partition)))
+		}
 		if err != nil {
 			return nil, err
 		}

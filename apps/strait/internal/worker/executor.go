@@ -23,6 +23,8 @@ import (
 
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -334,6 +336,7 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"type", event.Type,
 				"run_id", event.Run.ID,
 			)
+			recordEventChannelDrop(ctx, "closed")
 		}
 	}()
 
@@ -344,7 +347,18 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 			"type", event.Type,
 			"run_id", event.Run.ID,
 		)
+		recordEventChannelDrop(ctx, string(event.Type))
 	}
+}
+
+// recordEventChannelDrop increments the drop counter labelled by event kind.
+// No-op when queue metrics have not been initialised.
+func recordEventChannelDrop(ctx context.Context, kind string) {
+	qm, err := queue.Metrics()
+	if err != nil || qm == nil || qm.EventChannelDropped == nil {
+		return
+	}
+	qm.EventChannelDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", kind)))
 }
 
 // runEventLoop drains the event channel and fans out to all subscribers.

@@ -180,6 +180,59 @@ func TestCircuit_MaxOpenForCap(t *testing.T) {
 	}
 }
 
+// TestCircuit_AllTransitionsVisible walks the four transition edges
+// (Closed→Open, Open→HalfOpen, HalfOpen→Open, HalfOpen→Closed) and
+// asserts that the breaker's observed state matches at each step. The
+// recordTransitionLocked hook that emits the telemetry counter is
+// exercised on every transition here.
+func TestCircuit_AllTransitionsVisible(t *testing.T) {
+	now := time.Now()
+	c := NewDBCircuit(DBCircuitConfig{
+		FailureThreshold: 2,
+		FailureWindow:    time.Second,
+		OpenFor:          50 * time.Millisecond,
+		MaxOpenFor:       time.Second,
+		Clock:            func() time.Time { return now },
+	})
+	boom := errors.New("boom")
+
+	// Closed initially.
+	if c.State() != CircuitClosed {
+		t.Fatalf("initial state = %v", c.State())
+	}
+
+	// Closed -> Open: two consecutive failures trip the breaker.
+	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
+	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
+	if c.State() != CircuitOpen {
+		t.Fatalf("after threshold failures state = %v, want open", c.State())
+	}
+
+	// Open -> HalfOpen: advance past OpenFor; next State() observes half-open.
+	now = now.Add(100 * time.Millisecond)
+	if s := c.State(); s != CircuitHalfOpen {
+		t.Fatalf("after open timeout state = %v, want half_open", s)
+	}
+
+	// HalfOpen -> Open: a probe failure re-opens.
+	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
+	if c.State() != CircuitOpen {
+		t.Fatalf("after probe failure state = %v, want open", c.State())
+	}
+
+	// Open -> HalfOpen -> Closed: advance past OpenFor and run a success probe.
+	now = now.Add(500 * time.Millisecond)
+	if s := c.State(); s != CircuitHalfOpen {
+		t.Fatalf("second half-open observation state = %v", s)
+	}
+	if err := c.Do(context.Background(), func(_ context.Context) error { return nil }); err != nil {
+		t.Fatalf("probe success err = %v", err)
+	}
+	if c.State() != CircuitClosed {
+		t.Fatalf("after success probe state = %v, want closed", c.State())
+	}
+}
+
 func FuzzCircuitTransitions(f *testing.F) {
 	f.Add(uint8(1), uint8(1))
 	f.Add(uint8(0), uint8(5))
