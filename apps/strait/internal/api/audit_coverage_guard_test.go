@@ -255,6 +255,59 @@ func callsAuditEmit(body *ast.BlockStmt) bool {
 	return found
 }
 
+// auditNegativePathFloor is the minimum number of "_StoreError" negative-path
+// subtests that must exist in audit_negative_path_test.go. Raising this floor
+// is the correct response to adding new mutation handlers — every new handler
+// should bring at least one "no audit on store failure" subcase, and the
+// floor serves as a tripwire when a contributor forgets. Lowering this floor
+// requires justification in a commit message.
+const auditNegativePathFloor = 10
+
+// TestAuditNegativePathFloor walks audit_negative_path_test.go and asserts
+// that at least auditNegativePathFloor test cases with names ending in
+// "_StoreError" exist. This is the coarser companion to
+// TestAuditCoverageGuard: it does not prove per-handler coverage, but it
+// prevents the negative-path table from silently decaying.
+func TestAuditNegativePathFloor(t *testing.T) {
+	t.Parallel()
+
+	path, err := filepath.Abs("audit_negative_path_test.go")
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	count := 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		kv, ok := n.(*ast.KeyValueExpr)
+		if !ok {
+			return true
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok || key.Name != "name" {
+			return true
+		}
+		lit, ok := kv.Value.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		if strings.HasSuffix(strings.Trim(lit.Value, `"`), "_StoreError") {
+			count++
+		}
+		return true
+	})
+
+	if count < auditNegativePathFloor {
+		t.Fatalf("audit_negative_path_test.go has %d _StoreError subcases, floor is %d. "+
+			"add more negative-path assertions (or, with justification, lower the floor).",
+			count, auditNegativePathFloor)
+	}
+}
+
 // itoa is a small int→string helper so the test has no runtime dependencies
 // beyond the standard library parser.
 func itoa(n int) string {
