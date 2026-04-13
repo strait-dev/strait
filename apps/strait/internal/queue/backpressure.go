@@ -8,6 +8,7 @@ import (
 
 	"strait/internal/store"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -61,11 +62,22 @@ type Backpressure struct {
 
 // NewBackpressure builds a backpressure controller. When enabled is
 // false, TryConsume is a no-op that always allows.
+//
+// Defaults only fill zero-value fields, not explicit zeros set by the
+// caller: the zero-value struct is treated as "please apply sensible
+// defaults" while a caller that wants a strictly capped bucket with no
+// refill sets DefaultMaxTokens to a positive value and leaves
+// DefaultRefillPerSec at zero to mean "no refill". A negative value is
+// always rejected as user error.
 func NewBackpressure(db store.DBTX, cfg BackpressureConfig, enabled bool) *Backpressure {
-	if cfg.DefaultMaxTokens <= 0 {
-		cfg.DefaultMaxTokens = 1000
+	if cfg.DefaultMaxTokens < 0 {
+		cfg.DefaultMaxTokens = 0
 	}
-	if cfg.DefaultRefillPerSec <= 0 {
+	if cfg.DefaultRefillPerSec < 0 {
+		cfg.DefaultRefillPerSec = 0
+	}
+	if cfg.DefaultMaxTokens == 0 && cfg.DefaultRefillPerSec == 0 {
+		cfg.DefaultMaxTokens = 1000
 		cfg.DefaultRefillPerSec = 100
 	}
 	return &Backpressure{db: db, cfg: cfg, enabled: enabled}
@@ -75,116 +87,73 @@ func NewBackpressure(db store.DBTX, cfg BackpressureConfig, enabled bool) *Backp
 // on success or *ThrottledError on exhaustion. Passes through
 // unexpected DB errors so callers can distinguish throttle from outage.
 func (b *Backpressure) TryConsume(ctx context.Context, projectID string) error {
-	if b == nil || !b.enabled || projectID == "" {
-		return nil
-	}
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
-	defer span.End()
-
-	// Upsert-then-decrement in a single statement so concurrent enqueues
-	// see an atomic view of the bucket. The CTE computes the refilled
-	// balance and returns both the new token count and a boolean
-	// indicating whether the consume succeeded. A success with the
-	// bucket dropping to zero is still a success.
-	const sql = `
-		WITH refilled AS (
-			SELECT
-				$1::text AS project_id,
-				LEAST(
-					COALESCE(rl.max_tokens, $2),
-					COALESCE(rl.tokens, $2) +
-						GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(rl.last_refill_at, NOW()))) * COALESCE(rl.refill_per_sec, $3))::int)
-				) AS available,
-				COALESCE(rl.max_tokens, $2) AS max_tokens,
-				COALESCE(rl.refill_per_sec, $3) AS refill_per_sec
-			FROM (SELECT 1) AS dummy
-			LEFT JOIN project_rate_limits rl ON rl.project_id = $1
-		),
-		upsert AS (
-			INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
-			SELECT project_id,
-				CASE WHEN available > 0 THEN available - 1 ELSE 0 END,
-				max_tokens, refill_per_sec, NOW(), NOW()
-			FROM refilled
-			ON CONFLICT (project_id) DO UPDATE SET
-				tokens = EXCLUDED.tokens,
-				last_refill_at = NOW(),
-				updated_at = NOW()
-			RETURNING tokens, max_tokens, refill_per_sec
-		)
-		SELECT u.tokens, u.max_tokens, u.refill_per_sec, r.available
-		FROM upsert u, refilled r`
-
-	var tokens, maxTokens, refill, available int
-	err := b.db.QueryRow(ctx, sql, projectID, b.cfg.DefaultMaxTokens, b.cfg.DefaultRefillPerSec).
-		Scan(&tokens, &maxTokens, &refill, &available)
-	if err != nil {
-		return fmt.Errorf("backpressure consume: %w", err)
-	}
-	// available is the pre-decrement balance. If it was zero the bucket
-	// was empty and this consume did not succeed.
-	if available <= 0 {
-		retryAfter := time.Second
-		if refill > 0 {
-			retryAfter = time.Duration(float64(time.Second) / float64(refill))
-		}
-		return &ThrottledError{ProjectID: projectID, RetryAfter: retryAfter}
-	}
-	return nil
+	return b.tryConsumeN(ctx, projectID, 1)
 }
 
 // TryConsumeN reserves n tokens from the project's bucket. Used by
 // EnqueueBatch so the batch is rejected atomically when the bucket
 // cannot satisfy the full request.
 func (b *Backpressure) TryConsumeN(ctx context.Context, projectID string, n int) error {
+	return b.tryConsumeN(ctx, projectID, n)
+}
+
+// tryConsumeN is the atomic bucket-decrement path. It relies on
+// PostgreSQL's intrinsic row locking in INSERT ... ON CONFLICT DO UPDATE
+// so the refilled balance is recomputed from the locked existing row
+// (not from a pre-lock CTE snapshot). The WHERE clause on the DO UPDATE
+// gates the decrement atomically; on throttle the UPDATE is skipped and
+// the statement returns no rows.
+//
+// The INSERT path is gated by an inline `WHERE $2 >= $4` so a brand-new
+// project never gets inserted with a negative or zero-tokens row when
+// the request cannot be satisfied by the default bucket.
+func (b *Backpressure) tryConsumeN(ctx context.Context, projectID string, n int) error {
 	if b == nil || !b.enabled || projectID == "" || n <= 0 {
 		return nil
 	}
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsumeN")
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
 	defer span.End()
 
 	const sql = `
-		WITH refilled AS (
-			SELECT
-				$1::text AS project_id,
-				LEAST(
-					COALESCE(rl.max_tokens, $2),
-					COALESCE(rl.tokens, $2) +
-						GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(rl.last_refill_at, NOW()))) * COALESCE(rl.refill_per_sec, $3))::int)
-				) AS available,
-				COALESCE(rl.max_tokens, $2) AS max_tokens,
-				COALESCE(rl.refill_per_sec, $3) AS refill_per_sec
-			FROM (SELECT 1) AS dummy
-			LEFT JOIN project_rate_limits rl ON rl.project_id = $1
-		),
-		upsert AS (
-			INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
-			SELECT project_id,
-				CASE WHEN available >= $4 THEN available - $4 ELSE 0 END,
-				max_tokens, refill_per_sec, NOW(), NOW()
-			FROM refilled
-			ON CONFLICT (project_id) DO UPDATE SET
-				tokens = EXCLUDED.tokens,
-				last_refill_at = NOW(),
-				updated_at = NOW()
-			RETURNING tokens, max_tokens, refill_per_sec
-		)
-		SELECT u.tokens, u.max_tokens, u.refill_per_sec, r.available
-		FROM upsert u, refilled r`
+		INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
+		SELECT $1::text, $2::int - $4::int, $2::int, $3::int, NOW(), NOW()
+		WHERE $2::int >= $4::int
+		ON CONFLICT (project_id) DO UPDATE SET
+			tokens = LEAST(
+				project_rate_limits.max_tokens,
+				project_rate_limits.tokens +
+					GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec)::int)
+			) - $4::int,
+			last_refill_at = NOW(),
+			updated_at = NOW()
+		WHERE LEAST(
+			project_rate_limits.max_tokens,
+			project_rate_limits.tokens +
+				GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec)::int)
+		) >= $4::int
+		RETURNING tokens, max_tokens, refill_per_sec`
 
-	var tokens, maxTokens, refill, available int
+	var tokens, maxTokens, refill int
 	err := b.db.QueryRow(ctx, sql, projectID, b.cfg.DefaultMaxTokens, b.cfg.DefaultRefillPerSec, n).
-		Scan(&tokens, &maxTokens, &refill, &available)
-	if err != nil {
-		return fmt.Errorf("backpressure consume N: %w", err)
-	}
-	if available < n {
+		Scan(&tokens, &maxTokens, &refill)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The INSERT source WHERE evaluated false (n > default max) OR
+		// the ON CONFLICT DO UPDATE WHERE evaluated false (bucket empty).
+		// Estimate retry using the default refill rate; a richer estimate
+		// would require a follow-up SELECT we intentionally avoid on the
+		// throttled path.
 		retryAfter := time.Second
-		if refill > 0 {
-			retryAfter = time.Duration(float64(time.Second) * float64(n-available) / float64(refill))
+		if b.cfg.DefaultRefillPerSec > 0 {
+			retryAfter = time.Duration(float64(time.Second) * float64(n) / float64(b.cfg.DefaultRefillPerSec))
 		}
 		return &ThrottledError{ProjectID: projectID, RetryAfter: retryAfter}
 	}
+	if err != nil {
+		return fmt.Errorf("backpressure consume: %w", err)
+	}
+	_ = tokens
+	_ = maxTokens
+	_ = refill
 	return nil
 }
 

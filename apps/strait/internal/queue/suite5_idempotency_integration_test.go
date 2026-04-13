@@ -4,6 +4,7 @@ package queue_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,9 +28,14 @@ func TestIdempotency_SameKeyNoDuplicate(t *testing.T) {
 	if err := q.Enqueue(ctx, r1); err != nil {
 		t.Fatalf("first: %v", err)
 	}
+	// Second enqueue with same idempotency_key surfaces
+	// ErrIdempotencyConflict to the caller (see runs.go and trigger.go
+	// for callers that translate it into "look up existing run"). The
+	// test's invariant is that no second row is written regardless.
 	r2 := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, IdempotencyKey: "key-x"}
-	if err := q.Enqueue(ctx, r2); err != nil {
-		t.Fatalf("second: %v", err)
+	err := q.Enqueue(ctx, r2)
+	if err != nil && !errors.Is(err, domain.ErrIdempotencyConflict) {
+		t.Fatalf("second: unexpected error = %v", err)
 	}
 	var count int
 	_ = testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_runs WHERE job_id=$1`, job.ID).Scan(&count)

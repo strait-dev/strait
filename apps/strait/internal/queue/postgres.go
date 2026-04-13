@@ -418,6 +418,9 @@ func (q *PostgresQueue) recordClaimMetrics(ctx context.Context, run *domain.JobR
 }
 
 func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
+	if n <= 0 {
+		return nil, nil
+	}
 	return q.DequeueNWithCursor(ctx, n, nil)
 }
 
@@ -429,6 +432,10 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFullyDenormalized")
 	defer span.End()
+
+	if n <= 0 {
+		return nil, nil
+	}
 
 	q.setStatementTimeout(ctx)
 
@@ -499,6 +506,10 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNDenormalized")
 	defer span.End()
 
+	if n <= 0 {
+		return nil, nil
+	}
+
 	q.setStatementTimeout(ctx)
 
 	query := fmt.Sprintf(`
@@ -565,6 +576,10 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *ClaimCursor) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
 	defer span.End()
+
+	if n <= 0 {
+		return nil, nil
+	}
 
 	q.setStatementTimeout(ctx)
 
@@ -649,6 +664,10 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFair")
 	defer span.End()
 
+	if n <= 0 {
+		return nil, nil
+	}
+
 	q.setStatementTimeout(ctx)
 
 	orderBy := q.dequeueOrderByClause()
@@ -714,7 +733,7 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNPartitioned")
 	defer span.End()
 
-	if len(projectIDs) == 0 {
+	if n <= 0 || len(projectIDs) == 0 {
 		return nil, nil
 	}
 
@@ -778,6 +797,10 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
 	defer span.End()
+
+	if n <= 0 {
+		return nil, nil
+	}
 
 	q.setStatementTimeout(ctx)
 
