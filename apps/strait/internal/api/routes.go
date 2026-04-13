@@ -498,6 +498,21 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetAuditEvent))
 		})
 
+		// Audit admin surface. Handlers enforce requireAdmin internally
+		// (internal-secret callers only). Mounted under /v1 so they pick
+		// up the shared auth + rate-limit + timeout middleware stack.
+		r.Route("/audit", func(r chi.Router) {
+			r.Get("/deadletter", TypedHandler(s, http.StatusOK, s.handleListDeadletter))
+			r.Post("/deadletter/{id}/replay", TypedHandler(s, http.StatusOK, s.handleReplayDeadletter))
+			r.Delete("/deadletter/{id}", TypedHandler(s, http.StatusOK, s.handleDropDeadletter))
+		})
+		r.Route("/projects/{id}/audit", func(r chi.Router) {
+			r.Get("/retention", TypedHandler(s, http.StatusOK, s.handleGetAuditRetention))
+			r.Put("/retention", TypedHandler(s, http.StatusOK, s.handleSetAuditRetention))
+			r.Post("/rotate-key", TypedHandler(s, http.StatusOK, s.handleRotateAuditSigningKey))
+		})
+		r.Put("/projects/{id}/quotas/audit-export-cap", TypedHandler(s, http.StatusOK, s.handleUpdateAuditExportCap))
+
 		r.Route("/export", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleExportJobs))
 			r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleExportRuns))
