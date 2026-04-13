@@ -5,6 +5,7 @@ package queue_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -368,7 +369,7 @@ func TestPR126_DLQCapEnforcement(t *testing.T) {
 		_, err := testDB.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, finished_at, created_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW() - ($4 || ' minutes')::interval, NOW())
-		`, id, job.ID, projectID, 10-i)
+		`, id, job.ID, projectID, strconv.Itoa(10-i))
 		if err != nil {
 			t.Fatalf("insert dlq run %d: %v", i, err)
 		}
