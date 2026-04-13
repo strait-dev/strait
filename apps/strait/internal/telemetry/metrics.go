@@ -152,6 +152,7 @@ type Metrics struct {
 	AuditEventsEmitted      metric.Int64Counter
 	AuditEventsDropped      metric.Int64Counter
 	AuditEventsTruncated    metric.Int64Counter
+	AuditDetailsRedacted    metric.Int64Counter
 	AuditEventsDeadlettered metric.Int64Counter
 	AuditReclaimerSuccess   metric.Int64Counter
 	AuditReclaimerFailed    metric.Int64Counter
@@ -853,6 +854,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit events whose details were truncated for exceeding the size cap"),
 		metric.WithUnit("1"),
 	)
+	auditDetailsRedacted, _ := meter.Int64Counter(
+		"strait.audit.details_redacted_total",
+		metric.WithDescription("Total audit events whose details had secret-shaped substrings redacted at emit time, labeled by shape"),
+		metric.WithUnit("1"),
+	)
 	auditEventsDeadlettered, _ := meter.Int64Counter(
 		"strait.audit.events_deadlettered_total",
 		metric.WithDescription("Total audit events spilled to the deadletter table after retry exhaustion"),
@@ -1012,6 +1018,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditEventsEmitted:           auditEventsEmitted,
 		AuditEventsDropped:           auditEventsDropped,
 		AuditEventsTruncated:         auditEventsTruncated,
+		AuditDetailsRedacted:         auditDetailsRedacted,
 		AuditEventsDeadlettered:      auditEventsDeadlettered,
 		AuditReclaimerSuccess:        auditReclaimerSuccess,
 		AuditReclaimerFailed:         auditReclaimerFailed,

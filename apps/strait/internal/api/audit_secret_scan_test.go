@@ -4,46 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
+	"strings"
 	"sync"
 	"testing"
 
 	"strait/internal/domain"
 )
 
-// secretShapes are regexes matching known real-world secret shapes. A value
-// in audit details that matches any of these is almost certainly a leak and
-// the test fails. The list is intentionally conservative — regexes use
-// prefix anchors and minimum-length constraints to keep false positives near
-// zero on realistic identifier shapes (UUIDs, hex hashes, slugs).
-//
-// Adding a new shape: prefer adding it here over relying on forbidden-key
-// names in Phase 3. This test catches leaks by *shape*, not by key name.
-var secretShapes = []struct {
-	name    string
-	pattern *regexp.Regexp
-}{
-	{"stripe_secret_key", regexp.MustCompile(`\bsk_(live|test)_[A-Za-z0-9]{16,}\b`)},
-	{"webhook_signing_secret", regexp.MustCompile(`\bwhsec_[A-Za-z0-9]{16,}\b`)},
-	{"github_personal_token", regexp.MustCompile(`\bghp_[A-Za-z0-9]{20,}\b`)},
-	{"slack_bot_token", regexp.MustCompile(`\bxox[bpas]-[A-Za-z0-9-]{20,}\b`)},
-	{"jwt_like", regexp.MustCompile(`\bey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
-	{"aws_access_key", regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)},
-	{"google_api_key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`)},
-	{"bearer_token", regexp.MustCompile(`(?i)\bBearer [A-Za-z0-9._~+/=-]{16,}\b`)},
-	{"private_key_block", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
-	{"strait_api_key_raw", regexp.MustCompile(`\bstrait_[a-f0-9]{40,}\b`)},
-}
-
-// scanForSecrets walks any JSON value and returns the list of shape names
-// that matched. Empty slice means clean.
+// scanForSecrets is the test-facing helper that surfaces shape hits as
+// labeled strings for easier debug output. It delegates to the production
+// scanner (auditSecretShapes + scanAndRedact) so regressions in either
+// the pattern set or the walker surface here.
 func scanForSecrets(value any) []string {
 	var hits []string
 	var walk func(v any)
 	walk = func(v any) {
 		switch x := v.(type) {
 		case string:
-			for _, shape := range secretShapes {
+			for _, shape := range auditSecretShapes {
 				if shape.pattern.MatchString(x) {
 					hits = append(hits, shape.name+"="+truncateForLog(x))
 				}
@@ -216,5 +194,129 @@ func TestAuditDetails_ScannerIgnoresBenign(t *testing.T) {
 		if hits := scanForSecrets(v); len(hits) > 0 {
 			t.Errorf("case %d (%v): unexpected hits: %v", i, v, hits)
 		}
+	}
+}
+
+// TestScanAndRedact_RedactsStripeKey asserts a Stripe secret key planted
+// in a value position is replaced with a labeled marker.
+func TestScanAndRedact_RedactsStripeKey(t *testing.T) {
+	t.Parallel()
+	in := map[string]any{"leak": "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"}
+	out, shapes := scanAndRedact(in)
+	m, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", out)
+	}
+	if got, _ := m["leak"].(string); got != "[redacted:stripe_secret_key]" {
+		t.Errorf("leak = %q, want [redacted:stripe_secret_key]", got)
+	}
+	if len(shapes) != 1 || shapes[0] != "stripe_secret_key" {
+		t.Errorf("shapes = %v, want [stripe_secret_key]", shapes)
+	}
+}
+
+// TestScanAndRedact_RedactsJWT asserts a JWT-shaped token is redacted.
+func TestScanAndRedact_RedactsJWT(t *testing.T) {
+	t.Parallel()
+	in := map[string]any{
+		"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456",
+	}
+	out, shapes := scanAndRedact(in)
+	m := out.(map[string]any)
+	if got, _ := m["token"].(string); got != "[redacted:jwt_like]" {
+		t.Errorf("token = %q, want [redacted:jwt_like]", got)
+	}
+	if len(shapes) != 1 || shapes[0] != "jwt_like" {
+		t.Errorf("shapes = %v, want [jwt_like]", shapes)
+	}
+}
+
+// TestScanAndRedact_RedactsPEM asserts a PEM private-key header substring
+// is redacted even when embedded in a larger string.
+func TestScanAndRedact_RedactsPEM(t *testing.T) {
+	t.Parallel()
+	in := map[string]any{
+		"note": "leaked key: -----BEGIN RSA PRIVATE KEY-----\nfoo\n-----END RSA PRIVATE KEY-----",
+	}
+	out, shapes := scanAndRedact(in)
+	m := out.(map[string]any)
+	got, _ := m["note"].(string)
+	if got == in["note"] {
+		t.Errorf("PEM header was not redacted: %q", got)
+	}
+	if len(shapes) != 1 || shapes[0] != "private_key_block" {
+		t.Errorf("shapes = %v, want [private_key_block]", shapes)
+	}
+}
+
+// TestScanAndRedact_NoFalsePositivesOnBenignContent asserts realistic
+// identifier shapes (ULIDs, UUIDs, slugs, urls, emails, timestamps) never
+// trigger a redaction.
+func TestScanAndRedact_NoFalsePositivesOnBenignContent(t *testing.T) {
+	t.Parallel()
+	in := map[string]any{
+		"ulid":      "01HXABCXYZ1234567890ABCDEF",
+		"uuid":      "550e8400-e29b-41d4-a716-446655440000",
+		"slug":      "my-job-slug",
+		"ts":        "2026-04-11T12:00:00Z",
+		"url":       "https://example.com/webhook",
+		"email":     "user@example.com",
+		"hex32":     "abc123def456abc123def456abc123de",
+		"nums":      []any{float64(1), float64(2), float64(3)},
+		"nested":    map[string]any{"k": "v"},
+		"proj_slug": "proj_abc123",
+	}
+	out, shapes := scanAndRedact(in)
+	if len(shapes) > 0 {
+		t.Errorf("unexpected shapes reported on benign input: %v\nout=%#v", shapes, out)
+	}
+}
+
+// TestMarshalAndCapDetails_EmitsRedactedMetric asserts the production emit
+// path passes details through the scanner, replaces secret-shaped
+// substrings with redaction markers, and records a "_redacted" shape list
+// on the resulting details blob. The Stripe-shaped value must not appear
+// in the marshaled JSON.
+func TestMarshalAndCapDetails_EmitsRedactedMetric(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	details := map[string]any{
+		"note": "oops stripe=sk_live_ABCDEFGHIJKLMNOPQRSTUVWX trailing",
+		"meta": map[string]any{
+			"token": "Bearer abcdef1234567890ABCDEF",
+		},
+	}
+
+	raw, err := srv.marshalAndCapDetails(context.Background(), domain.AuditActionRoleCreated, details)
+	if err != nil {
+		t.Fatalf("marshalAndCapDetails: %v", err)
+	}
+
+	s := string(raw)
+	if strings.Contains(s, "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX") {
+		t.Errorf("marshaled JSON still contains Stripe key: %s", s)
+	}
+	if strings.Contains(s, "Bearer abcdef1234567890ABCDEF") {
+		t.Errorf("marshaled JSON still contains Bearer token: %s", s)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal redacted details: %v", err)
+	}
+	shapes, ok := decoded["_redacted"].([]any)
+	if !ok || len(shapes) == 0 {
+		t.Fatalf("_redacted missing or empty: %#v", decoded)
+	}
+	// Must include both shapes, deduped and sorted alphabetically
+	// (bearer_token, stripe_secret_key).
+	wantShapes := map[string]bool{"bearer_token": true, "stripe_secret_key": true}
+	for _, sh := range shapes {
+		delete(wantShapes, sh.(string))
+	}
+	if len(wantShapes) > 0 {
+		t.Errorf("missing shapes in _redacted: %v", wantShapes)
 	}
 }

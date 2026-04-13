@@ -214,6 +214,29 @@ func (s *Server) stopAuditAsyncDrain() {
 // the HMAC chain input bounded and prevents a misbehaving handler from
 // ballooning the DB row.
 func (s *Server) marshalAndCapDetails(ctx context.Context, action string, details map[string]any) (json.RawMessage, error) {
+	// Scan for known secret shapes in value positions and redact before
+	// marshalling. A handler that accidentally stuffs a Stripe key, JWT,
+	// AWS key, bearer token, or PEM block into details would otherwise
+	// land the raw value in audit_events.details (GIN-indexed) and be
+	// forwarded verbatim to SIEM. Redacted values are replaced with
+	// "[redacted:<shape>]" and a "_redacted" key lists the shapes so
+	// auditors know redaction happened without ever seeing the original.
+	if redacted, shapes := scanAndRedact(details); len(shapes) > 0 {
+		if m, ok := redacted.(map[string]any); ok {
+			details = m
+		}
+		details["_redacted"] = shapes
+		if s.metrics != nil && s.metrics.AuditDetailsRedacted != nil {
+			for _, shape := range shapes {
+				s.metrics.AuditDetailsRedacted.Add(ctx, 1,
+					metric.WithAttributes(attribute.String("shape", shape)))
+			}
+		}
+		slog.Warn("audit event details had secret-shaped substrings redacted",
+			"action", action,
+			"shapes", shapes)
+	}
+
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
 		return nil, err
