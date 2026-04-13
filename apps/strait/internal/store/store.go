@@ -414,6 +414,23 @@ type Queries struct {
 	db                  DBTX
 	secretEncryptionKey string
 	auditSigningKey     []byte
+
+	// tombstoneInsertHook is a test-only injection point invoked inside
+	// writeRetentionTombstone immediately before the anchor insert. When
+	// non-nil and it returns a non-nil error, writeRetentionTombstone
+	// aborts with that error — which (because the tombstone runs inside
+	// the same transaction as the DELETE) triggers a rollback of the
+	// trim. Populated only by SetTombstoneInsertHookForTest in _test.go;
+	// the production constructor leaves it nil and no public setter
+	// exists, so this seam cannot leak outside tests.
+	tombstoneInsertHook func(ctx context.Context) error
+
+	// auditEventPostInsertHook is a test-only injection point invoked
+	// inside CreateAuditEvent after the signed INSERT statement succeeds
+	// but before the surrounding transaction commits. Returning a
+	// non-nil error forces the tx to roll back, leaving no row behind.
+	// Populated only by SetAuditEventPostInsertHookForTest in _test.go.
+	auditEventPostInsertHook func(ctx context.Context) error
 }
 
 func New(db DBTX) *Queries {

@@ -339,10 +339,10 @@ func TestDeleteAuditEventsBefore_AtomicWithTombstone(t *testing.T) {
 	seedDatedChain(ctx, t, q, projectID, n, base, key)
 
 	forced := errors.New("forced tombstone failure")
-	store.SetTombstoneInsertHookForTest(func(context.Context) error {
+	store.SetTombstoneInsertHookForTest(q, func(context.Context) error {
 		return forced
 	})
-	t.Cleanup(func() { store.SetTombstoneInsertHookForTest(nil) })
+	t.Cleanup(func() { store.SetTombstoneInsertHookForTest(q, nil) })
 
 	cutoff := base.Add(3 * time.Hour) // would delete indices 0..2.
 	deleted, err := q.DeleteAuditEventsBefore(ctx, projectID, cutoff)
@@ -401,10 +401,10 @@ func TestDeleteAuditEventsBeforeExcluding_AtomicWithTombstone(t *testing.T) {
 	seedDatedChain(ctx, t, q, pB, perProject, base, key)
 
 	forced := errors.New("forced tombstone failure (bulk)")
-	store.SetTombstoneInsertHookForTest(func(context.Context) error {
+	store.SetTombstoneInsertHookForTest(q, func(context.Context) error {
 		return forced
 	})
-	t.Cleanup(func() { store.SetTombstoneInsertHookForTest(nil) })
+	t.Cleanup(func() { store.SetTombstoneInsertHookForTest(q, nil) })
 
 	cutoff := base.Add(3 * time.Hour) // would delete indices 0..2 per project.
 	deleted, err := q.DeleteAuditEventsBeforeExcluding(ctx, cutoff, nil)

@@ -74,16 +74,6 @@ func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// auditEventPostInsertHook is a test-only seam invoked inside
-// CreateAuditEvent immediately AFTER the signed INSERT statement succeeds
-// but BEFORE the surrounding transaction commits. When non-nil and it
-// returns a non-nil error, CreateAuditEvent propagates the error and the
-// transaction rolls back — leaving no audit_events row behind. Production
-// builds leave this nil; do not expose through any public API.
-//
-//nolint:gochecknoglobals // test seam
-var auditEventPostInsertHook func(ctx context.Context) error
-
 func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAuditEvent")
 	defer span.End()
@@ -124,13 +114,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	// inline when q is already tx-backed (e.g. called from rotation or
 	// from the retention tombstone path inside an outer transaction).
 	return q.withTxInheritKeys(ctx, func(tx *Queries) error {
-		// Chain lock. Prefix "audit_chain:" namespaces the lock hash so it
-		// cannot collide with rotation's "audit_rotate:" prefix — both
-		// touch audit_events for the same project but serialize on their
-		// own domain. The lock is transaction-scoped.
-		if _, err := tx.db.Exec(ctx, `
-			SELECT pg_advisory_xact_lock(hashtext('audit_chain:' || $1::text))
-		`, ev.ProjectID); err != nil {
+		// Chain lock. AdvisoryLockNsAuditChain namespaces the hash so it
+		// cannot collide with AdvisoryLockNsAuditRotate — both touch
+		// audit_events for the same project but serialize on their own
+		// domain. The lock is transaction-scoped via pg_advisory_xact_lock.
+		if err := AcquireAdvisoryLock(ctx, tx, AdvisoryLockNsAuditChain, ev.ProjectID); err != nil {
 			return fmt.Errorf("create audit event: chain lock: %w", err)
 		}
 
@@ -186,7 +174,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			return fmt.Errorf("create audit event: insert: %w", err)
 		}
 
-		if hook := auditEventPostInsertHook; hook != nil {
+		if hook := tx.auditEventPostInsertHook; hook != nil {
 			if err := hook(ctx); err != nil {
 				return fmt.Errorf("create audit event: post-insert hook: %w", err)
 			}
@@ -430,6 +418,8 @@ func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error
 	return WithTx(ctx, begin, func(txQ *Queries) error {
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.tombstoneInsertHook = q.tombstoneInsertHook
+		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
 		return fn(txQ)
 	})
 }
@@ -448,25 +438,16 @@ func (q *Queries) withTxInheritKeysOptions(ctx context.Context, opts pgx.TxOptio
 	return WithTxOptions(ctx, begin, opts, func(txQ *Queries) error {
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.tombstoneInsertHook = q.tombstoneInsertHook
+		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
 		return fn(txQ)
 	})
 }
 
-// tombstoneInsertHook is a test-only injection point invoked immediately
-// before the tombstone anchor insert inside writeRetentionTombstone. When
-// non-nil and it returns a non-nil error, writeRetentionTombstone aborts
-// with that error — which (because the tombstone runs inside the same
-// transaction as the DELETE) triggers a rollback of the trim. Production
-// builds leave this nil and it is a true no-op. Do not expose through any
-// public API.
-//
-//nolint:gochecknoglobals // test seam
-var tombstoneInsertHook func(ctx context.Context) error
-
 // acquireProjectRotationLock takes a per-project transaction-scoped advisory
-// lock on the "audit_rotate:<projectID>" namespace. Both RotateAuditSigningKey
-// and writeRetentionTombstone call this so a tombstone insert cannot race
-// with an in-progress rotation and capture the wrong rotation_epoch.
+// lock under AdvisoryLockNsAuditRotate. Both RotateAuditSigningKey and
+// writeRetentionTombstone call this so a tombstone insert cannot race with
+// an in-progress rotation and capture the wrong rotation_epoch.
 //
 // Without this lock, the tombstone path could:
 //   - read MAX(rotation_epoch) = N
@@ -478,9 +459,7 @@ var tombstoneInsertHook func(ctx context.Context) error
 // The lock is transaction-scoped: it auto-releases on COMMIT or ROLLBACK
 // and serializes only against other holders of the same advisory key.
 func acquireProjectRotationLock(ctx context.Context, q *Queries, projectID string) error {
-	if _, err := q.db.Exec(ctx, `
-		SELECT pg_advisory_xact_lock(hashtext('audit_rotate:' || $1::text))
-	`, projectID); err != nil {
+	if err := AcquireAdvisoryLock(ctx, q, AdvisoryLockNsAuditRotate, projectID); err != nil {
 		return fmt.Errorf("acquire project rotation lock: %w", err)
 	}
 	return nil
@@ -551,7 +530,7 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		IsAnchor:      true,
 		RotationEpoch: rotationEpoch,
 	}
-	if hook := tombstoneInsertHook; hook != nil {
+	if hook := q.tombstoneInsertHook; hook != nil {
 		if err := hook(ctx); err != nil {
 			return fmt.Errorf("tombstone: pre-insert hook: %w", err)
 		}

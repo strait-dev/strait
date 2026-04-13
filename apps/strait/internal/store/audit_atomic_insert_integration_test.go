@@ -39,10 +39,10 @@ func TestCreateAuditEvent_CrashBetweenInsertAndSignature_DoesNotBreakChain(t *te
 	// the signature UPDATE. With the atomic design, this failure is
 	// observed AFTER the signed INSERT statement; the tx rolls back.
 	forced := errors.New("forced post-insert failure")
-	store.SetAuditEventPostInsertHookForTest(func(context.Context) error {
+	store.SetAuditEventPostInsertHookForTest(q, func(context.Context) error {
 		return forced
 	})
-	t.Cleanup(func() { store.SetAuditEventPostInsertHookForTest(nil) })
+	t.Cleanup(func() { store.SetAuditEventPostInsertHookForTest(q, nil) })
 
 	// Attempt to write a 4th event — this must return the forced error.
 	attemptID := uuid.Must(uuid.NewV7()).String()
@@ -78,7 +78,7 @@ func TestCreateAuditEvent_CrashBetweenInsertAndSignature_DoesNotBreakChain(t *te
 	// Clear the hook and verify the chain. With the atomic design, no
 	// row was ever written with an empty signature, so the chain over
 	// the 3 healthy seed events still verifies.
-	store.SetAuditEventPostInsertHookForTest(nil)
+	store.SetAuditEventPostInsertHookForTest(q, nil)
 	result, verr := q.VerifyAuditChain(ctx, projectID)
 	if verr != nil {
 		t.Fatalf("VerifyAuditChain: %v", verr)
