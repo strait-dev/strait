@@ -324,8 +324,6 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables.
-//
-//nolint:gocyclo,cyclop,gocognit
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -361,145 +359,8 @@ func Load() (*Config, error) {
 		cfg.SecretEncryptionKey = cfg.EncryptionKey
 	}
 
-	// Validation.
-	if cfg.DatabaseURL == "" {
-		return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
-	}
-	if cfg.InternalSecret == "" {
-		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "is required"}
-	}
-	if len(cfg.InternalSecret) < 16 {
-		return nil, &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
-	}
-	if len(cfg.JWTSigningKey) < 32 {
-		return nil, &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
-	}
-	if cfg.OIDCEnabled {
-		if cfg.OIDCIssuer == "" {
-			return nil, &domain.ConfigError{Field: "OIDC_ISSUER", Message: "is required when OIDC is enabled"}
-		}
-		if cfg.OIDCAudience == "" {
-			return nil, &domain.ConfigError{Field: "OIDC_AUDIENCE", Message: "is required when OIDC is enabled"}
-		}
-		if cfg.OIDCPublicKeyPEM == "" {
-			return nil, &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
-		}
-	}
-
-	if cfg.RedisURL != "" {
-		if _, err := url.Parse(cfg.RedisURL); err != nil {
-			return nil, &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
-		}
-	}
-
-	switch cfg.MigrationMode {
-	case "auto", "manual", "validate":
-		// valid
-	default:
-		return nil, &domain.ConfigError{Field: "MIGRATION_MODE", Message: "must be auto, manual, or validate"}
-	}
-
-	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
-		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
-			return nil, &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
-		}
-		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
-	}
-
-	if cfg.SequinBaseURL != "" {
-		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-			return nil, &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
-		}
-	}
-
-	switch cfg.ComputeRuntime {
-	case "none", "docker", "k8s", "":
-		// valid
-	default:
-		return nil, &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
-	}
-	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
-		if cfg.K8sNamespace == "" {
-			return nil, &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
-		}
-	}
-	if cfg.ComputeFallbackProvider != "" {
-		switch cfg.ComputeFallbackProvider {
-		case "docker", "k8s":
-			// valid
-		default:
-			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
-		}
-		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
-			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
-		}
-		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
-			return nil, &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
-		}
-	}
-	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
-		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
-			"configured", cfg.ComputeRuntime)
-		cfg.ComputeRuntime = "none"
-	}
-
-	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
-		return nil, &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
-	}
-
-	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
-		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
-	}
-
-	for _, origin := range cfg.CORSAllowedOrigins {
-		if origin == "*" && cfg.CORSAllowCredentials {
-			return nil, &domain.ConfigError{
-				Field:   "CORS_ALLOWED_ORIGINS",
-				Message: "wildcard origin (*) is not allowed when CORS_ALLOW_CREDENTIALS is true",
-			}
-		}
-		if origin == "*" {
-			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
-				return nil, &domain.ConfigError{
-					Field:   "CORS_ALLOWED_ORIGINS",
-					Message: "wildcard origin (*) is not allowed in non-development environments",
-				}
-			}
-			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
-		}
-	}
-
-	if cfg.AuditRetentionDefaultDays < 0 {
-		return nil, &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
-	}
-	if cfg.AuditAsyncBufferSize < 256 {
-		return nil, &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
-	}
-	if cfg.AuditDLQReclaimBatch <= 0 {
-		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_RECLAIM_BATCH", Message: "must be > 0"}
-	}
-	if cfg.AuditDLQMaxAgeDays < 0 {
-		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_MAX_AGE_DAYS", Message: "must be >= 0 (0 disables retention sweep)"}
-	}
-	if cfg.AuditDLQMaxReclaimAttempts < 0 {
-		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", Message: "must be >= 0 (0 disables the cap)"}
-	}
-	if cfg.AuditSIEMEndpoint != "" && cfg.AuditSIEMAuthToken == "" {
-		return nil, &domain.ConfigError{Field: "AUDIT_SIEM_AUTH_TOKEN", Message: "is required when AUDIT_SIEM_ENDPOINT is set"}
-	}
-	// Reject userinfo (https://user:password@host/...) in the SIEM
-	// endpoint. Sanitization strips it before logging but configuring
-	// it in the first place is a footgun: the credential lives in the
-	// process environment in plaintext and every operator who can read
-	// the config sees it. Require the Authorization Bearer token path.
-	if cfg.AuditSIEMEndpoint != "" {
-		u, err := url.Parse(cfg.AuditSIEMEndpoint)
-		if err != nil {
-			return nil, &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: fmt.Sprintf("unparseable URL: %v", err)}
-		}
-		if u.User != nil {
-			return nil, &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
-		}
+	if err := validateLoaded(&cfg); err != nil {
+		return nil, err
 	}
 
 	slog.Info("config loaded",
@@ -511,6 +372,158 @@ func Load() (*Config, error) {
 	)
 
 	return &cfg, nil
+}
+
+// validateLoaded runs the post-load validation gauntlet on a populated
+// Config: required fields, enumerated values, URL parsing, edition gating,
+// CORS policy, and audit subsystem invariants. It mutates cfg in two
+// well-defined cases (community-edition ComputeRuntime override; no other
+// assignments) to match the pre-refactor behavior of Load. Returns a
+// *domain.ConfigError pinpointing the offending field, or nil on success.
+//
+//nolint:gocyclo,cyclop,gocognit
+func validateLoaded(cfg *Config) error {
+	if cfg.DatabaseURL == "" {
+		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
+	}
+	if cfg.InternalSecret == "" {
+		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "is required"}
+	}
+	if len(cfg.InternalSecret) < 16 {
+		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
+	}
+	if len(cfg.JWTSigningKey) < 32 {
+		return &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
+	}
+	if cfg.OIDCEnabled {
+		if cfg.OIDCIssuer == "" {
+			return &domain.ConfigError{Field: "OIDC_ISSUER", Message: "is required when OIDC is enabled"}
+		}
+		if cfg.OIDCAudience == "" {
+			return &domain.ConfigError{Field: "OIDC_AUDIENCE", Message: "is required when OIDC is enabled"}
+		}
+		if cfg.OIDCPublicKeyPEM == "" {
+			return &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
+		}
+	}
+
+	if cfg.RedisURL != "" {
+		if _, err := url.Parse(cfg.RedisURL); err != nil {
+			return &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
+		}
+	}
+
+	switch cfg.MigrationMode {
+	case "auto", "manual", "validate":
+		// valid
+	default:
+		return &domain.ConfigError{Field: "MIGRATION_MODE", Message: "must be auto, manual, or validate"}
+	}
+
+	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
+		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+			return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
+		}
+		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
+	}
+
+	if cfg.SequinBaseURL != "" {
+		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
+		}
+	}
+
+	switch cfg.ComputeRuntime {
+	case "none", "docker", "k8s", "":
+		// valid
+	default:
+		return &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
+	}
+	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
+		if cfg.K8sNamespace == "" {
+			return &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
+		}
+	}
+	if cfg.ComputeFallbackProvider != "" {
+		switch cfg.ComputeFallbackProvider {
+		case "docker", "k8s":
+			// valid
+		default:
+			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
+		}
+		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
+			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
+		}
+		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
+			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
+		}
+	}
+	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
+		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
+			"configured", cfg.ComputeRuntime)
+		cfg.ComputeRuntime = "none"
+	}
+
+	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
+		return &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
+	}
+
+	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
+		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
+	}
+
+	for _, origin := range cfg.CORSAllowedOrigins {
+		if origin == "*" && cfg.CORSAllowCredentials {
+			return &domain.ConfigError{
+				Field:   "CORS_ALLOWED_ORIGINS",
+				Message: "wildcard origin (*) is not allowed when CORS_ALLOW_CREDENTIALS is true",
+			}
+		}
+		if origin == "*" {
+			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+				return &domain.ConfigError{
+					Field:   "CORS_ALLOWED_ORIGINS",
+					Message: "wildcard origin (*) is not allowed in non-development environments",
+				}
+			}
+			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
+		}
+	}
+
+	if cfg.AuditRetentionDefaultDays < 0 {
+		return &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
+	}
+	if cfg.AuditAsyncBufferSize < 256 {
+		return &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
+	}
+	if cfg.AuditDLQReclaimBatch <= 0 {
+		return &domain.ConfigError{Field: "AUDIT_DLQ_RECLAIM_BATCH", Message: "must be > 0"}
+	}
+	if cfg.AuditDLQMaxAgeDays < 0 {
+		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_AGE_DAYS", Message: "must be >= 0 (0 disables retention sweep)"}
+	}
+	if cfg.AuditDLQMaxReclaimAttempts < 0 {
+		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", Message: "must be >= 0 (0 disables the cap)"}
+	}
+	if cfg.AuditSIEMEndpoint != "" && cfg.AuditSIEMAuthToken == "" {
+		return &domain.ConfigError{Field: "AUDIT_SIEM_AUTH_TOKEN", Message: "is required when AUDIT_SIEM_ENDPOINT is set"}
+	}
+	// Reject userinfo (https://user:password@host/...) in the SIEM
+	// endpoint. Sanitization strips it before logging but configuring
+	// it in the first place is a footgun: the credential lives in the
+	// process environment in plaintext and every operator who can read
+	// the config sees it. Require the Authorization Bearer token path.
+	if cfg.AuditSIEMEndpoint != "" {
+		u, err := url.Parse(cfg.AuditSIEMEndpoint)
+		if err != nil {
+			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: fmt.Sprintf("unparseable URL: %v", err)}
+		}
+		if u.User != nil {
+			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
+		}
+	}
+
+	return nil
 }
 
 // Redacted returns a map of config field names to values with secrets masked.

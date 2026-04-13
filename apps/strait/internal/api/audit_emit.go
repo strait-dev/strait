@@ -68,7 +68,7 @@ func (s *Server) startAuditAsyncDrain() {
 	}
 	ch := make(chan *domain.AuditEvent, bufSize)
 	done := make(chan struct{})
-	drainCtx, drainCancel := context.WithCancel(context.Background())
+	drainCtx, drainCancel := context.WithCancel(context.Background()) //nolint:gosec // drainCancel invoked in stopAuditAsyncDrain
 	s.auditAsyncMu.Lock()
 	s.auditAsyncCh = ch
 	s.auditAsyncDone = done

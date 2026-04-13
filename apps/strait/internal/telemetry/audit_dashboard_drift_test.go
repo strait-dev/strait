@@ -75,8 +75,8 @@ func dashboardAuditMetricRefs(t *testing.T) map[string]struct{} {
 
 	// Validate JSON so a drift between dashboard and test is not
 	// caused by malformed JSON we are scanning with a regex.
-	var any interface{}
-	if err := json.Unmarshal(raw, &any); err != nil {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal dashboard json: %v", err)
 	}
 

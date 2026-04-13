@@ -296,9 +296,7 @@ func TestAuditDrainer_FieldAssignmentNoDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -308,7 +306,7 @@ func TestAuditDrainer_FieldAssignmentNoDataRace(t *testing.T) {
 					_ = srv.AuditDrainerQueueCapacity()
 				}
 			}
-		}()
+		})
 	}
 	time.Sleep(100 * time.Millisecond)
 	close(stop)

@@ -279,9 +279,7 @@ func TestSIEMDrain_Enqueue_Stop_NoSendOnClosedChannel(t *testing.T) {
 		var wg sync.WaitGroup
 		stopWaiting := make(chan struct{})
 		for range 8 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for {
 					select {
 					case <-stopWaiting:
@@ -290,7 +288,7 @@ func TestSIEMDrain_Enqueue_Stop_NoSendOnClosedChannel(t *testing.T) {
 						drain.Enqueue(domain.AuditEvent{ID: "ev"})
 					}
 				}
-			}()
+			})
 		}
 		// Race Stop against the writers.
 		time.Sleep(2 * time.Millisecond)
@@ -334,4 +332,3 @@ func itoa(n int) string {
 	}
 	return string(digits)
 }
-
