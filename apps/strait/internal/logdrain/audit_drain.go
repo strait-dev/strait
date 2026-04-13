@@ -593,17 +593,45 @@ func (d *AuditSIEMDrain) ForwardBatch(ctx context.Context, events []domain.Audit
 	return nil
 }
 
+// ndjsonEncodeBufPool reuses bytes.Buffer instances across batch
+// encodes. SIEM forward is a hot loop — one batch every few seconds
+// under sustained load — and each batch previously allocated a fresh
+// buffer plus a fresh json.Encoder. The pool keeps the Go heap quiet on
+// steady-state traffic and lets the GC collect a small fixed set of
+// buffers across the whole drain instead of one per batch.
+//
+//nolint:gochecknoglobals // pool must be shared across batch encodes
+var ndjsonEncodeBufPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
+}
+
 // encodeNDJSONBatch serializes events as newline-delimited JSON. Exposed at
 // package scope so the schema contract test can reuse the exact wire form.
+// Allocates its output slice fresh because ForwardBatch reads from it across
+// retries; the internal scratch buffer comes from ndjsonEncodeBufPool.
 func encodeNDJSONBatch(events []domain.AuditEvent) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
+	buf, ok := ndjsonEncodeBufPool.Get().(*bytes.Buffer)
+	if !ok || buf == nil {
+		buf = new(bytes.Buffer)
+	}
+	buf.Reset()
+	defer func() {
+		// Drop buffers that grew unreasonably large so one pathological
+		// batch does not permanently bloat the pool's memory footprint.
+		const maxPooledCap = 1 << 20 // 1 MiB
+		if buf.Cap() <= maxPooledCap {
+			ndjsonEncodeBufPool.Put(buf)
+		}
+	}()
+	enc := json.NewEncoder(buf)
 	for i := range events {
 		if err := enc.Encode(&events[i]); err != nil {
 			return nil, fmt.Errorf("encode audit event %d: %w", i, err)
 		}
 	}
-	return buf.Bytes(), nil
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	return out, nil
 }
 
 // recordSuccess updates success metrics for a forwarded batch.

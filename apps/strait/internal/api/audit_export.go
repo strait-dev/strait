@@ -222,6 +222,16 @@ func (s *Server) streamAuditByFormat(ctx context.Context, format string, out io.
 // stream once maxExportRows have been written.
 var errExportCapReached = fmt.Errorf("audit export row cap reached")
 
+// exportFlushInterval controls how often streaming exports call
+// http.Flusher.Flush(). Flushing on every row keeps the client's first-
+// byte latency low but pays a syscall per row — at 1M rows that is
+// 1M Write() + 1M Flush() round trips against the TCP stack with no
+// batching benefit. The interval strikes a balance: the client sees
+// the first batch immediately and then fresh data at most
+// (interval * per-row CPU + DB time) apart, while the server amortizes
+// socket writes.
+const exportFlushInterval = 1000
+
 func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {
 	cw := csv.NewWriter(w)
 	header := []string{"id", "project_id", "actor_id", "actor_type", "action", "resource_type", "resource_id", "details", "created_at", "remote_ip", "user_agent", "request_id", "trace_id", "schema_version"}
@@ -287,7 +297,7 @@ func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher htt
 			return fmt.Errorf("encode ndjson row: %w", err)
 		}
 		exported++
-		if canFlush {
+		if canFlush && exported%exportFlushInterval == 0 {
 			flusher.Flush()
 		}
 		return nil
@@ -297,6 +307,9 @@ func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher htt
 	}
 	if capped {
 		_ = enc.Encode(map[string]any{"_capped": true, "exported": exported})
+	}
+	if canFlush {
+		flusher.Flush()
 	}
 	return exported, capped, nil
 }
@@ -329,7 +342,7 @@ func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.
 			return fmt.Errorf("write json object: %w", err)
 		}
 		exported++
-		if canFlush {
+		if canFlush && exported%exportFlushInterval == 0 {
 			flusher.Flush()
 		}
 		return nil
