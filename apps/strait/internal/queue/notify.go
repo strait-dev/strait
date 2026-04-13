@@ -93,6 +93,10 @@ func (n *QueueNotifier) Degraded() <-chan struct{} {
 	return ch
 }
 
+// MarkDegradedForTest is an exported wrapper around markDegraded for use by
+// external test packages. Production callers should not use this.
+func (n *QueueNotifier) MarkDegradedForTest() { n.markDegraded() }
+
 // markDegraded closes degradedCh so receivers wake up. Idempotent.
 func (n *QueueNotifier) markDegraded() {
 	n.degradedMu.Lock()
