@@ -180,6 +180,10 @@ apply AS (
     DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()
     RETURNING 1
 ),
+-- Safety net: zero counter rows that have no matching truth rows.
+-- Technically redundant with the apply CTE (FULL OUTER JOIN already
+-- produces truth_count=0 for these rows), but kept as defense-in-depth
+-- against CTE execution-order edge cases.
 zeroed AS (
     UPDATE job_active_counts ac
     SET count = 0, updated_at = NOW()
@@ -230,6 +234,10 @@ apply AS (
     DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()
     RETURNING 1
 ),
+-- Safety net: zero counter rows that have no matching truth rows.
+-- Technically redundant with the apply CTE (FULL OUTER JOIN already
+-- produces truth_count=0 for these rows), but kept as defense-in-depth
+-- against CTE execution-order edge cases.
 zeroed AS (
     UPDATE dlq_counts dc
     SET count = 0, updated_at = NOW()
