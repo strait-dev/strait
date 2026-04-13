@@ -49,6 +49,12 @@ var auditCoverageExemptHandlers = map[string]string{
 	"handleSDKWorkflowStepDone":  "sdk run-token, self-report only",
 	"handleSDKWorkflowStepFail":  "sdk run-token, self-report only",
 	"handleSDKWorkflowStepSleep": "sdk run-token, self-report only",
+
+	// Rotation handler — the store's RotateAuditSigningKey atomically emits
+	// an is_anchor=TRUE audit.key_rotated event signed under the new epoch
+	// key. Emitting an additional event from the handler would either
+	// duplicate the anchor or log under the old key.
+	"handleRotateAuditSigningKey": "store RotateAuditSigningKey emits the is_anchor audit event atomically",
 }
 
 // auditCoverageMutationPrefixes is the list of handler-name prefixes that the

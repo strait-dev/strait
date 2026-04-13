@@ -736,6 +736,9 @@ var _ APIStore = &APIStoreMock{}
 //			RollbackToDeploymentFunc: func(ctx context.Context, jobID string, deploymentID string, projectID string) error {
 //				panic("mock out the RollbackToDeployment method")
 //			},
+//			RotateAuditSigningKeyFunc: func(ctx context.Context, projectID string, actorID string) (int, error) {
+//				panic("mock out the RotateAuditSigningKey method")
+//			},
 //			RotateWebhookSecretFunc: func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
 //				panic("mock out the RotateWebhookSecret method")
 //			},
@@ -745,7 +748,7 @@ var _ APIStore = &APIStoreMock{}
 //			SetActiveDeploymentFunc: func(ctx context.Context, jobID string, deploymentID string, projectID string) error {
 //				panic("mock out the SetActiveDeployment method")
 //			},
-//			SetAuditExportRowCapFunc: func(ctx context.Context, projectID string, cap int64) error {
+//			SetAuditExportRowCapFunc: func(ctx context.Context, projectID string, rowCap int64) error {
 //				panic("mock out the SetAuditExportRowCap method")
 //			},
 //			SetAuditRetentionDaysFunc: func(ctx context.Context, projectID string, days int) error {
@@ -1592,6 +1595,9 @@ type APIStoreMock struct {
 	// RollbackToDeploymentFunc mocks the RollbackToDeployment method.
 	RollbackToDeploymentFunc func(ctx context.Context, jobID string, deploymentID string, projectID string) error
 
+	// RotateAuditSigningKeyFunc mocks the RotateAuditSigningKey method.
+	RotateAuditSigningKeyFunc func(ctx context.Context, projectID string, actorID string) (int, error)
+
 	// RotateWebhookSecretFunc mocks the RotateWebhookSecret method.
 	RotateWebhookSecretFunc func(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error
 
@@ -1602,7 +1608,7 @@ type APIStoreMock struct {
 	SetActiveDeploymentFunc func(ctx context.Context, jobID string, deploymentID string, projectID string) error
 
 	// SetAuditExportRowCapFunc mocks the SetAuditExportRowCap method.
-	SetAuditExportRowCapFunc func(ctx context.Context, projectID string, cap int64) error
+	SetAuditExportRowCapFunc func(ctx context.Context, projectID string, rowCap int64) error
 
 	// SetAuditRetentionDaysFunc mocks the SetAuditRetentionDays method.
 	SetAuditRetentionDaysFunc func(ctx context.Context, projectID string, days int) error
@@ -3865,6 +3871,15 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// RotateAuditSigningKey holds details about calls to the RotateAuditSigningKey method.
+		RotateAuditSigningKey []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// ActorID is the actorID argument value.
+			ActorID string
+		}
 		// RotateWebhookSecret holds details about calls to the RotateWebhookSecret method.
 		RotateWebhookSecret []struct {
 			// Ctx is the ctx argument value.
@@ -3900,8 +3915,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ProjectID is the projectID argument value.
 			ProjectID string
-			// Cap is the cap argument value.
-			Cap int64
+			// RowCap is the rowCap argument value.
+			RowCap int64
 		}
 		// SetAuditRetentionDays holds details about calls to the SetAuditRetentionDays method.
 		SetAuditRetentionDays []struct {
@@ -4519,6 +4534,7 @@ type APIStoreMock struct {
 	lockRevokeAPIKey                       sync.RWMutex
 	lockRollbackDeploymentVersion          sync.RWMutex
 	lockRollbackToDeployment               sync.RWMutex
+	lockRotateAuditSigningKey              sync.RWMutex
 	lockRotateWebhookSecret                sync.RWMutex
 	lockSeedProjectSystemRoles             sync.RWMutex
 	lockSetActiveDeployment                sync.RWMutex
@@ -14961,6 +14977,50 @@ func (mock *APIStoreMock) RollbackToDeploymentCalls() []struct {
 	return calls
 }
 
+// RotateAuditSigningKey calls RotateAuditSigningKeyFunc.
+func (mock *APIStoreMock) RotateAuditSigningKey(ctx context.Context, projectID string, actorID string) (int, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		ActorID   string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ActorID:   actorID,
+	}
+	mock.lockRotateAuditSigningKey.Lock()
+	mock.calls.RotateAuditSigningKey = append(mock.calls.RotateAuditSigningKey, callInfo)
+	mock.lockRotateAuditSigningKey.Unlock()
+	if mock.RotateAuditSigningKeyFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.RotateAuditSigningKeyFunc(ctx, projectID, actorID)
+}
+
+// RotateAuditSigningKeyCalls gets all the calls that were made to RotateAuditSigningKey.
+// Check the length with:
+//
+//	len(mockedAPIStore.RotateAuditSigningKeyCalls())
+func (mock *APIStoreMock) RotateAuditSigningKeyCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	ActorID   string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		ActorID   string
+	}
+	mock.lockRotateAuditSigningKey.RLock()
+	calls = mock.calls.RotateAuditSigningKey
+	mock.lockRotateAuditSigningKey.RUnlock()
+	return calls
+}
+
 // RotateWebhookSecret calls RotateWebhookSecretFunc.
 func (mock *APIStoreMock) RotateWebhookSecret(ctx context.Context, id string, newSecret string, graceExpiresAt time.Time) error {
 	callInfo := struct {
@@ -15095,15 +15155,15 @@ func (mock *APIStoreMock) SetActiveDeploymentCalls() []struct {
 }
 
 // SetAuditExportRowCap calls SetAuditExportRowCapFunc.
-func (mock *APIStoreMock) SetAuditExportRowCap(ctx context.Context, projectID string, cap int64) error {
+func (mock *APIStoreMock) SetAuditExportRowCap(ctx context.Context, projectID string, rowCap int64) error {
 	callInfo := struct {
 		Ctx       context.Context
 		ProjectID string
-		Cap       int64
+		RowCap    int64
 	}{
 		Ctx:       ctx,
 		ProjectID: projectID,
-		Cap:       cap,
+		RowCap:    rowCap,
 	}
 	mock.lockSetAuditExportRowCap.Lock()
 	mock.calls.SetAuditExportRowCap = append(mock.calls.SetAuditExportRowCap, callInfo)
@@ -15114,7 +15174,7 @@ func (mock *APIStoreMock) SetAuditExportRowCap(ctx context.Context, projectID st
 		)
 		return errOut
 	}
-	return mock.SetAuditExportRowCapFunc(ctx, projectID, cap)
+	return mock.SetAuditExportRowCapFunc(ctx, projectID, rowCap)
 }
 
 // SetAuditExportRowCapCalls gets all the calls that were made to SetAuditExportRowCap.
@@ -15124,12 +15184,12 @@ func (mock *APIStoreMock) SetAuditExportRowCap(ctx context.Context, projectID st
 func (mock *APIStoreMock) SetAuditExportRowCapCalls() []struct {
 	Ctx       context.Context
 	ProjectID string
-	Cap       int64
+	RowCap    int64
 } {
 	var calls []struct {
 		Ctx       context.Context
 		ProjectID string
-		Cap       int64
+		RowCap    int64
 	}
 	mock.lockSetAuditExportRowCap.RLock()
 	calls = mock.calls.SetAuditExportRowCap

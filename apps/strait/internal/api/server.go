@@ -410,6 +410,7 @@ type RBACStore interface {
 	SetAuditExportRowCap(ctx context.Context, projectID string, rowCap int64) error
 	GetAuditRetentionDays(ctx context.Context, projectID string) (int, bool, error)
 	SetAuditRetentionDays(ctx context.Context, projectID string, days int) error
+	RotateAuditSigningKey(ctx context.Context, projectID, actorID string) (int, error)
 
 	// Data export streaming.
 	StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error

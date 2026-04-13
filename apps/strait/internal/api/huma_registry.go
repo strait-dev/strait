@@ -1157,6 +1157,13 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
 	}, s.handleSetAuditRetention)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "rotate-audit-signing-key", Method: http.MethodPost, Path: "/v1/projects/{id}/audit/rotate-key",
+		Summary:     "Rotate the audit signing key",
+		Description: "Rotates the per-project HMAC signing key for the audit chain. Stores the new per-epoch key encrypted and emits an is_anchor=TRUE audit.key_rotated event under the new key. Admin-only.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleRotateAuditSigningKey)
+
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-resource-policy", Method: http.MethodPost, Path: "/v1/resource-policies",
