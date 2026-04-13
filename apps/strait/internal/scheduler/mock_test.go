@@ -332,6 +332,18 @@ func (m *mockReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEve
 func (m *mockReaperStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
 	return nil
 }
+func (m *mockReaperStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+	return nil, nil, nil, nil
+}
+func (m *mockReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
 
 // mockMachineDestroyer implements MachineDestroyer for testing.
 type mockMachineDestroyer struct {

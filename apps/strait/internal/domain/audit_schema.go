@@ -98,6 +98,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"deadletter_id", "reason"},
 		Description: "Admin operator permanently dropped a deadletter entry, accepting data loss.",
 	},
+	AuditActionDeadletterAged: {
+		Required:    []string{"dropped_count", "reason"},
+		Description: "Audit deadletter retention reaper dropped rows older than the configured AUDIT_DLQ_MAX_AGE_DAYS window; reason carries the trigger (e.g. max_age_exceeded).",
+	},
 	AuditActionExportCapUpdated: {
 		Required:    []string{"old_cap", "new_cap"},
 		Description: "Admin operator updated the per-project audit export row cap. old_cap and new_cap are BIGINT values; 0 denotes inherit-from-default.",

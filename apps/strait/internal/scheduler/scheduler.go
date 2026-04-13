@@ -66,7 +66,9 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
 			WithStalledAction(cfg.StalledWorkflowAction).
 			WithAuditRetention(cfg.AuditRetentionDefaultDays).
-			WithAuditDLQReclaimBatch(cfg.AuditDLQReclaimBatch),
+			WithAuditDLQReclaimBatch(cfg.AuditDLQReclaimBatch).
+			WithAuditDLQMaxAgeDays(cfg.AuditDLQMaxAgeDays).
+			WithAuditDLQMaxReclaimAttempts(cfg.AuditDLQMaxReclaimAttempts),
 		indexMaintainer:       NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:        NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:          NewBatchFlusher(s, q, cfg.BatchFlushInterval),

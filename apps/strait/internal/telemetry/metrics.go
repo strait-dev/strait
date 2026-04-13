@@ -156,6 +156,8 @@ type Metrics struct {
 	AuditEventsDeadlettered metric.Int64Counter
 	AuditReclaimerSuccess   metric.Int64Counter
 	AuditReclaimerFailed    metric.Int64Counter
+	AuditReclaimerAbandoned metric.Int64Counter
+	AuditDeadletterAged     metric.Int64Counter
 	AuditRetentionDeleted   metric.Int64Counter
 	AuditSIEMDropped        metric.Int64Counter
 	AuditSIEMForwarded      metric.Int64Counter
@@ -874,6 +876,16 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit deadletter reclaim attempts that failed, labeled by reason"),
 		metric.WithUnit("1"),
 	)
+	auditReclaimerAbandoned, _ := meter.Int64Counter(
+		"strait.audit.reclaimer_abandoned_total",
+		metric.WithDescription("Total audit deadletter rows whose reclaim attempts hit the configured max-attempts cap and were skipped this tick"),
+		metric.WithUnit("1"),
+	)
+	auditDeadletterAged, _ := meter.Int64Counter(
+		"strait.audit.deadletter_aged_total",
+		metric.WithDescription("Total audit deadletter rows dropped by the DLQ retention reaper after exceeding AUDIT_DLQ_MAX_AGE_DAYS, labeled by project_id"),
+		metric.WithUnit("1"),
+	)
 	auditRetentionDeleted, _ := meter.Int64Counter(
 		"strait.audit.retention_deleted_total",
 		metric.WithDescription("Total audit events deleted by the retention reaper, labeled by project_id"),
@@ -1022,6 +1034,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditEventsDeadlettered:      auditEventsDeadlettered,
 		AuditReclaimerSuccess:        auditReclaimerSuccess,
 		AuditReclaimerFailed:         auditReclaimerFailed,
+		AuditReclaimerAbandoned:      auditReclaimerAbandoned,
+		AuditDeadletterAged:          auditDeadletterAged,
 		AuditRetentionDeleted:        auditRetentionDeleted,
 		AuditSIEMDropped:             auditSIEMDropped,
 		AuditSIEMForwarded:           auditSIEMForwarded,

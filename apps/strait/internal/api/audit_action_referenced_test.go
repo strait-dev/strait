@@ -12,11 +12,12 @@ import (
 )
 
 // auditActionReferenceAllowlist lists AuditAction* constants that are NOT
-// referenced from internal/api/ nor from the two known non-api emitters
-// (internal/store/audit_events.go for audit.retention_trimmed and
-// internal/store/audit_key_rotation.go for audit.key_rotated). Every entry
-// in this map needs a reason — the default stance is "a defined audit
-// action const must be emitted by at least one call site".
+// referenced from internal/api/ nor from the known non-api emitters
+// (internal/store/audit_events.go for audit.retention_trimmed,
+// internal/store/audit_key_rotation.go for audit.key_rotated, and
+// internal/scheduler/audit_reaper.go for audit.deadletter_aged). Every
+// entry in this map needs a reason — the default stance is "a defined
+// audit action const must be emitted by at least one call site".
 var auditActionReferenceAllowlist = map[string]string{}
 
 // TestEveryAuditActionConstHasCallSite walks the full set of files that are
@@ -29,6 +30,7 @@ var auditActionReferenceAllowlist = map[string]string{}
 //   - apps/strait/internal/api/*.go (all handlers)
 //   - apps/strait/internal/store/audit_events.go (retention tombstone)
 //   - apps/strait/internal/store/audit_key_rotation.go (key rotation anchor)
+//   - apps/strait/internal/scheduler/audit_reaper.go (DLQ retention reaper)
 //
 // A constant that is emitted only from a file outside that set must be added
 // to auditActionReferenceAllowlist with a documented reason.
@@ -50,6 +52,7 @@ func TestEveryAuditActionConstHasCallSite(t *testing.T) {
 	scanFiles := []string{
 		filepath.Join(straitRoot, "internal", "store", "audit_events.go"),
 		filepath.Join(straitRoot, "internal", "store", "audit_key_rotation.go"),
+		filepath.Join(straitRoot, "internal", "scheduler", "audit_reaper.go"),
 	}
 	// Add every non-test .go in internal/api.
 	apiEntries, err := os.ReadDir(apiDir)

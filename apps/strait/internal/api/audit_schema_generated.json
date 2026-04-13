@@ -132,6 +132,33 @@
         "bearer"
       ]
     },
+    "audit.deadletter_aged": {
+      "type": "object",
+      "description": "Audit deadletter retention reaper dropped rows older than the configured AUDIT_DLQ_MAX_AGE_DAYS window; reason carries the trigger (e.g. max_age_exceeded).",
+      "properties": {
+        "dropped_count": {
+          "type": "string",
+          "description": "required"
+        },
+        "reason": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["dropped_count", "reason"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "audit.deadletter_dropped": {
       "type": "object",
       "description": "Admin operator permanently dropped a deadletter entry, accepting data loss.",

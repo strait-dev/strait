@@ -49,7 +49,18 @@ type Config struct {
 	AuditSIEMBatchSize        int           `env:"AUDIT_SIEM_BATCH_SIZE" default:"100"`
 	AuditSIEMFlushInterval    time.Duration `env:"AUDIT_SIEM_FLUSH_INTERVAL" default:"10s"`
 	AuditDLQReclaimBatch      int           `env:"AUDIT_DLQ_RECLAIM_BATCH" default:"200"`
-	AuditExportRowCapDefault  int64         `env:"AUDIT_EXPORT_ROW_CAP_DEFAULT" default:"1000000"`
+	// AuditDLQMaxAgeDays bounds how long a deadletter row may live before the
+	// DLQ retention reaper drops it. 0 disables the sweep — useful for
+	// installations where operators want to retain forever and rely on
+	// manual triage. Default is 30 days.
+	AuditDLQMaxAgeDays int `env:"AUDIT_DLQ_MAX_AGE_DAYS" default:"30"`
+	// AuditDLQMaxReclaimAttempts caps how many times the reclaimer will retry
+	// a single DLQ row's chain insert. After this many failures the row is
+	// skipped (it stays in the DLQ for operator triage) and the
+	// strait_audit_reclaimer_abandoned_total metric is bumped. 0 disables
+	// the cap entirely (legacy behavior). Default is 10.
+	AuditDLQMaxReclaimAttempts int   `env:"AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS" default:"10"`
+	AuditExportRowCapDefault   int64 `env:"AUDIT_EXPORT_ROW_CAP_DEFAULT" default:"1000000"`
 
 	// Database connection pool tuning
 	DBMaxConns          int32         `env:"DB_MAX_CONNS" default:"50"`
@@ -466,6 +477,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.AuditDLQReclaimBatch <= 0 {
 		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_RECLAIM_BATCH", Message: "must be > 0"}
+	}
+	if cfg.AuditDLQMaxAgeDays < 0 {
+		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_MAX_AGE_DAYS", Message: "must be >= 0 (0 disables retention sweep)"}
+	}
+	if cfg.AuditDLQMaxReclaimAttempts < 0 {
+		return nil, &domain.ConfigError{Field: "AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", Message: "must be >= 0 (0 disables the cap)"}
 	}
 	if cfg.AuditSIEMEndpoint != "" && cfg.AuditSIEMAuthToken == "" {
 		return nil, &domain.ConfigError{Field: "AUDIT_SIEM_AUTH_TOKEN", Message: "is required when AUDIT_SIEM_ENDPOINT is set"}

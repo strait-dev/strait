@@ -234,6 +234,18 @@ func (m *mockSchedulerStore) CreateAuditEvent(_ context.Context, _ *domain.Audit
 func (m *mockSchedulerStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
 	return nil
 }
+func (m *mockSchedulerStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+	return nil, nil, nil, nil
+}
+func (m *mockSchedulerStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockSchedulerStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockSchedulerStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
 
 func testSchedulerConfig() *config.Config {
 	return &config.Config{

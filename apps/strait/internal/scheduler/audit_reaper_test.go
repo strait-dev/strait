@@ -18,20 +18,46 @@ type fakeAuditReclaimerStore struct {
 	mockReaperStore
 
 	listLimit atomic.Int32
-	listFn    func(ctx context.Context, limit int) ([]domain.AuditEvent, []string, error)
+	listFn    func(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error)
 	createFn  func(ctx context.Context, ev *domain.AuditEvent) error
 	deleteFn  func(ctx context.Context, id string) error
 
-	createCalls atomic.Int32
-	deleteCalls atomic.Int32
+	createCalls    atomic.Int32
+	deleteCalls    atomic.Int32
+	incCalls       atomic.Int32
+	markCalls      atomic.Int32
+	deleteAgedFn   func(ctx context.Context, cutoff time.Time) (map[string]int64, error)
+	deleteAgedHits atomic.Int32
 }
 
-func (f *fakeAuditReclaimerStore) ListAuditEventsDeadletter(ctx context.Context, limit int) ([]domain.AuditEvent, []string, error) {
+func (f *fakeAuditReclaimerStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeAuditReclaimerStore) ListAuditEventsDeadletterWithAttempts(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
 	f.listLimit.Store(int32(limit))
 	if f.listFn != nil {
 		return f.listFn(ctx, limit)
 	}
-	return nil, nil, nil
+	return nil, nil, nil, nil
+}
+
+func (f *fakeAuditReclaimerStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	f.incCalls.Add(1)
+	return nil
+}
+
+func (f *fakeAuditReclaimerStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	f.markCalls.Add(1)
+	return nil
+}
+
+func (f *fakeAuditReclaimerStore) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error) {
+	f.deleteAgedHits.Add(1)
+	if f.deleteAgedFn != nil {
+		return f.deleteAgedFn(ctx, cutoff)
+	}
+	return nil, nil
 }
 
 func (f *fakeAuditReclaimerStore) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {
@@ -92,11 +118,18 @@ func itoa(i int) string {
 	return string(buf[pos:])
 }
 
+// emptyAttempts builds a fresh attempt-info slice for n rows with no prior
+// attempts and no idempotency marker — the common reclaim-from-cold path.
+func emptyAttempts(n int) []store.AuditDeadletterAttemptInfo {
+	out := make([]store.AuditDeadletterAttemptInfo, n)
+	return out
+}
+
 func TestReclaimAuditDeadletter_UsesConfiguredBatchSize(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeAuditReclaimerStore{}
-	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
-		return nil, nil, nil
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+		return nil, nil, nil, nil
 	}
 
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
@@ -123,12 +156,12 @@ func TestReclaimAuditDeadletter_DeletesFromDLQAfterChainInsert(t *testing.T) {
 	ctx := context.Background()
 	events, _ := newFakeDLQEvents(3)
 	fake := &fakeAuditReclaimerStore{}
-	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
 		ids := make([]string, len(events))
 		for i, ev := range events {
 			ids[i] = ev.ID
 		}
-		return events, ids, nil
+		return events, ids, emptyAttempts(len(events)), nil
 	}
 
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
@@ -140,18 +173,22 @@ func TestReclaimAuditDeadletter_DeletesFromDLQAfterChainInsert(t *testing.T) {
 	if got := fake.deleteCalls.Load(); got != 3 {
 		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 3", got)
 	}
+	// Idempotency marker is written on every successful insert.
+	if got := fake.markCalls.Load(); got != 3 {
+		t.Fatalf("MarkAuditDeadletterReclaimed calls = %d, want 3", got)
+	}
 }
 
 func TestReclaimAuditDeadletter_ChainInsertFailure_SkipsDelete(t *testing.T) {
 	ctx := context.Background()
 	events, _ := newFakeDLQEvents(2)
 	fake := &fakeAuditReclaimerStore{}
-	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
 		ids := make([]string, len(events))
 		for i, ev := range events {
 			ids[i] = ev.ID
 		}
-		return events, ids, nil
+		return events, ids, emptyAttempts(len(events)), nil
 	}
 	fake.createFn = func(_ context.Context, _ *domain.AuditEvent) error {
 		return errors.New("chain down")
@@ -167,17 +204,117 @@ func TestReclaimAuditDeadletter_ChainInsertFailure_SkipsDelete(t *testing.T) {
 	if got := fake.deleteCalls.Load(); got != 0 {
 		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 0 on chain failure", got)
 	}
+	// And attempt count must be incremented for both rows so the
+	// max-attempts cap eventually fires.
+	if got := fake.incCalls.Load(); got != 2 {
+		t.Fatalf("IncrementAuditDeadletterAttempt calls = %d, want 2", got)
+	}
 }
 
 func TestReclaimAuditDeadletter_ListError_RecordsOperation(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeAuditReclaimerStore{}
-	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
-		return nil, nil, errors.New("db broken")
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+		return nil, nil, nil, errors.New("db broken")
 	}
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	// Must not panic and must return cleanly.
 	r.reclaimAuditDeadletter(ctx)
+}
+
+// TestReclaimAuditDeadletter_RespectsMaxAttempts asserts that rows whose
+// attempt_count has reached the configured cap are skipped this tick (no
+// chain insert) and counted as abandoned.
+func TestReclaimAuditDeadletter_RespectsMaxAttempts(t *testing.T) {
+	ctx := context.Background()
+	events, ids := newFakeDLQEvents(3)
+	// Row 0 is fresh, rows 1 and 2 have hit the cap.
+	infos := []store.AuditDeadletterAttemptInfo{
+		{AttemptCount: 0},
+		{AttemptCount: 5},
+		{AttemptCount: 10},
+	}
+	fake := &fakeAuditReclaimerStore{}
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+		return events, ids, infos, nil
+	}
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditDLQMaxReclaimAttempts(5)
+	r.reclaimAuditDeadletter(ctx)
+
+	// Only one row should be inserted (the fresh one); the other two
+	// should be abandoned and skipped.
+	if got := fake.createCalls.Load(); got != 1 {
+		t.Fatalf("CreateAuditEvent calls = %d, want 1 (others abandoned)", got)
+	}
+	if got := fake.deleteCalls.Load(); got != 1 {
+		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 1", got)
+	}
+}
+
+// TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed asserts that
+// when a DLQ row already carries reclaimed_event_id, the chain insert is
+// skipped and only the DLQ delete runs. This is the at-least-once path —
+// a previous successful insert + failed delete must not produce a second
+// chain row on retry.
+func TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed(t *testing.T) {
+	ctx := context.Background()
+	events, ids := newFakeDLQEvents(2)
+	prevEventID := "previously-inserted-id"
+	infos := []store.AuditDeadletterAttemptInfo{
+		{AttemptCount: 1, ReclaimedEventID: &prevEventID},
+		{AttemptCount: 0}, // fresh row goes through the normal path
+	}
+	fake := &fakeAuditReclaimerStore{}
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+		return events, ids, infos, nil
+	}
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
+	r.reclaimAuditDeadletter(ctx)
+
+	// Only the fresh row triggers a chain insert; the previously-reclaimed
+	// row only triggers a delete.
+	if got := fake.createCalls.Load(); got != 1 {
+		t.Fatalf("CreateAuditEvent calls = %d, want 1 (idempotency must skip the marked row)", got)
+	}
+	if got := fake.deleteCalls.Load(); got != 2 {
+		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 2", got)
+	}
+}
+
+// TestReapDeadletter_DropsAgedRows_CallsDelete asserts the new retention
+// reaper invokes the store and emits one audit.deadletter_aged event per
+// affected project.
+func TestReapDeadletter_DropsAgedRows_CallsDelete(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeAuditReclaimerStore{}
+	fake.deleteAgedFn = func(_ context.Context, _ time.Time) (map[string]int64, error) {
+		return map[string]int64{"proj-a": 7, "proj-b": 3}, nil
+	}
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditDLQMaxAgeDays(30)
+	r.reapDeadletter(ctx)
+
+	if got := fake.deleteAgedHits.Load(); got != 1 {
+		t.Fatalf("DeleteAuditDeadletterOlderThan calls = %d, want 1", got)
+	}
+	// One audit.deadletter_aged event per project that lost rows.
+	if got := fake.createCalls.Load(); got != 2 {
+		t.Fatalf("CreateAuditEvent calls = %d, want 2 (one per affected project)", got)
+	}
+}
+
+// TestReapDeadletter_DisabledByZero asserts the sweep is opt-in.
+func TestReapDeadletter_DisabledByZero(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeAuditReclaimerStore{}
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
+	// Default is zero — sweep disabled.
+	r.reapDeadletter(ctx)
+	if got := fake.deleteAgedHits.Load(); got != 0 {
+		t.Fatalf("retention sweep ran with max_age_days=0: hits=%d", got)
+	}
 }
 
 // fakeAuditRetentionStore captures DeleteAuditEventsBefore calls per project

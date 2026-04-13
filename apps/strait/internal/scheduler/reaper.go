@@ -58,6 +58,10 @@ type ReaperStore interface {
 	DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff time.Time, excludeProjectIDs []string) (int64, error)
 	ListAuditRetentionOverrides(ctx context.Context) ([]store.AuditRetentionOverride, error)
 	ListAuditEventsDeadletter(ctx context.Context, limit int) ([]domain.AuditEvent, []string, error)
+	ListAuditEventsDeadletterWithAttempts(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error)
+	IncrementAuditDeadletterAttempt(ctx context.Context, id string) error
+	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
+	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id string) error
 }
@@ -144,29 +148,31 @@ type OrgRetentionResolver interface {
 }
 
 type Reaper struct {
-	store                     ReaperStore
-	interval                  time.Duration
-	staleThreshold            time.Duration
-	workflowRetention         time.Duration
-	eventTriggerRetention     time.Duration
-	stalledThreshold          time.Duration
-	deleteBatchLimit          int
-	advisoryLocker            AdvisoryLocker
-	shortRetention            time.Duration
-	longRetention             time.Duration
-	retentionEnabled          bool
-	workflowCallback          WorkflowCallback
-	machineDestroyer          MachineDestroyer
-	chExporter                *clickhouse.Exporter
-	metrics                   *telemetry.Metrics
-	logger                    *slog.Logger
-	stalledAction             string
-	dlqAlertCooldown          map[string]time.Time
-	queueAlertCooldown        map[string]time.Time
-	reminderSent              map[string]time.Time
-	orgRetention              OrgRetentionResolver
-	auditRetentionDefaultDays int
-	auditDLQReclaimBatch      int
+	store                      ReaperStore
+	interval                   time.Duration
+	staleThreshold             time.Duration
+	workflowRetention          time.Duration
+	eventTriggerRetention      time.Duration
+	stalledThreshold           time.Duration
+	deleteBatchLimit           int
+	advisoryLocker             AdvisoryLocker
+	shortRetention             time.Duration
+	longRetention              time.Duration
+	retentionEnabled           bool
+	workflowCallback           WorkflowCallback
+	machineDestroyer           MachineDestroyer
+	chExporter                 *clickhouse.Exporter
+	metrics                    *telemetry.Metrics
+	logger                     *slog.Logger
+	stalledAction              string
+	dlqAlertCooldown           map[string]time.Time
+	queueAlertCooldown         map[string]time.Time
+	reminderSent               map[string]time.Time
+	orgRetention               OrgRetentionResolver
+	auditRetentionDefaultDays  int
+	auditDLQReclaimBatch       int
+	auditDLQMaxAgeDays         int
+	auditDLQMaxReclaimAttempts int
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -323,6 +329,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.autoRotateAPIKeys(ctx)
 	r.reapAuditEvents(ctx)
 	r.reclaimAuditDeadletter(ctx)
+	r.reapDeadletter(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -362,6 +369,7 @@ func (r *Reaper) Run(ctx context.Context) {
 		}
 		r.reapAuditEvents(loopCtx)
 		r.reclaimAuditDeadletter(loopCtx)
+		r.reapDeadletter(loopCtx)
 	})
 	loop.Run(ctx)
 }

@@ -128,6 +128,28 @@ Every retention trim that actually deletes rows writes a tombstone anchor
 (`action=audit.retention_trimmed`) inside the same transaction so the chain
 stays verifiable after trim.
 
+## Deadletter retention
+
+The audit deadletter table (`audit_events_deadletter`) holds events that
+could not reach the primary chain after exhausting the in-process retry
+budget. Three controls keep it bounded:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AUDIT_DLQ_RECLAIM_BATCH` | 200 | Max DLQ rows the scheduler reclaimer processes per tick. |
+| `AUDIT_DLQ_MAX_AGE_DAYS` | 30 | Drop DLQ rows older than N days. `0` disables the sweep. |
+| `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | 10 | Skip a row after N failed chain inserts. `0` disables the cap. |
+
+Drops emit `audit.deadletter_aged` events into the affected project's chain
+(`{dropped_count, reason: "max_age_exceeded"}`) and bump
+`strait_audit_deadletter_aged_total{project_id}`. Skipped rows count toward
+`strait_audit_reclaimer_abandoned_total`; they stay in the DLQ for operator
+triage via `GET /v1/audit/deadletter`.
+
+Replay is at-least-once with idempotency: a successful chain insert sets
+`reclaimed_event_id` on the DLQ row. A subsequent retry observes the marker
+and only deletes the DLQ entry — it never inserts a duplicate chain event.
+
 ## SIEM drain troubleshooting
 
 SIEM forwarding is opt-in via `AUDIT_SIEM_ENDPOINT`. Relevant env vars:

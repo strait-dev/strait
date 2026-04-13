@@ -220,3 +220,136 @@ func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id string) err
 	}
 	return nil
 }
+
+// AuditDeadletterAttemptInfo carries the fields the reclaimer needs to make
+// idempotency and max-attempts decisions without re-reading the row.
+type AuditDeadletterAttemptInfo struct {
+	AttemptCount     int
+	ReclaimedEventID *string
+}
+
+// ListAuditEventsDeadletterWithAttempts returns the oldest deadletter events
+// for reclamation along with each row's current attempt_count and any
+// previously-set reclaimed_event_id. Behaves like ListAuditEventsDeadletter
+// but the extra columns let the reclaimer enforce a max-attempts cap and
+// detect previously-reclaimed rows that only need the DLQ delete.
+func (q *Queries) ListAuditEventsDeadletterWithAttempts(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []AuditDeadletterAttemptInfo, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAuditEventsDeadletterWithAttempts")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+		       attempt_count, reclaimed_event_id
+		FROM audit_events_deadletter
+		ORDER BY queued_at ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list audit deadletter with attempts: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		events []domain.AuditEvent
+		ids    []string
+		info   []AuditDeadletterAttemptInfo
+	)
+	for rows.Next() {
+		var ev domain.AuditEvent
+		var attemptCount int
+		var reclaimedID *string
+		if err := rows.Scan(
+			&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
+			&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
+			&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion,
+			&attemptCount, &reclaimedID,
+		); err != nil {
+			return nil, nil, nil, fmt.Errorf("scan audit deadletter row: %w", err)
+		}
+		events = append(events, ev)
+		ids = append(ids, ev.ID)
+		info = append(info, AuditDeadletterAttemptInfo{
+			AttemptCount:     attemptCount,
+			ReclaimedEventID: reclaimedID,
+		})
+	}
+	return events, ids, info, rows.Err()
+}
+
+// IncrementAuditDeadletterAttempt bumps attempt_count by one for the
+// supplied DLQ row id. Used by the reclaimer to track failed replay
+// attempts so the max-attempts cap eventually retires permanently
+// poisoned rows.
+func (q *Queries) IncrementAuditDeadletterAttempt(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.IncrementAuditDeadletterAttempt")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE audit_events_deadletter SET attempt_count = attempt_count + 1 WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("increment audit deadletter attempt: %w", err)
+	}
+	return nil
+}
+
+// MarkAuditDeadletterReclaimed records the new chain event id on the DLQ row
+// so a subsequent replay (admin or reclaimer) can detect that the chain
+// insert already happened and skip it, performing only the DLQ delete. This
+// is the idempotency anchor for at-least-once replay semantics.
+func (q *Queries) MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkAuditDeadletterReclaimed")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE audit_events_deadletter SET reclaimed_event_id = $2 WHERE id = $1`,
+		dlqID, newEventID,
+	)
+	if err != nil {
+		return fmt.Errorf("mark audit deadletter reclaimed: %w", err)
+	}
+	return nil
+}
+
+// DeleteAuditDeadletterOlderThan removes deadletter rows whose original
+// event timestamp (created_at) is older than cutoff. Returns per-project
+// counts so the caller can emit one audit.deadletter_aged event per
+// affected project. Bounded by limit so a single sweep cannot lock the
+// table for too long.
+//
+// We key on created_at, not queued_at: an event that arrived in the DLQ
+// late but whose original event is recent should not be aged out. The
+// retention contract is "drop deadlettered events whose original creation
+// time is older than N days".
+func (q *Queries) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditDeadletterOlderThan")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		WITH deleted AS (
+			DELETE FROM audit_events_deadletter
+			WHERE created_at < $1
+			RETURNING project_id
+		)
+		SELECT project_id, COUNT(*) AS dropped
+		FROM deleted
+		GROUP BY project_id
+	`, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int64)
+	for rows.Next() {
+		var pid string
+		var dropped int64
+		if err := rows.Scan(&pid, &dropped); err != nil {
+			return nil, fmt.Errorf("scan deadletter retention row: %w", err)
+		}
+		out[pid] = dropped
+	}
+	return out, rows.Err()
+}
