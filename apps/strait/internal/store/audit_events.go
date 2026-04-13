@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/crypto/hkdf"
 )
@@ -523,33 +522,29 @@ func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, projectID string,
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBefore")
 	defer span.End()
 
+	// Reject the empty-projectID shortcut explicitly. Historically an
+	// empty projectID silently fell through to a cross-tenant DELETE,
+	// which defeats per-tenant isolation and can wipe unrelated
+	// projects on a buggy call site. Callers that need a cross-tenant
+	// trim must use DeleteAuditEventsBeforeExcluding — it emits one
+	// retention tombstone per affected project inside a single
+	// transaction.
+	if projectID == "" {
+		return 0, fmt.Errorf("DeleteAuditEventsBefore: projectID required; use DeleteAuditEventsBeforeExcluding for cross-tenant trim")
+	}
+
 	var deleted int64
 	err := q.withTxInheritKeys(ctx, func(tx *Queries) error {
-		var (
-			tag   pgconn.CommandTag
-			execE error
-		)
-		if projectID == "" {
-			tag, execE = tx.db.Exec(ctx, `
-				DELETE FROM audit_events
-				WHERE created_at < $1
-			`, cutoff)
-		} else {
-			tag, execE = tx.db.Exec(ctx, `
-				DELETE FROM audit_events
-				WHERE project_id = $1 AND created_at < $2
-			`, projectID, cutoff)
-		}
+		tag, execE := tx.db.Exec(ctx, `
+			DELETE FROM audit_events
+			WHERE project_id = $1 AND created_at < $2
+		`, projectID, cutoff)
 		if execE != nil {
 			return fmt.Errorf("delete audit events before: %w", execE)
 		}
 		deleted = tag.RowsAffected()
-		if deleted == 0 || projectID == "" {
-			// No tombstone on zero deletes. An empty projectID is a legacy
-			// "trim globally" path kept for callers that don't know the
-			// per-project membership; the scheduler uses
-			// DeleteAuditEventsBeforeExcluding which emits one tombstone per
-			// affected project instead.
+		if deleted == 0 {
+			// No rows trimmed: skip the tombstone. The chain is unchanged.
 			return nil
 		}
 		return tx.writeRetentionTombstone(ctx, projectID, cutoff, deleted)

@@ -441,3 +441,49 @@ func TestDeleteAuditEventsBeforeExcluding_AtomicWithTombstone(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteAuditEventsBefore_RejectsEmptyProjectID — calling the
+// per-project trim with an empty projectID must fail loudly. This path
+// used to silently fall through to a cross-tenant DELETE (every row
+// older than cutoff, any project). That defeated per-tenant isolation
+// and could wipe unrelated projects on a buggy call site. The bulk
+// operation belongs to DeleteAuditEventsBeforeExcluding, which emits
+// per-project tombstones; callers that want cross-tenant trim must
+// reach for that entrypoint explicitly.
+func TestDeleteAuditEventsBefore_RejectsEmptyProjectID(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	key, _ := store.DeriveAuditSigningKey("reject-empty-pid-secret")
+	q.SetAuditSigningKey(key)
+
+	// Seed one row in a real project so the table is non-empty. If the
+	// old buggy path ever re-emerged it would delete this row; we rely
+	// on that as a secondary safety check below.
+	projectID := "proj-reject-empty-sentinel"
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
+	seedDatedChain(ctx, t, q, projectID, 1, base, key)
+
+	cutoff := time.Now().UTC()
+	deleted, err := q.DeleteAuditEventsBefore(ctx, "", cutoff)
+	if err == nil {
+		t.Fatalf("DeleteAuditEventsBefore(\"\", ...): expected error, got nil (deleted=%d)", deleted)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0 on rejection", deleted)
+	}
+
+	// Sentinel: the seeded row must still be present. If the guard ever
+	// regresses to the cross-tenant DELETE behavior, this row would be
+	// wiped since its created_at is older than the cutoff.
+	var remaining int
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, projectID,
+	).Scan(&remaining); err != nil {
+		t.Fatalf("remaining count: %v", err)
+	}
+	if remaining != 1 {
+		t.Errorf("sentinel row was wiped: remaining = %d, want 1", remaining)
+	}
+}
