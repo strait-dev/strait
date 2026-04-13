@@ -187,11 +187,11 @@ func (q *Queries) RotateAuditSigningKey(ctx context.Context, projectID, actorID 
 func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, actorID string) (int, error) {
 	var newEpoch int
 	err := q.withTxInheritKeys(ctx, func(txQ *Queries) error {
-		// Serialize per-project rotations for the duration of the tx.
-		if _, err := txQ.db.Exec(ctx, `
-			SELECT pg_advisory_xact_lock(hashtext('audit_rotate:' || $1::text))
-		`, projectID); err != nil {
-			return fmt.Errorf("advisory lock: %w", err)
+		// Serialize per-project rotations and tombstone anchors for the
+		// duration of the tx via the shared advisory lock helper. See
+		// acquireProjectRotationLock for rationale.
+		if err := acquireProjectRotationLock(ctx, txQ, projectID); err != nil {
+			return err
 		}
 
 		var currentEpoch int

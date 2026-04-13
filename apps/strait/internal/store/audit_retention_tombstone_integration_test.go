@@ -487,3 +487,84 @@ func TestDeleteAuditEventsBefore_RejectsEmptyProjectID(t *testing.T) {
 		t.Errorf("sentinel row was wiped: remaining = %d, want 1", remaining)
 	}
 }
+
+// TestTombstoneDoesNotRaceWithRotation runs a tombstone-emitting trim and a
+// signing-key rotation against the same project from two goroutines. The
+// shared advisory lock (acquireProjectRotationLock) ensures one waits for the
+// other; without it, the tombstone can read MAX(rotation_epoch) before the
+// rotation commits but write its CreateAuditEvent after the new epoch lands —
+// signing the tombstone under epoch N's key while the chain tail is in epoch
+// N+1, leaving an unverifiable chain.
+//
+// Acceptance criteria: both operations complete without error and
+// VerifyAuditChain reports the chain valid afterwards.
+func TestTombstoneDoesNotRaceWithRotation(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	key, _ := store.DeriveAuditSigningKey("tombstone-rotation-race-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-tomb-vs-rotate"
+	// Seed enough rows that the trim has work to do.
+	base := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Hour)
+	seedDatedChain(ctx, t, q, projectID, 12, base, key)
+	cutoff := base.Add(6*time.Hour + 30*time.Minute)
+
+	// Coordinate launch so both goroutines hit the advisory-lock contention
+	// window. We don't need perfect simultaneity — the lock serializes them
+	// either way; what we are asserting is that VerifyAuditChain remains
+	// valid no matter who wins.
+	type outcome struct {
+		who string
+		err error
+	}
+	results := make(chan outcome, 2)
+	start := make(chan struct{})
+
+	go func() {
+		<-start
+		_, err := q.DeleteAuditEventsBefore(ctx, projectID, cutoff)
+		results <- outcome{who: "tombstone", err: err}
+	}()
+	go func() {
+		<-start
+		_, err := q.RotateAuditSigningKey(ctx, projectID, "actor-race")
+		results <- outcome{who: "rotation", err: err}
+	}()
+	close(start)
+
+	for i := 0; i < 2; i++ {
+		o := <-results
+		if o.err != nil {
+			t.Fatalf("%s: %v", o.who, o.err)
+		}
+	}
+
+	vc, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !vc.Valid {
+		t.Fatalf("chain invalid after tombstone+rotation race: %s", vc.Error)
+	}
+
+	// Sanity: both forensic markers must exist exactly once.
+	var tombstones, anchors int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE action = $1),
+		       COUNT(*) FILTER (WHERE action = $2)
+		FROM audit_events
+		WHERE project_id = $3
+	`, domain.AuditActionRetentionTrimmed, domain.AuditActionKeyRotated, projectID).Scan(&tombstones, &anchors); err != nil {
+		t.Fatalf("count markers: %v", err)
+	}
+	if tombstones != 1 {
+		t.Errorf("tombstone count = %d, want 1", tombstones)
+	}
+	if anchors != 1 {
+		t.Errorf("rotation anchor count = %d, want 1", anchors)
+	}
+}

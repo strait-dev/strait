@@ -438,6 +438,29 @@ func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error
 //nolint:gochecknoglobals // test seam
 var tombstoneInsertHook func(ctx context.Context) error
 
+// acquireProjectRotationLock takes a per-project transaction-scoped advisory
+// lock on the "audit_rotate:<projectID>" namespace. Both RotateAuditSigningKey
+// and writeRetentionTombstone call this so a tombstone insert cannot race
+// with an in-progress rotation and capture the wrong rotation_epoch.
+//
+// Without this lock, the tombstone path could:
+//   - read MAX(rotation_epoch) = N
+//   - rotation commits epoch N+1 with a new key
+//   - tombstone insert proceeds, but signs the row under epoch N's key
+//     while CreateAuditEvent's chain-tail read returns the rotation
+//     anchor (epoch N+1). The chain becomes unverifiable.
+//
+// The lock is transaction-scoped: it auto-releases on COMMIT or ROLLBACK
+// and serializes only against other holders of the same advisory key.
+func acquireProjectRotationLock(ctx context.Context, q *Queries, projectID string) error {
+	if _, err := q.db.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtext('audit_rotate:' || $1::text))
+	`, projectID); err != nil {
+		return fmt.Errorf("acquire project rotation lock: %w", err)
+	}
+	return nil
+}
+
 // writeRetentionTombstone inserts a tombstone anchor row for a project that
 // just had rows trimmed. It is called inside the same transaction as the
 // DELETE so the tombstone and the trim commit (or roll back) together.
@@ -448,7 +471,15 @@ var tombstoneInsertHook func(ctx context.Context) error
 // inserted via CreateAuditEvent so it obtains a real HMAC signature chained
 // from the surviving tail — VerifyAuditChain then naturally accepts it as a
 // chain-valid forensic marker.
+//
+// Serialization: takes the same per-project rotation advisory lock as
+// RotateAuditSigningKey so an in-progress rotation cannot interleave between
+// the rotation_epoch read and the chain insert.
 func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string, cutoff time.Time, deleted int64) error {
+	if err := acquireProjectRotationLock(ctx, q, projectID); err != nil {
+		return fmt.Errorf("tombstone: %w", err)
+	}
+
 	// Read the max rotation_epoch for the project so the tombstone lives in
 	// the current epoch. If there are no surviving rows, default to 0.
 	var rotationEpoch int
