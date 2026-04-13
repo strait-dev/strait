@@ -104,6 +104,18 @@ func (baseReaperStore) ListAuditRetentionOverrides(_ context.Context) ([]store.A
 func (baseReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
 	return nil, nil, nil
 }
+func (baseReaperStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+	return nil, nil, nil, nil
+}
+func (baseReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	return nil
+}
+func (baseReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	return nil
+}
+func (baseReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
 func (baseReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
 	return nil
 }

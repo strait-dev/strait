@@ -57,6 +57,21 @@ func countAuditEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pro
 	return n
 }
 
+// countNonAnchorAuditEvents excludes is_anchor=true rows (rotation anchors
+// and retention tombstones) so retention-trim assertions can express
+// "this project's chain rows are gone" without having to subtract the
+// tombstone the trim itself emits.
+func countNonAnchorAuditEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND is_anchor = FALSE`, projectID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count non-anchor audit events: %v", err)
+	}
+	return n
+}
+
 func TestReapAuditEvents_HonorsPerProjectOverride(t *testing.T) {
 	ctx := context.Background()
 	intTestClean(t, ctx)
@@ -78,8 +93,8 @@ func TestReapAuditEvents_HonorsPerProjectOverride(t *testing.T) {
 		WithAuditRetention(365)
 	r.ReapOnce(ctx)
 
-	if got := countAuditEvents(t, ctx, pool, projA); got != 0 {
-		t.Errorf("proj-a rows after reap = %d, want 0 (30-day override)", got)
+	if got := countNonAnchorAuditEvents(t, ctx, pool, projA); got != 0 {
+		t.Errorf("proj-a non-anchor rows after reap = %d, want 0 (30-day override)", got)
 	}
 	if got := countAuditEvents(t, ctx, pool, projB); got != 1 {
 		t.Errorf("proj-b rows after reap = %d, want 1 (default 365)", got)
@@ -129,8 +144,10 @@ func TestReapAuditEvents_MetricEmitted(t *testing.T) {
 	r.ReapOnce(ctx)
 
 	// Direct assertion: the row for projID is gone and the wrapping store saw the call.
-	if got := countAuditEvents(t, ctx, pool, projID); got != 0 {
-		t.Fatalf("rows after reap = %d, want 0", got)
+	// Use the non-anchor count so the tombstone DeleteAuditEventsBefore writes
+	// after a successful trim does not skew the assertion.
+	if got := countNonAnchorAuditEvents(t, ctx, pool, projID); got != 0 {
+		t.Fatalf("non-anchor rows after reap = %d, want 0", got)
 	}
 	if rec.perProjectDeleteCalls[projID] != 1 {
 		t.Errorf("DeleteAuditEventsBefore(%s) calls = %d, want 1",
