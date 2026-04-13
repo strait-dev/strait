@@ -7,6 +7,7 @@
 -- included, and rows in other statuses are not candidates. Ordering by
 -- created_at lets the promoter walk the oldest rows first.
 
+-- safety-ok: initial deploy on empty partitions, no concurrent readers
 CREATE INDEX IF NOT EXISTS idx_runs_promoter
     ON job_runs (created_at)
     WHERE status = 'queued' AND priority < 1000;

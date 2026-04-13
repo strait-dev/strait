@@ -12,7 +12,7 @@ import (
 // baselineCutoff is the migration number up to which historical violations
 // are tolerated. New migrations (> this number) must pass clean. Raise the
 // cutoff over time as legacy migrations get annotated with `-- safety-ok`.
-const baselineCutoff = 191
+const baselineCutoff = 183
 
 func TestLint_NewMigrationsPassClean(t *testing.T) {
 	dir := filepath.Join("..", "..", "migrations")

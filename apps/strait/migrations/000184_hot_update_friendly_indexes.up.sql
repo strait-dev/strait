@@ -17,17 +17,21 @@
 --     invalidates any index entry outside the transient per-status partial,
 --     enabling HOT updates on the heap pages.
 
+-- safety-ok: initial deploy on empty partitions, no concurrent readers
 CREATE INDEX IF NOT EXISTS idx_runs_project_created
     ON job_runs (project_id, created_at DESC);
 
+-- safety-ok: initial deploy on empty partitions, no concurrent readers
 CREATE INDEX IF NOT EXISTS idx_runs_project_executing
     ON job_runs (project_id, heartbeat_at)
     WHERE status = 'executing';
 
+-- safety-ok: initial deploy on empty partitions, no concurrent readers
 CREATE INDEX IF NOT EXISTS idx_runs_project_dead
     ON job_runs (project_id, finished_at DESC)
     WHERE status = 'dead_letter';
 
+-- safety-ok: initial deploy on empty partitions, no concurrent readers
 CREATE INDEX IF NOT EXISTS idx_runs_project_delayed
     ON job_runs (project_id, scheduled_at)
     WHERE status = 'delayed';
