@@ -114,6 +114,11 @@ func (b *Backpressure) tryConsumeN(ctx context.Context, projectID string, n int)
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
 	defer span.End()
 
+	// The DO UPDATE SET computes: refilled = LEAST(max, old + earned) then
+	// subtracts n. This can produce a negative token balance when a large
+	// batch exhausts the bucket -- that is intentional burst debt. The
+	// negative value is recovered naturally on the next refill cycle via
+	// the LEAST(max_tokens, ...) cap, so no special handling is needed.
 	const sql = `
 		INSERT INTO project_rate_limits (project_id, tokens, max_tokens, refill_per_sec, last_refill_at, updated_at)
 		SELECT $1::text, $2::int - $4::int, $2::int, $3::int, NOW(), NOW()

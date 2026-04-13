@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
@@ -28,6 +29,11 @@ type PlanBaselineRow struct {
 func (q *Queries) Explain(ctx context.Context, sql string) ([]byte, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.Explain")
 	defer span.End()
+
+	trimmed := strings.TrimSpace(sql)
+	if trimmed == "" || !strings.HasPrefix(strings.ToUpper(trimmed), "SELECT") || strings.Contains(trimmed, ";") {
+		return nil, fmt.Errorf("explain: only single SELECT statements are allowed")
+	}
 
 	var out []byte
 	err := q.db.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+sql).Scan(&out)
