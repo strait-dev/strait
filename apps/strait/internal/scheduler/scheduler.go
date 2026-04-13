@@ -335,20 +335,26 @@ func (s *Scheduler) Stop() {
 
 	// Wait per-component with a bounded deadline so a single stuck goroutine
 	// can no longer pin the entire shutdown path. Components past the
-	// deadline are logged and counted on strait.scheduler.shutdown_timeouts_total;
-	// we then wait for the remainder via the aggregate WaitGroup so any
-	// still-live goroutines that return cleanly after we've moved on do not
-	// leak panics.
+	// deadline are logged and counted on strait.scheduler.shutdown_timeouts_total.
+	// Once the deadline is hit we return immediately instead of blocking on
+	// the aggregate WaitGroup forever.
 	timedOut := s.tracker.waitWithTimeout(context.Background(), timeout)
-	s.wg.Wait()
+	if timedOut == 0 {
+		s.wg.Wait()
 
-	// Tear down reusable pond pools owned by components so their worker
-	// goroutines do not leak past scheduler stop.
-	if s.partitionTuner != nil {
-		s.partitionTuner.Close()
-	}
-	if s.dlqAgeOut != nil {
-		s.dlqAgeOut.Close()
+		// Tear down reusable pond pools owned by components once every tracked
+		// goroutine has exited. If any component timed out, we intentionally skip
+		// pool shutdown here to avoid blocking or racing a still-live goroutine.
+		if s.partitionTuner != nil {
+			s.partitionTuner.Close()
+		}
+		if s.dlqAgeOut != nil {
+			s.dlqAgeOut.Close()
+		}
+	} else {
+		slog.Warn("scheduler stop returning before all components exited",
+			"timed_out_components", timedOut,
+		)
 	}
 
 	slog.Info("scheduler stopped", "timed_out_components", timedOut)

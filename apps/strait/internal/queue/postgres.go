@@ -102,19 +102,13 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		}
 	}
 
-	if err := q.db.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
-			return domain.ErrIdempotencyConflict
-		}
-		return fmt.Errorf("enqueue run: %w", err)
-	}
-
-	return nil
+	return q.insertPreparedRun(ctx, q.db, run, query, args, "enqueue run")
 }
 
-// EnqueueInTx inserts a run using the caller's transaction, skipping the
-// idempotency advisory lock (the caller already owns its own tx). Used by
-// the outbox flusher to make enqueue atomic with the claim transaction.
+// EnqueueInTx inserts a run using the caller's transaction. When an
+// idempotency key is present, it acquires the same transaction-scoped
+// advisory lock used by Enqueue so concurrent transactional callers
+// serialize on (job_id, idempotency_key) too.
 func (q *PostgresQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueInTx")
 	defer span.End()
@@ -124,13 +118,13 @@ func (q *PostgresQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *dom
 		return err
 	}
 
-	if err := tx.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
-			return domain.ErrIdempotencyConflict
+	if run.IdempotencyKey != "" {
+		if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run in tx"); err != nil {
+			return err
 		}
-		return fmt.Errorf("enqueue run in tx: %w", err)
 	}
-	return nil
+
+	return q.insertPreparedRun(ctx, tx, run, query, args, "enqueue run in tx")
 }
 
 // prepareEnqueue normalizes run fields and returns the INSERT query with
@@ -262,21 +256,12 @@ func (q *PostgresQueue) enqueueUnderIdempotencyLock(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// hashtext returns int4 in Postgres; pg_advisory_xact_lock(int, int)
-	// takes two int4 keys, which is the portable form we want (no int64
-	// concatenation that could differ between little-/big-endian
-	// arithmetic). The function returns void, so we use Exec.
-	if _, err := tx.Exec(
-		ctx,
-		`SELECT pg_advisory_xact_lock(hashtext($1)::int, hashtext($2)::int)`,
-		run.JobID,
-		run.IdempotencyKey,
-	); err != nil {
-		return fmt.Errorf("enqueue run: advisory lock: %w", err)
+	if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run"); err != nil {
+		return err
 	}
 
-	if err := tx.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+	if err := q.insertPreparedRun(ctx, tx, run, query, args, "enqueue run"); err != nil {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			// A prior holder of the lock inserted a row for the same
 			// (job_id, idempotency_key) with an active status; commit
 			// the empty tx so the lock releases cleanly, then return
@@ -284,14 +269,47 @@ func (q *PostgresQueue) enqueueUnderIdempotencyLock(
 			if commitErr := tx.Commit(ctx); commitErr != nil {
 				return fmt.Errorf("enqueue run: commit after conflict: %w", commitErr)
 			}
-			return domain.ErrIdempotencyConflict
 		}
-		return fmt.Errorf("enqueue run: %w", err)
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("enqueue run: commit: %w", err)
 	}
+	return nil
+}
+
+func (q *PostgresQueue) acquireIdempotencyXactLock(ctx context.Context, db store.DBTX, jobID, idempotencyKey, op string) error {
+	// hashtext returns int4 in Postgres; pg_advisory_xact_lock(int, int)
+	// takes two int4 keys, which is the portable form we want (no int64
+	// concatenation that could differ between little-/big-endian
+	// arithmetic). The function returns void, so we use Exec.
+	if _, err := db.Exec(
+		ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1)::int, hashtext($2)::int)`,
+		jobID,
+		idempotencyKey,
+	); err != nil {
+		return fmt.Errorf("%s: advisory lock: %w", op, err)
+	}
+	return nil
+}
+
+func (q *PostgresQueue) insertPreparedRun(
+	ctx context.Context,
+	db store.DBTX,
+	run *domain.JobRun,
+	query string,
+	args []any,
+	op string,
+) error {
+	if err := db.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
+			return domain.ErrIdempotencyConflict
+		}
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
 	return nil
 }
 

@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -112,14 +116,36 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 
 	promoted := make([]string, 0, len(rows))
 	qm, _ := queue.Metrics()
-	for _, row := range rows {
+	for i, row := range rows {
+		savepoint := fmt.Sprintf("outbox_row_%d", i)
+		if err := execSavepoint(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
+			f.errors.Add(1)
+			return fmt.Errorf("outbox flusher: create savepoint for row %s: %w", row.ID, err)
+		}
+
 		run := f.toJobRun(row)
 		if err := f.queue.EnqueueInTx(ctx, tx, run); err != nil {
-			f.logger.Warn("outbox flusher: enqueue failed, skipping",
+			f.errors.Add(1)
+			if rollbackErr := rollbackAndReleaseSavepoint(ctx, tx, savepoint); rollbackErr != nil {
+				return fmt.Errorf("outbox flusher: rollback failed row %s: %w", row.ID, rollbackErr)
+			}
+			if isRetryableOutboxEnqueueError(err) {
+				f.logger.Warn("outbox flusher: enqueue failed, will retry",
+					"outbox_id", row.ID, "job_id", row.JobID, "error", err,
+				)
+				continue
+			}
+			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, err.Error()); markErr != nil {
+				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
+			}
+			f.logger.Warn("outbox flusher: enqueue failed, row quarantined",
 				"outbox_id", row.ID, "job_id", row.JobID, "error", err,
 			)
-			f.errors.Add(1)
 			continue
+		}
+		if err := execSavepoint(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+			f.errors.Add(1)
+			return fmt.Errorf("outbox flusher: release savepoint for row %s: %w", row.ID, err)
 		}
 		if qm != nil && qm.OutboxLag != nil && !row.CreatedAt.IsZero() {
 			qm.OutboxLag.Record(ctx, time.Since(row.CreatedAt).Seconds())
@@ -141,6 +167,43 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 		f.logger.Debug("outbox flusher promoted", "count", len(promoted))
 	}
 	return nil
+}
+
+func isRetryableOutboxEnqueueError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if pgconn.Timeout(err) || pgconn.SafeToRetry(err) {
+		return true
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", "40P01", "55P03", "57014":
+			return true
+		}
+		if len(pgErr.Code) >= 2 && pgErr.Code[:2] == "08" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func execSavepoint(ctx context.Context, tx pgx.Tx, sql string) error {
+	_, err := tx.Exec(ctx, sql)
+	return err
+}
+
+func rollbackAndReleaseSavepoint(ctx context.Context, tx pgx.Tx, name string) error {
+	if err := execSavepoint(ctx, tx, "ROLLBACK TO SAVEPOINT "+name); err != nil {
+		return err
+	}
+	return execSavepoint(ctx, tx, "RELEASE SAVEPOINT "+name)
 }
 
 func (f *OutboxFlusher) toJobRun(row store.OutboxRow) *domain.JobRun {

@@ -600,7 +600,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -924,8 +924,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			qm, qmErr := queue.Metrics()
 			if qmErr != nil || qm == nil {
 				slog.Warn("backpressure sampler disabled: queue metrics unavailable", "err", qmErr)
+			} else if bp == nil {
+				slog.Warn("backpressure sampler disabled: controller unavailable")
 			} else {
-				bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
 				sampler := scheduler.NewBackpressureSampler(bp, qm, cfg.BackpressureSamplerInterval, cfg.BackpressureSamplerN)
 				if sampler != nil {
 					schedOpts = append(schedOpts, scheduler.WithBackpressureSampler(sampler))

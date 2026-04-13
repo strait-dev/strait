@@ -308,7 +308,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 		queries.SetAuditSigningKey(auditKey)
 	}
-	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(true))
+	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
+	q := queue.NewPostgresQueue(
+		dbPool,
+		queue.WithPriorityAging(true),
+		queue.WithBackpressureController(bp),
+	)
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -425,7 +430,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

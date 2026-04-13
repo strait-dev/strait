@@ -542,6 +542,276 @@ func TestPR126_EnqueueInTxAtomicity(t *testing.T) {
 	}
 }
 
+func TestPR126_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-idempotency")
+
+	tx1, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx1: %v", err)
+	}
+	defer func() { _ = tx1.Rollback(ctx) }()
+
+	tx2, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx2: %v", err)
+	}
+	defer func() { _ = tx2.Rollback(ctx) }()
+
+	run1 := &domain.JobRun{
+		ID:             newID(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		IdempotencyKey: "same-key",
+	}
+	if err := q.EnqueueInTx(ctx, tx1, run1); err != nil {
+		t.Fatalf("EnqueueInTx tx1: %v", err)
+	}
+
+	run2 := &domain.JobRun{
+		ID:             newID(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		IdempotencyKey: "same-key",
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- q.EnqueueInTx(ctx, tx2, run2)
+	}()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("second enqueue returned before tx1 commit: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	if err := tx1.Commit(ctx); err != nil {
+		t.Fatalf("commit tx1: %v", err)
+	}
+
+	if err := <-errCh; !errors.Is(err, domain.ErrIdempotencyConflict) {
+		t.Fatalf("EnqueueInTx tx2 error = %v, want ErrIdempotencyConflict", err)
+	}
+	if err := tx2.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		t.Fatalf("rollback tx2: %v", err)
+	}
+
+	got, err := st.GetRunByIdempotencyKey(ctx, job.ID, "same-key")
+	if err != nil {
+		t.Fatalf("GetRunByIdempotencyKey: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected existing run for same-key")
+	}
+	if got.ID != run1.ID {
+		t.Fatalf("existing run ID = %s, want %s", got.ID, run1.ID)
+	}
+}
+
+func TestPR126_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-different-keys")
+
+	tx1, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx1: %v", err)
+	}
+	defer func() { _ = tx1.Rollback(ctx) }()
+
+	tx2, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx2: %v", err)
+	}
+	defer func() { _ = tx2.Rollback(ctx) }()
+
+	run1 := &domain.JobRun{
+		ID:             newID(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		IdempotencyKey: "key-a",
+	}
+	if err := q.EnqueueInTx(ctx, tx1, run1); err != nil {
+		t.Fatalf("EnqueueInTx tx1: %v", err)
+	}
+
+	run2 := &domain.JobRun{
+		ID:             newID(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		IdempotencyKey: "key-b",
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- q.EnqueueInTx(ctx, tx2, run2)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("EnqueueInTx tx2: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("different idempotency keys unexpectedly blocked")
+	}
+
+	if err := tx1.Commit(ctx); err != nil {
+		t.Fatalf("commit tx1: %v", err)
+	}
+	if err := tx2.Commit(ctx); err != nil {
+		t.Fatalf("commit tx2: %v", err)
+	}
+
+	got1, err := st.GetRun(ctx, run1.ID)
+	if err != nil {
+		t.Fatalf("GetRun run1: %v", err)
+	}
+	got2, err := st.GetRun(ctx, run2.ID)
+	if err != nil {
+		t.Fatalf("GetRun run2: %v", err)
+	}
+	if got1.Status != domain.StatusQueued || got2.Status != domain.StatusQueued {
+		t.Fatalf("statuses = (%s, %s), want both queued", got1.Status, got2.Status)
+	}
+}
+
+func TestPR126_EnqueueInTx_NonIdempotentFastPathStillWorks(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-no-idempotency")
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+	}
+	if err := q.EnqueueInTx(ctx, tx, run); err != nil {
+		t.Fatalf("EnqueueInTx: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.Status != domain.StatusQueued {
+		t.Fatalf("status=%s, want queued", got.Status)
+	}
+}
+
+func TestPR126_ProductionQueue_BackpressureAttached(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-production-queue-backpressure")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    1,
+		DefaultRefillPerSec: 0,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	first := []*domain.JobRun{{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}}
+	if _, err := q.EnqueueBatch(ctx, first); err != nil {
+		t.Fatalf("first EnqueueBatch: %v", err)
+	}
+
+	second := []*domain.JobRun{{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}}
+	err := func() error {
+		_, err := q.EnqueueBatch(ctx, second)
+		return err
+	}()
+	if _, ok := queue.AsThrottled(err); !ok {
+		t.Fatalf("expected throttled error, got %v", err)
+	}
+}
+
+func TestPR126_QueueEnqueueBatch_BackpressureRejectsWhenBucketExhausted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-batch-backpressure")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    2,
+		DefaultRefillPerSec: 20,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	runs := []*domain.JobRun{
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+	}
+	if _, err := q.EnqueueBatch(ctx, runs); err != nil {
+		t.Fatalf("initial EnqueueBatch: %v", err)
+	}
+
+	err := func() error {
+		_, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}})
+		return err
+	}()
+	if _, ok := queue.AsThrottled(err); !ok {
+		t.Fatalf("expected throttle after exhaustion, got %v", err)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if _, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}}); err != nil {
+		t.Fatalf("post-refill EnqueueBatch: %v", err)
+	}
+}
+
+func TestPR126_QueueEnqueueBatch_BackpressureIsPerProject(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	jobA := mustCreateJob(t, ctx, st, "project-pr126-bp-project-a")
+	jobB := mustCreateJob(t, ctx, st, "project-pr126-bp-project-b")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    1,
+		DefaultRefillPerSec: 0,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	if _, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}}); err != nil {
+		t.Fatalf("project A initial enqueue: %v", err)
+	}
+
+	err := func() error {
+		_, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}})
+		return err
+	}()
+	if _, ok := queue.AsThrottled(err); !ok {
+		t.Fatalf("expected project A throttle, got %v", err)
+	}
+
+	if _, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID}}); err != nil {
+		t.Fatalf("project B enqueue should remain allowed: %v", err)
+	}
+}
+
 func TestPR126_ExplainSelectOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

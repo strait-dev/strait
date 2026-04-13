@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -116,6 +117,37 @@ func markOutboxOnExec(ctx context.Context, ex outboxExecer, ids []string) error 
 	`, ids)
 	if err != nil {
 		return fmt.Errorf("mark outbox consumed: %w", err)
+	}
+	return nil
+}
+
+const maxOutboxErrorLength = 1024
+
+// MarkOutboxErroredInTx records a terminal error on an outbox row and marks it
+// consumed in the caller's transaction so it is no longer claimed again.
+func MarkOutboxErroredInTx(ctx context.Context, tx pgx.Tx, id string, errText string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkOutboxErroredInTx")
+	defer span.End()
+
+	if id == "" {
+		return nil
+	}
+
+	msg := strings.TrimSpace(errText)
+	if len(msg) > maxOutboxErrorLength {
+		msg = msg[:maxOutboxErrorLength]
+	}
+	if msg == "" {
+		msg = "outbox promotion failed"
+	}
+
+	_, err := tx.Exec(ctx, `
+		UPDATE enqueue_outbox
+		SET error = $2, consumed_at = NOW()
+		WHERE id = $1 AND consumed_at IS NULL
+	`, id, msg)
+	if err != nil {
+		return fmt.Errorf("mark outbox errored: %w", err)
 	}
 	return nil
 }
