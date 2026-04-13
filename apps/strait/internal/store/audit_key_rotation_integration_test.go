@@ -530,3 +530,71 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 		t.Fatal("bootstrap key for project A equals global q.auditSigningKey — bootstrap must derive per-epoch key")
 	}
 }
+
+// TestRotateAuditSigningKey_WritesCreatedBy asserts migration 000194's
+// created_by column is populated from the actorID passed to rotation.
+// The forensic trail now lives on both the chain event (audit.key_rotated
+// details.rotated_by) AND the key row itself — mirrored redundantly so a
+// lost chain event still leaves audit_signing_keys.created_by as evidence.
+func TestRotateAuditSigningKey_WritesCreatedBy(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	key, _ := store.DeriveAuditSigningKey("created-by-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-created-by"
+	insertTestChain(ctx, t, q, projectID, 1)
+
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor-rotator-42"); err != nil {
+		t.Fatalf("RotateAuditSigningKey: %v", err)
+	}
+
+	var createdBy *string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT created_by FROM audit_signing_keys
+		WHERE project_id = $1 AND rotation_epoch = 1
+	`, projectID).Scan(&createdBy); err != nil {
+		t.Fatalf("read created_by: %v", err)
+	}
+	if createdBy == nil {
+		t.Fatal("created_by is NULL on rotation insert; want actor id")
+	}
+	if *createdBy != "actor-rotator-42" {
+		t.Errorf("created_by = %q, want %q", *createdBy, "actor-rotator-42")
+	}
+}
+
+// TestStoreAuditSigningKey_RejectsTooShortMaterial exercises migration
+// 000194's octet_length(key_material) >= 28 CHECK. A key shorter than
+// the AES-GCM minimum (12-byte nonce + 16-byte tag) could only come from
+// a write path that skipped encryption — the CHECK prevents that
+// misconfiguration from persisting.
+func TestStoreAuditSigningKey_RejectsTooShortMaterial(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	// Insert a direct short row via SQL to bypass the encrypt helper —
+	// the CHECK must still fire.
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO audit_signing_keys (project_id, rotation_epoch, key_material)
+		VALUES ($1, $2, $3)
+	`, "proj-short-key", 1, []byte{0x00, 0x01, 0x02, 0x03})
+	if err == nil {
+		t.Fatal("expected CHECK violation for 4-byte key_material, got nil")
+	}
+	if !containsSubstringIT(err.Error(), "audit_signing_keys_key_material_length") {
+		t.Errorf("error = %v, expected CHECK constraint violation", err)
+	}
+}
+
+func containsSubstringIT(haystack, needle string) bool {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}

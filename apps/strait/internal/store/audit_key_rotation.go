@@ -71,8 +71,10 @@ func (q *Queries) GetAuditSigningKey(ctx context.Context, projectID string, epoc
 
 // storeAuditSigningKey encrypts and inserts the per-epoch HMAC signing
 // key. Must be called inside the same transaction as the anchor insert
-// so the key and anchor commit together.
-func (q *Queries) storeAuditSigningKey(ctx context.Context, projectID string, epoch int, key []byte) error {
+// so the key and anchor commit together. actorID is persisted on the
+// row so the forensic trail of who triggered the rotation survives even
+// if the corresponding audit.key_rotated chain event is lost.
+func (q *Queries) storeAuditSigningKey(ctx context.Context, projectID string, epoch int, key []byte, actorID string) error {
 	envelopeKey, err := q.secretKey()
 	if err != nil {
 		return fmt.Errorf("store audit signing key: envelope key: %w", err)
@@ -82,9 +84,9 @@ func (q *Queries) storeAuditSigningKey(ctx context.Context, projectID string, ep
 		return fmt.Errorf("store audit signing key: encrypt: %w", err)
 	}
 	if _, err := q.db.Exec(ctx, `
-		INSERT INTO audit_signing_keys (project_id, rotation_epoch, key_material)
-		VALUES ($1, $2, $3)
-	`, projectID, epoch, ciphertext); err != nil {
+		INSERT INTO audit_signing_keys (project_id, rotation_epoch, key_material, created_by)
+		VALUES ($1, $2, $3, NULLIF($4, ''))
+	`, projectID, epoch, ciphertext, actorID); err != nil {
 		return fmt.Errorf("store audit signing key: insert: %w", err)
 	}
 	return nil
@@ -213,7 +215,7 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 		if err != nil {
 			return fmt.Errorf("derive new epoch key: %w", err)
 		}
-		if err := txQ.storeAuditSigningKey(ctx, projectID, newEpoch, newKey); err != nil {
+		if err := txQ.storeAuditSigningKey(ctx, projectID, newEpoch, newKey, actorID); err != nil {
 			return err
 		}
 
