@@ -97,10 +97,20 @@ type AuditSIEMDrain struct {
 	// Runtime state (populated by Start).
 	ch          chan domain.AuditEvent
 	done        chan struct{}
+	shutdownCh  chan struct{}
 	startOnce   sync.Once
 	stopOnce    sync.Once
 	stopped     atomic.Bool
 	droppedFull metric.Int64Counter
+
+	// parentCtx is the long-lived context handed to Start. flush calls derive
+	// their per-batch 30s deadline from it so a Stop-driven cancellation
+	// reaches the in-flight HTTP request even mid-flush.
+	parentCtx context.Context
+
+	// flushMu guards FlushNow against the run loop's flush so a final
+	// synchronous flush never races with the goroutine reading from d.ch.
+	flushMu sync.Mutex
 
 	// Resilience and metrics.
 	retryPolicy    failsafe.Policy[*http.Response]
@@ -296,7 +306,10 @@ func (d *AuditSIEMDrain) DrainedFailureCount() int {
 
 // Start launches the background forwarder goroutine. Safe to call multiple
 // times — only the first call takes effect. The goroutine runs until Stop
-// is called (or the channel is drained after Stop).
+// signals shutdown via shutdownCh and the queued backlog is drained.
+//
+// The parent context is retained on the struct so per-batch flush calls can
+// derive their 30s deadline from a context that Stop's cancellation reaches.
 func (d *AuditSIEMDrain) Start(ctx context.Context) {
 	if d == nil {
 		return
@@ -305,40 +318,54 @@ func (d *AuditSIEMDrain) Start(ctx context.Context) {
 		bufSize := max(d.batchSize*4, minSIEMBufferSize)
 		d.ch = make(chan domain.AuditEvent, bufSize)
 		d.done = make(chan struct{})
+		d.shutdownCh = make(chan struct{})
+		d.parentCtx = ctx
 		go d.run(ctx)
 	})
 }
 
-// Enqueue attempts a non-blocking send into the forwarder channel. If the
-// channel is full or the drain is stopped/not started, the event is
-// dropped and the drop counter is incremented.
+// Enqueue attempts a non-blocking send into the forwarder channel. Uses a
+// shutdown-signalling channel rather than closing d.ch directly, so a
+// concurrent Stop cannot panic this send. If the channel is full or the
+// drain is stopped/not started, the event is dropped and the drop counter
+// is incremented.
 func (d *AuditSIEMDrain) Enqueue(ev domain.AuditEvent) {
-	if d == nil || d.ch == nil || d.stopped.Load() {
+	if d == nil || d.ch == nil {
+		return
+	}
+	if d.stopped.Load() {
 		return
 	}
 	select {
+	case <-d.shutdownCh:
+		// Stop won the race; drop silently — the post-Stop FlushNow call
+		// is the authoritative flush path and the goroutine is exiting.
+		return
 	case d.ch <- ev:
+		return
 	default:
-		if d.droppedFull != nil {
-			d.droppedFull.Add(context.Background(), 1,
-				metric.WithAttributes(attribute.String("reason", "buffer_full")))
-		}
-		d.logger.Warn("audit SIEM drain buffer full, dropping event",
-			"action", ev.Action, "resource_type", ev.ResourceType)
 	}
+	if d.droppedFull != nil {
+		d.droppedFull.Add(context.Background(), 1,
+			metric.WithAttributes(attribute.String("reason", "buffer_full")))
+	}
+	d.logger.Warn("audit SIEM drain buffer full, dropping event",
+		"action", ev.Action, "resource_type", ev.ResourceType)
 }
 
-// Stop closes the forwarder channel and waits for the background goroutine
-// to flush remaining buffered events. Bounded by a 5s timeout so a
-// misbehaving SIEM endpoint cannot indefinitely block shutdown.
+// Stop signals shutdown to the run goroutine and waits for it to drain any
+// queued events. Bounded by a 5s timeout so a misbehaving SIEM endpoint
+// cannot indefinitely block shutdown. Stop never closes d.ch directly —
+// closing shutdownCh is sufficient and avoids a send-to-closed race with a
+// concurrent Enqueue.
 func (d *AuditSIEMDrain) Stop(ctx context.Context) {
 	if d == nil {
 		return
 	}
 	d.stopOnce.Do(func() {
 		d.stopped.Store(true)
-		if d.ch != nil {
-			close(d.ch)
+		if d.shutdownCh != nil {
+			close(d.shutdownCh)
 		}
 	})
 	if d.done == nil {
@@ -354,8 +381,53 @@ func (d *AuditSIEMDrain) Stop(ctx context.Context) {
 	}
 }
 
+// FlushNow forwards every event currently buffered in the drain channel as
+// a single batch using ForwardBatch. Intended to be called synchronously
+// during shutdown after the upstream drainer has stopped feeding new events
+// but BEFORE Stop, so any events that arrived after the periodic flush
+// interval still reach the SIEM. Idempotent and safe to call when the run
+// goroutine has already exited; in that case the channel drain is empty
+// and the call is a no-op.
+//
+// Holds d.flushMu so a concurrent run-loop flush cannot dequeue events
+// behind FlushNow's back. If ForwardBatch fails, the events are recorded
+// in the in-memory sub-DLQ via recordFailure (already in ForwardBatch).
+func (d *AuditSIEMDrain) FlushNow(ctx context.Context) error {
+	if d == nil || d.ch == nil {
+		return nil
+	}
+	d.flushMu.Lock()
+	defer d.flushMu.Unlock()
+	batch := make([]domain.AuditEvent, 0, d.batchSize)
+	// Non-blocking drain of whatever is currently buffered.
+	for {
+		select {
+		case ev, ok := <-d.ch:
+			if !ok {
+				goto flush
+			}
+			batch = append(batch, ev)
+		default:
+			goto flush
+		}
+	}
+flush:
+	if len(batch) == 0 {
+		return nil
+	}
+	flushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return d.ForwardBatch(flushCtx, batch)
+}
+
 // run reads from the channel and flushes whenever the batch is full or the
-// ticker fires. Exits once the channel is closed AND drained.
+// ticker fires. Exits when shutdownCh is closed (post-drain) or the parent
+// context is cancelled. Each flush call holds flushMu so a concurrent
+// FlushNow cannot interleave with a periodic flush.
+//
+// Per-batch flush ctx is derived from d.parentCtx (the context passed to
+// Start) so a Stop-driven cancellation reaches an in-flight HTTP request
+// instead of running to its 30s deadline.
 func (d *AuditSIEMDrain) run(ctx context.Context) {
 	defer close(d.done)
 	ticker := time.NewTicker(d.flushInterval)
@@ -366,7 +438,13 @@ func (d *AuditSIEMDrain) run(ctx context.Context) {
 		if len(batch) == 0 {
 			return
 		}
-		flushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		d.flushMu.Lock()
+		defer d.flushMu.Unlock()
+		parent := d.parentCtx
+		if parent == nil {
+			parent = context.Background()
+		}
+		flushCtx, cancel := context.WithTimeout(parent, 30*time.Second)
 		if err := d.ForwardBatch(flushCtx, batch); err != nil {
 			d.logger.Warn("audit SIEM batch forward failed",
 				"count", len(batch), "error", err)
@@ -377,27 +455,32 @@ func (d *AuditSIEMDrain) run(ctx context.Context) {
 
 	for {
 		select {
-		case ev, ok := <-d.ch:
-			if !ok {
-				// Channel closed — drain any remaining batch and exit.
-				flush()
-				return
-			}
+		case ev := <-d.ch:
 			batch = append(batch, ev)
 			if len(batch) >= d.batchSize {
 				flush()
 			}
 		case <-ticker.C:
 			flush()
+		case <-d.shutdownCh:
+			// Drain any remaining queued events, then exit.
+			for {
+				select {
+				case ev := <-d.ch:
+					batch = append(batch, ev)
+					if len(batch) >= d.batchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
+			}
 		case <-ctx.Done():
 			// Best-effort drain of queued events, then exit.
 			for {
 				select {
-				case ev, ok := <-d.ch:
-					if !ok {
-						flush()
-						return
-					}
+				case ev := <-d.ch:
 					batch = append(batch, ev)
 					if len(batch) >= d.batchSize {
 						flush()

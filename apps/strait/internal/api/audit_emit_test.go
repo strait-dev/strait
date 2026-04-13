@@ -221,6 +221,68 @@ func TestEmitAuditEventAsync_StopsAcceptingAfterClose(t *testing.T) {
 	srv.emitAuditEventAsync(ctx, "job.triggered", "job", "late", nil)
 }
 
+// TestShutdown_CancelsInFlightDBWrites verifies that a pending DB write that
+// would otherwise block for 10s (the per-event timeout) is short-circuited
+// by stopAuditAsyncDrain's drainCancel call, so total shutdown stays within
+// the auditAsyncShutdownTimeout (5s) plus a small grace window.
+func TestShutdown_CancelsInFlightDBWrites(t *testing.T) {
+	withShortRetries(t)
+
+	// Slow store: blocks on DB writes until the per-call ctx is cancelled.
+	// Without context propagation through stopAuditAsyncDrain, this would
+	// block for the full 10s per-event timeout — well beyond the 5s
+	// shutdown budget.
+	storeReady := make(chan struct{})
+	var firstCallOnce sync.Once
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(ctx context.Context, _ *domain.AuditEvent) error {
+			firstCallOnce.Do(func() { close(storeReady) })
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
+
+	// Wait until the drainer has actually entered the slow store call so
+	// the shutdown timing measurement reflects the in-flight cancellation
+	// path rather than the queued-events drain path.
+	select {
+	case <-storeReady:
+	case <-time.After(2 * time.Second):
+		t.Fatal("store call did not start within 2s")
+	}
+
+	start := time.Now()
+	srv.Close()
+	elapsed := time.Since(start)
+
+	// Budget: shutdown timeout (5s) + brief cancellation grace (500ms).
+	// Without context propagation we would see ~10s per the per-event
+	// timeout. A multi-attempt retry sequence with short delays could
+	// also push past 5s without proper cancellation.
+	if elapsed > 6*time.Second {
+		t.Fatalf("Close took %v, want <= 6s (drainCtx propagation should cancel in-flight DB calls)", elapsed)
+	}
+}
+
+// TestStartAuditAsyncDrain_PopulatesDrainCtx verifies the new drain
+// context is wired up so per-event DB calls can derive from it.
+func TestStartAuditAsyncDrain_PopulatesDrainCtx(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	if got := srv.drainContext(); got == nil {
+		t.Fatal("drainContext() returned nil after startAuditAsyncDrain")
+	}
+}
+
 func TestEmitAuditEventAsync_BackpressureFallsBackToSync(t *testing.T) {
 	release := make(chan struct{})
 	var syncWrites atomic.Int32

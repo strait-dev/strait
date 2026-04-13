@@ -579,12 +579,20 @@ type Server struct {
 	// Async audit event drain for hot-path handlers (job trigger, bulk trigger).
 	// A single goroutine reads from auditAsyncCh and writes events sequentially
 	// via store.CreateAuditEvent, preserving HMAC chain ordering.
+	//
+	// drainCtx is a long-lived context that scopes every per-event DB call the
+	// drainer issues. stopAuditAsyncDrain closes the channel, waits for the
+	// drainer to finish what is queued, then calls drainCancel to terminate any
+	// straggling DB call still in flight — bounding total shutdown time even
+	// when the per-event 10s timeout would otherwise dominate.
 	auditAsyncCh         chan *domain.AuditEvent
 	auditAsyncDone       chan struct{}
 	auditAsyncMu         sync.RWMutex
 	auditAsyncStopOnce   sync.Once
 	auditAsyncStopped    bool
 	auditAsyncBufferSize int // 0 means use the package-level constant default
+	drainCtx             context.Context
+	drainCancel          context.CancelFunc
 
 	// Optional SIEM forwarder. When non-nil, every successfully persisted
 	// audit event is also enqueued for async batched forwarding to the
@@ -836,6 +844,13 @@ func permCacheTTL(cfg *config.Config) time.Duration {
 
 // Close releases resources held by the server (e.g. background goroutines).
 // Call this when shutting down.
+//
+// Audit shutdown ordering is load-bearing: the primary async drainer must
+// stop FIRST so it stops feeding new events into siemDrain. We then call
+// FlushNow synchronously to push whatever the drainer just enqueued and
+// finally Stop the SIEM drain. Without the explicit FlushNow, late-drained
+// events would have to wait for the SIEM ticker to fire (default 10s) but
+// Stop's budget is only 5s — they would be dropped on the floor.
 func (s *Server) Close() {
 	if s.permCache != nil {
 		s.permCache.Stop()
@@ -845,9 +860,14 @@ func (s *Server) Close() {
 	}
 	s.stopAuditAsyncDrain()
 	if s.siemDrain != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		s.siemDrain.Stop(ctx)
-		cancel()
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.siemDrain.FlushNow(flushCtx); err != nil {
+			slog.Warn("audit SIEM drain final flush failed", "error", err)
+		}
+		flushCancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s.siemDrain.Stop(stopCtx)
+		stopCancel()
 	}
 }
 

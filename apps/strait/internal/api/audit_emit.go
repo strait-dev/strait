@@ -51,13 +51,30 @@ const auditMaxDetailsBytes = 16 * 1024
 // a buffered channel and a single background goroutine that writes events
 // sequentially via store.CreateAuditEvent. Sequential drain preserves the
 // HMAC chain ordering even though requests are processed concurrently.
+//
+// drainCtx is a fresh cancellable context derived from Background. Per-event
+// DB timeouts are derived from drainCtx so stopAuditAsyncDrain can cancel any
+// straggling write after the queued backlog has been processed — bounding
+// total shutdown time even when the per-event 10s timeout would otherwise
+// dominate.
+//
+// The channel and done sentinel are assigned under auditAsyncMu so concurrent
+// readers (e.g. the AuditDrainerQueueDepth observable gauge callback) cannot
+// observe a torn pointer write.
 func (s *Server) startAuditAsyncDrain() {
 	bufSize := s.auditAsyncBufferSize
 	if bufSize <= 0 {
 		bufSize = auditAsyncBufferSize
 	}
-	s.auditAsyncCh = make(chan *domain.AuditEvent, bufSize)
-	s.auditAsyncDone = make(chan struct{})
+	ch := make(chan *domain.AuditEvent, bufSize)
+	done := make(chan struct{})
+	drainCtx, drainCancel := context.WithCancel(context.Background())
+	s.auditAsyncMu.Lock()
+	s.auditAsyncCh = ch
+	s.auditAsyncDone = done
+	s.drainCtx = drainCtx
+	s.drainCancel = drainCancel
+	s.auditAsyncMu.Unlock()
 	go s.drainAuditAsync()
 }
 
@@ -95,13 +112,19 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 	// retries). Between attempts, sleep by the configured backoff. If all
 	// attempts fail, spill to the deadletter table; if THAT also fails,
 	// log the full event as a last-resort forensic record.
+	//
+	// Per-event ctx is derived from the long-lived s.drainCtx so a shutdown
+	// cancellation propagates into any in-flight DB call. Without this the
+	// 10s per-event timeout could outlast the 5s shutdown budget and force
+	// stopAuditAsyncDrain to abandon work that is still pending in the DB.
+	parent := s.drainContext()
 	var lastErr error
 	attempts := len(auditRetryDelays) + 1
 	for attempt := range attempts {
 		if attempt > 0 {
 			time.Sleep(auditRetryDelays[attempt-1])
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 		err := s.store.CreateAuditEvent(ctx, ev)
 		cancel()
 		if err == nil {
@@ -123,8 +146,10 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 			"error", err)
 	}
 
-	// All retries exhausted — spill to deadletter.
-	dlqCtx, dlqCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// All retries exhausted — spill to deadletter. The DLQ insert also
+	// derives from the drain's parent context so a shutdown cancellation
+	// reaches it even after the primary chain insert is abandoned.
+	dlqCtx, dlqCancel := context.WithTimeout(parent, 10*time.Second)
 	defer dlqCancel()
 	lastErrStr := ""
 	if lastErr != nil {
@@ -158,6 +183,19 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 	}
 }
 
+// drainContext returns the long-lived parent context for per-event drainer
+// operations. Falls back to context.Background() when startAuditAsyncDrain
+// has not been invoked (test paths that bypass NewServer).
+func (s *Server) drainContext() context.Context {
+	s.auditAsyncMu.RLock()
+	ctx := s.drainCtx
+	s.auditAsyncMu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
 // AuditDrainerQueueDepth returns the current number of buffered audit
 // events pending drain. Satisfies telemetry.AuditDrainerStatsProvider so
 // the observable gauge callback can report saturation without exposing
@@ -184,9 +222,18 @@ func (s *Server) AuditDrainerQueueCapacity() int64 {
 	return int64(cap(ch))
 }
 
-// stopAuditAsyncDrain closes the channel and waits for the drainer to finish
-// flushing pending events. Bounded by auditAsyncShutdownTimeout so a stalled
-// DB cannot indefinitely block server shutdown.
+// stopAuditAsyncDrain shuts the async drainer down in three phases:
+//  1. Close the input channel so no new events can be enqueued and the
+//     drainer goroutine sees the close after consuming what is already
+//     buffered.
+//  2. Wait up to auditAsyncShutdownTimeout for the drainer to finish
+//     processing the queued backlog.
+//  3. Cancel drainCtx — this aborts any in-flight DB call (including the
+//     10s per-event timeout). The drainer goroutine sees the cancelled
+//     parent context, returns, and closes auditAsyncDone.
+//
+// The cancel happens regardless of whether the wait timed out; without it a
+// stalled DB call could otherwise outlast Server.Close by up to 10s.
 func (s *Server) stopAuditAsyncDrain() {
 	s.auditAsyncStopOnce.Do(func() {
 		s.auditAsyncMu.Lock()
@@ -201,11 +248,29 @@ func (s *Server) stopAuditAsyncDrain() {
 	if s.auditAsyncDone == nil {
 		return
 	}
+	timedOut := false
 	select {
 	case <-s.auditAsyncDone:
 	case <-time.After(auditAsyncShutdownTimeout):
+		timedOut = true
 		slog.Warn("audit async drain did not finish within shutdown timeout",
 			"timeout", auditAsyncShutdownTimeout)
+	}
+	// Cancel the long-lived parent so any in-flight or future per-event
+	// DB call returns immediately. Safe to call multiple times.
+	s.auditAsyncMu.RLock()
+	cancel := s.drainCancel
+	s.auditAsyncMu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+	if timedOut {
+		// After cancellation, give the drainer a brief grace period to
+		// observe the cancelled context and exit cleanly.
+		select {
+		case <-s.auditAsyncDone:
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }
 
