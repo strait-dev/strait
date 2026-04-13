@@ -12,7 +12,15 @@
 -- the same epoch as the anchor), while rejecting a second anchor under
 -- the same epoch with Postgres 23505 so the loser can retry under the
 -- serializing advisory lock.
+--
+-- CONCURRENTLY avoids the ACCESS EXCLUSIVE / SHARE lock that would
+-- otherwise block INSERT traffic on audit_events during index build.
+-- audit_events is a hot write path — a blocking index build can stall
+-- the whole emit pipeline on a large table. golang-migrate's postgres
+-- driver dispatches each migration via ExecContext (no transactional
+-- wrapper), so CONCURRENTLY is accepted here. The IF NOT EXISTS makes
+-- the migration idempotent on retry.
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_events_anchor_unique
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_events_anchor_unique
     ON audit_events (project_id, rotation_epoch)
     WHERE is_anchor = TRUE;
