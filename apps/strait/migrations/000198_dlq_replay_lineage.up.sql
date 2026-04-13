@@ -10,9 +10,14 @@
 -- drops are tolerated because a broken pointer reads as "unknown ancestor"
 -- rather than corrupting the run row.
 --
--- The companion index moved to migration 199 so it can be created
--- CONCURRENTLY outside any implicit DDL transaction, satisfying the
--- migration-lint rule that bans online CREATE INDEX without CONCURRENTLY.
+-- No index is created on this column. CREATE INDEX CONCURRENTLY is not
+-- supported on partitioned parent tables, and a non-concurrent CREATE
+-- INDEX would briefly lock job_runs against writes (and is rejected by
+-- the migration linter). No current query filters by replayed_run_id
+-- (MarkRunReplayed updates by id, the admin DLQ list filters by status
+-- and project_id), so the speculative partial index is omitted. If a
+-- future query needs it, add a per-partition CREATE INDEX CONCURRENTLY
+-- migration plus a hook in partition_ensurer to cover new partitions.
 
 ALTER TABLE job_runs ADD COLUMN IF NOT EXISTS replayed_run_id UUID NULL;
 UPDATE schema_version SET version = 198, updated_at = NOW();
