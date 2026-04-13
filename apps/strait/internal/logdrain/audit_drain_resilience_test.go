@@ -164,11 +164,17 @@ func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
 	defer srv.Close()
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
+	if got := drain.BreakerState(); got != BreakerStateClosed {
+		t.Fatalf("initial breaker state = %d, want closed (%d)", got, BreakerStateClosed)
+	}
 	for range siemBreakerFailureThreshold {
 		_ = drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")})
 	}
 	if !drain.breakerWasOpen.Load() {
 		t.Fatal("expected breaker open after threshold")
+	}
+	if got := drain.BreakerState(); got != BreakerStateOpen {
+		t.Fatalf("breaker state after threshold = %d, want open (%d)", got, BreakerStateOpen)
 	}
 	// Wait for half-open transition.
 	time.Sleep(200 * time.Millisecond)
@@ -190,6 +196,60 @@ func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
 	// Subsequent call also succeeds.
 	if err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev-after")}); err != nil {
 		t.Fatalf("post-recovery call failed: %v", err)
+	}
+	// breakerWasOpen latch must reset on close so it tracks current state.
+	if drain.breakerWasOpen.Load() {
+		t.Error("breakerWasOpen still set after breaker closed; OnClose handler did not reset the latch")
+	}
+	if got := drain.BreakerState(); got != BreakerStateClosed {
+		t.Errorf("breaker state after recovery = %d, want closed (%d)", got, BreakerStateClosed)
+	}
+}
+
+// TestAuditSIEMDrain_BreakerStateTransitionsCycle drives the breaker
+// through the full closed -> open -> half_open -> closed cycle and
+// asserts BreakerState() observes each transition. This is the contract
+// the strait_audit_siem_breaker_state observable gauge depends on.
+func TestAuditSIEMDrain_BreakerStateTransitionsCycle(t *testing.T) {
+	shrinkBackoffForTest(t, 100*time.Millisecond)
+
+	var fail atomic.Bool
+	fail.Store(true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if fail.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
+	// Stage 1: closed at start.
+	if got := drain.BreakerState(); got != BreakerStateClosed {
+		t.Fatalf("stage 1 (initial) = %d, want closed", got)
+	}
+	// Stage 2: drive failures past threshold -> open.
+	for range siemBreakerFailureThreshold {
+		_ = drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")})
+	}
+	if got := drain.BreakerState(); got != BreakerStateOpen {
+		t.Fatalf("stage 2 (post-threshold) = %d, want open", got)
+	}
+	// Stage 3: wait for the breaker's open delay to expire.
+	time.Sleep(200 * time.Millisecond)
+	// Stage 4: stop failing and probe — recovery transitions through
+	// half_open into closed.
+	fail.Store(false)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev-probe")}); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := drain.BreakerState(); got != BreakerStateClosed {
+		t.Fatalf("stage 4 (post-recovery) = %d, want closed", got)
 	}
 }
 

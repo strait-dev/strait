@@ -424,16 +424,30 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 	// Backpressure: when buffer >75% full, fall back to sync write instead of
 	// risking a drop. This preserves the event at the cost of a small latency
 	// hit on the request goroutine.
+	//
+	// Metrics split:
+	//   AuditEventsDropped{reason="backpressure_degraded"} counts every
+	//   trigger of the fallback path regardless of outcome (it signals
+	//   buffer saturation).
+	//   AuditEventsSyncFallback{outcome="success"|"failure"} records the
+	//   actual fate of the sync write — operators alert on failure rate.
 	if len(ch) > cap(ch)*3/4 {
 		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
 			s.metrics.AuditEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("reason", "backpressure_sync_fallback")))
+				metric.WithAttributes(attribute.String("reason", "backpressure_degraded")))
 		}
 		syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if syncErr := s.store.CreateAuditEvent(syncCtx, ev); syncErr != nil {
+		syncErr := s.store.CreateAuditEvent(syncCtx, ev)
+		syncCancel()
+		outcome := "success"
+		if syncErr != nil {
+			outcome = "failure"
 			slog.Warn("backpressure sync audit write failed", "action", action, "error", syncErr)
 		}
-		syncCancel()
+		if s.metrics != nil && s.metrics.AuditEventsSyncFallback != nil {
+			s.metrics.AuditEventsSyncFallback.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("outcome", outcome)))
+		}
 		return
 	}
 

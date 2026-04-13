@@ -116,12 +116,26 @@ type AuditSIEMDrain struct {
 	retryPolicy    failsafe.Policy[*http.Response]
 	breaker        circuitbreaker.CircuitBreaker[*http.Response]
 	breakerWasOpen atomic.Bool
+	// breakerState reflects the current breaker state via OnOpen /
+	// OnHalfOpen / OnClose callbacks. 0=closed, 1=half_open, 2=open.
+	// Read by the BreakerState() observable gauge so operators can alert
+	// on "stuck open" rather than "ever opened".
+	breakerState   atomic.Int64
 	forwardedCount metric.Int64Counter
 	failedCount    metric.Int64Counter
 	circuitOpenCnt metric.Int64Counter
 	batchSizeHist  metric.Int64Histogram
 	subDLQ         *failureRingBuffer
 }
+
+// Breaker state values returned by BreakerState. Constants are exported so
+// gauge consumers and tests can compare without leaking the internal
+// failsafe-go state enum across packages.
+const (
+	BreakerStateClosed   int64 = 0
+	BreakerStateHalfOpen int64 = 1
+	BreakerStateOpen     int64 = 2
+)
 
 // failureRingBuffer is a bounded FIFO that retains the last N events that
 // were dropped to the SIEM sub-DLQ (terminal 4xx or exhausted retries).
@@ -250,6 +264,7 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 		}).
 		OnOpen(func(_ circuitbreaker.StateChangedEvent) {
 			d.breakerWasOpen.Store(true)
+			d.breakerState.Store(BreakerStateOpen)
 			if d.circuitOpenCnt != nil {
 				d.circuitOpenCnt.Add(context.Background(), 1)
 			}
@@ -258,8 +273,31 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 				"threshold", siemBreakerFailureThreshold,
 				"open_duration", siemBreakerOpenDuration)
 		}).
+		OnHalfOpen(func(_ circuitbreaker.StateChangedEvent) {
+			d.breakerState.Store(BreakerStateHalfOpen)
+			d.logger.Info("audit SIEM circuit breaker half-open; probing endpoint",
+				"endpoint", d.endpoint)
+		}).
+		OnClose(func(_ circuitbreaker.StateChangedEvent) {
+			d.breakerState.Store(BreakerStateClosed)
+			d.breakerWasOpen.Store(false)
+			d.logger.Info("audit SIEM circuit breaker closed; endpoint healthy",
+				"endpoint", d.endpoint)
+		}).
 		Build()
 	return d
+}
+
+// BreakerState returns the current circuit-breaker state as one of
+// BreakerStateClosed (0), BreakerStateHalfOpen (1), or BreakerStateOpen (2).
+// Safe to call before Start; returns BreakerStateClosed for nil receivers
+// or pre-Start drains. Designed for the strait_audit_siem_breaker_state
+// observable gauge so operators can alert on a stuck-open breaker.
+func (d *AuditSIEMDrain) BreakerState() int64 {
+	if d == nil {
+		return BreakerStateClosed
+	}
+	return d.breakerState.Load()
 }
 
 // SetDroppedCounter wires an optional Prometheus/OTel counter that is

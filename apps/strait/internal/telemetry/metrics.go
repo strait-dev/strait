@@ -164,6 +164,17 @@ type Metrics struct {
 	AuditSIEMFailed         metric.Int64Counter
 	AuditSIEMCircuitOpen    metric.Int64Counter
 	AuditSIEMBatchSize      metric.Int64Histogram
+	// AuditSIEMBreakerState is a per-scrape observable gauge reporting
+	// the SIEM circuit-breaker state (0=closed, 1=half_open, 2=open).
+	// Wired via ObserveSIEMBreakerState against an
+	// AuditSIEMBreakerStateProvider so operators can alert on a stuck
+	// "open" state rather than the cumulative AuditSIEMCircuitOpen count.
+	AuditSIEMBreakerState metric.Int64ObservableGauge
+	// AuditEventsSyncFallback counts emit-time backpressure fallbacks to a
+	// synchronous DB write, labeled by outcome ("success"|"failure"). Pairs
+	// with AuditEventsDropped{reason="backpressure_degraded"} which counts
+	// the trigger event regardless of outcome.
+	AuditEventsSyncFallback metric.Int64Counter
 
 	// Audit async drainer queue saturation gauges (reported via
 	// ObserveAuditDrainer callback against an AuditDrainerStatsProvider).
@@ -916,6 +927,16 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Audit SIEM forwarded batch size in events"),
 		metric.WithUnit("1"),
 	)
+	auditSIEMBreakerState, _ := meter.Int64ObservableGauge(
+		"strait.audit.siem_breaker_state",
+		metric.WithDescription("Current audit SIEM circuit-breaker state (0=closed, 1=half_open, 2=open)"),
+		metric.WithUnit("1"),
+	)
+	auditEventsSyncFallback, _ := meter.Int64Counter(
+		"strait.audit.events_sync_fallback_total",
+		metric.WithDescription("Total async-drainer backpressure events that fell back to a synchronous DB write, labeled by outcome (success|failure)"),
+		metric.WithUnit("1"),
+	)
 	auditDrainerQueueDepth, _ := meter.Int64ObservableGauge(
 		"strait.audit.drainer_queue_depth",
 		metric.WithDescription("Current depth of the async audit-emit drain channel"),
@@ -1042,6 +1063,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditSIEMFailed:              auditSIEMFailed,
 		AuditSIEMCircuitOpen:         auditSIEMCircuitOpen,
 		AuditSIEMBatchSize:           auditSIEMBatchSize,
+		AuditSIEMBreakerState:        auditSIEMBreakerState,
+		AuditEventsSyncFallback:      auditEventsSyncFallback,
 		AuditDrainerQueueDepth:       auditDrainerQueueDepth,
 		AuditDrainerQueueCapacity:    auditDrainerQueueCapacity,
 		AuditEventsExportCapped:      auditEventsExportCapped,
@@ -1110,6 +1133,31 @@ func (m *Metrics) ObservePool(meter metric.Meter, pool PoolStatsProvider) error 
 type AuditDrainerStatsProvider interface {
 	AuditDrainerQueueDepth() int64
 	AuditDrainerQueueCapacity() int64
+}
+
+// AuditSIEMBreakerStateProvider exposes the current SIEM circuit-breaker
+// state as an int64 (0=closed, 1=half_open, 2=open). Implemented by
+// *logdrain.AuditSIEMDrain via its BreakerState() method.
+type AuditSIEMBreakerStateProvider interface {
+	BreakerState() int64
+}
+
+// ObserveSIEMBreakerState wires an asynchronous callback that reports the
+// current SIEM circuit-breaker state on every Prometheus scrape. Returns
+// nil when the provider is nil or the gauge is not configured (callable
+// safely from the worker process where SIEM may be disabled).
+func (m *Metrics) ObserveSIEMBreakerState(meter metric.Meter, provider AuditSIEMBreakerStateProvider) error {
+	if provider == nil || m.AuditSIEMBreakerState == nil {
+		return nil
+	}
+	_, err := meter.RegisterCallback(
+		func(_ context.Context, o metric.Observer) error {
+			o.ObserveInt64(m.AuditSIEMBreakerState, provider.BreakerState())
+			return nil
+		},
+		m.AuditSIEMBreakerState,
+	)
+	return err
 }
 
 // ObserveAuditDrainer registers an asynchronous callback that reports

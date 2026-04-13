@@ -572,6 +572,11 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		if err := metrics.ObserveAuditDrainer(otel.Meter("strait"), srv); err != nil {
 			slog.Warn("failed to register audit drainer metrics callback", "error", err)
 		}
+		if siemDrain != nil {
+			if err := metrics.ObserveSIEMBreakerState(otel.Meter("strait"), siemDrain); err != nil {
+				slog.Warn("failed to register SIEM breaker state metrics callback", "error", err)
+			}
+		}
 	}
 
 	httpServer := &http.Server{
