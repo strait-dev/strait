@@ -1060,10 +1060,7 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 	// signing path. replayKeyHexLen hex chars == replayKeyHexLen/2 raw
 	// bytes.
 	sum := mac.Sum(nil)
-	rawLen := replayKeyHexLen / 2
-	if rawLen > len(sum) {
-		rawLen = len(sum)
-	}
+	rawLen := min(replayKeyHexLen/2, len(sum))
 	return replayKeyPrefix + hex.EncodeToString(sum[:rawLen])
 }
 
