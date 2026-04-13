@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -24,8 +26,10 @@ func (q *Queries) DLQDepth(ctx context.Context, projectID, jobID string) (int, e
 		projectID, jobID,
 	).Scan(&count)
 	if err != nil {
-		// pgx returns ErrNoRows for missing rows — treat as zero.
-		return 0, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("dlq depth: %w", err)
 	}
 	return count, nil
 }
@@ -119,7 +123,10 @@ func (q *Queries) MaskOldestDLQRow(ctx context.Context, projectID, jobID string)
 	var id string
 	err := q.db.QueryRow(ctx, sql, projectID, jobID).Scan(&id)
 	if err != nil {
-		return "", nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("mask oldest dlq row: %w", err)
 	}
 	return id, nil
 }
