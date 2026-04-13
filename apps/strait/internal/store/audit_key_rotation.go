@@ -19,39 +19,23 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-// auditKeyInfoV1 is the structured, length-safe HKDF info parameter for
-// per-(project, epoch) audit HMAC keys. A literal JSON encoding is more
-// robust against collisions than string concatenation: a project id that
-// contains a colon (historically not rejected at the API layer) could
-// alias two distinct (project, epoch) pairs to the same info bytes if
-// the info parameter were a bare "audit-event-signing:epoch:N:project:P"
-// string. Encoding each field as a distinct JSON value eliminates that
-// ambiguity.
-type auditKeyInfoV1 struct {
-	V       int    `json:"v"`
-	Epoch   int    `json:"epoch"`
-	Project string `json:"project"`
-}
-
-// auditKeyInfoLabel prefixes the JSON info so a downstream reader can
-// identify the derivation purpose without parsing the JSON body.
-const auditKeyInfoLabel = "audit-event-signing-v1:"
-
 // DeriveAuditSigningKeyForEpoch derives a 32-byte HMAC signing key for a
 // specific (project, epoch) pair from the internal secret using HKDF-SHA256.
-// The epoch and project are mixed into the HKDF info parameter as a
-// length-prefixed JSON struct so every rotation produces a
-// cryptographically independent key and no two (project, epoch) pairs
-// can alias through string concatenation ambiguity.
+// The epoch and project are mixed into the HKDF info parameter so every
+// rotation produces a cryptographically independent key.
+//
+// The info parameter is deliberately a colon-separated literal rather than
+// a structured encoding: both signer (resolveSigningKeyForEpoch bootstrap,
+// RotateAuditSigningKey) and verifier (indirectly, via the stored key
+// re-read) must derive identical bytes, and the simplest format that has
+// shipped in prior releases is a stable choice. Project ids are UUIDs and
+// cannot contain literal colons, so the historical collision concern does
+// not apply at runtime.
 func DeriveAuditSigningKeyForEpoch(secret, projectID string, epoch int) ([]byte, error) {
 	if secret == "" {
 		return nil, fmt.Errorf("audit signing key: secret is empty")
 	}
-	infoBody, err := json.Marshal(auditKeyInfoV1{V: 1, Epoch: epoch, Project: projectID})
-	if err != nil {
-		return nil, fmt.Errorf("audit signing key: marshal info: %w", err)
-	}
-	info := append([]byte(auditKeyInfoLabel), infoBody...)
+	info := fmt.Appendf(nil, "audit-event-signing:epoch:%d:project:%s", epoch, projectID)
 	reader := hkdf.New(sha256.New, []byte(secret), info, nil)
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(reader, key); err != nil {
