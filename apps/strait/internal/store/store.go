@@ -432,8 +432,46 @@ type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// TxBeginnerOptions is the subset of pgxpool.Pool / *pgx.Conn that starts a
+// transaction with explicit TxOptions. Implemented by both concrete types.
+type TxBeginnerOptions interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
 	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("failed to rollback transaction", "error", rbErr)
+		}
+	}()
+
+	if err := fn(New(tx)); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	committed = true
+
+	return nil
+}
+
+// WithTxOptions runs fn inside a transaction opened with the given TxOptions.
+// Use this when the caller needs to pin an isolation level (e.g.
+// pgx.RepeatableRead for per-project retention trims so the DISTINCT
+// project-id SELECT and per-project DELETEs observe a consistent snapshot).
+func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}

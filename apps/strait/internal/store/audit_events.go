@@ -247,8 +247,15 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 		return nil, fmt.Errorf("resolve signing key: re-read: %w", err)
 	}
 	if stored == nil {
-		// Should not happen — we just inserted. Fall back to in-memory.
-		return q.auditSigningKey, nil
+		// Hard fail: we just inserted ON CONFLICT DO NOTHING and the
+		// subsequent read returned nothing. That is only possible if the
+		// row was deleted out from under us (impossible inside a tx) or
+		// the insert silently succeeded but the read filter is wrong.
+		// Falling back to the global q.auditSigningKey would have the
+		// signer use a key that the verifier will never look up — future
+		// VerifyAuditChain calls would then fail signature comparison on
+		// every row we sign here. Refuse instead.
+		return nil, fmt.Errorf("resolve signing key: bootstrap inserted for project %s epoch %d but subsequent read returned nothing; refusing to sign under global key to avoid signer/verifier key divergence", projectID, epoch)
 	}
 	return stored, nil
 }
@@ -427,6 +434,24 @@ func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error
 	})
 }
 
+// withTxInheritKeysOptions is withTxInheritKeys with explicit TxOptions. Use
+// for paths that must pin an isolation level (e.g.
+// DeleteAuditEventsBeforeExcluding under REPEATABLE READ). Falls back to
+// inline execution when q is already tx-backed — the outer tx's isolation
+// level governs in that case and reopening is neither possible nor
+// desirable.
+func (q *Queries) withTxInheritKeysOptions(ctx context.Context, opts pgx.TxOptions, fn func(*Queries) error) error {
+	begin, ok := q.db.(TxBeginnerOptions)
+	if !ok {
+		return q.withTxInheritKeys(ctx, fn)
+	}
+	return WithTxOptions(ctx, begin, opts, func(txQ *Queries) error {
+		txQ.auditSigningKey = q.auditSigningKey
+		txQ.secretEncryptionKey = q.secretEncryptionKey
+		return fn(txQ)
+	})
+}
+
 // tombstoneInsertHook is a test-only injection point invoked immediately
 // before the tombstone anchor insert inside writeRetentionTombstone. When
 // non-nil and it returns a non-nil error, writeRetentionTombstone aborts
@@ -599,8 +624,17 @@ func (q *Queries) DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff t
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventsBeforeExcluding")
 	defer span.End()
 
+	// REPEATABLE READ pins the DISTINCT project-id SELECT and every
+	// per-project DELETE + tombstone insert that follows to the same
+	// snapshot. Under the default READ COMMITTED a writer that inserted
+	// a row < cutoff for a previously-unseen project between the SELECT
+	// and its DELETE would have its row trimmed without a corresponding
+	// tombstone — the deleted_count is honest but the forensic marker is
+	// missing. REPEATABLE READ makes the snapshot atomic: either the
+	// tx sees the new project and trims+tombstones it, or it doesn't and
+	// the new row survives (to be picked up on the next reaper tick).
 	var total int64
-	err := q.withTxInheritKeys(ctx, func(tx *Queries) error {
+	err := q.withTxInheritKeysOptions(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx *Queries) error {
 		// Discover affected projects before the DELETE so we can emit one
 		// tombstone per project after trimming.
 		var (

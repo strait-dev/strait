@@ -412,3 +412,51 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 		t.Errorf("default sweep excluded = %v, want to contain proj-disabled", excluded)
 	}
 }
+
+// TestReclaimAuditDeadletter_PerEventTimeout asserts that a single wedged
+// CreateAuditEvent that ignores its parent context does not stall the
+// remaining rows in the batch. Each per-row insert ctx is derived from
+// auditDLQPerEventReclaimTimeout so a misbehaving store wakes up after
+// ~10s (shortened to 100ms for the test) and the tick converges.
+func TestReclaimAuditDeadletter_PerEventTimeout(t *testing.T) {
+	// Shorten the per-event bound for the test.
+	prev := auditDLQPerEventReclaimTimeout
+	auditDLQPerEventReclaimTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { auditDLQPerEventReclaimTimeout = prev })
+
+	events, _ := newFakeDLQEvents(2)
+	fake := &fakeAuditReclaimerStore{}
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+		ids := make([]string, len(events))
+		for i, ev := range events {
+			ids[i] = ev.ID
+		}
+		return events, ids, emptyAttempts(len(events)), nil
+	}
+	// CreateAuditEvent blocks on its context deadline — the test asserts
+	// the per-event child ctx fires well before any sane tick timeout.
+	fake.createFn = func(ctx context.Context, _ *domain.AuditEvent) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
+
+	start := time.Now()
+	r.reclaimAuditDeadletter(context.Background())
+	elapsed := time.Since(start)
+
+	// Both rows hit the per-event deadline; total elapsed ~2 * timeout.
+	// Generous upper bound catches regressions where the timeout is not
+	// applied per-event (would wedge indefinitely under any parent ctx
+	// longer than the bound).
+	if elapsed > 2*time.Second {
+		t.Fatalf("reclaim did not honor per-event timeout: elapsed %v, want < 2s", elapsed)
+	}
+	if got := fake.createCalls.Load(); got != 2 {
+		t.Errorf("CreateAuditEvent calls = %d, want 2", got)
+	}
+	if got := fake.incCalls.Load(); got != 2 {
+		t.Errorf("IncrementAuditDeadletterAttempt calls = %d, want 2 (one per timed-out insert)", got)
+	}
+}

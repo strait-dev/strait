@@ -23,6 +23,13 @@ const defaultAuditDLQReclaimBatch = 200
 // surfaced via the strait_audit_reclaimer_abandoned_total metric.
 const defaultAuditDLQMaxReclaimAttempts = 10
 
+// auditDLQPerEventReclaimTimeout bounds a single reclaim attempt so a
+// wedged CreateAuditEvent (pgx connection hang, contended advisory
+// lock, etc.) cannot stall the entire tick. The deadline is derived
+// from the tick context so a shutdown cancellation still propagates
+// through each per-event child context.
+var auditDLQPerEventReclaimTimeout = 10 * time.Second
+
 // WithAuditRetention enables audit event retention enforcement.
 // defaultDays is the server-wide default; a value <= 0 disables the task.
 func (r *Reaper) WithAuditRetention(defaultDays int) *Reaper {
@@ -322,9 +329,15 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 		}
 
 		// (3) Fresh attempt: assign a chain id, insert, mark, delete.
+		// Each chain insert gets its own deadline so a single wedged row
+		// (connection hang, contended advisory lock) cannot stall the
+		// tick and starve the rest of the DLQ backlog.
 		evCopy := ev
 		evCopy.ID = uuid.Must(uuid.NewV7()).String()
-		if writeErr := r.store.CreateAuditEvent(ctx, &evCopy); writeErr != nil {
+		insertCtx, insertCancel := context.WithTimeout(ctx, auditDLQPerEventReclaimTimeout)
+		writeErr := r.store.CreateAuditEvent(insertCtx, &evCopy)
+		insertCancel()
+		if writeErr != nil {
 			r.logger.Warn("audit deadletter reclaim chain insert failed",
 				"deadletter_id", dlqID, "action", ev.Action, "error", writeErr)
 			insertFailed++
