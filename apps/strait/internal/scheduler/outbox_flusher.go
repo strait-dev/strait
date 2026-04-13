@@ -110,7 +110,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 		return tx.Commit(ctx)
 	}
 
-	var promoted []string
+	promoted := make([]string, 0, len(rows))
 	qm, _ := queue.Metrics()
 	for _, row := range rows {
 		run := f.toJobRun(row)

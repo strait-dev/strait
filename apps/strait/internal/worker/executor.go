@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"strait/internal/billing"
 	"strait/internal/compute"
@@ -134,6 +137,18 @@ type Executor struct {
 	eventChannelSize         int
 	saturationWarnMu         sync.Mutex
 	saturationLastWarn       map[string]time.Time
+	// queueMetrics caches the process-wide queue metrics handle so the
+	// hot-path lifecycle emit/drop paths avoid a sync.Once + error-check
+	// lookup per event. Resolved once in NewExecutor; may be nil if the
+	// metrics subsystem failed to initialise (tests without OTEL).
+	queueMetrics *queue.QueueMetrics
+	// instanceID is a stable identifier for this process used as the
+	// "instance" attribute on multi-instance gauges (notably
+	// EventChannelSaturationRatio) so multi-pod deployments can tell
+	// which replica is saturated. Resolved lazily once via
+	// resolveInstanceID and cached for the life of the executor.
+	instanceIDOnce sync.Once
+	instanceID     string
 }
 
 type ConcurrencyLimitProvider interface {
@@ -304,7 +319,20 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		claimCursor:              queue.NewClaimCursor(60 * time.Second),
 		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
+		queueMetrics:             resolveQueueMetrics(),
 	}
+}
+
+// resolveQueueMetrics fetches the singleton queue metrics handle once at
+// executor construction. Returns nil when the metrics subsystem failed
+// to initialise so hot-path callers can nil-guard cheaply instead of
+// re-entering the sync.Once on every emit.
+func resolveQueueMetrics() *queue.QueueMetrics {
+	qm, err := queue.Metrics()
+	if err != nil {
+		return nil
+	}
+	return qm
 }
 
 // CloseCache shuts down the otter cache if one was created.
@@ -349,7 +377,7 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"type", event.Type,
 				"run_id", event.Run.ID,
 			)
-			recordEventChannelDrop(ctx, "closed")
+			e.recordEventChannelDrop(ctx, "closed")
 		}
 	}()
 
@@ -363,7 +391,7 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"run_id", event.Run.ID,
 			)
 		}
-		recordEventChannelDrop(ctx, string(event.Type))
+		e.recordEventChannelDrop(ctx, string(event.Type))
 	}
 }
 
@@ -387,9 +415,9 @@ func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string
 		return
 	}
 	ratio := float64(len(e.eventCh)) / float64(e.eventChannelSize)
-	qm, err := queue.Metrics()
-	if err == nil && qm != nil && qm.EventChannelSaturationRatio != nil {
-		qm.EventChannelSaturationRatio.Record(ctx, ratio)
+	if qm := e.queueMetrics; qm != nil && qm.EventChannelSaturationRatio != nil {
+		qm.EventChannelSaturationRatio.Record(ctx, ratio,
+			metric.WithAttributes(attribute.String("instance", e.resolveInstanceID())))
 	}
 	if ratio > eventChannelSaturationRatio && e.shouldLogSaturation(kind) {
 		e.logger.Warn("event channel saturated",
@@ -399,6 +427,23 @@ func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string
 			"capacity", e.eventChannelSize,
 		)
 	}
+}
+
+// resolveInstanceID returns a stable per-process identifier suitable
+// for use as a metric attribute. Prefers the OS hostname (matches K8s
+// pod name in standard deployments); falls back to a process-scoped
+// UUID if Hostname errors or returns empty. Resolution happens at most
+// once per Executor; subsequent calls return the cached value.
+func (e *Executor) resolveInstanceID() string {
+	e.instanceIDOnce.Do(func() {
+		host, err := os.Hostname()
+		if err == nil && host != "" {
+			e.instanceID = host
+			return
+		}
+		e.instanceID = uuid.NewString()
+	})
+	return e.instanceID
 }
 
 // shouldLogSaturation returns true at most once per eventChannelWarnInterval
@@ -419,10 +464,12 @@ func (e *Executor) shouldLogSaturation(kind string) bool {
 }
 
 // recordEventChannelDrop increments the drop counter labelled by event kind.
-// No-op when queue metrics have not been initialised.
-func recordEventChannelDrop(ctx context.Context, kind string) {
-	qm, err := queue.Metrics()
-	if err != nil || qm == nil || qm.EventChannelDropped == nil {
+// No-op when queue metrics have not been initialised. Uses the cached
+// Executor queueMetrics handle to avoid a sync.Once + error-check
+// lookup on every drop in the lifecycle hot path.
+func (e *Executor) recordEventChannelDrop(ctx context.Context, kind string) {
+	qm := e.queueMetrics
+	if qm == nil || qm.EventChannelDropped == nil {
 		return
 	}
 	qm.EventChannelDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", kind)))

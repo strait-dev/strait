@@ -915,6 +915,27 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
 			slog.Info("per-org plan retention enabled")
 		}
+		// Backpressure sampler: produces the per-project
+		// strait.queue.backpressure_tokens_available gauge. Without this
+		// loop the gauge has no producer and dashboards render empty.
+		// Gated by interval > 0 so operators can opt out via
+		// BACKPRESSURE_SAMPLER_INTERVAL=0.
+		if cfg.BackpressureSamplerInterval > 0 {
+			qm, qmErr := queue.Metrics()
+			if qmErr != nil || qm == nil {
+				slog.Warn("backpressure sampler disabled: queue metrics unavailable", "err", qmErr)
+			} else {
+				bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
+				sampler := scheduler.NewBackpressureSampler(bp, qm, cfg.BackpressureSamplerInterval, cfg.BackpressureSamplerN)
+				if sampler != nil {
+					schedOpts = append(schedOpts, scheduler.WithBackpressureSampler(sampler))
+					slog.Info("backpressure sampler enabled",
+						"interval", cfg.BackpressureSamplerInterval,
+						"sample_n", cfg.BackpressureSamplerN,
+					)
+				}
+			}
+		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,
 		)

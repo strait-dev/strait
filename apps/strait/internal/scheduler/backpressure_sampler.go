@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -10,6 +11,17 @@ import (
 
 	"strait/internal/queue"
 )
+
+// maxBackpressureSampleN is a hard cap on the number of per-project
+// backpressure samples recorded per tick. Each sample becomes a unique
+// (project_id) label combination on the
+// strait.queue.backpressure_tokens_available histogram. Without this
+// cap a tenant with 100k projects would materialise 100k histogram
+// series over time and blow up metrics cardinality / memory in the
+// exporter. 1000 projects-per-tick is a pragmatic ceiling that keeps
+// cardinality bounded while still surfacing the most-starved projects,
+// which are the ones operators care about on a backpressure dashboard.
+const maxBackpressureSampleN = 1000
 
 // BackpressureTokenSampler is the minimal surface of *queue.Backpressure
 // consumed by the BackpressureSampler scheduler component. Extracted to
@@ -42,6 +54,9 @@ func NewBackpressureSampler(sampler BackpressureTokenSampler, metrics *queue.Que
 	if sampleN <= 0 {
 		sampleN = 100
 	}
+	if sampleN > maxBackpressureSampleN {
+		sampleN = maxBackpressureSampleN
+	}
 	return &BackpressureSampler{
 		sampler:  sampler,
 		metrics:  metrics,
@@ -71,6 +86,18 @@ func (s *BackpressureSampler) sampleOnce(ctx context.Context) {
 	}
 	if s.metrics.BackpressureTokensAvailable == nil {
 		return
+	}
+	// Defensive second cap: if the sampler returned more rows than
+	// sampleN (shouldn't happen, but the interface doesn't enforce it),
+	// keep only the N projects with the lowest available tokens. Those
+	// are the ones operators actually want to see on a backpressure
+	// dashboard, and bounding the slice here keeps label cardinality on
+	// strait.queue.backpressure_tokens_available predictable.
+	if len(samples) > s.sampleN {
+		sort.Slice(samples, func(i, j int) bool {
+			return samples[i].Tokens < samples[j].Tokens
+		})
+		samples = samples[:s.sampleN]
 	}
 	for _, sample := range samples {
 		s.metrics.BackpressureTokensAvailable.Record(ctx, sample.Tokens,

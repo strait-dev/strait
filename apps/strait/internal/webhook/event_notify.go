@@ -1054,11 +1054,17 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 	}
 	mac := hmac.New(sha256.New, secret)
 	_, _ = mac.Write([]byte(deliveryID))
-	digest := hex.EncodeToString(mac.Sum(nil))
-	if len(digest) > replayKeyHexLen {
-		digest = digest[:replayKeyHexLen]
+	// Truncate the raw HMAC bytes before hex-encoding rather than
+	// hex-encoding all 32 bytes and slicing 32 chars off the end: same
+	// output, roughly half the intermediate allocation on a hot
+	// signing path. replayKeyHexLen hex chars == replayKeyHexLen/2 raw
+	// bytes.
+	sum := mac.Sum(nil)
+	rawLen := replayKeyHexLen / 2
+	if rawLen > len(sum) {
+		rawLen = len(sum)
 	}
-	return replayKeyPrefix + digest
+	return replayKeyPrefix + hex.EncodeToString(sum[:rawLen])
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for

@@ -118,6 +118,12 @@ type Config struct {
 	// the sampler; the gauge will simply report no points.
 	BackpressureSamplerInterval time.Duration `env:"BACKPRESSURE_SAMPLER_INTERVAL" default:"15s"`
 
+	// BackpressureSamplerN bounds the number of project rate-limit rows
+	// the sampler reads per tick. Larger values give better gauge
+	// coverage on high-tenant deployments at the cost of one extra
+	// indexed scan per interval. Defaults to 100 if unset or non-positive.
+	BackpressureSamplerN int `env:"BACKPRESSURE_SAMPLER_N" default:"100"`
+
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 
