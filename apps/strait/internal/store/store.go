@@ -104,6 +104,7 @@ type RunStore interface {
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error)
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	ReplayDeadLetterRunWithAudit(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	BatchUpdateHeartbeat(ctx context.Context, ids []string) error

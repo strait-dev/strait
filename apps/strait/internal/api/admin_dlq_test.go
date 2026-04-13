@@ -45,7 +45,7 @@ func TestHandleAdminListDLQ_OK(t *testing.T) {
 func TestHandleAdminReplayDLQ_NotFound(t *testing.T) {
 	t.Parallel()
 	mock := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
+		ReplayDeadLetterRunWithAuditFunc: func(_ context.Context, _ string, _ *domain.AuditEvent) (*domain.JobRun, error) {
 			return nil, store.ErrRunNotFound
 		},
 	}
@@ -60,10 +60,7 @@ func TestHandleAdminReplayDLQ_NotFound(t *testing.T) {
 func TestHandleAdminReplayDLQ_Conflict(t *testing.T) {
 	t.Parallel()
 	mock := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, ProjectID: "p", Status: domain.StatusQueued}, nil
-		},
-		ReplayDeadLetterRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
+		ReplayDeadLetterRunWithAuditFunc: func(_ context.Context, _ string, _ *domain.AuditEvent) (*domain.JobRun, error) {
 			return nil, store.ErrRunConflict
 		},
 	}
@@ -77,25 +74,15 @@ func TestHandleAdminReplayDLQ_Conflict(t *testing.T) {
 
 func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
 	t.Parallel()
-	auditCalls := 0
-	markReplayedCalls := 0
+	// The admin replay handler delegates the CAS + lineage + audit write
+	// to a single store call in one transaction; verify the audit
+	// envelope it hands in carries the expected action/resource and that
+	// the resolved run is returned to the caller.
+	var seenAudit *domain.AuditEvent
 	mock := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusDeadLetter}, nil
-		},
-		ReplayDeadLetterRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+		ReplayDeadLetterRunWithAuditFunc: func(_ context.Context, id string, audit *domain.AuditEvent) (*domain.JobRun, error) {
+			seenAudit = audit
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusQueued}, nil
-		},
-		MarkRunReplayedFunc: func(_ context.Context, _, _ string) error {
-			markReplayedCalls++
-			return nil
-		},
-		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			auditCalls++
-			if ev.Action != "dlq.replay" {
-				t.Errorf("unexpected action: %s", ev.Action)
-			}
-			return nil
 		},
 	}
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
@@ -104,11 +91,20 @@ func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if auditCalls != 1 {
-		t.Errorf("expected 1 audit call, got %d", auditCalls)
+	if len(mock.ReplayDeadLetterRunWithAuditCalls()) != 1 {
+		t.Fatalf("expected 1 store call, got %d", len(mock.ReplayDeadLetterRunWithAuditCalls()))
 	}
-	if markReplayedCalls != 1 {
-		t.Errorf("expected 1 MarkRunReplayed call, got %d", markReplayedCalls)
+	if seenAudit == nil {
+		t.Fatal("expected an audit envelope to be handed to the store")
+	}
+	if seenAudit.Action != "dlq.replay" {
+		t.Errorf("unexpected action: %s", seenAudit.Action)
+	}
+	if seenAudit.ResourceType != "job_run" {
+		t.Errorf("unexpected resource type: %s", seenAudit.ResourceType)
+	}
+	if seenAudit.ResourceID != "run-1" {
+		t.Errorf("unexpected resource id: %s", seenAudit.ResourceID)
 	}
 }
 

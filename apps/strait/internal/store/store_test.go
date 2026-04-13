@@ -280,19 +280,29 @@ func TestQueueStats_DBError(t *testing.T) {
 	}
 }
 
-// Issue 10: ReplayDeadLetterRun uses CAS directly without separate read-check.
+// Issue 10: ReplayDeadLetterRun does a single CAS UPDATE ... RETURNING and
+// disambiguates ErrRunConflict vs ErrRunNotFound with a follow-up SELECT on
+// empty RETURNING.
 func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 	t.Parallel()
 
-	// UpdateRunStatus returns ErrRunConflict when CAS fails (run not in dead_letter).
+	calls := 0
 	db := &mockDBTX{
-		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			return pgconn.NewCommandTag("UPDATE 0"), nil
-		},
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			calls++
+			if calls == 1 {
+				// First call is the CAS UPDATE RETURNING * — simulate no row
+				// matched (status wasn't dead_letter) by returning ErrNoRows.
+				return &mockRow{
+					scanFn: func(_ ...any) error {
+						return pgx.ErrNoRows
+					},
+				}
+			}
+			// Follow-up SELECT status disambiguation — row exists in a
+			// non-dead_letter state, so we expect ErrRunConflict.
 			return &mockRow{
 				scanFn: func(dest ...any) error {
-					// Run exists but is in 'completed' state, not 'dead_letter'.
 					if p, ok := dest[0].(*domain.RunStatus); ok {
 						*p = domain.StatusCompleted
 					}
@@ -309,6 +319,9 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 	}
 	if !errors.Is(err, ErrRunConflict) {
 		t.Fatalf("expected ErrRunConflict, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 query calls (CAS + disambiguation), got %d", calls)
 	}
 }
 

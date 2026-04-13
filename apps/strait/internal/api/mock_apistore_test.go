@@ -691,6 +691,9 @@ var _ APIStore = &APIStoreMock{}
 //			ReplayDeadLetterRunFunc: func(ctx context.Context, runID string) (*domain.JobRun, error) {
 //				panic("mock out the ReplayDeadLetterRun method")
 //			},
+//			ReplayDeadLetterRunWithAuditFunc: func(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error) {
+//				panic("mock out the ReplayDeadLetterRunWithAudit method")
+//			},
 //			ReplayWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
 //				panic("mock out the ReplayWebhookDelivery method")
 //			},
@@ -1528,6 +1531,9 @@ type APIStoreMock struct {
 
 	// ReplayDeadLetterRunFunc mocks the ReplayDeadLetterRun method.
 	ReplayDeadLetterRunFunc func(ctx context.Context, runID string) (*domain.JobRun, error)
+
+	// ReplayDeadLetterRunWithAuditFunc mocks the ReplayDeadLetterRunWithAudit method.
+	ReplayDeadLetterRunWithAuditFunc func(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 
 	// ReplayWebhookDeliveryFunc mocks the ReplayWebhookDelivery method.
 	ReplayWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
@@ -3710,6 +3716,15 @@ type APIStoreMock struct {
 			// RunID is the runID argument value.
 			RunID string
 		}
+		// ReplayDeadLetterRunWithAudit holds details about calls to the ReplayDeadLetterRunWithAudit method.
+		ReplayDeadLetterRunWithAudit []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// RunID is the runID argument value.
+			RunID string
+			// Audit is the audit argument value.
+			Audit *domain.AuditEvent
+		}
 		// ReplayWebhookDelivery holds details about calls to the ReplayWebhookDelivery method.
 		ReplayWebhookDelivery []struct {
 			// Ctx is the ctx argument value.
@@ -4422,6 +4437,7 @@ type APIStoreMock struct {
 	lockReleaseStaleClaimedDeployments     sync.RWMutex
 	lockRemoveMemberRole                   sync.RWMutex
 	lockReplayDeadLetterRun                sync.RWMutex
+	lockReplayDeadLetterRunWithAudit       sync.RWMutex
 	lockReplayWebhookDelivery              sync.RWMutex
 	lockRequeuePausedJobRuns               sync.RWMutex
 	lockRescheduleRun                      sync.RWMutex
@@ -14245,6 +14261,50 @@ func (mock *APIStoreMock) ReplayDeadLetterRunCalls() []struct {
 	mock.lockReplayDeadLetterRun.RLock()
 	calls = mock.calls.ReplayDeadLetterRun
 	mock.lockReplayDeadLetterRun.RUnlock()
+	return calls
+}
+
+// ReplayDeadLetterRunWithAudit calls ReplayDeadLetterRunWithAuditFunc.
+func (mock *APIStoreMock) ReplayDeadLetterRunWithAudit(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		RunID string
+		Audit *domain.AuditEvent
+	}{
+		Ctx:   ctx,
+		RunID: runID,
+		Audit: audit,
+	}
+	mock.lockReplayDeadLetterRunWithAudit.Lock()
+	mock.calls.ReplayDeadLetterRunWithAudit = append(mock.calls.ReplayDeadLetterRunWithAudit, callInfo)
+	mock.lockReplayDeadLetterRunWithAudit.Unlock()
+	if mock.ReplayDeadLetterRunWithAuditFunc == nil {
+		var (
+			jobRunOut *domain.JobRun
+			errOut    error
+		)
+		return jobRunOut, errOut
+	}
+	return mock.ReplayDeadLetterRunWithAuditFunc(ctx, runID, audit)
+}
+
+// ReplayDeadLetterRunWithAuditCalls gets all the calls that were made to ReplayDeadLetterRunWithAudit.
+// Check the length with:
+//
+//	len(mockedAPIStore.ReplayDeadLetterRunWithAuditCalls())
+func (mock *APIStoreMock) ReplayDeadLetterRunWithAuditCalls() []struct {
+	Ctx   context.Context
+	RunID string
+	Audit *domain.AuditEvent
+} {
+	var calls []struct {
+		Ctx   context.Context
+		RunID string
+		Audit *domain.AuditEvent
+	}
+	mock.lockReplayDeadLetterRunWithAudit.RLock()
+	calls = mock.calls.ReplayDeadLetterRunWithAudit
+	mock.lockReplayDeadLetterRunWithAudit.RUnlock()
 	return calls
 }
 

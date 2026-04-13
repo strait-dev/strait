@@ -180,19 +180,24 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 		return nil, err
 	}
 
-	original, err := s.store.GetRun(ctx, input.RunID)
-	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		slog.Error("dlq replay: load run failed",
-			"action", "dlq.replay", "run_id", input.RunID, "actor_id", actorID, "err", err,
-		)
-		return nil, huma.Error500InternalServerError("failed to load run")
+	// Single-transaction replay: CAS the row back to queued, stamp
+	// replayed_run_id, and write the audit event in one round-trip tx.
+	// The project id on the audit row is derived from the CAS result, so
+	// we pre-build the audit envelope with the actor/action and let the
+	// store fill in details + project id after the update returns.
+	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
+	if actorType == "" {
+		actorType = "api_key"
 	}
-	span.SetAttributes(attribute.String("project.id", original.ProjectID))
+	audit := &domain.AuditEvent{
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       "dlq.replay",
+		ResourceType: "job_run",
+		ResourceID:   input.RunID,
+	}
 
-	run, err := s.store.ReplayDeadLetterRun(ctx, input.RunID)
+	run, err := s.store.ReplayDeadLetterRunWithAudit(ctx, input.RunID, audit)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrRunNotFound):
@@ -203,37 +208,18 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 			slog.Error("dlq replay failed",
 				"action", "dlq.replay",
 				"run_id", input.RunID,
-				"project_id", original.ProjectID,
 				"actor_id", actorID,
 				"err", err,
 			)
 			return nil, huma.Error500InternalServerError("failed to replay dead letter run")
 		}
 	}
-
-	// Record lineage back-pointer on the original row. The existing
-	// ReplayDeadLetterRun helper CASes the same row back to queued, so
-	// replayed_run_id references the same id -- still useful as a marker
-	// that the row went through the admin replay path.
-	if err := s.store.MarkRunReplayed(ctx, input.RunID, run.ID); err != nil {
-		slog.Warn("dlq replay: mark replayed failed",
-			"action", "dlq.replay",
-			"run_id", input.RunID,
-			"project_id", original.ProjectID,
-			"actor_id", actorID,
-			"err", err,
-		)
-	}
-
-	s.writeDLQAudit(ctx, original.ProjectID, "dlq.replay", input.RunID,
-		map[string]any{"status": original.Status},
-		map[string]any{"status": run.Status, "replayed_run_id": run.ID},
-	)
+	span.SetAttributes(attribute.String("project.id", run.ProjectID))
 
 	slog.Info("dlq replay",
 		"action", "dlq.replay",
 		"run_id", input.RunID,
-		"project_id", original.ProjectID,
+		"project_id", run.ProjectID,
 		"actor_id", actorID,
 	)
 
