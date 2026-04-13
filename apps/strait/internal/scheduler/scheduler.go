@@ -56,6 +56,7 @@ type Scheduler struct {
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
 	planDriftMonitor         *PlanDriftMonitor
+	backpressureSampler      *BackpressureSampler
 	wg                       conc.WaitGroup
 	tracker                  componentTracker
 	componentShutdownTimeout time.Duration
@@ -175,6 +176,16 @@ func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
 func WithPlanDriftMonitor(m *PlanDriftMonitor) SchedulerOption {
 	return func(s *Scheduler) {
 		s.planDriftMonitor = m
+	}
+}
+
+// WithBackpressureSampler enables the periodic sampler that populates
+// the strait.queue.backpressure_tokens_available gauge from the
+// project_rate_limits table. Pass nil (or a nil sampler built by
+// NewBackpressureSampler when disabled) to skip registration.
+func WithBackpressureSampler(s *BackpressureSampler) SchedulerOption {
+	return func(sched *Scheduler) {
+		sched.backpressureSampler = s
 	}
 }
 
@@ -305,6 +316,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if s.planDriftMonitor != nil {
 		s.tracker.track(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
 	}
+	if s.backpressureSampler != nil {
+		s.tracker.track(&s.wg, "backpressure_sampler", func() { s.backpressureSampler.Run(ctx) })
+	}
 
 	slog.Info("scheduler started")
 	return nil
@@ -327,5 +341,15 @@ func (s *Scheduler) Stop() {
 	// leak panics.
 	timedOut := s.tracker.waitWithTimeout(context.Background(), timeout)
 	s.wg.Wait()
+
+	// Tear down reusable pond pools owned by components so their worker
+	// goroutines do not leak past scheduler stop.
+	if s.partitionTuner != nil {
+		s.partitionTuner.Close()
+	}
+	if s.dlqAgeOut != nil {
+		s.dlqAgeOut.Close()
+	}
+
 	slog.Info("scheduler stopped", "timed_out_components", timedOut)
 }

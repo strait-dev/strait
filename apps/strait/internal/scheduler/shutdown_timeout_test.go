@@ -61,9 +61,19 @@ func TestComponentTracker_WaitWithTimeout(t *testing.T) {
 				tracker.track(&wg, name, fn)
 			}
 
+			start := time.Now()
 			got := tracker.waitWithTimeout(context.Background(), tc.timeout)
+			elapsed := time.Since(start)
 			if got != tc.wantTimedOut {
 				t.Fatalf("waitWithTimeout timed_out=%d, want %d", got, tc.wantTimedOut)
+			}
+
+			// Wall-clock must be bounded by a single timeout window, not
+			// len(components)*timeout. Allow a generous slack for CI.
+			maxAllowed := tc.timeout + 150*time.Millisecond
+			if elapsed > maxAllowed {
+				t.Fatalf("waitWithTimeout elapsed=%v exceeds single-deadline envelope %v (components=%d)",
+					elapsed, maxAllowed, len(tc.components))
 			}
 
 			// Always wait for the aggregate WaitGroup so no goroutines leak

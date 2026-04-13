@@ -76,10 +76,17 @@ func (t *componentTracker) track(wg *conc.WaitGroup, name string, fn func()) {
 	})
 }
 
-// waitWithTimeout blocks until every tracked component finishes or its
-// per-component timeout elapses. Components that exceed the deadline are
-// logged at Error and counted on strait.scheduler.shutdown_timeouts_total.
-// Returns the number of components that timed out.
+// waitWithTimeout blocks until every tracked component finishes or the
+// single shared deadline elapses. Components still running past the
+// deadline are logged at Error and counted on
+// strait.scheduler.shutdown_timeouts_total. Returns the number of
+// components that timed out.
+//
+// Waits run concurrently under one deadline: if N components each can
+// take up to `timeout` to drain, total wall-clock is ~timeout, not
+// N*timeout. This keeps scheduler shutdown within the k8s
+// terminationGracePeriodSeconds envelope even when several components
+// are slow to unwind.
 func (t *componentTracker) waitWithTimeout(ctx context.Context, timeout time.Duration) int {
 	t.mu.Lock()
 	handles := make([]componentHandle, len(t.items))
@@ -89,32 +96,57 @@ func (t *componentTracker) waitWithTimeout(ctx context.Context, timeout time.Dur
 	if timeout <= 0 {
 		timeout = defaultComponentShutdownTimeout
 	}
+	if len(handles) == 0 {
+		return 0
+	}
 
 	var qm *queue.QueueMetrics
 	if m, err := queue.Metrics(); err == nil {
 		qm = m
 	}
 
-	timedOut := 0
-	for _, h := range handles {
-		timer := time.NewTimer(timeout)
-		select {
-		case <-h.done:
-			timer.Stop()
-		case <-timer.C:
-			timedOut++
-			slog.Error("scheduler component exceeded shutdown deadline",
-				"component", h.name,
-				"timeout", timeout,
-			)
-			if qm != nil && qm.SchedulerShutdownTimeouts != nil {
-				qm.SchedulerShutdownTimeouts.Add(ctx, 1, metric.WithAttributes(
-					attribute.String("component", h.name),
-				))
+	deadline := time.After(timeout)
+	finished := make(chan int, len(handles))
+	for i, h := range handles {
+		go func(idx int, h componentHandle) {
+			select {
+			case <-h.done:
+				finished <- idx
+			case <-deadline:
+				// Signal timeout by sending -1-idx; caller interprets
+				// remaining handles explicitly below.
+				return
 			}
+		}(i, h)
+	}
+
+	done := make(map[int]struct{}, len(handles))
+	for len(done) < len(handles) {
+		select {
+		case idx := <-finished:
+			done[idx] = struct{}{}
+		case <-deadline:
+			// Deadline hit: log everything still unfinished and count.
+			timedOut := 0
+			for i, h := range handles {
+				if _, ok := done[i]; ok {
+					continue
+				}
+				timedOut++
+				slog.Error("scheduler component exceeded shutdown deadline",
+					"component", h.name,
+					"timeout", timeout,
+				)
+				if qm != nil && qm.SchedulerShutdownTimeouts != nil {
+					qm.SchedulerShutdownTimeouts.Add(ctx, 1, metric.WithAttributes(
+						attribute.String("component", h.name),
+					))
+				}
+			}
+			return timedOut
 		}
 	}
-	return timedOut
+	return 0
 }
 
 const defaultComponentShutdownTimeout = 15 * time.Second

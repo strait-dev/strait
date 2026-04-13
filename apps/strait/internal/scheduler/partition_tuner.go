@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,9 +40,13 @@ type PartitionTuner struct {
 	interval       time.Duration
 	clock          func() time.Time
 	logger         *slog.Logger
-	iterations     atomic.Int64
-	hotCount       atomic.Int64
-	coldCount      atomic.Int64
+	// pool is allocated once in NewPartitionTuner and reused across
+	// every tick to avoid the per-iteration allocation churn of
+	// pond.NewPool. Close tears it down cleanly at scheduler stop.
+	pool       pond.Pool
+	iterations atomic.Int64
+	hotCount   atomic.Int64
+	coldCount  atomic.Int64
 }
 
 // PartitionTunerStore is the minimal store interface the tuner needs.
@@ -77,7 +80,16 @@ func NewPartitionTuner(s PartitionTunerStore, cfg PartitionTunerConfig) *Partiti
 	if t.logger == nil {
 		t.logger = slog.Default()
 	}
+	t.pool = pond.NewPool(partitionTunerPoolSize)
 	return t
+}
+
+// Close tears down the reusable pond pool. Safe to call multiple times;
+// subsequent runOnce invocations after Close will no-op their submits.
+func (t *PartitionTuner) Close() {
+	if t.pool != nil {
+		t.pool.StopAndWait()
+	}
 }
 
 // WithAdvisoryLocker enables single-leader execution.
@@ -143,14 +155,13 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 	// R4 Phase 4: apply per-partition ALTER TABLE calls through a bounded
 	// pond pool so a long list does not serialize behind each DDL round
 	// trip. The work is ordering-independent; we aggregate counters via
-	// atomics and log errors per partition.
-	pool := pond.NewPool(partitionTunerPoolSize)
+	// atomics and log errors per partition. The pool is owned by the
+	// tuner (allocated in NewPartitionTuner, torn down in Close) so we
+	// reuse it across ticks instead of reallocating every iteration.
 	var hotN, coldN atomic.Int64
-	var wg sync.WaitGroup
+	group := t.pool.NewGroup()
 	for _, p := range partitions {
-		wg.Add(1)
-		pool.Submit(func() {
-			defer wg.Done()
+		group.Submit(func() {
 			if ctx.Err() != nil {
 				return
 			}
@@ -178,8 +189,7 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 			coldN.Add(1)
 		})
 	}
-	wg.Wait()
-	pool.StopAndWait()
+	_ = group.Wait()
 	t.hotCount.Store(hotN.Load())
 	t.coldCount.Store(coldN.Load())
 	t.logger.Info("partition tuner complete",

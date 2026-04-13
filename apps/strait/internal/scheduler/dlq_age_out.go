@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,8 +54,12 @@ type DLQAgeOut struct {
 	retention      time.Duration
 	batchLimit     int
 	logger         *slog.Logger
-	iterations     atomic.Int64
-	masked         atomic.Int64
+	// pool is allocated once in NewDLQAgeOut and reused across every
+	// tick to avoid the per-iteration allocation churn of pond.NewPool.
+	// Close tears it down cleanly at scheduler stop.
+	pool       pond.Pool
+	iterations atomic.Int64
+	masked     atomic.Int64
 }
 
 // DLQAgeOutConfig configures the archiver.
@@ -88,7 +91,15 @@ func NewDLQAgeOut(s DLQAgeOutStore, cfg DLQAgeOutConfig) *DLQAgeOut {
 	if a.logger == nil {
 		a.logger = slog.Default()
 	}
+	a.pool = pond.NewPool(dlqAgeOutScanPoolSize)
 	return a
+}
+
+// Close tears down the reusable pond pool. Safe to call multiple times.
+func (a *DLQAgeOut) Close() {
+	if a.pool != nil {
+		a.pool.StopAndWait()
+	}
 }
 
 // WithAdvisoryLocker enables single-leader execution.
@@ -176,13 +187,10 @@ func (a *DLQAgeOut) scanPartitionsParallel(ctx context.Context) {
 	if len(parts) == 0 {
 		return
 	}
-	pool := pond.NewPool(dlqAgeOutScanPoolSize)
-	var wg sync.WaitGroup
 	var candidates atomic.Int64
+	group := a.pool.NewGroup()
 	for _, p := range parts {
-		wg.Add(1)
-		pool.Submit(func() {
-			defer wg.Done()
+		group.Submit(func() {
 			if ctx.Err() != nil {
 				return
 			}
@@ -194,8 +202,7 @@ func (a *DLQAgeOut) scanPartitionsParallel(ctx context.Context) {
 			candidates.Add(n)
 		})
 	}
-	wg.Wait()
-	pool.StopAndWait()
+	_ = group.Wait()
 	a.logger.Debug("dlq partition scan complete", "partitions", len(parts), "candidates", candidates.Load())
 }
 
