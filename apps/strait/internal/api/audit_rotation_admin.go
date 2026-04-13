@@ -49,8 +49,9 @@ func (s *Server) handleRotateAuditSigningKey(ctx context.Context, input *RotateA
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	// 404 (not 403) on cross-tenant to avoid enumeration of project ids.
 	if input.ID != "" && input.ID != projectID {
-		return nil, huma.Error403Forbidden("path project id does not match authenticated project context")
+		return nil, huma.Error404NotFound("audit signing key not found")
 	}
 
 	actorID := actorFromContext(ctx)

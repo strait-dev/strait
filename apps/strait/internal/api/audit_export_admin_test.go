@@ -50,14 +50,16 @@ func TestUpdateAuditExportCap_RejectsCrossTenant(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	// Admin authenticated to proj-a attempts to mutate proj-b via path param.
+	// Cross-tenant must surface as 404 (not 403) to avoid leaking which
+	// projects exist when scanned for admin mistakes.
 	in := &UpdateAuditExportCapInput{ID: "proj-b"}
 	in.Body.RowCap = 1
 	_, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in)
 	if err == nil {
-		t.Fatal("expected 403 for cross-tenant request, got nil")
+		t.Fatal("expected 404 for cross-tenant request, got nil")
 	}
-	if !strings.Contains(err.Error(), "project") {
-		t.Errorf("expected path/project mismatch error, got %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got %v", err)
 	}
 }
 

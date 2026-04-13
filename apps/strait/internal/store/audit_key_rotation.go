@@ -19,15 +19,39 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
+// auditKeyInfoV1 is the structured, length-safe HKDF info parameter for
+// per-(project, epoch) audit HMAC keys. A literal JSON encoding is more
+// robust against collisions than string concatenation: a project id that
+// contains a colon (historically not rejected at the API layer) could
+// alias two distinct (project, epoch) pairs to the same info bytes if
+// the info parameter were a bare "audit-event-signing:epoch:N:project:P"
+// string. Encoding each field as a distinct JSON value eliminates that
+// ambiguity.
+type auditKeyInfoV1 struct {
+	V       int    `json:"v"`
+	Epoch   int    `json:"epoch"`
+	Project string `json:"project"`
+}
+
+// auditKeyInfoLabel prefixes the JSON info so a downstream reader can
+// identify the derivation purpose without parsing the JSON body.
+const auditKeyInfoLabel = "audit-event-signing-v1:"
+
 // DeriveAuditSigningKeyForEpoch derives a 32-byte HMAC signing key for a
 // specific (project, epoch) pair from the internal secret using HKDF-SHA256.
-// The epoch and project are mixed into the HKDF info parameter so every
-// rotation produces a cryptographically independent key.
+// The epoch and project are mixed into the HKDF info parameter as a
+// length-prefixed JSON struct so every rotation produces a
+// cryptographically independent key and no two (project, epoch) pairs
+// can alias through string concatenation ambiguity.
 func DeriveAuditSigningKeyForEpoch(secret, projectID string, epoch int) ([]byte, error) {
 	if secret == "" {
 		return nil, fmt.Errorf("audit signing key: secret is empty")
 	}
-	info := fmt.Appendf(nil, "audit-event-signing:epoch:%d:project:%s", epoch, projectID)
+	infoBody, err := json.Marshal(auditKeyInfoV1{V: 1, Epoch: epoch, Project: projectID})
+	if err != nil {
+		return nil, fmt.Errorf("audit signing key: marshal info: %w", err)
+	}
+	info := append([]byte(auditKeyInfoLabel), infoBody...)
 	reader := hkdf.New(sha256.New, []byte(secret), info, nil)
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(reader, key); err != nil {
@@ -96,6 +120,9 @@ func (q *Queries) storeAuditSigningKey(ctx context.Context, projectID string, ep
 // using the HKDF-derived envelope key. Output layout is nonce || ciphertext,
 // matching the on-disk format used for job_secrets.
 func encryptAuditKey(plaintext, envelopeKey []byte) ([]byte, error) {
+	if len(envelopeKey) != 32 {
+		return nil, fmt.Errorf("encrypt audit key: envelope key must be 32 bytes, got %d", len(envelopeKey))
+	}
 	block, err := aes.NewCipher(envelopeKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt audit key: %w", err)

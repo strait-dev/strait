@@ -80,12 +80,14 @@ func TestListDeadletter_RejectsCrossTenantProjectID(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	// Admin of proj-a tries to list proj-b's DLQ via the query param.
+	// Cross-tenant must surface as 404 (not 403) so a probing admin
+	// cannot enumerate other projects by watching error codes.
 	_, err := srv.handleListDeadletter(adminCtx("proj-a"), &ListDeadletterInput{ProjectID: "proj-b"})
 	if err == nil {
-		t.Fatal("expected 403 for cross-tenant request, got nil")
+		t.Fatal("expected 404 for cross-tenant request, got nil")
 	}
-	if !strings.Contains(err.Error(), "project_id") {
-		t.Errorf("expected cross-tenant error, got %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got %v", err)
 	}
 }
 

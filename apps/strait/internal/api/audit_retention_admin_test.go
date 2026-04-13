@@ -97,10 +97,10 @@ func TestGetAuditRetention_RejectsCrossTenant(t *testing.T) {
 
 	_, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-b"})
 	if err == nil {
-		t.Fatal("expected 403 for cross-tenant request, got nil")
+		t.Fatal("expected 404 for cross-tenant request, got nil")
 	}
-	if !strings.Contains(err.Error(), "project") {
-		t.Errorf("expected path/project mismatch error, got %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got %v", err)
 	}
 }
 
@@ -273,9 +273,9 @@ func TestPutAuditRetention_RejectsCrossTenant(t *testing.T) {
 	in.Body.Days = 30
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
 	if err == nil {
-		t.Fatal("expected 403 for cross-tenant request, got nil")
+		t.Fatal("expected 404 for cross-tenant request, got nil")
 	}
-	if !strings.Contains(err.Error(), "project") {
-		t.Errorf("expected path/project mismatch error, got %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got %v", err)
 	}
 }

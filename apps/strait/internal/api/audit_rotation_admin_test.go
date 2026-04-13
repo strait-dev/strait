@@ -39,10 +39,10 @@ func TestRotateAuditSigningKey_RejectsCrossTenant(t *testing.T) {
 
 	_, err := srv.handleRotateAuditSigningKey(adminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-b"})
 	if err == nil {
-		t.Fatal("expected 403 for cross-tenant request, got nil")
+		t.Fatal("expected 404 for cross-tenant request, got nil")
 	}
-	if !strings.Contains(err.Error(), "project") {
-		t.Errorf("expected path/project mismatch error, got %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got %v", err)
 	}
 }
 

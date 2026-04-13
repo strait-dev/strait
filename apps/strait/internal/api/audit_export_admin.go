@@ -58,9 +58,11 @@ func (s *Server) handleUpdateAuditExportCap(ctx context.Context, input *UpdateAu
 	}
 	// Structural tenant isolation: the path id must match the authenticated
 	// project context. A compromised admin key on project A cannot rewrite
-	// project B's cap via a crafted URL.
+	// project B's cap via a crafted URL. Return 404 (not 403) so a probing
+	// caller cannot distinguish "project B exists but you lack access"
+	// from "project B does not exist" — both leak identical information.
 	if input.ID != "" && input.ID != projectID {
-		return nil, huma.Error403Forbidden("path project id does not match authenticated project context")
+		return nil, huma.Error404NotFound("audit export cap not found")
 	}
 
 	if input.Body.RowCap < 0 {
@@ -81,7 +83,6 @@ func (s *Server) handleUpdateAuditExportCap(ctx context.Context, input *UpdateAu
 	s.emitAuditEvent(ctx, domain.AuditActionExportCapUpdated, "project_quotas", projectID, map[string]any{
 		"old_cap": oldCap,
 		"new_cap": input.Body.RowCap,
-		"row_cap": input.Body.RowCap,
 	})
 
 	return &UpdateAuditExportCapOutput{Body: UpdateAuditExportCapResponse{

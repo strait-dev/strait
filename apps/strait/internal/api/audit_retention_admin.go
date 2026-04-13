@@ -77,8 +77,9 @@ func (s *Server) handleGetAuditRetention(ctx context.Context, input *GetAuditRet
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	// 404 (not 403) on cross-tenant to avoid enumeration of project ids.
 	if input.ID != "" && input.ID != projectID {
-		return nil, huma.Error403Forbidden("path project id does not match authenticated project context")
+		return nil, huma.Error404NotFound("retention override not found")
 	}
 
 	days, present, err := s.store.GetAuditRetentionDays(ctx, projectID)
@@ -116,8 +117,9 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	// 404 (not 403) on cross-tenant to avoid enumeration of project ids.
 	if input.ID != "" && input.ID != projectID {
-		return nil, huma.Error403Forbidden("path project id does not match authenticated project context")
+		return nil, huma.Error404NotFound("retention override not found")
 	}
 
 	if input.Body.Days < 0 {

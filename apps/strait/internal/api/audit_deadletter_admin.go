@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"strait/internal/domain"
 
@@ -111,8 +112,11 @@ func (s *Server) handleListDeadletter(ctx context.Context, input *ListDeadletter
 	}
 	// Reject cross-tenant requests: if the caller specifies project_id
 	// in the query, it must match the authenticated project context.
+	// Return 404 (not 403) so a probing admin key cannot distinguish
+	// "project B exists but is cross-tenant" from "project B does not
+	// exist" — either response would leak the same information.
 	if input.ProjectID != "" && input.ProjectID != projectID {
-		return nil, huma.Error403Forbidden("project_id does not match authenticated project context")
+		return nil, huma.Error404NotFound("deadletter queue not found")
 	}
 
 	limit := 50
@@ -144,7 +148,7 @@ func (s *Server) handleListDeadletter(ctx context.Context, input *ListDeadletter
 			ResourceType:  ev.ResourceType,
 			ResourceID:    ev.ResourceID,
 			Details:       ev.Details,
-			CreatedAt:     ev.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+			CreatedAt:     ev.CreatedAt.UTC().Format(time.RFC3339Nano),
 			SchemaVersion: ev.SchemaVersion,
 		})
 	}
@@ -235,9 +239,12 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 }
 
 // DropDeadletterInput identifies a DLQ row to permanently delete.
+// Reason is free-form and recorded in the self-audit event; bound it to
+// 1024 chars so an operator mistake or script loop cannot wedge a huge
+// blob in the audit chain via the drop endpoint.
 type DropDeadletterInput struct {
 	ID     string `path:"id"`
-	Reason string `query:"reason"`
+	Reason string `query:"reason" maxLength:"1024"`
 }
 
 type DropDeadletterOutput struct {
