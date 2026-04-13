@@ -186,14 +186,23 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	if stored != nil {
 		return stored, nil
 	}
-	// Bootstrap: persist the current in-memory signing key as the stable
-	// per-epoch key for this (project, epoch). Races are resolved by
-	// ON CONFLICT DO NOTHING followed by a re-read.
+	// Bootstrap: derive a per-(project, epoch) HMAC key from INTERNAL_SECRET
+	// and persist it as the stable per-epoch key. This guarantees that every
+	// project receives a cryptographically independent signing key even for
+	// the pre-rotation epoch — the global q.auditSigningKey is identical
+	// across projects and must not be used as the per-epoch key material.
+	// The global key remains only as the legacy fallback in VerifyAuditChain
+	// for chains written before per-epoch keys existed (epoch 0 with no row).
+	// Races are resolved by ON CONFLICT DO NOTHING followed by a re-read.
+	derivedKey, err := DeriveAuditSigningKeyForEpoch(q.secretEncryptionKey, projectID, epoch)
+	if err != nil {
+		return nil, fmt.Errorf("resolve signing key: derive: %w", err)
+	}
 	envelopeKey, err := q.secretKey()
 	if err != nil {
 		return nil, fmt.Errorf("resolve signing key: envelope: %w", err)
 	}
-	ciphertext, err := encryptAuditKey(q.auditSigningKey, envelopeKey)
+	ciphertext, err := encryptAuditKey(derivedKey, envelopeKey)
 	if err != nil {
 		return nil, fmt.Errorf("resolve signing key: encrypt: %w", err)
 	}

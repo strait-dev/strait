@@ -475,3 +475,58 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 		t.Errorf("audit_signing_keys rows = %d, want 3 (epoch 0 bootstrap + 2 rotations)", count)
 	}
 }
+
+// TestBootstrapKey_PerProjectUniqueness asserts that the per-epoch key
+// persisted on first write for a project is derived per-(project, epoch)
+// — NOT a copy of the global in-memory q.auditSigningKey. Two distinct
+// projects must bootstrap to two distinct key_material blobs even when
+// they share the same global signing key, proving cross-tenant isolation
+// of HMAC signing material.
+func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	globalKey, _ := store.DeriveAuditSigningKey("bootstrap-uniqueness-secret")
+	q.SetAuditSigningKey(globalKey)
+
+	projectA := "proj-bootstrap-a"
+	projectB := "proj-bootstrap-b"
+	insertTestChain(ctx, t, q, projectA, 1)
+	insertTestChain(ctx, t, q, projectB, 1)
+
+	keyA, err := q.GetAuditSigningKey(ctx, projectA, 0)
+	if err != nil || keyA == nil {
+		t.Fatalf("GetAuditSigningKey(A, 0): err=%v key=%v", err, keyA)
+	}
+	keyB, err := q.GetAuditSigningKey(ctx, projectB, 0)
+	if err != nil || keyB == nil {
+		t.Fatalf("GetAuditSigningKey(B, 0): err=%v key=%v", err, keyB)
+	}
+
+	if len(keyA) != 32 || len(keyB) != 32 {
+		t.Fatalf("key lengths = %d,%d, want 32,32", len(keyA), len(keyB))
+	}
+	identical := true
+	for i := range keyA {
+		if keyA[i] != keyB[i] {
+			identical = false
+			break
+		}
+	}
+	if identical {
+		t.Fatal("epoch-0 bootstrap keys for distinct projects are identical — per-project isolation defeated")
+	}
+	// Both must differ from the global in-memory signing key too.
+	sameAsGlobalA := true
+	for i := range keyA {
+		if keyA[i] != globalKey[i] {
+			sameAsGlobalA = false
+			break
+		}
+	}
+	if sameAsGlobalA {
+		t.Fatal("bootstrap key for project A equals global q.auditSigningKey — bootstrap must derive per-epoch key")
+	}
+}
