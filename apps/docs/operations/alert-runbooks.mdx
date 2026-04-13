@@ -146,7 +146,7 @@ CDC fan-out observe gaps; event-trigger workflows may miss signals.
 
 **Remediation.**
 
-1. Raise `STRAIT_WORKER_EVENT_CHANNEL_SIZE` (Phase 2 knob).
+1. Raise `WORKER_EVENT_CHANNEL_SIZE` (Phase 2 knob).
 2. Investigate slow consumers — Redis health, SSE client count.
 
 **Escalation.** Warning-level. Escalate to queue on-call if drops
