@@ -8,6 +8,31 @@ This runbook covers day-2 operations for the audit event subsystem. It assumes
 familiarity with [Audit Logging](/concepts/audit-logging) and the Strait
 [Monitoring & Alerts](/operations/monitoring-and-alerts) baselines.
 
+## Audit DML guard probe
+
+Migration `000187_audit_events_dml_restrictions` revokes `UPDATE` + `DELETE`
+on `audit_events` from the `strait_app` role, leaving only `INSERT`, `SELECT`,
+and `UPDATE(signature)` for chain signing. The migration is **silently a
+no-op when the `strait_app` role is absent** — the common case on self-hosted
+installs whose default connection role is `strait` (superuser).
+
+The `audit_dml_guard` component of `/health/ready` reports:
+
+- **ok** — `has_table_privilege(current_user, 'audit_events', 'UPDATE')`
+  returns `false`. The REVOKE landed; a compromised application process
+  cannot rewrite audit rows without an explicit role escalation.
+- **degraded** — the current role has full `UPDATE`. The HMAC chain still
+  detects tampering forensically, but the defense-in-depth role restriction
+  is not enforced. Self-hosted operators should provision `strait_app` per
+  `SELFHOST.md`. SOC 2 evidence gates that require role-level enforcement
+  must treat this as a blocker.
+
+A startup log line (`audit_events DML restriction enforced...` or
+`audit_events UPDATE is not restricted...`) captures the same posture at
+process boot, and the `strait_audit_dml_restriction_status` counter emits
+one sample per boot labeled `status=enforced|degraded` for dashboard
+panels and long-horizon alerting.
+
 ## Audit emit health probe
 
 The `/health/ready` endpoint registers an audit probe (`health.NewAuditProbe`)

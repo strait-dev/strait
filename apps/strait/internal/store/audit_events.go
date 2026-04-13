@@ -790,3 +790,29 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	return result, nil
 }
+
+// AuditEventsUpdateRestricted reports whether the current database role
+// has full UPDATE privilege on audit_events. When migration 000187 has
+// taken effect (the strait_app role exists and is the current role), the
+// REVOKE UPDATE, GRANT UPDATE (signature) sequence leaves has_table_privilege
+// returning false for an unqualified UPDATE check — we interpret that as
+// "restricted = true". When the current role is a superuser or the
+// migration was skipped (strait_app not provisioned), the check returns
+// true and we report restricted = false, letting the DML guard probe
+// surface a degraded state.
+//
+// The column argument is deliberately omitted so the check succeeds only
+// when every column allows UPDATE — the tamper-evident path requires all
+// columns except `signature` to be read-only.
+func (q *Queries) AuditEventsUpdateRestricted(ctx context.Context) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.AuditEventsUpdateRestricted")
+	defer span.End()
+
+	var hasUpdate bool
+	if err := q.db.QueryRow(ctx, `
+		SELECT has_table_privilege(current_user, 'audit_events', 'UPDATE')
+	`).Scan(&hasUpdate); err != nil {
+		return false, fmt.Errorf("audit dml privilege check: %w", err)
+	}
+	return !hasUpdate, nil
+}

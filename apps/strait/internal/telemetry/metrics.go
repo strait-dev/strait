@@ -192,6 +192,15 @@ type Metrics struct {
 	// alert via failed/total.
 	AuditChainVerifyTotal  metric.Int64Counter
 	AuditChainVerifyFailed metric.Int64Counter
+
+	// AuditDMLRestrictionStatus is a startup counter incremented exactly
+	// once per process boot with the current migration 000187 enforcement
+	// posture. status=enforced means UPDATE on audit_events is restricted
+	// to the signature column for the database role; status=degraded
+	// means the migration is a no-op (strait_app role missing or the
+	// current role has full UPDATE). Alerts fire when degraded > 0 on
+	// any deployment that is supposed to be SOC 2 evidence-gating.
+	AuditDMLRestrictionStatus metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -962,6 +971,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit chain verification attempts that did not pass, labeled by reason"),
 		metric.WithUnit("1"),
 	)
+	auditDMLRestrictionStatus, _ := meter.Int64Counter(
+		"strait.audit.dml_restriction_status",
+		metric.WithDescription("Startup posture of migration 000187 audit_events DML restrictions, labeled by status (enforced|degraded)"),
+		metric.WithUnit("1"),
+	)
 
 	m := &Metrics{
 		RunTransitions:               runTransitions,
@@ -1070,6 +1084,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditEventsExportCapped:      auditEventsExportCapped,
 		AuditChainVerifyTotal:        auditChainVerifyTotal,
 		AuditChainVerifyFailed:       auditChainVerifyFailed,
+		AuditDMLRestrictionStatus:    auditDMLRestrictionStatus,
 	}
 
 	slog.Info("prometheus metrics enabled")
