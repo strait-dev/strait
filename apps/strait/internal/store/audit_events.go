@@ -746,7 +746,9 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			return nil, keyErr
 		}
 		expected := ComputeAuditSignature(&ev, key)
-		if ev.Signature != expected {
+		// Constant-time comparison to avoid leaking the HMAC digest via a
+		// byte-wise early-return timing side channel.
+		if !hmac.Equal([]byte(ev.Signature), []byte(expected)) {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
 			result.Error = fmt.Sprintf("signature mismatch at event %s: event may have been tampered with", ev.ID)
