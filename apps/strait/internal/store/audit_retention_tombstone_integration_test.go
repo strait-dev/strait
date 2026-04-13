@@ -34,10 +34,20 @@ func seedDatedChain(ctx context.Context, t *testing.T, q *store.Queries, project
 		if err := q.CreateAuditEvent(ctx, ev); err != nil {
 			t.Fatalf("CreateAuditEvent iter %d: %v", i, err)
 		}
-		// Backdate this row to base + i hours and re-sign under the active key.
+		// Backdate this row to base + i hours and re-sign under the SAME key the
+		// production CreateAuditEvent used. When the test fixture has a
+		// SecretEncryptionKey configured, CreateAuditEvent bootstraps and signs
+		// with a per-epoch key in audit_signing_keys; signing the backdated row
+		// with the global key would diverge from what VerifyAuditChain looks up.
+		// Fall back to the supplied global signingKey only when no per-epoch key
+		// is stored (the legacy / no-encryption path).
 		newCreatedAt := base.Add(time.Duration(i) * time.Hour).UTC().Truncate(time.Microsecond)
 		ev.CreatedAt = newCreatedAt
-		sig := store.ComputeAuditSignature(ev, signingKey)
+		effectiveKey := signingKey
+		if perEpoch, gerr := q.GetAuditSigningKey(ctx, projectID, ev.RotationEpoch); gerr == nil && perEpoch != nil {
+			effectiveKey = perEpoch
+		}
+		sig := store.ComputeAuditSignature(ev, effectiveKey)
 		if _, err := testDB.Pool.Exec(ctx,
 			`UPDATE audit_events SET created_at = $1, signature = $2 WHERE id = $3`,
 			newCreatedAt, sig, ev.ID,
