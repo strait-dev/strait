@@ -112,6 +112,12 @@ type Config struct {
 	// strait.scheduler.shutdown_timeouts_total and is reported in logs.
 	SchedulerComponentShutdownTimeout time.Duration `env:"SCHEDULER_COMPONENT_SHUTDOWN_TIMEOUT" default:"15s"`
 
+	// BackpressureSamplerInterval controls how often the scheduler samples
+	// per-project backpressure token buckets to populate the
+	// strait.queue.backpressure_tokens_available gauge. Set to 0 to disable
+	// the sampler; the gauge will simply report no points.
+	BackpressureSamplerInterval time.Duration `env:"BACKPRESSURE_SAMPLER_INTERVAL" default:"15s"`
+
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 

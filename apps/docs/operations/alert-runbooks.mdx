@@ -28,9 +28,11 @@ is rising and SSE consumers may observe stale state.
   ```
   topk(5, strait_queue_depth) by (partition, status)
   ```
-- Is it an enqueue spike or a dequeue stall? Compare rate of new runs
-  (`strait_runs_started_total`) against worker utilisation
-  (`strait_queue_partition_dequeue_lag_seconds`).
+- Is it an enqueue spike or a dequeue stall? Compare the growth of
+  `strait_queue_depth` against worker dequeue throughput — partition
+  lag histograms (`strait_queue_partition_dequeue_lag_seconds_bucket`)
+  and the oldest-queued-age histogram
+  (`strait_queue_oldest_queued_age_seconds_bucket`).
 
 **Remediation.**
 
@@ -46,7 +48,9 @@ on-call. Prolonged saturation risks downstream SLA breach.
 
 ## StraitDLQGrowing
 
-**Symptom.** `rate(strait_dlq_depth[5m]) > 0` for 15 minutes.
+**Symptom.** `max(deriv(strait_dlq_depth[15m])) > 0` for 15 minutes —
+the dead-letter depth gauge has a positive linear slope over the
+window.
 
 **Impact.** A systematic failure is pushing runs to the dead-letter
 queue faster than operators are triaging. Eventual customer-visible

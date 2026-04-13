@@ -25,7 +25,11 @@ spec:
             runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitqueuedepthhigh
 
         - alert: StraitDLQGrowing
-          expr: sum(rate(strait_dlq_depth[5m])) > 0
+          # strait_dlq_depth is a gauge, so rate() is ill-defined. Use
+          # the deriv() of a 15m window instead: > 0 means the best-fit
+          # linear slope over the window is positive, i.e. the DLQ is
+          # net-growing rather than bouncing around a stable level.
+          expr: max(deriv(strait_dlq_depth[15m])) > 0
           for: 15m
           labels:
             app: strait
@@ -54,6 +58,7 @@ spec:
 
         - alert: StraitCircuitBreakerOpen
           expr: increase(strait_queue_circuit_state_transitions_total{to="open"}[5m]) > 0
+          for: 1m
           labels:
             app: strait
             severity: page
@@ -81,6 +86,7 @@ spec:
 
         - alert: StraitSchedulerShutdownTimeout
           expr: increase(strait_scheduler_shutdown_timeouts_total[1h]) > 0
+          for: 1m
           labels:
             app: strait
             severity: page
