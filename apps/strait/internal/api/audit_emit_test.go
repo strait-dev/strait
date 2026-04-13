@@ -283,6 +283,38 @@ func TestStartAuditAsyncDrain_PopulatesDrainCtx(t *testing.T) {
 	}
 }
 
+// TestAuditDrainer_FieldAssignmentNoDataRace exercises concurrent depth
+// reads against startAuditAsyncDrain field publication. Run with -race
+// to catch a torn channel-pointer write that would happen if the assignment
+// was made outside auditAsyncMu.
+func TestAuditDrainer_FieldAssignmentNoDataRace(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = srv.AuditDrainerQueueDepth()
+					_ = srv.AuditDrainerQueueCapacity()
+				}
+			}
+		}()
+	}
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
+
 func TestEmitAuditEventAsync_BackpressureFallsBackToSync(t *testing.T) {
 	release := make(chan struct{})
 	var syncWrites atomic.Int32
