@@ -505,6 +505,9 @@ var _ APIStore = &APIStoreMock{}
 //			ListDeadLetterRunsFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 //				panic("mock out the ListDeadLetterRuns method")
 //			},
+//			ListDeadLetterRunsFilteredFunc: func(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+//				panic("mock out the ListDeadLetterRunsFiltered method")
+//			},
 //			ListDeploymentVersionsFunc: func(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error) {
 //				panic("mock out the ListDeploymentVersions method")
 //			},
@@ -1339,6 +1342,9 @@ type APIStoreMock struct {
 
 	// ListDeadLetterRunsFunc mocks the ListDeadLetterRuns method.
 	ListDeadLetterRunsFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+
+	// ListDeadLetterRunsFilteredFunc mocks the ListDeadLetterRunsFiltered method.
+	ListDeadLetterRunsFilteredFunc func(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
 
 	// ListDeploymentVersionsFunc mocks the ListDeploymentVersions method.
 	ListDeploymentVersionsFunc func(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
@@ -3032,6 +3038,21 @@ type APIStoreMock struct {
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
 		}
+		// ListDeadLetterRunsFiltered holds details about calls to the ListDeadLetterRunsFiltered method.
+		ListDeadLetterRunsFiltered []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// JobID is the jobID argument value.
+			JobID *string
+			// Masked is the masked argument value.
+			Masked *bool
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor *time.Time
+		}
 		// ListDeploymentVersions holds details about calls to the ListDeploymentVersions method.
 		ListDeploymentVersions []struct {
 			// Ctx is the ctx argument value.
@@ -4339,6 +4360,7 @@ type APIStoreMock struct {
 	lockListCodeDeployments                sync.RWMutex
 	lockListCodeDeploymentsByOrg           sync.RWMutex
 	lockListDeadLetterRuns                 sync.RWMutex
+	lockListDeadLetterRunsFiltered         sync.RWMutex
 	lockListDeploymentVersions             sync.RWMutex
 	lockListEnvironments                   sync.RWMutex
 	lockListEventSources                   sync.RWMutex
@@ -11274,6 +11296,62 @@ func (mock *APIStoreMock) ListDeadLetterRunsCalls() []struct {
 	mock.lockListDeadLetterRuns.RLock()
 	calls = mock.calls.ListDeadLetterRuns
 	mock.lockListDeadLetterRuns.RUnlock()
+	return calls
+}
+
+// ListDeadLetterRunsFiltered calls ListDeadLetterRunsFilteredFunc.
+func (mock *APIStoreMock) ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		JobID     *string
+		Masked    *bool
+		Limit     int
+		Cursor    *time.Time
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		JobID:     jobID,
+		Masked:    masked,
+		Limit:     limit,
+		Cursor:    cursor,
+	}
+	mock.lockListDeadLetterRunsFiltered.Lock()
+	mock.calls.ListDeadLetterRunsFiltered = append(mock.calls.ListDeadLetterRunsFiltered, callInfo)
+	mock.lockListDeadLetterRunsFiltered.Unlock()
+	if mock.ListDeadLetterRunsFilteredFunc == nil {
+		var (
+			jobRunsOut []domain.JobRun
+			errOut     error
+		)
+		return jobRunsOut, errOut
+	}
+	return mock.ListDeadLetterRunsFilteredFunc(ctx, projectID, jobID, masked, limit, cursor)
+}
+
+// ListDeadLetterRunsFilteredCalls gets all the calls that were made to ListDeadLetterRunsFiltered.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListDeadLetterRunsFilteredCalls())
+func (mock *APIStoreMock) ListDeadLetterRunsFilteredCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	JobID     *string
+	Masked    *bool
+	Limit     int
+	Cursor    *time.Time
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		JobID     *string
+		Masked    *bool
+		Limit     int
+		Cursor    *time.Time
+	}
+	mock.lockListDeadLetterRunsFiltered.RLock()
+	calls = mock.calls.ListDeadLetterRunsFiltered
+	mock.lockListDeadLetterRunsFiltered.RUnlock()
 	return calls
 }
 

@@ -13,8 +13,6 @@ import (
 	"strait/internal/queue"
 
 	"github.com/getsentry/sentry-go"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
@@ -104,6 +102,13 @@ func (e *Executor) poll(ctx context.Context) {
 		return
 	}
 
+	// Capture the claim time as close to DequeueN's return as possible so
+	// the ClaimToStart histogram measures the real gap between a run being
+	// claimed and user work starting, not the write time of StartedAt (which
+	// DequeueN sets inside its UPDATE and is therefore a mix of commit
+	// latency and clock skew).
+	claimedAt := time.Now()
+
 	e.logger.Info("dequeued runs", "count", len(runs))
 
 	for i := range runs {
@@ -119,8 +124,8 @@ func (e *Executor) poll(ctx context.Context) {
 
 		execCtx := context.WithoutCancel(ctx)
 		e.pool.Submit(execCtx, func() {
-			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil && run.StartedAt != nil {
-				qm.ClaimToStart.Record(execCtx, time.Since(*run.StartedAt).Seconds())
+			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
+				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
 			defer func() {
 				if r := recover(); r != nil {
@@ -168,8 +173,12 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 		partStart := time.Now()
 		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
 		if qm != nil {
-			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds(),
-				metric.WithAttributes(attribute.String("partition", partition)))
+			// We intentionally do NOT attach the partition/project_id as
+			// a label here: in fair-share mode the partition cycle holds
+			// project ids, which would explode Prometheus cardinality
+			// to O(projects). Aggregate across partitions instead; the
+			// per-tenant breakdown lives in ClickHouse analytics.
+			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
 		}
 		if err != nil {
 			return nil, err

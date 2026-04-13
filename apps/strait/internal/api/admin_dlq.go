@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Admin DLQ endpoints expose audited, RBAC-gated replacements for the
@@ -20,13 +23,21 @@ import (
 // use the new helpers in internal/store/dlq.go.
 
 // requireAdminScope enforces that the caller's API-key/user scopes
-// include the requested DLQ scope. Internal-secret callers bypass the
-// check (fully trusted). Returns a 403 error if the scope is missing.
+// include the requested DLQ scope. Internal-secret callers — and only
+// internal-secret callers — bypass the check (fully trusted); those
+// requests are marked by a nil scopes slice on the context. An
+// explicitly empty slice (len == 0, non-nil) represents an API key that
+// was provisioned with no scopes and MUST NOT bypass: the wildcard
+// compatibility in domain.HasScope is not appropriate for admin
+// endpoints, so we reject such callers with 403.
 func (s *Server) requireAdminScope(ctx context.Context, scope string) error {
 	callerScopes := scopesFromContext(ctx)
 	if callerScopes == nil {
 		// Internal secret auth: trusted.
 		return nil
+	}
+	if len(callerScopes) == 0 {
+		return huma.Error403Forbidden("missing required scope: " + scope)
 	}
 	if !domain.HasScope(callerScopes, scope) {
 		return huma.Error403Forbidden("missing required scope: " + scope)
@@ -36,7 +47,7 @@ func (s *Server) requireAdminScope(ctx context.Context, scope string) error {
 
 // writeDLQAudit writes a best-effort audit_events row for a DLQ admin
 // mutation. Failures are logged but do not fail the caller; the mutation
-// has already committed.
+// has already committed by the time we try to write the audit row.
 func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID string, before, after any) {
 	details := map[string]any{
 		"run_id": runID,
@@ -45,6 +56,7 @@ func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID str
 	}
 	raw, err := json.Marshal(details)
 	if err != nil {
+		slog.Error("audit marshal failed", "action", action, "run_id", runID, "err", err)
 		return
 	}
 	actorID := actorFromContext(ctx)
@@ -61,7 +73,14 @@ func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID str
 		ResourceID:   runID,
 		Details:      raw,
 	}
-	_ = s.store.CreateAuditEvent(ctx, ev)
+	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
+		slog.Error("audit write failed",
+			"action", action,
+			"run_id", runID,
+			"project_id", projectID,
+			"err", err,
+		)
+	}
 }
 
 // GET /v1/admin/dlq.
@@ -94,23 +113,37 @@ func (s *Server) handleAdminListDLQ(ctx context.Context, input *ListAdminDLQInpu
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	runs, err := s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list dead letter runs")
+	// Parse the optional masked filter. Accept "true"/"false" explicitly;
+	// empty string means "no filter". Reject everything else so callers
+	// don't silently get unfiltered results from a typo.
+	var maskedFilter *bool
+	switch input.Masked {
+	case "true":
+		v := true
+		maskedFilter = &v
+	case "false":
+		v := false
+		maskedFilter = &v
+	case "":
+		// no filter
+	default:
+		return nil, huma.Error400BadRequest("masked must be 'true', 'false', or omitted")
 	}
 
-	// Optional client-side filter for job_id and masked, applied after the
-	// store query so the existing helper (and its RLS plumbing) stays
-	// untouched. The page size is bounded so this is cheap.
-	if input.JobID != "" || input.Masked != "" {
-		filtered := make([]domain.JobRun, 0, len(runs))
-		for _, r := range runs {
-			if input.JobID != "" && r.JobID != input.JobID {
-				continue
-			}
-			filtered = append(filtered, r)
-		}
-		runs = filtered
+	var jobFilter *string
+	if input.JobID != "" {
+		job := input.JobID
+		jobFilter = &job
+	}
+
+	var runs []domain.JobRun
+	if jobFilter != nil || maskedFilter != nil {
+		runs, err = s.store.ListDeadLetterRunsFiltered(ctx, projectID, jobFilter, maskedFilter, limit+1, cursor)
+	} else {
+		runs, err = s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
+	}
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to list dead letter runs")
 	}
 
 	return &ListAdminDLQOutput{Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
@@ -131,6 +164,15 @@ type AdminReplayDLQOutput struct {
 }
 
 func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInput) (*AdminReplayDLQOutput, error) {
+	ctx, span := otel.Tracer("api").Start(ctx, "api.AdminDLQReplay")
+	defer span.End()
+
+	actorID := actorFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("run.id", input.RunID),
+		attribute.String("actor.id", actorID),
+	)
+
 	if err := s.requireAdminScope(ctx, domain.ScopeDLQReplay); err != nil {
 		return nil, err
 	}
@@ -143,8 +185,12 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")
 		}
+		slog.Error("dlq replay: load run failed",
+			"action", "dlq.replay", "run_id", input.RunID, "actor_id", actorID, "err", err,
+		)
 		return nil, huma.Error500InternalServerError("failed to load run")
 	}
+	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 
 	run, err := s.store.ReplayDeadLetterRun(ctx, input.RunID)
 	if err != nil {
@@ -154,6 +200,13 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 		case errors.Is(err, store.ErrRunConflict):
 			return nil, huma.Error409Conflict("run is not in dead_letter status")
 		default:
+			slog.Error("dlq replay failed",
+				"action", "dlq.replay",
+				"run_id", input.RunID,
+				"project_id", original.ProjectID,
+				"actor_id", actorID,
+				"err", err,
+			)
 			return nil, huma.Error500InternalServerError("failed to replay dead letter run")
 		}
 	}
@@ -162,11 +215,26 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 	// ReplayDeadLetterRun helper CASes the same row back to queued, so
 	// replayed_run_id references the same id -- still useful as a marker
 	// that the row went through the admin replay path.
-	_ = s.store.MarkRunReplayed(ctx, input.RunID, run.ID)
+	if err := s.store.MarkRunReplayed(ctx, input.RunID, run.ID); err != nil {
+		slog.Warn("dlq replay: mark replayed failed",
+			"action", "dlq.replay",
+			"run_id", input.RunID,
+			"project_id", original.ProjectID,
+			"actor_id", actorID,
+			"err", err,
+		)
+	}
 
 	s.writeDLQAudit(ctx, original.ProjectID, "dlq.replay", input.RunID,
 		map[string]any{"status": original.Status},
 		map[string]any{"status": run.Status, "replayed_run_id": run.ID},
+	)
+
+	slog.Info("dlq replay",
+		"action", "dlq.replay",
+		"run_id", input.RunID,
+		"project_id", original.ProjectID,
+		"actor_id", actorID,
 	)
 
 	return &AdminReplayDLQOutput{Body: run}, nil
@@ -183,6 +251,15 @@ type AdminDLQAckOutput struct {
 }
 
 func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInput) (*AdminDLQAckOutput, error) {
+	ctx, span := otel.Tracer("api").Start(ctx, "api.AdminDLQUnmask")
+	defer span.End()
+
+	actorID := actorFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("run.id", input.RunID),
+		attribute.String("actor.id", actorID),
+	)
+
 	if err := s.requireAdminScope(ctx, domain.ScopeDLQReplay); err != nil {
 		return nil, err
 	}
@@ -195,8 +272,12 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")
 		}
+		slog.Error("dlq unmask: load run failed",
+			"action", "dlq.unmask", "run_id", input.RunID, "actor_id", actorID, "err", err,
+		)
 		return nil, huma.Error500InternalServerError("failed to load run")
 	}
+	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 
 	if err := s.store.UnmaskDLQRun(ctx, input.RunID); err != nil {
 		switch {
@@ -205,6 +286,13 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 		case errors.Is(err, store.ErrRunConflict):
 			return nil, huma.Error409Conflict("run is not in dead_letter status")
 		default:
+			slog.Error("dlq unmask failed",
+				"action", "dlq.unmask",
+				"run_id", input.RunID,
+				"project_id", original.ProjectID,
+				"actor_id", actorID,
+				"err", err,
+			)
 			return nil, huma.Error500InternalServerError("failed to unmask dlq run")
 		}
 	}
@@ -212,6 +300,13 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 	s.writeDLQAudit(ctx, original.ProjectID, "dlq.unmask", input.RunID,
 		map[string]any{"masked": true},
 		map[string]any{"masked": false},
+	)
+
+	slog.Info("dlq unmask",
+		"action", "dlq.unmask",
+		"run_id", input.RunID,
+		"project_id", original.ProjectID,
+		"actor_id", actorID,
 	)
 
 	out := &AdminDLQAckOutput{}
@@ -223,6 +318,15 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 // POST /v1/admin/dlq/{run_id}/purge.
 
 func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInput) (*AdminDLQAckOutput, error) {
+	ctx, span := otel.Tracer("api").Start(ctx, "api.AdminDLQPurge")
+	defer span.End()
+
+	actorID := actorFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("run.id", input.RunID),
+		attribute.String("actor.id", actorID),
+	)
+
 	if err := s.requireAdminScope(ctx, domain.ScopeDLQPurge); err != nil {
 		return nil, err
 	}
@@ -235,8 +339,12 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")
 		}
+		slog.Error("dlq purge: load run failed",
+			"action", "dlq.purge", "run_id", input.RunID, "actor_id", actorID, "err", err,
+		)
 		return nil, huma.Error500InternalServerError("failed to load run")
 	}
+	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 
 	if err := s.store.PurgeDLQRun(ctx, input.RunID); err != nil {
 		switch {
@@ -245,6 +353,13 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 		case errors.Is(err, store.ErrRunConflict):
 			return nil, huma.Error409Conflict("run is not in dead_letter status")
 		default:
+			slog.Error("dlq purge failed",
+				"action", "dlq.purge",
+				"run_id", input.RunID,
+				"project_id", original.ProjectID,
+				"actor_id", actorID,
+				"err", err,
+			)
 			return nil, huma.Error500InternalServerError("failed to purge dlq run")
 		}
 	}
@@ -252,6 +367,13 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 	s.writeDLQAudit(ctx, original.ProjectID, "dlq.purge", input.RunID,
 		map[string]any{"status": original.Status, "job_id": original.JobID},
 		map[string]any{"deleted": true},
+	)
+
+	slog.Info("dlq purge",
+		"action", "dlq.purge",
+		"run_id", input.RunID,
+		"project_id", original.ProjectID,
+		"actor_id", actorID,
 	)
 
 	out := &AdminDLQAckOutput{}

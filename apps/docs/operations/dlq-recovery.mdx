@@ -18,7 +18,7 @@ scope check.
 
 | Method | Path | Scope | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/v1/admin/dlq` | `dlq:read` | Paginated listing of dead-letter runs for the caller's project. Supports `job_id`, `masked`, `limit`, and `cursor` query parameters. |
+| `GET` | `/v1/admin/dlq` | `dlq:read` | Paginated listing of dead-letter runs for the caller's project. Supports `job_id`, `masked` (`true`/`false`), `limit`, and `cursor` query parameters. The `masked` filter selects rows whose `visible_until` has been set (`true`) or is still null (`false`); omit for no filter. Filtering is pushed into SQL so results remain correct across pages. |
 | `POST` | `/v1/admin/dlq/{run_id}/replay` | `dlq:replay` | Re-enqueues a dead-letter run via the existing `ReplayDeadLetterRun` CAS path and records a `replayed_run_id` back-pointer on the original row. |
 | `POST` | `/v1/admin/dlq/{run_id}/unmask` | `dlq:replay` | Clears `visible_until` on a dead-letter row so it is no longer hidden by the DLQ age-out masker. |
 | `POST` | `/v1/admin/dlq/{run_id}/purge` | `dlq:purge` | Hard-deletes a dead-letter run. Irreversible — log context via the audit trail before calling. |
@@ -69,9 +69,12 @@ Response (abbreviated):
 }
 ```
 
-After the call, the row referenced by `id` is back in the queue and its
-`replayed_run_id` column points to the new run's id. The row is no longer
-counted towards the DLQ depth gauge on the next scrape.
+After the call, the row referenced by `id` is back in the queue. The
+`ReplayDeadLetterRun` helper reuses the existing row via a CAS back to
+`queued`, so `replayed_run_id` is populated with that same id — it is a
+marker that the row was recovered through the admin replay path, not a
+pointer to a distinct new run. The row is no longer counted towards the
+DLQ depth gauge on the next scrape.
 
 ## Example: list dead-letter runs for a specific job
 

@@ -1009,6 +1009,75 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 	return runs, nil
 }
 
+// ListDeadLetterRunsFiltered is the filtered counterpart to
+// ListDeadLetterRuns. Both jobID and masked are optional; when masked is
+// non-nil it selects masked (true) vs visible (false) rows via the
+// visible_until column (masked == visible_until IS NOT NULL). Pushing the
+// filter into SQL keeps pagination honest — client-side filtering of a
+// single page would under-report results that live on earlier pages.
+func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListDeadLetterRunsFiltered")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		FROM job_runs
+		WHERE project_id = $1 AND status = 'dead_letter'`
+
+	args := []any{projectID}
+	param := 2
+
+	if jobID != nil && *jobID != "" {
+		query += fmt.Sprintf(" AND job_id = $%d", param)
+		args = append(args, *jobID)
+		param++
+	}
+
+	if masked != nil {
+		if *masked {
+			query += " AND visible_until IS NOT NULL"
+		} else {
+			query += " AND visible_until IS NULL"
+		}
+	}
+
+	if cursor != nil {
+		query += fmt.Sprintf(" AND created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list dead letter runs filtered: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list dead letter runs filtered scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list dead letter runs filtered rows: %w", err)
+	}
+
+	return runs, nil
+}
+
 func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayDeadLetterRun")
 	defer span.End()
