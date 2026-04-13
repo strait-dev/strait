@@ -33,7 +33,10 @@ func TestBackpressureSampler_Disabled(t *testing.T) {
 
 func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 	t.Parallel()
-	queue.ResetMetricsForTest()
+	// queue.Metrics is a process-wide sync.Once singleton; the fast path
+	// is race-safe and does not need ResetMetricsForTest here (calling it
+	// from t.Parallel subtests would race with other tests in the package
+	// that read the singleton).
 	m, err := queue.Metrics()
 	if err != nil {
 		t.Fatalf("queue metrics: %v", err)
@@ -55,7 +58,6 @@ func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 
 func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 	t.Parallel()
-	queue.ResetMetricsForTest()
 	m, err := queue.Metrics()
 	if err != nil {
 		t.Fatalf("queue metrics: %v", err)
@@ -70,7 +72,6 @@ func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 
 func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 	t.Parallel()
-	queue.ResetMetricsForTest()
 	m, err := queue.Metrics()
 	if err != nil {
 		t.Fatalf("queue metrics: %v", err)

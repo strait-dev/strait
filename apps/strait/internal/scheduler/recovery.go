@@ -87,7 +87,13 @@ func (t *componentTracker) track(wg *conc.WaitGroup, name string, fn func()) {
 // N*timeout. This keeps scheduler shutdown within the k8s
 // terminationGracePeriodSeconds envelope even when several components
 // are slow to unwind.
-func (t *componentTracker) waitWithTimeout(ctx context.Context, timeout time.Duration) int {
+//
+// Uses context.WithTimeout rather than a shared time.After channel
+// because a time.After value can only be consumed once: if any watcher
+// goroutine drains it first, the outer select can no longer observe
+// the deadline and blocks forever on finished. A Done() channel,
+// being close-based, is safely broadcast to every receiver.
+func (t *componentTracker) waitWithTimeout(parent context.Context, timeout time.Duration) int {
 	t.mu.Lock()
 	handles := make([]componentHandle, len(t.items))
 	copy(handles, t.items)
@@ -105,16 +111,16 @@ func (t *componentTracker) waitWithTimeout(ctx context.Context, timeout time.Dur
 		qm = m
 	}
 
-	deadline := time.After(timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
 	finished := make(chan int, len(handles))
 	for i, h := range handles {
 		go func(idx int, h componentHandle) {
 			select {
 			case <-h.done:
 				finished <- idx
-			case <-deadline:
-				// Signal timeout by sending -1-idx; caller interprets
-				// remaining handles explicitly below.
+			case <-ctx.Done():
 				return
 			}
 		}(i, h)
@@ -125,7 +131,7 @@ func (t *componentTracker) waitWithTimeout(ctx context.Context, timeout time.Dur
 		select {
 		case idx := <-finished:
 			done[idx] = struct{}{}
-		case <-deadline:
+		case <-ctx.Done():
 			// Deadline hit: log everything still unfinished and count.
 			timedOut := 0
 			for i, h := range handles {
@@ -138,7 +144,11 @@ func (t *componentTracker) waitWithTimeout(ctx context.Context, timeout time.Dur
 					"timeout", timeout,
 				)
 				if qm != nil && qm.SchedulerShutdownTimeouts != nil {
-					qm.SchedulerShutdownTimeouts.Add(ctx, 1, metric.WithAttributes(
+					// Use parent rather than ctx because ctx is already
+					// cancelled by the timeout; the metric SDK may still
+					// propagate the attributes but downstream exporters
+					// often honour ctx.Err() and drop cancelled records.
+					qm.SchedulerShutdownTimeouts.Add(parent, 1, metric.WithAttributes(
 						attribute.String("component", h.name),
 					))
 				}
