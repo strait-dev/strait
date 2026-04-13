@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/webhook"
 
 	"github.com/failsafe-go/failsafe-go"
 	"github.com/failsafe-go/failsafe-go/retrypolicy"
@@ -189,8 +190,11 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
 	// Stable across retries of the same run so subscribers can dedup
-	// replays on a signal that does not change with attempt count.
-	req.Header.Set("X-Strait-Replay-Key", "rk_"+run.ID)
+	// replays on a signal that does not change with attempt count. The
+	// run-terminal webhook path has no subscription secret available,
+	// so we use the unsigned helper. See internal/webhook for the
+	// HMAC-bound variant used by subscription deliveries.
+	req.Header.Set("X-Strait-Replay-Key", webhook.ComputeReplayKeyUnsigned(run.ID))
 	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := webhookClient.Do(req)
@@ -257,8 +261,11 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
 	// Stable across retries of the same run so subscribers can dedup
-	// replays on a signal that does not change with attempt count.
-	req.Header.Set("X-Strait-Replay-Key", "rk_"+run.ID)
+	// replays on a signal that does not change with attempt count. The
+	// run-terminal webhook path has no subscription secret available,
+	// so we use the unsigned helper. See internal/webhook for the
+	// HMAC-bound variant used by subscription deliveries.
+	req.Header.Set("X-Strait-Replay-Key", webhook.ComputeReplayKeyUnsigned(run.ID))
 	applyWebhookSignature(req, job.WebhookSecret, body)
 
 	resp, err := client.Do(req)

@@ -51,7 +51,7 @@ To ensure the webhook was sent by Strait, signed deliveries include:
 - `X-Strait-Delivery-ID`: unique id for this delivery row (event-trigger path)
 - `X-Strait-Attempt`: `current/max` attempt counter for this delivery
 - `X-Strait-Idempotency-Key`: `<delivery_id>:<attempt>` — changes on every retry
-- `X-Strait-Replay-Key`: stable across every retry of the same delivery (derived deterministically from the delivery id). Use this header to dedup replays in your subscriber without tracking per-attempt state.
+- `X-Strait-Replay-Key`: stable across every retry of the same delivery. Use this header to dedup replays in your subscriber without tracking per-attempt state. For subscription deliveries the key is HMAC-bound: `"rk_" + hex(hmac_sha256(subscription_secret, delivery_id))[:32]`, so a subscriber that holds the secret can re-derive and verify it. Run-terminal deliveries emitted from the job worker do not carry a subscription secret and use a deterministic unsigned form `"rk_" + run_id`; treat the unsigned form as an opaque replay discriminator, not a proof of origin.
 
 **Algorithm:** HMAC-SHA256 using `webhook_secret` as key and `{timestamp}.{raw-json-body}` as the signed payload. The timestamp is included in the signed payload to provide replay protection -- receivers should reject deliveries where the timestamp is more than 5 minutes old.
 

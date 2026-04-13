@@ -2,6 +2,9 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +28,7 @@ type mockDeliveryStore struct {
 	deliveries    []*domain.WebhookDelivery
 	notifyStatus  string
 	listPendingFn func(context.Context) ([]domain.WebhookDelivery, error)
+	subSecret     string
 }
 
 func (m *mockDeliveryStore) CreateWebhookDelivery(_ context.Context, d *domain.WebhookDelivery) error {
@@ -345,7 +349,9 @@ func (m *mockDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ 
 }
 
 func (m *mockDeliveryStore) GetWebhookSubscriptionSecrets(_ context.Context, _ string) (string, string, *time.Time, error) {
-	return "", "", nil, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.subSecret, "", nil, nil
 }
 
 func (m *mockDeliveryStore) getNotifyStatus() string {
@@ -902,6 +908,66 @@ func TestReplayKeyFromDeliveryID(t *testing.T) {
 	}
 	if got := replayKeyFromDeliveryID("whd-42"); got != "rk_whd-42" {
 		t.Fatalf("unexpected replay key: %q", got)
+	}
+}
+
+// TestComputeReplayKey_HMACDerivation asserts the signed replay key is
+// exactly hex(hmac_sha256(secret, delivery_id)) truncated to
+// replayKeyHexLen, prefixed with rk_. A subscriber holding the secret
+// must be able to re-derive and verify the key for a given delivery id.
+func TestComputeReplayKey_HMACDerivation(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte("whsec_test_secret_bytes")
+	deliveryID := "whd-signed-1"
+
+	got := ComputeReplayKey(secret, deliveryID)
+
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(deliveryID))
+	want := replayKeyPrefix + hex.EncodeToString(mac.Sum(nil))[:replayKeyHexLen]
+
+	if got != want {
+		t.Fatalf("ComputeReplayKey=%q, want %q", got, want)
+	}
+	if !strings.HasPrefix(got, "rk_") {
+		t.Fatalf("expected rk_ prefix, got %q", got)
+	}
+	if len(got) != len("rk_")+replayKeyHexLen {
+		t.Fatalf("expected total length %d, got %d", len("rk_")+replayKeyHexLen, len(got))
+	}
+
+	// Same inputs must produce the same key (stability across retries).
+	again := ComputeReplayKey(secret, deliveryID)
+	if again != got {
+		t.Fatalf("non-deterministic: %q vs %q", got, again)
+	}
+
+	// Different secret must yield a different key (HMAC binding).
+	other := ComputeReplayKey([]byte("different_secret"), deliveryID)
+	if other == got {
+		t.Fatalf("key should change with secret")
+	}
+
+	// Empty delivery id returns empty.
+	if ComputeReplayKey(secret, "") != "" {
+		t.Fatalf("empty id must yield empty key")
+	}
+
+	// Empty secret falls back to unsigned helper.
+	unsigned := ComputeReplayKey(nil, deliveryID)
+	if unsigned != ComputeReplayKeyUnsigned(deliveryID) {
+		t.Fatalf("nil secret should match unsigned derivation")
+	}
+}
+
+func TestComputeReplayKeyUnsigned(t *testing.T) {
+	t.Parallel()
+	if got := ComputeReplayKeyUnsigned(""); got != "" {
+		t.Fatalf("empty id should yield empty key, got %q", got)
+	}
+	if got := ComputeReplayKeyUnsigned("run-9"); got != "rk_run-9" {
+		t.Fatalf("unexpected unsigned key: %q", got)
 	}
 }
 
