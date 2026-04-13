@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -87,12 +88,13 @@ func (e *retryableStatusError) Error() string {
 // flushes batches when either the batch size threshold is reached or
 // the flush interval elapses.
 type AuditSIEMDrain struct {
-	endpoint      string
-	authToken     string
-	client        *http.Client
-	logger        *slog.Logger
-	batchSize     int
-	flushInterval time.Duration
+	endpoint          string
+	endpointSanitized string
+	authToken         string
+	client            *http.Client
+	logger            *slog.Logger
+	batchSize         int
+	flushInterval     time.Duration
 
 	// Runtime state (populated by Start).
 	ch          chan domain.AuditEvent
@@ -203,13 +205,14 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 		flushInterval = defaultSIEMFlushInterval
 	}
 	d := &AuditSIEMDrain{
-		endpoint:      endpoint,
-		authToken:     authToken,
-		client:        &http.Client{Timeout: 30 * time.Second},
-		logger:        slog.Default(),
-		batchSize:     batchSize,
-		flushInterval: flushInterval,
-		subDLQ:        newFailureRingBuffer(siemSubDLQCapacity),
+		endpoint:          endpoint,
+		endpointSanitized: sanitizeSIEMEndpoint(endpoint),
+		authToken:         authToken,
+		client:            &http.Client{Timeout: 30 * time.Second},
+		logger:            slog.Default(),
+		batchSize:         batchSize,
+		flushInterval:     flushInterval,
+		subDLQ:            newFailureRingBuffer(siemSubDLQCapacity),
 	}
 	d.retryPolicy = retrypolicy.NewBuilder[*http.Response]().
 		WithMaxRetries(siemMaxRetryAttempts-1).
@@ -269,20 +272,20 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 				d.circuitOpenCnt.Add(context.Background(), 1)
 			}
 			d.logger.Warn("audit SIEM circuit breaker opened",
-				"endpoint", d.endpoint,
+				"endpoint", d.endpointSanitized,
 				"threshold", siemBreakerFailureThreshold,
 				"open_duration", siemBreakerOpenDuration)
 		}).
 		OnHalfOpen(func(_ circuitbreaker.StateChangedEvent) {
 			d.breakerState.Store(BreakerStateHalfOpen)
 			d.logger.Info("audit SIEM circuit breaker half-open; probing endpoint",
-				"endpoint", d.endpoint)
+				"endpoint", d.endpointSanitized)
 		}).
 		OnClose(func(_ circuitbreaker.StateChangedEvent) {
 			d.breakerState.Store(BreakerStateClosed)
 			d.breakerWasOpen.Store(false)
 			d.logger.Info("audit SIEM circuit breaker closed; endpoint healthy",
-				"endpoint", d.endpoint)
+				"endpoint", d.endpointSanitized)
 		}).
 		Build()
 	return d
@@ -589,8 +592,31 @@ func (d *AuditSIEMDrain) ForwardBatch(ctx context.Context, events []domain.Audit
 	_ = resp
 	d.recordSuccess(ctx, len(events))
 	d.logger.Info("audit events forwarded to SIEM",
-		"count", len(events), "endpoint", d.endpoint)
+		"count", len(events), "endpoint", d.endpointSanitized)
 	return nil
+}
+
+// sanitizeSIEMEndpoint returns a log-safe representation of the
+// configured SIEM endpoint. Query strings can legitimately carry auth
+// tokens (e.g. SIEM vendors that accept ?key=... for convenience) and
+// the userinfo component (https://user:password@host/...) is explicit
+// credentials. Both are stripped here so the drain's structured log
+// lines and error traces never echo secrets back to stdout or Sentry.
+// A malformed URL falls back to the scheme + host only.
+func sanitizeSIEMEndpoint(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		// Unparseable — refuse to log the raw string because we cannot
+		// reason about what is in it.
+		return "[unparseable-endpoint]"
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // ndjsonEncodeBufPool reuses bytes.Buffer instances across batch
@@ -658,7 +684,7 @@ func (d *AuditSIEMDrain) recordFailure(ctx context.Context, events []domain.Audi
 	}
 	d.logger.Warn("audit SIEM batch forward failed",
 		"count", len(events),
-		"endpoint", d.endpoint,
+		"endpoint", d.endpointSanitized,
 		"reason", reason,
 		"error", err)
 }

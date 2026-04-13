@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -155,8 +156,16 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	exported, capped, err := s.streamAuditByFormat(ctx, format, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
 
 	if err != nil {
-		// Headers already sent; best-effort logging only.
-		_ = err
+		// Headers already sent; we cannot surface a new status code or
+		// error envelope to the client. Log with enough context that an
+		// operator can correlate a truncated/garbled payload report with
+		// the server-side failure.
+		slog.Warn("audit export stream error after headers",
+			"err", err,
+			"project_id", projectID,
+			"format", format,
+			"rows_written", exported,
+			"capped", capped)
 	}
 
 	// Set HMAC signature trailer after streaming.

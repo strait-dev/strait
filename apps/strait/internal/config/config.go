@@ -487,6 +487,20 @@ func Load() (*Config, error) {
 	if cfg.AuditSIEMEndpoint != "" && cfg.AuditSIEMAuthToken == "" {
 		return nil, &domain.ConfigError{Field: "AUDIT_SIEM_AUTH_TOKEN", Message: "is required when AUDIT_SIEM_ENDPOINT is set"}
 	}
+	// Reject userinfo (https://user:password@host/...) in the SIEM
+	// endpoint. Sanitization strips it before logging but configuring
+	// it in the first place is a footgun: the credential lives in the
+	// process environment in plaintext and every operator who can read
+	// the config sees it. Require the Authorization Bearer token path.
+	if cfg.AuditSIEMEndpoint != "" {
+		u, err := url.Parse(cfg.AuditSIEMEndpoint)
+		if err != nil {
+			return nil, &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: fmt.Sprintf("unparseable URL: %v", err)}
+		}
+		if u.User != nil {
+			return nil, &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
+		}
+	}
 
 	slog.Info("config loaded",
 		"mode", cfg.Mode,

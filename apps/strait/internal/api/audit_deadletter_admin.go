@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 
 	"strait/internal/domain"
 
@@ -76,16 +75,24 @@ func (s *Server) requireAdmin(ctx context.Context) error {
 }
 
 // redactDeadletterFilter serializes list query params with secret-shaped
-// values redacted. The audit event for audit.deadletter_read records this
-// string so operators can trace which queries were run without leaking
-// anything sensitive even if a caller attempted to inject one.
+// values stripped. The audit event for audit.deadletter_read records
+// this string so operators can trace which queries were run without
+// leaking anything sensitive even if a caller attempted to inject one.
+//
+// The previous implementation was a substring allow-list on a handful
+// of key-name markers ("secret", "token", ...) — trivial to bypass by
+// encoding the secret under a different name in the value. We instead
+// run the same scanAndRedact used by audit emit, which matches shape
+// regardless of context and replaces the match with a typed marker
+// so operators still see that a secret was attempted.
 func redactDeadletterFilter(projectID, limit, cursor string) string {
 	redact := func(v string) string {
-		lv := strings.ToLower(v)
-		for _, marker := range []string{"secret", "token", "password", "bearer", "private", "api_key"} {
-			if strings.Contains(lv, marker) {
-				return "[redacted]"
-			}
+		if v == "" {
+			return v
+		}
+		redacted, _ := scanAndRedact(v)
+		if s, ok := redacted.(string); ok {
+			return s
 		}
 		return v
 	}

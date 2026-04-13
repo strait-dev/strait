@@ -56,6 +56,30 @@ func TestValidate_AuditSIEMEndpointWithToken(t *testing.T) {
 	}
 }
 
+func TestValidate_AuditSIEMEndpointWithUserinfo(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_SIEM_ENDPOINT", "https://u:p@siem.example.com/audit")
+	t.Setenv("AUDIT_SIEM_AUTH_TOKEN", "secret-bearer-token")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for SIEM endpoint containing userinfo")
+	}
+}
+
+func TestValidate_AuditSIEMEndpointUnparseable(t *testing.T) {
+	setRequiredAuditEnv(t)
+	// An unparseable URL should be rejected with a clear field error,
+	// not a silent fallthrough that tries to connect at runtime.
+	t.Setenv("AUDIT_SIEM_ENDPOINT", "://not-a-valid-url")
+	t.Setenv("AUDIT_SIEM_AUTH_TOKEN", "secret-bearer-token")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for unparseable SIEM endpoint")
+	}
+}
+
 func TestValidate_AuditDefaultsValid(t *testing.T) {
 	setRequiredAuditEnv(t)
 

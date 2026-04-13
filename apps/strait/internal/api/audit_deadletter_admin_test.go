@@ -326,3 +326,48 @@ func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
 		t.Error("audit.deadletter_replayed must not be emitted when replay fails")
 	}
 }
+
+// TestRedactDeadletterFilter_StripsSecretShapes asserts the filter now
+// redacts by shape rather than by key-name allow-list. The previous
+// implementation treated a bare Stripe secret key as "safe" because
+// neither the key name nor the containing string contained the words
+// "secret" or "token"; scanAndRedact catches it by regex.
+func TestRedactDeadletterFilter_StripsSecretShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		projectID string
+		limit     string
+		cursor    string
+		mustHide  string
+	}{
+		{"stripe-secret-in-cursor", "proj-a", "50", "sk_live_abcdefghijklmnop", "sk_live_abcdefghijklmnop"},
+		{"bearer-in-projectid", "Bearer abcdefghijklmnop1234", "50", "", "abcdefghijklmnop1234"},
+		{"whsec-in-limit", "proj-a", "whsec_abcdefghijklmnop", "", "whsec_abcdefghijklmnop"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out := redactDeadletterFilter(tc.projectID, tc.limit, tc.cursor)
+			if strings.Contains(out, tc.mustHide) {
+				t.Errorf("redactDeadletterFilter(%q,%q,%q) = %q; must not contain %q", tc.projectID, tc.limit, tc.cursor, out, tc.mustHide)
+			}
+			if !strings.Contains(out, "[redacted:") {
+				t.Errorf("redactDeadletterFilter(%q,%q,%q) = %q; missing redacted marker", tc.projectID, tc.limit, tc.cursor, out)
+			}
+		})
+	}
+}
+
+// TestRedactDeadletterFilter_PassesThroughPlainValues asserts normal
+// query params survive unchanged — the scanner must not false-positive
+// on UUID-shaped cursors, numeric limits, or short project ids.
+func TestRedactDeadletterFilter_PassesThroughPlainValues(t *testing.T) {
+	t.Parallel()
+
+	out := redactDeadletterFilter("proj-a", "50", "2026-04-01T00:00:00Z")
+	want := "project_id=proj-a&limit=50&cursor=2026-04-01T00:00:00Z"
+	if out != want {
+		t.Errorf("filter = %q, want %q", out, want)
+	}
+}
