@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -191,5 +192,67 @@ func TestHandleVerifyAuditChain_CountsVerifierError(t *testing.T) {
 	}
 	if sum != 1 {
 		t.Errorf("chain_verify_total = %d, want 1 (every attempt counted, pass or fail)", sum)
+	}
+}
+
+// TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore asserts
+// that ?incremental=true dispatches to VerifyAuditChainIncremental and
+// the default (or ?incremental=false) keeps the legacy full-scan path.
+// This keeps the API surface backwards-compatible with clients that
+// never pass the flag.
+func TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore(t *testing.T) {
+	t.Parallel()
+
+	var fullCalls atomic.Int32
+	var incCalls atomic.Int32
+	ms := &APIStoreMock{
+		VerifyAuditChainFunc: func(_ context.Context, projectID string) (*domain.AuditChainVerification, error) {
+			fullCalls.Add(1)
+			return &domain.AuditChainVerification{
+				ProjectID:     projectID,
+				Valid:         true,
+				EventsChecked: 100,
+			}, nil
+		},
+		VerifyAuditChainIncrementalFunc: func(_ context.Context, projectID string) (*domain.AuditChainVerification, error) {
+			incCalls.Add(1)
+			return &domain.AuditChainVerification{
+				ProjectID:     projectID,
+				Valid:         true,
+				EventsChecked: 2,
+				Incremental:   true,
+			}, nil
+		},
+	}
+
+	h := newAuditMetricsHarness(t)
+	srv := newAuditVerifyMetricsServer(t, ms, h)
+	handler := srv.requirePermission(domain.ScopeRBACManage)(
+		TypedHandler(srv, http.StatusOK, srv.handleVerifyAuditChain),
+	)
+
+	dispatch := func(url string) {
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-inc")
+		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
+		req = req.WithContext(ctx)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d for %s: %s", w.Code, url, w.Body.String())
+		}
+	}
+
+	dispatch("/v1/audit-events/verify")
+	dispatch("/v1/audit-events/verify?incremental=false")
+	dispatch("/v1/audit-events/verify?incremental=true")
+
+	if got := fullCalls.Load(); got != 2 {
+		t.Errorf("VerifyAuditChain calls = %d, want 2 (default + explicit false)", got)
+	}
+	if got := incCalls.Load(); got != 1 {
+		t.Errorf("VerifyAuditChainIncremental calls = %d, want 1 (incremental=true)", got)
 	}
 }

@@ -874,6 +874,9 @@ var _ APIStore = &APIStoreMock{}
 //			VerifyAuditChainFunc: func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
 //				panic("mock out the VerifyAuditChain method")
 //			},
+//			VerifyAuditChainIncrementalFunc: func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
+//				panic("mock out the VerifyAuditChainIncremental method")
+//			},
 //		}
 //
 //		// use mockedAPIStore in code that requires APIStore
@@ -1732,6 +1735,9 @@ type APIStoreMock struct {
 
 	// VerifyAuditChainFunc mocks the VerifyAuditChain method.
 	VerifyAuditChainFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+
+	// VerifyAuditChainIncrementalFunc mocks the VerifyAuditChainIncremental method.
+	VerifyAuditChainIncrementalFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -4295,6 +4301,13 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// VerifyAuditChainIncremental holds details about calls to the VerifyAuditChainIncremental method.
+		VerifyAuditChainIncremental []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+		}
 	}
 	lockAggregateCostStatsHourly           sync.RWMutex
 	lockApproveDeviceCode                  sync.RWMutex
@@ -4580,6 +4593,7 @@ type APIStoreMock struct {
 	lockUpsertWorkflowPolicy               sync.RWMutex
 	lockUserHasProjectAccess               sync.RWMutex
 	lockVerifyAuditChain                   sync.RWMutex
+	lockVerifyAuditChainIncremental        sync.RWMutex
 }
 
 // AggregateCostStatsHourly calls AggregateCostStatsHourlyFunc.
@@ -16982,5 +16996,45 @@ func (mock *APIStoreMock) VerifyAuditChainCalls() []struct {
 	mock.lockVerifyAuditChain.RLock()
 	calls = mock.calls.VerifyAuditChain
 	mock.lockVerifyAuditChain.RUnlock()
+	return calls
+}
+
+// VerifyAuditChainIncremental calls VerifyAuditChainIncrementalFunc.
+func (mock *APIStoreMock) VerifyAuditChainIncremental(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockVerifyAuditChainIncremental.Lock()
+	mock.calls.VerifyAuditChainIncremental = append(mock.calls.VerifyAuditChainIncremental, callInfo)
+	mock.lockVerifyAuditChainIncremental.Unlock()
+	if mock.VerifyAuditChainIncrementalFunc == nil {
+		var (
+			auditChainVerificationOut *domain.AuditChainVerification
+			errOut                    error
+		)
+		return auditChainVerificationOut, errOut
+	}
+	return mock.VerifyAuditChainIncrementalFunc(ctx, projectID)
+}
+
+// VerifyAuditChainIncrementalCalls gets all the calls that were made to VerifyAuditChainIncremental.
+// Check the length with:
+//
+//	len(mockedAPIStore.VerifyAuditChainIncrementalCalls())
+func (mock *APIStoreMock) VerifyAuditChainIncrementalCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+	}
+	mock.lockVerifyAuditChainIncremental.RLock()
+	calls = mock.calls.VerifyAuditChainIncremental
+	mock.lockVerifyAuditChainIncremental.RUnlock()
 	return calls
 }

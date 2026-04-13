@@ -286,6 +286,12 @@ type AuditChainVerification struct {
 	// surviving event. Consumers can record this to prove continuity
 	// across retention windows.
 	ChainStart string `json:"chain_start,omitempty"`
+	// Incremental reports whether this verification was an incremental
+	// re-check from a stored checkpoint or a full-chain scan from the
+	// earliest surviving event. Clients can use this alongside
+	// EventsChecked to distinguish a cheap re-check from an expensive
+	// full verify.
+	Incremental bool `json:"incremental,omitempty"`
 }
 
 type Job struct {

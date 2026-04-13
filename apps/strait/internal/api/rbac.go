@@ -666,12 +666,18 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	return &ListAuditEventsOutput{Body: paginatedResult(events, limit, func(ev domain.AuditEvent) string { return ev.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
-type VerifyAuditChainInput struct{}
+// VerifyAuditChainInput selects between a full scan from the chain head
+// and an incremental re-check from the last stored checkpoint. The
+// default (incremental=false) preserves the existing endpoint semantics.
+type VerifyAuditChainInput struct {
+	Incremental bool `query:"incremental"`
+}
+
 type VerifyAuditChainOutput struct {
 	Body *domain.AuditChainVerification
 }
 
-func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChainInput) (*VerifyAuditChainOutput, error) {
+func (s *Server) handleVerifyAuditChain(ctx context.Context, input *VerifyAuditChainInput) (*VerifyAuditChainOutput, error) {
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
@@ -681,7 +687,15 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChain
 		return nil, err
 	}
 
-	result, err := s.store.VerifyAuditChain(ctx, projectID)
+	var (
+		result *domain.AuditChainVerification
+		err    error
+	)
+	if input != nil && input.Incremental {
+		result, err = s.store.VerifyAuditChainIncremental(ctx, projectID)
+	} else {
+		result, err = s.store.VerifyAuditChain(ctx, projectID)
+	}
 	if s.metrics != nil && s.metrics.AuditChainVerifyTotal != nil {
 		s.metrics.AuditChainVerifyTotal.Add(ctx, 1)
 	}
@@ -701,6 +715,7 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, _ *VerifyAuditChain
 	s.emitAuditEvent(ctx, domain.AuditActionAuditChainVerified, "audit", projectID, map[string]any{
 		"valid":          result.Valid,
 		"events_checked": result.EventsChecked,
+		"incremental":    result.Incremental,
 	})
 
 	return &VerifyAuditChainOutput{Body: result}, nil
