@@ -137,22 +137,26 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		}
 		ev.PreviousHash = prevHash
 
-		// Compute the HMAC signature in Go against the fully-populated
-		// event (including previous_hash). When no signing key is
-		// configured — legacy unit-test / bootstrap installs — we insert
-		// with an empty signature; VerifyAuditChain gates on
-		// q.auditSigningKey != nil and is never called in that mode.
-		signature := ""
-		if tx.auditSigningKey != nil {
-			signingKey, err := tx.resolveSigningKeyForEpoch(ctx, ev.ProjectID, ev.RotationEpoch)
-			if err != nil {
-				return err
-			}
-			signature = ComputeAuditSignature(ev, signingKey)
-		}
-		ev.Signature = signature
-
-		if _, err := tx.db.Exec(ctx, `
+		// INSERT the row with an empty signature and RETURNING details so
+		// the canonical (JSONB-normalized) bytes — the exact form the
+		// verifier will later SELECT — feed the HMAC computation. Postgres
+		// rewrites JSONB text on storage (whitespace normalization, key
+		// reorder) so any signature computed against the raw input bytes
+		// would not match the bytes the verifier reads back. Round-tripping
+		// through RETURNING closes the gap.
+		//
+		// The empty-signature INSERT is NOT observable outside this tx: the
+		// containing withTxInheritKeys runs INSERT + UPDATE in a single
+		// transaction that commits together. A crash or cancellation between
+		// the two statements rolls the tx back and leaves no row behind, so
+		// every committed row still carries a non-empty signature by
+		// construction.
+		//
+		// The tail-read query above also filters "signature != ''" so an
+		// in-flight sibling that sees a partial state would never chain
+		// from an unsigned row anyway; combined with the tx atomicity this
+		// preserves the chain invariant both intra- and inter-tx.
+		if err := tx.db.QueryRow(ctx, `
 			INSERT INTO audit_events (
 				id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 				details, signature, previous_hash, created_at,
@@ -161,17 +165,36 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			)
 			VALUES (
 				$1, $2, $3, $4, $5, $6, $7,
-				$8::jsonb, $9, $10, $11,
-				$12, $13, $14, $15, $16,
-				$17, $18
+				$8::jsonb, '', $9, $10,
+				$11, $12, $13, $14, $15,
+				$16, $17
 			)
+			RETURNING details
 		`,
 			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
-			details, signature, ev.PreviousHash, ev.CreatedAt,
+			details, ev.PreviousHash, ev.CreatedAt,
 			ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
 			ev.IsAnchor, ev.RotationEpoch,
-		); err != nil {
+		).Scan(&ev.Details); err != nil {
 			return fmt.Errorf("create audit event: insert: %w", err)
+		}
+
+		// Compute and persist the HMAC signature now that ev.Details holds
+		// the canonical bytes. When no signing key is configured — legacy
+		// unit-test / bootstrap installs — leave the empty sentinel;
+		// VerifyAuditChain gates on q.auditSigningKey != nil and is never
+		// called in that mode.
+		if tx.auditSigningKey != nil {
+			signingKey, err := tx.resolveSigningKeyForEpoch(ctx, ev.ProjectID, ev.RotationEpoch)
+			if err != nil {
+				return err
+			}
+			ev.Signature = ComputeAuditSignature(ev, signingKey)
+			if _, err := tx.db.Exec(ctx, `
+				UPDATE audit_events SET signature = $1 WHERE id = $2
+			`, ev.Signature, ev.ID); err != nil {
+				return fmt.Errorf("create audit event: update signature: %w", err)
+			}
 		}
 
 		if hook := tx.auditEventPostInsertHook; hook != nil {
