@@ -75,6 +75,16 @@ func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// auditEventPostInsertHook is a test-only seam invoked inside
+// CreateAuditEvent immediately AFTER the signed INSERT statement succeeds
+// but BEFORE the surrounding transaction commits. When non-nil and it
+// returns a non-nil error, CreateAuditEvent propagates the error and the
+// transaction rolls back — leaving no audit_events row behind. Production
+// builds leave this nil; do not expose through any public API.
+//
+//nolint:gochecknoglobals // test seam
+var auditEventPostInsertHook func(ctx context.Context) error
+
 func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAuditEvent")
 	defer span.End()
@@ -87,6 +97,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	if len(details) == 0 {
 		details = json.RawMessage(`{}`)
 	}
+	ev.Details = details
 
 	// Use client-side timestamp so all fields are known for signature computation.
 	// Truncate to microseconds: Postgres TIMESTAMPTZ stores microsecond precision,
@@ -101,71 +112,88 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
 	}
 
-	// Atomic single-statement insert with chain linkage.
+	// Atomic signed insert.
 	//
-	// This uses a CTE with pg_advisory_xact_lock to serialize inserts per project.
-	// Because this is a single SQL statement, it executes as one implicit transaction,
-	// so the advisory lock holds for the entire SELECT + INSERT. This avoids the
-	// connection pool problem where session-scoped pg_advisory_lock could acquire
-	// and release on different pool connections.
+	// The chain lock, the previous-hash read, the signature computation and
+	// the INSERT all run inside a single transaction. Every committed row
+	// carries a non-empty signature — there is no observable intermediate
+	// "empty signature" state that VerifyAuditChain could later flag as a
+	// broken chain. If any step fails, the tx rolls back and no row is left
+	// behind.
 	//
-	// The signature is initially empty and updated after we know the previous_hash.
-	// Both the INSERT and UPDATE happen in the same CTE chain (single statement),
-	// so the lock covers both operations atomically.
-	atomicQuery := `
-		WITH lock_and_prev AS (
-			SELECT pg_advisory_xact_lock(hashtext($2)),
-			       COALESCE(
-			           (SELECT signature FROM audit_events
-			            WHERE project_id = $2 AND signature != ''
-			            ORDER BY created_at DESC LIMIT 1),
-			           $10
-			       ) AS prev_hash
-		),
-		ins AS (
+	// withTxInheritKeys opens a fresh tx when q is pool-backed, or runs
+	// inline when q is already tx-backed (e.g. called from rotation or
+	// from the retention tombstone path inside an outer transaction).
+	return q.withTxInheritKeys(ctx, func(tx *Queries) error {
+		// Chain lock. Prefix "audit_chain:" namespaces the lock hash so it
+		// cannot collide with rotation's "audit_rotate:" prefix — both
+		// touch audit_events for the same project but serialize on their
+		// own domain. The lock is transaction-scoped.
+		if _, err := tx.db.Exec(ctx, `
+			SELECT pg_advisory_xact_lock(hashtext('audit_chain:' || $1::text))
+		`, ev.ProjectID); err != nil {
+			return fmt.Errorf("create audit event: chain lock: %w", err)
+		}
+
+		// Read the tail signature under the lock so no concurrent writer
+		// can slip a row between this read and our insert.
+		var prevHash string
+		if err := tx.db.QueryRow(ctx, `
+			SELECT COALESCE(
+			    (SELECT signature FROM audit_events
+			     WHERE project_id = $1 AND signature != ''
+			     ORDER BY rotation_epoch DESC, created_at DESC LIMIT 1),
+			    $2
+			)
+		`, ev.ProjectID, ZeroHash).Scan(&prevHash); err != nil {
+			return fmt.Errorf("create audit event: read prev hash: %w", err)
+		}
+		ev.PreviousHash = prevHash
+
+		// Compute the HMAC signature in Go against the fully-populated
+		// event (including previous_hash). When no signing key is
+		// configured — legacy unit-test / bootstrap installs — we insert
+		// with an empty signature; VerifyAuditChain gates on
+		// q.auditSigningKey != nil and is never called in that mode.
+		signature := ""
+		if tx.auditSigningKey != nil {
+			signingKey, err := tx.resolveSigningKeyForEpoch(ctx, ev.ProjectID, ev.RotationEpoch)
+			if err != nil {
+				return err
+			}
+			signature = ComputeAuditSignature(ev, signingKey)
+		}
+		ev.Signature = signature
+
+		if _, err := tx.db.Exec(ctx, `
 			INSERT INTO audit_events (
 				id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 				details, signature, previous_hash, created_at,
 				remote_ip, user_agent, request_id, trace_id, schema_version,
 				is_anchor, rotation_epoch
 			)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '', lock_and_prev.prev_hash, $9,
-			       $11, $12, $13, $14, $15, $16, $17
-			FROM lock_and_prev
-			RETURNING previous_hash, details
-		)
-		SELECT previous_hash, details FROM ins`
-
-	if err := q.db.QueryRow(ctx, atomicQuery,
-		ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID, details,
-		ev.CreatedAt, ZeroHash,
-		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
-		ev.IsAnchor, ev.RotationEpoch,
-	).Scan(&ev.PreviousHash, &ev.Details); err != nil {
-		return fmt.Errorf("create audit event: %w", err)
-	}
-
-	// Compute and persist the HMAC signature now that previous_hash is known.
-	// This is a separate UPDATE but is safe because:
-	// 1. The row already exists with the correct previous_hash chain linkage.
-	// 2. The next insert's CTE filters "signature != ''" so it won't chain from
-	//    this event until the signature is set.
-	// 3. If this UPDATE fails, the event has an empty signature which
-	//    VerifyAuditChain will detect, but the chain linkage remains intact.
-	if q.auditSigningKey != nil {
-		signingKey, err := q.resolveSigningKeyForEpoch(ctx, ev.ProjectID, ev.RotationEpoch)
-		if err != nil {
-			return err
-		}
-		ev.Signature = ComputeAuditSignature(ev, signingKey)
-		if _, err := q.db.Exec(ctx, `UPDATE audit_events SET signature = $1 WHERE id = $2`,
-			ev.Signature, ev.ID,
+			VALUES (
+				$1, $2, $3, $4, $5, $6, $7,
+				$8::jsonb, $9, $10, $11,
+				$12, $13, $14, $15, $16,
+				$17, $18
+			)
+		`,
+			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
+			details, signature, ev.PreviousHash, ev.CreatedAt,
+			ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
+			ev.IsAnchor, ev.RotationEpoch,
 		); err != nil {
-			return fmt.Errorf("update audit event signature: %w", err)
+			return fmt.Errorf("create audit event: insert: %w", err)
 		}
-	}
 
-	return nil
+		if hook := auditEventPostInsertHook; hook != nil {
+			if err := hook(ctx); err != nil {
+				return fmt.Errorf("create audit event: post-insert hook: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // resolveSigningKeyForEpoch returns the per-epoch HMAC signing key used for

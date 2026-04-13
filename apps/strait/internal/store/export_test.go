@@ -9,3 +9,11 @@ import "context"
 func SetTombstoneInsertHookForTest(fn func(ctx context.Context) error) {
 	tombstoneInsertHook = fn
 }
+
+// SetAuditEventPostInsertHookForTest installs a post-insert hook invoked
+// inside CreateAuditEvent, after the signed INSERT statement but before
+// the surrounding transaction commits. Returning a non-nil error forces
+// the tx to roll back, leaving no row behind. Test-only.
+func SetAuditEventPostInsertHookForTest(fn func(ctx context.Context) error) {
+	auditEventPostInsertHook = fn
+}
