@@ -52,6 +52,12 @@ var (
 // forward call was short-circuited without hitting the network.
 var ErrSIEMCircuitOpen = errors.New("audit SIEM circuit open")
 
+// errRequestConstruct wraps failures to build the outbound HTTP request
+// (malformed URL, invalid method, etc.). These are deterministic and
+// must not burn the retry budget or flip the circuit breaker — a second
+// attempt will produce the same error.
+var errRequestConstruct = errors.New("audit SIEM request construction failed")
+
 // terminalStatusError wraps a 4xx HTTP response so retry policy and caller
 // can distinguish "terminal reject" from "transient failure". 4xx responses
 // are not retried; the batch is dropped to the SIEM sub-DLQ.
@@ -190,8 +196,21 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 				return false
 			}
 			var terminal *terminalStatusError
-			// Network errors and retryableStatusError are both retried.
-			return !errors.As(err, &terminal)
+			// Terminal 4xx, request construction errors, and context
+			// cancellation / deadline from the caller are all
+			// deterministic or caller-directed. They must not burn the
+			// retry budget or open the circuit. Only transient network
+			// errors and retryableStatusError are retried.
+			if errors.As(err, &terminal) {
+				return false
+			}
+			if errors.Is(err, errRequestConstruct) {
+				return false
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return false
+			}
+			return true
 		}).
 		ReturnLastFailure().
 		Build()
@@ -204,10 +223,20 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 				return false
 			}
 			// Terminal 4xx does NOT count toward breaker failures — the SIEM
-			// is healthy, the payload was rejected. Only network or 5xx flips
-			// the breaker.
+			// is healthy, the payload was rejected. Request-construction
+			// errors and caller-context cancellations are also excluded —
+			// they tell us nothing about SIEM health.
 			var terminal *terminalStatusError
-			return !errors.As(err, &terminal)
+			if errors.As(err, &terminal) {
+				return false
+			}
+			if errors.Is(err, errRequestConstruct) {
+				return false
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return false
+			}
+			return true
 		}).
 		OnOpen(func(_ circuitbreaker.StateChangedEvent) {
 			d.breakerWasOpen.Store(true)
@@ -401,7 +430,9 @@ func (d *AuditSIEMDrain) ForwardBatch(ctx context.Context, events []domain.Audit
 	doOnce := func() (*http.Response, error) {
 		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, bytes.NewReader(payload))
 		if rerr != nil {
-			return nil, fmt.Errorf("create SIEM request: %w", rerr)
+			// Tag as non-retryable: a malformed URL / bad method is
+			// deterministic — no amount of retrying fixes it.
+			return nil, fmt.Errorf("%w: %w", errRequestConstruct, rerr)
 		}
 		req.Header.Set("Content-Type", "application/x-ndjson")
 		req.Header.Set("User-Agent", "Strait-Audit-SIEM/1.0")

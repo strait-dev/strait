@@ -209,3 +209,85 @@ func TestAuditSIEMDrain_JitterBackoffBounded(t *testing.T) {
 		t.Fatalf("retry sequence exceeded 3s bound: %v", elapsed)
 	}
 }
+
+// TestAuditSIEMDrain_ContextCanceled_NoRetry asserts that a context
+// cancellation from the caller does not consume the retry budget or
+// flip the circuit breaker. Only one upstream call is made, the
+// breaker stays closed, and the batch lands in the sub-DLQ once.
+func TestAuditSIEMDrain_ContextCanceled_NoRetry(t *testing.T) {
+	shrinkBackoffForTest(t, 30*time.Second)
+
+	var calls atomic.Int32
+	// Server blocks until either the request context dies (caller
+	// cancellation) or the test signals shutdown. The explicit release
+	// channel guarantees that even if the server doesn't observe
+	// client-side cancellation in time, the handler goroutine returns
+	// so httptest.Server.Close() can tear down cleanly.
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	// LIFO: release handlers first, then close the server.
+	defer srv.Close()
+	defer close(release)
+
+	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel shortly after the first request is in-flight.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := drain.ForwardBatch(ctx, []domain.AuditEvent{sampleEvent("cancel-ev")})
+	if err == nil {
+		t.Fatal("expected cancellation error, got nil")
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("upstream calls = %d, want 1 (cancellation must not consume retry budget)", got)
+	}
+	if drain.breakerWasOpen.Load() {
+		t.Error("circuit breaker opened on cancellation — cancellation must not flip the breaker")
+	}
+	if drain.DrainedFailureCount() != 1 {
+		t.Errorf("sub-DLQ size = %d, want 1", drain.DrainedFailureCount())
+	}
+}
+
+// TestAuditSIEMDrain_RequestConstructError_NoRetry asserts that a
+// deterministic request-construction failure (malformed endpoint URL)
+// results in exactly one attempt — retries would reproduce the same
+// error and waste budget. The breaker must also stay closed.
+func TestAuditSIEMDrain_RequestConstructError_NoRetry(t *testing.T) {
+	shrinkBackoffForTest(t, 30*time.Second)
+
+	// A control character in the URL causes http.NewRequestWithContext
+	// to reject the URL — this is the deterministic construction
+	// failure path.
+	drain := NewAuditSIEMDrain("http://example.com/\x7f", "", 0, 0)
+
+	start := time.Now()
+	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("bad-url")})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected request construction error, got nil")
+	}
+	if !errors.Is(err, errRequestConstruct) {
+		t.Errorf("err = %v, want wrap of errRequestConstruct", err)
+	}
+	// Three retries with backoff would take >> 10ms; a single attempt
+	// returns essentially instantly. Use a tight bound as a proxy for
+	// "no retries".
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("request-construct error took %v — retries appear to be running", elapsed)
+	}
+	if drain.breakerWasOpen.Load() {
+		t.Error("circuit breaker opened on request-construct failure")
+	}
+}
