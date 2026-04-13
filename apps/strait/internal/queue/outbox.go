@@ -69,12 +69,24 @@ func WriteOutboxInTx(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) erro
 	}
 	// Validate all unique job_ids exist in a single round trip.
 	jobIDs := uniqueJobIDs(entries)
-	for _, jid := range jobIDs {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id = $1)`, jid).Scan(&exists); err != nil {
-			return fmt.Errorf("validate job_id %s: %w", jid, err)
+	rows, err := tx.Query(ctx, `SELECT id FROM jobs WHERE id = ANY($1)`, jobIDs)
+	if err != nil {
+		return fmt.Errorf("validate job_ids: %w", err)
+	}
+	defer rows.Close()
+	found := make(map[string]struct{}, len(jobIDs))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan job_id: %w", err)
 		}
-		if !exists {
+		found[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("validate job_ids: %w", err)
+	}
+	for _, jid := range jobIDs {
+		if _, ok := found[jid]; !ok {
 			return fmt.Errorf("%w: %s", ErrOutboxJobNotFound, jid)
 		}
 	}
