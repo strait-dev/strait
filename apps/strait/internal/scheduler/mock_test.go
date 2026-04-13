@@ -125,6 +125,10 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+func (m *mockQueue) EnqueueInTx(ctx context.Context, _ store.DBTX, run *domain.JobRun) error {
+	return m.Enqueue(ctx, run)
+}
+
 func (m *mockQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
 	return int64(len(runs)), nil
 }

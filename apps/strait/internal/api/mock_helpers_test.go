@@ -7,6 +7,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+	"strait/internal/store"
 )
 
 // testJWTSigningKey is a cryptographically random 32-byte key generated once
@@ -33,6 +34,10 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		return m.enqueueFn(ctx, run)
 	}
 	return nil
+}
+
+func (m *mockQueue) EnqueueInTx(ctx context.Context, _ store.DBTX, run *domain.JobRun) error {
+	return m.Enqueue(ctx, run)
 }
 
 func (m *mockQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {

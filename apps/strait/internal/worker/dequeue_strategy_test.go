@@ -8,6 +8,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/store"
 )
 
 // mockStrategyQueue tracks which dequeue method was called.
@@ -20,6 +21,9 @@ type mockStrategyQueue struct {
 var _ queue.Queue = (*mockStrategyQueue)(nil)
 
 func (m *mockStrategyQueue) Enqueue(context.Context, *domain.JobRun) error { return nil }
+func (m *mockStrategyQueue) EnqueueInTx(context.Context, store.DBTX, *domain.JobRun) error {
+	return nil
+}
 func (m *mockStrategyQueue) EnqueueBatch(context.Context, []*domain.JobRun) (int64, error) {
 	return 0, nil
 }

@@ -78,6 +78,64 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Enqueue")
 	defer span.End()
 
+	query, args, err := q.prepareEnqueue(run)
+	if err != nil {
+		return err
+	}
+
+	// When an idempotency key is set, serialize concurrent enqueues for the
+	// same (job_id, idempotency_key) under a transaction-scoped advisory
+	// lock. The CTE-based "check then insert" is not atomic across
+	// concurrent statements (each statement's SELECT sees a snapshot taken
+	// before the INSERT), so under contention two callers can both observe
+	// the table empty for the key and both insert. A partitioned unique
+	// index can't help because Postgres requires the partition column
+	// (created_at) to be part of any unique constraint on a partitioned
+	// table.
+	//
+	// We key the lock on (hashtext(job_id), hashtext(idempotency_key)) so
+	// that only same-key enqueues block each other. Non-idempotent enqueues
+	// skip the transaction entirely and keep the hot-path cost unchanged.
+	if run.IdempotencyKey != "" {
+		if beginner, ok := q.db.(store.TxBeginner); ok {
+			return q.enqueueUnderIdempotencyLock(ctx, beginner, run, query, args)
+		}
+	}
+
+	if err := q.db.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
+			return domain.ErrIdempotencyConflict
+		}
+		return fmt.Errorf("enqueue run: %w", err)
+	}
+
+	return nil
+}
+
+// EnqueueInTx inserts a run using the caller's transaction, skipping the
+// idempotency advisory lock (the caller already owns its own tx). Used by
+// the outbox flusher to make enqueue atomic with the claim transaction.
+func (q *PostgresQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueInTx")
+	defer span.End()
+
+	query, args, err := q.prepareEnqueue(run)
+	if err != nil {
+		return err
+	}
+
+	if err := tx.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
+			return domain.ErrIdempotencyConflict
+		}
+		return fmt.Errorf("enqueue run in tx: %w", err)
+	}
+	return nil
+}
+
+// prepareEnqueue normalizes run fields and returns the INSERT query with
+// bind args. Shared by Enqueue and EnqueueInTx.
+func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error) {
 	if run.ID == "" {
 		run.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -100,7 +158,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		var marshalErr error
 		tagsJSON, marshalErr = json.Marshal(run.Tags)
 		if marshalErr != nil {
-			return fmt.Errorf("enqueue run: marshal tags: %w", marshalErr)
+			return "", nil, fmt.Errorf("enqueue run: marshal tags: %w", marshalErr)
 		}
 	}
 
@@ -109,7 +167,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		var marshalErr error
 		metadataJSON, marshalErr = json.Marshal(run.Metadata)
 		if marshalErr != nil {
-			return fmt.Errorf("enqueue run: marshal metadata: %w", marshalErr)
+			return "", nil, fmt.Errorf("enqueue run: marshal metadata: %w", marshalErr)
 		}
 	}
 
@@ -183,34 +241,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		run.IsRollback,
 	}
 
-	// When an idempotency key is set, serialize concurrent enqueues for the
-	// same (job_id, idempotency_key) under a transaction-scoped advisory
-	// lock. The CTE-based "check then insert" is not atomic across
-	// concurrent statements (each statement's SELECT sees a snapshot taken
-	// before the INSERT), so under contention two callers can both observe
-	// the table empty for the key and both insert. A partitioned unique
-	// index can't help because Postgres requires the partition column
-	// (created_at) to be part of any unique constraint on a partitioned
-	// table.
-	//
-	// We key the lock on (hashtext(job_id), hashtext(idempotency_key)) so
-	// that only same-key enqueues block each other. Non-idempotent enqueues
-	// skip the transaction entirely and keep the hot-path cost unchanged.
-	if run.IdempotencyKey != "" {
-		if beginner, ok := q.db.(store.TxBeginner); ok {
-			return q.enqueueUnderIdempotencyLock(ctx, beginner, run, query, args)
-		}
-	}
-
-	err := q.db.QueryRow(ctx, query, args...).Scan(&run.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
-			return domain.ErrIdempotencyConflict
-		}
-		return fmt.Errorf("enqueue run: %w", err)
-	}
-
-	return nil
+	return query, args, nil
 }
 
 // enqueueUnderIdempotencyLock runs the enqueue inside a transaction after

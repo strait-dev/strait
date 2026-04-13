@@ -114,7 +114,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 	qm, _ := queue.Metrics()
 	for _, row := range rows {
 		run := f.toJobRun(row)
-		if err := f.queue.Enqueue(ctx, run); err != nil {
+		if err := f.queue.EnqueueInTx(ctx, tx, run); err != nil {
 			f.logger.Warn("outbox flusher: enqueue failed, skipping",
 				"outbox_id", row.ID, "job_id", row.JobID, "error", err,
 			)
