@@ -10,15 +10,26 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// R4 Phase 9: prepared statement cache for dequeue variants.
+// R4 Phase 9: prepared statement warmup for dequeue variants.
 //
-// Every claim pays query-planning overhead because the SQL is assembled
-// via fmt.Sprintf. Caching the parsed plans at pool startup via
-// pgxpool.Pool.AcquireFunc + conn.Prepare shaves 1-2ms per claim.
+// Important caveat on scope: pgx/v5's statement cache is per-connection
+// (see pgx.QueryExecModeCacheStatement, the default). Preparing inside a
+// single AcquireFunc only warms that one connection; the other pool
+// connections still pay first-query planning on their first dequeue.
 //
-// The cache is opt-in via PrepareDequeueStatements and does NOT replace
-// the raw-SQL path. If a prepared statement becomes invalid (schema
-// change) pgx returns an error and the caller falls back to raw.
+// We intentionally leave this as a single-connection warmup rather than
+// a pool.Config().AfterConnect hook because the rest of the queue does
+// not execute via these named statements — DequeueN and friends build
+// SQL per-call and send it through pgxpool.Query, which relies on pgx's
+// automatic per-connection statement cache to amortise planning after
+// the first call on each connection. This file is therefore a
+// best-effort warmup of the first connection the pool hands out and a
+// structural placeholder for future work; it is NOT load-bearing for
+// steady-state dequeue performance.
+//
+// If we ever switch dequeue to execute by prepared statement name, this
+// must move to AfterConnect so every connection gets the statement at
+// birth — otherwise lookups by name will miss on fresh connections.
 
 // PreparedStatements holds named prepared statements for each dequeue
 // variant. Nil means "not prepared yet; use raw SQL".

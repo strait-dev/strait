@@ -24,26 +24,29 @@ func (q *Queries) UnmaskDLQRun(ctx context.Context, runID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UnmaskDLQRun")
 	defer span.End()
 
-	var status domain.RunStatus
-	err := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runID).Scan(&status)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRunNotFound
-		}
-		return fmt.Errorf("unmask dlq run: load status: %w", err)
+	// Single-statement mutation with guard: avoids a check-then-act race
+	// where two concurrent callers both observe status=dead_letter before
+	// either lands its UPDATE. The loser's RETURNING comes back empty; we
+	// then do a follow-up SELECT to disambiguate ErrRunNotFound (row is
+	// gone) from ErrRunConflict (row exists but is no longer dead_letter).
+	var id string
+	err := q.db.QueryRow(ctx, `UPDATE job_runs SET visible_until = NULL WHERE id = $1 AND status = 'dead_letter' RETURNING id`, runID).Scan(&id)
+	if err == nil {
+		return nil
 	}
-	if status != domain.StatusDeadLetter {
-		return fmt.Errorf("%w: run %s has status %s, expected dead_letter", ErrRunConflict, runID, status)
-	}
-
-	tag, err := q.db.Exec(ctx, `UPDATE job_runs SET visible_until = NULL WHERE id = $1 AND status = 'dead_letter'`, runID)
-	if err != nil {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("unmask dlq run: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrRunNotFound
+
+	var status domain.RunStatus
+	loadErr := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runID).Scan(&status)
+	if loadErr != nil {
+		if errors.Is(loadErr, pgx.ErrNoRows) {
+			return ErrRunNotFound
+		}
+		return fmt.Errorf("unmask dlq run: disambiguate: %w", loadErr)
 	}
-	return nil
+	return fmt.Errorf("%w: run %s has status %s, expected dead_letter", ErrRunConflict, runID, status)
 }
 
 // PurgeDLQRun hard-deletes a dead-letter run. Requires the caller to
@@ -53,26 +56,27 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.PurgeDLQRun")
 	defer span.End()
 
-	var status domain.RunStatus
-	err := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runID).Scan(&status)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRunNotFound
-		}
-		return fmt.Errorf("purge dlq run: load status: %w", err)
+	// Single-statement DELETE with status guard; see UnmaskDLQRun for the
+	// rationale. On empty RETURNING we disambiguate not-found from
+	// conflict via a follow-up SELECT.
+	var id string
+	err := q.db.QueryRow(ctx, `DELETE FROM job_runs WHERE id = $1 AND status = 'dead_letter' RETURNING id`, runID).Scan(&id)
+	if err == nil {
+		return nil
 	}
-	if status != domain.StatusDeadLetter {
-		return fmt.Errorf("%w: run %s has status %s, expected dead_letter", ErrRunConflict, runID, status)
-	}
-
-	tag, err := q.db.Exec(ctx, `DELETE FROM job_runs WHERE id = $1 AND status = 'dead_letter'`, runID)
-	if err != nil {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("purge dlq run: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrRunNotFound
+
+	var status domain.RunStatus
+	loadErr := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runID).Scan(&status)
+	if loadErr != nil {
+		if errors.Is(loadErr, pgx.ErrNoRows) {
+			return ErrRunNotFound
+		}
+		return fmt.Errorf("purge dlq run: disambiguate: %w", loadErr)
 	}
-	return nil
+	return fmt.Errorf("%w: run %s has status %s, expected dead_letter", ErrRunConflict, runID, status)
 }
 
 // MarkRunReplayed sets replayed_run_id on an original dead-letter run to

@@ -32,14 +32,14 @@ The process writes a Markdown summary to `apps/strait/internal/loadtest/reports/
 
 During a scenario, the Prometheus scrape endpoint on the server exposes the canonical signals. The ones worth watching first:
 
-- `strait_queue_dequeue_duration_seconds` — P50 / P95 / P99 of the dequeue path.
+- `strait_dequeue_duration` — P50 / P95 / P99 of the dequeue path.
 - `strait_queue_depth` — backlog per project and per partition.
-- `partition_dequeue_lag_seconds` — per-partition P99 dequeue latency (Phase 1).
-- `outbox_lag_seconds` — time between enqueue-via-outbox and flusher pickup (Phase 1).
-- `strait_queue_rejected_total` — per-project token bucket rejections.
-- `strait_worker_pool_active` / `strait_worker_pool_waiting` — pool saturation.
-- `strait_circuit_breaker_state` — 0 closed / 1 half-open / 2 open on the worker -> DB path.
-- `strait_dlq_oldest_unmasked_age_seconds` — DLQ age-out falling behind.
+- `strait_queue_partition_dequeue_lag_seconds` — per-partition P99 dequeue latency (Phase 1).
+- `strait_queue_outbox_lag_seconds` — time between enqueue-via-outbox and flusher pickup (Phase 1).
+- `strait_queue_backpressure_tokens_available` — per-project token bucket headroom; drops toward zero under rejection pressure.
+- `strait_pool_running_workers` / `strait_pool_waiting_tasks` — pool saturation.
+- `strait_queue_circuit_state_transitions_total` — circuit breaker transitions on the worker -> DB path.
+- `strait_queue_dlq_oldest_unmasked_age_seconds` — DLQ age-out falling behind.
 
 Pyroscope captures CPU / alloc profiles for the same run when the server is configured with `PYROSCOPE_SERVER_ADDRESS`.
 

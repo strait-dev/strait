@@ -88,7 +88,15 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 				}
 				found := false
 				for _, c := range candidates {
-					if strings.Contains(underscored, c) {
+					// Word-boundary match: avoid false positives where a
+					// shorter metric name is a substring of a longer one
+					// (e.g. strait_queue_depth vs strait_queue_depth_per_job).
+					pattern := `\b` + regexp.QuoteMeta(c) + `\b`
+					matched, err := regexp.MatchString(pattern, underscored)
+					if err != nil {
+						t.Fatalf("compile metric match regex %q: %v", pattern, err)
+					}
+					if matched {
 						found = true
 						break
 					}
