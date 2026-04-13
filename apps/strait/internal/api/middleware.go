@@ -930,6 +930,62 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	return resolvedRateLimit{}
 }
 
+// auditVerifyRateLimit enforces a per-project rate limit on the audit chain
+// verify endpoint. The default of 1 req/project/60s is plenty for SOC 2
+// evidence generation while still preventing a single tenant from
+// dominating verifier compute (chain replay is O(events) per call). When
+// no rate limiter is configured (test paths or RedisClient absent) the
+// middleware is a no-op so unit tests continue to pass.
+//
+// Internal-secret callers bypass — operations / smoke tests need to
+// verify on demand without bumping into the per-tenant quota.
+const (
+	auditVerifyRateLimitRequests   = 1
+	auditVerifyRateLimitWindowSecs = 60
+)
+
+func (s *Server) auditVerifyRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.rateLimiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx := r.Context()
+		// Internal-secret callers bypass per-project rate limits.
+		if scopesFromContext(ctx) == nil && r.Header.Get("X-Internal-Secret") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		projectID := projectIDFromContext(ctx)
+		if projectID == "" {
+			// Without a project context we cannot enforce; defer to the
+			// downstream handler which will return its own 400.
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := "rl:audit_verify:" + projectID
+		window := time.Duration(auditVerifyRateLimitWindowSecs) * time.Second
+		result, rlErr := s.rateLimiter.Allow(ctx, key, auditVerifyRateLimitRequests, window)
+		if rlErr != nil {
+			// Fail open so a Redis hiccup does not lock out the verify
+			// endpoint, which is also a forensic primitive operators
+			// reach for during incidents.
+			slog.Warn("audit verify rate limiter error, failing open",
+				"key", key, "error", rlErr)
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(auditVerifyRateLimitRequests))
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
+		if !result.Allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(auditVerifyRateLimitWindowSecs))
+			respondError(w, r, http.StatusTooManyRequests, "audit verify rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // projectRateLimit enforces per-API-key and per-project rate limits using Redis.
 func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

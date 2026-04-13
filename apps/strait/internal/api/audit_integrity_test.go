@@ -8,7 +8,11 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/ratelimit"
 	"strait/internal/store"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestHandleVerifyAuditChain_ValidChain(t *testing.T) {
@@ -125,6 +129,148 @@ func TestHandleVerifyAuditChain_Adversarial_WrongScope(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+// TestVerifyAuditChain_RateLimited asserts the per-project rate limit on
+// /v1/audit-events/verify rejects the second request from the same project
+// inside the 60s window with 429 + Retry-After. Backed by miniredis so the
+// rate limiter actually counts (the fail-open path is exercised by the
+// existing TestProjectRateLimit_NoRedis_FailsOpen test).
+func TestVerifyAuditChain_RateLimited(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ms := &APIStoreMock{
+		VerifyAuditChainFunc: func(_ context.Context, projectID string) (*domain.AuditChainVerification, error) {
+			return &domain.AuditChainVerification{ProjectID: projectID, Valid: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	srv.rateLimiter = ratelimit.NewRedisRateLimiter(rdb, true)
+
+	handler := srv.requirePermission(domain.ScopeRBACManage)(
+		srv.auditVerifyRateLimit(
+			TypedHandler(srv, http.StatusOK, srv.handleVerifyAuditChain),
+		),
+	)
+
+	makeRequest := func(projectID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/audit-events/verify", nil)
+		ctx := context.WithValue(req.Context(), ctxProjectIDKey, projectID)
+		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test-key")
+		req = req.WithContext(ctx)
+
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	// First call: 200, with rate-limit headers indicating zero remaining.
+	w1 := makeRequest("proj-rl-1")
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first call status = %d, want 200; body: %s", w1.Code, w1.Body.String())
+	}
+	if got := w1.Header().Get("X-RateLimit-Limit"); got != "1" {
+		t.Errorf("X-RateLimit-Limit = %q, want 1", got)
+	}
+
+	// Second call within window: 429 with Retry-After.
+	w2 := makeRequest("proj-rl-1")
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second call status = %d, want 429; body: %s", w2.Code, w2.Body.String())
+	}
+	if got := w2.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Retry-After = %q, want 60", got)
+	}
+
+	// Different project is unaffected — the limit is per-project.
+	w3 := makeRequest("proj-rl-2")
+	if w3.Code != http.StatusOK {
+		t.Errorf("different project status = %d, want 200 (rate limit must be per-project)", w3.Code)
+	}
+}
+
+// TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen verifies the
+// middleware is a no-op when no limiter is configured (test paths,
+// installations without Redis).
+func TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		VerifyAuditChainFunc: func(_ context.Context, projectID string) (*domain.AuditChainVerification, error) {
+			return &domain.AuditChainVerification{ProjectID: projectID, Valid: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	// newTestServer's rateLimiter is constructed with a nil Redis client
+	// and enabled=false (the disabled limiter), but the auditVerifyRateLimit
+	// path explicitly checks for a nil rateLimiter — set it to nil so we
+	// exercise the early-return branch.
+	srv.rateLimiter = nil
+
+	handler := srv.requirePermission(domain.ScopeRBACManage)(
+		srv.auditVerifyRateLimit(
+			TypedHandler(srv, http.StatusOK, srv.handleVerifyAuditChain),
+		),
+	)
+
+	for i := range 10 {
+		req := httptest.NewRequest(http.MethodGet, "/v1/audit-events/verify", nil)
+		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-noredis")
+		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test-key")
+		req = req.WithContext(ctx)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("call %d status = %d, want 200 (no limiter -> no limit)", i, w.Code)
+		}
+	}
+}
+
+// TestVerifyAuditChain_RateLimit_InternalSecretBypass verifies internal
+// callers (e.g. SOC 2 evidence collection scripts) bypass the per-project
+// rate limit so on-call operators are not rate-limited during incidents.
+func TestVerifyAuditChain_RateLimit_InternalSecretBypass(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ms := &APIStoreMock{
+		VerifyAuditChainFunc: func(_ context.Context, projectID string) (*domain.AuditChainVerification, error) {
+			return &domain.AuditChainVerification{ProjectID: projectID, Valid: true}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	srv.rateLimiter = ratelimit.NewRedisRateLimiter(rdb, true)
+
+	handler := srv.auditVerifyRateLimit(
+		TypedHandler(srv, http.StatusOK, srv.handleVerifyAuditChain),
+	)
+
+	for i := range 5 {
+		req := httptest.NewRequest(http.MethodGet, "/v1/audit-events/verify", nil)
+		// Internal callers have NO scopes set in context and supply the
+		// X-Internal-Secret header — this is the established bypass pattern
+		// in projectRateLimit.
+		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-internal")
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "internal")
+		req = req.WithContext(ctx)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("internal call %d status = %d, want 200 (internal bypass)", i, w.Code)
+		}
 	}
 }
 

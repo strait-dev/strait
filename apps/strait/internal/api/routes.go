@@ -494,7 +494,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/audit-events", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAuditEvents))
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", TypedHandler(s, http.StatusOK, s.handleExportAuditEvents))
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
+			r.With(s.requirePermission(domain.ScopeRBACManage), s.auditVerifyRateLimit).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetAuditEvent))
 		})
 
