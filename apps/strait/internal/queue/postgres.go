@@ -145,9 +145,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		execMode = domain.ExecutionModeHTTP
 	}
 
-	err := q.db.QueryRow(
-		ctx,
-		query,
+	args := []any{
 		run.ID,
 		run.JobID,
 		run.ProjectID,
@@ -183,7 +181,28 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.PinnedImageURI),
 		dbscan.NilIfEmptyString(run.PinnedImageDigest),
 		run.IsRollback,
-	).Scan(&run.CreatedAt)
+	}
+
+	// When an idempotency key is set, serialize concurrent enqueues for the
+	// same (job_id, idempotency_key) under a transaction-scoped advisory
+	// lock. The CTE-based "check then insert" is not atomic across
+	// concurrent statements (each statement's SELECT sees a snapshot taken
+	// before the INSERT), so under contention two callers can both observe
+	// the table empty for the key and both insert. A partitioned unique
+	// index can't help because Postgres requires the partition column
+	// (created_at) to be part of any unique constraint on a partitioned
+	// table.
+	//
+	// We key the lock on (hashtext(job_id), hashtext(idempotency_key)) so
+	// that only same-key enqueues block each other. Non-idempotent enqueues
+	// skip the transaction entirely and keep the hot-path cost unchanged.
+	if run.IdempotencyKey != "" {
+		if beginner, ok := q.db.(store.TxBeginner); ok {
+			return q.enqueueUnderIdempotencyLock(ctx, beginner, run, query, args)
+		}
+	}
+
+	err := q.db.QueryRow(ctx, query, args...).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
 			return domain.ErrIdempotencyConflict
@@ -191,6 +210,57 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		return fmt.Errorf("enqueue run: %w", err)
 	}
 
+	return nil
+}
+
+// enqueueUnderIdempotencyLock runs the enqueue inside a transaction after
+// acquiring pg_advisory_xact_lock keyed on (job_id, idempotency_key). The
+// lock is released automatically at commit or rollback, so concurrent
+// callers with the same key are serialized for just long enough for the
+// CTE-guarded INSERT to observe (or not observe) the previous row.
+func (q *PostgresQueue) enqueueUnderIdempotencyLock(
+	ctx context.Context,
+	beginner store.TxBeginner,
+	run *domain.JobRun,
+	query string,
+	args []any,
+) error {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("enqueue run: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// hashtext returns int4 in Postgres; pg_advisory_xact_lock(int, int)
+	// takes two int4 keys, which is the portable form we want (no int64
+	// concatenation that could differ between little-/big-endian
+	// arithmetic). The function returns void, so we use Exec.
+	if _, err := tx.Exec(
+		ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1)::int, hashtext($2)::int)`,
+		run.JobID,
+		run.IdempotencyKey,
+	); err != nil {
+		return fmt.Errorf("enqueue run: advisory lock: %w", err)
+	}
+
+	if err := tx.QueryRow(ctx, query, args...).Scan(&run.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// A prior holder of the lock inserted a row for the same
+			// (job_id, idempotency_key) with an active status; commit
+			// the empty tx so the lock releases cleanly, then return
+			// the domain conflict.
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return fmt.Errorf("enqueue run: commit after conflict: %w", commitErr)
+			}
+			return domain.ErrIdempotencyConflict
+		}
+		return fmt.Errorf("enqueue run: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("enqueue run: commit: %w", err)
+	}
 	return nil
 }
 
