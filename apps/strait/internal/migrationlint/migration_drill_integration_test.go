@@ -16,7 +16,7 @@ import (
 	"strait/internal/testutil"
 )
 
-// R4 Phase 13: migration up/down drill.
+// Migration up/down drill.
 //
 // Runs all migrations up, then all down to zero, then all up again.
 // Verifies every .down.sql actually reverses its .up.sql without error.
@@ -36,7 +36,7 @@ func TestMigrationDrill_UpDownUp(t *testing.T) {
 	migrationsPath := filepath.Join("..", "..", "migrations")
 	sourceURL := "file://" + migrationsPath
 
-	// Phase 1: all up (already done by SetupTestDB, but let's confirm).
+	// Run all migrations up (already done by SetupTestDB, but let's confirm).
 	m, err := migrate.New(sourceURL, tdb.ConnStr)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
@@ -47,12 +47,12 @@ func TestMigrationDrill_UpDownUp(t *testing.T) {
 		t.Fatalf("up: %v", err)
 	}
 
-	// Phase 2: all down to 0.
+	// Roll all migrations back to zero.
 	if err := m.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatalf("down: %v", err)
 	}
 
-	// Phase 3: all up again.
+	// Re-apply all migrations to verify clean round-trip.
 	m2, err := migrate.New(sourceURL, tdb.ConnStr)
 	if err != nil {
 		t.Fatalf("create migrator for re-up: %v", err)

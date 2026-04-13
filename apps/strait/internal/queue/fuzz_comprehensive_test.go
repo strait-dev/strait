@@ -11,7 +11,7 @@ import (
 	"strait/internal/store"
 )
 
-// Suite 6: comprehensive fuzz targets for the queue system.
+// Comprehensive fuzz targets for the queue system.
 // Each fuzz function targets a specific invariant that must hold for
 // arbitrary input. The seed corpus covers known edge cases; the fuzzer
 // explores everything else.

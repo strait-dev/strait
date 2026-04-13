@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// Round 2 Phase 4: DB circuit breaker for the queue hot path.
+// DB circuit breaker for the queue hot path.
 //
 // When Postgres is slow (not down -- slow), the executor keeps submitting
 // claim queries faster than the DB can drain them. Goroutines pile up in

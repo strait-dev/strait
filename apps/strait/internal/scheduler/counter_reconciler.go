@@ -11,7 +11,7 @@ import (
 	"strait/internal/store"
 )
 
-// Round 2 Phase 3: counter drift reconciler.
+// Counter drift reconciler.
 //
 // The job_active_counts and dlq_counts tables are maintained by BEFORE/AFTER
 // triggers on job_runs. Triggers can drift from ground truth if:

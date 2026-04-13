@@ -12,7 +12,7 @@ import (
 	"strait/internal/store"
 )
 
-// R3 Phase 6: query plan drift detection.
+// Query plan drift detection.
 //
 // A single unexpected ANALYZE that skews table statistics can flip the
 // dequeue planner from Index Scan to Seq Scan silently. Production

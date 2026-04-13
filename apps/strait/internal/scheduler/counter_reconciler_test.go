@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Phase 3 unit tests for the counter reconciler.
+// Unit tests for the counter reconciler.
 
 type reconFakeDB struct {
 	queryCalls int

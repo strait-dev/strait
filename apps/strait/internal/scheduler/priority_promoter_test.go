@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Phase 4 unit tests for the priority promoter. Integration tests live in
+// Unit tests for the priority promoter. Integration tests live in
 // priority_promoter_integration_test.go.
 
 type fakeDB struct {

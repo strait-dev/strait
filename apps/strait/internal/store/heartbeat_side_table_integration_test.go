@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Phase 8 integration tests for the unlogged heartbeat side table.
+// Integration tests for the unlogged heartbeat side table.
 
 func TestHeartbeatSideTable_UpsertCreatesAndUpdates(t *testing.T) {
 	ctx := context.Background()

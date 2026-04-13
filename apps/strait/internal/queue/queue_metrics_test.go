@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Phase 2 unit tests for queue metrics. The singleton uses a nop meter when
+// Unit tests for queue metrics. The singleton uses a nop meter when
 // no OTEL SDK is registered, which is the state during plain `go test`.
 
 func TestMetrics_SingletonIsShared(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 	"strait/internal/queue"
 )
 
-// Suite 2: Concurrency and race condition tests.
+// Concurrency and race condition tests.
 
 func TestConcurrency_50WorkersMaxConcurrency5(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

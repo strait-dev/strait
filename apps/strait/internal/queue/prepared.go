@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// R4 Phase 9: prepared statement warmup for dequeue variants.
+// Prepared statement warmup for dequeue variants.
 //
 // Important caveat on scope: pgx/v5's statement cache is per-connection
 // (see pgx.QueryExecModeCacheStatement, the default). Preparing inside a

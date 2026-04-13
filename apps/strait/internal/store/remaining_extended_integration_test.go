@@ -10,7 +10,7 @@ import (
 )
 
 // --------------------------------------------------------------------------.
-// Phase 5: Remaining methods.
+// Remaining methods.
 // --------------------------------------------------------------------------.
 
 // promoteDeploymentVersion is private, tested indirectly via higher-level promotion flows.

@@ -129,7 +129,7 @@ func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption 
 	}
 }
 
-// WithPriorityPromoter enables Phase 4 priority aging via a dedicated
+// WithPriorityPromoter enables priority aging via a dedicated
 // scheduler goroutine instead of a mutable dequeue ORDER BY.
 func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
 	return func(s *Scheduler) {
@@ -137,42 +137,42 @@ func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
 	}
 }
 
-// WithCounterReconciler enables R2 Phase 3 counter drift reconciliation.
+// WithCounterReconciler enables counter drift reconciliation.
 func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 	return func(s *Scheduler) {
 		s.counterReconciler = r
 	}
 }
 
-// WithPartitionEnsurer enables R3 Phase 3 partition self-heal.
+// WithPartitionEnsurer enables partition self-heal.
 func WithPartitionEnsurer(p *PartitionEnsurer) SchedulerOption {
 	return func(s *Scheduler) {
 		s.partitionEnsurer = p
 	}
 }
 
-// WithPartitionTuner enables R3 Phase 4 per-partition autovacuum tuning.
+// WithPartitionTuner enables per-partition autovacuum tuning.
 func WithPartitionTuner(p *PartitionTuner) SchedulerOption {
 	return func(s *Scheduler) {
 		s.partitionTuner = p
 	}
 }
 
-// WithDLQAgeOut enables R3 Phase 5 DLQ archival.
+// WithDLQAgeOut enables DLQ archival.
 func WithDLQAgeOut(a *DLQAgeOut) SchedulerOption {
 	return func(s *Scheduler) {
 		s.dlqAgeOut = a
 	}
 }
 
-// WithOutboxFlusher enables R4 Phase 2 outbox promotion.
+// WithOutboxFlusher enables outbox promotion.
 func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
 	return func(s *Scheduler) {
 		s.outboxFlusher = f
 	}
 }
 
-// WithPlanDriftMonitor enables R4 Phase 3 daily plan drift detection.
+// WithPlanDriftMonitor enables daily plan drift detection.
 func WithPlanDriftMonitor(m *PlanDriftMonitor) SchedulerOption {
 	return func(s *Scheduler) {
 		s.planDriftMonitor = m

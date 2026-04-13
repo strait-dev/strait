@@ -24,7 +24,7 @@ import (
 // the end — TestCrossTenant_DirectSQLWithoutContext_Empty — proves
 // that a query run with no app.current_project_id bound AND no escape
 // hatch match sees zero rows. Today this passes only because the
-// escape hatch = '' still matches (see the deferred Phase 10 sentinel
+// escape hatch = '' still matches (see the deferred sentinel
 // tightening); the test is shaped to still be useful once that
 // deferral is addressed.
 
@@ -113,7 +113,7 @@ func TestCrossTenant_DeleteJob_WrongProject_NoOp(t *testing.T) {
 	// context. At the store layer this test documents current
 	// behavior: without a bound project context, DeleteJob succeeds
 	// regardless (RLS escape hatch matches ''). This will tighten
-	// once Phase 10's sentinel is applied. Meanwhile, verify that
+	// once the RLS sentinel is applied. Meanwhile, verify that
 	// supplying an empty ID does NOT mass-delete rows.
 	if err := q.DeleteJob(ctx, ""); err == nil {
 		t.Fatal("DeleteJob(\"\") should error")

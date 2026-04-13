@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// R3 Phase 6: store helpers for query plan baselines used by the
+// Store helpers for query plan baselines used by the
 // scheduler.PlanDriftMonitor.
 
 // PlanBaselineRow mirrors the scheduler.PlanBaseline shape but lives in

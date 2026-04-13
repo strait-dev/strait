@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// R3 Phase 1 unit tests for the migration safety linter.
+// Unit tests for the migration safety linter.
 
 // baselineCutoff is the migration number up to which historical violations
 // are tolerated. New migrations (> this number) must pass clean. Raise the

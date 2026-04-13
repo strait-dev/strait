@@ -11,7 +11,7 @@ import (
 	"strait/internal/queue"
 )
 
-// Suite 4: Failure modes and recovery tests.
+// Failure modes and recovery tests.
 
 func TestFailure_DequeueWithCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -10,7 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-// R4 Phase 15: chaos-style integration tests for recovery scenarios.
+// Chaos-style integration tests for recovery scenarios.
 
 // TestChaos_StaleRunReclaimedAfterHeartbeatLapse simulates a worker that
 // claims a run and then "crashes" (stops heartbeating). The stale-run

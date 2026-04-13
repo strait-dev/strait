@@ -9,7 +9,7 @@ import (
 	"strait/internal/store"
 )
 
-// R3 Phase 3: daily partition ensurer.
+// Daily partition ensurer.
 //
 // cmd/strait calls store.EnsureJobRunsPartitions at startup. This
 // goroutine re-runs it daily so a long-lived service never drifts into

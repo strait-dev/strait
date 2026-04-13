@@ -2,7 +2,7 @@ package scheduler
 
 import "strait/internal/domain"
 
-// R4 Phase 3: default watched queries for the plan drift monitor.
+// Default watched queries for the plan drift monitor.
 //
 // Each entry pairs a human-readable name with the SQL text that the
 // monitor will EXPLAIN daily to capture its baseline plan. The SQL

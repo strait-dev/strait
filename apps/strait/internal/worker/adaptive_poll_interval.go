@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// R2 Phase 8: adaptive poll interval.
+// Adaptive poll interval.
 //
 // The fixed poll interval is fine in steady state but wastes DB calls
 // when the queue is empty and blocks latency from dropping when the

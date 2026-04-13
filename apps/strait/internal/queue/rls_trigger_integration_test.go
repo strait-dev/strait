@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// R3 Phase 2: verify our counter and notify triggers still fire correctly
+// Verify our counter and notify triggers still fire correctly
 // when the connection issuing the write is running under
 // FORCE ROW LEVEL SECURITY as the non-superuser `strait_app` role.
 //

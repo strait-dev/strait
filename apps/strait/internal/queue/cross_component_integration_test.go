@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// R2 Phase 14: cross-phase interaction tests. These exercise scenarios
-// that touch multiple phases simultaneously and surface regressions that
-// the per-phase suites miss.
+// Cross-component interaction tests. These exercise scenarios
+// that touch multiple subsystems simultaneously and surface regressions that
+// the per-component suites miss.
 
 // TestCrossPhase_MaskCountsAgainstDLQCap verifies that visible_until
 // masks are not counted against DLQ caps. With the cap at 1 and a
@@ -99,7 +99,7 @@ func TestCrossPhase_ReconcilerAndPromoterCoexist(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_HeartbeatGCDoesntTouchLiveRuns ensures the Phase 5 GC
+// TestCrossPhase_HeartbeatGCDoesntTouchLiveRuns ensures the heartbeat GC
 // leaves live (status='executing') heartbeats alone even when the rest
 // of job_runs is being heavily mutated.
 func TestCrossPhase_HeartbeatGCLiveRunsIntact(t *testing.T) {
@@ -143,7 +143,7 @@ func TestCrossPhase_HeartbeatGCLiveRunsIntact(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_FanoutPropagatesWhileQueueHot exercises the Phase 6
+// TestCrossPhase_FanoutPropagatesWhileQueueHot exercises the denormalized
 // fan-out trigger during active dequeue pressure.
 func TestCrossPhase_FanoutDuringActiveDequeue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -191,7 +191,7 @@ func TestCrossPhase_FanoutDuringActiveDequeue(t *testing.T) {
 }
 
 // TestCrossPhase_RetryScheduleDoesNotAffectDLQCounter confirms that the
-// Phase 7 retry side table is invisible to the dlq_counts trigger.
+// retry side table is invisible to the dlq_counts trigger.
 func TestCrossPhase_RetryScheduleNoDLQSideEffect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

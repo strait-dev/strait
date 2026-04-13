@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// Phase 9: DLQ cap helpers. The trigger in migration 000189 keeps a
+// DLQ cap helpers. The trigger in migration 000189 keeps a
 // (project_id, job_id) -> count counter current; this file is the Go API
 // for reading and enforcing it.
 
@@ -51,8 +51,8 @@ func (q *Queries) DLQDepthByProject(ctx context.Context, projectID string) (int,
 }
 
 // MaskOldDLQRows soft-deletes up to `limit` dead_letter rows whose
-// finished_at is older than `retention`. Used by the R3 Phase 5
-// DLQ age-out archiver. The dlq_counts trigger from Phase 9 decrements
+// finished_at is older than `retention`. Used by the DLQ age-out
+// archiver. The dlq_counts trigger decrements
 // the counter on mask so DLQ caps free up automatically.
 func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, limit int) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MaskOldDLQRows")
@@ -83,7 +83,7 @@ func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, l
 
 // OldestUnmaskedDLQAge returns the age in seconds of the oldest visible
 // dead_letter row (finished_at). Returns 0 if no visible DLQ rows exist.
-// Used by the R4 Phase 11 gauge so Grafana can alert when age-out falls
+// Used by the DLQ age gauge so Grafana can alert when age-out falls
 // behind.
 func (q *Queries) OldestUnmaskedDLQAge(ctx context.Context) (float64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.OldestUnmaskedDLQAge")

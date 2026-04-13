@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Phase 4 unit tests for the DB circuit breaker.
+// Unit tests for the DB circuit breaker.
 
 func newTestCircuit(now *time.Time) *DBCircuit {
 	return NewDBCircuit(DBCircuitConfig{

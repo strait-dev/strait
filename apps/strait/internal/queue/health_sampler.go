@@ -11,7 +11,7 @@ import (
 
 // HealthSampler periodically queries pg_stat_user_tables and publishes
 // per-partition live/dead tuple counts and HOT update ratio. It also samples
-// the oldest queued row age so the Phase 2 dashboard has a direct signal for
+// the oldest queued row age so the dashboard has a direct signal for
 // backlog growth.
 //
 // It is safe to run multiple samplers per process (tests often do) but in

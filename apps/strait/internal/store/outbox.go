@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// R3 Phase 8: outbox reader used by the scheduler flusher.
+// Outbox reader used by the scheduler flusher.
 
 // OutboxRow is a single unconsumed enqueue_outbox row.
 type OutboxRow struct {

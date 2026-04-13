@@ -16,14 +16,14 @@ import (
 )
 
 // cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
-// so the executor can thread a Phase 5 claim cursor through DequeueN without
+// so the executor can thread a claim cursor through DequeueN without
 // expanding the base queue.Queue interface (and therefore without breaking
 // every mock in the repository).
 type cursorAwareQueue interface {
 	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
 }
 
-// denormalizedDequeuer is the optional Phase 6 interface for the
+// denormalizedDequeuer is the optional interface for the
 // job_active_counts-backed dequeue path. Same pattern as cursorAwareQueue:
 // opt-in via type assertion to avoid expanding the base Queue interface.
 type denormalizedDequeuer interface {
@@ -56,7 +56,7 @@ func (e *Executor) poll(ctx context.Context) {
 		available = e.maxDequeueBatchSize
 	}
 
-	// R4 Phase 1: short-circuit when the DB circuit breaker is open so
+	// Short-circuit when the DB circuit breaker is open so
 	// we don't pile up goroutines on a slow Postgres.
 	if e.dbCircuit != nil && e.dbCircuit.State() == queue.CircuitOpen {
 		e.logger.Debug("poll skipped: db circuit open")

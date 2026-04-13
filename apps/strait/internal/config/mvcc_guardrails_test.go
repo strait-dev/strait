@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Phase 1: MVCC horizon guardrail config tests. These only exercise env parsing
+// MVCC horizon guardrail config tests. These only exercise env parsing
 // and default values; the actual session-level effect is verified by the pool
 // integration tests in cmd/strait.
 

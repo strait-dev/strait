@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 )
 
-// Phase 9: DLQ cap enforcement.
+// DLQ cap enforcement.
 //
 // A project or a job can be configured with maximum DLQ depth. When a
 // failure is about to move a run into dead_letter and the depth is at or

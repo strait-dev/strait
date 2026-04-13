@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Phase 5 unit tests for the per-worker claim cursor.
+// Unit tests for the per-worker claim cursor.
 
 func TestClaimCursor_UnsetReturnsInvalid(t *testing.T) {
 	c := NewClaimCursor(60 * time.Second)

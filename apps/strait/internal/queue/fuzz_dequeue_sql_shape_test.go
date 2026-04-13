@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// R2 Phase 11: fuzz targets for SQL generation, payload round-trip, and
+// Fuzz targets for SQL generation, payload round-trip, and
 // idempotency hash collision. These tests do not require a live DB; they
 // assert shape invariants on the generated SQL and hashes.
 
@@ -71,7 +71,7 @@ func assertDequeueShape(t *testing.T, sql string) {
 			t.Errorf("SQL missing %q:\n%s", s, sql)
 		}
 	}
-	// Must not leak the previous Phase 4 aging formula after R1 Phase 4.
+	// Must not leak the deprecated aging formula into the query.
 	if strings.Contains(sql, "EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
 		t.Errorf("aging formula leaked into query:\n%s", sql)
 	}

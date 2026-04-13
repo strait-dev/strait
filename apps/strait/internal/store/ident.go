@@ -5,7 +5,7 @@ import (
 	"regexp"
 )
 
-// R4 Phase 6: SQL identifier validation.
+// SQL identifier validation.
 //
 // Several fmt.Sprintf SQL builders across the codebase interpolate
 // table/partition names into DDL statements. Today those names come

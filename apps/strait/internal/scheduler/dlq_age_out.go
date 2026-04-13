@@ -17,17 +17,17 @@ import (
 // contention.
 const dlqAgeOutScanPoolSize = 4
 
-// R3 Phase 5: DLQ age-out archiver.
+// DLQ age-out archiver.
 //
-// Phase 9 (Round 1) caps DLQ depth per job and per project. Rows stay
-// forever, so day 90 looks like day 1 to the cap. A steady trickle of
-// failures eventually saturates the cap even though most of the rows
-// are stale and not useful for debugging.
+// DLQ depth is capped per job and per project. Rows stay forever, so
+// day 90 looks like day 1 to the cap. A steady trickle of failures
+// eventually saturates the cap even though most of the rows are stale
+// and not useful for debugging.
 //
 // The age-out archiver soft-deletes DLQ rows older than a configurable
-// retention via the visible_until column added in Round 1 Phase 7. The
-// dlq_counts trigger from Phase 9 already decrements the counter on
-// mask, so DLQ caps free up automatically.
+// retention via the visible_until column. The dlq_counts trigger
+// already decrements the counter on mask, so DLQ caps free up
+// automatically.
 
 const dlqAgeOutAdvisoryLockID int64 = 0x5374446C5130 // "StDlQ0"
 
@@ -164,7 +164,7 @@ func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 	if n > 0 {
 		a.logger.Info("dlq age-out masked rows", "count", n, "retention", a.retention)
 	}
-	// R4 Phase 11: sample the oldest unmasked DLQ row age so Grafana
+	// Sample the oldest unmasked DLQ row age so Grafana
 	// can alert when age-out is falling behind.
 	a.sampleOldestUnmaskedAge(ctx)
 	return nil

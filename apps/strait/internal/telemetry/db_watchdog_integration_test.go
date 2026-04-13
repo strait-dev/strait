@@ -116,7 +116,7 @@ func TestDBWatchdog_IdleInTransactionTerminated(t *testing.T) {
 
 	// Acquire a connection with an aggressive idle_in_transaction_session_timeout
 	// and verify Postgres terminates the idle txn. This is the behavioral
-	// test that proves the Phase 1 RuntimeParam actually works end-to-end.
+	// test that proves the RuntimeParam actually works end-to-end.
 	conn, err := pgx.Connect(ctx, tdb.ConnStr)
 	if err != nil {
 		t.Fatalf("connect: %v", err)

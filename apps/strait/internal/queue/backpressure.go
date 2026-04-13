@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// R3 Phase 7: per-project enqueue backpressure.
+// Per-project enqueue backpressure.
 //
 // Simple token bucket implemented in Postgres. The row is refilled on
 // every consume: new_tokens = min(max, old_tokens + floor((now - last_refill) * refill_per_sec)).

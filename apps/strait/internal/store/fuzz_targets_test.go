@@ -30,7 +30,7 @@ func stripPlaceholders(sql string) string {
 	return placeholderRE.ReplaceAllString(sql, " ")
 }
 
-// Phase 20 — high-value fuzz targets surfaced by the test coverage audit.
+// High-value fuzz targets surfaced by the test coverage audit.
 //
 // These are unit fuzz tests (package store, not store_test, no integration
 // build tag) that run in the fast test path. They don't need a real

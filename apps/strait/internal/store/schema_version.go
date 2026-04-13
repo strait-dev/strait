@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// R4 Phase 5: schema version check.
+// Schema version check.
 
 // GetSchemaVersion returns the current schema version from the
 // schema_version table. Returns 0 if the table doesn't exist yet

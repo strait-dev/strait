@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// Round 2 Phase 1: typed enum plumbing for RunStatus.
+// Typed enum plumbing for RunStatus.
 //
 // RunStatus is already `type RunStatus string` in types.go, but it lacked
 // Scan/Value integration with database/sql and a few grouping helpers used

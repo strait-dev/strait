@@ -13,7 +13,7 @@ import (
 	"strait/internal/store"
 )
 
-// Suite 7: Adversarial and security tests.
+// Adversarial and security tests.
 
 func TestAdversarial_SQLInjectionViaIdempotencyKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

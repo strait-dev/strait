@@ -12,7 +12,7 @@ import (
 	"strait/internal/domain"
 )
 
-// TestHotUpdateIndexes_AreUsable verifies that the Phase 3 indexes exist on
+// TestHotUpdateIndexes_AreUsable verifies that the HOT-update indexes exist on
 // the job_runs parent and that EXPLAIN can plan against them.
 func TestHotUpdateIndexes_AreUsable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -118,7 +118,7 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 	}
 
 	// Look across all job_runs partitions and compute the aggregate HOT
-	// ratio. We expect the majority of updates to be HOT after Phase 3.
+	// ratio. We expect the majority of updates to be HOT with the current indexes.
 	var updTotal, hotTotal int64
 	rows, err := testDB.Pool.Query(ctx, `
 		SELECT COALESCE(n_tup_upd,0), COALESCE(n_tup_hot_upd,0)

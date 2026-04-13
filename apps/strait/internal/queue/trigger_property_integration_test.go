@@ -12,9 +12,9 @@ import (
 	"strait/internal/domain"
 )
 
-// Round 2 Phase 10: property tests for the trigger-maintained counters.
+// Property tests for the trigger-maintained counters.
 //
-// The Phase 6 (job_active_counts) and Phase 9 (dlq_counts) triggers must
+// The job_active_counts and dlq_counts triggers must
 // preserve the invariant:
 //
 //   counter row value == COUNT(*) over matching job_runs predicate

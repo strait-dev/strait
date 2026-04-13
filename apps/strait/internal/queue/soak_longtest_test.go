@@ -14,7 +14,7 @@ import (
 	"strait/internal/domain"
 )
 
-// R2 Phase 12: soak, bloat, and scale benchmarks. Behind //go:build
+// Soak, bloat, and scale benchmarks. Behind //go:build
 // longtest so the default CI run stays fast. Enable with:
 //
 //   go test -tags=longtest,integration -run TestSoak ./internal/queue/...

@@ -15,7 +15,7 @@ import (
 
 // TestApplyDBRuntimeParams_ActualSession verifies that the runtime params
 // applied by ApplyDBRuntimeParams end up in effect on every session pgxpool
-// opens. This is the Phase 1 behavioral contract: SHOW idle_in_transaction_session_timeout
+// opens. This is the behavioral contract: SHOW idle_in_transaction_session_timeout
 // must reflect the config value, otherwise the watchdog is the only line of
 // defense.
 func TestApplyDBRuntimeParams_ActualSession(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"strait/internal/store"
 )
 
-// Suite 5: Idempotency and replay tests.
+// Idempotency and replay tests.
 
 func TestIdempotency_SameKeyNoDuplicate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

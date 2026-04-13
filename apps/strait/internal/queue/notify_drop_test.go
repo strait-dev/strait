@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Phase 2 test for QueueNotifier drop counter. The wake channel is buffered
+// Test for QueueNotifier drop counter. The wake channel is buffered
 // to 1; the second notification must be dropped and counted.
 func TestQueueNotifier_DroppedNotifications_BufferFull(t *testing.T) {
 	t.Parallel()

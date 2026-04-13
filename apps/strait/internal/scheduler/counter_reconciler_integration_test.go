@@ -212,7 +212,7 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 
 // TestCounterReconciler_PropertyRandomOps runs a random sequence of queue
 // operations and asserts that after reconcile the counters always equal
-// ground truth. This is the invariant test the Phase 3 plan calls for.
+// ground truth.
 func TestCounterReconciler_PropertyRandomOps(t *testing.T) {
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()

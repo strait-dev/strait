@@ -10,7 +10,7 @@ import (
 	"strait/internal/queue"
 )
 
-// Phase 10 integration tests for notifier reconnect/degraded behavior.
+// Integration tests for notifier reconnect/degraded behavior.
 
 func TestQueueNotifier_DegradedKicksInOnPermaFail(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

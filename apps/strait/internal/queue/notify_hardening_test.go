@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Phase 10 unit tests for notifier hardening state. Integration tests for
+// Unit tests for notifier hardening state. Integration tests for
 // reconnect behaviour live in notify_hardening_integration_test.go.
 
 func TestQueueNotifier_InitialStateIsClean(t *testing.T) {

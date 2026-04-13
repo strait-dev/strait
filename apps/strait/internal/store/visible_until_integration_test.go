@@ -10,7 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-// Phase 7 integration tests for soft-delete retention via visible_until.
+// Integration tests for soft-delete retention via visible_until.
 // These tests complement the existing TestDeleteRunsByOrgOlderThan which
 // already asserts RowsAffected — they additionally verify that the rows
 // physically remain in the table (masked, not deleted).

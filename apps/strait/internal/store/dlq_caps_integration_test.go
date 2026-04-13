@@ -10,7 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-// Phase 9 integration tests for the dlq_counts trigger + store helpers.
+// Integration tests for the dlq_counts trigger + store helpers.
 
 func TestDLQCounts_TriggerMaintainsCounter(t *testing.T) {
 	ctx := context.Background()

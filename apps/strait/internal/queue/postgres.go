@@ -27,7 +27,7 @@ type PostgresQueue struct {
 type PostgresQueueOption func(*PostgresQueue)
 
 // WithPriorityAging is deprecated and now a no-op. Priority aging is handled
-// by the scheduler.PriorityPromoter goroutine in Phase 4 instead of by a
+// by the scheduler.PriorityPromoter goroutine instead of by a
 // mutable ORDER BY expression, which had to sort over every queued row. The
 // constructor option is kept so existing tests and call sites compile.
 func WithPriorityAging(_ bool) PostgresQueueOption {
@@ -69,7 +69,7 @@ func (q *PostgresQueue) setStatementTimeout(ctx context.Context) {
 
 // dequeueOrderByClause always returns the static, index-servable ordering.
 // Starvation prevention is now handled by scheduler.PriorityPromoter which
-// bumps priority on aging rows; see Phase 4 in the reliability plan.
+// bumps priority on aging rows.
 func (q *PostgresQueue) dequeueOrderByClause() string {
 	return "jr.priority DESC, jr.created_at ASC"
 }
@@ -525,7 +525,7 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	return q.DequeueNWithCursor(ctx, n, nil)
 }
 
-// DequeueNFullyDenormalized is the R2 Phase 6 variant that drops the
+// DequeueNFullyDenormalized is the fully-denormalized variant that drops the
 // `JOIN jobs` entirely by reading enabled/paused/max_concurrency from the
 // denormalized columns on job_runs. The fan-out trigger on jobs keeps the
 // columns current for non-terminal rows, so the dequeue hot path touches
@@ -595,7 +595,7 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 	return runs, nil
 }
 
-// DequeueNDenormalized is the Phase 6 variant that replaces the
+// DequeueNDenormalized is the denormalized variant that replaces the
 // COUNT-over-active-rows CTE with a lookup against the job_active_counts
 // table. The maintenance trigger guarantees the counter stays in sync with
 // the job_runs status transitions, so the dequeue hot path does a single
@@ -669,7 +669,7 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 	return runs, nil
 }
 
-// DequeueNWithCursor is the Phase 5 cursor-aware variant. When cursor is
+// DequeueNWithCursor is the cursor-aware variant. When cursor is
 // non-nil and has a valid snapshot, its (created_at, id) pair is added to
 // the claim predicate so Postgres can skip past already-visited heap tuples
 // during B-tree descent. On empty result (no runs claimable beyond the

@@ -8,7 +8,7 @@ import (
 	"strait/internal/domain"
 )
 
-// Suite 6 fuzz targets that live in the worker package because they
+// Fuzz targets that live in the worker package because they
 // test types not exported to queue.
 
 func FuzzAdaptivePollBounds(f *testing.F) {

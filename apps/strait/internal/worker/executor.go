@@ -194,10 +194,10 @@ type ExecutorConfig struct {
 	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
-	// UseDenormalizedDequeue opts into the Phase 6 job_active_counts-backed
+	// UseDenormalizedDequeue opts into the job_active_counts-backed
 	// dequeue path. Defaults to false so existing deployments are unaffected.
 	UseDenormalizedDequeue bool
-	// DBCircuitConfig configures the R4 Phase 1 circuit breaker for the
+	// DBCircuitConfig configures the circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.
 	DBCircuitConfig queue.DBCircuitConfig
 	// EventChannelSize overrides the default (1024) buffered capacity of the

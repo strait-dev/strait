@@ -10,7 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-// Suite 1: Exhaustive FSM state transition tests.
+// Exhaustive FSM state transition tests.
 
 // validTransitions maps from_status -> set of valid to_statuses.
 var validTransitions = map[domain.RunStatus][]domain.RunStatus{

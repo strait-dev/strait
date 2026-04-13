@@ -51,7 +51,7 @@ type Config struct {
 	DBHealthCheckPeriod time.Duration `env:"DB_HEALTH_CHECK_PERIOD" default:"30s"`
 	DBStatementTimeout  time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
 
-	// MVCC horizon guardrails (Phase 1). These prevent stray long transactions
+	// MVCC horizon guardrails. These prevent stray long transactions
 	// from pinning pg_xmin and blocking autovacuum on hot queue tables.
 	DBIdleInTransactionTimeout time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
 	DBLockTimeout              time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
@@ -60,11 +60,11 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
-	// Phase 6: toggle the denormalized dequeue path (uses job_active_counts
+	// Toggle the denormalized dequeue path (uses job_active_counts
 	// lookup table instead of COUNT-over-active-rows CTE).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
 
-	// Phase 9: DLQ caps and overflow policy.
+	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
 	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
 	DLQOverflowPolicy string `env:"DLQ_OVERFLOW_POLICY" default:"drop_oldest"`

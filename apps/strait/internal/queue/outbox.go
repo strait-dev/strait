@@ -24,7 +24,7 @@ func uniqueJobIDs(entries []OutboxEntry) []string {
 	return out
 }
 
-// R3 Phase 8: transactional outbox primitive.
+// Transactional outbox primitive.
 //
 // Callers that have their own DB transaction can write an OutboxEntry
 // to the enqueue_outbox table as part of that transaction, guaranteeing

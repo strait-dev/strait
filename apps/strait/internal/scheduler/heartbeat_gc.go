@@ -10,9 +10,9 @@ import (
 	"strait/internal/store"
 )
 
-// Round 2 Phase 5: orphan heartbeat GC.
+// Orphan heartbeat GC.
 //
-// The Phase 8 unlogged heartbeat side table `job_run_heartbeats` is
+// The unlogged heartbeat side table `job_run_heartbeats` is
 // maintained by the worker -- inserts on claim, updates on heartbeat
 // tick, deletes on terminal transition. If a terminal transition skips
 // the delete (historic bug, operator intervention, replica that misses

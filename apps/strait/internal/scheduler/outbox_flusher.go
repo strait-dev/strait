@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// R4 Phase 2: outbox flusher.
+// Outbox flusher.
 //
 // Promotes pending enqueue_outbox rows into job_runs. Each tick opens a
 // transaction, claims up to BatchSize rows via SKIP LOCKED, enqueues each

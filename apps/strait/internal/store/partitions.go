@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// R3 Phase 3: pg_partman fallback and self-heal.
+// pg_partman fallback and self-heal.
 //
 // Migration 000066 sets up pg_partman with p_premake=4, meaning it
 // creates partitions four months ahead of the current month. If the
@@ -128,7 +128,7 @@ func (q *Queries) PartitionExists(ctx context.Context, name string) (bool, error
 }
 
 // ListJobRunsPartitions returns every partition of the job_runs parent
-// in creation order. Used by the scheduler tuner (Phase 4) and by the
+// in creation order. Used by the scheduler tuner and by the
 // observability dashboards.
 func (q *Queries) ListJobRunsPartitions(ctx context.Context) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobRunsPartitions")
@@ -175,7 +175,7 @@ func startOfMonth(t time.Time) time.Time {
 }
 
 // ExecDDL runs a single DDL statement via the underlying pool. Used by
-// the partition tuner (R3 Phase 4) which issues ALTER TABLE SET/RESET
+// the partition tuner which issues ALTER TABLE SET/RESET
 // commands on individual partitions.
 func (q *Queries) ExecDDL(ctx context.Context, sql string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ExecDDL")

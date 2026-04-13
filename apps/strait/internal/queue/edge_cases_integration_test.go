@@ -13,7 +13,7 @@ import (
 	"strait/internal/domain"
 )
 
-// Suite 3: Edge cases and boundary conditions.
+// Edge cases and boundary conditions.
 
 func TestEdge_EmptyPayload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

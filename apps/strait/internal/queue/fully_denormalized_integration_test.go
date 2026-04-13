@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// R2 Phase 6 integration tests for the fully-denormalized dequeue path.
+// Integration tests for the fully-denormalized dequeue path.
 
 func TestDequeueNFullyDenormalized_HappyPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

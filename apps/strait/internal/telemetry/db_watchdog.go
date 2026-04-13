@@ -142,7 +142,7 @@ func (w *DBWatchdog) sampleOnce(ctx context.Context) {
 	}()
 	defer w.sampleCount.Add(1)
 
-	// R2 Phase 2: exclude the watchdog's own connection from the scan. The
+	// Exclude the watchdog's own connection from the scan. The
 	// application_name filter ensures the watchdog does not see itself as
 	// a long transaction when the pool is saturated; cmd/strait sets the
 	// matching application_name on the watchdog-owned connection via the

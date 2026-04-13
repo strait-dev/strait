@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// R2 Phase 7: retry side table helpers.
+// Retry side table helpers.
 //
 // The job_retries table holds pending retries for runs that are currently
 // in status 'queued'. Writing here instead of UPDATE job_runs SET

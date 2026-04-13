@@ -10,7 +10,7 @@ import (
 	"strait/internal/store"
 )
 
-// R4 Phase 14: schema version mismatch integration tests.
+// Schema version mismatch integration tests.
 
 func TestSchemaVersion_MatchAfterMigrations(t *testing.T) {
 	ctx := context.Background()

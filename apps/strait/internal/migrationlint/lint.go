@@ -4,9 +4,9 @@
 // CGo dependency for pg_query -- the patterns we want to catch are all
 // detectable at the statement level without a full parser.
 //
-// Round 3 Phase 1. A PR adding `CREATE INDEX` (without CONCURRENTLY) or
+// A PR adding `CREATE INDEX` (without CONCURRENTLY) or
 // `ALTER TABLE ... SET NOT NULL` on a hot table can brick a production
-// database that Round 1/2 went to great lengths to keep healthy. This
+// database that earlier work went to great lengths to keep healthy. This
 // linter is the cheapest possible gate: ~400 lines of Go, no external
 // parser, runs in CI in under a second.
 package migrationlint

@@ -18,9 +18,9 @@ import (
 // is enough to overlap IO without saturating the DB lock manager.
 const partitionTunerPoolSize = 4
 
-// R3 Phase 4: per-partition autovacuum tuner.
+// Per-partition autovacuum tuner.
 //
-// Migration 180 (Round 1) sets aggressive autovacuum on the job_runs
+// Migration 180 sets aggressive autovacuum on the job_runs
 // parent, which propagates to every partition including cold ones that
 // see almost no UPDATEs. This wastes vacuum worker cycles on partitions
 // that don't need them and starves the hot partition of attention.
@@ -152,7 +152,7 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 
 	hot := hotPartitionNames(t.clock())
 
-	// R4 Phase 4: apply per-partition ALTER TABLE calls through a bounded
+	// Apply per-partition ALTER TABLE calls through a bounded
 	// pond pool so a long list does not serialize behind each DDL round
 	// trip. The work is ordering-independent; we aggregate counters via
 	// atomics and log errors per partition. The pool is owned by the

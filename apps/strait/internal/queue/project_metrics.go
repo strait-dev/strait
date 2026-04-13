@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// R2 Phase 9: per-project claim-latency histogram with a bounded allow-list.
+// Per-project claim-latency histogram with a bounded allow-list.
 //
 // A raw project_id label on every sample would explode metric
 // cardinality. We keep a fixed allow-list of project IDs that are

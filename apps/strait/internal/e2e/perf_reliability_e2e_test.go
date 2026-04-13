@@ -75,12 +75,12 @@ func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
 }
 
 func TestE2E_PriorityAgingAffectsDequeueOrder(t *testing.T) {
-	// R1 Phase 4 replaced the dequeue-time aging ORDER BY with a
+	// The dequeue-time aging ORDER BY was replaced with a
 	// scheduler.PriorityPromoter goroutine that bumps priority on aged
 	// queued runs. WithPriorityAging is now a no-op kept for compat,
 	// so this test's premise is invalid. Promotion is exercised in
 	// scheduler/priority_promoter_integration_test.go instead.
-	t.Skip("superseded by scheduler.PriorityPromoter (R1 Phase 4); see priority_promoter_integration_test.go")
+	t.Skip("superseded by scheduler.PriorityPromoter; see priority_promoter_integration_test.go")
 }
 
 func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {

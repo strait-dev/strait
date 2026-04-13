@@ -61,7 +61,7 @@ func (q *Queries) CountEnvironmentsByProject(ctx context.Context, projectID stri
 	return count, nil
 }
 
-// DeleteRunsByOrgOlderThan is the Phase 7 soft-delete replacement for the
+// DeleteRunsByOrgOlderThan is the soft-delete replacement for the
 // previous physical DELETE. Instead of creating dead tuples scattered across
 // every partition, it sets visible_until = NOW() which is HOT-update
 // eligible (the column is intentionally not indexed). pg_partman remains

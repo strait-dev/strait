@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Suite 8: PR #126 queue reliability overhaul integration tests.
+// PR #126 queue reliability overhaul integration tests.
 
 func TestPR126_EnqueueDequeueComplete(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

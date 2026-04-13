@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// R2 Phase 13: reader-discipline AST audit.
+// Reader-discipline AST audit.
 //
-// After Phase 7 (Round 1) introduced visible_until as a soft-delete
+// After visible_until was introduced as a soft-delete
 // marker, all reader queries over job_runs are supposed to filter out
 // masked rows via store.VisibleRunsClause. This test walks the store
 // package AST and fails if any SELECT over job_runs omits the filter
@@ -95,7 +95,7 @@ func TestReaderDiscipline_JobRunsSelectsFilterVisibility(t *testing.T) {
 		}
 	}
 
-	// Phase 7 left most readers unmigrated. We do not want this test to
+	// Most readers are still unmigrated. We do not want this test to
 	// fail the build before the migration is complete, so for now it is a
 	// reporting-only test with an explicit t.Log of the count. Flip to
 	// t.Errorf once readers are fully migrated.

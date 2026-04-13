@@ -31,7 +31,7 @@ type QueueNotifier struct {
 	metrics      *QueueMetrics
 	droppedCount uint64
 	reconnects   uint64
-	// Phase 10: time of the most recent successful LISTEN establishment.
+	// Time of the most recent successful LISTEN establishment.
 	// Zero while no connection is live. Stored as UnixNano for lock-free
 	// reads.
 	lastConnectedUnixNano int64

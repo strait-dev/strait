@@ -9,7 +9,7 @@ import (
 	"strait/internal/store"
 )
 
-// Phase 4: PriorityPromoter bumps priority on queued runs older than a
+// PriorityPromoter bumps priority on queued runs older than a
 // threshold, so starvation is handled outside the dequeue hot path. This
 // replaces the mutable ORDER BY (priority + age/3600 DESC) which forced a
 // sort over every queued row.

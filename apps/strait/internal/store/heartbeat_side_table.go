@@ -8,9 +8,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// Phase 8: side-table heartbeat API. These methods operate on the unlogged
+// Side-table heartbeat API. These methods operate on the unlogged
 // job_run_heartbeats table so the hot heartbeat path does not churn
-// job_runs and defeat Phase 3's HOT-update wins.
+// job_runs and defeat HOT-update wins.
 
 // UpsertHeartbeatSideTable writes a single heartbeat into the side table.
 // The PK conflict path keeps latency constant regardless of whether the row
@@ -63,7 +63,7 @@ func (q *Queries) DeleteHeartbeatSideTable(ctx context.Context, ids []string) er
 }
 
 // DeleteOrphanedHeartbeats removes side-table rows whose owning run is
-// no longer in status 'executing'. Used by the R2 Phase 5 heartbeat GC
+// no longer in status 'executing'. Used by the heartbeat GC
 // to bound the unlogged table size when a terminal transition skipped
 // the explicit delete.
 func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error) {

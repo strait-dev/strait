@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// Round 2 Phase 1: typed ErrorClass.
+// Typed ErrorClass.
 //
 // ErrorClass was originally a set of untyped string constants in types.go.
 // To keep backwards compatibility with the large number of call sites that

@@ -210,7 +210,7 @@ func CircuitBreakerChaos() Scenario {
 
 // OutboxBurst bulk-enqueues via outbox with the flusher paused,
 // releases it, and measures flusher throughput plus the
-// outbox_lag_seconds histogram introduced in Phase 1.
+// outbox_lag_seconds histogram.
 func OutboxBurst() Scenario {
 	return Scenario{
 		Name:        "outbox_burst",

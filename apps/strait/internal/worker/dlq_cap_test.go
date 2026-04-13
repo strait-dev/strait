@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Phase 9 unit tests for the DLQ cap enforcer.
+// Unit tests for the DLQ cap enforcer.
 
 type fakeDLQStore struct {
 	perJob     map[string]int

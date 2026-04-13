@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// QueueMetrics bundles the Phase 2 queue-health observability gauges and
+// QueueMetrics bundles the queue-health observability gauges and
 // counters. They live in a dedicated meter ("strait/queue_health") so adding
 // new signals does not require modifying the monolithic telemetry.Metrics
 // struct. All instruments are lazily initialised and safe for concurrent use.
@@ -25,10 +25,10 @@ type QueueMetrics struct {
 	HeartbeatReclaims metric.Int64Counter
 	RetryScheduleLag  metric.Float64Histogram
 	MaskedRowsPending metric.Int64Gauge
-	// Round 2 Phase 3: absolute drift observed by the counter reconciler.
+	// Absolute drift observed by the counter reconciler.
 	CounterDrift metric.Int64Gauge
 
-	// Phase 1 hot-path instruments.
+	// Hot-path instruments.
 	PartitionDequeueLag         metric.Float64Histogram
 	ClaimToStart                metric.Float64Histogram
 	CircuitStateTransitions     metric.Int64Counter
@@ -38,7 +38,7 @@ type QueueMetrics struct {
 	RetryAttempts               metric.Float64Histogram
 	DLQOldestUnmaskedAge        metric.Float64Gauge
 
-	// Phase 2 reliability instruments.
+	// Reliability instruments.
 	EventChannelSaturationRatio metric.Float64Gauge
 	SchedulerShutdownTimeouts   metric.Int64Counter
 }

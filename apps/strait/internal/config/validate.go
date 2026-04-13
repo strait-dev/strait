@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Round 2 Phase 2: config invariants.
+// Config invariants.
 //
 // Load() previously accepted any value from env parsing and let downstream
 // code handle garbage. A `Validate()` call at the end of Load catches
