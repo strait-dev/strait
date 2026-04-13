@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +35,9 @@ type QueueNotifier struct {
 	// Zero while no connection is live. Stored as UnixNano for lock-free
 	// reads.
 	lastConnectedUnixNano int64
+	// degradedMu protects degradedCh against concurrent read/write races
+	// between Degraded() (readers) and markDegraded()/DegradedReset() (writers).
+	degradedMu sync.RWMutex
 	// Aggressive-polling signal channel. When the notifier has been
 	// disconnected longer than the configured threshold, this channel is
 	// closed; workers that select on it can shorten their poll interval.
@@ -83,11 +87,16 @@ func (n *QueueNotifier) ConnectionAge() time.Duration {
 // Once the notifier successfully reconnects, callers should call
 // DegradedReset to get a fresh channel.
 func (n *QueueNotifier) Degraded() <-chan struct{} {
-	return n.degradedCh
+	n.degradedMu.RLock()
+	ch := n.degradedCh
+	n.degradedMu.RUnlock()
+	return ch
 }
 
 // markDegraded closes degradedCh so receivers wake up. Idempotent.
 func (n *QueueNotifier) markDegraded() {
+	n.degradedMu.Lock()
+	defer n.degradedMu.Unlock()
 	if n.degradedOnce.CompareAndSwap(false, true) {
 		close(n.degradedCh)
 	}
@@ -96,6 +105,8 @@ func (n *QueueNotifier) markDegraded() {
 // DegradedReset replaces the degraded channel with a fresh one after a
 // successful reconnect. Safe to call concurrently; reuses the same field.
 func (n *QueueNotifier) DegradedReset() {
+	n.degradedMu.Lock()
+	defer n.degradedMu.Unlock()
 	if n.degradedOnce.Load() {
 		n.degradedCh = make(chan struct{})
 		n.degradedOnce.Store(false)

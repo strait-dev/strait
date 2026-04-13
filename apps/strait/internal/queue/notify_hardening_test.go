@@ -101,6 +101,42 @@ func incReconnects(n *QueueNotifier) {
 	atomic.AddUint64(&n.reconnects, 1)
 }
 
+// TestQueueNotifier_DegradedConcurrency exercises the Degraded / markDegraded /
+// DegradedReset paths under heavy concurrent access. Must pass under -race.
+func TestQueueNotifier_DegradedConcurrency(t *testing.T) {
+	n := NewQueueNotifier("postgres://unused", nil)
+
+	const readers = 128
+	const iterations = 10_000
+
+	var wg sync.WaitGroup
+
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				ch := n.Degraded()
+				select {
+				case <-ch:
+				default:
+				}
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			n.markDegraded()
+			n.DegradedReset()
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestQueueNotifier_ConnectionAgeAfterSet(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
 	// Simulate a successful listenLoop.
