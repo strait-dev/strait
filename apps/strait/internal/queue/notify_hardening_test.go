@@ -112,9 +112,7 @@ func TestQueueNotifier_DegradedConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range readers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range iterations {
 				ch := n.Degraded()
 				select {
@@ -122,17 +120,15 @@ func TestQueueNotifier_DegradedConcurrency(t *testing.T) {
 				default:
 				}
 			}
-		}()
+		})
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for range iterations {
 			n.markDegraded()
 			n.DegradedReset()
 		}
-	}()
+	})
 
 	wg.Wait()
 }
