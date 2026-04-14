@@ -18,9 +18,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// PR #126 queue reliability overhaul integration tests.
+// Queue reliability integration tests.
 
-func TestPR126_EnqueueDequeueComplete(t *testing.T) {
+func TestQueueReliability_EnqueueDequeueComplete(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -70,7 +70,7 @@ func TestPR126_EnqueueDequeueComplete(t *testing.T) {
 	}
 }
 
-func TestPR126_ConcurrentDequeueSkipLocked(t *testing.T) {
+func TestQueueReliability_ConcurrentDequeueSkipLocked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -124,7 +124,7 @@ func TestPR126_ConcurrentDequeueSkipLocked(t *testing.T) {
 	}
 }
 
-func TestPR126_BackpressureExhaustionAndRefill(t *testing.T) {
+func TestQueueReliability_BackpressureExhaustionAndRefill(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -151,7 +151,7 @@ func TestPR126_BackpressureExhaustionAndRefill(t *testing.T) {
 	}
 }
 
-func TestPR126_BackpressureConcurrentConsumers(t *testing.T) {
+func TestQueueReliability_BackpressureConcurrentConsumers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -189,7 +189,7 @@ func TestPR126_BackpressureConcurrentConsumers(t *testing.T) {
 	}
 }
 
-func TestPR126_OutboxBatchJobValidation(t *testing.T) {
+func TestQueueReliability_OutboxBatchJobValidation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -218,7 +218,7 @@ func TestPR126_OutboxBatchJobValidation(t *testing.T) {
 	}
 }
 
-func TestPR126_OutboxFlushAtomicity(t *testing.T) {
+func TestQueueReliability_OutboxFlushAtomicity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -257,7 +257,7 @@ func TestPR126_OutboxFlushAtomicity(t *testing.T) {
 	}
 }
 
-func TestPR126_DLQDepthErrorPropagation(t *testing.T) {
+func TestQueueReliability_DLQDepthErrorPropagation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -281,7 +281,7 @@ func TestPR126_DLQDepthErrorPropagation(t *testing.T) {
 	}
 }
 
-func TestPR126_NotifierDegradedConcurrency(t *testing.T) {
+func TestQueueReliability_NotifierDegradedConcurrency(t *testing.T) {
 	n := queue.NewQueueNotifier("postgres://unused", nil)
 
 	const readers = 128
@@ -314,7 +314,7 @@ func TestPR126_NotifierDegradedConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
-func TestPR126_WriteOutboxBatchValidation(t *testing.T) {
+func TestQueueReliability_WriteOutboxBatchValidation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -354,7 +354,7 @@ func TestPR126_WriteOutboxBatchValidation(t *testing.T) {
 	}
 }
 
-func TestPR126_DLQCapEnforcement(t *testing.T) {
+func TestQueueReliability_DLQCapEnforcement(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -414,7 +414,7 @@ func TestPR126_DLQCapEnforcement(t *testing.T) {
 	}
 }
 
-func TestPR126_CounterTriggerAccuracy(t *testing.T) {
+func TestQueueReliability_CounterTriggerAccuracy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -482,7 +482,7 @@ func TestPR126_CounterTriggerAccuracy(t *testing.T) {
 	}
 }
 
-func TestPR126_EnqueueInTxAtomicity(t *testing.T) {
+func TestQueueReliability_EnqueueInTxAtomicity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -542,7 +542,7 @@ func TestPR126_EnqueueInTxAtomicity(t *testing.T) {
 	}
 }
 
-func TestPR126_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *testing.T) {
+func TestQueueReliability_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -613,7 +613,7 @@ func TestPR126_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *testing.T) {
 	}
 }
 
-func TestPR126_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testing.T) {
+func TestQueueReliability_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -684,7 +684,7 @@ func TestPR126_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testing.T) {
 	}
 }
 
-func TestPR126_EnqueueInTx_NonIdempotentFastPathStillWorks(t *testing.T) {
+func TestQueueReliability_EnqueueInTx_NonIdempotentFastPathStillWorks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -718,7 +718,7 @@ func TestPR126_EnqueueInTx_NonIdempotentFastPathStillWorks(t *testing.T) {
 	}
 }
 
-func TestPR126_ProductionQueue_BackpressureAttached(t *testing.T) {
+func TestQueueReliability_ProductionQueueBackpressureAttached(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -746,7 +746,7 @@ func TestPR126_ProductionQueue_BackpressureAttached(t *testing.T) {
 	}
 }
 
-func TestPR126_QueueEnqueueBatch_BackpressureRejectsWhenBucketExhausted(t *testing.T) {
+func TestQueueReliability_EnqueueBatchBackpressureRejectsWhenBucketExhausted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -781,7 +781,7 @@ func TestPR126_QueueEnqueueBatch_BackpressureRejectsWhenBucketExhausted(t *testi
 	}
 }
 
-func TestPR126_QueueEnqueueBatch_BackpressureIsPerProject(t *testing.T) {
+func TestQueueReliability_EnqueueBatchBackpressureIsPerProject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -812,7 +812,7 @@ func TestPR126_QueueEnqueueBatch_BackpressureIsPerProject(t *testing.T) {
 	}
 }
 
-func TestPR126_QueueEnqueue_BackpressureRejectsSingleRun(t *testing.T) {
+func TestQueueReliability_EnqueueBackpressureRejectsSingleRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -837,7 +837,7 @@ func TestPR126_QueueEnqueue_BackpressureRejectsSingleRun(t *testing.T) {
 	}
 }
 
-func TestPR126_QueueEnqueue_BackpressureIsPerProject(t *testing.T) {
+func TestQueueReliability_EnqueueBackpressureIsPerProject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -859,7 +859,7 @@ func TestPR126_QueueEnqueue_BackpressureIsPerProject(t *testing.T) {
 	}
 }
 
-func TestPR126_EnqueueInTx_SameKeyStressCreatesSingleRun(t *testing.T) {
+func TestQueueReliability_EnqueueInTxSameKeyStressCreatesSingleRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -932,7 +932,7 @@ func TestPR126_EnqueueInTx_SameKeyStressCreatesSingleRun(t *testing.T) {
 	}
 }
 
-func TestPR126_ExplainSelectOnly(t *testing.T) {
+func TestQueueReliability_ExplainSelectOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	st := store.New(testDB.Pool)
