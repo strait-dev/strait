@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_enqueue_outbox_retry_of_active;

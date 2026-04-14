@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"strait/internal/domain"
 	"strait/internal/store"
 )
 
@@ -39,10 +40,10 @@ func TestSchemaVersion_MismatchDetected(t *testing.T) {
 	}
 	defer func() {
 		// Restore so other tests aren't affected.
-		_, _ = testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = 197 WHERE id = 1`)
+		_, _ = testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = $1 WHERE id = 1`, domain.ExpectedSchemaVersion)
 	}()
 
-	err = q.CheckSchemaVersion(ctx, 196)
+	err = q.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion)
 	if !errors.Is(err, store.ErrSchemaMismatch) {
 		t.Errorf("expected ErrSchemaMismatch, got %v", err)
 	}
@@ -57,10 +58,10 @@ func TestSchemaVersion_BinaryAheadDetected(t *testing.T) {
 		t.Fatalf("tamper: %v", err)
 	}
 	defer func() {
-		_, _ = testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = 197 WHERE id = 1`)
+		_, _ = testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = $1 WHERE id = 1`, domain.ExpectedSchemaVersion)
 	}()
 
-	err = q.CheckSchemaVersion(ctx, 196)
+	err = q.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion)
 	if !errors.Is(err, store.ErrSchemaMismatch) {
 		t.Errorf("expected ErrSchemaMismatch, got %v", err)
 	}

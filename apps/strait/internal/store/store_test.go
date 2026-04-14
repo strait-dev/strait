@@ -33,6 +33,7 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrJobNotFound", ErrJobNotFound, "job not found"},
 		{"ErrRunNotFound", ErrRunNotFound, "run not found"},
 		{"ErrRunConflict", ErrRunConflict, "run status update conflict"},
+		{"ErrOutboxRowConflict", ErrOutboxRowConflict, "outbox row conflict"},
 	}
 
 	for _, tt := range tests {
@@ -47,7 +48,7 @@ func TestSentinelErrors(t *testing.T) {
 
 func TestSentinelErrors_Wrapping(t *testing.T) {
 	t.Parallel()
-	sentinels := []error{ErrJobNotFound, ErrRunNotFound, ErrRunConflict}
+	sentinels := []error{ErrJobNotFound, ErrRunNotFound, ErrRunConflict, ErrOutboxRowConflict}
 	for _, sentinel := range sentinels {
 		t.Run(sentinel.Error(), func(t *testing.T) {
 			wrapped := fmt.Errorf("outer: %w", sentinel)
@@ -65,6 +66,9 @@ func TestSentinelErrors_NotEqual(t *testing.T) {
 	}
 	if errors.Is(ErrRunNotFound, ErrRunConflict) {
 		t.Error("ErrRunNotFound should not equal ErrRunConflict")
+	}
+	if errors.Is(ErrOutboxRowNotFound, ErrOutboxRowConflict) {
+		t.Error("ErrOutboxRowNotFound should not equal ErrOutboxRowConflict")
 	}
 }
 

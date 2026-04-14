@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
@@ -17,30 +18,32 @@ import (
 
 // OutboxRow is a single unconsumed enqueue_outbox row.
 type OutboxRow struct {
-	ID             string
-	ProjectID      string
-	JobID          string
-	Payload        json.RawMessage
-	Metadata       json.RawMessage
-	IdempotencyKey *string
-	ScheduledAt    *time.Time
-	Priority       int
-	CreatedAt      time.Time
+	ID              string
+	ProjectID       string
+	JobID           string
+	Payload         json.RawMessage
+	Metadata        json.RawMessage
+	IdempotencyKey  *string
+	ScheduledAt     *time.Time
+	Priority        int
+	CreatedAt       time.Time
+	RetryOfOutboxID *string
 }
 
 // QuarantinedOutboxRow is a terminal outbox row kept for operator inspection.
 type QuarantinedOutboxRow struct {
-	ID             string
-	ProjectID      string
-	JobID          string
-	Payload        json.RawMessage
-	Metadata       json.RawMessage
-	IdempotencyKey *string
-	ScheduledAt    *time.Time
-	Priority       int
-	CreatedAt      time.Time
-	ConsumedAt     time.Time
-	Error          string
+	ID              string
+	ProjectID       string
+	JobID           string
+	Payload         json.RawMessage
+	Metadata        json.RawMessage
+	IdempotencyKey  *string
+	ScheduledAt     *time.Time
+	Priority        int
+	CreatedAt       time.Time
+	ConsumedAt      time.Time
+	Error           string
+	RetryOfOutboxID *string
 }
 
 // ClaimUnconsumedOutbox fetches up to `limit` unconsumed outbox rows on
@@ -72,7 +75,7 @@ func claimOutboxOnConn(ctx context.Context, q outboxQuerier, limit int) ([]Outbo
 	}
 	rows, err := q.Query(ctx, `
 		SELECT id, project_id, job_id, payload, metadata,
-		       idempotency_key, scheduled_at, priority, created_at
+		       idempotency_key, scheduled_at, priority, created_at, retry_of_outbox_id
 		FROM enqueue_outbox
 		WHERE consumed_at IS NULL
 		ORDER BY created_at ASC
@@ -89,7 +92,7 @@ func claimOutboxOnConn(ctx context.Context, q outboxQuerier, limit int) ([]Outbo
 		var r OutboxRow
 		if err := rows.Scan(
 			&r.ID, &r.ProjectID, &r.JobID, &r.Payload, &r.Metadata,
-			&r.IdempotencyKey, &r.ScheduledAt, &r.Priority, &r.CreatedAt,
+			&r.IdempotencyKey, &r.ScheduledAt, &r.Priority, &r.CreatedAt, &r.RetryOfOutboxID,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
 		}
@@ -225,7 +228,7 @@ func (q *Queries) ListQuarantinedOutbox(
 	args := []any{projectID, limit}
 	query := `
 		SELECT id, project_id, job_id, payload, metadata, idempotency_key,
-		       scheduled_at, priority, created_at, consumed_at, error
+		       scheduled_at, priority, created_at, consumed_at, error, retry_of_outbox_id
 		FROM enqueue_outbox
 		WHERE project_id = $1
 		  AND consumed_at IS NOT NULL
@@ -264,6 +267,7 @@ func (q *Queries) ListQuarantinedOutbox(
 			&row.CreatedAt,
 			&row.ConsumedAt,
 			&row.Error,
+			&row.RetryOfOutboxID,
 		); err != nil {
 			return nil, fmt.Errorf("scan quarantined outbox: %w", err)
 		}
@@ -283,7 +287,7 @@ func (q *Queries) GetQuarantinedOutbox(ctx context.Context, projectID, id string
 	var row QuarantinedOutboxRow
 	err := q.db.QueryRow(ctx, `
 		SELECT id, project_id, job_id, payload, metadata, idempotency_key,
-		       scheduled_at, priority, created_at, consumed_at, error
+		       scheduled_at, priority, created_at, consumed_at, error, retry_of_outbox_id
 		FROM enqueue_outbox
 		WHERE project_id = $1
 		  AND id = $2
@@ -302,6 +306,7 @@ func (q *Queries) GetQuarantinedOutbox(ctx context.Context, projectID, id string
 		&row.CreatedAt,
 		&row.ConsumedAt,
 		&row.Error,
+		&row.RetryOfOutboxID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrOutboxRowNotFound
@@ -310,4 +315,216 @@ func (q *Queries) GetQuarantinedOutbox(ctx context.Context, projectID, id string
 		return nil, fmt.Errorf("get quarantined outbox: %w", err)
 	}
 	return &row, nil
+}
+
+type outboxRowState struct {
+	ID              string
+	ProjectID       string
+	JobID           string
+	Payload         json.RawMessage
+	Metadata        json.RawMessage
+	IdempotencyKey  *string
+	ScheduledAt     *time.Time
+	Priority        int
+	CreatedAt       time.Time
+	ConsumedAt      *time.Time
+	Error           *string
+	RetryOfOutboxID *string
+}
+
+// RetryQuarantinedOutbox clones a quarantined row into a fresh, claimable
+// outbox row while preserving the original row as immutable audit history.
+func (q *Queries) RetryQuarantinedOutbox(ctx context.Context, projectID, id string) (*OutboxRow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RetryQuarantinedOutbox")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("retry quarantined outbox: db does not support transactions")
+	}
+
+	var cloned OutboxRow
+	err := WithTx(ctx, beginner, func(txQ *Queries) error {
+		source, err := loadOutboxRowStateForUpdate(ctx, txQ.db, projectID, id)
+		if err != nil {
+			return err
+		}
+		if err := requireQuarantinedOutbox(source); err != nil {
+			return err
+		}
+
+		var existingID string
+		err = txQ.db.QueryRow(ctx, `
+			SELECT id
+			FROM enqueue_outbox
+			WHERE retry_of_outbox_id = $1
+			  AND consumed_at IS NULL
+			LIMIT 1
+		`, source.ID).Scan(&existingID)
+		switch {
+		case err == nil:
+			return fmt.Errorf("%w: active retry clone %s already exists for outbox row %s", ErrOutboxRowConflict, existingID, source.ID)
+		case !errors.Is(err, pgx.ErrNoRows):
+			return fmt.Errorf("retry quarantined outbox: check active clone: %w", err)
+		}
+
+		cloned.ID = uuid.Must(uuid.NewV7()).String()
+		err = txQ.db.QueryRow(ctx, `
+			INSERT INTO enqueue_outbox (
+				id, project_id, job_id, payload, metadata, idempotency_key,
+				scheduled_at, priority, retry_of_outbox_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			RETURNING id, project_id, job_id, payload, metadata, idempotency_key,
+			          scheduled_at, priority, created_at, retry_of_outbox_id
+		`,
+			cloned.ID,
+			source.ProjectID,
+			source.JobID,
+			source.Payload,
+			source.Metadata,
+			source.IdempotencyKey,
+			source.ScheduledAt,
+			source.Priority,
+			source.ID,
+		).Scan(
+			&cloned.ID,
+			&cloned.ProjectID,
+			&cloned.JobID,
+			&cloned.Payload,
+			&cloned.Metadata,
+			&cloned.IdempotencyKey,
+			&cloned.ScheduledAt,
+			&cloned.Priority,
+			&cloned.CreatedAt,
+			&cloned.RetryOfOutboxID,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return fmt.Errorf("%w: active retry clone already exists for outbox row %s", ErrOutboxRowConflict, source.ID)
+			}
+			return fmt.Errorf("retry quarantined outbox: insert clone: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloned, nil
+}
+
+// PurgeQuarantinedOutbox hard-deletes one quarantined row and returns the
+// deleted snapshot for auditing.
+func (q *Queries) PurgeQuarantinedOutbox(ctx context.Context, projectID, id string) (*QuarantinedOutboxRow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.PurgeQuarantinedOutbox")
+	defer span.End()
+
+	var row QuarantinedOutboxRow
+	err := q.db.QueryRow(ctx, `
+		DELETE FROM enqueue_outbox
+		WHERE project_id = $1
+		  AND id = $2
+		  AND consumed_at IS NOT NULL
+		  AND error IS NOT NULL
+		  AND error <> ''
+		RETURNING id, project_id, job_id, payload, metadata, idempotency_key,
+		          scheduled_at, priority, created_at, consumed_at, error, retry_of_outbox_id
+	`, projectID, id).Scan(
+		&row.ID,
+		&row.ProjectID,
+		&row.JobID,
+		&row.Payload,
+		&row.Metadata,
+		&row.IdempotencyKey,
+		&row.ScheduledAt,
+		&row.Priority,
+		&row.CreatedAt,
+		&row.ConsumedAt,
+		&row.Error,
+		&row.RetryOfOutboxID,
+	)
+	if err == nil {
+		return &row, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("purge quarantined outbox: %w", err)
+	}
+
+	state, loadErr := loadOutboxRowState(ctx, q.db, projectID, id)
+	if loadErr != nil {
+		return nil, loadErr
+	}
+	if err := requireQuarantinedOutbox(state); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("%w: outbox row %s disappeared before purge completed", ErrOutboxRowConflict, id)
+}
+
+func loadOutboxRowState(ctx context.Context, db DBTX, projectID, id string) (*outboxRowState, error) {
+	return scanOutboxRowState(
+		ctx,
+		db.QueryRow(ctx, `
+			SELECT id, project_id, job_id, payload, metadata, idempotency_key,
+			       scheduled_at, priority, created_at, consumed_at, error, retry_of_outbox_id
+			FROM enqueue_outbox
+			WHERE project_id = $1
+			  AND id = $2
+		`, projectID, id),
+		projectID,
+		id,
+	)
+}
+
+func loadOutboxRowStateForUpdate(ctx context.Context, db DBTX, projectID, id string) (*outboxRowState, error) {
+	return scanOutboxRowState(
+		ctx,
+		db.QueryRow(ctx, `
+			SELECT id, project_id, job_id, payload, metadata, idempotency_key,
+			       scheduled_at, priority, created_at, consumed_at, error, retry_of_outbox_id
+			FROM enqueue_outbox
+			WHERE project_id = $1
+			  AND id = $2
+			FOR UPDATE
+		`, projectID, id),
+		projectID,
+		id,
+	)
+}
+
+func scanOutboxRowState(ctx context.Context, row pgx.Row, projectID, id string) (*outboxRowState, error) {
+	_ = ctx
+	var state outboxRowState
+	err := row.Scan(
+		&state.ID,
+		&state.ProjectID,
+		&state.JobID,
+		&state.Payload,
+		&state.Metadata,
+		&state.IdempotencyKey,
+		&state.ScheduledAt,
+		&state.Priority,
+		&state.CreatedAt,
+		&state.ConsumedAt,
+		&state.Error,
+		&state.RetryOfOutboxID,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrOutboxRowNotFound
+		}
+		return nil, fmt.Errorf("load outbox row %s/%s: %w", projectID, id, err)
+	}
+	return &state, nil
+}
+
+func requireQuarantinedOutbox(state *outboxRowState) error {
+	if state == nil {
+		return ErrOutboxRowNotFound
+	}
+	if state.ConsumedAt == nil || state.Error == nil || strings.TrimSpace(*state.Error) == "" {
+		return fmt.Errorf("%w: outbox row %s is not quarantined", ErrOutboxRowConflict, state.ID)
+	}
+	return nil
 }

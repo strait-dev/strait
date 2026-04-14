@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"strait/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -47,23 +49,23 @@ func (r *fakeSchemaRow) Scan(dest ...any) error {
 }
 
 func TestCheckSchemaVersion_Match(t *testing.T) {
-	q := New(&fakeSchemaDB{version: 196})
-	if err := q.CheckSchemaVersion(context.Background(), 196); err != nil {
+	q := New(&fakeSchemaDB{version: domain.ExpectedSchemaVersion})
+	if err := q.CheckSchemaVersion(context.Background(), domain.ExpectedSchemaVersion); err != nil {
 		t.Errorf("expected match, got %v", err)
 	}
 }
 
 func TestCheckSchemaVersion_BinaryBehind(t *testing.T) {
-	q := New(&fakeSchemaDB{version: 200})
-	err := q.CheckSchemaVersion(context.Background(), 196)
+	q := New(&fakeSchemaDB{version: domain.ExpectedSchemaVersion + 1})
+	err := q.CheckSchemaVersion(context.Background(), domain.ExpectedSchemaVersion)
 	if !errors.Is(err, ErrSchemaMismatch) {
 		t.Errorf("expected ErrSchemaMismatch, got %v", err)
 	}
 }
 
 func TestCheckSchemaVersion_BinaryAhead(t *testing.T) {
-	q := New(&fakeSchemaDB{version: 190})
-	err := q.CheckSchemaVersion(context.Background(), 196)
+	q := New(&fakeSchemaDB{version: domain.ExpectedSchemaVersion - 6})
+	err := q.CheckSchemaVersion(context.Background(), domain.ExpectedSchemaVersion)
 	if !errors.Is(err, ErrSchemaMismatch) {
 		t.Errorf("expected ErrSchemaMismatch, got %v", err)
 	}
@@ -71,7 +73,7 @@ func TestCheckSchemaVersion_BinaryAhead(t *testing.T) {
 
 func TestCheckSchemaVersion_NoTable(t *testing.T) {
 	q := New(&fakeSchemaDB{noRows: true})
-	if err := q.CheckSchemaVersion(context.Background(), 196); err != nil {
+	if err := q.CheckSchemaVersion(context.Background(), domain.ExpectedSchemaVersion); err != nil {
 		t.Errorf("missing table should pass, got %v", err)
 	}
 }

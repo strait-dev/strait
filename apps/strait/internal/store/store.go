@@ -24,6 +24,7 @@ var (
 	ErrRunNotFound                  = errors.New("run not found")
 	ErrRunConflict                  = errors.New("run status update conflict")
 	ErrOutboxRowNotFound            = errors.New("outbox row not found")
+	ErrOutboxRowConflict            = errors.New("outbox row conflict")
 	ErrWorkflowNotFound             = errors.New("workflow not found")
 	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
 	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
