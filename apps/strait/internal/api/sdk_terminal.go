@@ -220,6 +220,9 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 			slog.Warn("spawn idempotency conflict", "parent_run_id", parentRunID, "child_run_id", run.ID)
 			return nil, huma.Error409Conflict("idempotency key conflict: a run with this key is already active")
 		}
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
+		}
 		return nil, huma.Error500InternalServerError("failed to enqueue child run")
 	}
 	if req.AwaitCompletion {
@@ -290,6 +293,9 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("continuation idempotency conflict", "parent_run_id", parentRunID, "continuation_run_id", continuationRun.ID)
 			return nil, huma.Error409Conflict("idempotency key conflict: a run with this key is already active")
+		}
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
 		}
 		return nil, huma.Error500InternalServerError("failed to enqueue continuation run")
 	}

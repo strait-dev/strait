@@ -623,6 +623,10 @@ func (s *Server) routes() chi.Router {
 			r.Post("/{run_id}/unmask", TypedHandler(s, http.StatusOK, s.handleAdminUnmaskDLQ))
 			r.Post("/{run_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeDLQ))
 		})
+		r.Route("/admin/outbox", func(r chi.Router) {
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListOutbox))
+			r.Get("/{outbox_id}", TypedHandler(s, http.StatusOK, s.handleAdminGetOutbox))
+		})
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {

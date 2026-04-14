@@ -63,6 +63,7 @@ Metrics exposed at `GET /metrics`:
 | `strait_bulk_items_processed_total` | Counter | Items processed in bulk operations |
 | `strait_bulk_child_cancellations_total` | Counter | Cascading child run cancellations |
 | `strait_webhook_retry_attempts_total` | Counter | Webhook delivery retry attempts |
+| `strait_queue_outbox_quarantined_total` | Counter | Outbox rows terminalized into quarantine after non-retryable promotion failures |
 
 ## Monitoring Assets
 
@@ -78,6 +79,7 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 - RBAC control-plane mutation rate
 - Audit event insert errors
 - Webhook delivery failures
+- Outbox quarantine events and growth
 - Worker pool utilization
 - Database connection pool saturation
 - Analytics query latency spikes
@@ -89,6 +91,7 @@ Use the monitoring assets in `packages/monitoring/` as a baseline:
 - Permission cache hit ratio >= 0.80 under normal load
 - Audit event write error rate = 0
 - Webhook terminal failure rate stays within agreed threshold
+- Outbox quarantined rows stay at zero outside planned incidents
 - Health endpoint responds within 1s
 - Worker pool active/capacity ratio < 0.9
 - Analytics query p95 < 2s

@@ -33,6 +33,7 @@ type QueueMetrics struct {
 	ClaimToStart                metric.Float64Histogram
 	CircuitStateTransitions     metric.Int64Counter
 	OutboxLag                   metric.Float64Histogram
+	OutboxQuarantinedTotal      metric.Int64Counter
 	BackpressureTokensAvailable metric.Int64Gauge
 	EventChannelDropped         metric.Int64Counter
 	RetryAttempts               metric.Float64Histogram
@@ -190,6 +191,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("outbox lag histogram: %w", err)
 	}
+	outboxQuarantinedTotal, err := meter.Int64Counter(
+		"strait.queue.outbox_quarantined_total",
+		metric.WithDescription("Terminal outbox rows quarantined after enqueue promotion failed"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("outbox quarantined counter: %w", err)
+	}
 	backpressureTokens, err := meter.Int64Gauge(
 		"strait.queue.backpressure_tokens_available",
 		metric.WithDescription("Available backpressure tokens per project (sampled)"),
@@ -256,6 +265,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		ClaimToStart:                claimToStart,
 		CircuitStateTransitions:     circuitTransitions,
 		OutboxLag:                   outboxLag,
+		OutboxQuarantinedTotal:      outboxQuarantinedTotal,
 		BackpressureTokensAvailable: backpressureTokens,
 		EventChannelDropped:         eventChannelDropped,
 		RetryAttempts:               retryAttempts,

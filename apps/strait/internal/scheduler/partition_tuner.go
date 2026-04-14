@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,7 @@ type PartitionTuner struct {
 	// every tick to avoid the per-iteration allocation churn of
 	// pond.NewPool. Close tears it down cleanly at scheduler stop.
 	pool       pond.Pool
+	closeOnce  sync.Once
 	iterations atomic.Int64
 	hotCount   atomic.Int64
 	coldCount  atomic.Int64
@@ -87,9 +89,11 @@ func NewPartitionTuner(s PartitionTunerStore, cfg PartitionTunerConfig) *Partiti
 // Close tears down the reusable pond pool. Safe to call multiple times;
 // subsequent runOnce invocations after Close will no-op their submits.
 func (t *PartitionTuner) Close() {
-	if t.pool != nil {
-		t.pool.StopAndWait()
-	}
+	t.closeOnce.Do(func() {
+		if t.pool != nil {
+			t.pool.StopAndWait()
+		}
+	})
 }
 
 // WithAdvisoryLocker enables single-leader execution.
@@ -104,6 +108,7 @@ func (t *PartitionTuner) ColdCount() int    { return int(t.coldCount.Load()) }
 
 // Run blocks until ctx is cancelled.
 func (t *PartitionTuner) Run(ctx context.Context) {
+	defer t.Close()
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 	_ = t.runOnce(ctx)

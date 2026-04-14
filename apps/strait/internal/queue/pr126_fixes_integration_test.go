@@ -812,6 +812,126 @@ func TestPR126_QueueEnqueueBatch_BackpressureIsPerProject(t *testing.T) {
 	}
 }
 
+func TestPR126_QueueEnqueue_BackpressureRejectsSingleRun(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-single-backpressure")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    1,
+		DefaultRefillPerSec: 0,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	first := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, first); err != nil {
+		t.Fatalf("first Enqueue: %v", err)
+	}
+
+	second := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	err := q.Enqueue(ctx, second)
+	if _, ok := queue.AsThrottled(err); !ok {
+		t.Fatalf("expected throttled error, got %v", err)
+	}
+}
+
+func TestPR126_QueueEnqueue_BackpressureIsPerProject(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	jobA := mustCreateJob(t, ctx, st, "project-pr126-single-a")
+	jobB := mustCreateJob(t, ctx, st, "project-pr126-single-b")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    1,
+		DefaultRefillPerSec: 0,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	if err := q.Enqueue(ctx, &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID}); err != nil {
+		t.Fatalf("project A initial enqueue: %v", err)
+	}
+	if err := q.Enqueue(ctx, &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID}); err != nil {
+		t.Fatalf("project B enqueue should remain allowed: %v", err)
+	}
+}
+
+func TestPR126_EnqueueInTx_SameKeyStressCreatesSingleRun(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-stress")
+
+	const contenders = 8
+	var successes atomic.Int32
+	var conflicts atomic.Int32
+	errCh := make(chan error, contenders)
+	start := make(chan struct{})
+
+	for i := range contenders {
+		go func(i int) {
+			<-start
+			tx, err := testDB.Pool.Begin(ctx)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+
+			run := &domain.JobRun{
+				ID:             newID(),
+				JobID:          job.ID,
+				ProjectID:      job.ProjectID,
+				IdempotencyKey: "stress-key",
+				Priority:       i,
+			}
+			err = q.EnqueueInTx(ctx, tx, run)
+			switch {
+			case err == nil:
+				if commitErr := tx.Commit(ctx); commitErr != nil {
+					errCh <- commitErr
+					return
+				}
+				successes.Add(1)
+			case errors.Is(err, domain.ErrIdempotencyConflict):
+				conflicts.Add(1)
+			default:
+				errCh <- err
+				return
+			}
+			errCh <- nil
+		}(i)
+	}
+
+	close(start)
+	for range contenders {
+		if err := <-errCh; err != nil {
+			t.Fatalf("stress contender error = %v", err)
+		}
+	}
+
+	if successes.Load() != 1 {
+		t.Fatalf("successes = %d, want 1", successes.Load())
+	}
+	if conflicts.Load() != contenders-1 {
+		t.Fatalf("conflicts = %d, want %d", conflicts.Load(), contenders-1)
+	}
+
+	got, err := st.GetRunByIdempotencyKey(ctx, job.ID, "stress-key")
+	if err != nil {
+		t.Fatalf("GetRunByIdempotencyKey: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected one winning run")
+	}
+}
+
 func TestPR126_ExplainSelectOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

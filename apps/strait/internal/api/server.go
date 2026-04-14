@@ -466,13 +466,14 @@ type APIError struct {
 }
 
 const (
-	ErrorCodeValidationError = "validation_error"
-	ErrorCodeNotFound        = "not_found"
-	ErrorCodeConflict        = "conflict"
-	ErrorCodeRateLimited     = "rate_limited"
-	ErrorCodeInternalError   = "internal_error"
-	ErrorCodeUnauthorized    = "unauthorized"
-	ErrorCodeForbidden       = "forbidden"
+	ErrorCodeValidationError  = "validation_error"
+	ErrorCodeNotFound         = "not_found"
+	ErrorCodeConflict         = "conflict"
+	ErrorCodeRateLimited      = "rate_limited"
+	ErrorCodeEnqueueThrottled = "enqueue_throttled"
+	ErrorCodeInternalError    = "internal_error"
+	ErrorCodeUnauthorized     = "unauthorized"
+	ErrorCodeForbidden        = "forbidden"
 )
 
 // AnalyticsStore is the subset of analytics query methods that can be backed
@@ -531,6 +532,7 @@ type AnalyticsStore interface {
 type Server struct {
 	router             chi.Router
 	store              APIStore
+	outboxAdminStore   outboxAdminStore
 	analyticsStore     AnalyticsStore
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
@@ -720,6 +722,7 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv := &Server{
 		store:              deps.Store,
+		outboxAdminStore:   resolveOutboxAdminStore(deps.Store),
 		analyticsStore:     deps.AnalyticsStore,
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,

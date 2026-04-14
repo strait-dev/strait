@@ -341,16 +341,6 @@ func (s *Scheduler) Stop() {
 	timedOut := s.tracker.waitWithTimeout(context.Background(), timeout)
 	if timedOut == 0 {
 		s.wg.Wait()
-
-		// Tear down reusable pond pools owned by components once every tracked
-		// goroutine has exited. If any component timed out, we intentionally skip
-		// pool shutdown here to avoid blocking or racing a still-live goroutine.
-		if s.partitionTuner != nil {
-			s.partitionTuner.Close()
-		}
-		if s.dlqAgeOut != nil {
-			s.dlqAgeOut.Close()
-		}
 	} else {
 		slog.Warn("scheduler stop returning before all components exited",
 			"timed_out_components", timedOut,

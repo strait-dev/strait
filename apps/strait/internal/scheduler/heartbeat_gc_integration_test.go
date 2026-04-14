@@ -50,7 +50,10 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 
 	// Create a job and two runs.
 	projectID := "gc-" + uuid.Must(uuid.NewV7()).String()
-	_ = tdb.Pool.QueryRow(ctx, `SELECT 1`)
+	var ready int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT 1`).Scan(&ready); err != nil {
+		t.Fatalf("probe db: %v", err)
+	}
 	job := hbGCMakeJob(t, st, ctx, projectID)
 
 	liveID := uuid.Must(uuid.NewV7()).String()
@@ -143,12 +146,12 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 	tdb, _ := setupHeartbeatGC(t)
 	ctx := context.Background()
 	// Drop one trigger and assert the check fails.
-	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS job_runs_notify_queue_wake ON job_runs`)
+	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_job_runs_queue_wake_notify ON job_runs`)
 	if err != nil {
 		t.Fatalf("drop: %v", err)
 	}
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "job_runs_notify_queue_wake") {
+	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_queue_wake_notify") {
 		t.Errorf("expected missing-trigger error, got %v", err)
 	}
 }

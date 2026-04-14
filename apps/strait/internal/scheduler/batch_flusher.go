@@ -120,5 +120,5 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		CreatedBy:    items[0].CreatedBy,
 	}
 
-	return f.queue.Enqueue(ctx, run)
+	return queue.EnqueueWithRetry(ctx, f.queue, run, queue.DefaultInternalEnqueueRetryConfig())
 }

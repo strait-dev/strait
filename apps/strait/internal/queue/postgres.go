@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -83,22 +84,13 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		return err
 	}
 
-	// When an idempotency key is set, serialize concurrent enqueues for the
-	// same (job_id, idempotency_key) under a transaction-scoped advisory
-	// lock. The CTE-based "check then insert" is not atomic across
-	// concurrent statements (each statement's SELECT sees a snapshot taken
-	// before the INSERT), so under contention two callers can both observe
-	// the table empty for the key and both insert. A partitioned unique
-	// index can't help because Postgres requires the partition column
-	// (created_at) to be part of any unique constraint on a partitioned
-	// table.
-	//
-	// We key the lock on (hashtext(job_id), hashtext(idempotency_key)) so
-	// that only same-key enqueues block each other. Non-idempotent enqueues
-	// skip the transaction entirely and keep the hot-path cost unchanged.
-	if run.IdempotencyKey != "" {
+	needsManagedTx := run.IdempotencyKey != "" || q.backpressure != nil
+	if needsManagedTx {
 		if beginner, ok := q.db.(store.TxBeginner); ok {
-			return q.enqueueUnderIdempotencyLock(ctx, beginner, run, query, args)
+			return q.enqueueInManagedTx(ctx, beginner, run, query, args)
+		}
+		if err := q.consumeBackpressure(ctx, q.db, run, "enqueue run"); err != nil {
+			return err
 		}
 	}
 
@@ -122,6 +114,9 @@ func (q *PostgresQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *dom
 		if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run in tx"); err != nil {
 			return err
 		}
+	}
+	if err := q.consumeBackpressure(ctx, tx, run, "enqueue run in tx"); err != nil {
+		return err
 	}
 
 	return q.insertPreparedRun(ctx, tx, run, query, args, "enqueue run in tx")
@@ -238,12 +233,10 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 	return query, args, nil
 }
 
-// enqueueUnderIdempotencyLock runs the enqueue inside a transaction after
-// acquiring pg_advisory_xact_lock keyed on (job_id, idempotency_key). The
-// lock is released automatically at commit or rollback, so concurrent
-// callers with the same key are serialized for just long enough for the
-// CTE-guarded INSERT to observe (or not observe) the previous row.
-func (q *PostgresQueue) enqueueUnderIdempotencyLock(
+// enqueueInManagedTx runs the enqueue inside a transaction when either
+// idempotency locking or backpressure accounting must commit atomically with the
+// row insert.
+func (q *PostgresQueue) enqueueInManagedTx(
 	ctx context.Context,
 	beginner store.TxBeginner,
 	run *domain.JobRun,
@@ -260,21 +253,29 @@ func (q *PostgresQueue) enqueueUnderIdempotencyLock(
 		return err
 	}
 
+	if err := q.consumeBackpressure(ctx, tx, run, "enqueue run"); err != nil {
+		return err
+	}
+
 	if err := q.insertPreparedRun(ctx, tx, run, query, args, "enqueue run"); err != nil {
-		if errors.Is(err, domain.ErrIdempotencyConflict) {
-			// A prior holder of the lock inserted a row for the same
-			// (job_id, idempotency_key) with an active status; commit
-			// the empty tx so the lock releases cleanly, then return
-			// the domain conflict.
-			if commitErr := tx.Commit(ctx); commitErr != nil {
-				return fmt.Errorf("enqueue run: commit after conflict: %w", commitErr)
-			}
-		}
 		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("enqueue run: commit: %w", err)
+	}
+	return nil
+}
+
+func (q *PostgresQueue) consumeBackpressure(ctx context.Context, db store.DBTX, run *domain.JobRun, op string) error {
+	if q.backpressure == nil {
+		return nil
+	}
+	if err := q.backpressure.TryConsumeInTx(ctx, db, run.ProjectID); err != nil {
+		if errors.Is(err, ErrEnqueueThrottled) {
+			return err
+		}
+		return fmt.Errorf("%s: backpressure: %w", op, err)
 	}
 	return nil
 }
@@ -307,7 +308,46 @@ func (q *PostgresQueue) insertPreparedRun(
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
 			return domain.ErrIdempotencyConflict
 		}
+		if terminal := classifyTerminalEnqueueInsertError(err); terminal != nil {
+			return &TerminalEnqueueError{
+				Reason: terminal.reason,
+				Err:    fmt.Errorf("%s: %w", op, err),
+			}
+		}
 		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+type terminalEnqueueReason struct {
+	reason string
+}
+
+func classifyTerminalEnqueueInsertError(err error) *terminalEnqueueReason {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return nil
+	}
+
+	switch pgErr.Code {
+	case "23503":
+		return &terminalEnqueueReason{reason: "foreign_key_violation"}
+	case "23502":
+		return &terminalEnqueueReason{reason: "not_null_violation"}
+	case "23514":
+		return &terminalEnqueueReason{reason: "check_violation"}
+	case "22P02":
+		return &terminalEnqueueReason{reason: "invalid_text_representation"}
+	}
+
+	if len(pgErr.Code) >= 2 {
+		switch pgErr.Code[:2] {
+		case "22":
+			return &terminalEnqueueReason{reason: "data_exception"}
+		case "23":
+			return &terminalEnqueueReason{reason: "integrity_constraint_violation"}
+		}
 	}
 
 	return nil

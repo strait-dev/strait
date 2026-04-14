@@ -447,6 +447,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
 	}, s.handleAdminPurgeDLQ)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-list-outbox", Method: http.MethodGet, Path: "/v1/admin/outbox",
+		Summary: "List quarantined outbox rows (admin)", Description: "Read-only paginated listing of terminal outbox rows that were quarantined after enqueue promotion failed.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500, 503},
+	}, s.handleAdminListOutbox)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-get-outbox", Method: http.MethodGet, Path: "/v1/admin/outbox/{outbox_id}",
+		Summary: "Get a quarantined outbox row (admin)", Description: "Returns one quarantined outbox row including the stored terminal error text.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500, 503},
+	}, s.handleAdminGetOutbox)
+
 	// -- Runs --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-runs", Method: http.MethodGet, Path: "/v1/runs",

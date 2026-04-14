@@ -113,6 +113,21 @@ spec:
               propagation is lagging behind run completion.
             runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitoutboxlaghigh
 
+        - alert: StraitOutboxQuarantinedRowsAppeared
+          expr: increase(strait_queue_outbox_quarantined_total[15m]) > 0
+          for: 5m
+          labels:
+            app: strait
+            severity: warning
+          annotations:
+            summary: Outbox rows were quarantined
+            description: |
+              At least one outbox row was terminalized and quarantined in the
+              last 15 minutes. Event promotion for those rows will not retry
+              until an operator inspects the stored error and fixes the
+              underlying cause.
+            runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitoutboxquarantinedrowsappeared
+
         - alert: StraitCounterDriftHigh
           expr: max(strait_queue_counter_drift) > 10
           for: 15m

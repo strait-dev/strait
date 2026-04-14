@@ -88,6 +88,9 @@ type mockPublisher struct {
 }
 
 func (m *mockPublisher) Publish(ctx context.Context, channel string, data []byte) error {
+	if m == nil {
+		return nil
+	}
 	if m.publishFn != nil {
 		return m.publishFn(ctx, channel, data)
 	}
@@ -95,6 +98,9 @@ func (m *mockPublisher) Publish(ctx context.Context, channel string, data []byte
 }
 
 func (m *mockPublisher) Subscribe(ctx context.Context, channel string) (*pubsub.Subscription, error) {
+	if m == nil {
+		return nil, nil
+	}
 	if m.subscribeFn != nil {
 		return m.subscribeFn(ctx, channel)
 	}
@@ -102,6 +108,9 @@ func (m *mockPublisher) Subscribe(ctx context.Context, channel string) (*pubsub.
 }
 
 func (m *mockPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubSubMessage) error {
+	if m == nil {
+		return nil
+	}
 	for _, msg := range messages {
 		if err := m.Publish(ctx, msg.Channel, msg.Data); err != nil {
 			return err
@@ -111,6 +120,9 @@ func (m *mockPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubS
 }
 
 func (m *mockPublisher) Close() error {
+	if m == nil {
+		return nil
+	}
 	if m.closeFn != nil {
 		return m.closeFn()
 	}

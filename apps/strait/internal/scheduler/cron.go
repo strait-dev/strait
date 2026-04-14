@@ -191,7 +191,7 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 		// Treat unknown/empty as allow for forward compatibility.
 	}
 
-	if err := cs.queue.Enqueue(ctx, &run); err != nil {
+	if err := queue.EnqueueWithRetry(ctx, cs.queue, &run, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
 		slog.Error("failed to enqueue cron run", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
 		if cs.metrics != nil {
 			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))

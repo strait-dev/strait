@@ -24,9 +24,10 @@ const (
 	ScopeProjectsWrite    = "projects:write"
 	ScopeProjectsManage   = "projects:manage"
 	// DLQ admin scopes used by the admin DLQ HTTP endpoints.
-	ScopeDLQRead   = "dlq:read"
-	ScopeDLQReplay = "dlq:replay"
-	ScopeDLQPurge  = "dlq:purge"
+	ScopeDLQRead    = "dlq:read"
+	ScopeDLQReplay  = "dlq:replay"
+	ScopeDLQPurge   = "dlq:purge"
+	ScopeOutboxRead = "outbox:read"
 )
 
 // ValidScopes is the set of all recognized scope strings.
@@ -53,6 +54,7 @@ var ValidScopes = map[string]bool{
 	ScopeDLQRead:          true,
 	ScopeDLQReplay:        true,
 	ScopeDLQPurge:         true,
+	ScopeOutboxRead:       true,
 }
 
 // CLIDefaultScopes is the set of scopes granted to API keys created via CLI

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -58,6 +59,7 @@ type DLQAgeOut struct {
 	// tick to avoid the per-iteration allocation churn of pond.NewPool.
 	// Close tears it down cleanly at scheduler stop.
 	pool       pond.Pool
+	closeOnce  sync.Once
 	iterations atomic.Int64
 	masked     atomic.Int64
 }
@@ -97,9 +99,11 @@ func NewDLQAgeOut(s DLQAgeOutStore, cfg DLQAgeOutConfig) *DLQAgeOut {
 
 // Close tears down the reusable pond pool. Safe to call multiple times.
 func (a *DLQAgeOut) Close() {
-	if a.pool != nil {
-		a.pool.StopAndWait()
-	}
+	a.closeOnce.Do(func() {
+		if a.pool != nil {
+			a.pool.StopAndWait()
+		}
+	})
 }
 
 // WithAdvisoryLocker enables single-leader execution.
@@ -113,6 +117,7 @@ func (a *DLQAgeOut) TotalMasked() int64 { return a.masked.Load() }
 
 // Run blocks until ctx is cancelled.
 func (a *DLQAgeOut) Run(ctx context.Context) {
+	defer a.Close()
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
 	_ = a.runOnce(ctx)

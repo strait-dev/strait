@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,21 @@ type OutboxRow struct {
 	ScheduledAt    *time.Time
 	Priority       int
 	CreatedAt      time.Time
+}
+
+// QuarantinedOutboxRow is a terminal outbox row kept for operator inspection.
+type QuarantinedOutboxRow struct {
+	ID             string
+	ProjectID      string
+	JobID          string
+	Payload        json.RawMessage
+	Metadata       json.RawMessage
+	IdempotencyKey *string
+	ScheduledAt    *time.Time
+	Priority       int
+	CreatedAt      time.Time
+	ConsumedAt     time.Time
+	Error          string
 }
 
 // ClaimUnconsumedOutbox fetches up to `limit` unconsumed outbox rows on
@@ -123,6 +139,19 @@ func markOutboxOnExec(ctx context.Context, ex outboxExecer, ids []string) error 
 
 const maxOutboxErrorLength = 1024
 
+// TruncateOutboxError normalizes operator-visible outbox error text before it
+// is persisted or logged.
+func TruncateOutboxError(errText string) string {
+	msg := strings.TrimSpace(errText)
+	if len(msg) > maxOutboxErrorLength {
+		msg = msg[:maxOutboxErrorLength]
+	}
+	if msg == "" {
+		msg = "outbox promotion failed"
+	}
+	return msg
+}
+
 // MarkOutboxErroredInTx records a terminal error on an outbox row and marks it
 // consumed in the caller's transaction so it is no longer claimed again.
 func MarkOutboxErroredInTx(ctx context.Context, tx pgx.Tx, id string, errText string) error {
@@ -133,13 +162,7 @@ func MarkOutboxErroredInTx(ctx context.Context, tx pgx.Tx, id string, errText st
 		return nil
 	}
 
-	msg := strings.TrimSpace(errText)
-	if len(msg) > maxOutboxErrorLength {
-		msg = msg[:maxOutboxErrorLength]
-	}
-	if msg == "" {
-		msg = "outbox promotion failed"
-	}
+	msg := TruncateOutboxError(errText)
 
 	_, err := tx.Exec(ctx, `
 		UPDATE enqueue_outbox
@@ -180,4 +203,111 @@ func (q *Queries) OldestUnconsumedOutboxAge(ctx context.Context) (time.Duration,
 		return 0, fmt.Errorf("oldest outbox age: %w", err)
 	}
 	return time.Duration(age * float64(time.Second)), nil
+}
+
+// ListQuarantinedOutbox returns terminal outbox rows ordered by newest
+// consumed_at/id first. Callers pass the previous page's last
+// (consumed_at, id) tuple as the cursor to continue pagination.
+func (q *Queries) ListQuarantinedOutbox(
+	ctx context.Context,
+	projectID string,
+	limit int,
+	cursorConsumedAt *time.Time,
+	cursorID string,
+) ([]QuarantinedOutboxRow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListQuarantinedOutbox")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	args := []any{projectID, limit}
+	query := `
+		SELECT id, project_id, job_id, payload, metadata, idempotency_key,
+		       scheduled_at, priority, created_at, consumed_at, error
+		FROM enqueue_outbox
+		WHERE project_id = $1
+		  AND consumed_at IS NOT NULL
+		  AND error IS NOT NULL
+		  AND error <> ''
+	`
+	if cursorConsumedAt != nil {
+		args = append(args, *cursorConsumedAt, cursorID)
+		query += `
+		  AND (consumed_at, id) < ($3, $4)
+		`
+	}
+	query += `
+		ORDER BY consumed_at DESC, id DESC
+		LIMIT $2
+	`
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list quarantined outbox: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]QuarantinedOutboxRow, 0, limit)
+	for rows.Next() {
+		var row QuarantinedOutboxRow
+		if err := rows.Scan(
+			&row.ID,
+			&row.ProjectID,
+			&row.JobID,
+			&row.Payload,
+			&row.Metadata,
+			&row.IdempotencyKey,
+			&row.ScheduledAt,
+			&row.Priority,
+			&row.CreatedAt,
+			&row.ConsumedAt,
+			&row.Error,
+		); err != nil {
+			return nil, fmt.Errorf("scan quarantined outbox: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list quarantined outbox: %w", err)
+	}
+	return out, nil
+}
+
+// GetQuarantinedOutbox returns one terminal outbox row for operator inspection.
+func (q *Queries) GetQuarantinedOutbox(ctx context.Context, projectID, id string) (*QuarantinedOutboxRow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetQuarantinedOutbox")
+	defer span.End()
+
+	var row QuarantinedOutboxRow
+	err := q.db.QueryRow(ctx, `
+		SELECT id, project_id, job_id, payload, metadata, idempotency_key,
+		       scheduled_at, priority, created_at, consumed_at, error
+		FROM enqueue_outbox
+		WHERE project_id = $1
+		  AND id = $2
+		  AND consumed_at IS NOT NULL
+		  AND error IS NOT NULL
+		  AND error <> ''
+	`, projectID, id).Scan(
+		&row.ID,
+		&row.ProjectID,
+		&row.JobID,
+		&row.Payload,
+		&row.Metadata,
+		&row.IdempotencyKey,
+		&row.ScheduledAt,
+		&row.Priority,
+		&row.CreatedAt,
+		&row.ConsumedAt,
+		&row.Error,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrOutboxRowNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get quarantined outbox: %w", err)
+	}
+	return &row, nil
 }

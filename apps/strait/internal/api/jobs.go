@@ -342,6 +342,9 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
+	if job == nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")

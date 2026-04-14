@@ -87,17 +87,35 @@ func NewBackpressure(db store.DBTX, cfg BackpressureConfig, enabled bool) *Backp
 // on success or *ThrottledError on exhaustion. Passes through
 // unexpected DB errors so callers can distinguish throttle from outage.
 func (b *Backpressure) TryConsume(ctx context.Context, projectID string) error {
-	return b.tryConsumeN(ctx, projectID, 1)
+	if b == nil {
+		return nil
+	}
+	return b.tryConsumeNOn(ctx, b.db, projectID, 1)
 }
 
 // TryConsumeN reserves n tokens from the project's bucket. Used by
 // EnqueueBatch so the batch is rejected atomically when the bucket
 // cannot satisfy the full request.
 func (b *Backpressure) TryConsumeN(ctx context.Context, projectID string, n int) error {
-	return b.tryConsumeN(ctx, projectID, n)
+	if b == nil {
+		return nil
+	}
+	return b.tryConsumeNOn(ctx, b.db, projectID, n)
 }
 
-// tryConsumeN is the atomic bucket-decrement path. It relies on
+// TryConsumeInTx reserves one token inside the caller's transaction so enqueue
+// admission and row insertion can commit or roll back together.
+func (b *Backpressure) TryConsumeInTx(ctx context.Context, tx store.DBTX, projectID string) error {
+	return b.tryConsumeNOn(ctx, tx, projectID, 1)
+}
+
+// TryConsumeNInTx is the transactional form used when callers need token
+// consumption to succeed or fail atomically with surrounding writes.
+func (b *Backpressure) TryConsumeNInTx(ctx context.Context, tx store.DBTX, projectID string, n int) error {
+	return b.tryConsumeNOn(ctx, tx, projectID, n)
+}
+
+// tryConsumeNOn is the atomic bucket-decrement path. It relies on
 // PostgreSQL's intrinsic row locking in INSERT ... ON CONFLICT DO UPDATE
 // so the refilled balance is recomputed from the locked existing row
 // (not from a pre-lock CTE snapshot). The WHERE clause on the DO UPDATE
@@ -107,8 +125,8 @@ func (b *Backpressure) TryConsumeN(ctx context.Context, projectID string, n int)
 // The INSERT path is gated by an inline `WHERE $2 >= $4` so a brand-new
 // project never gets inserted with a negative or zero-tokens row when
 // the request cannot be satisfied by the default bucket.
-func (b *Backpressure) tryConsumeN(ctx context.Context, projectID string, n int) error {
-	if b == nil || !b.enabled || projectID == "" || n <= 0 {
+func (b *Backpressure) tryConsumeNOn(ctx context.Context, db store.DBTX, projectID string, n int) error {
+	if b == nil || !b.enabled || projectID == "" || n <= 0 || db == nil {
 		return nil
 	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
@@ -139,7 +157,7 @@ func (b *Backpressure) tryConsumeN(ctx context.Context, projectID string, n int)
 		RETURNING tokens, max_tokens, refill_per_sec`
 
 	var tokens, maxTokens, refill int
-	err := b.db.QueryRow(ctx, sql, projectID, b.cfg.DefaultMaxTokens, b.cfg.DefaultRefillPerSec, n).
+	err := db.QueryRow(ctx, sql, projectID, b.cfg.DefaultMaxTokens, b.cfg.DefaultRefillPerSec, n).
 		Scan(&tokens, &maxTokens, &refill)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The INSERT source WHERE evaluated false (n > default max) OR

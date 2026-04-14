@@ -204,6 +204,47 @@ behind run completion. Subscribers observe delayed events.
 
 **Escalation.** Warning. Escalate if p99 exceeds 5 minutes.
 
+## StraitOutboxQuarantinedRowsAppeared
+
+**Symptom.**
+`increase(strait_queue_outbox_quarantined_total[15m]) > 0` for 5
+minutes.
+
+**Impact.** One or more outbox rows hit a terminal promotion failure and
+were quarantined. Those rows are no longer claimable by the flusher, so
+the affected webhook / CDC / event-trigger signal will not self-retry.
+
+**Diagnosis.**
+
+- Inspect newly quarantined rows through the read-only admin API:
+  ```
+  GET /v1/admin/outbox?limit=50
+  ```
+- Fetch a specific row for full stored error text and metadata:
+  ```
+  GET /v1/admin/outbox/{outbox_id}
+  ```
+- Confirm the caller has the `outbox:read` scope. Quarantined rows are
+  terminal rows with both `consumed_at` and `error` set; retryable rows
+  remain unconsumed and do not appear in this view.
+
+**Remediation.**
+
+1. Identify the terminal failure class from `error`:
+   missing job/configuration, validation failure, or idempotency
+   collision.
+2. Fix the underlying configuration or producer bug before attempting
+   any manual replay with direct SQL or internal tooling.
+3. Verify healthy rows are still draining and that quarantine growth is
+   not continuous:
+   ```
+   increase(strait_queue_outbox_quarantined_total[1h])
+   ```
+
+**Escalation.** Warning. Escalate to platform on-call if quarantines
+continue after the underlying cause is fixed, or if quarantined rows
+affect a high-priority event integration.
+
 ## StraitCounterDriftHigh
 
 **Symptom.** `max(strait_queue_counter_drift) > 10` for 15 minutes.

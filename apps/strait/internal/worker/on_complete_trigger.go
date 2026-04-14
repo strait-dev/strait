@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 )
 
 // JobLookup resolves a job by slug within a project.
@@ -238,7 +239,7 @@ func (t *OnCompleteTrigger) triggerJob(ctx context.Context, run *domain.JobRun, 
 		},
 	}
 
-	if enqueueErr := t.jobEnqueuer.Enqueue(ctx, downstreamRun); enqueueErr != nil {
+	if enqueueErr := queue.EnqueueWithRetry(ctx, t.jobEnqueuer, downstreamRun, queue.DefaultInternalEnqueueRetryConfig()); enqueueErr != nil {
 		t.logger.Warn("chained job enqueue failed",
 			"job_id", job.ID,
 			"run_id", run.ID,

@@ -211,7 +211,7 @@ var SystemRolePermissions = map[string][]string{
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeStatsRead, ScopeRBACManage,
 		ScopeProjectsRead, ScopeProjectsWrite,
-		ScopeDLQRead, ScopeDLQReplay,
+		ScopeDLQRead, ScopeDLQReplay, ScopeOutboxRead,
 	},
 	"viewer": {
 		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,

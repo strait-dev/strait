@@ -19,6 +19,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type outboxEnqueueDisposition int
+
+const (
+	outboxEnqueueRetryable outboxEnqueueDisposition = iota
+	outboxEnqueueTerminal
+)
+
 // Outbox flusher.
 //
 // Promotes pending enqueue_outbox rows into job_runs. Each tick opens a
@@ -129,17 +136,21 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 			if rollbackErr := rollbackAndReleaseSavepoint(ctx, tx, savepoint); rollbackErr != nil {
 				return fmt.Errorf("outbox flusher: rollback failed row %s: %w", row.ID, rollbackErr)
 			}
-			if isRetryableOutboxEnqueueError(err) {
+			if classifyOutboxEnqueueError(err) == outboxEnqueueRetryable {
 				f.logger.Warn("outbox flusher: enqueue failed, will retry",
 					"outbox_id", row.ID, "job_id", row.JobID, "error", err,
 				)
 				continue
 			}
-			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, err.Error()); markErr != nil {
+			msg := store.TruncateOutboxError(err.Error())
+			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
 				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
 			}
+			if qm != nil && qm.OutboxQuarantinedTotal != nil {
+				qm.OutboxQuarantinedTotal.Add(ctx, 1)
+			}
 			f.logger.Warn("outbox flusher: enqueue failed, row quarantined",
-				"outbox_id", row.ID, "job_id", row.JobID, "error", err,
+				"outbox_id", row.ID, "job_id", row.JobID, "error", msg,
 			)
 			continue
 		}
@@ -169,29 +180,38 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 	return nil
 }
 
-func isRetryableOutboxEnqueueError(err error) bool {
+func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {
 	if err == nil {
-		return false
+		return outboxEnqueueRetryable
+	}
+	if errors.Is(err, domain.ErrIdempotencyConflict) {
+		return outboxEnqueueTerminal
+	}
+	if _, ok := queue.AsTerminalEnqueue(err); ok {
+		return outboxEnqueueTerminal
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return true
+		return outboxEnqueueRetryable
 	}
 	if pgconn.Timeout(err) || pgconn.SafeToRetry(err) {
-		return true
+		return outboxEnqueueRetryable
 	}
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "40001", "40P01", "55P03", "57014":
-			return true
+			return outboxEnqueueRetryable
 		}
 		if len(pgErr.Code) >= 2 && pgErr.Code[:2] == "08" {
-			return true
+			return outboxEnqueueRetryable
+		}
+		if len(pgErr.Code) >= 2 && (pgErr.Code[:2] == "22" || pgErr.Code[:2] == "23") {
+			return outboxEnqueueTerminal
 		}
 	}
 
-	return false
+	return outboxEnqueueTerminal
 }
 
 func execSavepoint(ctx context.Context, tx pgx.Tx, sql string) error {

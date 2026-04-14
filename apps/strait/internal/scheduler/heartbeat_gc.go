@@ -137,7 +137,7 @@ func (h *HeartbeatGC) runOnce(ctx context.Context) error {
 // inadvertently drops a trigger.
 func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
 	required := []string{
-		"job_runs_notify_queue_wake",
+		"trg_job_runs_queue_wake_notify",
 		"job_runs_active_counts_trg",
 		"job_runs_dlq_counts_trg",
 		"job_runs_seed_job_config_trg",

@@ -442,6 +442,9 @@ func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*R
 				"replay_run_id", replayRun.ID)
 			return nil, huma.Error409Conflict("idempotency key conflict: a run with this key is already active")
 		}
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
+		}
 		return nil, huma.Error500InternalServerError("failed to enqueue replay run")
 	}
 
