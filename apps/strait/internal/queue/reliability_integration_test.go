@@ -26,7 +26,7 @@ func TestQueueReliability_EnqueueDequeueComplete(t *testing.T) {
 	mustClean(t, ctx)
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-lifecycle")
+	job := mustCreateJob(t, ctx, st, "project-queue-lifecycle")
 
 	run := &domain.JobRun{
 		ID:        newID(),
@@ -76,7 +76,7 @@ func TestQueueReliability_ConcurrentDequeueSkipLocked(t *testing.T) {
 	mustClean(t, ctx)
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-skip-locked")
+	job := mustCreateJob(t, ctx, st, "project-queue-skip-locked")
 
 	const total = 50
 	for i := range total {
@@ -133,7 +133,7 @@ func TestQueueReliability_BackpressureExhaustionAndRefill(t *testing.T) {
 		DefaultMaxTokens:    5,
 		DefaultRefillPerSec: 100,
 	}, true)
-	project := "proj-pr126-bp-refill"
+	project := "proj-queue-bp-refill"
 
 	for i := range 5 {
 		if err := bp.TryConsume(ctx, project); err != nil {
@@ -160,7 +160,7 @@ func TestQueueReliability_BackpressureConcurrentConsumers(t *testing.T) {
 		DefaultMaxTokens:    10,
 		DefaultRefillPerSec: 0,
 	}, true)
-	project := "proj-pr126-bp-concurrent"
+	project := "proj-queue-bp-concurrent"
 
 	const goroutines = 20
 	var succeeded atomic.Int32
@@ -195,7 +195,7 @@ func TestQueueReliability_OutboxBatchJobValidation(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 
-	projectID := "project-pr126-outbox-validation"
+	projectID := "project-outbox-validation"
 	job1 := mustCreateJob(t, ctx, st, projectID)
 	job2 := mustCreateJob(t, ctx, st, projectID)
 	job3 := mustCreateJob(t, ctx, st, projectID)
@@ -224,7 +224,7 @@ func TestQueueReliability_OutboxFlushAtomicity(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 
-	projectID := "project-pr126-outbox-flush"
+	projectID := "project-outbox-flush"
 	job := mustCreateJob(t, ctx, st, projectID)
 
 	// Write 5 outbox entries.
@@ -320,7 +320,7 @@ func TestQueueReliability_WriteOutboxBatchValidation(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 
-	projectID := "project-pr126-batch-validation"
+	projectID := "project-batch-validation"
 	// Create 50 jobs.
 	jobs := make([]*domain.Job, 50)
 	for i := range jobs {
@@ -360,7 +360,7 @@ func TestQueueReliability_DLQCapEnforcement(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 
-	projectID := "project-pr126-dlq-cap"
+	projectID := "project-dlq-cap"
 	job := mustCreateJob(t, ctx, st, projectID)
 
 	// Insert 3 dead_letter runs with staggered finished_at so oldest is clear.
@@ -420,7 +420,7 @@ func TestQueueReliability_CounterTriggerAccuracy(t *testing.T) {
 	mustClean(t, ctx)
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-counters")
+	job := mustCreateJob(t, ctx, st, "project-queue-counters")
 
 	// Enqueue 20 runs.
 	runIDs := make([]string, 20)
@@ -488,7 +488,7 @@ func TestQueueReliability_EnqueueInTxAtomicity(t *testing.T) {
 	mustClean(t, ctx)
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-in-tx")
 
 	// EnqueueInTx within a transaction, then rollback.
 	tx, err := testDB.Pool.Begin(ctx)
@@ -549,7 +549,7 @@ func TestQueueReliability_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *te
 
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-idempotency")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-in-tx-idempotency")
 
 	tx1, err := testDB.Pool.Begin(ctx)
 	if err != nil {
@@ -620,7 +620,7 @@ func TestQueueReliability_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testin
 
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-different-keys")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-in-tx-different-keys")
 
 	tx1, err := testDB.Pool.Begin(ctx)
 	if err != nil {
@@ -691,7 +691,7 @@ func TestQueueReliability_EnqueueInTx_NonIdempotentFastPathStillWorks(t *testing
 
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-no-idempotency")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-in-tx-no-idempotency")
 
 	tx, err := testDB.Pool.Begin(ctx)
 	if err != nil {
@@ -724,7 +724,7 @@ func TestQueueReliability_ProductionQueueBackpressureAttached(t *testing.T) {
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-production-queue-backpressure")
+	job := mustCreateJob(t, ctx, st, "project-production-queue-backpressure")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    1,
 		DefaultRefillPerSec: 0,
@@ -752,7 +752,7 @@ func TestQueueReliability_EnqueueBatchBackpressureRejectsWhenBucketExhausted(t *
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-batch-backpressure")
+	job := mustCreateJob(t, ctx, st, "project-batch-backpressure")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    2,
 		DefaultRefillPerSec: 20,
@@ -787,8 +787,8 @@ func TestQueueReliability_EnqueueBatchBackpressureIsPerProject(t *testing.T) {
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	jobA := mustCreateJob(t, ctx, st, "project-pr126-bp-project-a")
-	jobB := mustCreateJob(t, ctx, st, "project-pr126-bp-project-b")
+	jobA := mustCreateJob(t, ctx, st, "project-bp-project-a")
+	jobB := mustCreateJob(t, ctx, st, "project-bp-project-b")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    1,
 		DefaultRefillPerSec: 0,
@@ -818,7 +818,7 @@ func TestQueueReliability_EnqueueBackpressureRejectsSingleRun(t *testing.T) {
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-single-backpressure")
+	job := mustCreateJob(t, ctx, st, "project-single-backpressure")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    1,
 		DefaultRefillPerSec: 0,
@@ -843,8 +843,8 @@ func TestQueueReliability_EnqueueBackpressureIsPerProject(t *testing.T) {
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	jobA := mustCreateJob(t, ctx, st, "project-pr126-single-a")
-	jobB := mustCreateJob(t, ctx, st, "project-pr126-single-b")
+	jobA := mustCreateJob(t, ctx, st, "project-single-a")
+	jobB := mustCreateJob(t, ctx, st, "project-single-b")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    1,
 		DefaultRefillPerSec: 0,
@@ -865,7 +865,7 @@ func TestQueueReliability_EnqueueWithRetrySucceedsAfterRefill(t *testing.T) {
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-retry-refill")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-retry-refill")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    1,
 		DefaultRefillPerSec: 20,
@@ -901,7 +901,7 @@ func TestQueueReliability_EnqueueWithRetryReturnsThrottleAfterBudgetExhausted(t 
 	mustClean(t, ctx)
 
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-retry-budget")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-retry-budget")
 	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
 		DefaultMaxTokens:    1,
 		DefaultRefillPerSec: 0,
@@ -930,7 +930,7 @@ func TestQueueReliability_EnqueueInTxSameKeyStressCreatesSingleRun(t *testing.T)
 
 	q := mustQueue(t)
 	st := mustStore(t)
-	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-in-tx-stress")
+	job := mustCreateJob(t, ctx, st, "project-enqueue-in-tx-stress")
 
 	const contenders = 8
 	var successes atomic.Int32

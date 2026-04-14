@@ -330,7 +330,7 @@ func TestOutboxFlusher_RetryClonePromotesAfterUnderlyingIssueIsFixed(t *testing.
 		JobID:     poisonJob.ID,
 		Payload:   json.RawMessage(`{"clone":true}`),
 		Metadata: map[string]any{
-			"source": "phase3",
+			"source": "retry-clone-test",
 		},
 		IdempotencyKey: "retry-clone-key",
 	}

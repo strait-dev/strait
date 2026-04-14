@@ -11,7 +11,7 @@ import (
 )
 
 // --------------------------------------------------------------------------.
-// Regression guards for security fixes introduced in earlier phases.
+// Regression guards for earlier security hardening work.
 // --------------------------------------------------------------------------.
 
 // TestRegression_PayloadSchemaMaxDepth verifies the maxSchemaDepth constant is

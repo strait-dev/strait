@@ -146,7 +146,7 @@ CDC fan-out observe gaps; event-trigger workflows may miss signals.
 
 **Remediation.**
 
-1. Raise `WORKER_EVENT_CHANNEL_SIZE` (Phase 2 knob).
+1. Raise `WORKER_EVENT_CHANNEL_SIZE` if event fan-out pressure is confirmed.
 2. Investigate slow consumers — Redis health, SSE client count.
 
 **Escalation.** Warning-level. Escalate to queue on-call if drops
@@ -173,7 +173,7 @@ work on the next start.
 **Remediation.**
 
 1. For the offending component, raise its per-component shutdown
-   timeout via config (Phase 2 knob).
+   timeout via config.
 2. Investigate why the component is not respecting ctx cancellation.
    Long SQL? Blocking HTTP call?
 
@@ -198,8 +198,8 @@ behind run completion. Subscribers observe delayed events.
 
 **Remediation.**
 
-1. Scale the outbox flusher (or verify it is running at all — Phase 0
-   wiring regression).
+1. Scale the outbox flusher (or verify it is running and wired into the
+   active queue path).
 2. Check downstream consumers (webhook subscriber health).
 
 **Escalation.** Warning. Escalate if p99 exceeds 5 minutes.
