@@ -5,6 +5,7 @@ package scheduler_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -195,6 +196,85 @@ func TestOutboxFlusher_RetryableFailureLeavesRowUnconsumed(t *testing.T) {
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
+func TestOutboxFlusher_MixedBatchContinuesPastRetryableAndTerminalRows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+
+	goodJobA := intCreateJob(t, ctx, st, "proj-outbox-mixed")
+	retryableJob := intCreateJob(t, ctx, st, "proj-outbox-mixed")
+	terminalJob := intCreateJob(t, ctx, st, "proj-outbox-mixed")
+	goodJobB := intCreateJob(t, ctx, st, "proj-outbox-mixed")
+
+	entries := []queue.OutboxEntry{
+		{
+			ID:        intNewID(),
+			ProjectID: goodJobA.ProjectID,
+			JobID:     goodJobA.ID,
+			Payload:   json.RawMessage(`{"ordinal":1}`),
+		},
+		{
+			ID:        intNewID(),
+			ProjectID: retryableJob.ProjectID,
+			JobID:     retryableJob.ID,
+			Payload:   json.RawMessage(`{"ordinal":2}`),
+		},
+		{
+			ID:        intNewID(),
+			ProjectID: terminalJob.ProjectID,
+			JobID:     terminalJob.ID,
+			Payload:   json.RawMessage(`{"ordinal":3}`),
+		},
+		{
+			ID:        intNewID(),
+			ProjectID: goodJobB.ProjectID,
+			JobID:     goodJobB.ID,
+			Payload:   json.RawMessage(`{"ordinal":4}`),
+		},
+	}
+	intWriteOutboxEntries(t, ctx, entries)
+
+	realQueue := intTestQueue(t)
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(runCtx context.Context, tx store.DBTX, run *domain.JobRun) error {
+			switch run.JobID {
+			case retryableJob.ID:
+				return context.DeadlineExceeded
+			case terminalJob.ID:
+				return &queue.TerminalEnqueueError{
+					Reason: "validation",
+					Err:    errors.New("payload rejected"),
+				}
+			default:
+				return realQueue.EnqueueInTx(runCtx, tx, run)
+			}
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: len(entries)})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entries[0].ID, false, true)
+	assertOutboxState(t, ctx, entries[1].ID, false, false)
+	assertOutboxState(t, ctx, entries[2].ID, true, true)
+	assertOutboxState(t, ctx, entries[3].ID, false, true)
+
+	assertRunsForJob(t, ctx, goodJobA.ID, 1)
+	assertRunsForJob(t, ctx, retryableJob.ID, 0)
+	assertRunsForJob(t, ctx, terminalJob.ID, 0)
+	assertRunsForJob(t, ctx, goodJobB.ID, 1)
+
+	count, err := st.CountUnconsumedOutbox(ctx)
+	if err != nil {
+		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 with only retryable row left", count)
+	}
+}
+
 func TestOutboxFlusher_PoisonRowDoesNotStarveFollowingRows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -234,6 +314,73 @@ func TestOutboxFlusher_PoisonRowDoesNotStarveFollowingRows(t *testing.T) {
 	assertOutboxState(t, ctx, entries[0].ID, true, true)
 	assertOutboxState(t, ctx, entries[1].ID, false, true)
 	assertRunsForJob(t, ctx, goodJob.ID, 1)
+}
+
+func TestOutboxFlusher_RetryClonePromotesAfterUnderlyingIssueIsFixed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+
+	poisonJob := intCreateJob(t, ctx, st, "proj-outbox-retry-clone")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: poisonJob.ProjectID,
+		JobID:     poisonJob.ID,
+		Payload:   json.RawMessage(`{"clone":true}`),
+		Metadata: map[string]any{
+			"source": "phase3",
+		},
+		IdempotencyKey: "retry-clone-key",
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, poisonJob.ID); err != nil {
+		t.Fatalf("delete poison job: %v", err)
+	}
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
+		BatchSize: 1,
+	})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("first FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entry.ID, true, true)
+
+	restoredJob := intCreateJob(t, ctx, st, poisonJob.ProjectID, func(job *domain.Job) {
+		job.ID = poisonJob.ID
+		job.Name = "job-restored-" + intNewID()
+		job.Slug = "slug-restored-" + intNewID()
+	})
+	if restoredJob.ID != poisonJob.ID {
+		t.Fatalf("restored job ID = %q, want %q", restoredJob.ID, poisonJob.ID)
+	}
+
+	cloned, err := st.RetryQuarantinedOutbox(ctx, poisonJob.ProjectID, entry.ID)
+	if err != nil {
+		t.Fatalf("RetryQuarantinedOutbox() error = %v", err)
+	}
+	if cloned.RetryOfOutboxID == nil || *cloned.RetryOfOutboxID != entry.ID {
+		t.Fatalf("RetryOfOutboxID = %v, want %q", cloned.RetryOfOutboxID, entry.ID)
+	}
+
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("second FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entry.ID, true, true)
+	assertOutboxState(t, ctx, cloned.ID, false, true)
+	assertRunCount(t, ctx, poisonJob.ID, entry.IdempotencyKey, 1)
+
+	count, err := st.CountUnconsumedOutbox(ctx)
+	if err != nil {
+		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountUnconsumedOutbox() = %d, want 0 after retry clone promotion", count)
+	}
 }
 
 func TestOutboxCountUnconsumed_ExcludesTerminalErroredRows(t *testing.T) {
