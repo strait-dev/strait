@@ -459,6 +459,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500, 503},
 	}, s.handleAdminGetOutbox)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-retry-outbox", Method: http.MethodPost, Path: "/v1/admin/outbox/{outbox_id}/retry",
+		Summary: "Retry a quarantined outbox row (admin)", Description: "Creates a fresh retry clone from a quarantined outbox row and records an audit event. Requires the outbox:retry scope.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500, 503},
+	}, s.handleAdminRetryOutbox)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-purge-outbox", Method: http.MethodPost, Path: "/v1/admin/outbox/{outbox_id}/purge",
+		Summary: "Purge a quarantined outbox row (admin)", Description: "Hard-deletes a quarantined outbox row and records an audit event. Requires the outbox:purge scope.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500, 503},
+	}, s.handleAdminPurgeOutbox)
+
 	// -- Runs --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-runs", Method: http.MethodGet, Path: "/v1/runs",

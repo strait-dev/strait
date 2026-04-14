@@ -224,18 +224,35 @@ the affected webhook / CDC / event-trigger signal will not self-retry.
   ```
   GET /v1/admin/outbox/{outbox_id}
   ```
-- Confirm the caller has the `outbox:read` scope. Quarantined rows are
-  terminal rows with both `consumed_at` and `error` set; retryable rows
-  remain unconsumed and do not appear in this view.
+- Operator actions:
+  ```
+  POST /v1/admin/outbox/{outbox_id}/retry
+  POST /v1/admin/outbox/{outbox_id}/purge
+  ```
+- Confirm the caller has the required scopes:
+  `outbox:read` for inspection, `outbox:retry` to clone a fresh retry
+  row, and `outbox:purge` to hard-delete a quarantined row. The
+  built-in `operator` system role carries all three by default.
+- Quarantined rows are terminal rows with both `consumed_at` and
+  `error` set. Retryable rows remain unconsumed and do not appear in
+  this view. Retrying a quarantined row never mutates it in place; the
+  API creates a new claimable clone and preserves the original row plus
+  audit trail.
 
 **Remediation.**
 
 1. Identify the terminal failure class from `error`:
    missing job/configuration, validation failure, or idempotency
    collision.
-2. Fix the underlying configuration or producer bug before attempting
-   any manual replay with direct SQL or internal tooling.
-3. Verify healthy rows are still draining and that quarantine growth is
+2. Fix the underlying configuration or producer bug first.
+3. Use `POST /v1/admin/outbox/{outbox_id}/retry` when the row should be
+   re-attempted. The response returns the new retry clone id; monitor
+   outbox depth and downstream run creation instead of editing the
+   original row by hand.
+4. Use `POST /v1/admin/outbox/{outbox_id}/purge` only when the row is
+   no longer actionable and you want to remove it from operator views.
+   Purge is irreversible.
+5. Verify healthy rows are still draining and that quarantine growth is
    not continuous:
    ```
    increase(strait_queue_outbox_quarantined_total[1h])

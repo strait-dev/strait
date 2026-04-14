@@ -704,6 +704,8 @@ func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
 		{"/v1/sse-token", "post"},
 		{"/v1/api-keys/expiring-soon", "get"},
 		{"/v1/audit-events/verify", "get"},
+		{"/v1/admin/outbox/{outbox_id}/retry", "post"},
+		{"/v1/admin/outbox/{outbox_id}/purge", "post"},
 	}
 
 	for _, r := range required {
@@ -715,5 +717,38 @@ func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
 		if _, ok := pathItem[r.method]; !ok {
 			t.Errorf("method %q not found on path %q", r.method, r.path)
 		}
+	}
+}
+
+func TestOpenAPISpec_AdminOutboxRow_ExposesRetryLineageField(t *testing.T) {
+	t.Parallel()
+
+	spec := fetchOpenAPISpec(t)
+	components, ok := spec["components"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing components")
+	}
+	schemas, ok := components["schemas"].(map[string]any)
+	if !ok {
+		t.Fatal("spec missing component schemas")
+	}
+
+	var found bool
+	for _, raw := range schemas {
+		schema, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := properties["retry_of_outbox_id"]; ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected retry_of_outbox_id to appear in an OpenAPI schema")
 	}
 }

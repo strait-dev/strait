@@ -55,7 +55,8 @@ func TestValidateScopes_AllConstants(t *testing.T) {
 		ScopeWebhooksRead, ScopeWebhooksWrite,
 		ScopeAPIKeysManage, ScopeRBACManage, ScopeStatsRead,
 		ScopeProjectsRead, ScopeProjectsWrite, ScopeProjectsManage,
-		ScopeDLQRead, ScopeDLQReplay, ScopeDLQPurge, ScopeOutboxRead,
+		ScopeDLQRead, ScopeDLQReplay, ScopeDLQPurge,
+		ScopeOutboxRead, ScopeOutboxRetry, ScopeOutboxPurge,
 	}
 	for _, scope := range allScopes {
 		if err := ValidateScopes([]string{scope}); err != nil {

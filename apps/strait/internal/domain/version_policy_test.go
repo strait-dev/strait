@@ -93,6 +93,17 @@ func TestSystemRolePermissions_OperatorHasRBACManage(t *testing.T) {
 	}
 }
 
+func TestSystemRolePermissions_OperatorHasOutboxMutationScopes(t *testing.T) {
+	t.Parallel()
+
+	operatorPerms := SystemRolePermissions["operator"]
+	for _, scope := range []string{ScopeOutboxRead, ScopeOutboxRetry, ScopeOutboxPurge} {
+		if !slices.Contains(operatorPerms, scope) {
+			t.Fatalf("operator should have %s permission", scope)
+		}
+	}
+}
+
 func TestSystemRolePermissions_TriggererCannotManageKeys(t *testing.T) {
 	t.Parallel()
 

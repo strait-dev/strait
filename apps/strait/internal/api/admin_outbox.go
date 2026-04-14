@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 type outboxAdminStore interface {
 	ListQuarantinedOutbox(ctx context.Context, projectID string, limit int, cursorConsumedAt *time.Time, cursorID string) ([]store.QuarantinedOutboxRow, error)
 	GetQuarantinedOutbox(ctx context.Context, projectID, id string) (*store.QuarantinedOutboxRow, error)
+	RetryQuarantinedOutbox(ctx context.Context, projectID, id string) (*store.OutboxRow, error)
+	PurgeQuarantinedOutbox(ctx context.Context, projectID, id string) (*store.QuarantinedOutboxRow, error)
 }
 
 func resolveOutboxAdminStore(s APIStore) outboxAdminStore {
@@ -29,17 +32,18 @@ func resolveOutboxAdminStore(s APIStore) outboxAdminStore {
 }
 
 type AdminOutboxRow struct {
-	ID             string          `json:"id"`
-	ProjectID      string          `json:"project_id"`
-	JobID          string          `json:"job_id"`
-	Payload        json.RawMessage `json:"payload,omitempty"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
-	IdempotencyKey *string         `json:"idempotency_key,omitempty"`
-	ScheduledAt    *time.Time      `json:"scheduled_at,omitempty"`
-	Priority       int             `json:"priority"`
-	CreatedAt      time.Time       `json:"created_at"`
-	ConsumedAt     time.Time       `json:"consumed_at"`
-	Error          string          `json:"error"`
+	ID              string          `json:"id"`
+	ProjectID       string          `json:"project_id"`
+	JobID           string          `json:"job_id"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	IdempotencyKey  *string         `json:"idempotency_key,omitempty"`
+	ScheduledAt     *time.Time      `json:"scheduled_at,omitempty"`
+	Priority        int             `json:"priority"`
+	CreatedAt       time.Time       `json:"created_at"`
+	ConsumedAt      time.Time       `json:"consumed_at"`
+	Error           string          `json:"error"`
+	RetryOfOutboxID *string         `json:"retry_of_outbox_id,omitempty"`
 }
 
 type ListAdminOutboxInput struct {
@@ -57,6 +61,25 @@ type GetAdminOutboxInput struct {
 
 type GetAdminOutboxOutput struct {
 	Body *AdminOutboxRow
+}
+
+type AdminOutboxMutationInput struct {
+	OutboxID string `path:"outbox_id"`
+}
+
+type AdminRetryOutboxOutput struct {
+	Body struct {
+		OutboxID      string `json:"outbox_id"`
+		RetryOutboxID string `json:"retry_outbox_id"`
+		OK            bool   `json:"ok"`
+	}
+}
+
+type AdminOutboxAckOutput struct {
+	Body struct {
+		OutboxID string `json:"outbox_id"`
+		OK       bool   `json:"ok"`
+	}
 }
 
 func (s *Server) handleAdminListOutbox(ctx context.Context, input *ListAdminOutboxInput) (*ListAdminOutboxOutput, error) {
@@ -120,19 +143,136 @@ func (s *Server) handleAdminGetOutbox(ctx context.Context, input *GetAdminOutbox
 	return &GetAdminOutboxOutput{Body: &out}, nil
 }
 
+func (s *Server) handleAdminRetryOutbox(ctx context.Context, input *AdminOutboxMutationInput) (*AdminRetryOutboxOutput, error) {
+	if err := s.requireAdminScope(ctx, domain.ScopeOutboxRetry); err != nil {
+		return nil, err
+	}
+	if s.outboxAdminStore == nil {
+		return nil, huma.Error503ServiceUnavailable("outbox admin store unavailable")
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	source, err := s.outboxAdminStore.GetQuarantinedOutbox(ctx, projectID, input.OutboxID)
+	if err != nil {
+		if errors.Is(err, store.ErrOutboxRowNotFound) {
+			return nil, huma.Error404NotFound("outbox row not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to load quarantined outbox row")
+	}
+
+	cloned, err := s.outboxAdminStore.RetryQuarantinedOutbox(ctx, projectID, input.OutboxID)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrOutboxRowNotFound):
+			return nil, huma.Error404NotFound("outbox row not found")
+		case errors.Is(err, store.ErrOutboxRowConflict):
+			return nil, huma.Error409Conflict(err.Error())
+		default:
+			return nil, huma.Error500InternalServerError("failed to retry quarantined outbox row")
+		}
+	}
+
+	s.writeOutboxAudit(ctx, projectID, "outbox.retry", input.OutboxID, source, map[string]any{
+		"retry_outbox_id": cloned.ID,
+	})
+
+	out := &AdminRetryOutboxOutput{}
+	out.Body.OutboxID = input.OutboxID
+	out.Body.RetryOutboxID = cloned.ID
+	out.Body.OK = true
+	return out, nil
+}
+
+func (s *Server) handleAdminPurgeOutbox(ctx context.Context, input *AdminOutboxMutationInput) (*AdminOutboxAckOutput, error) {
+	if err := s.requireAdminScope(ctx, domain.ScopeOutboxPurge); err != nil {
+		return nil, err
+	}
+	if s.outboxAdminStore == nil {
+		return nil, huma.Error503ServiceUnavailable("outbox admin store unavailable")
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+
+	row, err := s.outboxAdminStore.PurgeQuarantinedOutbox(ctx, projectID, input.OutboxID)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrOutboxRowNotFound):
+			return nil, huma.Error404NotFound("outbox row not found")
+		case errors.Is(err, store.ErrOutboxRowConflict):
+			return nil, huma.Error409Conflict(err.Error())
+		default:
+			return nil, huma.Error500InternalServerError("failed to purge quarantined outbox row")
+		}
+	}
+
+	s.writeOutboxAudit(ctx, projectID, "outbox.purge", input.OutboxID, row, map[string]any{
+		"purged": true,
+	})
+
+	out := &AdminOutboxAckOutput{}
+	out.Body.OutboxID = input.OutboxID
+	out.Body.OK = true
+	return out, nil
+}
+
 func adminOutboxRow(row store.QuarantinedOutboxRow) AdminOutboxRow {
 	return AdminOutboxRow{
-		ID:             row.ID,
-		ProjectID:      row.ProjectID,
-		JobID:          row.JobID,
-		Payload:        row.Payload,
-		Metadata:       row.Metadata,
-		IdempotencyKey: row.IdempotencyKey,
-		ScheduledAt:    row.ScheduledAt,
-		Priority:       row.Priority,
-		CreatedAt:      row.CreatedAt,
-		ConsumedAt:     row.ConsumedAt,
-		Error:          row.Error,
+		ID:              row.ID,
+		ProjectID:       row.ProjectID,
+		JobID:           row.JobID,
+		Payload:         row.Payload,
+		Metadata:        row.Metadata,
+		IdempotencyKey:  row.IdempotencyKey,
+		ScheduledAt:     row.ScheduledAt,
+		Priority:        row.Priority,
+		CreatedAt:       row.CreatedAt,
+		ConsumedAt:      row.ConsumedAt,
+		Error:           row.Error,
+		RetryOfOutboxID: row.RetryOfOutboxID,
+	}
+}
+
+func (s *Server) writeOutboxAudit(ctx context.Context, projectID, action, outboxID string, before, after any) {
+	details := map[string]any{
+		"outbox_id": outboxID,
+		"before":    before,
+		"after":     after,
+	}
+	raw, err := json.Marshal(details)
+	if err != nil {
+		slog.Error("outbox audit marshal failed", "action", action, "outbox_id", outboxID, "err", err)
+		return
+	}
+
+	actorID := actorFromContext(ctx)
+	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
+	if actorType == "" {
+		actorType = "api_key"
+	}
+
+	ev := &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       action,
+		ResourceType: "enqueue_outbox",
+		ResourceID:   outboxID,
+		Details:      raw,
+	}
+	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
+		slog.Error("outbox audit write failed",
+			"action", action,
+			"outbox_id", outboxID,
+			"project_id", projectID,
+			"err", err,
+		)
 	}
 }
 
