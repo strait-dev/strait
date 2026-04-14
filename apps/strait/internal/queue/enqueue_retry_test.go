@@ -103,3 +103,72 @@ func TestEnqueueWithRetry_ReturnsThrottleWhenBudgetExceeded(t *testing.T) {
 		t.Fatalf("attempts = %d, want 1", attempts)
 	}
 }
+
+func TestEnqueueWithRetry_StopsWhenContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	attempts := 0
+	sleeps := 0
+
+	err := EnqueueWithRetry(ctx, retryTestQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			attempts++
+			return &ThrottledError{ProjectID: "proj", RetryAfter: 25 * time.Millisecond}
+		},
+	}, &domain.JobRun{}, EnqueueRetryConfig{
+		MaxElapsed: time.Second,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   25 * time.Millisecond,
+		JitterFrac: 0,
+		sleep: func(ctx context.Context, _ time.Duration) error {
+			sleeps++
+			cancel()
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnqueueWithRetry() error = %v, want %v", err, context.Canceled)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+	if sleeps != 1 {
+		t.Fatalf("sleeps = %d, want 1", sleeps)
+	}
+}
+
+func TestEnqueueWithRetry_StopsWhenContextDeadlineExceeded(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
+	defer cancel()
+
+	attempts := 0
+	sleeps := 0
+	err := EnqueueWithRetry(ctx, retryTestQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			attempts++
+			return &ThrottledError{ProjectID: "proj", RetryAfter: 25 * time.Millisecond}
+		},
+	}, &domain.JobRun{}, EnqueueRetryConfig{
+		MaxElapsed: time.Second,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   25 * time.Millisecond,
+		JitterFrac: 0,
+		sleep: func(ctx context.Context, _ time.Duration) error {
+			sleeps++
+			return ctx.Err()
+		},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("EnqueueWithRetry() error = %v, want %v", err, context.DeadlineExceeded)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+	if sleeps != 1 {
+		t.Fatalf("sleeps = %d, want 1", sleeps)
+	}
+}

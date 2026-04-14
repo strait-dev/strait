@@ -65,3 +65,94 @@ func TestHandleReplayRun_EnqueueThrottledReturns429(t *testing.T) {
 		t.Fatalf("error code = %q, want %q", body.Error.Code, ErrorCodeEnqueueThrottled)
 	}
 }
+
+func TestHandleTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "job",
+				Slug:        "job",
+				Enabled:     true,
+				TimeoutSecs: 60,
+				MaxAttempts: 3,
+			}, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(context.Context, *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			return &queue.ThrottledError{ProjectID: "proj-1", RetryAfter: 2200 * time.Millisecond}
+		},
+	}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`, "proj-1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Retry-After"); got != "3" {
+		t.Fatalf("Retry-After = %q, want %q", got, "3")
+	}
+
+	var body struct {
+		Error APIError `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body.Error.Code != ErrorCodeEnqueueThrottled {
+		t.Fatalf("error code = %q, want %q", body.Error.Code, ErrorCodeEnqueueThrottled)
+	}
+}
+
+func TestHandleBulkTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          id,
+				ProjectID:   "proj-1",
+				Name:        "job",
+				Slug:        "job",
+				Enabled:     true,
+				TimeoutSecs: 60,
+				MaxAttempts: 3,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueBatchFn: func(context.Context, []*domain.JobRun) (int64, error) {
+			return 0, &queue.ThrottledError{ProjectID: "proj-1", RetryAfter: 1500 * time.Millisecond}
+		},
+	}, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", `{"items":[{"payload":{"n":1}}]}`, "proj-1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Retry-After"); got != "2" {
+		t.Fatalf("Retry-After = %q, want %q", got, "2")
+	}
+
+	var body struct {
+		Error APIError `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body.Error.Code != ErrorCodeEnqueueThrottled {
+		t.Fatalf("error code = %q, want %q", body.Error.Code, ErrorCodeEnqueueThrottled)
+	}
+}

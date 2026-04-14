@@ -859,6 +859,70 @@ func TestQueueReliability_EnqueueBackpressureIsPerProject(t *testing.T) {
 	}
 }
 
+func TestQueueReliability_EnqueueWithRetrySucceedsAfterRefill(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-retry-refill")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    1,
+		DefaultRefillPerSec: 20,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	if err := q.Enqueue(ctx, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}); err != nil {
+		t.Fatalf("initial Enqueue: %v", err)
+	}
+
+	retryRun := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := queue.EnqueueWithRetry(ctx, q, retryRun, queue.EnqueueRetryConfig{
+		MaxElapsed: 500 * time.Millisecond,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   50 * time.Millisecond,
+		JitterFrac: 0,
+	}); err != nil {
+		t.Fatalf("EnqueueWithRetry() error = %v", err)
+	}
+
+	got, err := st.GetRun(ctx, retryRun.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusQueued {
+		t.Fatalf("retry run status = %s, want queued", got.Status)
+	}
+}
+
+func TestQueueReliability_EnqueueWithRetryReturnsThrottleAfterBudgetExhausted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pr126-enqueue-retry-budget")
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    1,
+		DefaultRefillPerSec: 0,
+	}, true)
+	q := queue.NewPostgresQueue(testDB.Pool, queue.WithBackpressureController(bp))
+
+	if err := q.Enqueue(ctx, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}); err != nil {
+		t.Fatalf("initial Enqueue: %v", err)
+	}
+
+	err := queue.EnqueueWithRetry(ctx, q, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}, queue.EnqueueRetryConfig{
+		MaxElapsed: 150 * time.Millisecond,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   25 * time.Millisecond,
+		JitterFrac: 0,
+	})
+	if !errors.Is(err, queue.ErrEnqueueThrottled) {
+		t.Fatalf("EnqueueWithRetry() error = %v, want throttle", err)
+	}
+}
+
 func TestQueueReliability_EnqueueInTxSameKeyStressCreatesSingleRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
