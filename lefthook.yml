@@ -14,7 +14,10 @@ pre-commit:
   commands:
     gitleaks:
       priority: 1
-      run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
+      run: |
+        if command -v gitleaks > /dev/null 2>&1; then
+          gitleaks protect --staged --config=apps/strait/.gitleaks.toml --no-banner
+        fi
       fail_text: "Secrets detected in staged files"
       timeout: 30s
       skip:
@@ -36,6 +39,16 @@ pre-push:
   follow: true
   parallel: true
   jobs:
+    - name: gitleaks
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: |
+        if command -v gitleaks > /dev/null 2>&1; then
+          gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --log-opts="origin/master..HEAD"
+        fi
+      fail_text: "Secrets detected in commits being pushed"
+      timeout: 60s
+
     - name: manypkg_check
       glob:
         - "package.json"

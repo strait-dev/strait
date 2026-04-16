@@ -233,6 +233,14 @@
       "outputs": []
     },
     "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "!**/*.mdx",
+        "!**/CHANGELOG.md",
+        "!**/LICENSE*",
+        "!**/*.txt"
+      ],
       "outputs": []
     },
     "biome:format": {
