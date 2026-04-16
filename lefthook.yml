@@ -34,42 +34,46 @@ pre-commit:
 
 pre-push:
   follow: true
+  parallel: true
   jobs:
-    - name: thorough
+    - name: manypkg_check
+      glob:
+        - "package.json"
+        - "**/package.json"
+        - "bun.lock"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bun run manypkg:check
+      fail_text: "manypkg check failed"
+      timeout: 30s
+
+    - name: biome
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bunx biome check .
+      fail_text: "biome check failed"
+      timeout: 60s
+
+    - name: typecheck
       glob:
         - "*.{ts,tsx,js,jsx,mjs,cjs}"
-        - "*.go"
         - "package.json"
         - "bun.lock"
         - "turbo.json"
-        - "biome.json"
-      only:
-        - ref: master
-        - ref: main
-        - ref: release/*
       skip:
         - run: test "${SKIP_RUN_ALL:-0}" = "1"
-      group:
-        piped: true
-        jobs:
-          - name: manypkg_check
-            run: bun run manypkg:check
-            fail_text: "manypkg check failed"
-            timeout: 30s
+      run: bun run typecheck
+      fail_text: "typecheck failed"
+      timeout: 180s
 
-          - name: typecheck_affected
-            run: bun run typecheck:affected
-            fail_text: "typecheck failed"
-            timeout: 180s
-
-          - name: go_lint_fast
-            run: |
-              export GOCACHE="$PWD/.cache/go-build"
-              export GOLANGCI_LINT_CACHE="$PWD/.cache/golangci-lint"
-              mkdir -p "$GOCACHE" "$GOLANGCI_LINT_CACHE"
-              bun run go:lint:fast
-            fail_text: "go:lint:fast failed"
-            timeout: 180s
+    - name: go_lint
+      glob: "*.go"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bun run go:lint
+      fail_text: "go:lint failed"
+      timeout: 180s
 
 commit-msg:
   commands:
