@@ -207,10 +207,7 @@
     "build": {
       "inputs": ["$TURBO_DEFAULT$", ".env"],
       "dependsOn": ["^build"],
-      "outputs": [
-        ".output/**",
-        "dist/**"
-      ]
+      "outputs": [".output/**", "dist/**"]
     },
     "start": {
       "cache": false

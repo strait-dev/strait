@@ -1,9 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": [
-    "@manypkg/cli",
-    "@typescript/native-preview"
-  ],
+  "ignoreDependencies": ["@manypkg/cli", "@typescript/native-preview"],
   "ignoreWorkspaces": ["apps/website", "apps/strait", "packages/*"],
   "ignore": ["sdk/**"],
   "workspaces": {
