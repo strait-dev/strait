@@ -1,0 +1,31 @@
+name: Actionlint
+
+on:
+  push:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/workflows/actionlint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actionlint-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install actionlint
+        run: |
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz | \
+            tar xz -C /usr/local/bin actionlint
+
+      - name: Run actionlint
+        run: actionlint -color
