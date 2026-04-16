@@ -1,0 +1,80 @@
+name: TypeScript
+
+on:
+  push:
+    paths:
+      - "apps/app/**"
+      - "apps/website/**"
+      - "apps/docs/**"
+      - "packages/**"
+      - "biome.json"
+      - "turbo.json"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*.json"
+      - ".github/workflows/typescript.yml"
+  pull_request:
+    paths:
+      - "apps/app/**"
+      - "apps/website/**"
+      - "apps/docs/**"
+      - "packages/**"
+      - "biome.json"
+      - "turbo.json"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*.json"
+      - ".github/workflows/typescript.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typescript-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: "1.3.11"
+
+jobs:
+  biome:
+    name: Biome check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Manypkg check
+        run: bun run manypkg:check
+
+      - name: Biome check
+        run: bunx biome check .
+
+  typecheck:
+    name: Typecheck
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
