@@ -202,14 +202,7 @@ jobs:
         run: |
           set -o pipefail
           go test -json -race -cover -tags=integration -timeout=20m \
-            ./internal/store \
-            ./internal/queue \
-            ./internal/pubsub \
-            ./internal/e2e \
-            ./internal/billing \
-            ./internal/worker \
-            ./internal/cdc \
-            ./internal/webhook \
+            ./... \
             | tee integration-test.jsonl
           grep -E '^(ok|FAIL)\s' integration-test.jsonl > /dev/null 2>&1 || true
           go tool test2json -t < /dev/null > /dev/null 2>&1 || true
