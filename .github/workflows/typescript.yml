@@ -13,18 +13,6 @@ on:
       - "bun.lock"
       - "tsconfig*.json"
       - ".github/workflows/typescript.yml"
-  pull_request:
-    paths:
-      - "apps/app/**"
-      - "apps/website/**"
-      - "apps/docs/**"
-      - "packages/**"
-      - "biome.json"
-      - "turbo.json"
-      - "package.json"
-      - "bun.lock"
-      - "tsconfig*.json"
-      - ".github/workflows/typescript.yml"
   workflow_dispatch:
 
 permissions:
