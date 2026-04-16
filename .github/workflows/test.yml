@@ -31,13 +31,21 @@ jobs:
           cache-dependency-path: |
             apps/strait/go.sum
 
-      - name: Build
+      - name: Build (community)
         working-directory: apps/strait
         run: go build ./...
 
-      - name: Vet
+      - name: Build (cloud)
+        working-directory: apps/strait
+        run: go build -tags cloud ./...
+
+      - name: Vet (community)
         working-directory: apps/strait
         run: go vet ./...
+
+      - name: Vet (cloud)
+        working-directory: apps/strait
+        run: go vet -tags cloud ./...
 
   unit-race:
     runs-on: blacksmith-4vcpu-ubuntu-2404

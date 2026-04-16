@@ -21,6 +21,15 @@ jobs:
   lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        edition:
+          - name: community
+            args: --timeout=5m ./...
+          - name: cloud
+            args: --timeout=5m --build-tags=cloud ./...
+    name: lint (${{ matrix.edition.name }})
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -35,7 +44,7 @@ jobs:
         with:
           version: v2.11.1
           working-directory: apps/strait
-          args: --timeout=5m ./...
+          args: ${{ matrix.edition.args }}
 
       - name: Publish lint summary
         if: always()
@@ -43,9 +52,10 @@ jobs:
         run: |
           pkg_count=$(go list ./... | wc -l | tr -d ' ')
           {
-            echo "## Lint Metrics"
+            echo "## Lint Metrics (${{ matrix.edition.name }})"
             echo ""
             echo "- Packages linted: **${pkg_count}**"
+            echo "- Build tags: **${{ matrix.edition.name }}**"
             echo "- Tests executed in this action: **0**"
             echo "- Notes: test counts and per-package coverage are published by the Test workflow."
           } >> "$GITHUB_STEP_SUMMARY"
