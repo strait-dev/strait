@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:node": "BUILD_TARGET=node vite build",
     "start": "wrangler dev",
+    "start:node": "node ./scripts/node-server.mjs",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
     "biome:lint": "biome lint ./src ./e2e",
@@ -25,6 +27,7 @@
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",
     "db:migrate": "node --import tsx --loader ./scripts/cloudflare-shim.mjs scripts/migrate.ts",
     "db:migrate:dry": "node --import tsx --loader ./scripts/cloudflare-shim.mjs scripts/migrate.ts --dry",
+    "db:migrate:bun": "bun --preload ./scripts/cloudflare-shim-bun.mjs scripts/migrate.ts",
     "clean": "git clean -xdf dist .turbo node_modules"
   },
   "dependencies": {
