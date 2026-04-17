@@ -57,14 +57,12 @@ const generateCodeLogic = (formState: FormState): string => {
 };
 
 // Helper function to simulate form validation
-const validateForm = (formState: FormState): boolean => {
-  return formState.code.length > 0 && formState.characters >= MIN_CHARACTERS;
-};
+const validateForm = (formState: FormState): boolean =>
+  formState.code.length > 0 && formState.characters >= MIN_CHARACTERS;
 
 // Helper function to simulate max value calculation
-const getMaxCharacters = (type: "random" | "memorable" | "pincode"): number => {
-  return type === "pincode" ? PINCODE_MAX_CHARACTERS : MAX_CHARACTERS;
-};
+const getMaxCharacters = (type: "random" | "memorable" | "pincode"): number =>
+  type === "pincode" ? PINCODE_MAX_CHARACTERS : MAX_CHARACTERS;
 
 describe("GenerateCodeDialog Form Logic", () => {
   beforeEach(() => {

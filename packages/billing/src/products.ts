@@ -301,7 +301,7 @@ export const PLANS: Record<PlanKey, Plan> = {
 
 export function formatPlanPrice(
   plan: Plan,
-  interval: "monthly" | "yearly",
+  interval: "monthly" | "yearly"
 ): string {
   const price = plan.prices[interval];
   if (price === 0) {

@@ -555,26 +555,24 @@ const FAQ_ITEMS = [
   },
 ];
 
-const PricingFAQ = () => {
-  return (
-    <div className="mx-auto mt-12 max-w-2xl">
-      <h3 className="mb-6 text-balance text-center font-semibold text-lg">
-        Frequently asked questions
-      </h3>
-      <Accordion className="w-full">
-        {FAQ_ITEMS.map((item) => (
-          <AccordionItem key={item.question}>
-            <AccordionTrigger className="text-left text-sm">
-              {item.question}
-            </AccordionTrigger>
-            <AccordionContent className="text-muted-foreground text-sm">
-              {item.answer}
-            </AccordionContent>
-          </AccordionItem>
-        ))}
-      </Accordion>
-    </div>
-  );
-};
+const PricingFAQ = () => (
+  <div className="mx-auto mt-12 max-w-2xl">
+    <h3 className="mb-6 text-balance text-center font-semibold text-lg">
+      Frequently asked questions
+    </h3>
+    <Accordion className="w-full">
+      {FAQ_ITEMS.map((item) => (
+        <AccordionItem key={item.question}>
+          <AccordionTrigger className="text-left text-sm">
+            {item.question}
+          </AccordionTrigger>
+          <AccordionContent className="text-muted-foreground text-sm">
+            {item.answer}
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+  </div>
+);
 
 export type { BillingInterval, PlanSlug, PlanType, UpgradeMode };

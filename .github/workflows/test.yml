@@ -14,9 +14,6 @@ concurrency:
   group: test-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-env:
-  GO_VERSION: "1.26.1"
-
 jobs:
   build:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -26,49 +23,103 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: apps/strait/go.mod
           cache: true
           cache-dependency-path: |
             apps/strait/go.sum
 
-      - name: Build
+      - name: Build (community)
         working-directory: apps/strait
         run: go build ./...
 
-      - name: Vet
+      - name: Build (cloud)
+        working-directory: apps/strait
+        run: go build -tags cloud ./...
+
+      - name: Vet (community)
         working-directory: apps/strait
         run: go vet ./...
+
+      - name: Vet (cloud)
+        working-directory: apps/strait
+        run: go vet -tags cloud ./...
 
   unit-race:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: build
-    timeout-minutes: 20
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: apps/strait/go.mod
           cache: true
           cache-dependency-path: |
             apps/strait/go.sum
+
+      - name: Select packages for this shard
+        working-directory: apps/strait
+        run: |
+          set -o pipefail
+          go list ./... | awk -v s=${{ matrix.shard }} 'NR % 4 == s % 4' > shard-packages.txt
+          go list ./internal/... | awk -v s=${{ matrix.shard }} 'NR % 4 == s % 4' > shard-internal-packages.txt
+          echo "Shard ${{ matrix.shard }} packages:"
+          cat shard-packages.txt
 
       - name: Run unit tests (race)
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go test -json -race -timeout=10m ./... | tee unit-race-test.jsonl
+          xargs -a shard-packages.txt go test -json -race -timeout=10m \
+            | tee unit-race-shard-${{ matrix.shard }}.jsonl
 
       - name: Run package coverage (internal)
         if: always()
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go test -cover ./internal/... | tee unit-internal-coverage.txt
+          if [ -s shard-internal-packages.txt ]; then
+            xargs -a shard-internal-packages.txt go test -cover \
+              | tee unit-internal-coverage-shard-${{ matrix.shard }}.txt
+          else
+            : > unit-internal-coverage-shard-${{ matrix.shard }}.txt
+          fi
+
+      - name: Upload unit-race shard artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unit-race-shard-${{ matrix.shard }}
+          if-no-files-found: ignore
+          path: |
+            apps/strait/unit-race-shard-${{ matrix.shard }}.jsonl
+            apps/strait/unit-internal-coverage-shard-${{ matrix.shard }}.txt
+
+  unit-race-summary:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: unit-race
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Download shard artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: unit-race-shard-*
+          path: shards
+          merge-multiple: true
+
+      - name: Combine shard outputs
+        run: |
+          set -o pipefail
+          cat shards/unit-race-shard-*.jsonl > unit-race-test.jsonl 2>/dev/null || : > unit-race-test.jsonl
+          cat shards/unit-internal-coverage-shard-*.txt > unit-internal-coverage.txt 2>/dev/null || : > unit-internal-coverage.txt
 
       - name: Check coverage threshold
-        if: always()
-        working-directory: apps/strait
         run: |
           MIN_COVERAGE=50
           below_threshold=0
@@ -88,8 +139,6 @@ jobs:
           fi
 
       - name: Publish unit-race test and coverage summary
-        if: always()
-        working-directory: apps/strait
         run: |
           python3 - <<'PY'
           import json
@@ -168,15 +217,15 @@ jobs:
           PY
           cat /tmp/unit_race_summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload unit-race artifacts
+      - name: Upload merged unit-race artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: unit-race-metrics
           if-no-files-found: ignore
           path: |
-            apps/strait/unit-race-test.jsonl
-            apps/strait/unit-internal-coverage.txt
+            unit-race-test.jsonl
+            unit-internal-coverage.txt
 
   integration:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -187,7 +236,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: apps/strait/go.mod
           cache: true
           cache-dependency-path: |
             apps/strait/go.sum
@@ -197,14 +246,7 @@ jobs:
         run: |
           set -o pipefail
           go test -json -race -cover -tags=integration -timeout=20m \
-            ./internal/store \
-            ./internal/queue \
-            ./internal/pubsub \
-            ./internal/e2e \
-            ./internal/billing \
-            ./internal/worker \
-            ./internal/cdc \
-            ./internal/webhook \
+            ./... \
             | tee integration-test.jsonl
           grep -E '^(ok|FAIL)\s' integration-test.jsonl > /dev/null 2>&1 || true
           go tool test2json -t < /dev/null > /dev/null 2>&1 || true

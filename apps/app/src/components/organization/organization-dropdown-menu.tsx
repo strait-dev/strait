@@ -102,7 +102,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
       try {
         await switchPromise;
         setDropdownOpen(false);
-      } catch (_error) {
+      } catch {
         // Error toast is already handled by toast.promise
       }
     },

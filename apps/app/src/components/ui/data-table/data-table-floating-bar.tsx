@@ -25,48 +25,46 @@ export const DataTableFloatingBar = ({
   selectedCount,
   onClearSelection,
   actions,
-}: DataTableFloatingBarProps) => {
-  return (
-    <TooltipProvider>
-      <div className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 shadow-lg">
-        <span className="px-1 text-sm tabular-nums">
-          {selectedCount} selected
-        </span>
-        {actions.length > 0 && <div className="h-4 w-px bg-border" />}
-        {actions.map((action) => (
-          <Tooltip key={action.label}>
-            <TooltipTrigger
-              render={
-                <Button
-                  aria-label={action.label}
-                  onClick={action.onClick}
-                  size="icon"
-                  variant={action.variant ?? "outline"}
-                />
-              }
-            >
-              <HugeiconsIcon icon={action.icon} size={16} />
-            </TooltipTrigger>
-            <TooltipContent>{action.label}</TooltipContent>
-          </Tooltip>
-        ))}
-        <div className="h-4 w-px bg-border" />
-        <Tooltip>
+}: DataTableFloatingBarProps) => (
+  <TooltipProvider>
+    <div className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 shadow-lg">
+      <span className="px-1 text-sm tabular-nums">
+        {selectedCount} selected
+      </span>
+      {actions.length > 0 && <div className="h-4 w-px bg-border" />}
+      {actions.map((action) => (
+        <Tooltip key={action.label}>
           <TooltipTrigger
             render={
               <Button
-                aria-label="Clear selection"
-                onClick={onClearSelection}
+                aria-label={action.label}
+                onClick={action.onClick}
                 size="icon"
-                variant="ghost"
+                variant={action.variant ?? "outline"}
               />
             }
           >
-            <HugeiconsIcon icon={XCircleIcon} size={16} />
+            <HugeiconsIcon icon={action.icon} size={16} />
           </TooltipTrigger>
-          <TooltipContent>Clear selection</TooltipContent>
+          <TooltipContent>{action.label}</TooltipContent>
         </Tooltip>
-      </div>
-    </TooltipProvider>
-  );
-};
+      ))}
+      <div className="h-4 w-px bg-border" />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-label="Clear selection"
+              onClick={onClearSelection}
+              size="icon"
+              variant="ghost"
+            />
+          }
+        >
+          <HugeiconsIcon icon={XCircleIcon} size={16} />
+        </TooltipTrigger>
+        <TooltipContent>Clear selection</TooltipContent>
+      </Tooltip>
+    </div>
+  </TooltipProvider>
+);

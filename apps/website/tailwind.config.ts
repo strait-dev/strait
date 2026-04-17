@@ -2,5 +2,5 @@ import baseConfig from "@strait/ui/tailwind.config";
 import type { Config } from "tailwindcss";
 
 export default {
-	presets: [baseConfig],
+  presets: [baseConfig],
 } satisfies Config;

@@ -238,7 +238,7 @@ lefthook install
 
 Hook groups (`lefthook.yml`):
 - `pre-commit`: gitleaks (secrets) + Biome (TS/JS format)
-- `pre-push` on `master` / `main` / `release/*`: manypkg, typecheck affected, `bun run go:lint:fast`
+- `pre-push` (every branch, parallel): `manypkg:check`, `biome check`, `typecheck`, `bun run go:lint` (cached + incremental vs `origin/master`)
 - `commit-msg`: enforces Conventional Commits
 
 **Never bypass hooks** with `--no-verify` or similar. Fix the underlying failure instead.

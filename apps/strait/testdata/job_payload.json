@@ -4,8 +4,8 @@
   "order": {
     "id": "ord-789",
     "items": [
-      {"sku": "WIDGET-001", "quantity": 3, "price": 9.99},
-      {"sku": "GADGET-002", "quantity": 1, "price": 24.99}
+      { "sku": "WIDGET-001", "quantity": 3, "price": 9.99 },
+      { "sku": "GADGET-002", "quantity": 1, "price": 24.99 }
     ],
     "total": 54.96,
     "currency": "USD"
