@@ -8,7 +8,6 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { isCommunityEdition } from "@/lib/edition";
 import { Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
@@ -31,6 +30,7 @@ import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   ActivityIcon,
   AlertIcon,

@@ -53,69 +53,51 @@ describe("getAuthConnectionString — Hyperdrive → AUTH_DATABASE_URL fallback"
     vi.resetModules();
   });
 
-  it(
-    "returns AUTH_DATABASE_URL when no Hyperdrive binding is present",
-    async () => {
-      vi.stubEnv(
-        "AUTH_DATABASE_URL",
-        "postgres://selfhost:secret@localhost:5432/strait"
-      );
-      vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
-      vi.stubEnv(
-        "BETTER_AUTH_SECRET",
-        "test-secret-at-least-32-chars-long"
-      );
+  it("returns AUTH_DATABASE_URL when no Hyperdrive binding is present", async () => {
+    vi.stubEnv(
+      "AUTH_DATABASE_URL",
+      "postgres://selfhost:secret@localhost:5432/strait"
+    );
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-chars-long");
 
-      const { getAuthConnectionString } = await import("@/lib/auth.server");
-      expect(getAuthConnectionString()).toBe(
-        "postgres://selfhost:secret@localhost:5432/strait"
-      );
-    }
-  );
+    const { getAuthConnectionString } = await import("@/lib/auth.server");
+    expect(getAuthConnectionString()).toBe(
+      "postgres://selfhost:secret@localhost:5432/strait"
+    );
+  });
 
-  it(
-    "returns an empty string when neither Hyperdrive nor AUTH_DATABASE_URL is set",
-    async () => {
-      vi.stubEnv("AUTH_DATABASE_URL", "");
-      vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
-      vi.stubEnv(
-        "BETTER_AUTH_SECRET",
-        "test-secret-at-least-32-chars-long"
-      );
+  it("returns an empty string when neither Hyperdrive nor AUTH_DATABASE_URL is set", async () => {
+    vi.stubEnv("AUTH_DATABASE_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-chars-long");
 
-      const { getAuthConnectionString } = await import("@/lib/auth.server");
-      expect(getAuthConnectionString()).toBe("");
-    }
-  );
+    const { getAuthConnectionString } = await import("@/lib/auth.server");
+    expect(getAuthConnectionString()).toBe("");
+  });
 
-  it(
-    "prefers a Hyperdrive binding over AUTH_DATABASE_URL when both are present",
-    async () => {
-      vi.resetModules();
-      vi.doMock("cloudflare:workers", () => ({
-        env: {
-          HYPERDRIVE: {
-            connectionString: "postgres://hyperdrive:proxy@cf-edge/strait",
-          },
+  it("prefers a Hyperdrive binding over AUTH_DATABASE_URL when both are present", async () => {
+    vi.resetModules();
+    vi.doMock("cloudflare:workers", () => ({
+      env: {
+        HYPERDRIVE: {
+          connectionString: "postgres://hyperdrive:proxy@cf-edge/strait",
         },
-      }));
+      },
+    }));
 
-      vi.stubEnv(
-        "AUTH_DATABASE_URL",
-        "postgres://selfhost:secret@localhost:5432/strait"
-      );
-      vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
-      vi.stubEnv(
-        "BETTER_AUTH_SECRET",
-        "test-secret-at-least-32-chars-long"
-      );
+    vi.stubEnv(
+      "AUTH_DATABASE_URL",
+      "postgres://selfhost:secret@localhost:5432/strait"
+    );
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-chars-long");
 
-      const { getAuthConnectionString } = await import("@/lib/auth.server");
-      expect(getAuthConnectionString()).toBe(
-        "postgres://hyperdrive:proxy@cf-edge/strait"
-      );
+    const { getAuthConnectionString } = await import("@/lib/auth.server");
+    expect(getAuthConnectionString()).toBe(
+      "postgres://hyperdrive:proxy@cf-edge/strait"
+    );
 
-      vi.doUnmock("cloudflare:workers");
-    }
-  );
+    vi.doUnmock("cloudflare:workers");
+  });
 });

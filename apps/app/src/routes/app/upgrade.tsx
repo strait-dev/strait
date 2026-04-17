@@ -13,7 +13,6 @@ import { toast } from "@strait/ui/components/toast/index";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { assertCloudEdition, isCommunityEdition } from "@/lib/edition";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as z from "zod";
@@ -33,6 +32,7 @@ import {
 } from "@/hooks/billing/use-plans";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { getPostHog } from "@/lib/analytics";
+import { assertCloudEdition, isCommunityEdition } from "@/lib/edition";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { findOrCreateCustomer, getStripeClient } from "@/lib/stripe.server";

@@ -35,6 +35,7 @@ import {
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { importPKCS8, SignJWT } from "jose";
 import { Client, type Pool } from "pg";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   ALL_OAUTH_SCOPES,
   DEFAULT_REGISTRATION_SCOPES,
@@ -45,7 +46,6 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
-import { isCommunityEdition } from "@/lib/edition";
 import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
 
 /**

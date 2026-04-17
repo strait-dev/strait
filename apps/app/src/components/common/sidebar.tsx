@@ -26,8 +26,8 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
-import { isCommunityEdition } from "@/lib/edition";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   AlertIcon,
   AnalyticsIcon,
