@@ -246,14 +246,14 @@ type AuditEvent struct {
 	ResourceType  string          `json:"resource_type"`
 	ResourceID    string          `json:"resource_id"`
 	Details       json.RawMessage `json:"details,omitempty"`
-	Signature     string          `json:"signature,omitempty"`
-	PreviousHash  string          `json:"previous_hash,omitempty"`
+	Signature     string          `json:"signature,omitempty" doc:"HMAC-SHA256 signature for tamper detection"`
+	PreviousHash  string          `json:"previous_hash,omitempty" doc:"Hash of the preceding event in the chain"`
 	CreatedAt     time.Time       `json:"created_at"`
-	RemoteIP      string          `json:"remote_ip,omitempty"`
-	UserAgent     string          `json:"user_agent,omitempty"`
-	RequestID     string          `json:"request_id,omitempty"`
-	TraceID       string          `json:"trace_id,omitempty"`
-	SchemaVersion uint16          `json:"schema_version,omitempty"`
+	RemoteIP      string          `json:"remote_ip,omitempty" doc:"Client IP address that initiated the request"`
+	UserAgent     string          `json:"user_agent,omitempty" doc:"HTTP User-Agent header (capped at 2048 chars)"`
+	RequestID     string          `json:"request_id,omitempty" doc:"Unique request identifier for correlation"`
+	TraceID       string          `json:"trace_id,omitempty" doc:"OpenTelemetry trace ID when available"`
+	SchemaVersion uint16          `json:"schema_version,omitempty" doc:"Signature schema version (1=original, 2=with forensic fields)"`
 	// IsAnchor marks the row as a chain-boundary anchor (e.g. signing key
 	// rotation). Anchors are out-of-band forensic markers: they are NOT
 	// part of the canonical HMAC form, but the verifier honors them as
