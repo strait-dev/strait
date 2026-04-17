@@ -14,12 +14,13 @@
  * Cloudflare Workers production deploy at strait.dev does not touch
  * this file.
  */
-import { createServer } from "node:http";
+
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
+import { createServer } from "node:http";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import handlerModule from "../dist/server/server.js";
 
 const handler = handlerModule.default ?? handlerModule;
@@ -27,6 +28,7 @@ const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || "0.0.0.0";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const leadingSlashesRe = /^\/+/;
 const clientDir = path.resolve(scriptDir, "..", "dist", "client");
 
 const mimeTypes = new Map([
@@ -55,9 +57,11 @@ function contentTypeFor(filePath) {
 }
 
 async function resolveStaticFile(urlPath) {
-  if (urlPath === "/" || urlPath === "") return null;
+  if (urlPath === "/" || urlPath === "") {
+    return null;
+  }
   const decoded = decodeURIComponent(urlPath.split("?")[0]);
-  const relative = decoded.replace(/^\/+/, "");
+  const relative = decoded.replace(leadingSlashesRe, "");
   const candidate = path.resolve(clientDir, relative);
   if (
     !candidate.startsWith(`${clientDir}${path.sep}`) &&
@@ -67,7 +71,9 @@ async function resolveStaticFile(urlPath) {
   }
   try {
     const stats = await stat(candidate);
-    if (!stats.isFile()) return null;
+    if (!stats.isFile()) {
+      return null;
+    }
     return { path: candidate, size: stats.size };
   } catch {
     return null;
@@ -80,10 +86,14 @@ function isImmutableAsset(urlPath) {
 }
 
 async function tryServeStatic(req, res) {
-  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return false;
+  }
   const urlPath = (req.url || "/").split("?")[0];
   const file = await resolveStaticFile(urlPath);
-  if (!file) return false;
+  if (!file) {
+    return false;
+  }
 
   res.setHeader("content-type", contentTypeFor(file.path));
   res.setHeader("content-length", file.size);
@@ -121,7 +131,9 @@ function toWebRequest(req) {
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
     if (Array.isArray(value)) {
-      for (const v of value) headers.append(key, v);
+      for (const v of value) {
+        headers.append(key, v);
+      }
     } else if (value !== undefined) {
       headers.set(key, value);
     }
@@ -139,7 +151,7 @@ function toWebRequest(req) {
   });
 }
 
-async function writeWebResponse(res, webResponse) {
+function writeWebResponse(res, webResponse) {
   res.statusCode = webResponse.status;
   res.statusMessage = webResponse.statusText;
   webResponse.headers.forEach((value, key) => {
@@ -161,7 +173,9 @@ async function writeWebResponse(res, webResponse) {
 
 const server = createServer(async (req, res) => {
   try {
-    if (await tryServeStatic(req, res)) return;
+    if (await tryServeStatic(req, res)) {
+      return;
+    }
     const webRequest = toWebRequest(req);
     const webResponse = await handler.fetch(webRequest);
     await writeWebResponse(res, webResponse);
