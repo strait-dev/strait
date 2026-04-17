@@ -66,37 +66,35 @@ const LOGOS = [
   },
 ] as const;
 
-const LogoWall = () => {
-  return (
-    <section className="border-border/40 border-y bg-muted/5 py-10 sm:py-12">
-      <div className="mx-auto max-w-screen-2xl overflow-hidden">
-        <p className="mb-8 text-center text-muted-foreground/50 text-xs uppercase tracking-widest">
-          Built with
-        </p>
+const LogoWall = () => (
+  <section className="border-border/40 border-y bg-muted/5 py-10 sm:py-12">
+    <div className="mx-auto max-w-screen-2xl overflow-hidden">
+      <p className="mb-8 text-center text-muted-foreground/50 text-xs uppercase tracking-widest">
+        Built with
+      </p>
 
-        <div
-          className="flex w-max animate-marquee items-center gap-12 sm:gap-16"
-          style={
-            {
-              "--marquee-duration": "30s",
-            } as React.CSSProperties
-          }
-        >
-          {[...LOGOS, ...LOGOS].map((logo, i) => (
-            <div
-              className="flex shrink-0 items-center gap-2.5 text-muted-foreground/40 transition-colors hover:text-muted-foreground/70"
-              key={`${logo.name}-${String(i)}`}
-            >
-              {logo.svg}
-              <span className="whitespace-nowrap font-medium text-sm">
-                {logo.name}
-              </span>
-            </div>
-          ))}
-        </div>
+      <div
+        className="flex w-max animate-marquee items-center gap-12 sm:gap-16"
+        style={
+          {
+            "--marquee-duration": "30s",
+          } as React.CSSProperties
+        }
+      >
+        {[...LOGOS, ...LOGOS].map((logo, i) => (
+          <div
+            className="flex shrink-0 items-center gap-2.5 text-muted-foreground/40 transition-colors hover:text-muted-foreground/70"
+            key={`${logo.name}-${String(i)}`}
+          >
+            {logo.svg}
+            <span className="whitespace-nowrap font-medium text-sm">
+              {logo.name}
+            </span>
+          </div>
+        ))}
       </div>
-    </section>
-  );
-};
+    </div>
+  </section>
+);
 
 export default LogoWall;

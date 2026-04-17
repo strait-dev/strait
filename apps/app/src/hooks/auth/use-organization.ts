@@ -346,8 +346,8 @@ export const useSetDefaultOrganization = () => {
 /**
  * Hook to request organization deletion.
  */
-export const useRequestOrganizationDeletion = () => {
-  return useMutation<
+export const useRequestOrganizationDeletion = () =>
+  useMutation<
     {
       success: boolean;
       message?: string;
@@ -370,13 +370,12 @@ export const useRequestOrganizationDeletion = () => {
       });
     },
   });
-};
 
 /**
  * Hook to verify organization deletion code.
  */
-export const useVerifyOrganizationDeletion = () => {
-  return useMutation<
+export const useVerifyOrganizationDeletion = () =>
+  useMutation<
     z.infer<typeof VerifyOrganizationDeletionResponseSchema>,
     Error,
     z.infer<typeof VerifyOrganizationDeletionSchema>
@@ -384,13 +383,12 @@ export const useVerifyOrganizationDeletion = () => {
     mutationKey: ["organizations", "verify"],
     mutationFn: (data) => verifyOrganizationDeletionServerFn({ data }),
   });
-};
 
 /**
  * Hook to delete organization with token.
  */
-export const useDeleteOrganizationWithToken = () => {
-  return useMutation<
+export const useDeleteOrganizationWithToken = () =>
+  useMutation<
     {
       success: boolean;
       message?: string;
@@ -404,13 +402,12 @@ export const useDeleteOrganizationWithToken = () => {
     mutationKey: ["organizations", "deleteWithToken"],
     mutationFn: (data) => deleteOrganizationWithTokenServerFn({ data }),
   });
-};
 
 /**
  * Hook to purge organization with token.
  */
-export const usePurgeOrganizationWithToken = () => {
-  return useMutation<
+export const usePurgeOrganizationWithToken = () =>
+  useMutation<
     {
       success: boolean;
       message?: string;
@@ -422,13 +419,12 @@ export const usePurgeOrganizationWithToken = () => {
     mutationKey: ["organizations", "purge"],
     mutationFn: (data) => purgeOrganizationWithTokenServerFn({ data }),
   });
-};
 
 /**
  * Hook to resend organization deletion code.
  */
-export const useResendOrganizationDeletionCode = () => {
-  return useMutation<
+export const useResendOrganizationDeletionCode = () =>
+  useMutation<
     z.infer<typeof ResendOrganizationDeletionCodeResponseSchema>,
     Error,
     z.infer<typeof ResendOrganizationDeletionCodeSchema>
@@ -436,13 +432,12 @@ export const useResendOrganizationDeletionCode = () => {
     mutationKey: ["organizations", "resendDeletionCode"],
     mutationFn: (data) => resendOrganizationDeletionCodeServerFn({ data }),
   });
-};
 
 /**
  * Hook to delete the last organization with token.
  */
-export const useDeleteLastOrganizationWithToken = () => {
-  return useMutation<
+export const useDeleteLastOrganizationWithToken = () =>
+  useMutation<
     {
       success: boolean;
       message?: string;
@@ -455,6 +450,5 @@ export const useDeleteLastOrganizationWithToken = () => {
     mutationKey: ["organizations", "deleteLast"],
     mutationFn: (data) => deleteLastOrganizationWithTokenServerFn({ data }),
   });
-};
 
 export type { UpdateOrganizationParams };

@@ -409,7 +409,7 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
         message: "Organization data purged successfully",
         organizationId,
       };
-    } catch (_error) {
+    } catch {
       throw new Error("Error purging organization data");
     }
   });
@@ -545,7 +545,7 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
         organizationId,
         userOnboardingReset: true,
       };
-    } catch (_error) {
+    } catch {
       throw new Error("Error deleting organization");
     }
   });

@@ -21,63 +21,69 @@ export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(
-    async ({ data }): Promise<PaginatedResponse<WebhookSubscription>> => {
-      return await runWithSentryReport(
+    async ({ data }): Promise<PaginatedResponse<WebhookSubscription>> =>
+      await runWithSentryReport(
         apiEffect<PaginatedResponse<WebhookSubscription>>(
           "/v1/webhooks/subscriptions",
           { params: { limit: data.limit, cursor: data.cursor } }
         )
-      );
-    }
+      )
   );
 
 export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<PaginatedResponse<WebhookDelivery>> => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<WebhookDelivery>>("/v1/webhooks/deliveries", {
-        params: { limit: data.limit, cursor: data.cursor },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<PaginatedResponse<WebhookDelivery>> =>
+      await runWithSentryReport(
+        apiEffect<PaginatedResponse<WebhookDelivery>>(
+          "/v1/webhooks/deliveries",
+          {
+            params: { limit: data.limit, cursor: data.cursor },
+          }
+        )
+      )
+  );
 
 export const createWebhookFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { webhook_url: string; event_types: string[] }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<WebhookSubscription> => {
-    return await runWithSentryReport(
-      apiEffect<WebhookSubscription>("/v1/webhooks/subscriptions", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<WebhookSubscription> =>
+      await runWithSentryReport(
+        apiEffect<WebhookSubscription>("/v1/webhooks/subscriptions", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const deleteWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/webhooks/subscriptions/${data.id}`, {
-        method: "DELETE",
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/webhooks/subscriptions/${data.id}`, {
+          method: "DELETE",
+        })
+      )
+  );
 
 export const testWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { url: string; secret?: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<WebhookDelivery> => {
-    return await runWithSentryReport(
-      apiEffect<WebhookDelivery>("/v1/webhooks/test", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<WebhookDelivery> =>
+      await runWithSentryReport(
+        apiEffect<WebhookDelivery>("/v1/webhooks/test", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const webhooksQueryOptions = (search?: ListParams) =>
   queryOptions({

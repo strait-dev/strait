@@ -71,13 +71,14 @@ const HeaderDropdown = ({ group }: HeaderDropdownProps) => {
   }, [isOpen, closeImmediately]);
 
   // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   return (
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: hover/focus handlers needed for mega-menu dropdown behavior
