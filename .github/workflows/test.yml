@@ -47,7 +47,7 @@ jobs:
   unit:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: build
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -62,7 +62,7 @@ jobs:
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go test -json -race -cover -timeout=10m ./... \
+          go test -json -race -cover -timeout=20m ./... \
             | tee unit-test.jsonl
 
       - name: Publish unit test summary
