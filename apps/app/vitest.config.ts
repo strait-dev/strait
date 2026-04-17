@@ -21,7 +21,9 @@ function shimCloudflareWorkers(): Plugin {
     name: "shim-cloudflare-workers",
     enforce: "pre",
     resolveId(id) {
-      if (id === "cloudflare:workers") { return virtualId; }
+      if (id === "cloudflare:workers") {
+        return virtualId;
+      }
       return null;
     },
     load(id) {
