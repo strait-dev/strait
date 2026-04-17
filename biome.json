@@ -17,8 +17,10 @@
       "!tanstack",
       "!dist",
       "!build",
+      "!**/.astro",
       "!**/_generated",
-      "!**/routeTree.gen.ts"
+      "!**/routeTree.gen.ts",
+      "!**/basehub-types.d.ts"
     ]
   },
   "css": {

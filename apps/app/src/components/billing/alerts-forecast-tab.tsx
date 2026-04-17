@@ -167,28 +167,26 @@ const ThresholdConfigCard = ({
 }: {
   warningThreshold: number;
   criticalThreshold: number;
-}) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-medium text-sm">
-          Anomaly Detection Thresholds
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-4 text-muted-foreground text-sm">
-          Configure the spike ratio thresholds that trigger anomaly alerts. A
-          spike ratio compares today&apos;s spend against the 7-day average.
-        </p>
-        <ThresholdForm
-          criticalThreshold={criticalThreshold}
-          key={`${warningThreshold}-${criticalThreshold}`}
-          warningThreshold={warningThreshold}
-        />
-      </CardContent>
-    </Card>
-  );
-};
+}) => (
+  <Card>
+    <CardHeader>
+      <CardTitle className="font-medium text-sm">
+        Anomaly Detection Thresholds
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      <p className="mb-4 text-muted-foreground text-sm">
+        Configure the spike ratio thresholds that trigger anomaly alerts. A
+        spike ratio compares today&apos;s spend against the 7-day average.
+      </p>
+      <ThresholdForm
+        criticalThreshold={criticalThreshold}
+        key={`${warningThreshold}-${criticalThreshold}`}
+        warningThreshold={warningThreshold}
+      />
+    </CardContent>
+  </Card>
+);
 
 const ThresholdForm = ({
   warningThreshold,

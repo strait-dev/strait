@@ -35,14 +35,12 @@ const StatCell = ({
 }: {
   label: string;
   value: string | number;
-}) => {
-  return (
-    <div className="rounded-md border p-3 text-center">
-      <p className="font-normal text-lg">{value}</p>
-      <p className="text-muted-foreground text-xs">{label}</p>
-    </div>
-  );
-};
+}) => (
+  <div className="rounded-md border p-3 text-center">
+    <p className="font-normal text-lg">{value}</p>
+    <p className="text-muted-foreground text-xs">{label}</p>
+  </div>
+);
 
 const WorkflowDetailSheet = ({
   workflow,

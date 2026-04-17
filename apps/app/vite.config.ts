@@ -79,12 +79,10 @@ function wellKnownOAuthPlugin(): Plugin {
             "/src/lib/auth.server.ts"
           );
 
-          let data;
-          if (req.url === "/.well-known/oauth-authorization-server") {
-            data = await auth.api.getOAuthServerConfig();
-          } else {
-            data = await auth.api.getOpenIdConfig();
-          }
+          const data =
+            req.url === "/.well-known/oauth-authorization-server"
+              ? await auth.api.getOAuthServerConfig()
+              : await auth.api.getOpenIdConfig();
 
           res.writeHead(200, {
             "Content-Type": "application/json",

@@ -6,10 +6,6 @@ on:
       - "runtime-v*"
     paths:
       - "apps/strait/build/runtimes/**"
-  pull_request:
-    paths:
-      - "apps/strait/build/runtimes/**"
-      - ".github/workflows/publish-runtimes.yml"
   workflow_dispatch:
     inputs:
       tag:

@@ -23,14 +23,15 @@ const approveDeviceCode = createServerFn({ method: "POST" })
     })
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    return await apiRequest<ApproveResponse>("/v1/cli/auth/approve", {
-      method: "POST",
-      body: {
-        user_code: data.userCode,
-      },
-    });
-  });
+  .handler(
+    async ({ data }) =>
+      await apiRequest<ApproveResponse>("/v1/cli/auth/approve", {
+        method: "POST",
+        body: {
+          user_code: data.userCode,
+        },
+      })
+  );
 
 export const Route = createFileRoute("/(auth)/device")({
   validateSearch: deviceSearchSchema,

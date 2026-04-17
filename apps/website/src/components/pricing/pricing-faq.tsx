@@ -75,15 +75,13 @@ export const PRICING_FAQ_ITEMS: FaqItem[] = [
   },
 ];
 
-const PricingFaq = () => {
-  return (
-    <PricingFaqClient
-      badge="FAQ"
-      description="Everything you need to know before choosing a plan."
-      items={PRICING_FAQ_ITEMS}
-      title="Frequently asked questions"
-    />
-  );
-};
+const PricingFaq = () => (
+  <PricingFaqClient
+    badge="FAQ"
+    description="Everything you need to know before choosing a plan."
+    items={PRICING_FAQ_ITEMS}
+    title="Frequently asked questions"
+  />
+);
 
 export default PricingFaq;

@@ -4,10 +4,7 @@
     "uid": "strait-platform",
     "timezone": "browser",
     "refresh": "30s",
-    "tags": [
-      "strait",
-      "production"
-    ],
+    "tags": ["strait", "production"],
     "templating": {
       "list": [
         {

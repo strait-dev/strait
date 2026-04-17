@@ -22,60 +22,67 @@ export const fetchWorkflows = createServerFn({ method: "GET" })
     (data: { limit?: number; cursor?: string; search?: string }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<PaginatedResponse<Workflow>> => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<Workflow>>("/v1/workflows", {
-        params: { limit: data.limit, cursor: data.cursor, search: data.search },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<PaginatedResponse<Workflow>> =>
+      await runWithSentryReport(
+        apiEffect<PaginatedResponse<Workflow>>("/v1/workflows", {
+          params: {
+            limit: data.limit,
+            cursor: data.cursor,
+            search: data.search,
+          },
+        })
+      )
+  );
 
 export const fetchWorkflow = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<Workflow> => {
-    return await runWithSentryReport(
-      apiEffect<Workflow>(`/v1/workflows/${data.id}`)
-    );
-  });
+  .handler(
+    async ({ data }): Promise<Workflow> =>
+      await runWithSentryReport(apiEffect<Workflow>(`/v1/workflows/${data.id}`))
+  );
 
 export const fetchWorkflowSteps = createServerFn({ method: "GET" })
   .inputValidator((data: { workflowId: string }) => data)
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<WorkflowStep[]> => {
-    const resp = await runWithSentryReport(
-      apiEffect<PaginatedResponse<WorkflowStep>>(
-        `/v1/workflows/${data.workflowId}/versions`,
-        { params: { limit: 1 } }
-      )
-    );
-    if (resp.data.length > 0) {
-      const latestVersion = resp.data[0] as unknown as { id: string };
-      const stepsResp = await runWithSentryReport(
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<WorkflowStep[]> => {
+      const resp = await runWithSentryReport(
         apiEffect<PaginatedResponse<WorkflowStep>>(
-          `/v1/workflows/${data.workflowId}/versions/${latestVersion.id}/steps`
+          `/v1/workflows/${data.workflowId}/versions`,
+          { params: { limit: 1 } }
         )
       );
-      return stepsResp.data;
+      if (resp.data.length > 0) {
+        const latestVersion = resp.data[0] as unknown as { id: string };
+        const stepsResp = await runWithSentryReport(
+          apiEffect<PaginatedResponse<WorkflowStep>>(
+            `/v1/workflows/${data.workflowId}/versions/${latestVersion.id}/steps`
+          )
+        );
+        return stepsResp.data;
+      }
+      return [] as WorkflowStep[];
     }
-    return [] as WorkflowStep[];
-  });
+  );
 
 export const fetchWorkflowRuns = createServerFn({ method: "GET" })
   .inputValidator(
     (data: { workflowId: string; limit?: number; cursor?: string }) => data
   )
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<PaginatedResponse<WorkflowRun>> => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<WorkflowRun>>(
-        `/v1/workflows/${data.workflowId}/runs`,
-        { params: { limit: data.limit, cursor: data.cursor } }
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<PaginatedResponse<WorkflowRun>> =>
+      await runWithSentryReport(
+        apiEffect<PaginatedResponse<WorkflowRun>>(
+          `/v1/workflows/${data.workflowId}/runs`,
+          { params: { limit: data.limit, cursor: data.cursor } }
+        )
       )
-    );
-  });
+  );
 
 export const triggerWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -86,15 +93,16 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
     }) => data
   )
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<WorkflowRun> => {
-    return await runWithSentryReport(
-      apiEffect<WorkflowRun>(`/v1/workflows/${data.workflowId}/trigger`, {
-        method: "POST",
-        body: { payload: data.payload, tags: data.tags },
-      })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<WorkflowRun> =>
+      await runWithSentryReport(
+        apiEffect<WorkflowRun>(`/v1/workflows/${data.workflowId}/trigger`, {
+          method: "POST",
+          body: { payload: data.payload, tags: data.tags },
+        })
+      )
+  );
 
 export const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
