@@ -128,6 +128,12 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 		err := s.store.CreateAuditEvent(ctx, ev)
 		cancel()
 		if err == nil {
+			if attempt > 0 && s.metrics != nil && s.metrics.AuditRetryAttempts != nil {
+				s.metrics.AuditRetryAttempts.Add(context.Background(), 1,
+					metric.WithAttributes(
+						attribute.Int("attempt", attempt),
+						attribute.String("outcome", "success")))
+			}
 			if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
 				s.metrics.AuditEventsEmitted.Add(context.Background(), 1,
 					metric.WithAttributes(attribute.String("mode", "async")))
@@ -138,6 +144,12 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 			return
 		}
 		lastErr = err
+		if attempt > 0 && s.metrics != nil && s.metrics.AuditRetryAttempts != nil {
+			s.metrics.AuditRetryAttempts.Add(context.Background(), 1,
+				metric.WithAttributes(
+					attribute.Int("attempt", attempt),
+					attribute.String("outcome", "exhausted")))
+		}
 		slog.Warn("audit event write attempt failed",
 			"action", ev.Action,
 			"resource_type", ev.ResourceType,

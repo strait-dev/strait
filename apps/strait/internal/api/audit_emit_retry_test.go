@@ -377,3 +377,59 @@ func TestBackpressure_MetricSplit_FailureOutcome(t *testing.T) {
 		t.Errorf("AuditEventsSyncFallback{outcome=failure} = 0, want > 0 (sync writes always error)")
 	}
 }
+
+// TestDrainer_RetryMetricIncremented: store fails twice then succeeds on 3rd
+// attempt. The initial attempt (attempt=0) is not a retry, so the counter
+// records 1 failed retry (attempt=1) and 1 successful retry (attempt=2).
+func TestDrainer_RetryMetricIncremented(t *testing.T) {
+	withShortRetries(t)
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	meter := provider.Meter("retry-metric-harness")
+
+	retryAttempts, err := meter.Int64Counter("strait.audit.retry_attempts_total")
+	if err != nil {
+		t.Fatalf("create counter: %v", err)
+	}
+	emitted, err := meter.Int64Counter("strait.audit.events_emitted_total")
+	if err != nil {
+		t.Fatalf("create emitted counter: %v", err)
+	}
+
+	var attempts atomic.Int32
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			n := attempts.Add(1)
+			if n <= 2 {
+				return errors.New("transient")
+			}
+			return nil
+		},
+	}
+	srv := NewServer(ServerDeps{
+		Config:  &config.Config{InternalSecret: "test", JWTSigningKey: testJWTSigningKey},
+		Store:   ms,
+		Metrics: &telemetry.Metrics{AuditRetryAttempts: retryAttempts, AuditEventsEmitted: emitted},
+	})
+	t.Cleanup(srv.Close)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+
+	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-1", nil)
+	srv.Close()
+
+	h := &backpressureMetricsHarness{reader: reader}
+
+	successCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "success")
+	exhaustedCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "exhausted")
+
+	if successCount != 1 {
+		t.Errorf("retry_attempts{outcome=success} = %d, want 1", successCount)
+	}
+	if exhaustedCount != 1 {
+		t.Errorf("retry_attempts{outcome=exhausted} = %d, want 1", exhaustedCount)
+	}
+}

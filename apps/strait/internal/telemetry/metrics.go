@@ -200,6 +200,7 @@ type Metrics struct {
 	// means the migration is a no-op (strait_app role missing or the
 	// current role has full UPDATE). Alerts fire when degraded > 0 on
 	// any deployment that is supposed to be SOC 2 evidence-gating.
+	AuditRetryAttempts        metric.Int64Counter
 	AuditDMLRestrictionStatus metric.Int64Counter
 }
 
@@ -971,6 +972,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total audit chain verification attempts that did not pass, labeled by reason"),
 		metric.WithUnit("1"),
 	)
+	auditRetryAttempts, _ := meter.Int64Counter(
+		"strait.audit.retry_attempts_total",
+		metric.WithDescription("Total audit event write retry attempts, labeled by attempt number (1-3) and outcome (success|exhausted)"),
+		metric.WithUnit("1"),
+	)
 	auditDMLRestrictionStatus, _ := meter.Int64Counter(
 		"strait.audit.dml_restriction_status",
 		metric.WithDescription("Startup posture of migration 000187 audit_events DML restrictions, labeled by status (enforced|degraded)"),
@@ -1084,6 +1090,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditEventsExportCapped:      auditEventsExportCapped,
 		AuditChainVerifyTotal:        auditChainVerifyTotal,
 		AuditChainVerifyFailed:       auditChainVerifyFailed,
+		AuditRetryAttempts:           auditRetryAttempts,
 		AuditDMLRestrictionStatus:    auditDMLRestrictionStatus,
 	}
 
