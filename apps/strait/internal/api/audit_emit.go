@@ -298,6 +298,8 @@ func (s *Server) stopAuditAsyncDrain() {
 		case <-done:
 			graceTimer.Stop()
 		case <-graceTimer.C:
+			slog.Warn("audit drainer still alive after grace period, waiting for exit")
+			<-done
 		}
 	}
 }
