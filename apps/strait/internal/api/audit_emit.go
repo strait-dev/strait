@@ -68,8 +68,11 @@ func (s *Server) startAuditAsyncDrain() {
 	}
 	ch := make(chan *domain.AuditEvent, bufSize)
 	done := make(chan struct{})
-	drainCtx, drainCancel := context.WithCancel(context.Background()) //nolint:gosec // drainCancel invoked in stopAuditAsyncDrain
+	drainCtx, drainCancel := context.WithCancel(context.Background())
 	s.auditAsyncMu.Lock()
+	if s.drainCancel != nil {
+		s.drainCancel()
+	}
 	s.auditAsyncCh = ch
 	s.auditAsyncDone = done
 	s.drainCtx = drainCtx
@@ -126,10 +129,12 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 	attempts := len(auditRetryDelays) + 1
 	for attempt := range attempts {
 		if attempt > 0 {
+			t := time.NewTimer(auditRetryDelays[attempt-1])
 			select {
 			case <-parent.Done():
+				t.Stop()
 				return
-			case <-time.After(auditRetryDelays[attempt-1]):
+			case <-t.C:
 			}
 		}
 		ctx, cancel := context.WithTimeout(parent, 10*time.Second)
@@ -186,7 +191,7 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 			"primary_error", lastErrStr,
 			"deadletter_error", dlqErr)
 		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-			s.metrics.AuditEventsDropped.Add(dlqCtx, 1,
+			s.metrics.AuditEventsDropped.Add(context.Background(), 1,
 				metric.WithAttributes(attribute.String("reason", "deadletter_failed")))
 		}
 		return
@@ -198,7 +203,7 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 		"retry_count", len(auditRetryDelays),
 		"primary_error", lastErrStr)
 	if s.metrics != nil && s.metrics.AuditEventsDeadlettered != nil {
-		s.metrics.AuditEventsDeadlettered.Add(dlqCtx, 1,
+		s.metrics.AuditEventsDeadlettered.Add(context.Background(), 1,
 			metric.WithAttributes(attribute.String("reason", "write_failed")))
 	}
 }
@@ -272,15 +277,15 @@ func (s *Server) stopAuditAsyncDrain() {
 		return
 	}
 	timedOut := false
+	shutdownTimer := time.NewTimer(auditAsyncShutdownTimeout)
 	select {
 	case <-done:
-	case <-time.After(auditAsyncShutdownTimeout):
+		shutdownTimer.Stop()
+	case <-shutdownTimer.C:
 		timedOut = true
 		slog.Warn("audit async drain did not finish within shutdown timeout",
 			"timeout", auditAsyncShutdownTimeout)
 	}
-	// Cancel the long-lived parent so any in-flight or future per-event
-	// DB call returns immediately. Safe to call multiple times.
 	s.auditAsyncMu.RLock()
 	cancel := s.drainCancel
 	s.auditAsyncMu.RUnlock()
@@ -288,11 +293,11 @@ func (s *Server) stopAuditAsyncDrain() {
 		cancel()
 	}
 	if timedOut {
-		// After cancellation, give the drainer a brief grace period to
-		// observe the cancelled context and exit cleanly.
+		graceTimer := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-done:
-		case <-time.After(500 * time.Millisecond):
+			graceTimer.Stop()
+		case <-graceTimer.C:
 		}
 	}
 }
@@ -444,16 +449,6 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		return
 	}
 
-	// Backpressure: when buffer >75% full, fall back to sync write instead of
-	// risking a drop. This preserves the event at the cost of a small latency
-	// hit on the request goroutine.
-	//
-	// Metrics split:
-	//   AuditEventsDropped{reason="backpressure_degraded"} counts every
-	//   trigger of the fallback path regardless of outcome (it signals
-	//   buffer saturation).
-	//   AuditEventsSyncFallback{outcome="success"|"failure"} records the
-	//   actual fate of the sync write — operators alert on failure rate.
 	if len(ch) > cap(ch)*3/4 {
 		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
 			s.metrics.AuditEventsDropped.Add(ctx, 1,
@@ -466,6 +461,9 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		if syncErr != nil {
 			outcome = "failure"
 			slog.Warn("backpressure sync audit write failed", "action", action, "error", syncErr)
+		} else if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
+			s.metrics.AuditEventsEmitted.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("mode", "sync_fallback")))
 		}
 		if s.metrics != nil && s.metrics.AuditEventsSyncFallback != nil {
 			s.metrics.AuditEventsSyncFallback.Add(ctx, 1,
