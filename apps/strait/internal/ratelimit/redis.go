@@ -10,9 +10,7 @@ import (
 
 const redisRateLimitScript = `
 local current = redis.call("INCR", KEYS[1])
-if current == 1 then
-  redis.call("PEXPIRE", KEYS[1], ARGV[1])
-end
+redis.call("PEXPIRE", KEYS[1], ARGV[1], "NX")
 local limit = tonumber(ARGV[2])
 if current > limit then
   return {0, 0}
