@@ -20,7 +20,7 @@ type fakeAuditReclaimerStore struct {
 	listLimit atomic.Int32
 	listFn    func(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error)
 	createFn  func(ctx context.Context, ev *domain.AuditEvent) error
-	deleteFn  func(ctx context.Context, id string) error
+	deleteFn  func(ctx context.Context, id, projectID string) error
 
 	createCalls    atomic.Int32
 	deleteCalls    atomic.Int32
@@ -68,10 +68,10 @@ func (f *fakeAuditReclaimerStore) CreateAuditEvent(ctx context.Context, ev *doma
 	return nil
 }
 
-func (f *fakeAuditReclaimerStore) DeleteAuditEventDeadletter(ctx context.Context, id, _ string) error {
+func (f *fakeAuditReclaimerStore) DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error {
 	f.deleteCalls.Add(1)
 	if f.deleteFn != nil {
-		return f.deleteFn(ctx, id)
+		return f.deleteFn(ctx, id, projectID)
 	}
 	return nil
 }
