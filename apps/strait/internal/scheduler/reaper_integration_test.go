@@ -92,6 +92,36 @@ func (baseReaperStore) ListReceivedEventTriggersWithStaleSteps(_ context.Context
 func (baseReaperStore) DeleteEventTriggersFinishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+func (baseReaperStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) DeleteAuditEventsBeforeExcluding(_ context.Context, _ time.Time, _ []string) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) ListAuditRetentionOverrides(_ context.Context) ([]store.AuditRetentionOverride, error) {
+	return nil, nil
+}
+func (baseReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	return nil, nil, nil
+}
+func (baseReaperStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+	return nil, nil, nil, nil
+}
+func (baseReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	return nil
+}
+func (baseReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	return nil
+}
+func (baseReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
+func (baseReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+func (baseReaperStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // 1. monitorQueueDepth

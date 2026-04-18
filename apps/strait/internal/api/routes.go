@@ -45,6 +45,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
+	r.Use(s.attachAuditContext)
 	r.Use(s.requestLogger)
 	r.Use(s.requestMetrics)
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
@@ -220,6 +221,7 @@ func (s *Server) routes() chi.Router {
 		r.Route("/secrets", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateSecret))
 			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListSecrets))
+			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/{secretID}", TypedHandler(s, http.StatusOK, s.handleGetSecret))
 			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteSecret))
 		})
 
@@ -492,8 +494,27 @@ func (s *Server) routes() chi.Router {
 		r.Route("/audit-events", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAuditEvents))
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", TypedHandler(s, http.StatusOK, s.handleExportAuditEvents))
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
+			r.With(s.requirePermission(domain.ScopeRBACManage), s.auditVerifyRateLimit).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetAuditEvent))
 		})
+
+		// Audit admin surface. Mounted under /v1 so they pick up the shared
+		// auth + rate-limit + timeout middleware stack. requireInternalSecretMiddleware
+		// gates the entire route group at the router layer (defense-in-depth);
+		// handlers also call requireAdmin internally for belt-and-suspenders.
+		r.Route("/audit", func(r chi.Router) {
+			r.Use(s.requireInternalSecretMiddleware)
+			r.Get("/deadletter", TypedHandler(s, http.StatusOK, s.handleListDeadletter))
+			r.Post("/deadletter/{id}/replay", TypedHandler(s, http.StatusOK, s.handleReplayDeadletter))
+			r.Delete("/deadletter/{id}", TypedHandler(s, http.StatusOK, s.handleDropDeadletter))
+		})
+		r.Route("/projects/{id}/audit", func(r chi.Router) {
+			r.Use(s.requireInternalSecretMiddleware)
+			r.Get("/retention", TypedHandler(s, http.StatusOK, s.handleGetAuditRetention))
+			r.Put("/retention", TypedHandler(s, http.StatusOK, s.handleSetAuditRetention))
+			r.Post("/rotate-key", TypedHandler(s, http.StatusOK, s.handleRotateAuditSigningKey))
+		})
+		r.With(s.requireInternalSecretMiddleware).Put("/projects/{id}/quotas/audit-export-cap", TypedHandler(s, http.StatusOK, s.handleUpdateAuditExportCap))
 
 		r.Route("/export", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleExportJobs))

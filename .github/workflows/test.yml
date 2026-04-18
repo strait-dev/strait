@@ -44,14 +44,10 @@ jobs:
         working-directory: apps/strait
         run: go vet -tags cloud ./...
 
-  unit-race:
+  unit:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: build
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -62,96 +58,30 @@ jobs:
           cache-dependency-path: |
             apps/strait/go.sum
 
-      - name: Select packages for this shard
+      - name: Run unit tests (race + coverage)
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go list ./... | awk -v s=${{ matrix.shard }} 'NR % 4 == s % 4' > shard-packages.txt
-          go list ./internal/... | awk -v s=${{ matrix.shard }} 'NR % 4 == s % 4' > shard-internal-packages.txt
-          echo "Shard ${{ matrix.shard }} packages:"
-          cat shard-packages.txt
+          go test -json -race -cover -timeout=20m ./... \
+            | tee unit-test.jsonl
 
-      - name: Run unit tests (race)
-        working-directory: apps/strait
-        run: |
-          set -o pipefail
-          xargs -a shard-packages.txt go test -json -race -timeout=10m \
-            | tee unit-race-shard-${{ matrix.shard }}.jsonl
-
-      - name: Run package coverage (internal)
+      - name: Publish unit test summary
         if: always()
         working-directory: apps/strait
-        run: |
-          set -o pipefail
-          if [ -s shard-internal-packages.txt ]; then
-            xargs -a shard-internal-packages.txt go test -cover \
-              | tee unit-internal-coverage-shard-${{ matrix.shard }}.txt
-          else
-            : > unit-internal-coverage-shard-${{ matrix.shard }}.txt
-          fi
-
-      - name: Upload unit-race shard artifact
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: unit-race-shard-${{ matrix.shard }}
-          if-no-files-found: ignore
-          path: |
-            apps/strait/unit-race-shard-${{ matrix.shard }}.jsonl
-            apps/strait/unit-internal-coverage-shard-${{ matrix.shard }}.txt
-
-  unit-race-summary:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: unit-race
-    if: always()
-    timeout-minutes: 5
-    steps:
-      - name: Download shard artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: unit-race-shard-*
-          path: shards
-          merge-multiple: true
-
-      - name: Combine shard outputs
-        run: |
-          set -o pipefail
-          cat shards/unit-race-shard-*.jsonl > unit-race-test.jsonl 2>/dev/null || : > unit-race-test.jsonl
-          cat shards/unit-internal-coverage-shard-*.txt > unit-internal-coverage.txt 2>/dev/null || : > unit-internal-coverage.txt
-
-      - name: Check coverage threshold
-        run: |
-          MIN_COVERAGE=50
-          below_threshold=0
-          while IFS= read -r line; do
-            pkg=$(echo "$line" | awk '{print $2}')
-            cov=$(echo "$line" | grep -oP '[0-9.]+(?=% of statements)' || true)
-            if [ -n "$cov" ]; then
-              cov_int=${cov%%.*}
-              if [ "$cov_int" -lt "$MIN_COVERAGE" ]; then
-                echo "::warning::${pkg} coverage ${cov}% is below ${MIN_COVERAGE}% threshold"
-                below_threshold=$((below_threshold + 1))
-              fi
-            fi
-          done < unit-internal-coverage.txt
-          if [ "$below_threshold" -gt 0 ]; then
-            echo "::notice::${below_threshold} package(s) below ${MIN_COVERAGE}% coverage threshold"
-          fi
-
-      - name: Publish unit-race test and coverage summary
         run: |
           python3 - <<'PY'
           import json
           import re
           from pathlib import Path
 
-          test_file = Path("unit-race-test.jsonl")
-          coverage_file = Path("unit-internal-coverage.txt")
-          summary_file = Path("/tmp/unit_race_summary.md")
+          test_file = Path("unit-test.jsonl")
+          summary_file = Path("/tmp/unit_summary.md")
 
           seen_tests = set()
           test_status = {}
           package_status = {}
+          package_cov = []
+          cov_re = re.compile(r"coverage:\s+([0-9.]+)% of statements")
 
           if test_file.exists():
               for raw in test_file.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -166,6 +96,7 @@ jobs:
                   pkg = event.get("Package", "")
                   action = event.get("Action", "")
                   test = event.get("Test", "")
+                  output = event.get("Output", "")
 
                   if test and action == "run":
                       seen_tests.add((pkg, test))
@@ -173,59 +104,57 @@ jobs:
                       test_status[(pkg, test)] = action
                   if pkg and not test and action in {"pass", "fail", "skip"}:
                       package_status[pkg] = action
+                  if action == "output" and "coverage:" in output:
+                      m = cov_re.search(output)
+                      if m and "/internal/" in pkg:
+                          package_cov.append((pkg, float(m.group(1))))
 
           passed = sum(1 for v in test_status.values() if v == "pass")
           failed = sum(1 for v in test_status.values() if v == "fail")
           skipped = sum(1 for v in test_status.values() if v == "skip")
           total_tests = len(seen_tests)
 
-          package_cov = []
-          cov_re = re.compile(r"^(ok|FAIL)\s+(\S+)\s+.*coverage:\s+([0-9.]+)% of statements")
-          if coverage_file.exists():
-              for line in coverage_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-                  m = cov_re.match(line.strip())
-                  if not m:
-                      continue
-                  pkg = m.group(2)
-                  cov = float(m.group(3))
-                  if "/internal/" in pkg:
-                      package_cov.append((pkg, cov))
-
           package_cov.sort(key=lambda item: item[0])
 
+          MIN_COVERAGE = 50
+          below = [(p, c) for p, c in package_cov if c < MIN_COVERAGE]
+
           lines = []
-          lines.append("## Unit-Race Metrics")
+          lines.append("## Unit Test Metrics")
           lines.append("")
-          lines.append(f"- Total tests discovered: **{total_tests}**")
+          lines.append(f"- Total tests: **{total_tests}**")
           lines.append(f"- Passed: **{passed}**")
           lines.append(f"- Failed: **{failed}**")
           lines.append(f"- Skipped: **{skipped}**")
-          lines.append(f"- Packages reported: **{len(package_status)}**")
+          lines.append(f"- Packages: **{len(package_status)}**")
           lines.append("")
+          if below:
+              lines.append(f"> **{len(below)}** package(s) below {MIN_COVERAGE}% coverage threshold")
+              lines.append("")
           lines.append("### Coverage by internal package")
           lines.append("")
           if package_cov:
               lines.append("| Package | Coverage |")
               lines.append("| --- | ---: |")
               for pkg, cov in package_cov:
-                  lines.append(f"| `{pkg}` | {cov:.1f}% |")
+                  flag = " :warning:" if cov < MIN_COVERAGE else ""
+                  lines.append(f"| `{pkg}` | {cov:.1f}%{flag} |")
           else:
               lines.append("No per-package coverage data found.")
 
           summary_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
           print(summary_file.read_text(encoding="utf-8"))
           PY
-          cat /tmp/unit_race_summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/unit_summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload merged unit-race artifact
+      - name: Upload unit test artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: unit-race-metrics
+          name: unit-test-metrics
           if-no-files-found: ignore
           path: |
-            unit-race-test.jsonl
-            unit-internal-coverage.txt
+            apps/strait/unit-test.jsonl
 
   integration:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -248,20 +177,8 @@ jobs:
           go test -json -race -cover -tags=integration -timeout=20m \
             ./... \
             | tee integration-test.jsonl
-          grep -E '^(ok|FAIL)\s' integration-test.jsonl > /dev/null 2>&1 || true
-          go tool test2json -t < /dev/null > /dev/null 2>&1 || true
-          # Extract coverage lines from JSON output for the summary
-          python3 -c "
-          import json, sys
-          for line in open('integration-test.jsonl'):
-              try:
-                  e = json.loads(line)
-                  if e.get('Action') == 'output' and 'coverage:' in e.get('Output', ''):
-                      sys.stdout.write(e['Output'])
-              except: pass
-          " > integration-coverage.txt
 
-      - name: Publish integration test and coverage summary
+      - name: Publish integration test summary
         if: always()
         working-directory: apps/strait
         run: |
@@ -271,12 +188,13 @@ jobs:
           from pathlib import Path
 
           test_file = Path("integration-test.jsonl")
-          coverage_file = Path("integration-coverage.txt")
           summary_file = Path("/tmp/integration_summary.md")
 
           seen_tests = set()
           test_status = {}
           package_status = {}
+          package_cov = []
+          cov_re = re.compile(r"coverage:\s+([0-9.]+)% of statements")
 
           if test_file.exists():
               for raw in test_file.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -291,6 +209,7 @@ jobs:
                   pkg = event.get("Package", "")
                   action = event.get("Action", "")
                   test = event.get("Test", "")
+                  output = event.get("Output", "")
 
                   if test and action == "run":
                       seen_tests.add((pkg, test))
@@ -298,42 +217,41 @@ jobs:
                       test_status[(pkg, test)] = action
                   if pkg and not test and action in {"pass", "fail", "skip"}:
                       package_status[pkg] = action
+                  if action == "output" and "coverage:" in output:
+                      m = cov_re.search(output)
+                      if m and "/internal/" in pkg:
+                          package_cov.append((pkg, float(m.group(1))))
 
           passed = sum(1 for v in test_status.values() if v == "pass")
           failed = sum(1 for v in test_status.values() if v == "fail")
           skipped = sum(1 for v in test_status.values() if v == "skip")
           total_tests = len(seen_tests)
 
-          package_cov = []
-          cov_re = re.compile(r"^(ok|FAIL)\s+(\S+)\s+.*coverage:\s+([0-9.]+)% of statements")
-          if coverage_file.exists():
-              for line in coverage_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-                  m = cov_re.match(line.strip())
-                  if not m:
-                      continue
-                  pkg = m.group(2)
-                  cov = float(m.group(3))
-                  if "/internal/" in pkg:
-                      package_cov.append((pkg, cov))
-
           package_cov.sort(key=lambda item: item[0])
 
+          MIN_COVERAGE = 50
+          below = [(p, c) for p, c in package_cov if c < MIN_COVERAGE]
+
           lines = []
-          lines.append("## Integration Metrics")
+          lines.append("## Integration Test Metrics")
           lines.append("")
-          lines.append(f"- Total tests discovered: **{total_tests}**")
+          lines.append(f"- Total tests: **{total_tests}**")
           lines.append(f"- Passed: **{passed}**")
           lines.append(f"- Failed: **{failed}**")
           lines.append(f"- Skipped: **{skipped}**")
-          lines.append(f"- Packages reported: **{len(package_status)}**")
+          lines.append(f"- Packages: **{len(package_status)}**")
           lines.append("")
+          if below:
+              lines.append(f"> **{len(below)}** package(s) below {MIN_COVERAGE}% coverage threshold")
+              lines.append("")
           lines.append("### Coverage by internal package")
           lines.append("")
           if package_cov:
               lines.append("| Package | Coverage |")
               lines.append("| --- | ---: |")
               for pkg, cov in package_cov:
-                  lines.append(f"| `{pkg}` | {cov:.1f}% |")
+                  flag = " :warning:" if cov < MIN_COVERAGE else ""
+                  lines.append(f"| `{pkg}` | {cov:.1f}%{flag} |")
           else:
               lines.append("No per-package coverage data found.")
 
@@ -344,10 +262,9 @@ jobs:
 
       - name: Upload integration artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: integration-metrics
+          name: integration-test-metrics
           if-no-files-found: ignore
           path: |
             apps/strait/integration-test.jsonl
-            apps/strait/integration-coverage.txt

@@ -313,6 +313,38 @@ func (m *mockReaperStore) CancelJobRunsByWorkflowRun(ctx context.Context, workfl
 	return 0, nil
 }
 
+// Audit reaper interface stubs for mockReaperStore.
+func (m *mockReaperStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockReaperStore) DeleteAuditEventsBeforeExcluding(_ context.Context, _ time.Time, _ []string) (int64, error) {
+	return 0, nil
+}
+func (m *mockReaperStore) ListAuditRetentionOverrides(_ context.Context) ([]store.AuditRetentionOverride, error) {
+	return nil, nil
+}
+func (m *mockReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	return nil, nil, nil
+}
+func (m *mockReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+func (m *mockReaperStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+	return nil, nil, nil, nil
+}
+func (m *mockReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
+
 // mockMachineDestroyer implements MachineDestroyer for testing.
 type mockMachineDestroyer struct {
 	stopFn    func(ctx context.Context, machineID string) error

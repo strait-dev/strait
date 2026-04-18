@@ -71,6 +71,13 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 	if err := s.store.CreateLogDrain(ctx, drain); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create log drain")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionLogDrainCreated, "log_drain", drain.ID, map[string]any{
+		"name":          drain.Name,
+		"drain_type":    drain.DrainType,
+		"endpoint_host": urlHost(drain.EndpointURL),
+		"auth_type":     drain.AuthType,
+		"enabled":       drain.Enabled,
+	})
 	return &CreateLogDrainOutput{Body: drain}, nil
 }
 
@@ -163,6 +170,19 @@ func (s *Server) handleUpdateLogDrain(ctx context.Context, input *UpdateLogDrain
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated log drain")
 	}
+	changedFields := make([]string, 0, len(patch))
+	for k := range patch {
+		if k == "auth_config" {
+			continue // redacted
+		}
+		changedFields = append(changedFields, k)
+	}
+	s.emitAuditEvent(ctx, domain.AuditActionLogDrainUpdated, "log_drain", drainID, map[string]any{
+		"name":                drain.Name,
+		"endpoint_host":       urlHost(drain.EndpointURL),
+		"changed_fields":      changedFields,
+		"auth_config_changed": req.AuthConfig != nil,
+	})
 	return &UpdateLogDrainOutput{Body: drain}, nil
 }
 
@@ -171,11 +191,13 @@ type DeleteLogDrainInput struct {
 }
 
 func (s *Server) handleDeleteLogDrain(ctx context.Context, input *DeleteLogDrainInput) (*struct{}, error) {
-	if err := s.store.DeleteLogDrain(ctx, input.DrainID, projectIDFromContext(ctx)); err != nil {
+	projectID := projectIDFromContext(ctx)
+	if err := s.store.DeleteLogDrain(ctx, input.DrainID, projectID); err != nil {
 		if errors.Is(err, store.ErrLogDrainNotFound) {
 			return nil, huma.Error404NotFound("log drain not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to delete log drain")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionLogDrainDeleted, "log_drain", input.DrainID, nil)
 	return nil, nil
 }

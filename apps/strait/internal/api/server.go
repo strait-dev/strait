@@ -21,6 +21,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/httputil"
+	"strait/internal/logdrain"
 	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
@@ -396,9 +397,22 @@ type RBACStore interface {
 	DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error)
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
+	CreateAuditEventDeadletter(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error
+	CountAuditEventsDeadletter(ctx context.Context) (int64, error)
+	ListAuditEventsDeadletterByProject(ctx context.Context, projectID string, limit int, cursor string) ([]domain.AuditEvent, []string, []string, error)
+	GetAuditEventDeadletter(ctx context.Context, id, projectID string) (*domain.AuditEvent, error)
+	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
+	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
 	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
+	GetAuditEvent(ctx context.Context, projectID, id string) (*domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+	VerifyAuditChainIncremental(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
+	GetAuditExportRowCap(ctx context.Context, projectID string) (int64, error)
+	SetAuditExportRowCap(ctx context.Context, projectID string, rowCap int64) error
+	GetAuditRetentionDays(ctx context.Context, projectID string) (int, bool, error)
+	SetAuditRetentionDays(ctx context.Context, projectID string, days int) error
+	RotateAuditSigningKey(ctx context.Context, projectID, actorID string) (int, error)
 
 	// Data export streaming.
 	StreamJobs(ctx context.Context, projectID string, fn func(*domain.Job) error) error
@@ -563,6 +577,29 @@ type Server struct {
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
 	sseProjectConns sync.Map // map[string]*atomic.Int64
+
+	// Async audit event drain for hot-path handlers (job trigger, bulk trigger).
+	// A single goroutine reads from auditAsyncCh and writes events sequentially
+	// via store.CreateAuditEvent, preserving HMAC chain ordering.
+	//
+	// drainCtx is a long-lived context that scopes every per-event DB call the
+	// drainer issues. stopAuditAsyncDrain closes the channel, waits for the
+	// drainer to finish what is queued, then calls drainCancel to terminate any
+	// straggling DB call still in flight — bounding total shutdown time even
+	// when the per-event 10s timeout would otherwise dominate.
+	auditAsyncCh         chan *domain.AuditEvent
+	auditAsyncDone       chan struct{}
+	auditAsyncMu         sync.RWMutex
+	auditAsyncStopOnce   sync.Once
+	auditAsyncStopped    bool
+	auditAsyncBufferSize int // 0 means use the package-level constant default
+	drainCtx             context.Context
+	drainCancel          context.CancelFunc
+
+	// Optional SIEM forwarder. When non-nil, every successfully persisted
+	// audit event is also enqueued for async batched forwarding to the
+	// configured external SIEM endpoint.
+	siemDrain *logdrain.AuditSIEMDrain
 }
 
 // acquireSSEConn attempts to reserve an SSE connection slot for the given project.
@@ -667,31 +704,33 @@ type UsageService interface {
 
 // ServerDeps holds all dependencies required to construct a Server.
 type ServerDeps struct {
-	Config             *config.Config
-	Store              APIStore
-	AnalyticsStore     AnalyticsStore // Optional: ClickHouse-backed analytics queries.
-	Queue              queue.Queue
-	PubSub             pubsub.Publisher
-	MetricsHandler     http.Handler
-	Pinger             Pinger
-	HealthRegistry     *health.Registry
-	WorkflowCallback   WorkflowCallback
-	WorkflowEngine     WorkflowTrigger
-	Metrics            *telemetry.Metrics
-	TxPool             store.TxBeginner // Optional: enables transactional event trigger sends.
-	ActorSyncer        ActorSyncer
-	PoolStatter        PoolStatter              // Optional: enables DB pool backpressure middleware.
-	RedisClient        *redis.Client            // Optional: enables per-project/key rate limiting.
-	Encryptor          Encryptor                // Optional: enables event source signature encryption.
-	ContainerRuntime   compute.ContainerRuntime // Optional: enables managed container stop on cancel.
-	StripeWebhook      http.Handler             // Optional: Stripe billing webhook handler.
-	BillingEnforcer    BillingEnforcer          // Optional: enables billing limit checks on project create.
-	UsageService       UsageService             // Optional: enables usage endpoint.
-	CHExporter         *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
-	Edition            domain.Edition           // Edition controls feature gating (community vs cloud).
-	Version            string                   // Build version (injected via ldflags).
-	CDCWebhookReceiver http.Handler             // Optional: enables CDC webhook push endpoint.
-	ObjectStore        objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
+	Config               *config.Config
+	Store                APIStore
+	AnalyticsStore       AnalyticsStore // Optional: ClickHouse-backed analytics queries.
+	Queue                queue.Queue
+	PubSub               pubsub.Publisher
+	MetricsHandler       http.Handler
+	Pinger               Pinger
+	HealthRegistry       *health.Registry
+	WorkflowCallback     WorkflowCallback
+	WorkflowEngine       WorkflowTrigger
+	Metrics              *telemetry.Metrics
+	TxPool               store.TxBeginner // Optional: enables transactional event trigger sends.
+	ActorSyncer          ActorSyncer
+	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
+	RedisClient          *redis.Client            // Optional: enables per-project/key rate limiting.
+	Encryptor            Encryptor                // Optional: enables event source signature encryption.
+	ContainerRuntime     compute.ContainerRuntime // Optional: enables managed container stop on cancel.
+	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
+	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
+	UsageService         UsageService             // Optional: enables usage endpoint.
+	CHExporter           *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
+	Edition              domain.Edition           // Edition controls feature gating (community vs cloud).
+	Version              string                   // Build version (injected via ldflags).
+	CDCWebhookReceiver   http.Handler             // Optional: enables CDC webhook push endpoint.
+	ObjectStore          objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
+	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
+	SIEMDrain            *logdrain.AuditSIEMDrain // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.
@@ -746,6 +785,16 @@ func NewServer(deps ServerDeps) *Server {
 		startedAt:          time.Now(),
 		cdcWebhookReceiver: deps.CDCWebhookReceiver,
 		objectStore:        deps.ObjectStore,
+		siemDrain:          deps.SIEMDrain,
+	}
+	if srv.siemDrain != nil && deps.Metrics != nil {
+		srv.siemDrain.SetDroppedCounter(deps.Metrics.AuditSIEMDropped)
+		srv.siemDrain.SetMetrics(
+			deps.Metrics.AuditSIEMForwarded,
+			deps.Metrics.AuditSIEMFailed,
+			deps.Metrics.AuditSIEMCircuitOpen,
+			deps.Metrics.AuditSIEMBatchSize,
+		)
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
@@ -762,7 +811,16 @@ func NewServer(deps ServerDeps) *Server {
 		}
 	}
 
+	srv.auditAsyncBufferSize = deps.AuditAsyncBufferSize
+	if srv.auditAsyncBufferSize < 256 {
+		srv.auditAsyncBufferSize = auditAsyncBufferSize // fallback to constant default
+	}
+
 	srv.router = srv.routes()
+	srv.startAuditAsyncDrain()
+	if srv.siemDrain != nil {
+		srv.siemDrain.Start(context.Background())
+	}
 	return srv
 }
 
@@ -788,12 +846,30 @@ func permCacheTTL(cfg *config.Config) time.Duration {
 
 // Close releases resources held by the server (e.g. background goroutines).
 // Call this when shutting down.
+//
+// Audit shutdown ordering is load-bearing: the primary async drainer must
+// stop FIRST so it stops feeding new events into siemDrain. We then call
+// FlushNow synchronously to push whatever the drainer just enqueued and
+// finally Stop the SIEM drain. Without the explicit FlushNow, late-drained
+// events would have to wait for the SIEM ticker to fire (default 10s) but
+// Stop's budget is only 5s — they would be dropped on the floor.
 func (s *Server) Close() {
 	if s.permCache != nil {
 		s.permCache.Stop()
 	}
 	if s.bgPool != nil {
 		s.bgPool.StopAndWait()
+	}
+	s.stopAuditAsyncDrain()
+	if s.siemDrain != nil {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.siemDrain.FlushNow(flushCtx); err != nil {
+			slog.Warn("audit SIEM drain final flush failed", "error", err)
+		}
+		flushCancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s.siemDrain.Stop(stopCtx)
+		stopCancel()
 	}
 }
 

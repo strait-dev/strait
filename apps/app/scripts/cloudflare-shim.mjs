@@ -6,11 +6,11 @@
  * falls back to AUTH_DATABASE_URL anyway — we just need the import to
  * not crash.
  */
-export async function resolve(specifier, context, nextResolve) {
+export function resolve(specifier, context, nextResolve) {
   if (specifier.startsWith("cloudflare:")) {
     return {
       shortCircuit: true,
-      url: `data:application/javascript,export default {};export const env = {};`,
+      url: "data:application/javascript,export default {};export const env = {};",
     };
   }
   return nextResolve(specifier, context);

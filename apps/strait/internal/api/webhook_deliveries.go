@@ -106,6 +106,10 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to retry delivery")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionWebhookDeliveryRetried, "webhook_delivery", deliveryID, map[string]any{
+		"subscription_id": d.SubscriptionID,
+		"previous_status": d.Status,
+	})
 	return &RetryWebhookDeliveryOutput{Body: retried}, nil
 }
 
