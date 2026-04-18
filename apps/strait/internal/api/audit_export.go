@@ -391,7 +391,7 @@ func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.
 // deriveAuditSigningKey derives a 32-byte signing key from the master key
 // using HKDF-SHA256 with the salt "audit-export-signing".
 func deriveAuditSigningKey(masterKey []byte) ([]byte, error) {
-	hkdfReader := hkdf.New(sha256.New, masterKey, []byte("audit-export-signing"), nil)
+	hkdfReader := hkdf.New(sha256.New, masterKey, []byte("audit-export-signing"), []byte("strait:v1:audit-export-hmac"))
 	derived := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, derived); err != nil {
 		return nil, fmt.Errorf("hkdf derive: %w", err)

@@ -131,7 +131,7 @@ func TestAuditExport_SignatureVerifies(t *testing.T) {
 
 	// Recompute HMAC using the same key derivation: HKDF-SHA256 over InternalSecret.
 	internalSecret := "test-secret-value"
-	hkdfReader := xhkdf.New(sha256.New, []byte(internalSecret), []byte("audit-export-signing"), nil)
+	hkdfReader := xhkdf.New(sha256.New, []byte(internalSecret), []byte("audit-export-signing"), []byte("strait:v1:audit-export-hmac"))
 	signingKey := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, signingKey); err != nil {
 		t.Fatalf("failed to derive signing key: %v", err)
