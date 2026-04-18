@@ -337,16 +337,22 @@ func (q *Queries) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff tim
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditDeadletterOlderThan")
 	defer span.End()
 
+	const batchLimit = 1000
 	rows, err := q.db.Query(ctx, `
-		WITH deleted AS (
-			DELETE FROM audit_events_deadletter
+		WITH to_delete AS (
+			SELECT id FROM audit_events_deadletter
 			WHERE created_at < $1
+			LIMIT $2
+		),
+		deleted AS (
+			DELETE FROM audit_events_deadletter
+			WHERE id IN (SELECT id FROM to_delete)
 			RETURNING project_id
 		)
 		SELECT project_id, COUNT(*) AS dropped
 		FROM deleted
 		GROUP BY project_id
-	`, cutoff)
+	`, cutoff, batchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("delete audit deadletter older than: %w", err)
 	}
