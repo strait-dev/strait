@@ -16,11 +16,17 @@ import (
 )
 
 func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
-	t.Parallel()
+	// Not parallel: sets a package-level atomic (globalAllowPrivateEndpoints)
+	// that is also written by regression_security_test.go. Running serially
+	// avoids a data race between the Store(true) here and Store(false) there.
+	globalAllowPrivateEndpoints.Store(true)
+	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
-	// Use a valid public URL that will fail to connect (port 1 is typically unreachable)
+	// 192.0.2.1 is RFC 5737 TEST-NET-1, guaranteed unreachable. The SSRF
+	// guard is bypassed above so the HTTP client attempts the connection
+	// and fails naturally, producing success:false.
 	body, _ := json.Marshal(map[string]string{"url": "https://192.0.2.1:443/webhook"})
 	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(string(body)))
 	r.Header.Set("Content-Type", "application/json")

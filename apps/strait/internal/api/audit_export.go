@@ -33,8 +33,9 @@ const maxExportWindow = 90 * 24 * time.Hour
 // a trailing {"_capped": true, "exported": N} marker and terminates
 // cleanly. The caller can paginate with from/to.
 //
-// Exposed as a package variable so tests can shrink it.
-var defaultMaxExportRows int64 = 1_000_000
+// Tests that need a smaller cap should set config.AuditExportRowCapDefault
+// on the server config rather than overriding this constant.
+const defaultMaxExportRows int64 = 1_000_000
 
 // resolveExportRowCap returns the row cap to apply to this export. The
 // precedence is per-project override > configured default > package

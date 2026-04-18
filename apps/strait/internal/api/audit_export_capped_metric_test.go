@@ -94,16 +94,7 @@ func (h *auditMetricsHarness) sumCounter(t *testing.T, name string) int64 {
 // export that tripped the cap). The counter is the Phase 11 signal
 // that feeds the Grafana 24h increase panel.
 func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
-	// Intentionally NOT t.Parallel(): this test mutates the package-level
-	// defaultMaxExportRows var, which other parallel audit-export tests
-	// read via resolveExportRowCap. Running it serially keeps -race clean
-	// without blanket-adding a mutex to a hot read path.
-
-	// Shrink the package default so the test can realistically trip the
-	// cap without streaming 1M synthetic events.
-	prev := defaultMaxExportRows
-	defaultMaxExportRows = 2
-	t.Cleanup(func() { defaultMaxExportRows = prev })
+	t.Parallel()
 
 	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
 	ms := &APIStoreMock{
@@ -124,10 +115,13 @@ func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
 	}
 
 	h := newAuditMetricsHarness(t)
+	// Set AuditExportRowCapDefault to 2 so the test can realistically
+	// trip the cap without streaming 1M synthetic events.
 	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
-		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       testJWTSigningKey,
+		InternalSecret:          "test-secret-value",
+		MaxBulkTriggerItems:     500,
+		JWTSigningKey:           testJWTSigningKey,
+		AuditExportRowCapDefault: 2,
 	}
 	srv := NewServer(ServerDeps{
 		Config:  cfg,
