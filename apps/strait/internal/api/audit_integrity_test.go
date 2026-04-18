@@ -259,12 +259,11 @@ func TestVerifyAuditChain_RateLimit_InternalSecretBypass(t *testing.T) {
 
 	for i := range 5 {
 		req := httptest.NewRequest(http.MethodGet, "/v1/audit-events/verify", nil)
-		// Internal callers have NO scopes set in context and supply the
-		// X-Internal-Secret header — this is the established bypass pattern
-		// in projectRateLimit.
-		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		// Validated internal callers are identified by ctxInternalCallerKey,
+		// set after ConstantTimeCompare passes in internalSecretAuth.
 		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-internal")
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "internal")
+		ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)

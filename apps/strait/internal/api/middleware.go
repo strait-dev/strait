@@ -988,28 +988,22 @@ func (s *Server) auditVerifyRateLimit(next http.Handler) http.Handler {
 			return
 		}
 		ctx := r.Context()
-		// Internal-secret callers bypass per-project rate limits.
-		if scopesFromContext(ctx) == nil && r.Header.Get("X-Internal-Secret") != "" {
+		if isInternalCaller(ctx) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		projectID := projectIDFromContext(ctx)
 		if projectID == "" {
-			// Without a project context we cannot enforce; defer to the
-			// downstream handler which will return its own 400.
 			next.ServeHTTP(w, r)
 			return
 		}
 		key := "rl:audit_verify:" + projectID
 		window := time.Duration(auditVerifyRateLimitWindowSecs) * time.Second
-		result, rlErr := s.rateLimiter.Allow(ctx, key, auditVerifyRateLimitRequests, window)
+		result, rlErr := s.rateLimiter.AllowStrict(ctx, key, auditVerifyRateLimitRequests, window)
 		if rlErr != nil {
-			// Fail open so a Redis hiccup does not lock out the verify
-			// endpoint, which is also a forensic primitive operators
-			// reach for during incidents.
-			slog.Warn("audit verify rate limiter error, failing open",
+			slog.Error("audit verify rate limiter error, failing closed",
 				"key", key, "error", rlErr)
-			next.ServeHTTP(w, r)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit service unavailable")
 			return
 		}
 		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(auditVerifyRateLimitRequests))
@@ -1033,9 +1027,7 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		// Internal secret auth (no scopes set) bypasses rate limiting
-		// so internal callers and stress tests are not throttled.
-		if scopesFromContext(ctx) == nil && r.Header.Get("X-Internal-Secret") != "" {
+		if isInternalCaller(ctx) {
 			next.ServeHTTP(w, r)
 			return
 		}
