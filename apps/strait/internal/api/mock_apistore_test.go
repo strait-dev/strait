@@ -679,6 +679,9 @@ var _ APIStore = &APIStoreMock{}
 //			MarkAPIKeyRotatedFunc: func(ctx context.Context, oldKeyID string, newKeyID string, graceExpiresAt time.Time) error {
 //				panic("mock out the MarkAPIKeyRotated method")
 //			},
+//			MarkAuditDeadletterReclaimedFunc: func(ctx context.Context, dlqID string, newEventID string) error {
+//				panic("mock out the MarkAuditDeadletterReclaimed method")
+//			},
 //			MarkJobRunsPausedByWorkflowRunFunc: func(ctx context.Context, workflowRunID string) (int64, error) {
 //				panic("mock out the MarkJobRunsPausedByWorkflowRun method")
 //			},
@@ -1540,6 +1543,9 @@ type APIStoreMock struct {
 
 	// MarkAPIKeyRotatedFunc mocks the MarkAPIKeyRotated method.
 	MarkAPIKeyRotatedFunc func(ctx context.Context, oldKeyID string, newKeyID string, graceExpiresAt time.Time) error
+
+	// MarkAuditDeadletterReclaimedFunc mocks the MarkAuditDeadletterReclaimed method.
+	MarkAuditDeadletterReclaimedFunc func(ctx context.Context, dlqID string, newEventID string) error
 
 	// MarkJobRunsPausedByWorkflowRunFunc mocks the MarkJobRunsPausedByWorkflowRun method.
 	MarkJobRunsPausedByWorkflowRunFunc func(ctx context.Context, workflowRunID string) (int64, error)
@@ -3718,6 +3724,15 @@ type APIStoreMock struct {
 			// GraceExpiresAt is the graceExpiresAt argument value.
 			GraceExpiresAt time.Time
 		}
+		// MarkAuditDeadletterReclaimed holds details about calls to the MarkAuditDeadletterReclaimed method.
+		MarkAuditDeadletterReclaimed []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// DlqID is the dlqID argument value.
+			DlqID string
+			// NewEventID is the newEventID argument value.
+			NewEventID string
+		}
 		// MarkJobRunsPausedByWorkflowRun holds details about calls to the MarkJobRunsPausedByWorkflowRun method.
 		MarkJobRunsPausedByWorkflowRun []struct {
 			// Ctx is the ctx argument value.
@@ -4530,6 +4545,7 @@ type APIStoreMock struct {
 	lockListWorkflows                      sync.RWMutex
 	lockListWorkflowsByTag                 sync.RWMutex
 	lockMarkAPIKeyRotated                  sync.RWMutex
+	lockMarkAuditDeadletterReclaimed       sync.RWMutex
 	lockMarkJobRunsPausedByWorkflowRun     sync.RWMutex
 	lockPauseJob                           sync.RWMutex
 	lockPauseJobsByGroup                   sync.RWMutex
@@ -14188,6 +14204,49 @@ func (mock *APIStoreMock) MarkAPIKeyRotatedCalls() []struct {
 	mock.lockMarkAPIKeyRotated.RLock()
 	calls = mock.calls.MarkAPIKeyRotated
 	mock.lockMarkAPIKeyRotated.RUnlock()
+	return calls
+}
+
+// MarkAuditDeadletterReclaimed calls MarkAuditDeadletterReclaimedFunc.
+func (mock *APIStoreMock) MarkAuditDeadletterReclaimed(ctx context.Context, dlqID string, newEventID string) error {
+	callInfo := struct {
+		Ctx        context.Context
+		DlqID      string
+		NewEventID string
+	}{
+		Ctx:        ctx,
+		DlqID:      dlqID,
+		NewEventID: newEventID,
+	}
+	mock.lockMarkAuditDeadletterReclaimed.Lock()
+	mock.calls.MarkAuditDeadletterReclaimed = append(mock.calls.MarkAuditDeadletterReclaimed, callInfo)
+	mock.lockMarkAuditDeadletterReclaimed.Unlock()
+	if mock.MarkAuditDeadletterReclaimedFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.MarkAuditDeadletterReclaimedFunc(ctx, dlqID, newEventID)
+}
+
+// MarkAuditDeadletterReclaimedCalls gets all the calls that were made to MarkAuditDeadletterReclaimed.
+// Check the length with:
+//
+//	len(mockedAPIStore.MarkAuditDeadletterReclaimedCalls())
+func (mock *APIStoreMock) MarkAuditDeadletterReclaimedCalls() []struct {
+	Ctx        context.Context
+	DlqID      string
+	NewEventID string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		DlqID      string
+		NewEventID string
+	}
+	mock.lockMarkAuditDeadletterReclaimed.RLock()
+	calls = mock.calls.MarkAuditDeadletterReclaimed
+	mock.lockMarkAuditDeadletterReclaimed.RUnlock()
 	return calls
 }
 

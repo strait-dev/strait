@@ -206,11 +206,6 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 		return nil, huma.Error404NotFound("deadletter entry not found")
 	}
 
-	// Reclaim: insert into audit_events under a fresh chain-generated id,
-	// then delete the DLQ row. If the insert fails the DLQ row stays so
-	// a later retry (manual or the scheduler reclaimer) can try again.
-	// Self-audit emits only after the replay fully commits, so a failed
-	// replay never leaves a misleading audit.deadletter_replayed row.
 	newEvent := *ev
 	newEvent.ID = uuid.Must(uuid.NewV7()).String()
 	if createErr := s.store.CreateAuditEvent(ctx, &newEvent); createErr != nil {
@@ -218,13 +213,11 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 			"deadletter_id", input.ID, "project_id", projectID, "error", createErr)
 		return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
 	}
+	if markErr := s.store.MarkAuditDeadletterReclaimed(ctx, input.ID, newEvent.ID); markErr != nil {
+		slog.Warn("failed to mark deadletter as reclaimed",
+			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", markErr)
+	}
 	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		// Chain insert succeeded but DLQ delete failed. The chain has the
-		// event now, so we return success — the DLQ row will be cleaned up
-		// either on a retry of this endpoint (idempotent-ish: a second
-		// replay will insert a second chain event, which is why operators
-		// should treat replay as at-least-once) or by the next reclaimer
-		// tick if the row's last_error is also stale.
 		slog.Warn("audit deadletter delete failed after successful chain insert",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", delErr)
 	}
