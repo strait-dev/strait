@@ -70,10 +70,12 @@ func AcquireAdvisoryLock(ctx context.Context, q *Queries, namespace, key string)
 		if attempt == maxAttempts-1 {
 			break
 		}
+		t := time.NewTimer(retryDelay)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return fmt.Errorf("acquire advisory lock %s%s: %w", namespace, key, ctx.Err())
-		case <-time.After(retryDelay):
+		case <-t.C:
 		}
 	}
 	return fmt.Errorf("acquire advisory lock %s%s: timed out after %d attempts", namespace, key, maxAttempts)

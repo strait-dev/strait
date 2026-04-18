@@ -129,7 +129,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			SELECT COALESCE(
 			    (SELECT signature FROM audit_events
 			     WHERE project_id = $1 AND signature != ''
-			     ORDER BY rotation_epoch DESC, created_at DESC LIMIT 1),
+			     ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
 			    $2
 			)
 		`, ev.ProjectID, ZeroHash).Scan(&prevHash); err != nil {
@@ -328,7 +328,7 @@ func (q *Queries) ListAuditEvents(ctx context.Context, projectID, actorID, resou
 	if ascending {
 		order = "ASC"
 	}
-	query += fmt.Sprintf(" ORDER BY created_at %s LIMIT $%d", order, param)
+	query += fmt.Sprintf(" ORDER BY created_at %s, id %s LIMIT $%d", order, order, param)
 	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, query, args...)
@@ -536,7 +536,7 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		SELECT COALESCE(
 			(SELECT signature FROM audit_events
 			 WHERE project_id = $1 AND signature != ''
-			 ORDER BY rotation_epoch DESC, created_at DESC LIMIT 1),
+			 ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
 			$2
 		)
 	`, projectID, ZeroHash).Scan(&prevHash); err != nil {
@@ -747,7 +747,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		       is_anchor, rotation_epoch
 		FROM audit_events
 		WHERE project_id = $1
-		ORDER BY rotation_epoch ASC, created_at ASC`
+		ORDER BY rotation_epoch ASC, created_at ASC, id ASC`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {

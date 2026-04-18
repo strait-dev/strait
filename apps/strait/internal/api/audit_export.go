@@ -181,8 +181,10 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 			"capped", capped)
 	}
 
-	// Set HMAC signature trailer after streaming.
-	if mac != nil {
+	// Set HMAC signature trailer only on a clean stream. A partial
+	// signature over truncated output would mislead consumers into
+	// trusting an incomplete export.
+	if mac != nil && err == nil {
 		sig := hex.EncodeToString(mac.Sum(nil))
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
 	}

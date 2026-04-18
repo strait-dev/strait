@@ -117,6 +117,10 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
 		slog.Warn("failed to create audit event", "action", action, "resource_type", resourceType, "resource_id", resourceID, "error", err)
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "sync_write_failed")))
+		}
 	}
 }
 
