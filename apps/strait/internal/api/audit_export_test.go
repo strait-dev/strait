@@ -73,20 +73,44 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
 			return fn(&domain.AuditEvent{ID: "ev-1", ProjectID: "proj-1", CreatedAt: time.Now()})
 		},
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
 	}
 
-	srv := newTestServerWithEncryptionKey(t, ms, "")
-	w := httptest.NewRecorder()
-	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
-	srv.ServeHTTP(w, r)
+	// Build a server with an empty InternalSecret so signing is disabled.
+	// The export HMAC is derived from InternalSecret (not SecretEncryptionKey),
+	// so only an empty InternalSecret should suppress the X-Audit-Signature header.
+	// We call the handler directly (bypassing HTTP routing) so that auth middleware
+	// does not reject the empty-InternalSecret server.
+	cfg := &config.Config{
+		InternalSecret:      "",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+		SecretEncryptionKey: "some-encryption-key",
+	}
+	srv := NewServer(ServerDeps{Config: cfg, Store: ms})
+	t.Cleanup(srv.Close)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	w := httptest.NewRecorder()
+	rawReq := httptest.NewRequest(http.MethodGet,
+		"/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", nil)
+	ctx := context.WithValue(rawReq.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxKeyResponseWriter, w)
+	ctx = context.WithValue(ctx, ctxKeyRequest, rawReq.WithContext(ctx))
+	rawReq = rawReq.WithContext(ctx)
+
+	input := &ExportAuditEventsInput{
+		From:   "2026-01-01T00:00:00Z",
+		To:     "2026-02-01T00:00:00Z",
+		Format: "ndjson",
+	}
+	_, err := srv.handleExportAuditEvents(ctx, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	sig := w.Header().Get("X-Audit-Signature")
 	if sig != "" {
-		t.Fatalf("expected no X-Audit-Signature when encryption key is empty, got %q", sig)
+		t.Fatalf("expected no X-Audit-Signature when InternalSecret is empty, got %q", sig)
 	}
 }
 
@@ -103,8 +127,9 @@ func TestAuditExport_SignatureVerifies(t *testing.T) {
 		},
 	}
 
-	encKey := "my-secret-encryption-key-32chars!"
-	srv := newTestServerWithEncryptionKey(t, ms, encKey)
+	// The export HMAC is derived from InternalSecret, not SecretEncryptionKey.
+	// newTestServer sets InternalSecret to "test-secret-value".
+	srv := newTestServer(t, ms, nil, nil)
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
 	srv.ServeHTTP(w, r)
@@ -119,8 +144,9 @@ func TestAuditExport_SignatureVerifies(t *testing.T) {
 	}
 	hexSig := strings.TrimPrefix(sig, "sha256=")
 
-	// Recompute HMAC with same key derivation.
-	hkdfReader := xhkdf.New(sha256.New, []byte(encKey), []byte("audit-export-signing"), nil)
+	// Recompute HMAC using the same key derivation: HKDF-SHA256 over InternalSecret.
+	internalSecret := "test-secret-value"
+	hkdfReader := xhkdf.New(sha256.New, []byte(internalSecret), []byte("audit-export-signing"), nil)
 	signingKey := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, signingKey); err != nil {
 		t.Fatalf("failed to derive signing key: %v", err)

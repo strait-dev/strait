@@ -31,6 +31,13 @@ const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
 
+// ctxInternalCallerKey is set to true by internalSecretAuth after the
+// X-Internal-Secret header passes constant-time comparison. It is the
+// authoritative signal that a request was authenticated via the internal
+// secret — unlike nil scopes, which is also true for unauthenticated
+// requests that never reached any auth middleware.
+const ctxInternalCallerKey contextKey = "internal_caller"
+
 // Forensic metadata propagated through request context into audit events.
 const ctxRemoteIPKey contextKey = "remote_ip"
 const ctxUserAgentKey contextKey = "user_agent"
@@ -444,6 +451,11 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
+		// Mark the request as authenticated via internal secret. This flag is
+		// checked by isInternalCaller() and requireAdmin(), and is set here —
+		// after the ConstantTimeCompare above passes — so unauthenticated
+		// requests (no secret, wrong secret) never have it.
+		ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 
 		// Optionally carry explicit project context for internal calls (e.g. RBAC management).
 		// Check X-Project-Id header first, fall back to query param for backward compat.
@@ -555,6 +567,31 @@ func scopesFromContext(ctx context.Context) []string {
 		return v
 	}
 	return nil
+}
+
+// isInternalCaller returns true only when the request was authenticated via
+// the X-Internal-Secret header. Checking this flag is more reliable than
+// checking scopesFromContext(ctx) == nil because nil scopes are also present
+// on unauthenticated requests that bypassed auth middleware entirely.
+func isInternalCaller(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxInternalCallerKey).(bool)
+	return v
+}
+
+// requireInternalSecretMiddleware is a chi middleware that enforces
+// internal-secret-only access at the router layer. It returns 403 for any
+// request that was not positively authenticated via the X-Internal-Secret
+// header (i.e. isInternalCaller returns false). Applying this at the route
+// group level provides defense-in-depth: even if a handler's own requireAdmin
+// call were skipped or removed, the middleware layer still gates access.
+func (s *Server) requireInternalSecretMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isInternalCaller(r.Context()) {
+			respondError(w, r, http.StatusForbidden, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requirePermission returns a middleware that checks authorization based on

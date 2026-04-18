@@ -63,13 +63,15 @@ type ListDeadletterResponse struct {
 const deadletterMaxLimit = 200
 
 // requireAdmin enforces the internal-secret auth pattern for DLQ admin
-// endpoints. Any request that presented API-key scopes is rejected. This
-// mirrors handleCreateProject's scopesFromContext(ctx) != nil check —
-// there is no project-role-based admin middleware in this codebase, and
-// the existing admin-only surface (/internal/admin/*) uses the same
-// pattern. Returns a 403 error when the caller is not an admin.
+// endpoints. Only requests positively identified as internal-secret callers
+// are admitted. Checking isInternalCaller(ctx) is more secure than checking
+// scopesFromContext(ctx) == nil: nil scopes are also present on
+// unauthenticated requests that bypassed auth middleware, whereas
+// ctxInternalCallerKey is only set after X-Internal-Secret passes
+// constant-time comparison in internalSecretAuth. Returns 403 for any
+// caller that is not a verified internal-secret caller.
 func (s *Server) requireAdmin(ctx context.Context) error {
-	if scopesFromContext(ctx) != nil {
+	if !isInternalCaller(ctx) {
 		return huma.Error403Forbidden("admin access required")
 	}
 	return nil

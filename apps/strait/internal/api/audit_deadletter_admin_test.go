@@ -13,11 +13,12 @@ import (
 	"strait/internal/domain"
 )
 
-// adminCtx returns a context that satisfies requireAdmin (scopes == nil,
-// i.e. internal-secret auth path) and carries an authenticated project id
-// plus the minimum forensic/actor fields required by emitAuditEvent.
+// adminCtx returns a context that satisfies requireAdmin (isInternalCaller
+// returns true) and carries an authenticated project id plus the minimum
+// forensic/actor fields required by emitAuditEvent.
 func adminCtx(projectID string) context.Context {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, projectID)
+	ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 	ctx = context.WithValue(ctx, ctxActorIDKey, "internal:admin")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "internal")
 	return ctx

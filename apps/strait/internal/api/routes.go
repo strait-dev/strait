@@ -498,10 +498,12 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetAuditEvent))
 		})
 
-		// Audit admin surface. Handlers enforce requireAdmin internally
-		// (internal-secret callers only). Mounted under /v1 so they pick
-		// up the shared auth + rate-limit + timeout middleware stack.
+		// Audit admin surface. Mounted under /v1 so they pick up the shared
+		// auth + rate-limit + timeout middleware stack. requireInternalSecretMiddleware
+		// gates the entire route group at the router layer (defense-in-depth);
+		// handlers also call requireAdmin internally for belt-and-suspenders.
 		r.Route("/audit", func(r chi.Router) {
+			r.Use(s.requireInternalSecretMiddleware)
 			r.Get("/deadletter", TypedHandler(s, http.StatusOK, s.handleListDeadletter))
 			r.Post("/deadletter/{id}/replay", TypedHandler(s, http.StatusOK, s.handleReplayDeadletter))
 			r.Delete("/deadletter/{id}", TypedHandler(s, http.StatusOK, s.handleDropDeadletter))

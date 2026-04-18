@@ -126,11 +126,16 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	actorID := input.ActorID
 	resourceType := input.ResourceType
 
-	// Derive HMAC signing key if configured.
+	// Derive HMAC signing key if configured. InternalSecret (INTERNAL_SECRET)
+	// is the correct source key: it is the platform auth key, which is the
+	// appropriate material for signing audit exports. SecretEncryptionKey is
+	// the envelope encryption key for secrets storage and must not be used
+	// here — using the wrong key would tie export integrity to a key intended
+	// for a different purpose.
 	var mac hash.Hash
-	signingEnabled := s.config.SecretEncryptionKey != ""
+	signingEnabled := s.config.InternalSecret != ""
 	if signingEnabled {
-		signingKey, keyErr := deriveAuditSigningKey([]byte(s.config.SecretEncryptionKey))
+		signingKey, keyErr := deriveAuditSigningKey([]byte(s.config.InternalSecret))
 		if keyErr != nil {
 			return nil, huma.Error500InternalServerError("internal error")
 		}
