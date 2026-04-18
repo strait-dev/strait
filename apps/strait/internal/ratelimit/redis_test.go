@@ -215,3 +215,67 @@ func TestRedisRateLimiterAllow_DifferentKeys_Independent(t *testing.T) {
 		t.Fatal("key B first request should be allowed (independent from key A)")
 	}
 }
+
+func TestRedisRateLimiterAllowStrict_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		return errors.New("redis unavailable")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	_, err := limiter.AllowStrict(t.Context(), "key", 1, time.Minute)
+	if err == nil {
+		t.Fatal("expected error on Redis failure, got nil (fail-closed)")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_EnforcesLimit(t *testing.T) {
+	t.Parallel()
+
+	var counter int
+	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
+		counter++
+		limit := 2
+		var result []any
+		if counter > limit {
+			result = []any{int64(0), int64(0)}
+		} else {
+			result = []any{int64(1), int64(limit - counter)}
+		}
+		if c, ok := cmd.(*redis.Cmd); ok {
+			c.SetVal(result)
+			return nil
+		}
+		return errors.New("unexpected command type")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	ctx := t.Context()
+
+	r1, err := limiter.AllowStrict(ctx, "key", 2, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r1.Allowed {
+		t.Fatal("first request should be allowed")
+	}
+
+	r2, err := limiter.AllowStrict(ctx, "key", 2, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r2.Allowed {
+		t.Fatal("second request should be allowed")
+	}
+
+	r3, err := limiter.AllowStrict(ctx, "key", 2, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r3.Allowed {
+		t.Fatal("third request should be rejected")
+	}
+}

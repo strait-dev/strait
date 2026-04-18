@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -78,7 +79,7 @@ func (r *RedisRateLimiter) AllowStrict(ctx context.Context, key string, limit in
 	}
 
 	if len(vals) < 2 {
-		return RateLimitResult{Allowed: true, Remaining: limit}, nil
+		return RateLimitResult{}, fmt.Errorf("rate limit: unexpected script response length %d", len(vals))
 	}
 
 	return RateLimitResult{
