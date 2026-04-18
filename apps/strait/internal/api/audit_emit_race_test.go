@@ -67,13 +67,12 @@ func TestEmitAuditEventAsync_NilChannelFallsBackSync(t *testing.T) {
 		},
 	}
 
-	// Bypass NewServer so startAuditAsyncDrain is never called —
-	// s.auditAsyncCh remains nil. The emit must still produce one sync write.
+	// newTestServer calls NewServer which starts the drainer. Stop it and
+	// nil-out the channel under the mutex to simulate a server where
+	// startAuditAsyncDrain was never called. This artificial state (stopped
+	// + ch==nil) exercises the nil-channel fallback at the top of
+	// emitAuditEventAsync; the ch==nil check fires before the stopped check.
 	srv := newTestServer(t, ms, nil, nil)
-	// Manually stop the drainer and reset the channel to simulate the
-	// no-drainer path. We close the drainer, then directly set the channel
-	// back to nil under the mutex to simulate a "not started" state for this
-	// isolated test.
 	srv.stopAuditAsyncDrain()
 	srv.auditAsyncMu.Lock()
 	srv.auditAsyncCh = nil
