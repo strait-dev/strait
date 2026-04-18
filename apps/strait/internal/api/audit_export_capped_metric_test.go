@@ -118,9 +118,9 @@ func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
 	// Set AuditExportRowCapDefault to 2 so the test can realistically
 	// trip the cap without streaming 1M synthetic events.
 	cfg := &config.Config{
-		InternalSecret:          "test-secret-value",
-		MaxBulkTriggerItems:     500,
-		JWTSigningKey:           testJWTSigningKey,
+		InternalSecret:           "test-secret-value",
+		MaxBulkTriggerItems:      500,
+		JWTSigningKey:            testJWTSigningKey,
 		AuditExportRowCapDefault: 2,
 	}
 	srv := NewServer(ServerDeps{

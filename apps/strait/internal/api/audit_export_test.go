@@ -19,22 +19,6 @@ import (
 	xhkdf "golang.org/x/crypto/hkdf"
 )
 
-func newTestServerWithEncryptionKey(t *testing.T, s APIStore, encryptionKey string) *Server {
-	t.Helper()
-	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
-		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       testJWTSigningKey,
-		SecretEncryptionKey: encryptionKey,
-	}
-	srv := NewServer(ServerDeps{
-		Config: cfg,
-		Store:  s,
-	})
-	t.Cleanup(srv.Close)
-	return srv
-}
-
 func TestAuditExport_JSON_IncludesSignature(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
@@ -98,7 +82,6 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 	ctx := context.WithValue(rawReq.Context(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxKeyResponseWriter, w)
 	ctx = context.WithValue(ctx, ctxKeyRequest, rawReq.WithContext(ctx))
-	rawReq = rawReq.WithContext(ctx)
 
 	input := &ExportAuditEventsInput{
 		From:   "2026-01-01T00:00:00Z",
