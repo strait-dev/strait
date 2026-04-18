@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -312,9 +313,20 @@ func TestBackpressure_MetricSplit_SuccessOutcome(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
+	// Send one event and wait for the drainer to pick it up (block on
+	// <-release). This ensures the firstCall gate fires inside the drainer,
+	// NOT in a sync-fallback call from the loop below. Without this yield
+	// the drainer goroutine may not be scheduled before the buffer exceeds
+	// 75%, causing the firstCall CAS to fire on the sync path and
+	// deadlocking the test body.
+	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
+	for !firstCall.Load() {
+		runtime.Gosched()
+	}
+
 	// Fill past 256*0.75 = 192 to trigger the backpressure gate.
 	// Drainer is blocked on the first event, so the buffer accumulates.
-	for range 250 {
+	for range 249 {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
 	}
 
@@ -369,7 +381,14 @@ func TestBackpressure_MetricSplit_FailureOutcome(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
-	for range 250 {
+	// Ensure the drainer consumes the first event before filling the
+	// buffer, same reason as TestBackpressure_MetricSplit_SuccessOutcome.
+	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
+	for !firstCall.Load() {
+		runtime.Gosched()
+	}
+
+	for range 249 {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
 	}
 
