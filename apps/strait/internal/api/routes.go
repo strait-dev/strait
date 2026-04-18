@@ -509,11 +509,12 @@ func (s *Server) routes() chi.Router {
 			r.Delete("/deadletter/{id}", TypedHandler(s, http.StatusOK, s.handleDropDeadletter))
 		})
 		r.Route("/projects/{id}/audit", func(r chi.Router) {
+			r.Use(s.requireInternalSecretMiddleware)
 			r.Get("/retention", TypedHandler(s, http.StatusOK, s.handleGetAuditRetention))
 			r.Put("/retention", TypedHandler(s, http.StatusOK, s.handleSetAuditRetention))
 			r.Post("/rotate-key", TypedHandler(s, http.StatusOK, s.handleRotateAuditSigningKey))
 		})
-		r.Put("/projects/{id}/quotas/audit-export-cap", TypedHandler(s, http.StatusOK, s.handleUpdateAuditExportCap))
+		r.With(s.requireInternalSecretMiddleware).Put("/projects/{id}/quotas/audit-export-cap", TypedHandler(s, http.StatusOK, s.handleUpdateAuditExportCap))
 
 		r.Route("/export", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleExportJobs))
