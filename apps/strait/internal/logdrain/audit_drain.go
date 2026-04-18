@@ -419,6 +419,35 @@ func (d *AuditSIEMDrain) Stop(ctx context.Context) {
 	case <-time.After(timeout):
 		d.logger.Warn("audit SIEM drain did not finish within shutdown timeout",
 			"timeout", timeout)
+		d.drainRemainingToSubDLQ()
+	}
+}
+
+func (d *AuditSIEMDrain) drainRemainingToSubDLQ() {
+	if d.ch == nil {
+		return
+	}
+	var abandoned int
+	for {
+		select {
+		case ev, ok := <-d.ch:
+			if !ok {
+				goto done
+			}
+			d.subDLQ.add(ev, "shutdown_timeout")
+			abandoned++
+		default:
+			goto done
+		}
+	}
+done:
+	if abandoned > 0 {
+		d.logger.Warn("audit SIEM drain: events moved to sub-DLQ on shutdown timeout",
+			"count", abandoned)
+		if d.failedCount != nil {
+			d.failedCount.Add(context.Background(), int64(abandoned),
+				metric.WithAttributes(attribute.String("reason", "shutdown_timeout")))
+		}
 	}
 }
 
@@ -575,9 +604,7 @@ func (d *AuditSIEMDrain) ForwardBatch(ctx context.Context, events []domain.Audit
 	doOnce := func() (*http.Response, error) {
 		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, bytes.NewReader(payload))
 		if rerr != nil {
-			// Tag as non-retryable: a malformed URL / bad method is
-			// deterministic — no amount of retrying fixes it.
-			return nil, fmt.Errorf("%w: %w", errRequestConstruct, rerr)
+			return nil, fmt.Errorf("%w: request construction failed for %s", errRequestConstruct, d.endpointSanitized)
 		}
 		req.Header.Set("Content-Type", "application/x-ndjson")
 		req.Header.Set("User-Agent", "Strait-Audit-SIEM/1.0")
