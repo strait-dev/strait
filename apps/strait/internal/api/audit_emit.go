@@ -432,7 +432,7 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
 	}
 
-	if stopped || ch == nil {
+	if stopped {
 		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
 			s.metrics.AuditEventsDropped.Add(ctx, 1,
 				metric.WithAttributes(attribute.String("reason", "stopped")))
