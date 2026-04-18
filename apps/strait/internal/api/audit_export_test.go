@@ -49,7 +49,9 @@ func TestAuditExport_JSON_IncludesSignature(t *testing.T) {
 		},
 	}
 
-	srv := newTestServerWithEncryptionKey(t, ms, "my-secret-encryption-key-32chars!")
+	// The HMAC signature is derived from InternalSecret (not SecretEncryptionKey).
+	// newTestServer sets InternalSecret="test-secret-value" which is sufficient.
+	srv := newTestServer(t, ms, nil, nil)
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
 	srv.ServeHTTP(w, r)

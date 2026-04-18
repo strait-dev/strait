@@ -15,8 +15,8 @@ import (
 )
 
 // Admin-only endpoints for the audit deadletter queue. Access is restricted
-// to internal-secret callers (scopesFromContext(ctx) == nil) — the same
-// pattern used by handleCreateProject and the /internal/admin routes.
+// to internal-secret callers via isInternalCaller(ctx), which checks the
+// positive ctxInternalCallerKey flag set by internalSecretAuth middleware.
 //
 // Tenant isolation is structural: every query filters by project_id taken
 // from the request context, so even a compromised admin key scoped to
