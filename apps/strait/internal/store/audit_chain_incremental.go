@@ -163,6 +163,15 @@ func (q *Queries) VerifyAuditChainIncremental(ctx context.Context, projectID str
 		      )
 		ORDER BY rotation_epoch ASC, created_at ASC, id ASC`
 
+	epochKeyCache, err := q.preloadEpochKeys(ctx, projectID,
+		`rotation_epoch > $2
+		 OR (rotation_epoch = $2 AND created_at > $3)
+		 OR (rotation_epoch = $2 AND created_at = $3 AND id > $4)`,
+		cpEpoch, cpCreatedAt, cp.LastVerifiedEventID)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := q.db.Query(ctx, query, projectID, cpEpoch, cpCreatedAt, cp.LastVerifiedEventID)
 	if err != nil {
 		return nil, fmt.Errorf("incremental verify: query: %w", err)
@@ -171,28 +180,6 @@ func (q *Queries) VerifyAuditChainIncremental(ctx context.Context, projectID str
 
 	expectedPrevHash := cpSignature
 	result.ChainStart = cpSignature
-
-	epochKeyCache := make(map[int][]byte)
-	keyFor := func(epoch int) ([]byte, error) {
-		if k, ok := epochKeyCache[epoch]; ok {
-			if k != nil {
-				return k, nil
-			}
-			return q.auditSigningKey, nil
-		}
-		stored, gerr := q.GetAuditSigningKey(ctx, projectID, epoch)
-		if gerr != nil {
-			return nil, gerr
-		}
-		epochKeyCache[epoch] = stored
-		if stored != nil {
-			return stored, nil
-		}
-		if epoch != 0 {
-			return nil, fmt.Errorf("incremental verify: no stored key for epoch %d", epoch)
-		}
-		return q.auditSigningKey, nil
-	}
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -213,7 +200,7 @@ func (q *Queries) VerifyAuditChainIncremental(ctx context.Context, projectID str
 			return result, nil
 		}
 
-		key, keyErr := keyFor(ev.RotationEpoch)
+		key, keyErr := q.keyForEpoch(epochKeyCache, ev.RotationEpoch)
 		if keyErr != nil {
 			return nil, keyErr
 		}

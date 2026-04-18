@@ -736,6 +736,11 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	// their OWN epoch's (new) key, not the previous epoch's, because
 	// post-rotation events chain from the anchor and verify under the
 	// same new key.
+	epochKeyCache, err := q.preloadEpochKeys(ctx, projectID, "")
+	if err != nil {
+		return nil, err
+	}
+
 	query := `
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
 		       remote_ip, user_agent, request_id, trace_id, schema_version,
@@ -755,38 +760,8 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		Valid:     true,
 	}
 
-	// expectedPrevHash is initialized from the first surviving event's
-	// previous_hash. When retention trims the tail, the earliest row's
-	// previous_hash points at an event that no longer exists — we take
-	// it as the chain start anchor and report it in ChainStart. For a
-	// pristine chain, this is ZeroHash.
 	var expectedPrevHash string
 	first := true
-
-	// epochKeyCache memoizes the per-epoch signing key for the scan so we
-	// don't re-decrypt on every row. A nil value means "no stored key —
-	// use the global fallback" (only valid for epoch 0).
-	epochKeyCache := make(map[int][]byte)
-	keyFor := func(epoch int) ([]byte, error) {
-		if k, ok := epochKeyCache[epoch]; ok {
-			if k != nil {
-				return k, nil
-			}
-			return q.auditSigningKey, nil
-		}
-		stored, err := q.GetAuditSigningKey(ctx, projectID, epoch)
-		if err != nil {
-			return nil, err
-		}
-		epochKeyCache[epoch] = stored
-		if stored != nil {
-			return stored, nil
-		}
-		if epoch != 0 {
-			return nil, fmt.Errorf("verify audit chain: no stored key for epoch %d", epoch)
-		}
-		return q.auditSigningKey, nil
-	}
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -813,7 +788,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			return result, nil
 		}
 
-		key, keyErr := keyFor(ev.RotationEpoch)
+		key, keyErr := q.keyForEpoch(epochKeyCache, ev.RotationEpoch)
 		if keyErr != nil {
 			return nil, keyErr
 		}
@@ -835,6 +810,57 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	}
 
 	return result, nil
+}
+
+// preloadEpochKeys fetches all distinct rotation epochs for a project
+// and pre-loads their signing keys. This must be called before opening a
+// rows cursor on the same connection: pgx doesn't support concurrent
+// operations on a single connection, and the RLS transaction middleware
+// pins all queries to one tx.
+func (q *Queries) preloadEpochKeys(ctx context.Context, projectID string, extraFilter string, extraArgs ...any) (map[int][]byte, error) {
+	query := `SELECT DISTINCT rotation_epoch FROM audit_events WHERE project_id = $1`
+	args := []any{projectID}
+	if extraFilter != "" {
+		query += " AND (" + extraFilter + ")"
+		args = append(args, extraArgs...)
+	}
+	epochRows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("preload epoch keys: %w", err)
+	}
+	var epochs []int
+	for epochRows.Next() {
+		var e int
+		if scanErr := epochRows.Scan(&e); scanErr != nil {
+			epochRows.Close()
+			return nil, fmt.Errorf("preload epoch keys scan: %w", scanErr)
+		}
+		epochs = append(epochs, e)
+	}
+	epochRows.Close()
+
+	cache := make(map[int][]byte, len(epochs))
+	for _, epoch := range epochs {
+		stored, keyErr := q.GetAuditSigningKey(ctx, projectID, epoch)
+		if keyErr != nil {
+			return nil, keyErr
+		}
+		cache[epoch] = stored
+	}
+	return cache, nil
+}
+
+func (q *Queries) keyForEpoch(cache map[int][]byte, epoch int) ([]byte, error) {
+	if k, ok := cache[epoch]; ok {
+		if k != nil {
+			return k, nil
+		}
+		return q.auditSigningKey, nil
+	}
+	if epoch != 0 {
+		return nil, fmt.Errorf("verify audit chain: no stored key for epoch %d", epoch)
+	}
+	return q.auditSigningKey, nil
 }
 
 // AuditEventsUpdateRestricted reports whether the current database role

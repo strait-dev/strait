@@ -129,14 +129,25 @@ func (f *fakeJSONBDBTX) Query(_ context.Context, sql string, args ...any) (pgx.R
 	if !ok {
 		return nil, errors.New("fake: Query project_id not a string")
 	}
+	if strings.Contains(sql, "DISTINCT rotation_epoch") {
+		epochs := make(map[int]bool)
+		for _, row := range f.rows {
+			if row["project_id"] == projectID {
+				epochs[row["rotation_epoch"].(int)] = true
+			}
+		}
+		var epochRows []map[string]any
+		for e := range epochs {
+			epochRows = append(epochRows, map[string]any{"epoch": e})
+		}
+		return &fakeEpochRows{rows: epochRows}, nil
+	}
 	matched := make([]map[string]any, 0, len(f.rows))
 	for _, row := range f.rows {
 		if row["project_id"] == projectID {
 			matched = append(matched, row)
 		}
 	}
-	// Already stored in insertion order, which matches rotation_epoch
-	// ASC, created_at ASC for a single-epoch test chain.
 	return &fakeJSONBRows{rows: matched}, nil
 }
 
@@ -237,6 +248,38 @@ func (r *fakeScalarRow) Scan(dest ...any) error {
 	default:
 		return fmt.Errorf("fakeScalarRow: unsupported type %T", dest[0])
 	}
+	return nil
+}
+
+// fakeEpochRows returns a single int column per row for the DISTINCT
+// rotation_epoch pre-load query used by VerifyAuditChain.
+type fakeEpochRows struct {
+	rows []map[string]any
+	idx  int
+}
+
+func (r *fakeEpochRows) Close()                                       {}
+func (r *fakeEpochRows) Err() error                                   { return nil }
+func (r *fakeEpochRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *fakeEpochRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *fakeEpochRows) Values() ([]any, error)                       { return nil, nil }
+func (r *fakeEpochRows) RawValues() [][]byte                          { return nil }
+func (r *fakeEpochRows) Conn() *pgx.Conn                              { return nil }
+
+func (r *fakeEpochRows) Next() bool {
+	if r.idx >= len(r.rows) {
+		return false
+	}
+	r.idx++
+	return true
+}
+
+func (r *fakeEpochRows) Scan(dest ...any) error {
+	if r.idx == 0 || r.idx > len(r.rows) {
+		return errors.New("fake: Scan without Next")
+	}
+	row := r.rows[r.idx-1]
+	*dest[0].(*int) = row["epoch"].(int)
 	return nil
 }
 
