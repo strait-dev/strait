@@ -80,10 +80,17 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	// Rate limit: 10 exports per project per hour. Protects against a
 	// compromised key with audit:export scope exfiltrating the log.
+	// Uses AllowStrict (fail-closed): if Redis is down, deny the request
+	// rather than silently pass it through. A downed rate-limit service
+	// must not open the door for a compromised key to bulk-export the log.
 	if s.rateLimiter != nil {
 		rlKey := fmt.Sprintf("audit_export:%s", projectID)
-		result, rlErr := s.rateLimiter.Allow(ctx, rlKey, maxExportsPerProjectPerHour, time.Hour)
-		if rlErr == nil && !result.Allowed {
+		result, rlErr := s.rateLimiter.AllowStrict(ctx, rlKey, maxExportsPerProjectPerHour, time.Hour)
+		if rlErr != nil {
+			slog.Error("audit export rate limit check failed, denying request", "project_id", projectID, "error", rlErr)
+			return nil, huma.Error503ServiceUnavailable("rate limit service unavailable, please retry")
+		}
+		if !result.Allowed {
 			return nil, huma.Error429TooManyRequests(
 				fmt.Sprintf("audit export rate limit exceeded: max %d exports/hour/project", maxExportsPerProjectPerHour))
 		}

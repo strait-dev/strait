@@ -213,6 +213,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 // stable per-epoch key independent of in-memory mutations. When no encryption
 // key is configured (unit-test / pre-rotation installs), the in-memory
 // q.auditSigningKey is used directly — matching the legacy behavior.
+//
+// NOTE: This method MUST be called from within a transaction (via
+// withTxInheritKeys in CreateAuditEvent) so the bootstrap INSERT and
+// subsequent re-read are atomic with the chain insert. q.db is the tx
+// handle in that context.
 func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID string, epoch int) ([]byte, error) {
 	if q.secretEncryptionKey == "" {
 		return q.auditSigningKey, nil
@@ -377,6 +382,11 @@ func (q *Queries) GetAuditEvent(ctx context.Context, projectID, id string) (*dom
 	return &ev, nil
 }
 
+// StreamAuditEvents streams audit events matching the given filters to fn.
+// There is no SQL LIMIT clause in this query — the caller is responsible for
+// capping the number of rows consumed via the fn callback (e.g. by returning
+// errExportCapReached after the desired row count). The export handler in
+// api/audit_export.go enforces a per-project row cap through this mechanism.
 func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.StreamAuditEvents")
 	defer span.End()
@@ -526,7 +536,7 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		SELECT COALESCE(
 			(SELECT signature FROM audit_events
 			 WHERE project_id = $1 AND signature != ''
-			 ORDER BY created_at DESC LIMIT 1),
+			 ORDER BY rotation_epoch DESC, created_at DESC LIMIT 1),
 			$2
 		)
 	`, projectID, ZeroHash).Scan(&prevHash); err != nil {

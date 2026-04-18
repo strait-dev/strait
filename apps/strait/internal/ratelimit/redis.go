@@ -58,3 +58,31 @@ func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 		Remaining: int(vals[1]),
 	}, nil
 }
+
+// AllowStrict checks whether the request is within the rate limit. Unlike
+// Allow, it fails closed: if Redis is unavailable, an error is returned so
+// the caller can deny the request rather than silently pass it through.
+// Use this for security-sensitive rate limits (e.g. audit log export) where
+// a compromised or down Redis must not open the floodgates.
+func (r *RedisRateLimiter) AllowStrict(ctx context.Context, key string, limit int, window time.Duration) (RateLimitResult, error) {
+	if !r.enabled || r.client == nil {
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
+	}
+	if limit <= 0 || window <= 0 {
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
+	}
+
+	vals, err := r.client.Eval(ctx, redisRateLimitScript, []string{key}, window.Milliseconds(), limit).Int64Slice()
+	if err != nil {
+		return RateLimitResult{}, err
+	}
+
+	if len(vals) < 2 {
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
+	}
+
+	return RateLimitResult{
+		Allowed:   vals[0] == 1,
+		Remaining: int(vals[1]),
+	}, nil
+}
