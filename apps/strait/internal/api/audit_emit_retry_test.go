@@ -443,12 +443,12 @@ func TestDrainer_RetryMetricIncremented(t *testing.T) {
 	h := &backpressureMetricsHarness{reader: reader}
 
 	successCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "success")
-	exhaustedCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "exhausted")
+	failedCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "failed")
 
 	if successCount != 1 {
 		t.Errorf("retry_attempts{outcome=success} = %d, want 1", successCount)
 	}
-	if exhaustedCount != 1 {
-		t.Errorf("retry_attempts{outcome=exhausted} = %d, want 1", exhaustedCount)
+	if failedCount != 1 {
+		t.Errorf("retry_attempts{outcome=failed} = %d, want 1", failedCount)
 	}
 }

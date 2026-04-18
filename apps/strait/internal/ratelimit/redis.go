@@ -65,6 +65,11 @@ func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 // the caller can deny the request rather than silently pass it through.
 // Use this for security-sensitive rate limits (e.g. audit log export) where
 // a compromised or down Redis must not open the floodgates.
+//
+// When the limiter is disabled or has no client, AllowStrict returns
+// allowed=true (no rate limit). Callers that require rate limiting even
+// in degraded deployments must guard against a nil/disabled limiter
+// separately.
 func (r *RedisRateLimiter) AllowStrict(ctx context.Context, key string, limit int, window time.Duration) (RateLimitResult, error) {
 	if !r.enabled || r.client == nil {
 		return RateLimitResult{Allowed: true, Remaining: limit}, nil

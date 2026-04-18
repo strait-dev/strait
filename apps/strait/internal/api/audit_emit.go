@@ -86,8 +86,12 @@ func (s *Server) startAuditAsyncDrain() {
 // event cannot kill the drainer and silently stop the audit log. Panics
 // are logged with a stack trace and metered as dropped events.
 func (s *Server) drainAuditAsync() {
-	defer close(s.auditAsyncDone)
-	for ev := range s.auditAsyncCh {
+	s.auditAsyncMu.RLock()
+	ch := s.auditAsyncCh
+	done := s.auditAsyncDone
+	s.auditAsyncMu.RUnlock()
+	defer close(done)
+	for ev := range ch {
 		s.processAuditAsyncEvent(ev)
 	}
 }
@@ -152,7 +156,7 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 			s.metrics.AuditRetryAttempts.Add(context.Background(), 1,
 				metric.WithAttributes(
 					attribute.Int("attempt", attempt),
-					attribute.String("outcome", "exhausted")))
+					attribute.String("outcome", "failed")))
 		}
 		slog.Warn("audit event write attempt failed",
 			"action", ev.Action,
@@ -470,6 +474,22 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		return
 	}
 
+	// The channel may be closed between the snapshot above and the send
+	// below if stopAuditAsyncDrain runs concurrently. Recover from the
+	// resulting panic rather than adding a second lock acquisition on the
+	// hot path.
+	defer func() {
+		if r := recover(); r != nil {
+			if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+				s.metrics.AuditEventsDropped.Add(ctx, 1,
+					metric.WithAttributes(attribute.String("reason", "channel_closed")))
+			}
+			slog.Warn("audit async channel closed during send, dropping event",
+				"action", action,
+				"resource_type", resourceType,
+				"resource_id", resourceID)
+		}
+	}()
 	select {
 	case ch <- ev:
 	default:
