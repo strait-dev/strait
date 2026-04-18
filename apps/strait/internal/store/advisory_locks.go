@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Advisory lock namespaces.
@@ -52,10 +53,28 @@ func AcquireAdvisoryLock(ctx context.Context, q *Queries, namespace, key string)
 	if key == "" {
 		return fmt.Errorf("acquire advisory lock: key is empty")
 	}
-	if _, err := q.db.Exec(ctx, `
-		SELECT pg_advisory_xact_lock(hashtext($1::text || $2::text))
-	`, namespace, key); err != nil {
-		return fmt.Errorf("acquire advisory lock %s%s: %w", namespace, key, err)
+	const (
+		maxAttempts = 50
+		retryDelay  = 100 * time.Millisecond
+	)
+	for attempt := range maxAttempts {
+		var acquired bool
+		if err := q.db.QueryRow(ctx, `
+			SELECT pg_try_advisory_xact_lock(hashtext($1::text || $2::text))
+		`, namespace, key).Scan(&acquired); err != nil {
+			return fmt.Errorf("acquire advisory lock %s%s: %w", namespace, key, err)
+		}
+		if acquired {
+			return nil
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("acquire advisory lock %s%s: %w", namespace, key, ctx.Err())
+		case <-time.After(retryDelay):
+		}
 	}
-	return nil
+	return fmt.Errorf("acquire advisory lock %s%s: timed out after %d attempts", namespace, key, maxAttempts)
 }

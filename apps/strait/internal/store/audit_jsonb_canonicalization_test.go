@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +142,8 @@ func (f *fakeJSONBDBTX) Query(_ context.Context, sql string, args ...any) (pgx.R
 
 func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	switch {
+	case strings.Contains(sql, "pg_try_advisory_xact_lock"):
+		return &fakeScalarRow{val: true}
 	case strings.Contains(sql, "SELECT COALESCE(") && strings.Contains(sql, "FROM audit_events"):
 		// Tail read for previous_hash.
 		projectID, _ := args[0].(string)
@@ -216,6 +219,25 @@ func (r *fakeJSONBRow) Scan(dest ...any) error {
 		return nil
 	}
 	return errors.New("fake: Scan called without a configured response")
+}
+
+type fakeScalarRow struct{ val any }
+
+func (r *fakeScalarRow) Scan(dest ...any) error {
+	if len(dest) != 1 {
+		return errors.New("fakeScalarRow: expected exactly 1 dest")
+	}
+	switch d := dest[0].(type) {
+	case *bool:
+		*d = r.val.(bool)
+	case *string:
+		*d = r.val.(string)
+	case *int:
+		*d = r.val.(int)
+	default:
+		return fmt.Errorf("fakeScalarRow: unsupported type %T", dest[0])
+	}
+	return nil
 }
 
 // fakeJSONBRows replays stored rows through pgx.Rows.
