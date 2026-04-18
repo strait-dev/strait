@@ -52,7 +52,7 @@ func TestAuditReclaimer_ListAndDeleteDeadletter(t *testing.T) {
 		if err := q.CreateAuditEvent(ctx, &evCopy); err != nil {
 			t.Fatalf("reclaim %d CreateAuditEvent: %v", i, err)
 		}
-		if err := q.DeleteAuditEventDeadletter(ctx, ids[i]); err != nil {
+		if err := q.DeleteAuditEventDeadletter(ctx, ids[i], ev.ProjectID); err != nil {
 			t.Fatalf("reclaim %d DeleteDeadletter: %v", i, err)
 		}
 	}

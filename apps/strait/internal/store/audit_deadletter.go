@@ -210,11 +210,18 @@ func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID str
 
 // DeleteAuditEventDeadletter removes a single row from the deadletter
 // after successful reclamation into the primary audit_events table.
-func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id string) error {
+// projectID is required for tenant isolation: the DELETE is scoped to
+// both id and project_id so a caller with a cross-tenant id cannot
+// accidentally (or maliciously) remove another project's DLQ row.
+func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventDeadletter")
 	defer span.End()
 
-	_, err := q.db.Exec(ctx, `DELETE FROM audit_events_deadletter WHERE id = $1`, id)
+	if id == "" || projectID == "" {
+		return fmt.Errorf("id and project_id are required")
+	}
+
+	_, err := q.db.Exec(ctx, `DELETE FROM audit_events_deadletter WHERE id = $1 AND project_id = $2`, id, projectID)
 	if err != nil {
 		return fmt.Errorf("delete audit deadletter: %w", err)
 	}

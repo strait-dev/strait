@@ -235,7 +235,7 @@ var _ APIStore = &APIStoreMock{}
 //			CreateWorkflowVersionSnapshotFunc: func(ctx context.Context, workflowID string, version int) error {
 //				panic("mock out the CreateWorkflowVersionSnapshot method")
 //			},
-//			DeleteAuditEventDeadletterFunc: func(ctx context.Context, id string) error {
+//			DeleteAuditEventDeadletterFunc: func(ctx context.Context, id string, projectID string) error {
 //				panic("mock out the DeleteAuditEventDeadletter method")
 //			},
 //			DeleteEnvironmentFunc: func(ctx context.Context, id string) error {
@@ -1098,7 +1098,7 @@ type APIStoreMock struct {
 	CreateWorkflowVersionSnapshotFunc func(ctx context.Context, workflowID string, version int) error
 
 	// DeleteAuditEventDeadletterFunc mocks the DeleteAuditEventDeadletter method.
-	DeleteAuditEventDeadletterFunc func(ctx context.Context, id string) error
+	DeleteAuditEventDeadletterFunc func(ctx context.Context, id string, projectID string) error
 
 	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
 	DeleteEnvironmentFunc func(ctx context.Context, id string) error
@@ -2312,6 +2312,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// DeleteEnvironment holds details about calls to the DeleteEnvironment method.
 		DeleteEnvironment []struct {
@@ -7532,13 +7534,15 @@ func (mock *APIStoreMock) CreateWorkflowVersionSnapshotCalls() []struct {
 }
 
 // DeleteAuditEventDeadletter calls DeleteAuditEventDeadletterFunc.
-func (mock *APIStoreMock) DeleteAuditEventDeadletter(ctx context.Context, id string) error {
+func (mock *APIStoreMock) DeleteAuditEventDeadletter(ctx context.Context, id string, projectID string) error {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ID:        id,
+		ProjectID: projectID,
 	}
 	mock.lockDeleteAuditEventDeadletter.Lock()
 	mock.calls.DeleteAuditEventDeadletter = append(mock.calls.DeleteAuditEventDeadletter, callInfo)
@@ -7549,7 +7553,7 @@ func (mock *APIStoreMock) DeleteAuditEventDeadletter(ctx context.Context, id str
 		)
 		return errOut
 	}
-	return mock.DeleteAuditEventDeadletterFunc(ctx, id)
+	return mock.DeleteAuditEventDeadletterFunc(ctx, id, projectID)
 }
 
 // DeleteAuditEventDeadletterCalls gets all the calls that were made to DeleteAuditEventDeadletter.
@@ -7557,12 +7561,14 @@ func (mock *APIStoreMock) DeleteAuditEventDeadletter(ctx context.Context, id str
 //
 //	len(mockedAPIStore.DeleteAuditEventDeadletterCalls())
 func (mock *APIStoreMock) DeleteAuditEventDeadletterCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ID        string
+	ProjectID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}
 	mock.lockDeleteAuditEventDeadletter.RLock()
 	calls = mock.calls.DeleteAuditEventDeadletter

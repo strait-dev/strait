@@ -68,7 +68,7 @@ func (f *fakeAuditReclaimerStore) CreateAuditEvent(ctx context.Context, ev *doma
 	return nil
 }
 
-func (f *fakeAuditReclaimerStore) DeleteAuditEventDeadletter(ctx context.Context, id string) error {
+func (f *fakeAuditReclaimerStore) DeleteAuditEventDeadletter(ctx context.Context, id, _ string) error {
 	f.deleteCalls.Add(1)
 	if f.deleteFn != nil {
 		return f.deleteFn(ctx, id)

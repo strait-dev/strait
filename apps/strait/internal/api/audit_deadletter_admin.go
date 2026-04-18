@@ -218,7 +218,7 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 			"deadletter_id", input.ID, "project_id", projectID, "error", createErr)
 		return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
 	}
-	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID); delErr != nil {
+	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
 		// Chain insert succeeded but DLQ delete failed. The chain has the
 		// event now, so we return success — the DLQ row will be cleaned up
 		// either on a retry of this endpoint (idempotent-ish: a second
@@ -285,7 +285,7 @@ func (s *Server) handleDropDeadletter(ctx context.Context, input *DropDeadletter
 		return nil, huma.Error404NotFound("deadletter entry not found")
 	}
 
-	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID); delErr != nil {
+	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
 		slog.Error("audit deadletter drop failed", "id", input.ID, "error", delErr)
 		return nil, huma.Error500InternalServerError("failed to drop deadletter entry")
 	}

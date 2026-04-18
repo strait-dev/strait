@@ -63,7 +63,7 @@ type ReaperStore interface {
 	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
 	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
-	DeleteAuditEventDeadletter(ctx context.Context, id string) error
+	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.

@@ -119,7 +119,7 @@ func (baseReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.
 func (baseReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
 	return nil
 }
-func (baseReaperStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
+func (baseReaperStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
 	return nil
 }
 

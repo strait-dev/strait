@@ -137,7 +137,7 @@ func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
 			}
 			return nil
 		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, id string) error {
+		DeleteAuditEventDeadletterFunc: func(_ context.Context, id, _ string) error {
 			mu.Lock()
 			defer mu.Unlock()
 			deletedDLQID = id
@@ -211,7 +211,7 @@ func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 			}
 			return nil, nil
 		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, id string) error {
+		DeleteAuditEventDeadletterFunc: func(_ context.Context, id, _ string) error {
 			mu.Lock()
 			defer mu.Unlock()
 			deletedID = id
@@ -262,7 +262,7 @@ func TestDropDeadletter_CrossTenant_404(t *testing.T) {
 			}
 			return &domain.AuditEvent{ID: "dlq-1", ProjectID: "proj-b"}, nil
 		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, _ string) error {
+		DeleteAuditEventDeadletterFunc: func(_ context.Context, _, _ string) error {
 			t.Error("Delete must not be called on a cross-tenant drop")
 			return nil
 		},
@@ -306,7 +306,7 @@ func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
 			// Simulate a broken chain insert for the replayed event.
 			return errors.New("chain down")
 		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, _ string) error {
+		DeleteAuditEventDeadletterFunc: func(_ context.Context, _, _ string) error {
 			mu.Lock()
 			defer mu.Unlock()
 			deleteCalled = true

@@ -329,7 +329,7 @@ func (m *mockReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([
 func (m *mockReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
 	return nil
 }
-func (m *mockReaperStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
+func (m *mockReaperStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
 	return nil
 }
 func (m *mockReaperStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {

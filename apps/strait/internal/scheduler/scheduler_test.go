@@ -231,7 +231,7 @@ func (m *mockSchedulerStore) ListAuditEventsDeadletter(_ context.Context, _ int)
 func (m *mockSchedulerStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
 	return nil
 }
-func (m *mockSchedulerStore) DeleteAuditEventDeadletter(_ context.Context, _ string) error {
+func (m *mockSchedulerStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
 	return nil
 }
 func (m *mockSchedulerStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {

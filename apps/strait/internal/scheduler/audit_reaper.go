@@ -309,7 +309,7 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 		// (1) Idempotent retry path: chain insert previously succeeded,
 		// only the DLQ cleanup remains.
 		if info.ReclaimedEventID != nil && *info.ReclaimedEventID != "" {
-			if delErr := r.store.DeleteAuditEventDeadletter(ctx, dlqID); delErr != nil {
+			if delErr := r.store.DeleteAuditEventDeadletter(ctx, dlqID, ev.ProjectID); delErr != nil {
 				r.logger.Error("audit deadletter delete failed for previously-reclaimed row",
 					"deadletter_id", dlqID, "new_event_id", *info.ReclaimedEventID, "error", delErr)
 				deleteFailed++
@@ -357,7 +357,7 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 			r.logger.Warn("failed to mark dlq row reclaimed",
 				"deadletter_id", dlqID, "new_event_id", evCopy.ID, "error", markErr)
 		}
-		if delErr := r.store.DeleteAuditEventDeadletter(ctx, dlqID); delErr != nil {
+		if delErr := r.store.DeleteAuditEventDeadletter(ctx, dlqID, ev.ProjectID); delErr != nil {
 			r.logger.Error("audit deadletter delete failed after reclaim",
 				"deadletter_id", dlqID, "new_event_id", evCopy.ID, "error", delErr)
 			deleteFailed++
