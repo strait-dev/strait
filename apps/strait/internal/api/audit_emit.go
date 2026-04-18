@@ -122,7 +122,11 @@ func (s *Server) processAuditAsyncEvent(ev *domain.AuditEvent) {
 	attempts := len(auditRetryDelays) + 1
 	for attempt := range attempts {
 		if attempt > 0 {
-			time.Sleep(auditRetryDelays[attempt-1])
+			select {
+			case <-parent.Done():
+				return
+			case <-time.After(auditRetryDelays[attempt-1]):
+			}
 		}
 		ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 		err := s.store.CreateAuditEvent(ctx, ev)
@@ -257,12 +261,15 @@ func (s *Server) stopAuditAsyncDrain() {
 		}
 		close(ch)
 	})
-	if s.auditAsyncDone == nil {
+	s.auditAsyncMu.RLock()
+	done := s.auditAsyncDone
+	s.auditAsyncMu.RUnlock()
+	if done == nil {
 		return
 	}
 	timedOut := false
 	select {
-	case <-s.auditAsyncDone:
+	case <-done:
 	case <-time.After(auditAsyncShutdownTimeout):
 		timedOut = true
 		slog.Warn("audit async drain did not finish within shutdown timeout",
@@ -280,7 +287,7 @@ func (s *Server) stopAuditAsyncDrain() {
 		// After cancellation, give the drainer a brief grace period to
 		// observe the cancelled context and exit cleanly.
 		select {
-		case <-s.auditAsyncDone:
+		case <-done:
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -389,7 +396,12 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		}
 		return
 	}
-	if s.auditAsyncCh == nil {
+	s.auditAsyncMu.RLock()
+	ch := s.auditAsyncCh
+	stopped := s.auditAsyncStopped
+	s.auditAsyncMu.RUnlock()
+
+	if ch == nil {
 		// Async drain not started (e.g. in tests that bypass NewServer).
 		// Fall back to the synchronous path so the event is not lost.
 		s.emitAuditEvent(ctx, action, resourceType, resourceID, details)
@@ -419,11 +431,6 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 		TraceID:       traceIDFromContext(ctx),
 		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
 	}
-
-	s.auditAsyncMu.RLock()
-	stopped := s.auditAsyncStopped
-	ch := s.auditAsyncCh
-	s.auditAsyncMu.RUnlock()
 
 	if stopped || ch == nil {
 		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {

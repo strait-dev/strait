@@ -475,12 +475,13 @@ func (d *AuditSIEMDrain) run(ctx context.Context) {
 	defer ticker.Stop()
 
 	batch := make([]domain.AuditEvent, 0, d.batchSize)
-	flush := func() {
+
+	// flushLocked forwards the current batch to the SIEM endpoint. Must be
+	// called with d.flushMu already held. Resets batch to empty on return.
+	flushLocked := func() {
 		if len(batch) == 0 {
 			return
 		}
-		d.flushMu.Lock()
-		defer d.flushMu.Unlock()
 		parent := d.parentCtx
 		if parent == nil {
 			parent = context.Background()
@@ -494,6 +495,17 @@ func (d *AuditSIEMDrain) run(ctx context.Context) {
 		batch = batch[:0]
 	}
 
+	// flush acquires flushMu then delegates to flushLocked. Used on the
+	// normal ticker/batch-full paths where FlushNow may be concurrent.
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		d.flushMu.Lock()
+		defer d.flushMu.Unlock()
+		flushLocked()
+	}
+
 	for {
 		select {
 		case ev := <-d.ch:
@@ -504,30 +516,39 @@ func (d *AuditSIEMDrain) run(ctx context.Context) {
 		case <-ticker.C:
 			flush()
 		case <-d.shutdownCh:
-			// Drain any remaining queued events, then exit.
+			// Drain any remaining queued events under a single lock
+			// acquisition so FlushNow cannot interleave with us while we
+			// dequeue from d.ch. Holding the lock for the full drain is safe
+			// here because shutdownCh is only closed once (by Stop) and the
+			// caller blocks waiting for d.done — no new events are enqueued.
+			d.flushMu.Lock()
 			for {
 				select {
 				case ev := <-d.ch:
 					batch = append(batch, ev)
 					if len(batch) >= d.batchSize {
-						flush()
+						flushLocked()
 					}
 				default:
-					flush()
+					flushLocked()
+					d.flushMu.Unlock()
 					return
 				}
 			}
 		case <-ctx.Done():
-			// Best-effort drain of queued events, then exit.
+			// Best-effort drain under a single lock acquisition — same
+			// rationale as the shutdownCh path above.
+			d.flushMu.Lock()
 			for {
 				select {
 				case ev := <-d.ch:
 					batch = append(batch, ev)
 					if len(batch) >= d.batchSize {
-						flush()
+						flushLocked()
 					}
 				default:
-					flush()
+					flushLocked()
+					d.flushMu.Unlock()
 					return
 				}
 			}
