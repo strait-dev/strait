@@ -650,11 +650,19 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 		}
 		to = &parsed
 	}
-	if from != nil && to != nil && from.After(*to) {
+	const maxListWindow = 90 * 24 * time.Hour
+	now := time.Now().UTC()
+	if to == nil {
+		to = &now
+	}
+	if from == nil {
+		defaultFrom := to.Add(-maxListWindow)
+		from = &defaultFrom
+	}
+	if from.After(*to) {
 		return nil, huma.Error400BadRequest("from must be <= to")
 	}
-	const maxListWindow = 90 * 24 * time.Hour
-	if from != nil && to != nil && to.Sub(*from) > maxListWindow {
+	if to.Sub(*from) > maxListWindow {
 		return nil, huma.Error400BadRequest("time window must not exceed 90 days")
 	}
 	events, err := s.store.ListAuditEvents(ctx, projectID, input.ActorID, input.ResourceType, input.ResourceID, limit+1, cursor, from, to, ascending)
