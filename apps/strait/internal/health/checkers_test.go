@@ -102,12 +102,15 @@ func TestNewSchedulerChecker(t *testing.T) {
 		{name: "fresh tick", lastTick: now.Add(-20 * time.Millisecond), maxAge: 200 * time.Millisecond},
 		{name: "zero tick", lastTick: time.Time{}, maxAge: 200 * time.Millisecond, wantErr: true, wantErrPart: "scheduler tick unavailable"},
 		{name: "stale tick", lastTick: now.Add(-2 * time.Second), maxAge: 100 * time.Millisecond, wantErr: true, wantErrPart: "scheduler stale"},
+		{name: "tick at exact max age boundary is healthy", lastTick: now.Add(-200 * time.Millisecond), maxAge: 200 * time.Millisecond},
+		{name: "tick 1ns past max age is stale", lastTick: now.Add(-200*time.Millisecond - time.Nanosecond), maxAge: 200 * time.Millisecond, wantErr: true, wantErrPart: "scheduler stale"},
+		{name: "very small max age triggers stale", lastTick: now.Add(-1 * time.Millisecond), maxAge: 1 * time.Nanosecond, wantErr: true, wantErrPart: "scheduler stale"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			checker := NewSchedulerChecker(func() time.Time { return tt.lastTick }, tt.maxAge)
+			checker := newSchedulerChecker(func() time.Time { return tt.lastTick }, tt.maxAge, func() time.Time { return now })
 			err := checker.Check(context.Background())
 			if tt.wantErr {
 				if err == nil {
