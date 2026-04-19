@@ -37,7 +37,9 @@ func TestClusterRegistry_Reload_ParsesYAML(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(cm)
 	reg := NewClusterRegistry(cs, "strait", "cluster-registry", nil)
 
-	if err := reg.Reload(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := reg.Reload(ctx); err != nil {
 		t.Fatalf("Reload() error = %v", err)
 	}
 
@@ -58,7 +60,9 @@ func TestClusterRegistry_Reload_MissingConfigMap(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	reg := NewClusterRegistry(cs, "strait", "cluster-registry", nil)
 
-	if err := reg.Reload(context.Background()); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := reg.Reload(ctx); err == nil {
 		t.Fatal("Reload() = nil, want error for missing ConfigMap")
 	}
 }
@@ -72,7 +76,9 @@ func TestClusterRegistry_Reload_MissingKey(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(cm)
 	reg := NewClusterRegistry(cs, "strait", "cluster-registry", nil)
 
-	if err := reg.Reload(context.Background()); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := reg.Reload(ctx); err == nil {
 		t.Fatal("Reload() = nil, want error for missing key")
 	}
 }
@@ -123,7 +129,9 @@ func TestClusterRegistry_Reload_RejectsInvalidEntries(t *testing.T) {
 			}
 			cs := k8sfake.NewSimpleClientset(cm)
 			reg := NewClusterRegistry(cs, "strait", "cluster-registry", nil)
-			if err := reg.Reload(context.Background()); err == nil {
+			reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer reloadCancel()
+			if err := reg.Reload(reloadCtx); err == nil {
 				t.Fatalf("Reload() = nil, want error for %q", tc.name)
 			}
 		})
@@ -144,17 +152,19 @@ func TestClusterRegistry_Reload_PreservesOldListOnError(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset(cm)
 	reg := NewClusterRegistry(cs, "strait", "cr", nil)
 
-	if err := reg.Reload(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := reg.Reload(ctx); err != nil {
 		t.Fatalf("initial Reload: %v", err)
 	}
 
 	// Update ConfigMap to bad content.
 	cm.Data["cluster-registry.yaml"] = badYAML
-	if _, err := cs.CoreV1().ConfigMaps("strait").Update(context.Background(), cm, metav1.UpdateOptions{}); err != nil {
+	if _, err := cs.CoreV1().ConfigMaps("strait").Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
 		t.Fatalf("update ConfigMap: %v", err)
 	}
 
-	if err := reg.Reload(context.Background()); err == nil {
+	if err := reg.Reload(ctx); err == nil {
 		t.Fatal("second Reload() = nil, want error for invalid entry")
 	}
 
@@ -190,7 +200,9 @@ func TestQueueDepth_ReturnsDepth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != 42 {
 		t.Errorf("queueDepth() = %d, want 42", got)
 	}
@@ -203,7 +215,9 @@ func TestQueueDepth_EmptyResultIsZero(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != 0 {
 		t.Errorf("queueDepth() = %d, want 0 for empty result", got)
 	}
@@ -216,7 +230,9 @@ func TestQueueDepth_MalformedJSONReturnsMaxInt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for malformed JSON", got)
 	}
@@ -229,7 +245,9 @@ func TestQueueDepth_Non200StatusReturnsMaxInt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for 500 response", got)
 	}
@@ -237,7 +255,9 @@ func TestQueueDepth_Non200StatusReturnsMaxInt(t *testing.T) {
 
 func TestQueueDepth_UnreachableServerReturnsMaxInt(t *testing.T) {
 	t.Parallel()
-	got := queueDepth(context.Background(), "https://127.0.0.1:1", &http.Client{Timeout: 100 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, "https://127.0.0.1:1", &http.Client{Timeout: 100 * time.Millisecond})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for unreachable server", got)
 	}
@@ -267,7 +287,9 @@ func TestQueueDepth_PlusInfReturnsMaxInt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for +Inf value (broken metric, not empty queue)", got)
 	}
@@ -280,7 +302,9 @@ func TestQueueDepth_NaNReturnsMaxInt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for NaN value", got)
 	}
@@ -293,7 +317,9 @@ func TestQueueDepth_NegativeValueReturnsMaxInt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for negative value (must not sort before healthy clusters)", got)
 	}
@@ -306,7 +332,9 @@ func TestQueueDepth_FloatValueTruncates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := queueDepth(context.Background(), srv.URL, &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != 42 {
 		t.Errorf("queueDepth() = %d, want 42 (float truncated to int)", got)
 	}
@@ -342,7 +370,9 @@ func TestClusterRegistry_Pick_SelectsLowestDepth(t *testing.T) {
 		{Name: "light", PrometheusURL: serverB.URL, APIURL: "https://light.internal"},
 	}}
 
-	chosen, err := reg.Pick(context.Background(), &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chosen, err := reg.Pick(ctx, &http.Client{Timeout: 2 * time.Second})
 	if err != nil {
 		t.Fatalf("Pick() error = %v", err)
 	}
@@ -368,7 +398,9 @@ func TestClusterRegistry_Pick_FailedPrometheusIsDeprioritized(t *testing.T) {
 		{Name: "healthy", PrometheusURL: healthyServer.URL, APIURL: "https://healthy.internal"},
 	}}
 
-	chosen, err := reg.Pick(context.Background(), &http.Client{Timeout: 200 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chosen, err := reg.Pick(ctx, &http.Client{Timeout: 200 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Pick() error = %v", err)
 	}
@@ -387,7 +419,9 @@ func TestClusterRegistry_Pick_AllBrokenReturnsFirst(t *testing.T) {
 		{Name: "b", PrometheusURL: "https://127.0.0.1:1", APIURL: "https://b.internal"},
 	}}
 
-	chosen, err := reg.Pick(context.Background(), &http.Client{Timeout: 100 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chosen, err := reg.Pick(ctx, &http.Client{Timeout: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Pick() error = %v, want fail-open result", err)
 	}
@@ -416,7 +450,9 @@ func TestClusterRegistry_Pick_WeightBreaksTie(t *testing.T) {
 		{Name: "high-weight", PrometheusURL: srvB.URL, APIURL: "https://high.internal", Weight: 80},
 	}}
 
-	chosen, err := reg.Pick(context.Background(), &http.Client{Timeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chosen, err := reg.Pick(ctx, &http.Client{Timeout: 2 * time.Second})
 	if err != nil {
 		t.Fatalf("Pick() error = %v", err)
 	}
@@ -602,5 +638,113 @@ func TestDispatcher_ProxyFor_RebuildsOnMetadataChange(t *testing.T) {
 	}
 	if second.region != "us-west" {
 		t.Errorf("rebuilt proxy region = %q, want us-west", second.region)
+	}
+}
+
+func TestClusterRegistry_Pick_ZeroWeightNormalization(t *testing.T) {
+	t.Parallel()
+
+	depthSrv := func(depth string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"` + depth + `"]}]}}`))
+		}))
+	}
+	srvA := depthSrv("5")
+	srvB := depthSrv("5")
+	defer srvA.Close()
+	defer srvB.Close()
+
+	reg := &ClusterRegistry{clusters: []ClusterEntry{
+		{Name: "zero-a", PrometheusURL: srvA.URL, APIURL: "https://a.internal", Weight: 0},
+		{Name: "zero-b", PrometheusURL: srvB.URL, APIURL: "https://b.internal", Weight: 0},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chosen, err := reg.Pick(ctx, &http.Client{Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if chosen.Name != "zero-a" {
+		t.Errorf("Pick() = %q, want zero-a (stable sort preserves order for equal normalized weight)", chosen.Name)
+	}
+}
+
+func TestQueueDepth_ZeroValueReturnsZero(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"0"]}]}}`))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
+	if got != 0 {
+		t.Errorf("queueDepth() = %d, want 0 for zero value", got)
+	}
+}
+
+func TestQueueDepth_NonNumericStringReturnsMaxInt(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"not-a-number"]}]}}`))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
+	if got != math.MaxInt64 {
+		t.Errorf("queueDepth() = %d, want MaxInt64 for non-numeric value", got)
+	}
+}
+
+func TestClusterRegistry_Pick_HighWeightBeatsLowOnEqualDepth(t *testing.T) {
+	t.Parallel()
+
+	depthSrv := func(depth string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"` + depth + `"]}]}}`))
+		}))
+	}
+	srvA := depthSrv("10")
+	srvB := depthSrv("10")
+	defer srvA.Close()
+	defer srvB.Close()
+
+	reg := &ClusterRegistry{clusters: []ClusterEntry{
+		{Name: "light-weight", PrometheusURL: srvA.URL, APIURL: "https://a.internal", Weight: 1},
+		{Name: "heavy-weight", PrometheusURL: srvB.URL, APIURL: "https://b.internal", Weight: 100},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chosen, err := reg.Pick(ctx, &http.Client{Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if chosen.Name != "heavy-weight" {
+		t.Errorf("Pick() = %q, want heavy-weight (higher weight wins on equal depth)", chosen.Name)
+	}
+}
+
+func TestValidateEntries_ZeroWeight(t *testing.T) {
+	t.Parallel()
+	entries := []ClusterEntry{
+		{Name: "test", APIURL: "https://api.example.com", Weight: 0},
+	}
+	if err := validateEntries(entries); err != nil {
+		t.Errorf("validateEntries() = %v, want nil for weight=0", err)
+	}
+}
+
+func TestValidateEntries_NegativeWeightRejected(t *testing.T) {
+	t.Parallel()
+	entries := []ClusterEntry{
+		{Name: "test", APIURL: "https://api.example.com", Weight: -1},
+	}
+	if err := validateEntries(entries); err == nil {
+		t.Fatal("validateEntries() = nil, want error for negative weight")
 	}
 }
