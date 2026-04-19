@@ -190,6 +190,105 @@ func TestParseRedisConcurrencyToken(t *testing.T) {
 	}
 }
 
+func TestRedisConcurrencyLimiterAcquire_ZeroConcurrency_Error(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for zero concurrency")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisConcurrencyLimiter(client, true)
+	_, _, err := limiter.Acquire(t.Context(), "key", 0, time.Minute)
+	if err == nil {
+		t.Fatal("expected error for zero maxConcurrent")
+	}
+}
+
+func TestRedisConcurrencyLimiterAcquire_NegativeConcurrency_Error(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for negative concurrency")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisConcurrencyLimiter(client, true)
+	_, _, err := limiter.Acquire(t.Context(), "key", -1, time.Minute)
+	if err == nil {
+		t.Fatal("expected error for negative maxConcurrent")
+	}
+}
+
+func TestRedisConcurrencyLimiterAcquire_ZeroTTL_Error(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for zero TTL")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisConcurrencyLimiter(client, true)
+	_, _, err := limiter.Acquire(t.Context(), "key", 1, 0)
+	if err == nil {
+		t.Fatal("expected error for zero TTL")
+	}
+}
+
+func TestRedisConcurrencyLimiterAcquire_NegativeTTL_Error(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for negative TTL")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisConcurrencyLimiter(client, true)
+	_, _, err := limiter.Acquire(t.Context(), "key", 1, -time.Second)
+	if err == nil {
+		t.Fatal("expected error for negative TTL")
+	}
+}
+
+func TestRedisConcurrencyLimiterRelease_EmptyToken(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisConcurrencyLimiter(client, true)
+	if err := limiter.Release(t.Context(), "job", "0:"); err == nil {
+		t.Fatal("expected error for token with empty ID part")
+	}
+	if err := limiter.Release(t.Context(), "job", ":abc"); err == nil {
+		t.Fatal("expected error for token with empty slot part")
+	}
+	if err := limiter.Release(t.Context(), "job", ""); err == nil {
+		t.Fatal("expected error for empty token")
+	}
+}
+
+func TestRedisConcurrencyLimiterRelease_RedisErrorFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		return errors.New("redis unavailable")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisConcurrencyLimiter(client, true)
+	err := limiter.Release(t.Context(), "job", "0:some-id")
+	if err != nil {
+		t.Fatalf("expected nil (fail-open) on Redis error, got %v", err)
+	}
+}
+
 func TestRedisConcurrencySlotKey(t *testing.T) {
 	t.Parallel()
 
