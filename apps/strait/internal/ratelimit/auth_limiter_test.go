@@ -324,7 +324,7 @@ func FuzzAuthLimiter_IP(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, ip string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+		defer cancel()
 		// Should never panic regardless of IP format.
 		limiter.RecordFailure(ctx, ip)
 		limiter.IsBlocked(ctx, ip)
