@@ -231,6 +231,136 @@ func TestRedisRateLimiterAllowStrict_RedisErrorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRedisRateLimiterAllowStrict_ZeroLimit_Allowed(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for zero limit in AllowStrict")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.AllowStrict(t.Context(), "key", 0, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when limit is zero")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_ZeroWindow_Allowed(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for zero window in AllowStrict")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.AllowStrict(t.Context(), "key", 10, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when window is zero")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_NegativeLimit_Allowed(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for negative limit in AllowStrict")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.AllowStrict(t.Context(), "key", -5, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when limit is negative")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_NegativeWindow_Allowed(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for negative window in AllowStrict")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.AllowStrict(t.Context(), "key", 10, -time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when window is negative")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_NilClient_FailOpen(t *testing.T) {
+	t.Parallel()
+
+	limiter := NewRedisRateLimiter(nil, true)
+	result, err := limiter.AllowStrict(t.Context(), "key", 10, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when client is nil")
+	}
+	if result.Remaining != 10 {
+		t.Fatalf("expected remaining=10, got %d", result.Remaining)
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_Disabled_FailOpen(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called when disabled")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, false)
+	result, err := limiter.AllowStrict(t.Context(), "key", 10, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when disabled")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_ShortResult_Error(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
+		if c, ok := cmd.(*redis.Cmd); ok {
+			c.SetVal([]any{int64(1)})
+			return nil
+		}
+		return errors.New("unexpected command type")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	_, err := limiter.AllowStrict(t.Context(), "key", 10, time.Minute)
+	if err == nil {
+		t.Fatal("expected error for short script response")
+	}
+}
+
 func TestRedisRateLimiterAllowStrict_EnforcesLimit(t *testing.T) {
 	t.Parallel()
 
