@@ -25,7 +25,9 @@ func TestRateLimit_ZeroWindow(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
-	result, err := limiter.Allow(t.Context(), "key", 10, 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := limiter.Allow(ctx, "key", 10, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +48,9 @@ func TestRateLimit_NegativeWindow(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
-	result, err := limiter.Allow(t.Context(), "key", 10, -1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := limiter.Allow(ctx, "key", 10, -1*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -94,7 +98,9 @@ func TestRateLimit_MaxIntRequests(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
-	result, err := limiter.Allow(t.Context(), "maxint-key", math.MaxInt, time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := limiter.Allow(ctx, "maxint-key", math.MaxInt, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,6 +147,8 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	const goroutines = 100
 	const limit = 50
 
@@ -150,7 +158,7 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 
 	for range goroutines {
 		wg.Go(func() {
-			result, err := limiter.Allow(t.Context(), "concurrent-key", limit, time.Minute)
+			result, err := limiter.Allow(ctx, "concurrent-key", limit, time.Minute)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 				return
@@ -216,9 +224,11 @@ func TestRateLimit_EdgeTimestamps(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 
 	// Very small positive window (1 nanosecond).
-	result, err := limiter.Allow(t.Context(), "epoch-key", 10, time.Nanosecond)
+	result, err := limiter.Allow(ctx, "epoch-key", 10, time.Nanosecond)
 	if err != nil {
 		t.Fatalf("unexpected error with nanosecond window: %v", err)
 	}
@@ -227,7 +237,7 @@ func TestRateLimit_EdgeTimestamps(t *testing.T) {
 	}
 
 	// Very large window (approaching max duration).
-	result, err = limiter.Allow(t.Context(), "future-key", 10, 24*365*100*time.Hour)
+	result, err = limiter.Allow(ctx, "future-key", 10, 24*365*100*time.Hour)
 	if err != nil {
 		t.Fatalf("unexpected error with huge window: %v", err)
 	}

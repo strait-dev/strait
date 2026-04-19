@@ -42,7 +42,9 @@ func TestRedisConcurrencyLimiterAcquire_DisabledBypassesRedis(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, false)
-	token, allowed, err := limiter.Acquire(t.Context(), "job", 1, time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	token, allowed, err := limiter.Acquire(ctx, "job", 1, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,7 +106,8 @@ func TestRedisConcurrencyLimiterAcquireRelease_EnforcesSlots(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 
 	tok1, allowed, err := limiter.Acquire(ctx, "queue:alpha", 2, time.Minute)
 	if err != nil {
@@ -148,7 +151,9 @@ func TestRedisConcurrencyLimiterAcquire_RedisErrorFailsOpen(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	token, allowed, err := limiter.Acquire(t.Context(), "job", 1, time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	token, allowed, err := limiter.Acquire(ctx, "job", 1, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -169,7 +174,9 @@ func TestRedisConcurrencyLimiterRelease_InvalidToken(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	if err := limiter.Release(t.Context(), "job", "invalid"); err == nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := limiter.Release(ctx, "job", "invalid"); err == nil {
 		t.Fatal("expected error for invalid token")
 	}
 }
@@ -200,7 +207,9 @@ func TestRedisConcurrencyLimiterAcquire_ZeroConcurrency_Error(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	_, _, err := limiter.Acquire(t.Context(), "key", 0, time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, _, err := limiter.Acquire(ctx, "key", 0, time.Minute)
 	if err == nil {
 		t.Fatal("expected error for zero maxConcurrent")
 	}
@@ -216,7 +225,9 @@ func TestRedisConcurrencyLimiterAcquire_NegativeConcurrency_Error(t *testing.T) 
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	_, _, err := limiter.Acquire(t.Context(), "key", -1, time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, _, err := limiter.Acquire(ctx, "key", -1, time.Minute)
 	if err == nil {
 		t.Fatal("expected error for negative maxConcurrent")
 	}
@@ -232,7 +243,9 @@ func TestRedisConcurrencyLimiterAcquire_ZeroTTL_Error(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	_, _, err := limiter.Acquire(t.Context(), "key", 1, 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, _, err := limiter.Acquire(ctx, "key", 1, 0)
 	if err == nil {
 		t.Fatal("expected error for zero TTL")
 	}
@@ -248,7 +261,9 @@ func TestRedisConcurrencyLimiterAcquire_NegativeTTL_Error(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	_, _, err := limiter.Acquire(t.Context(), "key", 1, -time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, _, err := limiter.Acquire(ctx, "key", 1, -time.Second)
 	if err == nil {
 		t.Fatal("expected error for negative TTL")
 	}
@@ -263,13 +278,15 @@ func TestRedisConcurrencyLimiterRelease_EmptyToken(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	if err := limiter.Release(t.Context(), "job", "0:"); err == nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := limiter.Release(ctx, "job", "0:"); err == nil {
 		t.Fatal("expected error for token with empty ID part")
 	}
-	if err := limiter.Release(t.Context(), "job", ":abc"); err == nil {
+	if err := limiter.Release(ctx, "job", ":abc"); err == nil {
 		t.Fatal("expected error for token with empty slot part")
 	}
-	if err := limiter.Release(t.Context(), "job", ""); err == nil {
+	if err := limiter.Release(ctx, "job", ""); err == nil {
 		t.Fatal("expected error for empty token")
 	}
 }
@@ -283,7 +300,9 @@ func TestRedisConcurrencyLimiterRelease_RedisErrorFailsOpen(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisConcurrencyLimiter(client, true)
-	err := limiter.Release(t.Context(), "job", "0:some-id")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err := limiter.Release(ctx, "job", "0:some-id")
 	if err != nil {
 		t.Fatalf("expected nil (fail-open) on Redis error, got %v", err)
 	}

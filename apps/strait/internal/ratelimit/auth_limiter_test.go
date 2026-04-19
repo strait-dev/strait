@@ -21,7 +21,8 @@ func newTestAuthLimiter(t *testing.T) (*AuthLimiter, *miniredis.Miniredis) {
 func TestAuthLimiter_NotBlocked_BelowThreshold(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 9 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -36,7 +37,8 @@ func TestAuthLimiter_NotBlocked_BelowThreshold(t *testing.T) {
 func TestAuthLimiter_Blocked_At10(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 10 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -54,7 +56,8 @@ func TestAuthLimiter_Blocked_At10(t *testing.T) {
 func TestAuthLimiter_Blocked_At25(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 25 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -72,7 +75,8 @@ func TestAuthLimiter_Blocked_At25(t *testing.T) {
 func TestAuthLimiter_Blocked_At50(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 50 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -123,7 +127,8 @@ func TestDefaultAuthThresholds_DescendingOrder(t *testing.T) {
 func TestAuthLimiter_Blocked_At11(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 11 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -141,7 +146,8 @@ func TestAuthLimiter_Blocked_At11(t *testing.T) {
 func TestAuthLimiter_Blocked_At24_FirstTier(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 24 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -159,7 +165,8 @@ func TestAuthLimiter_Blocked_At24_FirstTier(t *testing.T) {
 func TestAuthLimiter_Blocked_At26(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 26 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -177,7 +184,8 @@ func TestAuthLimiter_Blocked_At26(t *testing.T) {
 func TestAuthLimiter_Blocked_At49_SecondTier(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 49 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -195,7 +203,8 @@ func TestAuthLimiter_Blocked_At49_SecondTier(t *testing.T) {
 func TestAuthLimiter_Blocked_At51(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 51 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -225,7 +234,8 @@ func TestBlockedError_Format(t *testing.T) {
 func TestAuthLimiter_TTL_Expires(t *testing.T) {
 	t.Parallel()
 	limiter, mr := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 15 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -247,7 +257,8 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 func TestAuthLimiter_Reset(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 15 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -263,7 +274,8 @@ func TestAuthLimiter_Reset(t *testing.T) {
 func TestAuthLimiter_IndependentIPs(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	for range 15 {
 		limiter.RecordFailure(ctx, "1.2.3.4")
@@ -311,7 +323,8 @@ func FuzzAuthLimiter_IP(f *testing.F) {
 	limiter := NewAuthLimiter(client, true)
 
 	f.Fuzz(func(t *testing.T, ip string) {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 		// Should never panic regardless of IP format.
 		limiter.RecordFailure(ctx, ip)
 		limiter.IsBlocked(ctx, ip)
