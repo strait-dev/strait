@@ -246,7 +246,7 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 		t.Fatal("should be blocked")
 	}
 
-	mr.FastForward(authFailWindowTTL + time.Second)
+	mr.FastForward(authFailWindow() + time.Second)
 
 	blocked, _ = limiter.IsBlocked(ctx, "1.2.3.4")
 	if blocked {
