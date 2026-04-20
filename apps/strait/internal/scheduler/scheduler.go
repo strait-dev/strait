@@ -53,6 +53,7 @@ type Scheduler struct {
 	counterReconciler        *CounterReconciler
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
+	partitionReclaimer       *PartitionReclaimer
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
 	planDriftMonitor         *PlanDriftMonitor
@@ -160,6 +161,12 @@ func WithPartitionEnsurer(p *PartitionEnsurer) SchedulerOption {
 func WithPartitionTuner(p *PartitionTuner) SchedulerOption {
 	return func(s *Scheduler) {
 		s.partitionTuner = p
+	}
+}
+
+func WithPartitionReclaimer(p *PartitionReclaimer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.partitionReclaimer = p
 	}
 }
 
@@ -311,6 +318,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.partitionTuner != nil {
 		s.tracker.track(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
+	}
+	if s.partitionReclaimer != nil {
+		s.tracker.track(&s.wg, "partition_reclaimer", func() { s.partitionReclaimer.Run(ctx) })
 	}
 	if s.dlqAgeOut != nil {
 		s.tracker.track(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })

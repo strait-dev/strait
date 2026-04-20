@@ -32,6 +32,7 @@ type PartitionEnsurer struct {
 // Satisfied by *store.Queries.
 type PartitionEnsurerStore interface {
 	EnsureJobRunsPartitions(ctx context.Context, monthsAhead int) error
+	EnsureOutboxHistoryPartitions(ctx context.Context, monthsAhead int) error
 }
 
 // PartitionEnsurerConfig configures the ensurer.
@@ -120,6 +121,11 @@ func (p *PartitionEnsurer) runOnce(ctx context.Context) error {
 
 	if err := p.store.EnsureJobRunsPartitions(ctx, p.monthsAhead); err != nil {
 		p.logger.Warn("ensure partitions failed", "error", err)
+		p.errors.Add(1)
+		return err
+	}
+	if err := p.store.EnsureOutboxHistoryPartitions(ctx, p.monthsAhead); err != nil {
+		p.logger.Warn("ensure outbox history partitions failed", "error", err)
 		p.errors.Add(1)
 		return err
 	}

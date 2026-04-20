@@ -919,6 +919,18 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
 		}
+		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
+			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
+				Interval:     cfg.PartitionReclaimInterval,
+				SafetyMonths: cfg.PartitionReclaimSafety,
+				Logger:       slog.Default(),
+			}).WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithPartitionReclaimer(reclaimer))
+			slog.Info("partition reclaimer enabled",
+				"interval", cfg.PartitionReclaimInterval,
+				"safety_months", cfg.PartitionReclaimSafety,
+			)
+		}
 		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))

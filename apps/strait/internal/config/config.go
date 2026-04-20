@@ -173,6 +173,9 @@ type Config struct {
 	IndexMaintenanceInterval time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
 	ReaperDeleteBatchSize    int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
 	TerminalArchiveEnabled   bool          `env:"TERMINAL_ARCHIVE_ENABLED" default:"false"`
+	PartitionReclaimEnabled  bool          `env:"PARTITION_RECLAIM_ENABLED" default:"false"`
+	PartitionReclaimInterval time.Duration `env:"PARTITION_RECLAIM_INTERVAL" default:"24h"`
+	PartitionReclaimSafety   int           `env:"PARTITION_RECLAIM_SAFETY_MONTHS" default:"2"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
 	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
 	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`

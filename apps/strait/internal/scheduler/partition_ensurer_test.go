@@ -17,6 +17,10 @@ func (f *fakePartitionStore) EnsureJobRunsPartitions(_ context.Context, _ int) e
 	return f.err
 }
 
+func (f *fakePartitionStore) EnsureOutboxHistoryPartitions(_ context.Context, _ int) error {
+	return f.err
+}
+
 func TestPartitionEnsurer_Defaults(t *testing.T) {
 	p := NewPartitionEnsurer(&fakePartitionStore{}, PartitionEnsurerConfig{})
 	if p.interval != 24*time.Hour {

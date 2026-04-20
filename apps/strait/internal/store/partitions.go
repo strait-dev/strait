@@ -174,6 +174,49 @@ func startOfMonth(t time.Time) time.Time {
 	return time.Date(y, m, 1, 0, 0, 0, 0, time.UTC)
 }
 
+func (q *Queries) ListOutboxHistoryPartitions(ctx context.Context) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListOutboxHistoryPartitions")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		SELECT c.relname
+		FROM pg_inherits i
+		JOIN pg_class c ON c.oid = i.inhrelid
+		JOIN pg_class p ON p.oid = i.inhparent
+		WHERE p.relname = 'enqueue_outbox_history'
+		ORDER BY c.relname
+	`)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list outbox history partitions: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) PartitionRowCount(ctx context.Context, partition string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.PartitionRowCount")
+	defer span.End()
+
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", partition)
+	var count int64
+	if err := q.db.QueryRow(ctx, query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("partition row count %s: %w", partition, err)
+	}
+	return count, nil
+}
+
 // ExecDDL runs a single DDL statement via the underlying pool. Used by
 // the partition tuner which issues ALTER TABLE SET/RESET
 // commands on individual partitions.
