@@ -80,6 +80,7 @@ func (h *HealthSampler) SampleOnce(ctx context.Context) {
 	h.sampleOldestQueued(ctx)
 	h.sampleHistoryLiveTuples(ctx)
 	h.sampleQueueDepthByStatus(ctx)
+	h.sampleStrandedTerminal(ctx)
 }
 
 func (h *HealthSampler) samplePartitions(ctx context.Context) {
@@ -152,6 +153,21 @@ GROUP BY status
 		h.metrics.QueueDepthByStatus.Record(ctx, count,
 			metric.WithAttributes(attribute.String("status", status)))
 	}
+}
+
+func (h *HealthSampler) sampleStrandedTerminal(ctx context.Context) {
+	const q = `
+SELECT COUNT(*) FROM job_runs
+WHERE finished_at IS NOT NULL
+  AND finished_at < NOW() - INTERVAL '48 hours'
+  AND status IN ('completed', 'failed', 'canceled', 'expired', 'timed_out', 'crashed', 'system_failed')
+`
+	var count int64
+	if err := h.db.QueryRow(ctx, q).Scan(&count); err != nil {
+		h.logger.Debug("queue health sample: stranded terminal query failed", "error", err)
+		return
+	}
+	h.metrics.ArchiveStrandedTerminal.Record(ctx, count)
 }
 
 func (h *HealthSampler) sampleOldestQueued(ctx context.Context) {
