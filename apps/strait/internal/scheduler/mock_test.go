@@ -349,6 +349,26 @@ func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ ti
 	return nil, nil
 }
 
+func (m *mockReaperStore) ArchiveTerminalRunsPastRetention(_ context.Context, _, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteHistoryRunsPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) ArchiveConsumedOutboxBatch(_ context.Context, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
+	return nil, nil
+}
+
 // mockMachineDestroyer implements MachineDestroyer for testing.
 type mockMachineDestroyer struct {
 	stopFn    func(ctx context.Context, machineID string) error

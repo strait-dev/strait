@@ -1,0 +1,161 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"strait/internal/dbscan"
+	"strait/internal/domain"
+
+	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel"
+)
+
+func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ArchiveTerminalRun")
+	defer span.End()
+
+	query := `
+		WITH removed AS (
+			DELETE FROM job_runs WHERE id = $1 RETURNING *
+		)
+		INSERT INTO job_runs_history (
+			id, job_id, project_id, status, attempt, payload, result, metadata,
+			error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+			idempotency_key, job_version, workflow_step_run_id, execution_trace,
+			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
+			created_by, concurrency_key, batch_id, execution_mode, machine_id,
+			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+			replayed_run_id, max_attempts_override, timeout_secs_override,
+			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			created_at
+		)
+		SELECT
+			id, job_id, project_id, status, attempt, payload, result, metadata,
+			error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+			idempotency_key, job_version, workflow_step_run_id, execution_trace,
+			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
+			created_by, concurrency_key, batch_id, execution_mode, machine_id,
+			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+			replayed_run_id, max_attempts_override, timeout_secs_override,
+			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			created_at
+		FROM removed
+		ON CONFLICT (id) DO NOTHING`
+
+	_, err := tx.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("archive terminal run %s: %w", id, err)
+	}
+	return nil
+}
+
+func (q *Queries) GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunFromHistory")
+	defer span.End()
+
+	query := `SELECT id, job_id, project_id, status, attempt, payload, result, metadata,
+		error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+		heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+		idempotency_key, job_version, created_at, workflow_step_run_id,
+		execution_trace, debug_mode, continuation_of, lineage_depth, tags,
+		job_version_id, created_by, batch_id, concurrency_key, execution_mode,
+		machine_id, deployment_id, pinned_image_uri, pinned_image_digest,
+		is_rollback, replayed_run_id
+		FROM job_runs_history WHERE id = $1`
+
+	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get run from history: %w", err)
+	}
+	return run, nil
+}
+
+func (q *Queries) DeleteHistoryRunsPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteHistoryRunsPastRetention")
+	defer span.End()
+
+	query := `
+		DELETE FROM job_runs_history
+		WHERE id IN (
+			SELECT id FROM job_runs_history
+			WHERE archived_at < $1
+			LIMIT $2
+		)`
+
+	tag, err := q.db.Exec(ctx, query, cutoff, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete history runs past retention: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (q *Queries) ArchiveTerminalRunsPastRetention(
+	ctx context.Context,
+	shortRetention, longRetention time.Duration,
+	batchSize int,
+) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ArchiveTerminalRunsPastRetention")
+	defer span.End()
+
+	shortCutoff := time.Now().Add(-shortRetention)
+	longCutoff := time.Now().Add(-longRetention)
+
+	query := `
+		WITH to_archive AS (
+			SELECT id, created_at FROM job_runs
+			WHERE finished_at IS NOT NULL
+			  AND (
+				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
+				OR
+				(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
+			  )
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		),
+		archived AS (
+			INSERT INTO job_runs_history (
+				id, job_id, project_id, status, attempt, payload, result, metadata,
+				error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+				heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+				idempotency_key, job_version, workflow_step_run_id, execution_trace,
+				debug_mode, continuation_of, lineage_depth, tags, job_version_id,
+				created_by, concurrency_key, batch_id, execution_mode, machine_id,
+				deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+				replayed_run_id, max_attempts_override, timeout_secs_override,
+				retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+				created_at
+			)
+			SELECT
+				jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload,
+				jr.result, jr.metadata, jr.error, jr.error_class, jr.triggered_by,
+				jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
+				jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority,
+				jr.idempotency_key, jr.job_version, jr.workflow_step_run_id,
+				jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth,
+				jr.tags, jr.job_version_id, jr.created_by, jr.concurrency_key,
+				jr.batch_id, jr.execution_mode, jr.machine_id, jr.deployment_id,
+				jr.pinned_image_uri, jr.pinned_image_digest, jr.is_rollback,
+				jr.replayed_run_id, jr.max_attempts_override, jr.timeout_secs_override,
+				jr.retry_backoff, jr.retry_initial_delay_secs, jr.retry_max_delay_secs,
+				jr.created_at
+			FROM job_runs jr
+			WHERE jr.id IN (SELECT id FROM to_archive)
+			ON CONFLICT (id) DO NOTHING
+			RETURNING id
+		)
+		DELETE FROM job_runs WHERE id IN (SELECT id FROM archived)`
+
+	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("archive terminal runs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

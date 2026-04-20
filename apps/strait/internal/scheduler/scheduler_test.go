@@ -247,6 +247,26 @@ func (m *mockSchedulerStore) DeleteAuditDeadletterOlderThan(_ context.Context, _
 	return nil, nil
 }
 
+func (m *mockSchedulerStore) ArchiveTerminalRunsPastRetention(_ context.Context, _, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockSchedulerStore) DeleteHistoryRunsPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockSchedulerStore) ArchiveConsumedOutboxBatch(_ context.Context, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockSchedulerStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockSchedulerStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
+	return nil, nil
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,

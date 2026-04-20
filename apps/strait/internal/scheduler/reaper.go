@@ -64,6 +64,11 @@ type ReaperStore interface {
 	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
+	ArchiveTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration, batchSize int) (int64, error)
+	DeleteHistoryRunsPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time.Duration, batchSize int) (int64, error)
+	DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
