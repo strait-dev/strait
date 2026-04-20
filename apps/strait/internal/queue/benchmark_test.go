@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -90,6 +91,44 @@ func BenchmarkDequeueKernelQueryAssembly(b *testing.B) {
 				_ = q.buildDequeueQuery(10, s.spec)
 			}
 		})
+	}
+}
+
+func BenchmarkWithStatementTimeout_NoTimeout(b *testing.B) {
+	q := NewPostgresQueue(&mockDBTX{})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		db, cleanup, err := withStatementTimeout(context.Background(), q, "bench")
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = db
+		cleanup()
+	}
+}
+
+func BenchmarkRecordPartitionStats(b *testing.B) {
+	m, err := Metrics()
+	if err != nil {
+		b.Fatal(err)
+	}
+	stats := PartitionStats{
+		LiveTuples:     500,
+		DeadTuples:     50,
+		TotalUpdates:   200,
+		HotUpdates:     160,
+		DeadTupleRatio: 0.0909,
+	}
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		m.RecordPartitionStats(ctx, "job_runs_p2026_04", stats)
 	}
 }
 

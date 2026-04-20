@@ -244,6 +244,18 @@ func PartitionCycleMatrix() Scenario {
 	}
 }
 
+// ArchiveStress enqueues 10k terminal runs, runs the archive loop for
+// 60 seconds, and measures rows/sec throughput. Validates that the
+// archive CTE (INSERT INTO history + DELETE FROM hot) scales linearly.
+func ArchiveStress() Scenario {
+	return Scenario{
+		Name:        "archive_stress",
+		Description: "Insert 10k terminal runs, archive for 60s, measure archive throughput and verify zero stranded rows.",
+		Tier:        2,
+		Duration:    5 * time.Minute,
+	}
+}
+
 // AllScenarios returns every pre-defined scenario.
 func AllScenarios() []Scenario {
 	return []Scenario{
@@ -262,5 +274,6 @@ func AllScenarios() []Scenario {
 		OutboxBurst(),
 		DenormalizedDequeueDelta(),
 		PartitionCycleMatrix(),
+		ArchiveStress(),
 	}
 }
