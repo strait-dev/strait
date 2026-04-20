@@ -539,6 +539,186 @@ func TestRedisWebhookCircuitBreaker_RecordSuccessAfterMultipleFailures(t *testin
 	}
 }
 
+func TestRedisWebhookCircuitBreaker_CanDeliver_ExactThresholdOpensCircuit(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	threshold := 3
+	breaker := NewRedisWebhookCircuitBreaker(
+		client, true,
+		WithWebhookCircuitBreakerThreshold(threshold),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+
+	url := "https://example.com/candeliver-threshold"
+	failureKey := breaker.failureKey(url)
+
+	now := time.Now()
+	breaker.now = func() time.Time { return now }
+
+	// Inject failures directly into the sorted set (bypass RecordFailure
+	// so RecordFailure doesn't set the open key itself).
+	state.mu.Lock()
+	for i := range threshold {
+		state.failures[failureKey] = append(state.failures[failureKey], now.Add(-time.Duration(i)*time.Second).UnixMilli())
+	}
+	state.mu.Unlock()
+
+	// CanDeliver must detect failures >= threshold and open the circuit.
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if canDeliver {
+		t.Fatal("expected CanDeliver to block delivery when failures == threshold")
+	}
+
+	// Verify the open key was set by CanDeliver (not by RecordFailure).
+	state.mu.Lock()
+	openKey := breaker.openKey(url)
+	isOpen := state.open[openKey]
+	state.mu.Unlock()
+	if !isOpen {
+		t.Fatal("expected CanDeliver to set open key when failures >= threshold")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_CanDeliver_BelowThreshold_StaysClosed(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	threshold := 3
+	breaker := NewRedisWebhookCircuitBreaker(
+		client, true,
+		WithWebhookCircuitBreakerThreshold(threshold),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+
+	url := "https://example.com/below-threshold"
+	failureKey := breaker.failureKey(url)
+	now := time.Now()
+	breaker.now = func() time.Time { return now }
+
+	// Inject threshold-1 failures directly.
+	state.mu.Lock()
+	for i := range threshold - 1 {
+		state.failures[failureKey] = append(state.failures[failureKey], now.Add(-time.Duration(i)*time.Second).UnixMilli())
+	}
+	state.mu.Unlock()
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed when failures < threshold")
+	}
+
+	// Verify open key was NOT set.
+	state.mu.Lock()
+	isOpen := state.open[breaker.openKey(url)]
+	state.mu.Unlock()
+	if isOpen {
+		t.Fatal("expected open key not set when failures < threshold")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_FailureWindowBoundary(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	window := time.Minute
+	threshold := 2
+	breaker := NewRedisWebhookCircuitBreaker(
+		client, true,
+		WithWebhookCircuitBreakerThreshold(threshold),
+		WithWebhookCircuitBreakerWindow(window),
+	)
+
+	url := "https://example.com/window-boundary"
+	failureKey := breaker.failureKey(url)
+
+	now := time.Now()
+	breaker.now = func() time.Time { return now }
+
+	// Inject a failure at exactly now - window (should be pruned by ZRemRangeByScore
+	// because cutoff = now - window, and score <= cutoff is removed).
+	staleScore := now.Add(-window).UnixMilli()
+	// Inject a failure 1ms inside the window (should survive pruning).
+	freshScore := now.Add(-window + time.Millisecond).UnixMilli()
+
+	state.mu.Lock()
+	state.failures[failureKey] = []int64{staleScore, freshScore}
+	state.mu.Unlock()
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if !canDeliver {
+		t.Fatal("expected delivery allowed: stale failure pruned, only 1 fresh failure < threshold 2")
+	}
+
+	// Verify the stale failure was pruned and only the fresh one remains.
+	state.mu.Lock()
+	remaining := len(state.failures[failureKey])
+	state.mu.Unlock()
+	if remaining != 1 {
+		t.Fatalf("expected 1 remaining failure after pruning, got %d", remaining)
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	threshold := 3
+	breaker := NewRedisWebhookCircuitBreaker(
+		client, true,
+		WithWebhookCircuitBreakerThreshold(threshold),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+
+	url := "https://example.com/intermediate"
+	openKey := breaker.openKey(url)
+
+	// Record threshold-1 failures.
+	for range threshold - 1 {
+		breaker.RecordFailure(t.Context(), url)
+	}
+
+	// Open key should NOT be set yet.
+	state.mu.Lock()
+	isOpen := state.open[openKey]
+	state.mu.Unlock()
+	if isOpen {
+		t.Fatal("expected open key not set after threshold-1 failures")
+	}
+
+	// Record the threshold-th failure.
+	breaker.RecordFailure(t.Context(), url)
+
+	// Open key should now be set.
+	state.mu.Lock()
+	isOpen = state.open[openKey]
+	state.mu.Unlock()
+	if !isOpen {
+		t.Fatal("expected open key set after exactly threshold failures")
+	}
+}
+
 func TestRedisWebhookCircuitBreaker_DifferentURLsIndependent(t *testing.T) {
 	t.Parallel()
 
