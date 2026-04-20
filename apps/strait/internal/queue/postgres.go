@@ -61,13 +61,6 @@ func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue
 	return q
 }
 
-func (q *PostgresQueue) setStatementTimeout(ctx context.Context) {
-	if q.statementTimeout > 0 {
-		ms := int(q.statementTimeout.Milliseconds())
-		_, _ = q.db.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms))
-	}
-}
-
 // dequeueOrderByClause always returns the static, index-servable ordering.
 // Starvation prevention is now handled by scheduler.PriorityPromoter which
 // bumps priority on aging rows.
@@ -521,7 +514,29 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Dequeue")
 	defer span.End()
 
-	q.setStatementTimeout(ctx)
+	db := q.db
+	var cleanup func()
+
+	if q.statementTimeout > 0 {
+		if beginner, ok := q.db.(store.TxBeginner); ok {
+			tx, err := beginner.Begin(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("dequeue run: begin tx: %w", err)
+			}
+			ms := int(q.statementTimeout.Milliseconds())
+			if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+				_ = tx.Rollback(ctx)
+				return nil, fmt.Errorf("dequeue run: set statement timeout: %w", err)
+			}
+			db = tx
+			cleanup = func() {
+				_ = tx.Commit(ctx)
+			}
+		}
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
 
 	query := fmt.Sprintf(`
 		WITH %s
@@ -544,7 +559,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		)
 		RETURNING %s`, concurrencyCTEs, domain.StatusDequeued, concurrencyJoins, domain.StatusQueued, concurrencyWhere, q.dequeueOrderByClause(), dequeueColumns)
 
-	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query))
+	run, err := dbscan.ScanRun(db.QueryRow(ctx, query))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil //nolint:nilnil // nil run signals empty queue.
@@ -589,17 +604,10 @@ func (q *PostgresQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 // columns current for non-terminal rows, so the dequeue hot path touches
 // only job_runs + job_active_counts.
 func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFullyDenormalized")
-	defer span.End()
-
-	if n <= 0 {
-		return nil, nil
-	}
-
-	q.setStatementTimeout(ctx)
-
-	query := fmt.Sprintf(`
-		WITH claimed AS (
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName:            "queue.DequeueNFullyDenormalized",
+		skipConcurrencyCTEs: true,
+		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id, jr.created_at
 			FROM job_runs jr
 			LEFT JOIN job_active_counts jac_job
@@ -619,38 +627,8 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
-			LIMIT $1
-		), updated AS (
-			UPDATE job_runs
-			SET status = '%s', started_at = NOW()
-			WHERE id IN (SELECT id FROM claimed)
-			RETURNING %s
-		)
-		SELECT %s
-		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, q.dequeueOrderByClause(), domain.StatusDequeued, dequeueColumns, dequeueColumns)
-
-	rows, err := q.db.Query(ctx, query, n)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue fully denormalized: %w", err)
-	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, n)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("dequeue fully denormalized scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("dequeue fully denormalized rows: %w", err)
-	}
-	for i := range runs {
-		q.recordClaimMetrics(ctx, &runs[i])
-	}
-	return runs, nil
+			LIMIT $1`, domain.StatusQueued, q.dequeueOrderByClause()),
+	})
 }
 
 // DequeueNDenormalized is the denormalized variant that replaces the
@@ -662,17 +640,10 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 // Returns the same shape as DequeueN. Callers enable this variant via a
 // feature flag at the executor layer.
 func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNDenormalized")
-	defer span.End()
-
-	if n <= 0 {
-		return nil, nil
-	}
-
-	q.setStatementTimeout(ctx)
-
-	query := fmt.Sprintf(`
-		WITH claimed AS (
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName:            "queue.DequeueNDenormalized",
+		skipConcurrencyCTEs: true,
+		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id, jr.created_at
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
@@ -693,38 +664,8 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 			       OR COALESCE(jac_key.count, 0) < j.max_concurrency_per_key)
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
-			LIMIT $1
-		), updated AS (
-			UPDATE job_runs
-			SET status = '%s', started_at = NOW()
-			WHERE id IN (SELECT id FROM claimed)
-			RETURNING %s
-		)
-		SELECT %s
-		FROM updated
-		ORDER BY created_at ASC`, domain.StatusQueued, q.dequeueOrderByClause(), domain.StatusDequeued, dequeueColumns, dequeueColumns)
-
-	rows, err := q.db.Query(ctx, query, n)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue denormalized: %w", err)
-	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, n)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("dequeue denormalized scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("dequeue denormalized rows: %w", err)
-	}
-	for i := range runs {
-		q.recordClaimMetrics(ctx, &runs[i])
-	}
-	return runs, nil
+			LIMIT $1`, domain.StatusQueued, q.dequeueOrderByClause()),
+	})
 }
 
 // DequeueNWithCursor is the cursor-aware variant. When cursor is
@@ -733,28 +674,23 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 // during B-tree descent. On empty result (no runs claimable beyond the
 // cursor) the cursor is reset so older rows remain reachable.
 func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *ClaimCursor) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueN")
-	defer span.End()
-
 	if n <= 0 {
 		return nil, nil
 	}
 
-	q.setStatementTimeout(ctx)
-
 	orderBy := q.dequeueOrderByClause()
 
 	cursorCreated, cursorID, cursorValid := cursor.Snapshot()
-	args := []any{n}
+	var extraArgs []any
 	cursorClause := ""
 	if cursorValid {
 		cursorClause = "AND (jr.created_at, jr.id) > ($2, $3)"
-		args = append(args, cursorCreated, cursorID)
+		extraArgs = append(extraArgs, cursorCreated, cursorID)
 	}
 
-	query := fmt.Sprintf(`
-		WITH %s,
-		claimed AS (
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName: "queue.DequeueN",
+		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
@@ -768,51 +704,19 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
-			LIMIT $1
-		), updated AS (
-			UPDATE job_runs
-			SET status = '%s', started_at = NOW()
-			WHERE id IN (SELECT id FROM claimed)
-			RETURNING %s
-		)
-		SELECT %s
-		FROM updated
-		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, cursorClause, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
-
-	rows, err := q.db.Query(ctx, query, args...)
-	if err != nil {
-		cursor.Reset()
-		return nil, fmt.Errorf("dequeue runs: %w", err)
-	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, n)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("dequeue runs scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("dequeue runs rows: %w", err)
-	}
-
-	if len(runs) == 0 {
-		// Empty claim => reset cursor so older rows are reachable next tick.
-		cursor.Reset()
-	} else {
-		// Advance cursor to the max (created_at, id) we observed.
-		for i := range runs {
-			cursor.Advance(runs[i].CreatedAt, runs[i].ID)
-		}
-	}
-	for i := range runs {
-		q.recordClaimMetrics(ctx, &runs[i])
-	}
-
-	return runs, nil
+			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, cursorClause, orderBy),
+		extraArgs: extraArgs,
+		postScanFn: func(runs []domain.JobRun) error {
+			if len(runs) == 0 {
+				cursor.Reset()
+			} else {
+				for i := range runs {
+					cursor.Advance(runs[i].CreatedAt, runs[i].ID)
+				}
+			}
+			return nil
+		},
+	})
 }
 
 // DequeueNFair dequeues up to n runs using fair round-robin across jobs.
@@ -820,20 +724,11 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 // jobs from starving others. Falls back to priority ordering within the
 // fair selection.
 func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNFair")
-	defer span.End()
-
-	if n <= 0 {
-		return nil, nil
-	}
-
-	q.setStatementTimeout(ctx)
-
 	orderBy := q.dequeueOrderByClause()
 
-	query := fmt.Sprintf(`
-		WITH %s,
-		candidates AS (
+	return executeDequeueFair(ctx, q, n, dequeueSpec{
+		spanName: "queue.DequeueNFair",
+		candidatesSQL: fmt.Sprintf(`
 			SELECT DISTINCT ON (jr.job_id) jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
@@ -844,44 +739,8 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  %s
-			ORDER BY jr.job_id, %s
-		), claimed AS (
-			SELECT c.id
-			FROM candidates c
-			JOIN job_runs jr ON jr.id = c.id
-			ORDER BY %s
-			FOR UPDATE OF jr SKIP LOCKED
-			LIMIT $1
-		), updated AS (
-			UPDATE job_runs
-			SET status = '%s', started_at = NOW()
-			WHERE id IN (SELECT id FROM claimed)
-			RETURNING %s
-		)
-		SELECT %s
-		FROM updated
-		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
-
-	rows, err := q.db.Query(ctx, query, n)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue runs fair: %w", err)
-	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, n)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("dequeue runs fair scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("dequeue runs fair rows: %w", err)
-	}
-
-	return runs, nil
+			ORDER BY jr.job_id, %s`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
+	})
 }
 
 // DequeueNPartitioned claims up to n runs across the given project IDs
@@ -889,20 +748,16 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 // scheduling so no single project can starve the others. Replaces the
 // N-round-trip loop in executor_poll.dequeueAcrossPartitions.
 func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectIDs []string) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNPartitioned")
-	defer span.End()
-
 	if n <= 0 || len(projectIDs) == 0 {
 		return nil, nil
 	}
 
-	q.setStatementTimeout(ctx)
 	orderBy := q.dequeueOrderByClause()
 
-	query := fmt.Sprintf(`
-		WITH %s,
-		candidates AS (
-			SELECT DISTINCT ON (jr.project_id) jr.id
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName: "queue.DequeueNPartitioned",
+		candidatesSQL: fmt.Sprintf(`
+			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
 			%s
@@ -913,61 +768,19 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  %s
-			ORDER BY jr.project_id, %s
+			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
-		),
-		claimed AS (
-			SELECT id FROM candidates LIMIT $1
-		),
-		updated AS (
-			UPDATE job_runs SET status = '%s', started_at = NOW()
-			WHERE id IN (SELECT id FROM claimed)
-			RETURNING %s
-		)
-		SELECT %s FROM updated ORDER BY created_at ASC`,
-		concurrencyCTEs, concurrencyJoins, domain.StatusQueued,
-		concurrencyWhere, orderBy,
-		domain.StatusDequeued, dequeueColumns, dequeueColumns,
-	)
-
-	rows, err := q.db.Query(ctx, query, n, projectIDs)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue partitioned: %w", err)
-	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, n)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("dequeue partitioned scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("dequeue partitioned rows: %w", err)
-	}
-	for i := range runs {
-		q.recordClaimMetrics(ctx, &runs[i])
-	}
-	return runs, nil
+			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
+		extraArgs: []any{projectIDs},
+	})
 }
 
 func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNByProject")
-	defer span.End()
-
-	if n <= 0 {
-		return nil, nil
-	}
-
-	q.setStatementTimeout(ctx)
-
 	orderBy := q.dequeueOrderByClause()
 
-	query := fmt.Sprintf(`
-		WITH %s,
-		claimed AS (
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName: "queue.DequeueNByProject",
+		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id
 			FROM job_runs jr
 			JOIN jobs j ON j.id = jr.job_id
@@ -981,35 +794,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
-			LIMIT $1
-		), updated AS (
-			UPDATE job_runs
-			SET status = '%s', started_at = NOW()
-			WHERE id IN (SELECT id FROM claimed)
-			RETURNING %s
-		)
-		SELECT %s
-		FROM updated
-		ORDER BY created_at ASC`, concurrencyCTEs, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy, domain.StatusDequeued, dequeueColumns, dequeueColumns)
-
-	rows, err := q.db.Query(ctx, query, n, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue runs by project: %w", err)
-	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, n)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("dequeue runs by project scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("dequeue runs by project rows: %w", err)
-	}
-
-	return runs, nil
+			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
+		extraArgs: []any{projectID},
+	})
 }

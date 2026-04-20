@@ -46,6 +46,51 @@ func (m *mockDBTX) QueryRow(ctx context.Context, sql string, args ...any) pgx.Ro
 // Verify mockDBTX implements store.DBTX at compile time.
 var _ store.DBTX = (*mockDBTX)(nil)
 
+// mockTxDBTX wraps mockDBTX and adds TxBeginner support for statement timeout tests.
+type mockTxDBTX struct {
+	mockDBTX
+	beginFn func(ctx context.Context) (pgx.Tx, error)
+}
+
+func (m *mockTxDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
+	if m.beginFn != nil {
+		return m.beginFn(ctx)
+	}
+	return nil, errors.New("not implemented")
+}
+
+var _ store.TxBeginner = (*mockTxDBTX)(nil)
+
+// mockTx implements pgx.Tx for testing statement timeout in transactions.
+type mockTx struct {
+	mockDBTX
+	commitFn   func(ctx context.Context) error
+	rollbackFn func(ctx context.Context) error
+}
+
+func (m *mockTx) Begin(_ context.Context) (pgx.Tx, error) { return nil, errors.New("nested") }
+func (m *mockTx) Commit(ctx context.Context) error {
+	if m.commitFn != nil {
+		return m.commitFn(ctx)
+	}
+	return nil
+}
+func (m *mockTx) Rollback(ctx context.Context) error {
+	if m.rollbackFn != nil {
+		return m.rollbackFn(ctx)
+	}
+	return nil
+}
+func (m *mockTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
+	return 0, nil
+}
+func (m *mockTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
+func (m *mockTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
+func (m *mockTx) Prepare(_ context.Context, _ string, _ string) (*pgconn.StatementDescription, error) {
+	return nil, nil
+}
+func (m *mockTx) Conn() *pgx.Conn { return nil }
+
 // mockRow implements pgx.Row.
 type mockRow struct {
 	scanFn func(dest ...any) error
@@ -383,13 +428,20 @@ func TestDequeueN_SetsStatementTimeout(t *testing.T) {
 	t.Parallel()
 
 	var execSQL string
-	db := &mockDBTX{
-		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-			execSQL = sql
-			return pgconn.CommandTag{}, nil
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execSQL = sql
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return nil, errors.New("no rows")
+			},
 		},
-		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-			return nil, errors.New("no rows") // short-circuit
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) {
+			return tx, nil
 		},
 	}
 

@@ -43,9 +43,14 @@ func FuzzDequeueSQLShape(f *testing.F) {
 			func() { _, _ = q.DequeueN(context.Background(), 3) },
 			func() { _, _ = q.DequeueNWithCursor(context.Background(), 3, nil) },
 			func() { _, _ = q.DequeueNFair(context.Background(), 3) },
+			func() { _, _ = q.DequeueNDenormalized(context.Background(), 3) },
+			func() { _, _ = q.DequeueNFullyDenormalized(context.Background(), 3) },
 		}
 		if useProject {
 			queries = append(queries, func() { _, _ = q.DequeueNByProject(context.Background(), 3, "proj") })
+			queries = append(queries, func() {
+				_, _ = q.DequeueNPartitioned(context.Background(), 3, []string{"proj-a", "proj-b"})
+			})
 		}
 		for _, fn := range queries {
 			captured = ""
