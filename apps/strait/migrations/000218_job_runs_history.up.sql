@@ -65,4 +65,4 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_history_job_created
 
 ALTER TABLE job_runs_history SET (fillfactor = 100, autovacuum_vacuum_scale_factor = 0.1);
 
-UPDATE schema_version SET version = 206, updated_at = NOW();
+UPDATE schema_version SET version = 218, updated_at = NOW();

@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// DLQ cap helpers. The trigger in migration 000189 keeps a
+// DLQ cap helpers. The trigger in migration 000202 keeps a
 // (project_id, job_id) -> count counter current; this file is the Go API
 // for reading and enforcing it.
 

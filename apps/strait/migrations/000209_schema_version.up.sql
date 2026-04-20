@@ -9,5 +9,5 @@ CREATE TABLE IF NOT EXISTS schema_version (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO schema_version (version) VALUES (196)
+INSERT INTO schema_version (version) VALUES (209)
 ON CONFLICT (id) DO UPDATE SET version = 196, updated_at = NOW();

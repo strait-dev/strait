@@ -145,7 +145,7 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 	t.Logf("HOT ratio: %.2f (%d hot / %d total)", ratio, hotTotal, updTotal)
 
 	// Ratio floor documents the current reality: the hot-path indexes
-	// introduced by migration 000184 are HOT-friendly on their own, but
+	// introduced by migration 000197 are HOT-friendly on their own, but
 	// older partial indexes that we cannot drop without breaking reaper
 	// / heartbeat queries (idx_runs_status_dequeued on started_at
 	// WHERE status='dequeued', idx_runs_heartbeat on heartbeat_at

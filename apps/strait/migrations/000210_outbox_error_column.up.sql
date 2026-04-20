@@ -3,4 +3,4 @@
 -- retrying them forever.
 
 ALTER TABLE enqueue_outbox ADD COLUMN IF NOT EXISTS error TEXT;
-UPDATE schema_version SET version = 197, updated_at = NOW();
+UPDATE schema_version SET version = 210, updated_at = NOW();

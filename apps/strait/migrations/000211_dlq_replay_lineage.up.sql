@@ -20,4 +20,4 @@
 -- migration plus a hook in partition_ensurer to cover new partitions.
 
 ALTER TABLE job_runs ADD COLUMN IF NOT EXISTS replayed_run_id UUID NULL;
-UPDATE schema_version SET version = 198, updated_at = NOW();
+UPDATE schema_version SET version = 211, updated_at = NOW();

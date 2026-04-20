@@ -5,4 +5,4 @@
 ALTER TABLE enqueue_outbox
     ADD COLUMN IF NOT EXISTS retry_of_outbox_id TEXT NULL;
 
-UPDATE schema_version SET version = 203, updated_at = NOW();
+UPDATE schema_version SET version = 215, updated_at = NOW();

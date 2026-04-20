@@ -1,2 +1,0 @@
-ALTER TABLE enqueue_outbox DROP COLUMN IF EXISTS error;
-UPDATE schema_version SET version = 196, updated_at = NOW();
