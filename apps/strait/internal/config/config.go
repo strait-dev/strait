@@ -172,6 +172,7 @@ type Config struct {
 	EventTriggerRetention    time.Duration `env:"EVENT_TRIGGER_RETENTION"`
 	IndexMaintenanceInterval time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
 	ReaperDeleteBatchSize    int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
+	TerminalArchiveEnabled   bool          `env:"TERMINAL_ARCHIVE_ENABLED" default:"false"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
 	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
 	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`

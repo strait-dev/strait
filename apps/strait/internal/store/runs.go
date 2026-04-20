@@ -146,6 +146,13 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			historyRun, histErr := q.GetRunFromHistory(ctx, id)
+			if histErr != nil {
+				return nil, fmt.Errorf("get run: history fallback: %w", histErr)
+			}
+			if historyRun != nil {
+				return historyRun, nil
+			}
 			return nil, ErrRunNotFound
 		}
 		return nil, fmt.Errorf("get run: %w", err)
