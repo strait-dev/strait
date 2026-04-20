@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -300,5 +301,191 @@ func TestStraitMetricInstruments(t *testing.T) {
 	}
 	if got := len(rm.ScopeMetrics[0].Metrics); got != 9 {
 		t.Errorf("collected %d metrics, want 9", got)
+	}
+}
+
+type mockBreakerStateProvider struct {
+	state int64
+}
+
+func (m *mockBreakerStateProvider) BreakerState() int64 { return m.state }
+
+func TestObserveSIEMBreakerState_NilProvider(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	meter := provider.Meter("test")
+	gauge, err := meter.Int64ObservableGauge("test.siem.breaker")
+	if err != nil {
+		t.Fatalf("Int64ObservableGauge error = %v", err)
+	}
+
+	m := &Metrics{AuditSIEMBreakerState: gauge}
+	if err := m.ObserveSIEMBreakerState(meter, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestObserveSIEMBreakerState_NilGauge(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	meter := provider.Meter("test")
+	m := &Metrics{AuditSIEMBreakerState: nil}
+	bp := &mockBreakerStateProvider{state: 1}
+	if err := m.ObserveSIEMBreakerState(meter, bp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestObserveSIEMBreakerState_RecordsValue(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	meter := provider.Meter("test")
+	gauge, err := meter.Int64ObservableGauge("test.siem.breaker.state")
+	if err != nil {
+		t.Fatalf("Int64ObservableGauge error = %v", err)
+	}
+
+	m := &Metrics{AuditSIEMBreakerState: gauge}
+	bp := &mockBreakerStateProvider{state: 2}
+	if err := m.ObserveSIEMBreakerState(meter, bp); err != nil {
+		t.Fatalf("ObserveSIEMBreakerState error = %v", err)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect error = %v", err)
+	}
+
+	found := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, met := range sm.Metrics {
+			if met.Name == "test.siem.breaker.state" {
+				g, ok := met.Data.(metricdata.Gauge[int64])
+				if !ok {
+					t.Fatalf("data type = %T, want Gauge[int64]", met.Data)
+				}
+				if len(g.DataPoints) == 0 {
+					t.Fatal("no data points")
+				}
+				if g.DataPoints[0].Value != 2 {
+					t.Errorf("breaker state = %d, want 2", g.DataPoints[0].Value)
+				}
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("siem breaker state metric not found")
+	}
+}
+
+type mockPoolStats struct {
+	running   int64
+	waiting   uint64
+	submitted uint64
+	completed uint64
+	success   uint64
+	failed    uint64
+	dropped   uint64
+}
+
+func (m *mockPoolStats) RunningWorkers() int64   { return m.running }
+func (m *mockPoolStats) WaitingTasks() uint64    { return m.waiting }
+func (m *mockPoolStats) SubmittedTasks() uint64  { return m.submitted }
+func (m *mockPoolStats) CompletedTasks() uint64  { return m.completed }
+func (m *mockPoolStats) SuccessfulTasks() uint64 { return m.success }
+func (m *mockPoolStats) FailedTasks() uint64     { return m.failed }
+func (m *mockPoolStats) DroppedTasks() uint64    { return m.dropped }
+
+func TestObservePool_SaturateInt64_MaxUint64(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	meter := provider.Meter("test")
+
+	poolRunning, _ := meter.Int64ObservableGauge("test.pool.running")
+	poolWaiting, _ := meter.Int64ObservableGauge("test.pool.waiting")
+	poolSubmitted, _ := meter.Int64ObservableCounter("test.pool.submitted")
+	poolCompleted, _ := meter.Int64ObservableCounter("test.pool.completed")
+	poolSuccess, _ := meter.Int64ObservableCounter("test.pool.success")
+	poolFailed, _ := meter.Int64ObservableCounter("test.pool.failed")
+	poolDropped, _ := meter.Int64ObservableCounter("test.pool.dropped")
+
+	m := &Metrics{
+		PoolRunningWorkers:  poolRunning,
+		PoolWaitingTasks:    poolWaiting,
+		PoolSubmittedTasks:  poolSubmitted,
+		PoolCompletedTasks:  poolCompleted,
+		PoolSuccessfulTasks: poolSuccess,
+		PoolFailedTasks:     poolFailed,
+		PoolDroppedTasks:    poolDropped,
+	}
+
+	pool := &mockPoolStats{
+		running:   5,
+		waiting:   math.MaxUint64,
+		submitted: uint64(math.MaxInt64),
+		completed: uint64(math.MaxInt64) + 1,
+		success:   0,
+		failed:    1000,
+		dropped:   42,
+	}
+
+	if err := m.ObservePool(meter, pool); err != nil {
+		t.Fatalf("ObservePool error = %v", err)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect error = %v", err)
+	}
+
+	values := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, met := range sm.Metrics {
+			switch data := met.Data.(type) {
+			case metricdata.Gauge[int64]:
+				if len(data.DataPoints) > 0 {
+					values[met.Name] = data.DataPoints[0].Value
+				}
+			case metricdata.Sum[int64]:
+				if len(data.DataPoints) > 0 {
+					values[met.Name] = data.DataPoints[0].Value
+				}
+			}
+		}
+	}
+
+	if v := values["test.pool.running"]; v != 5 {
+		t.Errorf("running = %d, want 5", v)
+	}
+	if v := values["test.pool.waiting"]; v != math.MaxInt64 {
+		t.Errorf("waiting = %d, want MaxInt64 (saturated from MaxUint64)", v)
+	}
+	if v := values["test.pool.submitted"]; v != math.MaxInt64 {
+		t.Errorf("submitted = %d, want MaxInt64 (exact boundary)", v)
+	}
+	if v := values["test.pool.completed"]; v != math.MaxInt64 {
+		t.Errorf("completed = %d, want MaxInt64 (saturated from MaxInt64+1)", v)
+	}
+	if v := values["test.pool.success"]; v != 0 {
+		t.Errorf("success = %d, want 0", v)
+	}
+	if v := values["test.pool.failed"]; v != 1000 {
+		t.Errorf("failed = %d, want 1000", v)
+	}
+	if v := values["test.pool.dropped"]; v != 42 {
+		t.Errorf("dropped = %d, want 42", v)
 	}
 }
