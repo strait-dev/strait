@@ -1,6 +1,6 @@
 //go:build integration
 
-package store
+package store_test
 
 import (
 	"context"
@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	q := New(testDB.Pool)
+	q := store.New(testDB.Pool)
 
 	projectID := "proj-archive-rt-" + t.Name()
 	job := baseJob("job-archive-rt", projectID)
@@ -45,7 +46,7 @@ func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 	if gotHot != nil {
 		t.Error("run should be gone from hot table after archive")
 	}
-	if err != nil && err != ErrRunNotFound {
+	if err != nil && err != store.ErrRunNotFound {
 		t.Fatalf("GetRun (hot): unexpected error: %v", err)
 	}
 
@@ -66,7 +67,7 @@ func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 
 func TestIntegration_ArchiveIdempotent(t *testing.T) {
 	ctx := context.Background()
-	q := New(testDB.Pool)
+	q := store.New(testDB.Pool)
 
 	projectID := "proj-archive-idem-" + t.Name()
 	job := baseJob("job-archive-idem", projectID)
@@ -108,7 +109,7 @@ func TestIntegration_ArchiveIdempotent(t *testing.T) {
 
 func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 	ctx := context.Background()
-	q := New(testDB.Pool)
+	q := store.New(testDB.Pool)
 
 	projectID := "proj-archive-batch-" + t.Name()
 	job := baseJob("job-archive-batch", projectID)
@@ -204,7 +205,7 @@ func TestIntegration_HistoryTableColumnSync(t *testing.T) {
 
 func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 	ctx := context.Background()
-	q := New(testDB.Pool)
+	q := store.New(testDB.Pool)
 
 	projectID := "proj-backfill-" + t.Name()
 	job := baseJob("job-backfill", projectID)
@@ -248,7 +249,7 @@ func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 
 func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 	ctx := context.Background()
-	q := New(testDB.Pool)
+	q := store.New(testDB.Pool)
 
 	projectID := "proj-repair-" + t.Name()
 	job := baseJob("job-repair", projectID)
@@ -264,9 +265,32 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
+	// Manually copy the run into history to create a duplicate.
 	_, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO job_runs_history (`+historyArchiveColumns+`)
-		SELECT `+historyArchiveColumns+` FROM job_runs WHERE id = $1`, run.ID)
+		INSERT INTO job_runs_history (
+			id, job_id, project_id, status, attempt, payload, result, metadata,
+			error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+			idempotency_key, job_version, workflow_step_run_id, execution_trace,
+			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
+			created_by, concurrency_key, batch_id, execution_mode, machine_id,
+			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+			replayed_run_id, max_attempts_override, timeout_secs_override,
+			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			created_at
+		)
+		SELECT
+			id, job_id, project_id, status, attempt, payload, result, metadata,
+			error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+			idempotency_key, job_version, workflow_step_run_id, execution_trace,
+			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
+			created_by, concurrency_key, batch_id, execution_mode, machine_id,
+			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+			replayed_run_id, max_attempts_override, timeout_secs_override,
+			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			created_at
+		FROM job_runs WHERE id = $1`, run.ID)
 	if err != nil {
 		t.Fatalf("manual insert into history: %v", err)
 	}
