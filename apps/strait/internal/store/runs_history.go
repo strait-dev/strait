@@ -13,6 +13,17 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+const historyArchiveColumns = `id, job_id, project_id, status, attempt, payload, result, metadata,
+	error, error_class, triggered_by, scheduled_at, started_at, finished_at,
+	heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
+	idempotency_key, job_version, workflow_step_run_id, execution_trace,
+	debug_mode, continuation_of, lineage_depth, tags, job_version_id,
+	created_by, concurrency_key, batch_id, execution_mode, machine_id,
+	deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+	replayed_run_id, max_attempts_override, timeout_secs_override,
+	retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+	created_at`
+
 func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ArchiveTerminalRun")
 	defer span.End()
@@ -21,30 +32,8 @@ func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) er
 		WITH removed AS (
 			DELETE FROM job_runs WHERE id = $1 RETURNING *
 		)
-		INSERT INTO job_runs_history (
-			id, job_id, project_id, status, attempt, payload, result, metadata,
-			error, error_class, triggered_by, scheduled_at, started_at, finished_at,
-			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
-			idempotency_key, job_version, workflow_step_run_id, execution_trace,
-			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-			created_by, concurrency_key, batch_id, execution_mode, machine_id,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
-			replayed_run_id, max_attempts_override, timeout_secs_override,
-			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-			created_at
-		)
-		SELECT
-			id, job_id, project_id, status, attempt, payload, result, metadata,
-			error, error_class, triggered_by, scheduled_at, started_at, finished_at,
-			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
-			idempotency_key, job_version, workflow_step_run_id, execution_trace,
-			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-			created_by, concurrency_key, batch_id, execution_mode, machine_id,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
-			replayed_run_id, max_attempts_override, timeout_secs_override,
-			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-			created_at
-		FROM removed
+		INSERT INTO job_runs_history (` + historyArchiveColumns + `)
+		SELECT ` + historyArchiveColumns + ` FROM removed
 		ON CONFLICT (id) DO NOTHING`
 
 	_, err := tx.Exec(ctx, query, id)
@@ -117,35 +106,13 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 				OR
 				(status IN ('timed_out', 'crashed', 'system_failed') AND finished_at <= $2)
 			  )
+			ORDER BY finished_at ASC
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED
 		),
 		archived AS (
-			INSERT INTO job_runs_history (
-				id, job_id, project_id, status, attempt, payload, result, metadata,
-				error, error_class, triggered_by, scheduled_at, started_at, finished_at,
-				heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
-				idempotency_key, job_version, workflow_step_run_id, execution_trace,
-				debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-				created_by, concurrency_key, batch_id, execution_mode, machine_id,
-				deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
-				replayed_run_id, max_attempts_override, timeout_secs_override,
-				retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-				created_at
-			)
-			SELECT
-				jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload,
-				jr.result, jr.metadata, jr.error, jr.error_class, jr.triggered_by,
-				jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
-				jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority,
-				jr.idempotency_key, jr.job_version, jr.workflow_step_run_id,
-				jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth,
-				jr.tags, jr.job_version_id, jr.created_by, jr.concurrency_key,
-				jr.batch_id, jr.execution_mode, jr.machine_id, jr.deployment_id,
-				jr.pinned_image_uri, jr.pinned_image_digest, jr.is_rollback,
-				jr.replayed_run_id, jr.max_attempts_override, jr.timeout_secs_override,
-				jr.retry_backoff, jr.retry_initial_delay_secs, jr.retry_max_delay_secs,
-				jr.created_at
+			INSERT INTO job_runs_history (` + historyArchiveColumns + `)
+			SELECT ` + historyArchiveColumns + `
 			FROM job_runs jr
 			WHERE jr.id IN (SELECT id FROM to_archive)
 			ON CONFLICT (id) DO NOTHING

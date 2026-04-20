@@ -85,29 +85,8 @@ func (q *Queries) BackfillTerminalRunsToHistory(ctx context.Context, finishedBef
 			FOR UPDATE SKIP LOCKED
 		),
 		archived AS (
-			INSERT INTO job_runs_history (
-				id, job_id, project_id, status, attempt, payload, result, metadata,
-				error, error_class, triggered_by, scheduled_at, started_at, finished_at,
-				heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
-				idempotency_key, job_version, workflow_step_run_id, execution_trace,
-				debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-				created_by, concurrency_key, batch_id, execution_mode, machine_id,
-				deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
-				replayed_run_id, max_attempts_override, timeout_secs_override,
-				retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-				created_at
-			)
-			SELECT
-				id, job_id, project_id, status, attempt, payload, result, metadata,
-				error, error_class, triggered_by, scheduled_at, started_at, finished_at,
-				heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
-				idempotency_key, job_version, workflow_step_run_id, execution_trace,
-				debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-				created_by, concurrency_key, batch_id, execution_mode, machine_id,
-				deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
-				replayed_run_id, max_attempts_override, timeout_secs_override,
-				retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-				created_at
+			INSERT INTO job_runs_history (` + historyArchiveColumns + `)
+			SELECT ` + historyArchiveColumns + `
 			FROM job_runs
 			WHERE id IN (SELECT id FROM to_archive)
 			ON CONFLICT (id) DO NOTHING
