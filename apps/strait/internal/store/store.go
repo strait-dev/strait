@@ -21,6 +21,7 @@ var (
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
+	ErrAuditEventNotFound           = errors.New("audit event not found")
 	ErrRunNotFound                  = errors.New("run not found")
 	ErrRunConflict                  = errors.New("run status update conflict")
 	ErrOutboxRowNotFound            = errors.New("outbox row not found")
@@ -417,6 +418,23 @@ type Queries struct {
 	db                  DBTX
 	secretEncryptionKey string
 	auditSigningKey     []byte
+
+	// tombstoneInsertHook is a test-only injection point invoked inside
+	// writeRetentionTombstone immediately before the anchor insert. When
+	// non-nil and it returns a non-nil error, writeRetentionTombstone
+	// aborts with that error — which (because the tombstone runs inside
+	// the same transaction as the DELETE) triggers a rollback of the
+	// trim. Populated only by SetTombstoneInsertHookForTest in _test.go;
+	// the production constructor leaves it nil and no public setter
+	// exists, so this seam cannot leak outside tests.
+	tombstoneInsertHook func(ctx context.Context) error
+
+	// auditEventPostInsertHook is a test-only injection point invoked
+	// inside CreateAuditEvent after the signed INSERT statement succeeds
+	// but before the surrounding transaction commits. Returning a
+	// non-nil error forces the tx to roll back, leaving no row behind.
+	// Populated only by SetAuditEventPostInsertHookForTest in _test.go.
+	auditEventPostInsertHook func(ctx context.Context) error
 }
 
 func New(db DBTX) *Queries {
@@ -435,8 +453,46 @@ type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// TxBeginnerOptions is the subset of pgxpool.Pool / *pgx.Conn that starts a
+// transaction with explicit TxOptions. Implemented by both concrete types.
+type TxBeginnerOptions interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
 	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("failed to rollback transaction", "error", rbErr)
+		}
+	}()
+
+	if err := fn(New(tx)); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	committed = true
+
+	return nil
+}
+
+// WithTxOptions runs fn inside a transaction opened with the given TxOptions.
+// Use this when the caller needs to pin an isolation level (e.g.
+// pgx.RepeatableRead for per-project retention trims so the DISTINCT
+// project-id SELECT and per-project DELETEs observe a consistent snapshot).
+func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}

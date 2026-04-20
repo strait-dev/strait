@@ -8149,8 +8149,8 @@ func TestAuditEvents_CreateAndListFiltersAndSort(t *testing.T) {
 	if err := q.CreateAuditEvent(ctx, ev1); err != nil {
 		t.Fatalf("CreateAuditEvent(ev1) error = %v", err)
 	}
-	if len(ev1.Details) != 0 {
-		t.Fatalf("CreateAuditEvent(ev1) details len = %d, want 0", len(ev1.Details))
+	if string(ev1.Details) != "{}" {
+		t.Fatalf("CreateAuditEvent(ev1) details = %s, want {}", string(ev1.Details))
 	}
 
 	ev2 := &domain.AuditEvent{ProjectID: projectID, ActorID: "actor-a", ActorType: "user", Action: "job.update", ResourceType: "job", ResourceID: "job-2", Details: json.RawMessage(`{"changed":true}`)}

@@ -77,6 +77,11 @@ func (s *Server) handleCreateNotificationChannel(ctx context.Context, input *Cre
 	if err := s.store.CreateNotificationChannel(ctx, ch); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create notification channel")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelCreated, "notification_channel", ch.ID, map[string]any{
+		"name":         ch.Name,
+		"channel_type": ch.ChannelType,
+		"enabled":      ch.Enabled,
+	})
 	return &CreateNotificationChannelOutput{Body: ch}, nil
 }
 
@@ -163,6 +168,24 @@ func (s *Server) handleUpdateNotificationChannel(ctx context.Context, input *Upd
 		}
 		return nil, huma.Error500InternalServerError("failed to update notification channel")
 	}
+	changedFields := make([]string, 0, 4)
+	if req.Name != nil {
+		changedFields = append(changedFields, "name")
+	}
+	if req.ChannelType != nil {
+		changedFields = append(changedFields, "channel_type")
+	}
+	if req.Config != nil {
+		changedFields = append(changedFields, "config")
+	}
+	if req.Enabled != nil {
+		changedFields = append(changedFields, "enabled")
+	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelUpdated, "notification_channel", ch.ID, map[string]any{
+		"name":           ch.Name,
+		"channel_type":   ch.ChannelType,
+		"changed_fields": changedFields,
+	})
 	return &UpdateNotificationChannelOutput{Body: ch}, nil
 }
 
@@ -184,6 +207,7 @@ func (s *Server) handleDeleteNotificationChannel(ctx context.Context, input *Del
 		}
 		return nil, huma.Error500InternalServerError("failed to delete notification channel")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelDeleted, "notification_channel", input.ChannelID, nil)
 	return nil, nil
 }
 

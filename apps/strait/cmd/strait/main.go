@@ -380,6 +380,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if rdb != nil {
 		healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
 	}
+	healthReg.Register(health.NewAuditProbe(queries))
+	healthReg.Register(health.NewAuditDMLGuardProbe(queries))
+	logAuditDMLGuardStartup(ctx, queries, metrics)
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
@@ -476,4 +479,41 @@ func setupLogging(level, format string) {
 	}
 
 	slog.SetDefault(slog.New(handler))
+}
+
+// logAuditDMLGuardStartup runs once at boot to surface the migration
+// 000187 enforcement posture. On self-hosted installs that never
+// provisioned the strait_app role the migration silently no-ops —
+// without this check that condition is invisible in logs until the
+// next chain verification. The guard probe reports the same state on
+// every health scrape; this function is the boot-time analogue so the
+// first log line already calls out the gap.
+func logAuditDMLGuardStartup(ctx context.Context, checker health.AuditDMLPrivilegeChecker, metrics *telemetry.Metrics) {
+	if checker == nil {
+		return
+	}
+	recordStatus := func(status string) {
+		if metrics == nil || metrics.AuditDMLRestrictionStatus == nil {
+			return
+		}
+		metrics.AuditDMLRestrictionStatus.Add(ctx, 1,
+			otelmetric.WithAttributes(otelattr.String("status", status)))
+	}
+	restricted, err := checker.AuditEventsUpdateRestricted(ctx)
+	if err != nil {
+		slog.Warn("audit DML restriction probe failed at startup",
+			"error", err,
+			"hint", "self-hosted installs must run against the strait_app role for migration 000187 to enforce UPDATE restrictions; see SELFHOST.md")
+		recordStatus("degraded")
+		return
+	}
+	if !restricted {
+		slog.Warn("audit_events UPDATE is not restricted for current role; migration 000187 DML guardrail is a no-op",
+			"status", "degraded",
+			"hint", "connect the app as the strait_app role (or an equivalent least-privilege role) so the REVOKE UPDATE / GRANT UPDATE (signature) migration takes effect")
+		recordStatus("degraded")
+		return
+	}
+	slog.Info("audit_events DML restriction enforced at database role level", "status", "enforced")
+	recordStatus("enforced")
 }

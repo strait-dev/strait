@@ -56,6 +56,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListSecrets)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "get-secret", Method: http.MethodGet, Path: "/v1/secrets/{secretID}",
+		Summary: "Get a secret", Description: "Returns metadata for a single secret. The encrypted and decrypted values are never included.",
+		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetSecret)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "delete-secret", Method: http.MethodDelete, Path: "/v1/secrets/{secretID}",
 		Summary: "Delete a secret", Description: "Permanently deletes a secret.",
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -1129,6 +1135,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleExportAuditEvents)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-audit-event", Method: http.MethodGet, Path: "/v1/audit-events/{id}",
+		Summary: "Get an audit event", Description: "Returns a single audit event scoped to the current project. The read itself is audited.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetAuditEvent)
+
 	// -- Data Export --
 	RegisterTypedOp(api, OpMeta{
 		ID: "export-jobs", Method: http.MethodGet, Path: "/v1/export/jobs",
@@ -1153,6 +1165,53 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Verify audit chain", Description: "Verifies the integrity of the audit event hash chain.",
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleVerifyAuditChain)
+
+	// -- Audit deadletter (admin) --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-audit-deadletter", Method: http.MethodGet, Path: "/v1/audit/deadletter",
+		Summary: "List audit deadletter entries", Description: "Returns a paginated list of audit events that failed to persist to the chain and are awaiting reclamation. Admin-only.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "replay-audit-deadletter", Method: http.MethodPost, Path: "/v1/audit/deadletter/{id}/replay",
+		Summary: "Replay an audit deadletter entry", Description: "Moves a deadletter entry into the primary audit chain and removes it from the DLQ on success. Admin-only.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleReplayDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "drop-audit-deadletter", Method: http.MethodDelete, Path: "/v1/audit/deadletter/{id}",
+		Summary: "Drop an audit deadletter entry", Description: "Permanently deletes a deadletter entry, accepting data loss. Admin-only. The drop itself is audited.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleDropDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-audit-export-cap", Method: http.MethodPut, Path: "/v1/projects/{id}/quotas/audit-export-cap",
+		Summary:     "Update audit export row cap",
+		Description: "Sets the per-project row cap applied to audit export streams. 0 re-inherits the server default. Admin-only, audited.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleUpdateAuditExportCap)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-audit-retention", Method: http.MethodGet, Path: "/v1/projects/{id}/audit/retention",
+		Summary:     "Get audit retention override",
+		Description: "Returns the per-project audit retention window (days). Reports whether the value is inherited from the server default or explicitly overridden (including the explicit 0 = disable-trim case). Admin-only.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleGetAuditRetention)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "set-audit-retention", Method: http.MethodPut, Path: "/v1/projects/{id}/audit/retention",
+		Summary:     "Update audit retention override",
+		Description: "Sets the per-project audit retention window (days). 0 disables retention trimming for the project; negative values are rejected. Admin-only, audited.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleSetAuditRetention)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "rotate-audit-signing-key", Method: http.MethodPost, Path: "/v1/projects/{id}/audit/rotate-key",
+		Summary:     "Rotate the audit signing key",
+		Description: "Rotates the per-project HMAC signing key for the audit chain. Stores the new per-epoch key encrypted and emits an is_anchor=TRUE audit.key_rotated event under the new key. Admin-only.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleRotateAuditSigningKey)
 
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{

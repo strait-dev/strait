@@ -8,35 +8,41 @@
       "title": "HTTP 401/403 Rate",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(http_server_requests_total{status=~\"401|403\"}[5m])) by (status)"}
+        {
+          "expr": "sum(rate(http_server_requests_total{status=~\"401|403\"}[5m])) by (status)"
+        }
       ]
     },
     {
       "title": "Permission Cache Hit Ratio",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_permission_cache_hits_total[5m])) / clamp_min(sum(rate(strait_permission_cache_hits_total[5m])) + sum(rate(strait_permission_cache_misses_total[5m])), 1)"}
+        {
+          "expr": "sum(rate(strait_permission_cache_hits_total[5m])) / clamp_min(sum(rate(strait_permission_cache_hits_total[5m])) + sum(rate(strait_permission_cache_misses_total[5m])), 1)"
+        }
       ]
     },
     {
       "title": "RBAC Mutations",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(http_server_requests_total{route=~\"/v1/(roles|members|seed-roles|resource-policies|tag-policies).*\",method=~\"POST|PATCH|DELETE\"}[5m])) by (route,method)"}
+        {
+          "expr": "sum(rate(http_server_requests_total{route=~\"/v1/(roles|members|seed-roles|resource-policies|tag-policies).*\",method=~\"POST|PATCH|DELETE\"}[5m])) by (route,method)"
+        }
       ]
     },
     {
       "title": "Audit Event Insert Errors",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_audit_event_insert_errors_total[5m]))"}
+        { "expr": "sum(rate(strait_audit_event_insert_errors_total[5m]))" }
       ]
     },
     {
       "title": "Webhook Delivery Failures",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_webhook_delivery_failures_total[5m]))"}
+        { "expr": "sum(rate(strait_webhook_delivery_failures_total[5m]))" }
       ]
     }
   ]

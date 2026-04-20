@@ -547,6 +547,19 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
 	}
 
+	siemDrain := logdrain.NewAuditSIEMDrain(
+		cfg.AuditSIEMEndpoint,
+		cfg.AuditSIEMAuthToken,
+		cfg.AuditSIEMBatchSize,
+		cfg.AuditSIEMFlushInterval,
+	)
+	if siemDrain != nil {
+		slog.Info("audit SIEM drain enabled",
+			"endpoint", cfg.AuditSIEMEndpoint,
+			"batch_size", cfg.AuditSIEMBatchSize,
+			"flush_interval", cfg.AuditSIEMFlushInterval)
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:             cfg,
 		Store:              queries,
@@ -571,7 +584,19 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Version:            version,
 		CDCWebhookReceiver: cdcWebhookReceiver,
 		ObjectStore:        buildObjectStore(cfg),
+		SIEMDrain:          siemDrain,
 	})
+	if metrics != nil {
+		if err := metrics.ObserveAuditDrainer(otel.Meter("strait"), srv); err != nil {
+			slog.Warn("failed to register audit drainer metrics callback", "error", err)
+		}
+		if siemDrain != nil {
+			if err := metrics.ObserveSIEMBreakerState(otel.Meter("strait"), siemDrain); err != nil {
+				slog.Warn("failed to register SIEM breaker state metrics callback", "error", err)
+			}
+		}
+	}
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           srv,

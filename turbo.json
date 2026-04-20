@@ -207,10 +207,7 @@
     "build": {
       "inputs": ["$TURBO_DEFAULT$", ".env"],
       "dependsOn": ["^build"],
-      "outputs": [
-        ".output/**",
-        "dist/**"
-      ]
+      "outputs": [".output/**", "dist/**"]
     },
     "start": {
       "cache": false
@@ -236,6 +233,14 @@
       "outputs": []
     },
     "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "!**/*.mdx",
+        "!**/CHANGELOG.md",
+        "!**/LICENSE*",
+        "!**/*.txt"
+      ],
       "outputs": []
     },
     "biome:format": {

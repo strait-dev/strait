@@ -32,14 +32,12 @@ const StatCell = ({
 }: {
   label: string;
   value: string | number;
-}) => {
-  return (
-    <div className="rounded-md border p-3 text-center">
-      <p className="font-normal text-lg">{value}</p>
-      <p className="text-muted-foreground text-xs">{label}</p>
-    </div>
-  );
-};
+}) => (
+  <div className="rounded-md border p-3 text-center">
+    <p className="font-normal text-lg">{value}</p>
+    <p className="text-muted-foreground text-xs">{label}</p>
+  </div>
+);
 
 const DetailRow = ({
   icon,
@@ -49,17 +47,15 @@ const DetailRow = ({
   icon: any;
   label: string;
   value: string;
-}) => {
-  return (
-    <div className="flex items-start justify-between gap-2 text-sm">
-      <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-        <HugeiconsIcon className="shrink-0" icon={icon} size={14} />
-        {label}
-      </span>
-      <span className="truncate text-right font-mono text-sm">{value}</span>
-    </div>
-  );
-};
+}) => (
+  <div className="flex items-start justify-between gap-2 text-sm">
+    <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+      <HugeiconsIcon className="shrink-0" icon={icon} size={14} />
+      {label}
+    </span>
+    <span className="truncate text-right font-mono text-sm">{value}</span>
+  </div>
+);
 
 const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
   const triggerJob = useTriggerJob();

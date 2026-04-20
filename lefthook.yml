@@ -14,7 +14,10 @@ pre-commit:
   commands:
     gitleaks:
       priority: 1
-      run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
+      run: |
+        if command -v gitleaks > /dev/null 2>&1; then
+          gitleaks protect --staged --config=apps/strait/.gitleaks.toml --no-banner
+        fi
       fail_text: "Secrets detected in staged files"
       timeout: 30s
       skip:
@@ -34,12 +37,49 @@ pre-commit:
 
 pre-push:
   follow: true
+  parallel: true
   jobs:
-    # Run on every branch — scopes lint to issues introduced since
-    # origin/master so feature branches do not pay a full-repo cost
-    # but CI-level lint misses are caught locally. The master-only
-    # `thorough` group below covers typecheck + manypkg and does not
-    # need to re-run lint.
+    - name: gitleaks
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: |
+        if command -v gitleaks > /dev/null 2>&1; then
+          gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --log-opts="origin/master..HEAD"
+        fi
+      fail_text: "Secrets detected in commits being pushed"
+      timeout: 60s
+
+    - name: manypkg_check
+      glob:
+        - "package.json"
+        - "**/package.json"
+        - "bun.lock"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bun run manypkg:check
+      fail_text: "manypkg check failed"
+      timeout: 30s
+
+    - name: biome
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bunx biome check .
+      fail_text: "biome check failed"
+      timeout: 60s
+
+    - name: typecheck
+      glob:
+        - "*.{ts,tsx,js,jsx,mjs,cjs}"
+        - "package.json"
+        - "bun.lock"
+        - "turbo.json"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bun run typecheck
+      fail_text: "typecheck failed"
+      timeout: 180s
+
     - name: go_lint_branch
       glob: "*.go"
       skip:
@@ -48,39 +88,11 @@ pre-push:
         export GOCACHE="$PWD/.cache/go-build"
         export GOLANGCI_LINT_CACHE="$PWD/.cache/golangci-lint"
         mkdir -p "$GOCACHE" "$GOLANGCI_LINT_CACHE"
-        # Ensure origin/master is present locally so --new-from-rev
-        # has something to diff against. Silent fetch; ignore errors
-        # (offline pushes still lint against whatever we have).
         git fetch origin master --quiet 2>/dev/null || true
         cd apps/strait && golangci-lint run --new-from-rev=origin/master --timeout=5m ./...
       fail_text: "Go lint failed (new issues vs origin/master)"
       timeout: 360s
 
-    - name: thorough
-      glob:
-        - "*.{ts,tsx,js,jsx,mjs,cjs}"
-        - "package.json"
-        - "bun.lock"
-        - "turbo.json"
-        - "biome.json"
-      only:
-        - ref: master
-        - ref: main
-        - ref: release/*
-      skip:
-        - run: test "${SKIP_RUN_ALL:-0}" = "1"
-      group:
-        piped: true
-        jobs:
-          - name: manypkg_check
-            run: bun run manypkg:check
-            fail_text: "manypkg check failed"
-            timeout: 30s
-
-          - name: typecheck_affected
-            run: bun run typecheck:affected
-            fail_text: "typecheck failed"
-            timeout: 180s
 
 commit-msg:
   commands:

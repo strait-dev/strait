@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"strait/internal/domain"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -57,6 +59,11 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to create SSE token")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionSSETokenCreated, "sse_token", projectID, map[string]any{
+		"expires_at":  expiresAt,
+		"scope_count": len(scopes),
+	})
 
 	out := &CreateSSETokenOutput{}
 	out.Body.Token = tokenString

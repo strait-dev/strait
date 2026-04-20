@@ -35,6 +35,7 @@ import {
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { importPKCS8, SignJWT } from "jose";
 import { Client, type Pool } from "pg";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   ALL_OAUTH_SCOPES,
   DEFAULT_REGISTRATION_SCOPES,
@@ -57,7 +58,7 @@ import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
  * Falls back to `AUTH_DATABASE_URL` for local development where
  * Hyperdrive provides a local connection string automatically.
  */
-const getAuthConnectionString = (): string => {
+export const getAuthConnectionString = (): string => {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;
@@ -142,6 +143,12 @@ const createStripeCustomer = async (
   user: { id: string; email: string; name: string },
   orgId: string
 ): Promise<void> => {
+  // Community edition: no Stripe, no customer record, nothing to do.
+  // Gating here rather than at the call site so every future signup
+  // code path is safe by construction.
+  if (isCommunityEdition) {
+    return;
+  }
   if (!process.env.STRIPE_SECRET_KEY) {
     return;
   }

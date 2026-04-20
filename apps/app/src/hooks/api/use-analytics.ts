@@ -32,46 +32,50 @@ type AnalyticsWindow = { window?: string };
 export const fetchCostTrends = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<CostTrendPoint[]> => {
-    return await runWithSentryReport(
-      apiEffect<CostTrendPoint[]>("/v1/analytics/costs/trends", {
-        params: { window: data.window ?? "30d" },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<CostTrendPoint[]> =>
+      await runWithSentryReport(
+        apiEffect<CostTrendPoint[]>("/v1/analytics/costs/trends", {
+          params: { window: data.window ?? "30d" },
+        })
+      )
+  );
 
 export const fetchTopCosts = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<TopCostEntry[]> => {
-    return await runWithSentryReport(
-      apiEffect<TopCostEntry[]>("/v1/analytics/costs/top", {
-        params: { window: data.window ?? "30d" },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<TopCostEntry[]> =>
+      await runWithSentryReport(
+        apiEffect<TopCostEntry[]>("/v1/analytics/costs/top", {
+          params: { window: data.window ?? "30d" },
+        })
+      )
+  );
 
 export const fetchPerformance = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<PerformancePoint[]> => {
-    return await runWithSentryReport(
-      apiEffect<PerformancePoint[]>("/v1/analytics/performance", {
-        params: { window: data.window ?? "30d" },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<PerformancePoint[]> =>
+      await runWithSentryReport(
+        apiEffect<PerformancePoint[]>("/v1/analytics/performance", {
+          params: { window: data.window ?? "30d" },
+        })
+      )
+  );
 
 export const fetchCompute = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<ComputePoint[]> => {
-    return await runWithSentryReport(
-      apiEffect<ComputePoint[]>("/v1/analytics/compute", {
-        params: { window: data.window ?? "30d" },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<ComputePoint[]> =>
+      await runWithSentryReport(
+        apiEffect<ComputePoint[]>("/v1/analytics/compute", {
+          params: { window: data.window ?? "30d" },
+        })
+      )
+  );
 
 export const costTrendsQueryOptions = (window = "30d") =>
   queryOptions({

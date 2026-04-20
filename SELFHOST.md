@@ -1,14 +1,40 @@
 # Self-Hosting Strait
 
-Run Strait on your own infrastructure with a single command.
+Strait offers two self-hosting paths. Pick whichever matches how you want to run the dashboard.
 
-## Prerequisites
+| | Option 1 — Cloudflare dashboard | Option 2 — Full Docker stack |
+|---|---|---|
+| Setup | One click | `make selfhost` |
+| Dashboard runs on | Your own Cloudflare account | Your own hardware |
+| API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
+| Postgres | Neon / Supabase / Fly PG / self-hosted | Bundled `postgres:18-alpine` |
+| Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
+
+Both options run the community edition with all open-source features.
+
+---
+
+## Option 1 — Deploy the dashboard to Cloudflare
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+
+Clicking the button forks the repo and takes you through a Cloudflare Workers Builds import. Because this repo is a Bun monorepo and Cloudflare does not yet support Bun workspace resolution in one-click deploys, you will need to set **Root directory** to `apps/app` and provide a custom **Build command** during import — the Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc` so the rest of the flow is guided.
+
+See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detailed walkthrough, including the exact build command string and the list of secrets you must set in the Cloudflare dashboard after the first deploy.
+
+**You still need the Strait API somewhere reachable by the Worker.** The easiest setup: run the API locally with Option 2 below (or on any VPS/Kubernetes/Fly.io host), expose it via `cloudflared tunnel` or a public hostname, and point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables.
+
+---
+
+## Option 2 — Run the full stack locally with Docker Compose
+
+### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - 2 GB RAM minimum (4 GB recommended)
 - Ports 3000 (Dashboard), 8080 (API), 5432 (Postgres), 6379 (Redis), 7376 (Sequin) available
 
-## Quick Start
+### Quick Start
 
 ```bash
 # 1. Clone the repository.
@@ -174,6 +200,32 @@ Interactive API documentation is available via Scalar:
 - **Cloud**: https://api.strait.dev/reference
 
 The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
+
+## Audit tamper-evidence hardening (recommended for SOC 2)
+
+Strait's audit chain is HMAC-signed so tampering is always forensically
+detectable. For defense-in-depth, migration `000187_audit_events_dml_restrictions`
+also revokes `UPDATE` and `DELETE` on `audit_events` from the application role,
+limiting a compromised process to `INSERT` + `SELECT` + `UPDATE(signature)`.
+The migration only takes effect when the Strait process connects as a role
+named `strait_app`; it silently no-ops when the role is absent.
+
+On self-hosted installs the default `strait` superuser retains full DML. To
+enforce the restriction:
+
+```sql
+CREATE ROLE strait_app LOGIN PASSWORD 'choose-a-strong-password';
+GRANT CONNECT ON DATABASE strait TO strait_app;
+GRANT USAGE ON SCHEMA public TO strait_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO strait_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO strait_app;
+```
+
+Then point `DATABASE_URL` at `strait_app` and re-run migrations as the superuser
+so the REVOKE on `audit_events` applies. The `/health/ready` endpoint reports
+`audit_dml_guard: ok` once enforced and `degraded` otherwise, and the
+`strait_audit_dml_restriction_status` counter emits one sample per boot
+labeled `status=enforced|degraded`.
 
 ## Monitoring
 

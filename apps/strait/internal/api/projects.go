@@ -112,6 +112,11 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		}
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionProjectCreated, "project", project.ID, map[string]any{
+		"name":   project.Name,
+		"org_id": project.OrgID,
+	})
+
 	return &CreateProjectOutput{Body: project}, nil
 }
 
@@ -219,14 +224,15 @@ func (s *Server) handleDeleteProject(ctx context.Context, input *DeleteProjectIn
 		}
 	}
 
-	err := s.store.DeleteProject(ctx, input.ProjectID)
-	if err != nil {
+	if err := s.store.DeleteProject(ctx, input.ProjectID); err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
 			return nil, huma.Error404NotFound("project not found")
 		}
 		slog.Error("failed to delete project", "error", err)
 		return nil, huma.Error500InternalServerError("failed to delete project")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionProjectDeleted, "project", input.ProjectID, nil)
 
 	return nil, nil
 }

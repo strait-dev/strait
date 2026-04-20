@@ -486,8 +486,12 @@ func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T
 	if resp["previous_version_id"] != "v-old" {
 		t.Fatalf("previous_version_id = %v, want v-old", resp["previous_version_id"])
 	}
-	if auditCalled {
-		t.Fatal("expected no audit event without breaking_change flag")
+	// Post-STR-373: workflow updates always emit a generic workflow.updated
+	// audit event, even without a breaking_change flag. The breaking-change
+	// path still emits workflow.updated_breaking; this asserts the default
+	// path emits the generic action.
+	if !auditCalled {
+		t.Fatal("expected workflow.updated audit event even without breaking_change")
 	}
 }
 
@@ -541,9 +545,9 @@ func TestHandleUpdateWorkflow_BreakingChangeEmitsAudit(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateWorkflow_BreakingChangeFalseNoAudit(t *testing.T) {
+func TestHandleUpdateWorkflow_BreakingChangeFalseEmitsGenericAudit(t *testing.T) {
 	t.Parallel()
-	var auditCalled bool
+	var capturedAction string
 	ms := &APIStoreMock{
 		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
 			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
@@ -560,8 +564,8 @@ func TestHandleUpdateWorkflow_BreakingChangeFalseNoAudit(t *testing.T) {
 		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
 			return 5, nil
 		},
-		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
-			auditCalled = true
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			capturedAction = ev.Action
 			return nil
 		},
 	}
@@ -581,14 +585,17 @@ func TestHandleUpdateWorkflow_BreakingChangeFalseNoAudit(t *testing.T) {
 	if int(resp["active_runs_on_previous_version"].(float64)) != 5 {
 		t.Fatalf("active_runs_on_previous_version = %v, want 5", resp["active_runs_on_previous_version"])
 	}
-	if auditCalled {
-		t.Fatal("expected no audit event with breaking_change=false")
+	// Post-STR-373: breaking_change=false still emits workflow.updated (the
+	// generic action). The breaking variant is only emitted when
+	// breaking_change=true AND there are active runs on the previous version.
+	if capturedAction != "workflow.updated" {
+		t.Fatalf("audit action = %q, want workflow.updated", capturedAction)
 	}
 }
 
-func TestHandleUpdateWorkflow_NoActiveRunsNoWarning(t *testing.T) {
+func TestHandleUpdateWorkflow_NoActiveRunsEmitsGenericAudit(t *testing.T) {
 	t.Parallel()
-	var auditCalled bool
+	var capturedAction string
 	ms := &APIStoreMock{
 		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
 			return &domain.Workflow{ID: id, Name: "old", Slug: "old", VersionID: "v-old", Version: 2}, nil
@@ -605,8 +612,8 @@ func TestHandleUpdateWorkflow_NoActiveRunsNoWarning(t *testing.T) {
 		CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
 			return 0, nil
 		},
-		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
-			auditCalled = true
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			capturedAction = ev.Action
 			return nil
 		},
 	}
@@ -626,8 +633,11 @@ func TestHandleUpdateWorkflow_NoActiveRunsNoWarning(t *testing.T) {
 	if _, ok := resp["active_runs_on_previous_version"]; ok {
 		t.Fatal("expected no active_runs_on_previous_version when count is 0")
 	}
-	if auditCalled {
-		t.Fatal("expected no audit event when no active runs")
+	// Post-STR-373: even with breaking_change=true, when there are zero active
+	// runs on the previous version the handler falls back to the generic
+	// workflow.updated action rather than workflow.updated_breaking.
+	if capturedAction != "workflow.updated" {
+		t.Fatalf("audit action = %q, want workflow.updated", capturedAction)
 	}
 }
 

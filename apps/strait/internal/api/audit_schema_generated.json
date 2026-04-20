@@ -1,0 +1,3167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Strait audit event registry",
+  "type": "object",
+  "$defs": {
+    "anomaly_config.updated": {
+      "type": "object",
+      "description": "Anomaly detection thresholds updated.",
+      "properties": {
+        "critical_threshold": {
+          "type": "string",
+          "description": "required"
+        },
+        "warning_threshold": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["warning_threshold", "critical_threshold"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "api_key.created": {
+      "type": "object",
+      "description": "API key created; records name, prefix, scopes, expiry — never the plaintext.",
+      "properties": {
+        "key_prefix": {
+          "type": "string",
+          "description": "required"
+        },
+        "name": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "key_prefix"],
+      "x-forbidden-keys": [
+        "key",
+        "rawKey",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "api_key.list_read": {
+      "type": "object",
+      "description": "API key list read.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "api_key.revoke": {
+      "type": "object",
+      "description": "API key revoked.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "api_key.rotate": {
+      "type": "object",
+      "description": "API key rotated to a new key id; old key retained for a grace period.",
+      "properties": {
+        "new_key_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["new_key_id"],
+      "x-forbidden-keys": [
+        "key",
+        "rawKey",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.chain_verified": {
+      "type": "object",
+      "description": "Audit chain verification endpoint was invoked.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.deadletter_aged": {
+      "type": "object",
+      "description": "Audit deadletter retention reaper dropped rows older than the configured AUDIT_DLQ_MAX_AGE_DAYS window; reason carries the trigger (e.g. max_age_exceeded).",
+      "properties": {
+        "dropped_count": {
+          "type": "string",
+          "description": "required"
+        },
+        "reason": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["dropped_count", "reason"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.deadletter_dropped": {
+      "type": "object",
+      "description": "Admin operator permanently dropped a deadletter entry, accepting data loss.",
+      "properties": {
+        "deadletter_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "reason": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["deadletter_id", "reason"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.deadletter_read": {
+      "type": "object",
+      "description": "Admin operator listed audit deadletter queue entries. Filter records the serialized query params with any secret-shaped values redacted.",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["filter"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.deadletter_replayed": {
+      "type": "object",
+      "description": "Admin operator manually replayed a deadletter entry into the audit chain; DLQ row deleted on success.",
+      "properties": {
+        "deadletter_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "new_event_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["deadletter_id", "new_event_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.export_cap_updated": {
+      "type": "object",
+      "description": "Admin operator updated the per-project audit export row cap. old_cap and new_cap are BIGINT values; 0 denotes inherit-from-default.",
+      "properties": {
+        "new_cap": {
+          "type": "string",
+          "description": "required"
+        },
+        "old_cap": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["old_cap", "new_cap"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.export_capped": {
+      "type": "object",
+      "description": "Audit export terminated early due to row cap.",
+      "properties": {
+        "exported": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["exported"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.exported": {
+      "type": "object",
+      "description": "Audit log exported by a caller with audit:export scope.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "required"
+        },
+        "from": {
+          "type": "string",
+          "description": "required"
+        },
+        "to": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["from", "to", "format"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.key_rotated": {
+      "type": "object",
+      "description": "Audit HMAC signing key rotation; writes a forensic anchor row that boundary-stitches the chain across epochs.",
+      "properties": {
+        "new_epoch": {
+          "type": "string",
+          "description": "required"
+        },
+        "previous_epoch": {
+          "type": "string",
+          "description": "required"
+        },
+        "rotated_by": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["previous_epoch", "new_epoch", "rotated_by"],
+      "x-forbidden-keys": [
+        "key",
+        "new_key",
+        "secret_material",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.list_read": {
+      "type": "object",
+      "description": "Audit log list read.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.retention_trimmed": {
+      "type": "object",
+      "description": "Retention reaper trimmed old audit rows; writes a tombstone anchor row giving positive forensic proof of the trim (count, cutoff, and chain tail at trim time).",
+      "properties": {
+        "deleted_count": {
+          "type": "string",
+          "description": "required"
+        },
+        "previous_hash": {
+          "type": "string",
+          "description": "required"
+        },
+        "trimmed_before": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["deleted_count", "trimmed_before", "previous_hash"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.retention_updated": {
+      "type": "object",
+      "description": "Admin operator updated the per-project audit retention window (days). 0 disables retention trimming for the project; a negative value is rejected at the API layer.",
+      "properties": {
+        "new_days": {
+          "type": "string",
+          "description": "required"
+        },
+        "old_days": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["old_days", "new_days"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "audit.single_read": {
+      "type": "object",
+      "description": "Single audit event read.",
+      "properties": {
+        "target_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["target_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "canary_deployment.created": {
+      "type": "object",
+      "description": "Workflow canary deployment created.",
+      "properties": {
+        "source_version": {
+          "type": "string",
+          "description": "required"
+        },
+        "target_version": {
+          "type": "string",
+          "description": "required"
+        },
+        "traffic_pct": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "source_version",
+        "target_version",
+        "traffic_pct"
+      ],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "canary_deployment.rolled_back": {
+      "type": "object",
+      "description": "Workflow canary rolled back.",
+      "properties": {
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "canary_deployment.updated": {
+      "type": "object",
+      "description": "Workflow canary traffic adjusted.",
+      "properties": {
+        "traffic_pct": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id", "traffic_pct"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "code_deployment.confirmed": {
+      "type": "object",
+      "description": "Code-first deployment confirmed and queued for build.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "runtime": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id", "runtime"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "code_deployment.created": {
+      "type": "object",
+      "description": "Code-first deployment created.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "runtime": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id", "runtime"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "code_deployment.rolled_back": {
+      "type": "object",
+      "description": "Code-first deployment rolled back.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "deployment_version.created": {
+      "type": "object",
+      "description": "Artifact deployment version created.",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["environment"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "deployment_version.finalized": {
+      "type": "object",
+      "description": "Artifact deployment version finalized.",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["environment"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "deployment_version.promoted": {
+      "type": "object",
+      "description": "Artifact deployment version promoted.",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["environment"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "deployment_version.rolled_back": {
+      "type": "object",
+      "description": "Artifact deployment version rolled back.",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["environment"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "device_code.approved": {
+      "type": "object",
+      "description": "CLI device code approved; a new API key is issued.",
+      "properties": {
+        "api_key_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "user_code": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["user_code", "api_key_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "email_preferences.updated": {
+      "type": "object",
+      "description": "Org email preferences updated.",
+      "properties": {
+        "monthly_usage_email": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["monthly_usage_email"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "environment.created": {
+      "type": "object",
+      "description": "Environment created. Variable keys only are recorded, never values.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "slug": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "slug"],
+      "x-forbidden-keys": [
+        "variables",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "environment.deleted": {
+      "type": "object",
+      "description": "Environment deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "environment.updated": {
+      "type": "object",
+      "description": "Environment updated.",
+      "properties": {
+        "changed_fields": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["changed_fields"],
+      "x-forbidden-keys": [
+        "variables",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event.sent": {
+      "type": "object",
+      "description": "Event sent to a waiting trigger.",
+      "properties": {
+        "event_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["event_key"],
+      "x-forbidden-keys": [
+        "payload",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event.sent_by_prefix": {
+      "type": "object",
+      "description": "Events sent to all triggers matching a key prefix.",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["prefix"],
+      "x-forbidden-keys": [
+        "payload",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_source.created": {
+      "type": "object",
+      "description": "Event source created.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name"],
+      "x-forbidden-keys": [
+        "signature_secret",
+        "signature_secret_enc",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_source.deleted": {
+      "type": "object",
+      "description": "Event source deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_source.dispatched": {
+      "type": "object",
+      "description": "Event dispatched to subscribers (hot path, async audit).",
+      "properties": {
+        "dispatched": {
+          "type": "string",
+          "description": "required"
+        },
+        "source_name": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["source_name", "dispatched"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_source.subscribed": {
+      "type": "object",
+      "description": "Target subscribed to an event source.",
+      "properties": {
+        "subscription_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "target_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "target_type": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscription_id", "target_type", "target_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_source.updated": {
+      "type": "object",
+      "description": "Event source updated.",
+      "properties": {
+        "changed_fields": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["changed_fields"],
+      "x-forbidden-keys": [
+        "signature_secret",
+        "signature_secret_enc",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_subscription.deleted": {
+      "type": "object",
+      "description": "Event subscription deleted.",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["source_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_trigger.cancelled": {
+      "type": "object",
+      "description": "Event trigger cancelled.",
+      "properties": {
+        "event_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["event_key"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "event_trigger.purged": {
+      "type": "object",
+      "description": "Event triggers purged.",
+      "properties": {
+        "older_than_days": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["older_than_days"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.batch_created": {
+      "type": "object",
+      "description": "Batch job creation.",
+      "properties": {
+        "count": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["count"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.batch_disabled": {
+      "type": "object",
+      "description": "Batch job disablement.",
+      "properties": {
+        "count": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["count"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.batch_enabled": {
+      "type": "object",
+      "description": "Batch job enablement.",
+      "properties": {
+        "count": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["count"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.bulk_triggered": {
+      "type": "object",
+      "description": "Bulk job triggering (hot path, async audit).",
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "total": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["batch_id", "total"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.cloned": {
+      "type": "object",
+      "description": "Job cloned from an existing definition.",
+      "properties": {
+        "new_name": {
+          "type": "string",
+          "description": "required"
+        },
+        "new_slug": {
+          "type": "string",
+          "description": "required"
+        },
+        "source_job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["source_job_id", "new_name", "new_slug"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.created": {
+      "type": "object",
+      "description": "Job definition created.",
+      "properties": {
+        "execution_mode": {
+          "type": "string",
+          "description": "required"
+        },
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "slug": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "slug", "execution_mode"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.delete": {
+      "type": "object",
+      "description": "Job deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.paused": {
+      "type": "object",
+      "description": "Job paused.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.resumed": {
+      "type": "object",
+      "description": "Job resumed.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.triggered": {
+      "type": "object",
+      "description": "Job run triggered via API (hot path, async audit).",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["run_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job.updated": {
+      "type": "object",
+      "description": "Job definition updated.",
+      "properties": {
+        "changes": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["changes"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_dependency.created": {
+      "type": "object",
+      "description": "Job dependency edge created.",
+      "properties": {
+        "condition": {
+          "type": "string",
+          "description": "required"
+        },
+        "depends_on_job_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id", "depends_on_job_id", "condition"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_dependency.deleted": {
+      "type": "object",
+      "description": "Job dependency edge deleted.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_group.created": {
+      "type": "object",
+      "description": "Job group created.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "slug": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "slug"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_group.deleted": {
+      "type": "object",
+      "description": "Job group deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_group.paused_all": {
+      "type": "object",
+      "description": "Every job in a group paused.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_group.resumed_all": {
+      "type": "object",
+      "description": "Every job in a group resumed.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "job_group.updated": {
+      "type": "object",
+      "description": "Job group updated.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "jobs.exported": {
+      "type": "object",
+      "description": "Job definitions exported as a stream.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "required"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["format", "project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "log_drain.created": {
+      "type": "object",
+      "description": "Log drain created. Endpoint host only, auth config redacted.",
+      "properties": {
+        "drain_type": {
+          "type": "string",
+          "description": "required"
+        },
+        "name": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "drain_type"],
+      "x-forbidden-keys": [
+        "endpoint_url",
+        "auth_config",
+        "auth_token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "log_drain.deleted": {
+      "type": "object",
+      "description": "Log drain deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "log_drain.updated": {
+      "type": "object",
+      "description": "Log drain updated.",
+      "properties": {
+        "changed_fields": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["changed_fields"],
+      "x-forbidden-keys": [
+        "endpoint_url",
+        "auth_config",
+        "auth_token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_channel.created": {
+      "type": "object",
+      "description": "Notification channel created.",
+      "properties": {
+        "channel_type": {
+          "type": "string",
+          "description": "required"
+        },
+        "name": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "channel_type"],
+      "x-forbidden-keys": [
+        "config",
+        "webhook_url",
+        "bot_token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_channel.deleted": {
+      "type": "object",
+      "description": "Notification channel deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_channel.updated": {
+      "type": "object",
+      "description": "Notification channel updated.",
+      "properties": {
+        "channel_type": {
+          "type": "string",
+          "description": "required"
+        },
+        "name": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "channel_type"],
+      "x-forbidden-keys": [
+        "config",
+        "webhook_url",
+        "bot_token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "permission.granted": {
+      "type": "object",
+      "description": "Role assigned to a member (permission grant).",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["user_id", "project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "permission.revoked": {
+      "type": "object",
+      "description": "Role removed from a member (permission revocation).",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["user_id", "project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "project.created": {
+      "type": "object",
+      "description": "Project created.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "org_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "org_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "project.deleted": {
+      "type": "object",
+      "description": "Project deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "project_budget.updated": {
+      "type": "object",
+      "description": "Project budget updated.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "required"
+        },
+        "budget_microusd": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["budget_microusd", "action"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "project_settings.updated": {
+      "type": "object",
+      "description": "Project-level settings updated (default region, key lifetime, etc.).",
+      "properties": {
+        "changes": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["changes"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "resource_policy.created": {
+      "type": "object",
+      "description": "Resource-level policy created.",
+      "properties": {
+        "actions": {
+          "type": "string",
+          "description": "required"
+        },
+        "resource_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "resource_type": {
+          "type": "string",
+          "description": "required"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["resource_type", "resource_id", "user_id", "actions"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "resource_policy.deleted": {
+      "type": "object",
+      "description": "Resource-level policy deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "role.created": {
+      "type": "object",
+      "description": "RBAC role created.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "permissions": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "permissions"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "role.deleted": {
+      "type": "object",
+      "description": "RBAC role deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "role.system_seeded": {
+      "type": "object",
+      "description": "System roles seeded for a project.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "role.updated": {
+      "type": "object",
+      "description": "RBAC role updated.",
+      "properties": {
+        "changes": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["changes"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.bulk_cancelled": {
+      "type": "object",
+      "description": "Bulk run cancellation by explicit id list.",
+      "properties": {
+        "total": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["total"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.bulk_cancelled_all": {
+      "type": "object",
+      "description": "Bulk run cancellation by filter.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.bulk_replayed": {
+      "type": "object",
+      "description": "Bulk run replay.",
+      "properties": {
+        "count": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["count"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.bulk_replayed_deadletter": {
+      "type": "object",
+      "description": "Bulk dead-letter replay.",
+      "properties": {
+        "count": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["count"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.cancelled": {
+      "type": "object",
+      "description": "Run cancelled by user.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.debug_mode_set": {
+      "type": "object",
+      "description": "Run debug mode toggled.",
+      "properties": {
+        "enabled": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["enabled"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.idempotency_key_reset": {
+      "type": "object",
+      "description": "Run idempotency key reset so the same key can be reused.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.paused": {
+      "type": "object",
+      "description": "Managed run paused.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.replayed": {
+      "type": "object",
+      "description": "Run replayed.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "original_run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["original_run_id", "job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.replayed_deadletter": {
+      "type": "object",
+      "description": "Dead-lettered run replayed.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.rescheduled": {
+      "type": "object",
+      "description": "Run rescheduled.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "new_scheduled_at": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id", "new_scheduled_at"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.restarted": {
+      "type": "object",
+      "description": "Managed run restarted.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "run.resumed": {
+      "type": "object",
+      "description": "Managed run resumed.",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "runs.exported": {
+      "type": "object",
+      "description": "Job run history exported as a stream.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "required"
+        },
+        "from": {
+          "type": "string",
+          "description": "required"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "to": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["format", "from", "to", "project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "secret.created": {
+      "type": "object",
+      "description": "Secret created. Key name only; never the value.",
+      "properties": {
+        "secret_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["secret_key"],
+      "x-forbidden-keys": [
+        "value",
+        "encrypted_value",
+        "plaintext",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "secret.deleted": {
+      "type": "object",
+      "description": "Secret deleted.",
+      "properties": {
+        "secret_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["secret_key"],
+      "x-forbidden-keys": [
+        "value",
+        "encrypted_value",
+        "plaintext",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "secret.list_read": {
+      "type": "object",
+      "description": "Secret list read.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "secret.read": {
+      "type": "object",
+      "description": "Single secret metadata read (never the decrypted value).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "secret_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["secret_id", "name"],
+      "x-forbidden-keys": [
+        "value",
+        "encrypted_value",
+        "plaintext",
+        "key",
+        "key_material",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "spending_limit.updated": {
+      "type": "object",
+      "description": "Org spending limit updated.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "required"
+        },
+        "limit_microusd": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["limit_microusd", "action"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "sse_token.created": {
+      "type": "object",
+      "description": "Short-lived SSE token issued.",
+      "properties": {
+        "expires_at": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["expires_at"],
+      "x-forbidden-keys": [
+        "token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "tag_policy.created": {
+      "type": "object",
+      "description": "Tag-based policy created.",
+      "properties": {
+        "actions": {
+          "type": "string",
+          "description": "required"
+        },
+        "resource_type": {
+          "type": "string",
+          "description": "required"
+        },
+        "tag_key": {
+          "type": "string",
+          "description": "required"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["tag_key", "resource_type", "user_id", "actions"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "tag_policy.deleted": {
+      "type": "object",
+      "description": "Tag-based policy deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "usage.exported": {
+      "type": "object",
+      "description": "Org usage report exported.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "required"
+        },
+        "from": {
+          "type": "string",
+          "description": "required"
+        },
+        "to": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["format", "from", "to"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "webhook.delivery_replayed": {
+      "type": "object",
+      "description": "Webhook delivery replayed.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "webhook.tested": {
+      "type": "object",
+      "description": "Webhook URL tested. Host only, never full URL or secret.",
+      "properties": {
+        "url_host": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["url_host"],
+      "x-forbidden-keys": [
+        "url",
+        "secret",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "webhook_delivery.retried": {
+      "type": "object",
+      "description": "Webhook delivery manually retried.",
+      "properties": {
+        "subscription_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscription_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "webhook_subscription.created": {
+      "type": "object",
+      "description": "Webhook subscription created.",
+      "properties": {
+        "event_types": {
+          "type": "string",
+          "description": "required"
+        },
+        "url_host": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["url_host", "event_types"],
+      "x-forbidden-keys": [
+        "url",
+        "secret",
+        "webhook_secret",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "webhook_subscription.deleted": {
+      "type": "object",
+      "description": "Webhook subscription deleted.",
+      "properties": {
+        "url_host": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["url_host"],
+      "x-forbidden-keys": [
+        "url",
+        "secret",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "webhook_subscription.rotate_secret": {
+      "type": "object",
+      "description": "Webhook signing secret rotated.",
+      "properties": {
+        "grace_expires_at": {
+          "type": "string",
+          "description": "required"
+        },
+        "grace_period_minutes": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["grace_expires_at", "grace_period_minutes"],
+      "x-forbidden-keys": [
+        "secret",
+        "new_secret",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.cloned": {
+      "type": "object",
+      "description": "Workflow cloned from an existing definition.",
+      "properties": {
+        "new_name": {
+          "type": "string",
+          "description": "required"
+        },
+        "source_workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["source_workflow_id", "new_name"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.created": {
+      "type": "object",
+      "description": "Workflow DAG created.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "required"
+        },
+        "slug": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["name", "slug"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.deleted": {
+      "type": "object",
+      "description": "Workflow deleted.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.dry_run": {
+      "type": "object",
+      "description": "Workflow DAG dry-run validation.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.plan_requested": {
+      "type": "object",
+      "description": "Workflow execution plan requested.",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.triggered": {
+      "type": "object",
+      "description": "Workflow run triggered (hot path, async audit).",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["run_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.updated": {
+      "type": "object",
+      "description": "Workflow updated (non-breaking).",
+      "properties": {
+        "new_version": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["new_version"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow.updated_breaking": {
+      "type": "object",
+      "description": "Workflow updated with a breaking change while active runs exist on the previous version.",
+      "properties": {
+        "new_version": {
+          "type": "string",
+          "description": "required"
+        },
+        "previous_version_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["previous_version_id", "new_version"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_policy.upserted": {
+      "type": "object",
+      "description": "Workflow DAG policy upserted.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.bulk_cancelled": {
+      "type": "object",
+      "description": "Bulk workflow run cancellation.",
+      "properties": {
+        "total": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["total"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.bulk_replayed": {
+      "type": "object",
+      "description": "Bulk workflow run replay.",
+      "properties": {
+        "total": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["total"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.cancelled": {
+      "type": "object",
+      "description": "Workflow run cancelled.",
+      "properties": {
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.compensated": {
+      "type": "object",
+      "description": "Workflow compensation (saga rollback) triggered.",
+      "properties": {
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.paused": {
+      "type": "object",
+      "description": "Workflow run paused.",
+      "properties": {
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.resumed": {
+      "type": "object",
+      "description": "Workflow run resumed.",
+      "properties": {
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.retried": {
+      "type": "object",
+      "description": "Workflow run retried into a new run id.",
+      "properties": {
+        "original_run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["original_run_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_run.subtree_replayed": {
+      "type": "object",
+      "description": "Workflow subtree replayed from a specific step.",
+      "properties": {
+        "from_step_ref": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["from_step_ref"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_step.approved": {
+      "type": "object",
+      "description": "Workflow approval gate approved.",
+      "properties": {
+        "approver": {
+          "type": "string",
+          "description": "required"
+        },
+        "step_ref": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_run_id", "step_ref", "approver"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_step.force_completed": {
+      "type": "object",
+      "description": "Workflow step force-completed by an operator.",
+      "properties": {
+        "step_ref": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_run_id", "step_ref"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_step.retried": {
+      "type": "object",
+      "description": "Workflow step retried.",
+      "properties": {
+        "step_ref": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_run_id", "step_ref"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflow_step.skipped": {
+      "type": "object",
+      "description": "Workflow step skipped.",
+      "properties": {
+        "step_ref": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_run_id", "step_ref"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "workflows.exported": {
+      "type": "object",
+      "description": "Workflow definitions exported as a stream.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "required"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["format", "project_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    }
+  },
+  "version": "2"
+}

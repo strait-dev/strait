@@ -1,0 +1,32 @@
+# Accepted vulnerabilities.
+#
+# Every entry here must include:
+#   - CVE ID
+#   - Which image it affects
+#   - Why it is not exploitable in our code paths
+#   - An expiration date (`exp:YYYY-MM-DD`) so Trivy re-raises the
+#     finding if we forget to revisit it
+#
+# Before adding a line here, try to fix the vulnerability first — pin a
+# newer base image, upgrade a dependency, or swap to a different runtime.
+# This file is a last resort for upstream issues that are genuinely not
+# exploitable in our context.
+
+# CVE-2026-28390 — OpenSSL NULL pointer dereference DoS via crafted
+# Cryptographic Message Syntax (CMS / PKCS#7) structures.
+#
+# Affects: strait-app runtime image (gcr.io/distroless/nodejs22-debian12)
+# via libssl3 3.0.18-1~deb12u2. Fixed upstream in libssl3
+# 3.0.19-1~deb12u2 and awaiting rebuild of the Google distroless image.
+#
+# Strait App is not exploitable: the Node runtime uses libssl only for
+# TLS client connections (outbound HTTPS to the Strait API, Resend,
+# Stripe, etc.) and the built-in `fetch` for the healthcheck. None of
+# those code paths parse CMS. Better Auth signs JWTs via `jose`, which
+# does not link against libssl. The Go `strait` image escapes this CVE
+# family entirely by using distroless/static-debian12 (no libssl at
+# all), which Node cannot do because Node links libssl dynamically.
+#
+# Reassess on or before the expiration date. If the distroless rebuild
+# has landed by then, remove this line.
+CVE-2026-28390 exp:2026-05-15
