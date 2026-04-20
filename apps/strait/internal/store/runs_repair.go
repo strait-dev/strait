@@ -36,8 +36,11 @@ func (q *Queries) CountDuplicateHistoryRuns(ctx context.Context) (int64, error) 
 	defer span.End()
 
 	query := `
-		SELECT COUNT(*) FROM job_runs jr
-		INNER JOIN job_runs_history jrh ON jr.id = jrh.id`
+		SELECT COUNT(*) FROM (
+			SELECT 1 FROM job_runs jr
+			INNER JOIN job_runs_history jrh ON jr.id = jrh.id
+			LIMIT 10000
+		) bounded`
 
 	var count int64
 	if err := q.db.QueryRow(ctx, query).Scan(&count); err != nil {
@@ -56,6 +59,7 @@ func (q *Queries) RepairOrphanedHistoryRuns(ctx context.Context, limit int) (int
 			SELECT jr.id FROM job_runs jr
 			INNER JOIN job_runs_history jrh ON jr.id = jrh.id
 			WHERE jr.finished_at IS NOT NULL
+			  AND jr.status IN ('completed', 'failed', 'canceled', 'expired', 'timed_out', 'crashed', 'system_failed')
 			LIMIT $1
 		)`
 

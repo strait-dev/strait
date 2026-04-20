@@ -18,6 +18,7 @@ func newBackfillHistoryCommand() *cobra.Command {
 	var (
 		batchSize int
 		dryRun    bool
+		timeout   time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -25,12 +26,22 @@ func newBackfillHistoryCommand() *cobra.Command {
 		Short: "Backfill terminal runs from job_runs into job_runs_history",
 		Long:  "Moves terminal runs (completed, failed, timed_out, etc.) into the history table in batches. Safe to re-run.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runBackfillHistory(cmd.Context(), batchSize, dryRun)
+			if batchSize < 1 || batchSize > 10000 {
+				return fmt.Errorf("--batch-size must be between 1 and 10000, got %d", batchSize)
+			}
+			ctx := cmd.Context()
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+			return runBackfillHistory(ctx, batchSize, dryRun)
 		},
 	}
 
-	cmd.Flags().IntVar(&batchSize, "batch-size", 1000, "rows per batch")
+	cmd.Flags().IntVar(&batchSize, "batch-size", 1000, "rows per batch (1-10000)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "count rows without moving them")
+	cmd.Flags().DurationVar(&timeout, "timeout", time.Hour, "maximum runtime duration (0 = unlimited)")
 
 	return cmd
 }

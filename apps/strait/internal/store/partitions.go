@@ -209,9 +209,12 @@ func (q *Queries) PartitionRowCount(ctx context.Context, partition string) (int6
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.PartitionRowCount")
 	defer span.End()
 
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", partition)
+	quoted, err := SafeQuoteIdent(partition)
+	if err != nil {
+		return 0, fmt.Errorf("partition row count: %w", err)
+	}
 	var count int64
-	if err := q.db.QueryRow(ctx, query).Scan(&count); err != nil {
+	if err := q.db.QueryRow(ctx, "SELECT COUNT(*) FROM "+quoted).Scan(&count); err != nil {
 		return 0, fmt.Errorf("partition row count %s: %w", partition, err)
 	}
 	return count, nil

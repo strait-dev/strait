@@ -19,6 +19,26 @@ type dequeueSpec struct {
 	postScanFn          func(runs []domain.JobRun) error
 }
 
+func withStatementTimeout(ctx context.Context, q *PostgresQueue, spanName string) (store.DBTX, func(), error) {
+	if q.statementTimeout <= 0 {
+		return q.db, func() {}, nil
+	}
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return q.db, func() {}, nil
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: begin tx: %w", spanName, err)
+	}
+	ms := int(q.statementTimeout.Milliseconds())
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, nil, fmt.Errorf("%s: set statement timeout: %w", spanName, err)
+	}
+	return tx, func() { _ = tx.Commit(ctx) }, nil
+}
+
 func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSpec) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, spec.spanName)
 	defer span.End()
@@ -27,29 +47,11 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 		return nil, nil
 	}
 
-	db := q.db
-	var cleanup func()
-
-	if q.statementTimeout > 0 {
-		if beginner, ok := q.db.(store.TxBeginner); ok {
-			tx, err := beginner.Begin(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("%s: begin tx: %w", spec.spanName, err)
-			}
-			ms := int(q.statementTimeout.Milliseconds())
-			if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
-				_ = tx.Rollback(ctx)
-				return nil, fmt.Errorf("%s: set statement timeout: %w", spec.spanName, err)
-			}
-			db = tx
-			cleanup = func() {
-				_ = tx.Commit(ctx)
-			}
-		}
+	db, cleanup, err := withStatementTimeout(ctx, q, spec.spanName)
+	if err != nil {
+		return nil, err
 	}
-	if cleanup != nil {
-		defer cleanup()
-	}
+	defer cleanup()
 
 	withClause := concurrencyCTEs + ","
 	if spec.skipConcurrencyCTEs {
@@ -119,29 +121,11 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 		return nil, nil
 	}
 
-	db := q.db
-	var cleanup func()
-
-	if q.statementTimeout > 0 {
-		if beginner, ok := q.db.(store.TxBeginner); ok {
-			tx, err := beginner.Begin(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("%s: begin tx: %w", spec.spanName, err)
-			}
-			ms := int(q.statementTimeout.Milliseconds())
-			if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
-				_ = tx.Rollback(ctx)
-				return nil, fmt.Errorf("%s: set statement timeout: %w", spec.spanName, err)
-			}
-			db = tx
-			cleanup = func() {
-				_ = tx.Commit(ctx)
-			}
-		}
+	db, cleanup, err := withStatementTimeout(ctx, q, spec.spanName)
+	if err != nil {
+		return nil, err
 	}
-	if cleanup != nil {
-		defer cleanup()
-	}
+	defer cleanup()
 
 	query := fmt.Sprintf(`
 		WITH %s,
