@@ -106,6 +106,48 @@ func TestQueueMetrics_NoBannedFieldNames(t *testing.T) {
 	}
 }
 
+func TestRecordPartitionStats_AllGaugesExercised(t *testing.T) {
+	m, err := Metrics()
+	if err != nil {
+		t.Fatalf("Metrics(): %v", err)
+	}
+	m.RecordPartitionStats(context.Background(), "job_runs_p2026_04", PartitionStats{
+		LiveTuples:     1000,
+		DeadTuples:     100,
+		TotalUpdates:   500,
+		HotUpdates:     400,
+		DeadTupleRatio: 0.0909,
+	})
+}
+
+func TestRecordPartitionStats_ZeroLiveTuples(t *testing.T) {
+	m, err := Metrics()
+	if err != nil {
+		t.Fatalf("Metrics(): %v", err)
+	}
+	m.RecordPartitionStats(context.Background(), "job_runs_empty", PartitionStats{
+		LiveTuples:     0,
+		DeadTuples:     0,
+		TotalUpdates:   0,
+		HotUpdates:     0,
+		DeadTupleRatio: 0,
+	})
+}
+
+func TestRecordPartitionStats_MaxValues(t *testing.T) {
+	m, err := Metrics()
+	if err != nil {
+		t.Fatalf("Metrics(): %v", err)
+	}
+	m.RecordPartitionStats(context.Background(), "job_runs_big", PartitionStats{
+		LiveTuples:     1<<62 - 1,
+		DeadTuples:     1<<62 - 1,
+		TotalUpdates:   1<<62 - 1,
+		HotUpdates:     1<<62 - 1,
+		DeadTupleRatio: 0.999,
+	})
+}
+
 // FuzzPartitionLabelCardinality ensures arbitrary partition label values
 // never cause the recorder to panic. Cardinality is bounded by the caller
 // (who passes the Postgres relname) so we only assert safety here.

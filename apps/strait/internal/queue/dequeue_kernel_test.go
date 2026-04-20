@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
@@ -125,6 +126,95 @@ func TestExecuteDequeue_PostScanFnCalled(t *testing.T) {
 	// postScanFn is only called on success, so with the error above it won't be called.
 	if called {
 		t.Error("postScanFn should not be called when query errors")
+	}
+}
+
+func TestWithStatementTimeout_NoTxBeginner(t *testing.T) {
+	t.Parallel()
+	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(5*time.Second))
+	db, cleanup, err := withStatementTimeout(context.Background(), q, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer cleanup()
+	if db != q.db {
+		t.Error("should return original db when DBTX does not implement TxBeginner")
+	}
+}
+
+func TestWithStatementTimeout_ZeroDuration(t *testing.T) {
+	t.Parallel()
+	q := NewPostgresQueue(&mockDBTX{})
+	db, cleanup, err := withStatementTimeout(context.Background(), q, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer cleanup()
+	if db != q.db {
+		t.Error("should return original db when timeout is zero")
+	}
+}
+
+func TestWithStatementTimeout_BeginError(t *testing.T) {
+	t.Parallel()
+	wantErr := errors.New("begin failed")
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) {
+			return nil, wantErr
+		},
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+	_, _, err := withStatementTimeout(context.Background(), q, "test.begin")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("got %v, want %v", err, wantErr)
+	}
+}
+
+func TestExecuteDequeue_LargeN(t *testing.T) {
+	t.Parallel()
+	var captured []any
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+			captured = args
+			return nil, errors.New("captured")
+		},
+	}
+	q := NewPostgresQueue(db)
+	_, _ = executeDequeue(context.Background(), q, 1<<30, dequeueSpec{
+		spanName:      "test.large",
+		candidatesSQL: "SELECT 1 LIMIT $1",
+	})
+	if len(captured) == 0 {
+		t.Fatal("query was not called")
+	}
+	if n, ok := captured[0].(int); !ok || n != 1<<30 {
+		t.Errorf("N arg = %v, want %d", captured[0], 1<<30)
+	}
+}
+
+func TestExecuteDequeue_ExtraArgsPassedThrough(t *testing.T) {
+	t.Parallel()
+	var captured []any
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+			captured = args
+			return nil, errors.New("captured")
+		},
+	}
+	q := NewPostgresQueue(db)
+	_, _ = executeDequeue(context.Background(), q, 5, dequeueSpec{
+		spanName:      "test.extra",
+		candidatesSQL: "SELECT 1 WHERE project_id = $2 LIMIT $1",
+		extraArgs:     []any{"proj_123"},
+	})
+	if len(captured) != 2 {
+		t.Fatalf("expected 2 args, got %d: %v", len(captured), captured)
+	}
+	if captured[1] != "proj_123" {
+		t.Errorf("extra arg = %v, want proj_123", captured[1])
 	}
 }
 

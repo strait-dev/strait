@@ -52,6 +52,23 @@ func TestSafeQuoteIdent_RejectsInjection(t *testing.T) {
 	}
 }
 
+func TestSafeQuoteIdent_InjectionPayloads(t *testing.T) {
+	payloads := []string{
+		"'; DROP TABLE job_runs;--",
+		`" OR 1=1--`,
+		"job_runs; DELETE FROM job_runs",
+		"a\x00b",
+		"table_name\nDROP TABLE",
+		"$(whoami)",
+		"UNION SELECT * FROM pg_shadow",
+	}
+	for _, p := range payloads {
+		if _, err := SafeQuoteIdent(p); err == nil {
+			t.Errorf("SafeQuoteIdent(%q) should reject injection payload", p)
+		}
+	}
+}
+
 func FuzzValidateIdent(f *testing.F) {
 	f.Add("job_runs")
 	f.Add("")

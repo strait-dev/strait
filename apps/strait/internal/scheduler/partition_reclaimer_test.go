@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -101,6 +102,78 @@ func TestPartitionReclaimer_DropsOutboxHistoryPartition(t *testing.T) {
 	}
 	if len(s.dropped) != 1 {
 		t.Fatalf("expected 1 drop for outbox history, got %d", len(s.dropped))
+	}
+}
+
+func TestPartitionReclaimer_InvalidPartitionName(t *testing.T) {
+	s := &fakeReclaimerStore{
+		jobPartitions: []string{
+			"not_a_valid_partition",
+			"job_runs_p_nope",
+			"job_runs_pNOT_MONTH",
+			"; DROP TABLE job_runs;--",
+		},
+		rowCounts: map[string]int64{},
+	}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 0})
+	if err := r.RunOnceForTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.dropped) != 0 {
+		t.Errorf("expected no drops for invalid partition names, got %v", s.dropped)
+	}
+}
+
+func TestPartitionReclaimer_DDLError(t *testing.T) {
+	old := time.Now().UTC().AddDate(0, -6, 0).Format("2006_01")
+	ddlErr := fmt.Errorf("lock timeout")
+
+	s := &fakeReclaimerStore{
+		jobPartitions: []string{"job_runs_p" + old},
+		rowCounts:     map[string]int64{"job_runs_p" + old: 0},
+		ddlErr:        ddlErr,
+	}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
+	if err := r.RunOnceForTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if r.Errors() != 1 {
+		t.Errorf("errors = %d, want 1", r.Errors())
+	}
+	if r.Dropped() != 0 {
+		t.Errorf("dropped = %d, want 0", r.Dropped())
+	}
+}
+
+func TestPartitionReclaimer_IterationsIncrement(t *testing.T) {
+	s := &fakeReclaimerStore{rowCounts: map[string]int64{}}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{})
+	for range 3 {
+		_ = r.RunOnceForTest(context.Background())
+	}
+	if r.Iterations() != 3 {
+		t.Errorf("iterations = %d, want 3", r.Iterations())
+	}
+}
+
+func TestPartitionReclaimer_BothTableTypes(t *testing.T) {
+	oldJob := time.Now().UTC().AddDate(0, -6, 0).Format("2006_01")
+	oldOutbox := time.Now().UTC().AddDate(0, -8, 0).Format("2006_01")
+
+	s := &fakeReclaimerStore{
+		jobPartitions:    []string{"job_runs_p" + oldJob},
+		outboxPartitions: []string{"enqueue_outbox_history_p" + oldOutbox},
+		rowCounts: map[string]int64{
+			"job_runs_p" + oldJob:                  0,
+			"enqueue_outbox_history_p" + oldOutbox: 0,
+		},
+	}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
+	if err := r.RunOnceForTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.dropped) != 2 {
+		t.Fatalf("expected 2 drops (one per table type), got %d: %v", len(s.dropped), s.dropped)
 	}
 }
 
