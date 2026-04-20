@@ -429,6 +429,210 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 	}
 }
 
+func TestPlanConstants_Pricing(t *testing.T) {
+	t.Parallel()
+	if PriceStarterMonthlyCents != 1999 {
+		t.Errorf("PriceStarterMonthlyCents = %d, want 1999", PriceStarterMonthlyCents)
+	}
+	if PriceStarterAnnualCents != 19999 {
+		t.Errorf("PriceStarterAnnualCents = %d, want 19999", PriceStarterAnnualCents)
+	}
+	if PriceProMonthlyCents != 4999 {
+		t.Errorf("PriceProMonthlyCents = %d, want 4999", PriceProMonthlyCents)
+	}
+	if PriceProAnnualCents != 49999 {
+		t.Errorf("PriceProAnnualCents = %d, want 49999", PriceProAnnualCents)
+	}
+	if PriceScaleMonthlyCents != 9900 {
+		t.Errorf("PriceScaleMonthlyCents = %d, want 9900", PriceScaleMonthlyCents)
+	}
+	if PriceScaleAnnualCents != 99000 {
+		t.Errorf("PriceScaleAnnualCents = %d, want 99000", PriceScaleAnnualCents)
+	}
+}
+
+func TestPlanConstants_Credits(t *testing.T) {
+	t.Parallel()
+	if CreditFreeMicrousd != 1_000_000 {
+		t.Errorf("CreditFreeMicrousd = %d, want 1000000", CreditFreeMicrousd)
+	}
+	if CreditStarterMicrousd != 19_990_000 {
+		t.Errorf("CreditStarterMicrousd = %d, want 19990000", CreditStarterMicrousd)
+	}
+	if CreditProMicrousd != 49_990_000 {
+		t.Errorf("CreditProMicrousd = %d, want 49990000", CreditProMicrousd)
+	}
+	if CreditScaleMicrousd != 99_000_000 {
+		t.Errorf("CreditScaleMicrousd = %d, want 99000000", CreditScaleMicrousd)
+	}
+}
+
+func TestPlanConstants_Concurrent(t *testing.T) {
+	t.Parallel()
+	if ConcurrentFree != 5 {
+		t.Errorf("ConcurrentFree = %d, want 5", ConcurrentFree)
+	}
+	if ConcurrentStarter != 25 {
+		t.Errorf("ConcurrentStarter = %d, want 25", ConcurrentStarter)
+	}
+	if ConcurrentPro != 100 {
+		t.Errorf("ConcurrentPro = %d, want 100", ConcurrentPro)
+	}
+	if ConcurrentScale != 500 {
+		t.Errorf("ConcurrentScale = %d, want 500", ConcurrentScale)
+	}
+}
+
+func TestPlanConstants_Retention(t *testing.T) {
+	t.Parallel()
+	if RetentionFree != 1 {
+		t.Errorf("RetentionFree = %d, want 1", RetentionFree)
+	}
+	if RetentionStarter != 7 {
+		t.Errorf("RetentionStarter = %d, want 7", RetentionStarter)
+	}
+	if RetentionPro != 30 {
+		t.Errorf("RetentionPro = %d, want 30", RetentionPro)
+	}
+	if RetentionScale != 60 {
+		t.Errorf("RetentionScale = %d, want 60", RetentionScale)
+	}
+	if RetentionEnterprise != 90 {
+		t.Errorf("RetentionEnterprise = %d, want 90", RetentionEnterprise)
+	}
+}
+
+func TestPlanConstants_OrgLimits(t *testing.T) {
+	t.Parallel()
+	if MaxOrgsFree != 1 {
+		t.Errorf("MaxOrgsFree = %d, want 1", MaxOrgsFree)
+	}
+	if MaxOrgsStarter != 2 {
+		t.Errorf("MaxOrgsStarter = %d, want 2", MaxOrgsStarter)
+	}
+	if MaxOrgsPro != 5 {
+		t.Errorf("MaxOrgsPro = %d, want 5", MaxOrgsPro)
+	}
+	if MaxOrgsScale != 10 {
+		t.Errorf("MaxOrgsScale = %d, want 10", MaxOrgsScale)
+	}
+}
+
+func TestPlanConstants_ProjectLimits(t *testing.T) {
+	t.Parallel()
+	if MaxProjectsFree != 1 {
+		t.Errorf("MaxProjectsFree = %d, want 1", MaxProjectsFree)
+	}
+	if MaxProjectsStarter != 3 {
+		t.Errorf("MaxProjectsStarter = %d, want 3", MaxProjectsStarter)
+	}
+	if MaxProjectsPro != 10 {
+		t.Errorf("MaxProjectsPro = %d, want 10", MaxProjectsPro)
+	}
+	if MaxProjectsScale != 50 {
+		t.Errorf("MaxProjectsScale = %d, want 50", MaxProjectsScale)
+	}
+}
+
+func TestPlanConstants_MemberLimits(t *testing.T) {
+	t.Parallel()
+	if MaxMembersFree != 1 {
+		t.Errorf("MaxMembersFree = %d, want 1", MaxMembersFree)
+	}
+	if MaxMembersStarter != 5 {
+		t.Errorf("MaxMembersStarter = %d, want 5", MaxMembersStarter)
+	}
+	if MaxMembersPro != 10 {
+		t.Errorf("MaxMembersPro = %d, want 10", MaxMembersPro)
+	}
+	if MaxMembersScale != 50 {
+		t.Errorf("MaxMembersScale = %d, want 50", MaxMembersScale)
+	}
+}
+
+func TestPlanConstants_SpendingLimits(t *testing.T) {
+	t.Parallel()
+	if MaxSpendingStarter != 500_000_000 {
+		t.Errorf("MaxSpendingStarter = %d, want 500000000", MaxSpendingStarter)
+	}
+	if MaxSpendingPro != 2_000_000_000 {
+		t.Errorf("MaxSpendingPro = %d, want 2000000000", MaxSpendingPro)
+	}
+	if MaxSpendingScale != 5_000_000_000 {
+		t.Errorf("MaxSpendingScale = %d, want 5000000000", MaxSpendingScale)
+	}
+}
+
+func TestPlanConstants_Overage(t *testing.T) {
+	t.Parallel()
+	if DefaultOveragePerKRunsMicrousd != 200_000 {
+		t.Errorf("DefaultOveragePerKRunsMicrousd = %d, want 200000", DefaultOveragePerKRunsMicrousd)
+	}
+}
+
+func TestPlanLimits_EnterpriseFeatures(t *testing.T) {
+	t.Parallel()
+	ent := GetPlanLimits(domain.PlanEnterprise)
+	if !ent.HasDedicatedCompute {
+		t.Error("Enterprise should have HasDedicatedCompute")
+	}
+	if !ent.HasStaticIPs {
+		t.Error("Enterprise should have HasStaticIPs")
+	}
+	if !ent.HasVPCPeering {
+		t.Error("Enterprise should have HasVPCPeering")
+	}
+	if !ent.HasSCIM {
+		t.Error("Enterprise should have HasSCIM")
+	}
+	if !ent.HasDataResidency {
+		t.Error("Enterprise should have HasDataResidency")
+	}
+	if !ent.HasCustomRBAC {
+		t.Error("Enterprise should have HasCustomRBAC")
+	}
+	if !ent.HasReservedCapacity {
+		t.Error("Enterprise should have HasReservedCapacity")
+	}
+	if !ent.HasPriorityQueue {
+		t.Error("Enterprise should have HasPriorityQueue")
+	}
+	if !ent.HasIPAllowlisting {
+		t.Error("Enterprise should have HasIPAllowlisting")
+	}
+	if !ent.HasSessionManagement {
+		t.Error("Enterprise should have HasSessionManagement")
+	}
+	if !ent.HasSecretRotation {
+		t.Error("Enterprise should have HasSecretRotation")
+	}
+	if !ent.HasSIEMExport {
+		t.Error("Enterprise should have HasSIEMExport")
+	}
+	if !ent.HasSSO {
+		t.Error("Enterprise should have HasSSO")
+	}
+	if !ent.HasSLA {
+		t.Error("Enterprise should have HasSLA")
+	}
+}
+
+func TestPlanLimits_NonEnterpriseNoEnterpriseFeatures(t *testing.T) {
+	t.Parallel()
+	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter} {
+		l := GetPlanLimits(tier)
+		if l.HasDedicatedCompute {
+			t.Errorf("%s should NOT have HasDedicatedCompute", tier)
+		}
+		if l.HasStaticIPs {
+			t.Errorf("%s should NOT have HasStaticIPs", tier)
+		}
+		if l.HasSIEMExport {
+			t.Errorf("%s should NOT have HasSIEMExport", tier)
+		}
+	}
+}
+
 func FuzzGetPlanLimits_NoPanic(f *testing.F) {
 	f.Add("free")
 	f.Add("starter")
