@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -102,4 +103,62 @@ func TestInit_ShutdownIdempotent(t *testing.T) {
 			t.Errorf("shutdown call %d returned error: %v", i+1, err)
 		}
 	}
+}
+
+func TestInit_InvalidURL_ReturnsError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, err := Init(ctx, "test-service", "://bad", "test")
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+	if !strings.Contains(err.Error(), "parse otel trace endpoint") {
+		t.Errorf("error = %q, want 'parse otel trace endpoint'", err.Error())
+	}
+}
+
+func TestInit_HttpsScheme(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	shutdown, err := Init(ctx, "test-service", "https://localhost:4318", "test")
+	if err == nil && shutdown != nil {
+		_ = shutdown(ctx)
+	}
+}
+
+func TestInit_WithEnvironment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	shutdown, err := Init(ctx, "test-service", "http://localhost:4318", "production")
+	if err == nil && shutdown != nil {
+		_ = shutdown(ctx)
+	}
+}
+
+func TestInitLogBridge_InvalidURL_ReturnsError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	logger, shutdown, err := InitLogBridge(ctx, "test-service", "://bad", "test")
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+	if logger != nil {
+		t.Error("expected nil logger on error")
+	}
+	if shutdown != nil {
+		t.Error("expected nil shutdown on error")
+	}
+}
+
+func TestInitLogBridge_HttpsScheme(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	logger, shutdown, err := InitLogBridge(ctx, "test-service", "https://localhost:4318", "test")
+	if err != nil {
+		t.Fatalf("InitLogBridge() error = %v", err)
+	}
+	if logger == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	_ = shutdown(ctx)
 }
