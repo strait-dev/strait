@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -67,6 +68,41 @@ func TestResetMetricsForTest_AllowsReinit(t *testing.T) {
 	}
 	if m1 == m2 {
 		t.Error("ResetMetricsForTest should yield a fresh instance")
+	}
+}
+
+func TestQueueMetrics_AllFieldsInitialized(t *testing.T) {
+	ResetMetricsForTest()
+	defer ResetMetricsForTest()
+
+	m, err := Metrics()
+	if err != nil {
+		t.Fatalf("Metrics() error: %v", err)
+	}
+
+	rv := reflect.ValueOf(m).Elem()
+	rt := rv.Type()
+	for i := range rt.NumField() {
+		f := rv.Field(i)
+		if f.IsNil() {
+			t.Errorf("QueueMetrics.%s is nil after init", rt.Field(i).Name)
+		}
+	}
+}
+
+func TestQueueMetrics_NoBannedFieldNames(t *testing.T) {
+	banned := map[string]struct{}{
+		"ProjectID": {},
+		"JobID":     {},
+		"RunID":     {},
+		"UserID":    {},
+		"OrgID":     {},
+	}
+
+	for _, f := range reflect.VisibleFields(reflect.TypeFor[QueueMetrics]()) {
+		if _, ok := banned[f.Name]; ok {
+			t.Errorf("QueueMetrics should not have field %q (high-cardinality label risk)", f.Name)
+		}
 	}
 }
 
