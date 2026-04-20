@@ -15,34 +15,35 @@ import (
 // new signals does not require modifying the monolithic telemetry.Metrics
 // struct. All instruments are lazily initialised and safe for concurrent use.
 type QueueMetrics struct {
-	OldestQueuedAge     metric.Float64Histogram
-	DequeueScanRows     metric.Float64Histogram
-	DeadTupleRatio      metric.Float64Gauge
-	LiveTuples          metric.Int64Gauge
-	HotUpdateRatio      metric.Float64Gauge
-	NotifyDropped       metric.Int64Counter
-	NotifyReconnects    metric.Int64Counter
-	NotifyWakeDelivered metric.Int64Counter
-	HeartbeatReclaims   metric.Int64Counter
-	RetryScheduleLag    metric.Float64Histogram
-	MaskedRowsPending   metric.Int64Gauge
-	// Absolute drift observed by the counter reconciler.
-	CounterDrift metric.Int64Gauge
-
-	// Hot-path instruments.
-	PartitionDequeueLag         metric.Float64Histogram
-	ClaimToStart                metric.Float64Histogram
-	CircuitStateTransitions     metric.Int64Counter
-	OutboxLag                   metric.Float64Histogram
-	OutboxQuarantinedTotal      metric.Int64Counter
-	BackpressureTokensAvailable metric.Int64Gauge
-	EventChannelDropped         metric.Int64Counter
-	RetryAttempts               metric.Float64Histogram
-	DLQOldestUnmaskedAge        metric.Float64Gauge
-
-	// Reliability instruments.
-	EventChannelSaturationRatio metric.Float64Gauge
-	SchedulerShutdownTimeouts   metric.Int64Counter
+	OldestQueuedAge               metric.Float64Histogram
+	DequeueScanRows               metric.Float64Histogram
+	DeadTupleRatio                metric.Float64Gauge
+	LiveTuples                    metric.Int64Gauge
+	HotUpdateRatio                metric.Float64Gauge
+	NotifyDropped                 metric.Int64Counter
+	NotifyReconnects              metric.Int64Counter
+	NotifyWakeDelivered           metric.Int64Counter
+	HeartbeatReclaims             metric.Int64Counter
+	RetryScheduleLag              metric.Float64Histogram
+	MaskedRowsPending             metric.Int64Gauge
+	CounterDrift                  metric.Int64Gauge
+	PartitionDequeueLag           metric.Float64Histogram
+	ClaimToStart                  metric.Float64Histogram
+	CircuitStateTransitions       metric.Int64Counter
+	OutboxLag                     metric.Float64Histogram
+	OutboxQuarantinedTotal        metric.Int64Counter
+	BackpressureTokensAvailable   metric.Int64Gauge
+	EventChannelDropped           metric.Int64Counter
+	RetryAttempts                 metric.Float64Histogram
+	DLQOldestUnmaskedAge          metric.Float64Gauge
+	HistoryRowsArchivedTotal      metric.Int64Counter
+	HistoryLiveTuples             metric.Int64Gauge
+	HistoryRetentionDeletedTotal  metric.Int64Counter
+	ArchiveStrandedTerminal       metric.Int64Gauge
+	QueueDepthByStatus            metric.Int64Gauge
+	NotifyDegradedDurationSeconds metric.Float64Histogram
+	EventChannelSaturationRatio   metric.Float64Gauge
+	SchedulerShutdownTimeouts     metric.Int64Counter
 }
 
 var (
@@ -256,20 +257,19 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("event channel saturation gauge: %w", err)
 	}
-	return &QueueMetrics{
-		OldestQueuedAge:     oldestAge,
-		DequeueScanRows:     scanRows,
-		DeadTupleRatio:      deadRatio,
-		LiveTuples:          liveTuples,
-		HotUpdateRatio:      hotRatio,
-		NotifyDropped:       notifyDropped,
-		NotifyReconnects:    notifyReconnects,
-		NotifyWakeDelivered: notifyWakeDelivered,
-		HeartbeatReclaims:   heartbeatReclaims,
-		RetryScheduleLag:    retryLag,
-		MaskedRowsPending:   masked,
-		CounterDrift:        counterDrift,
-
+	m := &QueueMetrics{
+		OldestQueuedAge:             oldestAge,
+		DequeueScanRows:             scanRows,
+		DeadTupleRatio:              deadRatio,
+		LiveTuples:                  liveTuples,
+		HotUpdateRatio:              hotRatio,
+		NotifyDropped:               notifyDropped,
+		NotifyReconnects:            notifyReconnects,
+		NotifyWakeDelivered:         notifyWakeDelivered,
+		HeartbeatReclaims:           heartbeatReclaims,
+		RetryScheduleLag:            retryLag,
+		MaskedRowsPending:           masked,
+		CounterDrift:                counterDrift,
 		PartitionDequeueLag:         partitionDequeueLag,
 		ClaimToStart:                claimToStart,
 		CircuitStateTransitions:     circuitTransitions,
@@ -281,7 +281,62 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		DLQOldestUnmaskedAge:        dlqOldestAge,
 		EventChannelSaturationRatio: eventChannelSaturation,
 		SchedulerShutdownTimeouts:   schedulerShutdownTimeouts,
-	}, nil
+	}
+	if err := initArchiveMetrics(meter, m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
+	var err error
+	m.HistoryRowsArchivedTotal, err = meter.Int64Counter(
+		"strait.queue.history_rows_archived_total",
+		metric.WithDescription("Terminal runs archived from hot storage to history"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("history rows archived counter: %w", err)
+	}
+	m.HistoryLiveTuples, err = meter.Int64Gauge(
+		"strait.queue.history_live_tuples",
+		metric.WithDescription("Live tuple count in job_runs_history"),
+	)
+	if err != nil {
+		return fmt.Errorf("history live tuples gauge: %w", err)
+	}
+	m.HistoryRetentionDeletedTotal, err = meter.Int64Counter(
+		"strait.queue.history_retention_deleted_total",
+		metric.WithDescription("History rows deleted by retention reaper"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("history retention deleted counter: %w", err)
+	}
+	m.ArchiveStrandedTerminal, err = meter.Int64Gauge(
+		"strait.queue.archive_stranded_terminal",
+		metric.WithDescription("Terminal runs still in hot table past retention cutoff"),
+	)
+	if err != nil {
+		return fmt.Errorf("archive stranded terminal gauge: %w", err)
+	}
+	m.QueueDepthByStatus, err = meter.Int64Gauge(
+		"strait.queue.depth_by_status",
+		metric.WithDescription("Queue depth grouped by run status"),
+	)
+	if err != nil {
+		return fmt.Errorf("queue depth by status gauge: %w", err)
+	}
+	m.NotifyDegradedDurationSeconds, err = meter.Float64Histogram(
+		"strait.queue.notify_degraded_duration_seconds",
+		metric.WithDescription("Duration of notify degraded mode episodes"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 300, 600, 1800),
+	)
+	if err != nil {
+		return fmt.Errorf("notify degraded duration histogram: %w", err)
+	}
+	return nil
 }
 
 // RecordPartitionStats records gauge values for a single partition. The

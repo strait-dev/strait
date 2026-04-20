@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // HealthSampler periodically queries pg_stat_user_tables and publishes
@@ -75,6 +78,8 @@ func (h *HealthSampler) SampleOnce(ctx context.Context) {
 
 	h.samplePartitions(ctx)
 	h.sampleOldestQueued(ctx)
+	h.sampleHistoryLiveTuples(ctx)
+	h.sampleQueueDepthByStatus(ctx)
 }
 
 func (h *HealthSampler) samplePartitions(ctx context.Context) {
@@ -109,6 +114,43 @@ WHERE relname = 'job_runs' OR relname LIKE 'job_runs_%'
 	}
 	if err := rows.Err(); err != nil {
 		h.logger.Debug("queue health sample: rows error", "error", err)
+	}
+}
+
+func (h *HealthSampler) sampleHistoryLiveTuples(ctx context.Context) {
+	const q = `
+SELECT COALESCE(n_live_tup, 0) FROM pg_stat_user_tables
+WHERE relname = 'job_runs_history'
+`
+	var liveTuples int64
+	if err := h.db.QueryRow(ctx, q).Scan(&liveTuples); err != nil {
+		h.logger.Debug("queue health sample: history live tuples query failed", "error", err)
+		return
+	}
+	h.metrics.HistoryLiveTuples.Record(ctx, liveTuples)
+}
+
+func (h *HealthSampler) sampleQueueDepthByStatus(ctx context.Context) {
+	const q = `
+SELECT status, COUNT(*) FROM job_runs
+WHERE status IN ('queued', 'delayed', 'dequeued', 'executing', 'waiting', 'dead_letter')
+GROUP BY status
+`
+	rows, err := h.db.Query(ctx, q)
+	if err != nil {
+		h.logger.Debug("queue health sample: queue depth by status query failed", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			continue
+		}
+		h.metrics.QueueDepthByStatus.Record(ctx, count,
+			metric.WithAttributes(attribute.String("status", status)))
 	}
 }
 
