@@ -132,6 +132,8 @@ type Executor struct {
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
 	claimCursor              *queue.ClaimCursor
+	degradedPollInterval     time.Duration
+	degraded                 <-chan struct{}
 	useDenormalizedDequeue   bool
 	dbCircuit                *queue.DBCircuit
 	eventChannelSize         int
@@ -194,6 +196,13 @@ type ExecutorConfig struct {
 	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	// DegradedPollInterval is the shortened poll interval used when the
+	// queue notifier enters degraded mode (LISTEN disconnected for too long).
+	// Zero/negative falls back to 1 second.
+	DegradedPollInterval time.Duration
+	// Degraded is a channel that closes when the queue notifier enters
+	// degraded mode. Nil means no degraded-mode support.
+	Degraded <-chan struct{}
 	// UseDenormalizedDequeue opts into the job_active_counts-backed
 	// dequeue path. Defaults to false so existing deployments are unaffected.
 	UseDenormalizedDequeue bool
@@ -213,7 +222,15 @@ const (
 	minEventChannelSize            = 16
 	eventChannelSaturationRatio    = 0.8
 	eventChannelWarnInterval       = 30 * time.Second
+	defaultDegradedPollInterval    = time.Second
 )
+
+func resolveDegradedPollInterval(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultDegradedPollInterval
+	}
+	return d
+}
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	httpClient := cfg.HTTPClient
@@ -317,6 +334,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
 		claimCursor:              queue.NewClaimCursor(60 * time.Second),
+		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
+		degraded:                 cfg.Degraded,
 		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
 		queueMetrics:             resolveQueueMetrics(),
@@ -567,6 +586,9 @@ func (e *Executor) Run(ctx context.Context) {
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
+	degraded := e.degraded
+	inDegradedMode := false
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -580,6 +602,20 @@ func (e *Executor) Run(ctx context.Context) {
 				e.wake = nil
 				continue
 			}
+			if inDegradedMode {
+				ticker.Reset(e.pollInterval)
+				inDegradedMode = false
+				degraded = e.degraded
+				e.logger.Info("executor restored normal poll interval after wake reconnect")
+			}
+			e.doPoll(ctx)
+		case <-degraded:
+			ticker.Reset(e.degradedPollInterval)
+			inDegradedMode = true
+			degraded = nil
+			e.logger.Warn("executor entering degraded mode: fast polling engaged",
+				"degraded_poll_interval", e.degradedPollInterval,
+			)
 			e.doPoll(ctx)
 		case <-ticker.C:
 			e.doPoll(ctx)

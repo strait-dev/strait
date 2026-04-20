@@ -227,6 +227,9 @@ func (n *QueueNotifier) listenLoop(ctx context.Context) (connected bool, err err
 
 		select {
 		case n.wake <- struct{}{}:
+			if n.metrics != nil {
+				n.metrics.NotifyWakeDelivered.Add(ctx, 1)
+			}
 		default:
 			atomic.AddUint64(&n.droppedCount, 1)
 			if n.metrics != nil {

@@ -1170,6 +1170,67 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 	}
 }
 
+func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
+	t.Parallel()
+
+	wake := make(chan struct{}, 1)
+	degraded := make(chan struct{})
+	pollCount := make(chan struct{}, 100)
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			select {
+			case pollCount <- struct{}{}:
+			default:
+			}
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                 pool,
+		Queue:                q,
+		Wake:                 wake,
+		Degraded:             degraded,
+		DegradedPollInterval: 50 * time.Millisecond,
+		Store:                &mockExecutorStore{},
+		PollInterval:         time.Hour,
+		HeartbeatInterval:    time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(done)
+	}()
+
+	// Close the degraded channel to simulate notifier entering degraded mode.
+	close(degraded)
+
+	// With a 50ms degraded poll interval, we should see multiple polls quickly.
+	deadline := time.After(2 * time.Second)
+	polls := 0
+	for polls < 3 {
+		select {
+		case <-pollCount:
+			polls++
+		case <-deadline:
+			t.Fatalf("expected at least 3 degraded polls, got %d", polls)
+		}
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not stop after context cancel")
+	}
+}
+
 func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 	t.Parallel()
 

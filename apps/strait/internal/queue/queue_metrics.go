@@ -15,16 +15,17 @@ import (
 // new signals does not require modifying the monolithic telemetry.Metrics
 // struct. All instruments are lazily initialised and safe for concurrent use.
 type QueueMetrics struct {
-	OldestQueuedAge   metric.Float64Histogram
-	DequeueScanRows   metric.Float64Histogram
-	DeadTupleRatio    metric.Float64Gauge
-	LiveTuples        metric.Int64Gauge
-	HotUpdateRatio    metric.Float64Gauge
-	NotifyDropped     metric.Int64Counter
-	NotifyReconnects  metric.Int64Counter
-	HeartbeatReclaims metric.Int64Counter
-	RetryScheduleLag  metric.Float64Histogram
-	MaskedRowsPending metric.Int64Gauge
+	OldestQueuedAge     metric.Float64Histogram
+	DequeueScanRows     metric.Float64Histogram
+	DeadTupleRatio      metric.Float64Gauge
+	LiveTuples          metric.Int64Gauge
+	HotUpdateRatio      metric.Float64Gauge
+	NotifyDropped       metric.Int64Counter
+	NotifyReconnects    metric.Int64Counter
+	NotifyWakeDelivered metric.Int64Counter
+	HeartbeatReclaims   metric.Int64Counter
+	RetryScheduleLag    metric.Float64Histogram
+	MaskedRowsPending   metric.Int64Gauge
 	// Absolute drift observed by the counter reconciler.
 	CounterDrift metric.Int64Gauge
 
@@ -124,6 +125,13 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("notify reconnects counter: %w", err)
+	}
+	notifyWakeDelivered, err := meter.Int64Counter(
+		"strait.queue.notify_wake_delivered_total",
+		metric.WithDescription("Number of queue wake notifications successfully delivered to the wake channel"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("notify wake delivered counter: %w", err)
 	}
 	heartbeatReclaims, err := meter.Int64Counter(
 		"strait.queue.heartbeat_reclaims_total",
@@ -249,17 +257,18 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("event channel saturation gauge: %w", err)
 	}
 	return &QueueMetrics{
-		OldestQueuedAge:   oldestAge,
-		DequeueScanRows:   scanRows,
-		DeadTupleRatio:    deadRatio,
-		LiveTuples:        liveTuples,
-		HotUpdateRatio:    hotRatio,
-		NotifyDropped:     notifyDropped,
-		NotifyReconnects:  notifyReconnects,
-		HeartbeatReclaims: heartbeatReclaims,
-		RetryScheduleLag:  retryLag,
-		MaskedRowsPending: masked,
-		CounterDrift:      counterDrift,
+		OldestQueuedAge:     oldestAge,
+		DequeueScanRows:     scanRows,
+		DeadTupleRatio:      deadRatio,
+		LiveTuples:          liveTuples,
+		HotUpdateRatio:      hotRatio,
+		NotifyDropped:       notifyDropped,
+		NotifyReconnects:    notifyReconnects,
+		NotifyWakeDelivered: notifyWakeDelivered,
+		HeartbeatReclaims:   heartbeatReclaims,
+		RetryScheduleLag:    retryLag,
+		MaskedRowsPending:   masked,
+		CounterDrift:        counterDrift,
 
 		PartitionDequeueLag:         partitionDequeueLag,
 		ClaimToStart:                claimToStart,
