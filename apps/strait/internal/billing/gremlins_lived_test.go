@@ -928,6 +928,348 @@ func TestPreviewDowngrade_ZeroHTTPJobs_NoImpact(t *testing.T) {
 	}
 }
 
+// Enforcement LIVED mutants: CheckProjectSuspended, SuspendExcessProjects.
+
+func TestEnforcer_SuspendExcessProjects_UnlimitedSkips(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	n, err := enforcer.SuspendExcessProjects(context.Background(), "org-1", -1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("SuspendExcessProjects(-1) = %d, want 0", n)
+	}
+}
+
+func TestEnforcer_SuspendExcessProjects_PositiveLimit(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	n, err := enforcer.SuspendExcessProjects(context.Background(), "org-1", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("SuspendExcessProjects(2) = %d, want 0", n)
+	}
+}
+
+func TestEnforcer_CheckProjectSuspended_EmptyProjectID(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	if err := enforcer.CheckProjectSuspended(context.Background(), ""); err != nil {
+		t.Fatalf("empty project ID should return nil: %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-1"); err != nil {
+		t.Fatalf("non-suspended project should return nil: %v", err)
+	}
+
+	// Second call should hit the cache.
+	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-1"); err != nil {
+		t.Fatalf("cached non-suspended project should return nil: %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-flush"); err != nil {
+		t.Fatal(err)
+	}
+	enforcer.InvalidateProjectSuspendedCache("proj-flush")
+	enforcer.FlushSuspendedCacheForOrg([]string{"proj-flush"})
+
+	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-flush"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Enterprise boundary LIVED mutants.
+
+func TestApplyComputeDiscount_NegativeCost_ReturnsZero(t *testing.T) {
+	t.Parallel()
+	if got := ApplyComputeDiscount(-100, 10); got != 0 {
+		t.Errorf("ApplyComputeDiscount(-100, 10) = %d, want 0", got)
+	}
+}
+
+func TestApplyComputeDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
+	t.Parallel()
+	if got := ApplyComputeDiscount(0, 10); got != 0 {
+		t.Errorf("ApplyComputeDiscount(0, 10) = %d, want 0", got)
+	}
+}
+
+func TestApplyComputeDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
+	t.Parallel()
+	if got := ApplyComputeDiscount(1_000_000, 100); got != 0 {
+		t.Errorf("ApplyComputeDiscount(1000000, 100) = %d, want 0", got)
+	}
+}
+
+func TestApplyComputeDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
+	t.Parallel()
+	if got := ApplyComputeDiscount(1_000_000, 150); got != 0 {
+		t.Errorf("ApplyComputeDiscount(1000000, 150) = %d, want 0", got)
+	}
+}
+
+func TestApplyComputeDiscount_OneCost_OnePct(t *testing.T) {
+	t.Parallel()
+	got := ApplyComputeDiscount(1, 1)
+	if got < 0 || got > 1 {
+		t.Errorf("ApplyComputeDiscount(1, 1) = %d, want 0 or 1", got)
+	}
+}
+
+func TestCalculateSLACredit_AtTarget_ZeroCredit(t *testing.T) {
+	t.Parallel()
+	if got := CalculateSLACredit(99.9, 99.9); got != 0 {
+		t.Errorf("CalculateSLACredit(99.9, 99.9) = %d, want 0", got)
+	}
+}
+
+func TestCalculateSLACredit_AboveTarget_ZeroCredit(t *testing.T) {
+	t.Parallel()
+	if got := CalculateSLACredit(99.95, 99.9); got != 0 {
+		t.Errorf("CalculateSLACredit(99.95, 99.9) = %d, want 0", got)
+	}
+}
+
+func TestCalculateSLACredit_JustBelowTarget_TenPct(t *testing.T) {
+	t.Parallel()
+	got := CalculateSLACredit(99.89, 99.9)
+	if got != 10 {
+		t.Errorf("CalculateSLACredit(99.89, 99.9) = %d, want 10", got)
+	}
+}
+
+func TestCalculateSLACredit_BelowNinety_FiftyPct(t *testing.T) {
+	t.Parallel()
+	if got := CalculateSLACredit(89.9, 99.9); got != 50 {
+		t.Errorf("CalculateSLACredit(89.9, 99.9) = %d, want 50", got)
+	}
+}
+
+func TestCalculateSLACredit_HigherTarget_ExtendedRange(t *testing.T) {
+	t.Parallel()
+	got := CalculateSLACredit(99.91, 99.95)
+	if got != 10 {
+		t.Errorf("CalculateSLACredit(99.91, 99.95) = %d, want 10 (extended top tier)", got)
+	}
+}
+
+func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		uptime   float64
+		target   float64
+		expected int
+	}{
+		{99.0, 99.9, 10},
+		{98.99, 99.9, 20},
+		{95.0, 99.9, 20},
+		{94.99, 99.9, 30},
+		{90.0, 99.9, 30},
+		{89.99, 99.9, 50},
+	}
+	for _, tt := range tests {
+		got := CalculateSLACredit(tt.uptime, tt.target)
+		if got != tt.expected {
+			t.Errorf("CalculateSLACredit(%.2f, %.1f) = %d, want %d",
+				tt.uptime, tt.target, got, tt.expected)
+		}
+	}
+}
+
+// Cost estimator LIVED mutants.
+
+func TestFindCheaperAlternative_ZeroCost_ReturnsNil(t *testing.T) {
+	t.Parallel()
+	alt := findCheaperAlternative("medium-1x", 60, 0)
+	if alt != nil {
+		t.Error("expected nil for zero cost")
+	}
+}
+
+func TestFindCheaperAlternative_SmallestPreset_ReturnsNil(t *testing.T) {
+	t.Parallel()
+	alt := findCheaperAlternative("micro", 60, 100)
+	if alt != nil {
+		t.Errorf("expected nil for smallest preset, got %+v", alt)
+	}
+}
+
+func TestFindCheaperAlternative_LargePreset_ReturnsCheaper(t *testing.T) {
+	t.Parallel()
+	alt := findCheaperAlternative("medium-2x", 60, 1_000_000)
+	if alt == nil {
+		t.Fatal("expected cheaper alternative for medium-2x")
+	}
+	if alt.SavingsPct <= 0 {
+		t.Errorf("SavingsPct = %f, want > 0", alt.SavingsPct)
+	}
+	if alt.CostMicro >= 1_000_000 {
+		t.Errorf("CostMicro = %d, want < 1000000", alt.CostMicro)
+	}
+}
+
+func TestEstimateWhatIfCost_MonthlyCostArithmetic(t *testing.T) {
+	t.Parallel()
+	est, err := EstimateWhatIf("small-1x", 60, "* * * * *", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if est.MonthlyCostUsd <= 0 {
+		t.Errorf("MonthlyCostUsd = %f, want > 0", est.MonthlyCostUsd)
+	}
+	if est.DailyCostUsd <= 0 {
+		t.Errorf("DailyCostUsd = %f, want > 0", est.DailyCostUsd)
+	}
+	expectedMonthly := est.DailyCostUsd * 30
+	if math.Abs(est.MonthlyCostUsd-expectedMonthly) > 0.001 {
+		t.Errorf("MonthlyCostUsd = %f, want DailyCostUsd*30 = %f", est.MonthlyCostUsd, expectedMonthly)
+	}
+}
+
+// Spending limit message formatting (enforcement.go:776, 804).
+
+func TestEnforcer_CheckSpendingLimit_MessageContainsDollarAmount(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-spend": {
+				OrgID:                 "org-spend",
+				PlanTier:              "pro",
+				Status:                "active",
+				SpendingLimitMicrousd: 50_000_000,
+				LimitAction:           "reject",
+			},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org-spend": CreditProMicrousd + 60_000_000,
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckSpendingLimit(context.Background(), "org-spend")
+	if err == nil {
+		t.Fatal("expected spending limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T", err)
+	}
+	if !strings.Contains(le.Message, "$50.00") {
+		t.Errorf("message should contain $50.00, got: %s", le.Message)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsDollarAmount(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org-free-over": CreditFreeMicrousd + 1,
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckSpendingLimit(context.Background(), "org-free-over")
+	if err == nil {
+		t.Fatal("expected free-tier spending limit error")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T", err)
+	}
+	expectedAmt := fmt.Sprintf("$%.2f", float64(CreditFreeMicrousd)/1_000_000)
+	if !strings.Contains(le.Message, expectedAmt) {
+		t.Errorf("message should contain %s, got: %s", expectedAmt, le.Message)
+	}
+}
+
+// DecrDailyRunCount and DecrConcurrentRunCount nil guards.
+
+func TestEnforcer_DecrDailyRunCount_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	enforcer.DecrDailyRunCount(context.Background(), "")
+}
+
+func TestEnforcer_DecrConcurrentRunCount_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	enforcer.DecrConcurrentRunCount(context.Background(), "")
+}
+
+// CheckManagedRunLimit enforcement.go:495.
+
+func TestEnforcer_CheckManagedRunLimit_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	if err := enforcer.CheckManagedRunLimit(context.Background(), ""); err != nil {
+		t.Fatalf("empty org should return nil: %v", err)
+	}
+}
+
+// Enforcement recordRejection/recordFailOpen nil-metrics guards.
+
+func TestEnforcer_RecordRejection_NilMetrics(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	enforcer.recordRejection(context.Background(), "test", domain.PlanFree)
+}
+
+func TestEnforcer_RecordFailOpen_NilMetrics(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	enforcer.recordFailOpen(context.Background(), "test", "db_error")
+}
+
 func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
 	store := &mockDowngradeStore{
 		mockBillingStore: mockBillingStore{
