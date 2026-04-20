@@ -875,3 +875,90 @@ func TestIsDowngrade_ProToStarter_CreditDecreases(t *testing.T) {
 		t.Fatal("precondition: starter credit < pro credit")
 	}
 }
+
+// EffectiveLimits boundary mutants.
+
+func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
+	t.Parallel()
+	base := GetPlanLimits(domain.PlanPro)
+	addons := []Addon{
+		{AddonType: AddonConcurrentRuns, Quantity: 0, Active: true},
+	}
+	result := EffectiveLimits(base, addons)
+	if result.MaxConcurrentRuns != base.MaxConcurrentRuns {
+		t.Errorf("zero quantity should be ignored: got %d, want %d",
+			result.MaxConcurrentRuns, base.MaxConcurrentRuns)
+	}
+}
+
+func TestEffectiveLimits_RetentionExactlyAtCap(t *testing.T) {
+	t.Parallel()
+	base := GetPlanLimits(domain.PlanPro)
+	pack := AddonPacks[AddonDataRetention]
+	packs := (pack.MaxTotal - base.RetentionDays) / pack.PackSize
+	addons := []Addon{
+		{AddonType: AddonDataRetention, Quantity: packs, Active: true},
+	}
+	result := EffectiveLimits(base, addons)
+	if result.RetentionDays != pack.MaxTotal {
+		t.Errorf("retention at cap = %d, want %d", result.RetentionDays, pack.MaxTotal)
+	}
+}
+
+// Downgrade boundary mutants.
+
+func TestPreviewDowngrade_ZeroHTTPJobs_NoImpact(t *testing.T) {
+	store := &mockDowngradeStore{
+		mockBillingStore: mockBillingStore{
+			subscriptions: map[string]*OrgSubscription{
+				"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
+			},
+			projects:     map[string][]string{"org-1": {"p1"}},
+			httpJobCount: 0,
+		},
+	}
+	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, imp := range impact.Impacts {
+		if imp.Resource == "http_mode_jobs" {
+			t.Error("expected no http_mode_jobs impact when count is 0")
+		}
+	}
+}
+
+func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
+	store := &mockDowngradeStore{
+		mockBillingStore: mockBillingStore{
+			subscriptions: map[string]*OrgSubscription{
+				"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
+			},
+			projects: map[string][]string{"org-1": {"p1"}},
+		},
+	}
+	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	freeLimits := GetPlanLimits(domain.PlanFree)
+	expectedTarget := len(freeLimits.AllowedRegions)
+	if expectedTarget == 0 {
+		expectedTarget = TotalRegions
+	}
+	proLimits := GetPlanLimits(domain.PlanPro)
+	expectedCurrent := len(proLimits.AllowedRegions)
+	if expectedCurrent == 0 {
+		expectedCurrent = TotalRegions
+	}
+	for _, imp := range impact.Impacts {
+		if imp.Resource == "regions" {
+			if imp.Current != int64(expectedCurrent) {
+				t.Errorf("regions.Current = %d, want %d", imp.Current, expectedCurrent)
+			}
+			if imp.Limit != int64(expectedTarget) {
+				t.Errorf("regions.Limit = %d, want %d", imp.Limit, expectedTarget)
+			}
+		}
+	}
+}
