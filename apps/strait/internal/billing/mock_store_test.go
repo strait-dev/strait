@@ -56,6 +56,8 @@ type mockBillingStore struct {
 	getOrgSubscriptionFn       func(ctx context.Context, orgID string) (*OrgSubscription, error)
 	enterpriseContracts        map[string]*EnterpriseContract
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
+	activeAddons               []Addon
+	httpJobCount               int
 }
 
 func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
@@ -356,7 +358,7 @@ func (m *mockBillingStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, 
 }
 
 func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addon, error) {
-	return nil, nil
+	return m.activeAddons, nil
 }
 
 func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
@@ -417,5 +419,5 @@ func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string,
 }
 
 func (m *mockBillingStore) CountHTTPJobsByOrg(_ context.Context, _ string) (int, error) {
-	return 0, nil
+	return m.httpJobCount, nil
 }

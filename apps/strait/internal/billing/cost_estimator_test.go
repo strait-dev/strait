@@ -170,3 +170,76 @@ func TestFindCheaperAlternative_ZeroCost(t *testing.T) {
 		t.Error("expected nil for zero cost")
 	}
 }
+
+func TestFindCheaperAlternative_SmallestPreset(t *testing.T) {
+	t.Parallel()
+	result := findCheaperAlternative("micro", 60, 100)
+	if result != nil {
+		t.Error("expected nil for smallest preset (no cheaper alternative)")
+	}
+}
+
+func TestFindCheaperAlternative_LargePreset(t *testing.T) {
+	t.Parallel()
+	largeCost := compute.CostMedium1x * 60
+	result := findCheaperAlternative("medium-1x", 60, largeCost)
+	if result == nil {
+		t.Fatal("expected cheaper alternative for medium-1x")
+	}
+	if result.Preset != "micro" {
+		t.Errorf("expected micro as cheapest alternative, got %s", result.Preset)
+	}
+	if result.SavingsPct <= 0 || result.SavingsPct >= 100 {
+		t.Errorf("savings pct should be between 0 and 100, got %f", result.SavingsPct)
+	}
+	if result.CostMicro >= largeCost {
+		t.Errorf("cheaper alternative cost %d should be less than %d", result.CostMicro, largeCost)
+	}
+}
+
+func TestEstimateWhatIf_ArithmeticValues(t *testing.T) {
+	t.Parallel()
+	est, err := EstimateWhatIf("micro", 60, "", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedCostPerRun := float64(compute.CostMicro*60) / 1_000_000
+	assertCostApprox(t, est.CostPerRunUsd, expectedCostPerRun)
+	assertCostApprox(t, est.DailyCostUsd, expectedCostPerRun*1)
+	assertCostApprox(t, est.MonthlyCostUsd, expectedCostPerRun*1*30)
+}
+
+func TestEstimateWhatIf_CronMultiplier(t *testing.T) {
+	t.Parallel()
+	est, err := EstimateWhatIf("micro", 60, "0 * * * *", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Hourly cron * 2 jobs = 48 runs/day
+	if est.RunsPerDay != 48 {
+		t.Errorf("RunsPerDay = %.0f, want 48", est.RunsPerDay)
+	}
+}
+
+func TestEstimateJobCost_NegativeCredit(t *testing.T) {
+	t.Parallel()
+	est, err := EstimateJobCost("micro", 60, -1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if est.CreditRunsRemaining > 0 {
+		t.Errorf("negative credit should yield non-positive runs remaining, got %d", est.CreditRunsRemaining)
+	}
+}
+
+func assertCostApprox(t *testing.T, got, want float64) {
+	t.Helper()
+	diff := got - want
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 0.0001 {
+		t.Errorf("got %f, want %f", got, want)
+	}
+}

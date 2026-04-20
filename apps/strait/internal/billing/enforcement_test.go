@@ -1186,3 +1186,103 @@ func TestEnforcer_GetOrgPlanLimits_NoSubscription_DefaultsFree(t *testing.T) {
 		t.Errorf("PlanTier = %q, want %q", limits.PlanTier, domain.PlanFree)
 	}
 }
+
+func TestEnforcer_GetDailyRunCount_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+	count, err := enforcer.GetDailyRunCount(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for empty orgID", count)
+	}
+}
+
+func TestEnforcer_GetDailyRunCount_NoKey(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+	count, err := enforcer.GetDailyRunCount(context.Background(), "org-missing")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for non-existent key", count)
+	}
+}
+
+func TestEnforcer_GetDailyRunCount_WithRuns(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+
+	key := "strait:org_runs:org-counted:" + time.Now().UTC().Format("2006-01-02")
+	mr.Set(key, "5")
+
+	count, err := enforcer.GetDailyRunCount(context.Background(), "org-counted")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("count = %d, want 5", count)
+	}
+}
+
+func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-addon": {OrgID: "org-addon", PlanTier: "pro", Status: "active"},
+	}
+	store.activeAddons = []Addon{
+		{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+	}
+
+	limits, err := enforcer.GetOrgPlanLimits(context.Background(), "org-addon")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	baseLimits := GetPlanLimits(domain.PlanPro)
+	wantConcurrent := baseLimits.MaxConcurrentRuns + 100 // 2 packs x 50
+	if limits.MaxConcurrentRuns != wantConcurrent {
+		t.Errorf("MaxConcurrentRuns = %d, want %d (base %d + 100)", limits.MaxConcurrentRuns, wantConcurrent, baseLimits.MaxConcurrentRuns)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_UnlimitedEnterprise(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-ent": {OrgID: "org-ent", PlanTier: "enterprise", Status: "active"},
+	}
+	store.executingRuns = map[string]int{
+		"org-ent": 999,
+	}
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-ent")
+	if err != nil {
+		t.Fatalf("enterprise should have unlimited concurrent runs: %v", err)
+	}
+}
+
+func TestEnforcer_NewEnforcer_CacheTTL(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+	if enforcer.cacheTTL != 5*time.Minute {
+		t.Errorf("cacheTTL = %v, want 5m", enforcer.cacheTTL)
+	}
+}
+
+func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+	warned, err := enforcer.Check80PercentDailyRunWarning(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warned {
+		t.Error("expected false for empty orgID")
+	}
+}
