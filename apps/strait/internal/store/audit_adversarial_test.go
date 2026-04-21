@@ -3,11 +3,12 @@ package store
 import (
 	"encoding/json"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // --- Signature determinism and sensitivity. ---.
@@ -36,7 +37,7 @@ func TestComputeAuditSignature_ConcurrentSafe(t *testing.T) {
 	ev := testAuditEvent("ev-1", "proj-1", "create")
 	expected := ComputeAuditSignature(ev, key)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make(chan string, 100)
 	for range 100 {
 		wg.Go(func() {
