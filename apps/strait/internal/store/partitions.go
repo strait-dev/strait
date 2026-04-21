@@ -232,6 +232,25 @@ func (q *Queries) ExecDDL(ctx context.Context, sql string) error {
 	return nil
 }
 
+// PartitionEstimatedRowCount returns the estimated row count from
+// pg_stat_user_tables for the given partition. The estimate may be stale
+// but is safe for skipping obviously non-empty partitions before a more
+// expensive COUNT(*).
+func (q *Queries) PartitionEstimatedRowCount(ctx context.Context, partition string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.PartitionEstimatedRowCount")
+	defer span.End()
+
+	var est int64
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(n_live_tup, 0)
+		FROM pg_stat_user_tables
+		WHERE relname = $1`, partition).Scan(&est)
+	if err != nil {
+		return 0, fmt.Errorf("partition estimated row count %s: %w", partition, err)
+	}
+	return est, nil
+}
+
 // DropPartitionWithTimeout drops the named partition inside a transaction
 // using SET LOCAL lock_timeout so the timeout does not leak to other pool
 // connections.

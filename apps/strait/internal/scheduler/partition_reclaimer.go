@@ -29,6 +29,7 @@ type PartitionReclaimerStore interface {
 	ListJobRunsPartitions(ctx context.Context) ([]string, error)
 	ListOutboxHistoryPartitions(ctx context.Context) ([]string, error)
 	PartitionRowCount(ctx context.Context, partition string) (int64, error)
+	PartitionEstimatedRowCount(ctx context.Context, partition string) (int64, error)
 	DropPartitionWithTimeout(ctx context.Context, partition string, timeout time.Duration) error
 }
 
@@ -142,6 +143,12 @@ func (p *PartitionReclaimer) reclaimPartitions(ctx context.Context, partitions [
 			continue
 		}
 		if !partMonth.Before(cutoffMonth) {
+			continue
+		}
+
+		est, err := p.store.PartitionEstimatedRowCount(ctx, name)
+		if err == nil && est > 0 {
+			p.logger.Debug("partition reclaimer: skipping non-empty partition (estimate)", "partition", name, "estimated_rows", est)
 			continue
 		}
 

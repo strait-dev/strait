@@ -13,8 +13,10 @@ type fakeReclaimerStore struct {
 	jobPartitions    []string
 	outboxPartitions []string
 	rowCounts        map[string]int64
+	estimatedCounts  map[string]int64
 	dropped          []string
 	ddlErr           error
+	rowCountCalled   map[string]bool
 }
 
 func (f *fakeReclaimerStore) ListJobRunsPartitions(_ context.Context) ([]string, error) {
@@ -26,7 +28,20 @@ func (f *fakeReclaimerStore) ListOutboxHistoryPartitions(_ context.Context) ([]s
 }
 
 func (f *fakeReclaimerStore) PartitionRowCount(_ context.Context, name string) (int64, error) {
+	if f.rowCountCalled == nil {
+		f.rowCountCalled = make(map[string]bool)
+	}
+	f.rowCountCalled[name] = true
 	return f.rowCounts[name], nil
+}
+
+func (f *fakeReclaimerStore) PartitionEstimatedRowCount(_ context.Context, name string) (int64, error) {
+	if f.estimatedCounts != nil {
+		if est, ok := f.estimatedCounts[name]; ok {
+			return est, nil
+		}
+	}
+	return 0, nil
 }
 
 func (f *fakeReclaimerStore) DropPartitionWithTimeout(_ context.Context, partition string, _ time.Duration) error {
@@ -186,5 +201,47 @@ func TestPartitionReclaimer_Defaults(t *testing.T) {
 	}
 	if r.safetyMonths != 2 {
 		t.Errorf("safetyMonths = %d", r.safetyMonths)
+	}
+}
+
+func TestPartitionReclaimer_SkipsOnEstimateNonEmpty(t *testing.T) {
+	old := time.Now().UTC().AddDate(0, -6, 0).Format("2006_01")
+	name := "job_runs_p" + old
+
+	s := &fakeReclaimerStore{
+		jobPartitions:   []string{name},
+		rowCounts:       map[string]int64{name: 0},
+		estimatedCounts: map[string]int64{name: 500},
+	}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
+	if err := r.RunOnceForTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s.rowCountCalled[name] {
+		t.Error("PartitionRowCount should not be called when estimate is non-empty")
+	}
+	if len(s.dropped) != 0 {
+		t.Errorf("expected no drops when estimate says non-empty, got %v", s.dropped)
+	}
+}
+
+func TestPartitionReclaimer_FallsThroughOnEstimateZero(t *testing.T) {
+	old := time.Now().UTC().AddDate(0, -6, 0).Format("2006_01")
+	name := "job_runs_p" + old
+
+	s := &fakeReclaimerStore{
+		jobPartitions:   []string{name},
+		rowCounts:       map[string]int64{name: 0},
+		estimatedCounts: map[string]int64{name: 0},
+	}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
+	if err := r.RunOnceForTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.rowCountCalled[name] {
+		t.Error("PartitionRowCount should be called when estimate is zero")
+	}
+	if len(s.dropped) != 1 {
+		t.Errorf("expected 1 drop after estimate=0 and exact count=0, got %d", len(s.dropped))
 	}
 }
