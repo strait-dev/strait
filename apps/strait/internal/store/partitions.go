@@ -231,3 +231,38 @@ func (q *Queries) ExecDDL(ctx context.Context, sql string) error {
 	}
 	return nil
 }
+
+// DropPartitionWithTimeout drops the named partition inside a transaction
+// using SET LOCAL lock_timeout so the timeout does not leak to other pool
+// connections.
+func (q *Queries) DropPartitionWithTimeout(ctx context.Context, partition string, timeout time.Duration) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DropPartitionWithTimeout")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("drop partition: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("drop partition begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	ms := timeout.Milliseconds()
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", ms)); err != nil {
+		return fmt.Errorf("drop partition set lock_timeout: %w", err)
+	}
+
+	quoted, err := SafeQuoteIdent(partition)
+	if err != nil {
+		return fmt.Errorf("drop partition: invalid name %q: %w", partition, err)
+	}
+	if _, err := tx.Exec(ctx, "DROP TABLE IF EXISTS "+quoted); err != nil {
+		return fmt.Errorf("drop partition %s: %w", partition, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("drop partition commit: %w", err)
+	}
+	return nil
+}

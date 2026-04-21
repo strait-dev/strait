@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"regexp"
 	"sync/atomic"
@@ -30,7 +29,7 @@ type PartitionReclaimerStore interface {
 	ListJobRunsPartitions(ctx context.Context) ([]string, error)
 	ListOutboxHistoryPartitions(ctx context.Context) ([]string, error)
 	PartitionRowCount(ctx context.Context, partition string) (int64, error)
-	ExecDDL(ctx context.Context, sql string) error
+	DropPartitionWithTimeout(ctx context.Context, partition string, timeout time.Duration) error
 }
 
 type PartitionReclaimerConfig struct {
@@ -157,8 +156,7 @@ func (p *PartitionReclaimer) reclaimPartitions(ctx context.Context, partitions [
 			continue
 		}
 
-		ddl := fmt.Sprintf("SET lock_timeout = '5s'; DROP TABLE IF EXISTS %s", name)
-		if err := p.store.ExecDDL(ctx, ddl); err != nil {
+		if err := p.store.DropPartitionWithTimeout(ctx, name, 5*time.Second); err != nil {
 			p.logger.Warn("partition reclaimer: drop failed", "partition", name, "error", err)
 			p.errors.Add(1)
 			continue

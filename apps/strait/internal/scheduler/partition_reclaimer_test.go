@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var _ PartitionReclaimerStore = (*fakeReclaimerStore)(nil)
+
 type fakeReclaimerStore struct {
 	jobPartitions    []string
 	outboxPartitions []string
@@ -27,11 +29,11 @@ func (f *fakeReclaimerStore) PartitionRowCount(_ context.Context, name string) (
 	return f.rowCounts[name], nil
 }
 
-func (f *fakeReclaimerStore) ExecDDL(_ context.Context, sql string) error {
+func (f *fakeReclaimerStore) DropPartitionWithTimeout(_ context.Context, partition string, _ time.Duration) error {
 	if f.ddlErr != nil {
 		return f.ddlErr
 	}
-	f.dropped = append(f.dropped, sql)
+	f.dropped = append(f.dropped, partition)
 	return nil
 }
 
