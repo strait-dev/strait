@@ -34,7 +34,7 @@ func (q *Queries) ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time
 				retry_of_outbox_id
 			FROM enqueue_outbox
 			WHERE id IN (SELECT id FROM to_archive)
-			ON CONFLICT (id) DO NOTHING
+			ON CONFLICT (id, consumed_at) DO NOTHING
 			RETURNING id
 		)
 		DELETE FROM enqueue_outbox WHERE id IN (SELECT id FROM archived)`

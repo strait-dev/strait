@@ -11,11 +11,11 @@ CREATE TABLE IF NOT EXISTS enqueue_outbox_history (
     scheduled_at      TIMESTAMPTZ,
     priority          INT NOT NULL DEFAULT 0,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    consumed_at       TIMESTAMPTZ,
+    consumed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     error             TEXT,
     retry_of_outbox_id TEXT,
     archived_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (id)
+    PRIMARY KEY (id, consumed_at)
 ) PARTITION BY RANGE (consumed_at);
 
 CREATE TABLE IF NOT EXISTS enqueue_outbox_history_default
