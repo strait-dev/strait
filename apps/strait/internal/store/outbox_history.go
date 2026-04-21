@@ -19,6 +19,7 @@ func (q *Queries) ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time
 			SELECT id FROM enqueue_outbox
 			WHERE consumed_at IS NOT NULL
 			  AND consumed_at < $1
+			  AND (error IS NULL OR error = '')
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		),

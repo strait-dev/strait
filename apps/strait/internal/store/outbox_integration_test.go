@@ -376,3 +376,76 @@ func writeCustomQuarantinedOutboxRow(
 		t.Fatalf("Commit() error = %v", err)
 	}
 }
+
+func TestArchiveConsumedOutboxBatch_PreservesQuarantinedRows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	job := baseJob(newID(), "project-outbox-archive")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	past := time.Now().Add(-10 * time.Minute)
+
+	// Write a quarantined row (consumed with an error).
+	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "quarantined-1", past, "some error")
+
+	// Write a normally consumed row (consumed without error).
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{{
+		ID:        "consumed-1",
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"ok":true}`),
+	}}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("WriteOutboxInTx: %v", err)
+	}
+	if err := store.MarkOutboxConsumedInTx(ctx, tx, []string{"consumed-1"}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("MarkOutboxConsumedInTx: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE enqueue_outbox SET consumed_at = $2 WHERE id = $1`, "consumed-1", past.UTC()); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("force consumed_at: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Archive: should move consumed-1 but NOT quarantined-1.
+	archived, err := q.ArchiveConsumedOutboxBatch(ctx, time.Minute, 100)
+	if err != nil {
+		t.Fatalf("ArchiveConsumedOutboxBatch: %v", err)
+	}
+	if archived != 1 {
+		t.Errorf("archived = %d, want 1", archived)
+	}
+
+	// Quarantined row should still be visible to the admin API.
+	rows, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 10, nil, "")
+	if err != nil {
+		t.Fatalf("ListQuarantinedOutbox: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("quarantined rows = %d, want 1", len(rows))
+	}
+	if rows[0].ID != "quarantined-1" {
+		t.Errorf("quarantined row ID = %q, want %q", rows[0].ID, "quarantined-1")
+	}
+
+	// Consumed row should be gone from the hot table.
+	var hotCount int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, "consumed-1").Scan(&hotCount); err != nil {
+		t.Fatalf("count consumed-1: %v", err)
+	}
+	if hotCount != 0 {
+		t.Error("consumed row should be gone from hot table after archive")
+	}
+}
