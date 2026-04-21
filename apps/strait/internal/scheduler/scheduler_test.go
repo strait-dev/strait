@@ -263,6 +263,10 @@ func (m *mockSchedulerStore) DeleteOutboxHistoryPastRetention(_ context.Context,
 	return 0, nil
 }
 
+func (m *mockSchedulerStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockSchedulerStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
 }

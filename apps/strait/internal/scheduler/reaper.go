@@ -68,6 +68,7 @@ type ReaperStore interface {
 	DeleteHistoryRunsPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time.Duration, batchSize int) (int64, error)
 	DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
 }
 
@@ -1032,6 +1033,7 @@ func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	if r.archiveEnabled {
 		r.archiveTerminalRuns(ctx)
 		r.archiveConsumedOutbox(ctx)
+		r.purgeStaleQuarantinedOutbox(ctx)
 		r.reapHistoryRetention(ctx)
 		r.reapOutboxHistoryRetention(ctx)
 		return
@@ -1130,6 +1132,27 @@ func (r *Reaper) reapOutboxHistoryRetention(ctx context.Context) {
 	r.recordDeleted(ctx, "outbox_history", deleted)
 	if deleted > 0 {
 		slog.Info("deleted outbox history past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) purgeStaleQuarantinedOutbox(ctx context.Context) {
+	const operation = "purge_stale_quarantined_outbox"
+	batchSize := r.deleteBatchLimit
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	cutoff := time.Now().Add(-r.longRetention)
+	deleted, err := r.store.PurgeQuarantinedOutboxOlderThan(ctx, cutoff, batchSize)
+	if err != nil {
+		slog.Error("failed to purge stale quarantined outbox rows", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "quarantined_outbox", deleted)
+	if deleted > 0 {
+		slog.Info("purged stale quarantined outbox rows", "count", deleted)
 	}
 }
 

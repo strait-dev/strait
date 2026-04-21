@@ -365,6 +365,10 @@ func (m *mockReaperStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ 
 	return 0, nil
 }
 
+func (m *mockReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
 }

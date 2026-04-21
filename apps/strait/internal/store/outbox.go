@@ -462,6 +462,25 @@ func (q *Queries) PurgeQuarantinedOutbox(ctx context.Context, projectID, id stri
 	return nil, fmt.Errorf("%w: outbox row %s disappeared before purge completed", ErrOutboxRowConflict, id)
 }
 
+func (q *Queries) PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.PurgeQuarantinedOutboxOlderThan")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM enqueue_outbox
+		WHERE id IN (
+			SELECT id FROM enqueue_outbox
+			WHERE consumed_at IS NOT NULL
+			  AND error IS NOT NULL AND error <> ''
+			  AND consumed_at < $1
+			LIMIT $2
+		)`, cutoff, limit)
+	if err != nil {
+		return 0, fmt.Errorf("purge stale quarantined outbox: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func loadOutboxRowState(ctx context.Context, db DBTX, projectID, id string) (*outboxRowState, error) {
 	return scanOutboxRowState(
 		ctx,
