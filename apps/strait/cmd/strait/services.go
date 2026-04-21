@@ -691,7 +691,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Pool:                    p,
 		Queue:                   q,
 		Wake:                    wake,
-		Degraded:                notifier.Degraded(),
+		Degraded:                notifier,
 		ConcurrencyLimit:        adaptive,
 		Store:                   queries,
 		TxPool:                  txPool,

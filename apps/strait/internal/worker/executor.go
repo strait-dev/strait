@@ -133,7 +133,7 @@ type Executor struct {
 	runStarted               atomic.Bool
 	claimCursor              *queue.ClaimCursor
 	degradedPollInterval     time.Duration
-	degraded                 <-chan struct{}
+	degraded                 queue.DegradedNotifier
 	useDenormalizedDequeue   bool
 	dbCircuit                *queue.DBCircuit
 	eventChannelSize         int
@@ -200,9 +200,11 @@ type ExecutorConfig struct {
 	// queue notifier enters degraded mode (LISTEN disconnected for too long).
 	// Zero/negative falls back to 1 second.
 	DegradedPollInterval time.Duration
-	// Degraded is a channel that closes when the queue notifier enters
-	// degraded mode. Nil means no degraded-mode support.
-	Degraded <-chan struct{}
+	// Degraded provides a channel that closes when the queue notifier enters
+	// degraded mode. The executor re-invokes Degraded() on each recovery to
+	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
+	// degraded-mode support.
+	Degraded queue.DegradedNotifier
 	// UseDenormalizedDequeue opts into the job_active_counts-backed
 	// dequeue path. Defaults to false so existing deployments are unaffected.
 	UseDenormalizedDequeue bool
@@ -586,7 +588,10 @@ func (e *Executor) Run(ctx context.Context) {
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
-	degraded := e.degraded
+	var degradedCh <-chan struct{}
+	if e.degraded != nil {
+		degradedCh = e.degraded.Degraded()
+	}
 	inDegradedMode := false
 
 	for {
@@ -605,14 +610,16 @@ func (e *Executor) Run(ctx context.Context) {
 			if inDegradedMode {
 				ticker.Reset(e.pollInterval)
 				inDegradedMode = false
-				degraded = e.degraded
+				if e.degraded != nil {
+					degradedCh = e.degraded.Degraded()
+				}
 				e.logger.Info("executor restored normal poll interval after wake reconnect")
 			}
 			e.doPoll(ctx)
-		case <-degraded:
+		case <-degradedCh:
 			ticker.Reset(e.degradedPollInterval)
 			inDegradedMode = true
-			degraded = nil
+			degradedCh = nil
 			e.logger.Warn("executor entering degraded mode: fast polling engaged",
 				"degraded_poll_interval", e.degradedPollInterval,
 			)

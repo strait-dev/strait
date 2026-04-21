@@ -21,6 +21,13 @@ const (
 	defaultMaxDelay     = 30 * time.Second
 )
 
+// DegradedNotifier provides a channel that closes when the queue notifier
+// enters degraded mode. Callers should re-invoke Degraded() after each
+// recovery to obtain the fresh channel.
+type DegradedNotifier interface {
+	Degraded() <-chan struct{}
+}
+
 type QueueNotifier struct {
 	databaseURL  string
 	channel      string

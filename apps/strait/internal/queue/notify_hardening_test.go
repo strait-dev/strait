@@ -133,6 +133,46 @@ func TestQueueNotifier_DegradedConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
+func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
+	n := NewQueueNotifier("postgres://unused", nil)
+
+	// Initially the channel is open.
+	ch1 := n.Degraded()
+	select {
+	case <-ch1:
+		t.Fatal("channel should be open on fresh notifier")
+	default:
+	}
+
+	// Enter degraded mode.
+	n.MarkDegradedForTest()
+	select {
+	case <-n.Degraded():
+	default:
+		t.Fatal("channel should be closed after markDegraded")
+	}
+
+	// Reset simulates reconnect.
+	n.DegradedReset()
+	ch2 := n.Degraded()
+	select {
+	case <-ch2:
+		t.Fatal("fresh channel after reset should be open")
+	default:
+	}
+
+	// ch1 is still the old closed channel; ch2 is the new open one.
+	select {
+	case <-ch1:
+		// expected: old channel stays closed
+	default:
+		t.Error("old channel should remain closed after reset")
+	}
+}
+
+// Verify that QueueNotifier satisfies the DegradedNotifier interface.
+var _ DegradedNotifier = (*QueueNotifier)(nil)
+
 func TestQueueNotifier_ConnectionAgeAfterSet(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
 	// Simulate a successful listenLoop.

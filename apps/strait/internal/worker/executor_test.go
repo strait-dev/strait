@@ -272,6 +272,12 @@ func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	return calls
 }
 
+type mockDegradedNotifier struct {
+	ch <-chan struct{}
+}
+
+func (m *mockDegradedNotifier) Degraded() <-chan struct{} { return m.ch }
+
 type mockExecQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
@@ -1174,7 +1180,7 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
-	degraded := make(chan struct{})
+	degradedCh := make(chan struct{})
 	pollCount := make(chan struct{}, 100)
 
 	q := &mockExecQueue{
@@ -1194,7 +1200,7 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 		Pool:                 pool,
 		Queue:                q,
 		Wake:                 wake,
-		Degraded:             degraded,
+		Degraded:             &mockDegradedNotifier{ch: degradedCh},
 		DegradedPollInterval: 50 * time.Millisecond,
 		Store:                &mockExecutorStore{},
 		PollInterval:         time.Hour,
@@ -1209,7 +1215,7 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 	}()
 
 	// Close the degraded channel to simulate notifier entering degraded mode.
-	close(degraded)
+	close(degradedCh)
 
 	// With a 50ms degraded poll interval, we should see multiple polls quickly.
 	deadline := time.After(2 * time.Second)
@@ -1221,6 +1227,94 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("expected at least 3 degraded polls, got %d", polls)
 		}
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not stop after context cancel")
+	}
+}
+
+type rearmDegradedNotifier struct {
+	mu    sync.Mutex
+	calls int
+	chs   []<-chan struct{}
+}
+
+func (r *rearmDegradedNotifier) Degraded() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	idx := r.calls
+	r.calls++
+	if idx < len(r.chs) {
+		return r.chs[idx]
+	}
+	return make(chan struct{})
+}
+
+func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
+	t.Parallel()
+
+	wake := make(chan struct{}, 1)
+	pollCount := atomic.Int64{}
+
+	closedCh := make(chan struct{})
+	close(closedCh)
+	openCh := make(chan struct{})
+
+	notifier := &rearmDegradedNotifier{
+		chs: []<-chan struct{}{closedCh, openCh},
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			pollCount.Add(1)
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                 pool,
+		Queue:                q,
+		Wake:                 wake,
+		Degraded:             notifier,
+		DegradedPollInterval: 50 * time.Millisecond,
+		Store:                &mockExecutorStore{},
+		PollInterval:         time.Hour,
+		HeartbeatInterval:    time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(done)
+	}()
+
+	// The first Degraded() call returns closedCh, so the executor should
+	// enter degraded mode and start fast polling.
+	time.Sleep(200 * time.Millisecond)
+
+	// Simulate reconnect: send a wake event.
+	wake <- struct{}{}
+	time.Sleep(100 * time.Millisecond)
+
+	// After recovery, the executor re-armed with openCh (the second call
+	// to Degraded()). Since openCh is never closed, the executor should NOT
+	// re-enter degraded mode. Record the poll count and wait.
+	baseline := pollCount.Load()
+	time.Sleep(300 * time.Millisecond)
+	final := pollCount.Load()
+
+	// Under normal poll interval (1 hour), no additional polls should fire.
+	// Allow 1 extra poll from timing slack.
+	if final-baseline > 2 {
+		t.Errorf("executor re-entered degraded fast-poll: %d polls after recovery, want <= 2", final-baseline)
 	}
 
 	cancel()
