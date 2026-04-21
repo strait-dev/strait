@@ -45,6 +45,6 @@ CREATE INDEX IF NOT EXISTS idx_outbox_history_quarantined
     ON enqueue_outbox_history (project_id, consumed_at DESC)
     WHERE error IS NOT NULL AND error <> '';
 
-ALTER TABLE enqueue_outbox_history SET (fillfactor = 100, autovacuum_vacuum_scale_factor = 0.1);
+ALTER TABLE enqueue_outbox_history_default SET (fillfactor = 100, autovacuum_vacuum_scale_factor = 0.1);
 
 UPDATE schema_version SET version = 219, updated_at = NOW();
