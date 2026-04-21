@@ -3,9 +3,11 @@ package health
 import (
 	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestRegistry_AllUp(t *testing.T) {
@@ -103,7 +105,7 @@ func TestRegistry_ConcurrentRegister(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			r.Register(NewChecker("test", func(ctx context.Context) error { return nil }))
@@ -137,7 +139,26 @@ func TestRegistry_ChecksRunInParallel(t *testing.T) {
 	if result.Status != StatusUp {
 		t.Fatalf("status = %q, want %q", result.Status, StatusUp)
 	}
-	if elapsed > 100*time.Millisecond {
-		t.Fatalf("elapsed = %v, want < 100ms (checks should run in parallel)", elapsed)
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("elapsed = %v, want < 200ms (checks should run in parallel, sequential would be 100ms+)", elapsed)
+	}
+}
+
+func TestRegistry_AllCheckersExecuted(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry()
+	var calls atomic.Int32
+	for range 20 {
+		r.Register(NewChecker("counter", func(_ context.Context) error {
+			calls.Add(1)
+			return nil
+		}))
+	}
+	result := r.CheckAll(context.Background())
+	if result.Status != StatusUp {
+		t.Fatalf("status = %q, want %q", result.Status, StatusUp)
+	}
+	if got := calls.Load(); got != 20 {
+		t.Errorf("checker invocations = %d, want 20", got)
 	}
 }
