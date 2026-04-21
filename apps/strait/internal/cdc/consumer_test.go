@@ -285,7 +285,15 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(30 * time.Millisecond)
+	deadline := time.After(2 * time.Second)
+	for receiveCalls.Load() < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("consumer never called /receive within 2s")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	cancel()
 
 	select {
