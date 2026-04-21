@@ -101,12 +101,14 @@ func BenchmarkWithStatementTimeout_NoTimeout(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		db, cleanup, err := withStatementTimeout(context.Background(), q, "bench")
+		db, tx, err := withStatementTimeout(context.Background(), q, "bench")
 		if err != nil {
 			b.Fatal(err)
 		}
 		_ = db
-		cleanup()
+		if tx != nil {
+			_ = tx.Commit(context.Background())
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -19,13 +20,13 @@ type dequeueSpec struct {
 	postScanFn          func(runs []domain.JobRun) error
 }
 
-func withStatementTimeout(ctx context.Context, q *PostgresQueue, spanName string) (store.DBTX, func(), error) {
+func withStatementTimeout(ctx context.Context, q *PostgresQueue, spanName string) (store.DBTX, pgx.Tx, error) {
 	if q.statementTimeout <= 0 {
-		return q.db, func() {}, nil
+		return q.db, nil, nil
 	}
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
-		return q.db, func() {}, nil
+		return q.db, nil, nil
 	}
 	tx, err := beginner.Begin(ctx)
 	if err != nil {
@@ -36,7 +37,7 @@ func withStatementTimeout(ctx context.Context, q *PostgresQueue, spanName string
 		_ = tx.Rollback(ctx)
 		return nil, nil, fmt.Errorf("%s: set statement timeout: %w", spanName, err)
 	}
-	return tx, func() { _ = tx.Commit(ctx) }, nil
+	return tx, tx, nil
 }
 
 func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSpec) ([]domain.JobRun, error) {
@@ -47,11 +48,13 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 		return nil, nil
 	}
 
-	db, cleanup, err := withStatementTimeout(ctx, q, spec.spanName)
+	db, tx, err := withStatementTimeout(ctx, q, spec.spanName)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
+	if tx != nil {
+		defer tx.Rollback(ctx) //nolint:errcheck
+	}
 
 	withClause := concurrencyCTEs + ","
 	if spec.skipConcurrencyCTEs {
@@ -110,6 +113,11 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 			return runs, err
 		}
 	}
+	if tx != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
+		}
+	}
 	return runs, nil
 }
 
@@ -121,11 +129,13 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 		return nil, nil
 	}
 
-	db, cleanup, err := withStatementTimeout(ctx, q, spec.spanName)
+	db, tx, err := withStatementTimeout(ctx, q, spec.spanName)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
+	if tx != nil {
+		defer tx.Rollback(ctx) //nolint:errcheck
+	}
 
 	query := fmt.Sprintf(`
 		WITH %s,
@@ -171,6 +181,11 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 	if spec.postScanFn != nil {
 		if err := spec.postScanFn(runs); err != nil {
 			return runs, err
+		}
+	}
+	if tx != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
 		}
 	}
 	return runs, nil

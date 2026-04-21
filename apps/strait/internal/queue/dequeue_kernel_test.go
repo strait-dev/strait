@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestExecuteDequeue_ZeroN(t *testing.T) {
@@ -132,11 +133,13 @@ func TestExecuteDequeue_PostScanFnCalled(t *testing.T) {
 func TestWithStatementTimeout_NoTxBeginner(t *testing.T) {
 	t.Parallel()
 	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(5*time.Second))
-	db, cleanup, err := withStatementTimeout(context.Background(), q, "test")
+	db, tx, err := withStatementTimeout(context.Background(), q, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer cleanup()
+	if tx != nil {
+		t.Error("should return nil tx when DBTX does not implement TxBeginner")
+	}
 	if db != q.db {
 		t.Error("should return original db when DBTX does not implement TxBeginner")
 	}
@@ -145,11 +148,13 @@ func TestWithStatementTimeout_NoTxBeginner(t *testing.T) {
 func TestWithStatementTimeout_ZeroDuration(t *testing.T) {
 	t.Parallel()
 	q := NewPostgresQueue(&mockDBTX{})
-	db, cleanup, err := withStatementTimeout(context.Background(), q, "test")
+	db, tx, err := withStatementTimeout(context.Background(), q, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer cleanup()
+	if tx != nil {
+		t.Error("should return nil tx when timeout is zero")
+	}
 	if db != q.db {
 		t.Error("should return original db when timeout is zero")
 	}
@@ -215,6 +220,37 @@ func TestExecuteDequeue_ExtraArgsPassedThrough(t *testing.T) {
 	}
 	if captured[1] != "proj_123" {
 		t.Errorf("extra arg = %v, want proj_123", captured[1])
+	}
+}
+
+func TestWithStatementTimeout_ReturnsTxForExplicitCommit(t *testing.T) {
+	t.Parallel()
+	commitErr := errors.New("connection lost")
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, nil
+			},
+		},
+		commitFn: func(_ context.Context) error {
+			return commitErr
+		},
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) {
+			return tx, nil
+		},
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+	_, txOut, err := withStatementTimeout(context.Background(), q, "test.commit")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if txOut == nil {
+		t.Fatal("expected non-nil tx for explicit commit control")
+	}
+	if err := txOut.Commit(context.Background()); !errors.Is(err, commitErr) {
+		t.Errorf("commit error = %v, want %v", err, commitErr)
 	}
 }
 
