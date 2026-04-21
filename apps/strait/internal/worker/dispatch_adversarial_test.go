@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/compute"
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
@@ -266,7 +268,7 @@ func TestDispatch_ConcurrentSameRunID_OnlyOneExecutes(t *testing.T) {
 
 	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, srv.Client())
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 3 {
 		wg.Go(func() {
 			run := testRun(1)

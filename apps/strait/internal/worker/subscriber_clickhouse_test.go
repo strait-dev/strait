@@ -230,14 +230,13 @@ func TestClickHouseSubscriber_NilEventLister(t *testing.T) {
 		BatchSize: 100,
 	}, slog.Default())
 
-	sub := ClickHouseSubscriber(exporter, nil)
-	sub(context.Background(), RunLifecycleEvent{
+	handle := NewClickHouseSubscriberHandle(exporter, nil)
+	handle.Subscriber()(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
+	handle.Wait()
 
-	// Only the analytics record should be enqueued (no event lister).
-	time.Sleep(50 * time.Millisecond)
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending (analytics only), got %d", exporter.PendingCount())
 	}
@@ -254,16 +253,13 @@ func TestClickHouseSubscriber_EventListError(t *testing.T) {
 		err: errors.New("db error"),
 	}
 
-	sub := ClickHouseSubscriber(exporter, lister)
-	sub(context.Background(), RunLifecycleEvent{
+	handle := NewClickHouseSubscriberHandle(exporter, lister)
+	handle.Subscriber()(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
+	handle.Wait()
 
-	// Wait for goroutine to finish.
-	time.Sleep(50 * time.Millisecond)
-
-	// Only the analytics record should be present; event fetch failed.
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending (analytics only, event fetch failed), got %d", exporter.PendingCount())
 	}
@@ -333,11 +329,13 @@ func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 	defer cancelAll()
 
 	slowLister := &blockingEventLister{
-		cancel: cancelCtx,
-		events: []domain.RunEvent{{ID: "evt-1", RunID: "run-1"}},
+		cancel:  cancelCtx,
+		events:  []domain.RunEvent{{ID: "evt-1", RunID: "run-1"}},
+		started: make(chan struct{}, maxConcurrentEventFetches),
 	}
 
-	sub := ClickHouseSubscriber(exporter, slowLister)
+	handle := NewClickHouseSubscriberHandle(exporter, slowLister)
+	sub := handle.Subscriber()
 
 	// Fill the semaphore by launching maxConcurrentEventFetches goroutines.
 	for i := range maxConcurrentEventFetches {
@@ -346,7 +344,15 @@ func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 			Run:  &domain.JobRun{ID: "run-fill-" + string(rune('A'+i)), ProjectID: "proj-1"},
 		})
 	}
-	time.Sleep(50 * time.Millisecond)
+
+	// Wait for all goroutines to enter ListEvents (and block on the cancel context).
+	for range maxConcurrentEventFetches {
+		select {
+		case <-slowLister.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("not all goroutines entered ListEvents within 2s")
+		}
+	}
 
 	// Next call should block (waiting for semaphore), not return instantly.
 	start := time.Now()
@@ -362,27 +368,31 @@ func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 	select {
 	case <-done:
 		elapsed := time.Since(start)
-		// Should have waited at least a bit (the 5s timeout), not returned instantly.
 		if elapsed < 100*time.Millisecond {
 			t.Errorf("subscriber returned too quickly (%v), expected to wait on semaphore", elapsed)
 		}
 	case <-time.After(10 * time.Second):
-		// The 5-second timeout should have fired by now.
 		t.Fatal("subscriber did not return within expected timeout")
 	}
 
-	// Clean up all blocked goroutines.
 	cancelAll()
-	time.Sleep(100 * time.Millisecond)
+	handle.Wait()
 }
 
 // blockingEventLister blocks ListEvents until its cancel context is done.
 type blockingEventLister struct {
-	cancel context.Context
-	events []domain.RunEvent
+	cancel  context.Context
+	events  []domain.RunEvent
+	started chan struct{}
 }
 
 func (b *blockingEventLister) ListEvents(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
+	if b.started != nil {
+		select {
+		case b.started <- struct{}{}:
+		default:
+		}
+	}
 	select {
 	case <-b.cancel.Done():
 		return nil, b.cancel.Err()
@@ -450,16 +460,13 @@ func TestClickHouseSubscriber_UsageListError(t *testing.T) {
 		err: errors.New("usage db error"),
 	}
 
-	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
-	sub(context.Background(), RunLifecycleEvent{
+	handle := NewClickHouseSubscriberHandle(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
+	handle.Subscriber()(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
+	handle.Wait()
 
-	// Wait for goroutine to finish.
-	time.Sleep(100 * time.Millisecond)
-
-	// Only the analytics record should be present; usage fetch failed.
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending (analytics only, usage fetch failed), got %d", exporter.PendingCount())
 	}
@@ -476,16 +483,13 @@ func TestClickHouseSubscriber_EmptyUsage(t *testing.T) {
 		usage: []domain.RunUsage{},
 	}
 
-	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
-	sub(context.Background(), RunLifecycleEvent{
+	handle := NewClickHouseSubscriberHandle(exporter, nil, ClickHouseSubscriberDeps{UsageLister: usageLister})
+	handle.Subscriber()(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
+	handle.Wait()
 
-	// Wait for goroutine to finish.
-	time.Sleep(100 * time.Millisecond)
-
-	// Only the analytics record, no usage records.
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending (analytics only, empty usage), got %d", exporter.PendingCount())
 	}
@@ -498,14 +502,13 @@ func TestClickHouseSubscriber_NilUsageLister(t *testing.T) {
 		BatchSize: 100,
 	}, slog.Default())
 
-	// Pass no usage lister (variadic empty).
-	sub := ClickHouseSubscriber(exporter, nil)
-	sub(context.Background(), RunLifecycleEvent{
+	handle := NewClickHouseSubscriberHandle(exporter, nil)
+	handle.Subscriber()(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
+	handle.Wait()
 
-	time.Sleep(50 * time.Millisecond)
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending (analytics only, nil usage lister), got %d", exporter.PendingCount())
 	}
@@ -583,17 +586,15 @@ func TestClickHouseSubscriber_ComputeUsageListError(t *testing.T) {
 		err: errors.New("compute db error"),
 	}
 
-	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{
+	handle := NewClickHouseSubscriberHandle(exporter, nil, ClickHouseSubscriberDeps{
 		ComputeUsageLister: computeLister,
 	})
-	sub(context.Background(), RunLifecycleEvent{
+	handle.Subscriber()(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
+	handle.Wait()
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Only the analytics record; compute usage fetch failed.
 	if exporter.PendingCount() != 1 {
 		t.Errorf("expected 1 pending (analytics only, compute usage fetch failed), got %d", exporter.PendingCount())
 	}

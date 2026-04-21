@@ -1737,7 +1737,13 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if attempts.Load() >= 1 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		cancel()
 	}()
 
@@ -4053,8 +4059,13 @@ func TestShutdown_WaitsForCallbacks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go exec.Run(ctx)
 
-	// Wait for the callback to start
-	time.Sleep(200 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if callbackCalled.Load() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
