@@ -42,12 +42,23 @@ func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	gotHot, err := q.GetRun(ctx, run.ID)
-	if gotHot != nil {
+	// Verify the run is gone from the hot table by querying directly.
+	// GetRun has a transparent history fallback, so we bypass it here.
+	var hotCount int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_runs WHERE id = $1`, run.ID).Scan(&hotCount); err != nil {
+		t.Fatalf("count hot rows: %v", err)
+	}
+	if hotCount != 0 {
 		t.Error("run should be gone from hot table after archive")
 	}
-	if err != nil && err != store.ErrRunNotFound {
-		t.Fatalf("GetRun (hot): unexpected error: %v", err)
+
+	// GetRun should still find the run via history fallback.
+	gotViaFallback, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun (fallback): %v", err)
+	}
+	if gotViaFallback == nil {
+		t.Fatal("GetRun should find archived run via history fallback")
 	}
 
 	gotHistory, err := q.GetRunFromHistory(ctx, run.ID)
