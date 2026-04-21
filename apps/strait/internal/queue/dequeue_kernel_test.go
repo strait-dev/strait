@@ -254,6 +254,111 @@ func TestWithStatementTimeout_ReturnsTxForExplicitCommit(t *testing.T) {
 	}
 }
 
+func TestExecuteDequeue_CommitFailureReturnsError(t *testing.T) {
+	t.Parallel()
+
+	commitErr := errors.New("connection reset by peer")
+	callCount := 0
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return &emptyRows{}, nil
+			},
+		},
+		commitFn: func(_ context.Context) error {
+			callCount++
+			return commitErr
+		},
+		rollbackFn: func(_ context.Context) error {
+			return nil
+		},
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) {
+			return tx, nil
+		},
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+
+	runs, err := executeDequeue(context.Background(), q, 10, dequeueSpec{
+		spanName:            "test.commit_fail",
+		candidatesSQL:       "SELECT jr.id FROM job_runs jr LIMIT $1",
+		skipConcurrencyCTEs: true,
+	})
+	if err == nil {
+		t.Fatal("expected error from failed commit")
+	}
+	if !errors.Is(err, commitErr) {
+		t.Errorf("error = %v, want wrapping %v", err, commitErr)
+	}
+	if runs != nil {
+		t.Errorf("runs should be nil on commit failure, got %d runs", len(runs))
+	}
+	if callCount != 1 {
+		t.Errorf("commit called %d times, want 1", callCount)
+	}
+}
+
+func TestExecuteDequeueFair_CommitFailureReturnsError(t *testing.T) {
+	t.Parallel()
+
+	commitErr := errors.New("connection reset by peer")
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return &emptyRows{}, nil
+			},
+		},
+		commitFn: func(_ context.Context) error {
+			return commitErr
+		},
+		rollbackFn: func(_ context.Context) error {
+			return nil
+		},
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) {
+			return tx, nil
+		},
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+
+	runs, err := executeDequeueFair(context.Background(), q, 10, dequeueSpec{
+		spanName: "test.fair_commit_fail",
+		candidatesSQL: `SELECT DISTINCT ON (jr.job_id) jr.id
+			FROM job_runs jr
+			ORDER BY jr.job_id, jr.created_at ASC`,
+	})
+	if err == nil {
+		t.Fatal("expected error from failed commit")
+	}
+	if !errors.Is(err, commitErr) {
+		t.Errorf("error = %v, want wrapping %v", err, commitErr)
+	}
+	if runs != nil {
+		t.Errorf("runs should be nil on commit failure, got %d runs", len(runs))
+	}
+}
+
+// emptyRows implements pgx.Rows returning zero rows.
+type emptyRows struct{}
+
+func (e *emptyRows) Close()                                       {}
+func (e *emptyRows) Err() error                                   { return nil }
+func (e *emptyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (e *emptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (e *emptyRows) Next() bool                                   { return false }
+func (e *emptyRows) Scan(_ ...any) error                          { return errors.New("no rows") }
+func (e *emptyRows) Values() ([]any, error)                       { return nil, nil }
+func (e *emptyRows) RawValues() [][]byte                          { return nil }
+func (e *emptyRows) Conn() *pgx.Conn                              { return nil }
+
 func assertDequeueKernelShape(t *testing.T, sql string, expectCTEs bool) {
 	t.Helper()
 	if sql == "" {

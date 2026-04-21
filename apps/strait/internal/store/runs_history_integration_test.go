@@ -256,6 +256,12 @@ func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
 			t.Errorf("schema column %q missing from historyArchiveColumns", col)
 		}
 	}
+
+	for col := range archiveCols {
+		if !schemaCols[col] {
+			t.Errorf("historyArchiveColumns references %q which does not exist in job_runs_history schema", col)
+		}
+	}
 }
 
 func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
