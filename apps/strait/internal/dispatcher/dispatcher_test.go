@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -266,10 +267,11 @@ func TestQueueDepth_UnreachableServerReturnsMaxInt(t *testing.T) {
 func TestQueueDepth_CancelledContextReturnsMaxInt(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	cancel()
 
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(500 * time.Millisecond)
+		hits.Add(1)
 		_, _ = w.Write([]byte(`{"data":{"result":[{"value":[0,"1"]}]}}`))
 	}))
 	defer srv.Close()
@@ -277,6 +279,9 @@ func TestQueueDepth_CancelledContextReturnsMaxInt(t *testing.T) {
 	got := queueDepth(ctx, srv.URL, &http.Client{Timeout: 2 * time.Second})
 	if got != math.MaxInt64 {
 		t.Errorf("queueDepth() = %d, want MaxInt64 for cancelled context", got)
+	}
+	if got := hits.Load(); got != 0 {
+		t.Errorf("expected 0 server hits (cancelled context should not reach handler), got %d", got)
 	}
 }
 
