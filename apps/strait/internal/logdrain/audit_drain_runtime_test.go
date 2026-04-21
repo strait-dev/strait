@@ -26,9 +26,14 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	// Server that hangs until the test ends, to guarantee the forwarder
 	// goroutine is stuck on the HTTP call and the buffer fills.
 	release := make(chan struct{})
+	requestArrived := make(chan struct{}, 1)
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
+		select {
+		case requestArrived <- struct{}{}:
+		default:
+		}
 		<-release
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
@@ -36,8 +41,6 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 
-	// batchSize=1 -> buffer = max(4*1, 256) = 256. To force drops quickly we
-	// use a tight loop well above 256.
 	drain := NewAuditSIEMDrain(srv.URL, "", 1, time.Hour)
 	drain.Start(context.Background())
 	t.Cleanup(func() {
@@ -46,9 +49,16 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 		drain.Stop(ctx)
 	})
 
-	// Prime: fill the buffer well beyond cap. With server hanging, the
-	// forwarder has consumed 1 event (stuck in flight), and the rest pile
-	// up until the buffer fills. Any Enqueue beyond that must drop.
+	// Send one event and wait for the server to receive it, ensuring
+	// the forwarder goroutine is stuck in the HTTP handler.
+	drain.Enqueue(domain.AuditEvent{ID: "prime", Action: "a"})
+	select {
+	case <-requestArrived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request never reached the server")
+	}
+
+	// Now flood — forwarder is stuck, buffer fills and drops kick in.
 	const flood = 2000
 	done := make(chan struct{})
 	go func() {
@@ -64,10 +74,6 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 		t.Fatal("Enqueue blocked — non-blocking contract violated")
 	}
 
-	// With buffer=256 plus 1 in-flight, we must have dropped a large chunk.
-	// We cannot read the counter directly (package-private OTel counter),
-	// but we assert: flood completed without blocking AND the server was
-	// hit exactly once (the single in-flight request).
 	if got := hits.Load(); got != 1 {
 		t.Errorf("expected exactly 1 in-flight request while hanging; got %d", got)
 	}
@@ -290,8 +296,6 @@ func TestSIEMDrain_Enqueue_Stop_NoSendOnClosedChannel(t *testing.T) {
 				}
 			})
 		}
-		// Race Stop against the writers.
-		time.Sleep(2 * time.Millisecond)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		drain.Stop(ctx)
 		cancel()

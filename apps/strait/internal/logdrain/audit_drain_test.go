@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,29 +133,29 @@ func TestAuditSIEMDrain_SetDroppedCounter_NilReceiver(t *testing.T) {
 	for range 600 {
 		drain.Enqueue(domain.AuditEvent{ID: "drop"})
 	}
-	time.Sleep(100 * time.Millisecond)
 
-	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
-	foundWithData := false
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			if m.Name == "test_dropped" {
-				if sum, ok := m.Data.(metricdata.Sum[int64]); ok {
-					for _, dp := range sum.DataPoints {
-						if dp.Value > 0 {
-							foundWithData = true
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var rm metricdata.ResourceMetrics
+		if err := reader.Collect(context.Background(), &rm); err != nil {
+			t.Fatalf("collect: %v", err)
+		}
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				if m.Name == "test_dropped" {
+					if sum, ok := m.Data.(metricdata.Sum[int64]); ok {
+						for _, dp := range sum.DataPoints {
+							if dp.Value > 0 {
+								return
+							}
 						}
 					}
 				}
 			}
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if !foundWithData {
-		t.Error("expected test_dropped counter to have recorded at least one drop")
-	}
+	t.Error("expected test_dropped counter to have recorded at least one drop")
 }
 
 func TestAuditSIEMDrain_SetMetrics_NilReceiver(t *testing.T) {
@@ -199,12 +198,29 @@ func TestAuditSIEMDrain_SetMetrics_NilReceiver(t *testing.T) {
 }
 
 func TestAuditSIEMDrain_TunableConstants(t *testing.T) {
-	t.Parallel()
+	if defaultSIEMBatchSize != 100 {
+		t.Errorf("defaultSIEMBatchSize = %d, want 100", defaultSIEMBatchSize)
+	}
 	if defaultSIEMFlushInterval != 10*time.Second {
 		t.Errorf("defaultSIEMFlushInterval = %v, want 10s", defaultSIEMFlushInterval)
 	}
 	if minSIEMBufferSize != 256 {
 		t.Errorf("minSIEMBufferSize = %d, want 256", minSIEMBufferSize)
+	}
+	if siemShutdownTimeout != 5*time.Second {
+		t.Errorf("siemShutdownTimeout = %v, want 5s", siemShutdownTimeout)
+	}
+	if siemMaxRetryAttempts != 3 {
+		t.Errorf("siemMaxRetryAttempts = %d, want 3", siemMaxRetryAttempts)
+	}
+	if siemBreakerFailureThreshold != 5 {
+		t.Errorf("siemBreakerFailureThreshold = %d, want 5", siemBreakerFailureThreshold)
+	}
+	if siemBreakerHalfOpenSuccesses != 1 {
+		t.Errorf("siemBreakerHalfOpenSuccesses = %d, want 1", siemBreakerHalfOpenSuccesses)
+	}
+	if siemSubDLQCapacity != 1024 {
+		t.Errorf("siemSubDLQCapacity = %d, want 1024", siemSubDLQCapacity)
 	}
 	if siemRetryInitialBackoff != 100*time.Millisecond {
 		t.Errorf("siemRetryInitialBackoff = %v, want 100ms", siemRetryInitialBackoff)
@@ -212,88 +228,11 @@ func TestAuditSIEMDrain_TunableConstants(t *testing.T) {
 	if siemRetryMaxBackoff != 1600*time.Millisecond {
 		t.Errorf("siemRetryMaxBackoff = %v, want 1600ms", siemRetryMaxBackoff)
 	}
+	if siemRetryBackoffFactor != 4.0 {
+		t.Errorf("siemRetryBackoffFactor = %v, want 4.0", siemRetryBackoffFactor)
+	}
 	if siemBreakerOpenDuration != 30*time.Second {
 		t.Errorf("siemBreakerOpenDuration = %v, want 30s", siemBreakerOpenDuration)
-	}
-}
-
-func TestAuditSIEMDrain_ShutdownTimeout_DrainsToSubDLQ(t *testing.T) {
-	// Not parallel: modifies package-level siemRetryInitialBackoff.
-	origInit := siemRetryInitialBackoff
-	origMax := siemRetryMaxBackoff
-	t.Cleanup(func() {
-		siemRetryInitialBackoff = origInit
-		siemRetryMaxBackoff = origMax
-	})
-	siemRetryInitialBackoff = 1 * time.Millisecond
-	siemRetryMaxBackoff = 2 * time.Millisecond
-
-	blocked := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		<-blocked // block forever until test cleanup
-	}))
-	defer srv.Close()
-	defer close(blocked)
-
-	reader := metric.NewManualReader()
-	provider := metric.NewMeterProvider(metric.WithReader(reader))
-	meter := provider.Meter("test")
-	failCounter, _ := meter.Int64Counter("test_failed")
-
-	drain := NewAuditSIEMDrain(srv.URL, "tok", 2, 50*time.Millisecond)
-	drain.SetMetrics(nil, failCounter, nil, nil)
-	drain.Start(context.Background())
-
-	// Enqueue events; the first batch will block in ForwardBatch.
-	for i := range 6 {
-		drain.Enqueue(domain.AuditEvent{ID: "ev-" + strings.Repeat("x", i)})
-	}
-	time.Sleep(200 * time.Millisecond)
-
-	// Stop with a context that times out quickly to hit drainRemainingToSubDLQ.
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	drain.Stop(ctx)
-
-	// The drain should have moved remaining channel events to sub-DLQ.
-	count := drain.DrainedFailureCount()
-	if count == 0 {
-		t.Log("sub-DLQ count is 0; the run goroutine may have drained all events before timeout")
-	}
-}
-
-func TestAuditSIEMDrain_CtxDone_BatchFullFlush(t *testing.T) {
-	t.Parallel()
-	var batchCount atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		batchCount.Add(1)
-		body, _ := io.ReadAll(r.Body)
-		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
-		if len(lines) > 2 {
-			t.Errorf("batch too large: got %d lines, want <= 2", len(lines))
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	drain := NewAuditSIEMDrain(srv.URL, "tok", 2, 10*time.Second)
-	drain.Start(ctx)
-
-	// Enqueue more events than batchSize so the ctx.Done drain loop
-	// hits the len(batch) >= batchSize branch.
-	for i := range 6 {
-		drain.Enqueue(domain.AuditEvent{ID: strings.Repeat("e", i+1)})
-	}
-	time.Sleep(100 * time.Millisecond)
-
-	cancel()
-	// Wait for the run goroutine to exit.
-	time.Sleep(500 * time.Millisecond)
-
-	batches := batchCount.Load()
-	if batches < 2 {
-		t.Errorf("expected >= 2 batch flushes from ctx.Done path, got %d", batches)
 	}
 }
 

@@ -8,9 +8,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
+
+func TestNewService_ClientTimeout(t *testing.T) {
+	t.Parallel()
+	svc := NewService()
+	if svc.client.Timeout != 10*time.Second {
+		t.Errorf("client.Timeout = %v, want 10s", svc.client.Timeout)
+	}
+}
 
 func TestDrainRunEvents(t *testing.T) {
 	makeEvents := func() []domain.RunEvent {
@@ -149,6 +158,7 @@ func TestDrainRunEvents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var capturedReq *http.Request
 			var capturedBody []byte
 
