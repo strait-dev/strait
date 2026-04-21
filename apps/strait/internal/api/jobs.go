@@ -198,6 +198,10 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
 	}
 
+	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+
 	// Region and plan-based gating validation.
 	if err := s.checkRegionForPlan(ctx, req.ProjectID, req.Region); err != nil {
 		return nil, err
@@ -502,6 +506,20 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.RetryDelaysSecs != nil {
 		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+	}
+
+	{
+		rlw := job.RateLimitWindowSecs
+		if req.RateLimitWindowSecs != nil {
+			rlw = *req.RateLimitWindowSecs
+		}
+		dw := job.DedupWindowSecs
+		if req.DedupWindowSecs != nil {
+			dw = *req.DedupWindowSecs
+		}
+		if err := s.validateWindowsAgainstRetention(rlw, dw); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
@@ -922,6 +940,23 @@ func (s *Server) defaultJobTimeoutSecs() int {
 		return s.config.DefaultJobTimeoutSecs
 	}
 	return 300
+}
+
+func (s *Server) validateWindowsAgainstRetention(rateLimitWindowSecs, dedupWindowSecs int) error {
+	if s.config == nil {
+		return nil
+	}
+	maxSecs := int(s.config.RunRetentionShort.Seconds())
+	if maxSecs <= 0 {
+		return nil
+	}
+	if rateLimitWindowSecs > maxSecs {
+		return fmt.Errorf("rate_limit_window_secs (%d) exceeds hot retention (%d seconds)", rateLimitWindowSecs, maxSecs)
+	}
+	if dedupWindowSecs > maxSecs {
+		return fmt.Errorf("dedup_window_secs (%d) exceeds hot retention (%d seconds)", dedupWindowSecs, maxSecs)
+	}
+	return nil
 }
 
 // Batch job definition operations (2.38).

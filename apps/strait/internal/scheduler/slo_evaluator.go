@@ -82,6 +82,10 @@ func (e *SLOEvaluator) Evaluate(ctx context.Context) error {
 	return nil
 }
 
+// evaluateSLO queries the hot job_runs table only. WindowHours values
+// exceeding RUN_RETENTION_SHORT will silently undercount because
+// archived runs are invisible. Callers should ensure SLO windows stay
+// within the hot retention period.
 func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now time.Time) error {
 	since := now.Add(-time.Duration(slo.WindowHours) * time.Hour)
 
