@@ -193,6 +193,7 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	return run, nil
 }
 
+// Queries hot table only; archived runs are not included.
 func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.FindRecentRunByPayload")
 	defer span.End()
@@ -219,6 +220,7 @@ func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payl
 	return run, nil
 }
 
+// Queries hot table only; archived runs are not included.
 func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunsForJobSince")
 	defer span.End()
@@ -238,6 +240,7 @@ func (q *Queries) CountRunsForJobSince(ctx context.Context, jobID string, since 
 }
 
 // GetJobHealthStats returns aggregated health metrics for a job's runs over a given window.
+// Queries hot table only; archived runs are not included.
 func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*JobHealthStats, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobHealthStats")
 	defer span.End()

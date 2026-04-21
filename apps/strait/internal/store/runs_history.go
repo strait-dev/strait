@@ -22,6 +22,7 @@ const historyArchiveColumns = `id, job_id, project_id, status, attempt, payload,
 	deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
 	replayed_run_id, max_attempts_override, timeout_secs_override,
 	retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+	visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
 	created_at`
 
 func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) error {

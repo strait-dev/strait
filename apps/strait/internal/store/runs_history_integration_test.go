@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,6 +215,49 @@ func TestIntegration_HistoryTableColumnSync(t *testing.T) {
 	}
 }
 
+func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
+	ctx := context.Background()
+
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT column_name
+		FROM information_schema.columns
+		WHERE table_name = 'job_runs_history'
+		ORDER BY ordinal_position`)
+	if err != nil {
+		t.Fatalf("fetch columns: %v", err)
+	}
+	defer rows.Close()
+
+	schemaCols := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		schemaCols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+
+	archiveCols := make(map[string]bool)
+	for _, raw := range strings.Split(store.HistoryArchiveColumnsForTest, ",") {
+		col := strings.TrimSpace(raw)
+		if col != "" {
+			archiveCols[col] = true
+		}
+	}
+
+	for col := range schemaCols {
+		if col == "archived_at" {
+			continue
+		}
+		if !archiveCols[col] {
+			t.Errorf("schema column %q missing from historyArchiveColumns", col)
+		}
+	}
+}
+
 func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 	ctx := context.Background()
 	q := store.New(testDB.Pool)
@@ -288,6 +332,7 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
 			replayed_run_id, max_attempts_override, timeout_secs_override,
 			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
 			created_at
 		)
 		SELECT
@@ -300,6 +345,7 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
 			replayed_run_id, max_attempts_override, timeout_secs_override,
 			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
+			visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
 			created_at
 		FROM job_runs WHERE id = $1`, run.ID)
 	if err != nil {
