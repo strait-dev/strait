@@ -3,10 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestPermissionCache_GetSet(t *testing.T) {
@@ -179,44 +180,33 @@ func TestPermissionCache_ConcurrentReadWrite(t *testing.T) {
 	c := newPermissionCache(50 * time.Millisecond)
 	defer c.Stop()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
 
-	// Readers.
-	wg.Add(goroutines)
-	for i := range goroutines {
-		go func(i int) {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			for range 100 {
 				c.Get("proj", "user")
 				c.Get("proj", "other")
 			}
-			_ = i
-		}(i)
+		})
 	}
 
-	// Writers.
-	wg.Add(goroutines)
-	for i := range goroutines {
-		go func(i int) {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			for range 100 {
 				c.Set("proj", "user", []string{"jobs:read"})
 				c.Set("proj", "other", []string{"*"})
 			}
-			_ = i
-		}(i)
+		})
 	}
 
-	// Invalidators.
-	wg.Add(10)
 	for range 10 {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				c.Invalidate("proj", "user")
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -267,16 +257,14 @@ func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
 	c.Set("proj", "user", []string{"read"})
 
 	// 100 concurrent readers should all succeed without blocking each other.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const readers = 100
-	wg.Add(readers)
 	results := make([]bool, readers)
 	for i := range readers {
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			_, ok := c.Get("proj", "user")
-			results[idx] = ok
-		}(i)
+			results[i] = ok
+		})
 	}
 	wg.Wait()
 
@@ -314,17 +302,15 @@ expired:
 
 	// Multiple goroutines race to evict the same expired entry.
 	// This verifies the double-check pattern prevents panics.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
-	wg.Add(goroutines)
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, ok := c.Get("proj", "user")
 			if ok {
 				t.Error("expected miss for expired entry")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -352,7 +338,7 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 	defer cancel()
 
 	var readCount atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	wg.Go(func() {
 		close(started)
 		for ctx.Err() == nil {
@@ -384,7 +370,14 @@ func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
 	defer c.Stop()
 
 	c.Set("proj", "user", []string{"original"})
-	time.Sleep(5 * time.Millisecond)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := c.Get("proj", "user"); !ok {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 
 	// Simulate: one goroutine refreshes between another's RLock and Lock.
 	// We can't perfectly control timing, but we can verify correctness
