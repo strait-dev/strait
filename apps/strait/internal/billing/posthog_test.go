@@ -142,20 +142,28 @@ func TestPostHogCaptureRevenueEvent_SetsGroups(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
 	var captured posthogCapturePayload
+	done := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		defer mu.Unlock()
 		_ = json.Unmarshal(body, &captured)
 		w.WriteHeader(http.StatusOK)
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 	}))
 	defer srv.Close()
 
 	c := NewPostHogClient("key", srv.URL, nil)
 	c.CaptureRevenueEvent("org-123", "subscription_created", map[string]any{"plan": "pro"})
 
-	// Wait for async goroutine.
-	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("async capture never reached server")
+	}
 
 	mu.Lock()
 	defer mu.Unlock()

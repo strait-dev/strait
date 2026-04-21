@@ -1799,8 +1799,13 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
 	var emailSent atomic.Bool
+	done := make(chan struct{}, 1)
 	welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
 		emailSent.Store(true)
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 
@@ -1821,9 +1826,9 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	// Give async goroutine time to execute.
-	time.Sleep(100 * time.Millisecond)
-	if !emailSent.Load() {
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
 		t.Fatal("expected welcome email to be sent for paid plan")
 	}
 }
@@ -1842,9 +1847,12 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
-	var emailSent atomic.Bool
+	done := make(chan struct{}, 1)
 	welcomeFn := func(_ context.Context, orgID string, tier domain.PlanTier, email string) error {
-		emailSent.Store(true)
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 
@@ -1866,9 +1874,10 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-	if emailSent.Load() {
+	select {
+	case <-done:
 		t.Fatal("expected welcome email NOT to be sent when customer email is empty")
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
