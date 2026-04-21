@@ -359,6 +359,178 @@ func (e *emptyRows) Values() ([]any, error)                       { return nil, 
 func (e *emptyRows) RawValues() [][]byte                          { return nil }
 func (e *emptyRows) Conn() *pgx.Conn                              { return nil }
 
+// singleRunRows implements pgx.Rows yielding exactly one row with the given
+// ID (scan position 0) and CreatedAt (scan position 21), matching the field
+// order in dbscan.ScanRun. All other fields are left at zero values.
+type singleRunRows struct {
+	id        string
+	createdAt time.Time
+	done      bool
+}
+
+func (r *singleRunRows) Close()                                       {}
+func (r *singleRunRows) Err() error                                   { return nil }
+func (r *singleRunRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *singleRunRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *singleRunRows) Next() bool {
+	if r.done {
+		return false
+	}
+	r.done = true
+	return true
+}
+func (r *singleRunRows) Scan(dest ...any) error {
+	if p, ok := dest[0].(*string); ok {
+		*p = r.id
+	}
+	if p, ok := dest[21].(*time.Time); ok {
+		*p = r.createdAt
+	}
+	return nil
+}
+func (r *singleRunRows) Values() ([]any, error) { return nil, nil }
+func (r *singleRunRows) RawValues() [][]byte    { return nil }
+func (r *singleRunRows) Conn() *pgx.Conn        { return nil }
+
+func TestExecuteDequeue_CommitFailureDoesNotCallPostScanFn(t *testing.T) {
+	t.Parallel()
+
+	commitErr := errors.New("connection lost")
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return &emptyRows{}, nil
+			},
+		},
+		commitFn:   func(_ context.Context) error { return commitErr },
+		rollbackFn: func(_ context.Context) error { return nil },
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) { return tx, nil },
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+
+	postScanCalled := false
+	_, err := executeDequeue(context.Background(), q, 10, dequeueSpec{
+		spanName:            "test.postscan_commit_fail",
+		candidatesSQL:       "SELECT jr.id FROM job_runs jr LIMIT $1",
+		skipConcurrencyCTEs: true,
+		postScanFn: func(_ []domain.JobRun) error {
+			postScanCalled = true
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from failed commit")
+	}
+	if postScanCalled {
+		t.Error("postScanFn must not be called when commit fails")
+	}
+}
+
+func TestExecuteDequeueFair_CommitFailureDoesNotCallPostScanFn(t *testing.T) {
+	t.Parallel()
+
+	commitErr := errors.New("connection lost")
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return &emptyRows{}, nil
+			},
+		},
+		commitFn:   func(_ context.Context) error { return commitErr },
+		rollbackFn: func(_ context.Context) error { return nil },
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) { return tx, nil },
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+
+	postScanCalled := false
+	_, err := executeDequeueFair(context.Background(), q, 10, dequeueSpec{
+		spanName: "test.fair_postscan_commit_fail",
+		candidatesSQL: `SELECT DISTINCT ON (jr.job_id) jr.id
+			FROM job_runs jr
+			ORDER BY jr.job_id, jr.created_at ASC`,
+		postScanFn: func(_ []domain.JobRun) error {
+			postScanCalled = true
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from failed commit")
+	}
+	if postScanCalled {
+		t.Error("postScanFn must not be called when commit fails")
+	}
+}
+
+func TestExecuteDequeue_CommitFailureCursorUnchanged(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cursor := NewClaimCursor(60 * time.Second)
+	cursor.Advance(t0, "run-pre")
+
+	createdPre, idPre, okPre := cursor.Snapshot()
+	if !okPre || idPre != "run-pre" {
+		t.Fatalf("cursor setup failed: ok=%v id=%q", okPre, idPre)
+	}
+
+	commitErr := errors.New("connection lost")
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return &singleRunRows{
+					id:        "run-new",
+					createdAt: t0.Add(time.Hour),
+				}, nil
+			},
+		},
+		commitFn:   func(_ context.Context) error { return commitErr },
+		rollbackFn: func(_ context.Context) error { return nil },
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) { return tx, nil },
+	}
+	q := NewPostgresQueue(db, WithStatementTimeout(5*time.Second))
+
+	_, err := executeDequeue(context.Background(), q, 10, dequeueSpec{
+		spanName:            "test.cursor_commit_fail",
+		candidatesSQL:       "SELECT jr.id FROM job_runs jr LIMIT $1",
+		skipConcurrencyCTEs: true,
+		postScanFn: func(runs []domain.JobRun) error {
+			for i := range runs {
+				cursor.Advance(runs[i].CreatedAt, runs[i].ID)
+			}
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from failed commit")
+	}
+
+	createdPost, idPost, okPost := cursor.Snapshot()
+	if !okPost {
+		t.Fatal("cursor should still be valid after commit failure")
+	}
+	if idPost != idPre {
+		t.Errorf("cursor ID changed from %q to %q on commit failure", idPre, idPost)
+	}
+	if !createdPost.Equal(createdPre) {
+		t.Errorf("cursor CreatedAt changed from %v to %v on commit failure", createdPre, createdPost)
+	}
+}
+
 func assertDequeueKernelShape(t *testing.T, sql string, expectCTEs bool) {
 	t.Helper()
 	if sql == "" {

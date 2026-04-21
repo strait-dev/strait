@@ -105,17 +105,17 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("%s rows: %w", spec.spanName, err)
 	}
+	if tx != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
+		}
+	}
 	for i := range runs {
 		q.recordClaimMetrics(ctx, &runs[i])
 	}
 	if spec.postScanFn != nil {
 		if err := spec.postScanFn(runs); err != nil {
 			return runs, err
-		}
-	}
-	if tx != nil {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
 		}
 	}
 	return runs, nil
@@ -175,17 +175,17 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("%s rows: %w", spec.spanName, err)
 	}
+	if tx != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
+		}
+	}
 	for i := range runs {
 		q.recordClaimMetrics(ctx, &runs[i])
 	}
 	if spec.postScanFn != nil {
 		if err := spec.postScanFn(runs); err != nil {
 			return runs, err
-		}
-	}
-	if tx != nil {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
 		}
 	}
 	return runs, nil
