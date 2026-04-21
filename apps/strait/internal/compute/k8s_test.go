@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -210,7 +211,7 @@ func TestK8sRuntime_Create_UniqueNames(t *testing.T) {
 
 	names := make(map[string]bool)
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range 20 {
 		wg.Go(func() {
