@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -72,16 +73,15 @@ func TestRunLifecycle_CancelConcurrent(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]int, 10)
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-conc/", ""))
 			results[idx] = w.Code
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -361,11 +361,10 @@ func TestRunLifecycle_PauseResumeRace(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			if idx%2 == 0 {
 				srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-pr/pause", ""))
@@ -373,7 +372,7 @@ func TestRunLifecycle_PauseResumeRace(t *testing.T) {
 				srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-pr/resume", ""))
 			}
 			// We do not assert success; the point is no panics or data races.
-		}(i)
+		})
 	}
 	wg.Wait()
 }

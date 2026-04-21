@@ -17,6 +17,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/jarcoal/httpmock"
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -587,19 +588,17 @@ func TestWebhookSender_ConcurrentSends(t *testing.T) {
 	ch := newTestChannel("https://example.com/hook", "secret")
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			del := newTestDelivery(
-				fmt.Sprintf("event.%d", idx),
-				json.RawMessage(fmt.Sprintf(`{"idx":%d}`, idx)),
+				fmt.Sprintf("event.%d", i),
+				json.RawMessage(fmt.Sprintf(`{"idx":%d}`, i)),
 			)
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sendCancel()
 			_ = sender.Send(sendCtx, ch, del)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -628,16 +627,14 @@ func TestSlackSender_ConcurrentSends(t *testing.T) {
 	}
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, idx)))
+		wg.Go(func() {
+			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, i)))
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sendCancel()
 			_ = sender.Send(sendCtx, ch, del)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -666,16 +663,14 @@ func TestDiscordSender_ConcurrentSends(t *testing.T) {
 	}
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, idx)))
+		wg.Go(func() {
+			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, i)))
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sendCancel()
 			_ = sender.Send(sendCtx, ch, del)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -1106,7 +1101,7 @@ func TestWorker_ConcurrentStartStop(t *testing.T) {
 	w.Start(t.Context())
 
 	// Concurrently stop the worker from multiple goroutines.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 20 {
 		wg.Go(func() {
 			w.Stop()

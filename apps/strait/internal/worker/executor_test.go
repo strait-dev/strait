@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
@@ -3982,17 +3984,15 @@ func TestHandleFailure_RapidSequentialRetriesNoDataRace(t *testing.T) {
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, MaxAttempts: 10}
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			run := &domain.JobRun{
-				ID: fmt.Sprintf("run-%d", idx), JobID: "job-1",
-				Attempt: 1, Priority: idx % 10,
+				ID: fmt.Sprintf("run-%d", i), JobID: "job-1",
+				Attempt: 1, Priority: i % 10,
 			}
 			exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
-		}(i)
+		})
 	}
 	wg.Wait()
 

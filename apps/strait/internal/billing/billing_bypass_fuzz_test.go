@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -296,17 +297,16 @@ func TestBypass_SpendingLimitCannotGoNegative(t *testing.T) {
 func TestBypass_ConcurrentPlanLookupSafe(t *testing.T) {
 	t.Parallel()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			tier := domain.AllPlanTiers()[idx%5]
 			limits := GetPlanLimits(tier)
 			if limits.PlanTier != tier {
 				t.Errorf("concurrent lookup: expected %q, got %q", tier, limits.PlanTier)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 }
@@ -315,16 +315,15 @@ func TestBypass_ConcurrentRegistryLookupSafe(t *testing.T) {
 	t.Parallel()
 	reg := NewStaticRegistry()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			tier := domain.AllPlanTiers()[idx%5]
 			feature := []Feature{FeatureHTTPMode, FeatureAuditLogs, FeatureSSO}[idx%3]
 			reg.AllowsFeature(tier, feature)
 			reg.RequiredPlanForFeature(feature)
-		}(i)
+		})
 	}
 	wg.Wait()
 }

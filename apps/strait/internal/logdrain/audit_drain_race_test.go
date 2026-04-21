@@ -4,9 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -32,7 +33,7 @@ func TestSIEMDrain_FlushNowAndRunNeverRace(t *testing.T) {
 	// Enqueue 50 events from multiple goroutines.
 	const producers = 5
 	const eventsPerProducer = 10
-	var enqueueWg sync.WaitGroup
+	var enqueueWg conc.WaitGroup
 	for range producers {
 		enqueueWg.Go(func() {
 			for range eventsPerProducer {
@@ -47,7 +48,7 @@ func TestSIEMDrain_FlushNowAndRunNeverRace(t *testing.T) {
 
 	// Call FlushNow 5 times concurrently while the run loop is also active.
 	const flushCalls = 5
-	var flushWg sync.WaitGroup
+	var flushWg conc.WaitGroup
 	for range flushCalls {
 		flushWg.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

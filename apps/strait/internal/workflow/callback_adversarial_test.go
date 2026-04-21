@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"math"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/sourcegraph/conc"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -379,7 +379,7 @@ func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
 	}
 	cb := newTestCallback(ms)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}

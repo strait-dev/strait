@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestNewPostHogClient_EmptyAPIKey_ReturnsNil(t *testing.T) {
@@ -109,10 +111,9 @@ func TestPostHogCaptureAsync_NilReceiver(t *testing.T) {
 
 func TestPostHogCaptureAsync_SendsInBackground(t *testing.T) {
 	t.Parallel()
-	var received sync.WaitGroup
-	received.Add(1)
+	hit := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		received.Done()
+		hit <- struct{}{}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -120,17 +121,19 @@ func TestPostHogCaptureAsync_SendsInBackground(t *testing.T) {
 	c := NewPostHogClient("key", srv.URL, nil)
 	c.CaptureAsync("user-1", "async_event", nil)
 
+	var received conc.WaitGroup
 	done := make(chan struct{})
-	go func() {
-		received.Wait()
+	received.Go(func() {
+		<-hit
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Error("CaptureAsync did not send request within timeout")
 	}
+	received.Wait()
 }
 
 func TestPostHogCaptureRevenueEvent_NilReceiver(t *testing.T) {

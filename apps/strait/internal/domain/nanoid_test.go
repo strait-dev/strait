@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"unicode"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestNewVersionID_HasPrefix(t *testing.T) {
@@ -76,11 +78,9 @@ func TestNewVersionID_Concurrent(t *testing.T) {
 	var mu sync.Mutex
 	seen := make(map[string]bool, goroutines*perGoroutine)
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			local := make([]string, 0, perGoroutine)
 			for range perGoroutine {
 				local = append(local, NewVersionID())
@@ -93,7 +93,7 @@ func TestNewVersionID_Concurrent(t *testing.T) {
 				}
 				seen[id] = true
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

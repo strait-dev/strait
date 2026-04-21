@@ -5,9 +5,10 @@ package billing_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -158,12 +159,11 @@ func TestAdversarial_ConcurrentUpsert(t *testing.T) {
 
 	orgID := "org-race-" + newID()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 10)
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			sub := &billing.OrgSubscription{
 				ID:          newID(),
 				OrgID:       orgID,
@@ -174,7 +174,7 @@ func TestAdversarial_ConcurrentUpsert(t *testing.T) {
 				UpdatedAt:   time.Now().UTC(),
 			}
 			errs[idx] = pgStore.UpsertOrgSubscription(ctx, sub)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -272,14 +272,13 @@ func TestAdversarial_ConcurrentWebhookRecord(t *testing.T) {
 
 	msgID := "msg-concurrent-" + newID()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 50)
 	for i := range 50 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			errs[idx] = pgStore.RecordProcessedWebhook(ctx, msgID)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -420,18 +419,17 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 		t.Fatalf("seed upsert: %v", err)
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 10)
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			c := *base
 			c.ID = fmt.Sprintf("contract_conc_%d", idx)
 			c.ComputeDiscountPct = idx
 			c.Notes = fmt.Sprintf("writer_%d", idx)
 			errs[idx] = pgStore.UpsertEnterpriseContract(ctx, &c)
-		}(i)
+		})
 	}
 	wg.Wait()
 

@@ -10,9 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // ChaosScenario defines a single chaos test.
@@ -120,7 +121,7 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 	ce.triggerCount.Store(0)
 	ce.errorCount.Store(0)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	wg.Go(func() {
 		ce.generateLoad(loadCtx)
 	})
@@ -398,7 +399,7 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 
 	var cascadeErr atomic.Value
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Simultaneously: kill Redis + spike traffic + kill worker
 	// Kill Redis

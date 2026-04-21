@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -357,17 +359,15 @@ func TestWebhookTrigger_ConcurrentEvents(t *testing.T) {
 	}
 	h := NewWebhookTriggerHandler(store, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 10 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			status := "completed"
 			if i%2 == 0 {
 				status = "failed"
 			}
 			_ = h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+string(rune('0'+i)), "job-1"))
-		}(i)
+		})
 	}
 	wg.Wait()
 

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TenantPlan represents the plan tier a tenant is on.
@@ -94,7 +96,7 @@ func (ts *TenantSimulator) Run(ctx context.Context) (*TenantSimulatorResult, err
 	ctx, cancel := context.WithTimeout(ctx, ts.config.Duration)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for _, tenant := range ts.config.Tenants {
 		wg.Go(func() {

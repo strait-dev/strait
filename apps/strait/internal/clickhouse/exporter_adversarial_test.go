@@ -5,11 +5,11 @@ package clickhouse
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/metric/noop"
 )
 
@@ -386,7 +386,7 @@ func TestExporter_ConcurrentEnqueueAndFlush(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.Start(ctx)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var enqueued atomic.Int64
 
 	// Spawn writers.

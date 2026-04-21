@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 const (
@@ -608,12 +610,10 @@ func TestEndToEndStressLoop(t *testing.T) {
 	batchSize := 10
 	for batchStart := 0; batchStart < iterations; batchStart += batchSize {
 		batchEnd := min(batchStart+batchSize, iterations)
-		var wg sync.WaitGroup
+		var wg conc.WaitGroup
 		for i := batchStart; i < batchEnd; i++ {
-			wg.Add(1)
-			go func(iter int) {
-				defer wg.Done()
-
+			iter := i
+			wg.Go(func() {
 				resp, body, err := client.do("POST", fmt.Sprintf("/v1/jobs/%s/trigger", job.ID), map[string]any{
 					"payload": map[string]any{"iter": iter},
 				})
@@ -648,7 +648,7 @@ func TestEndToEndStressLoop(t *testing.T) {
 				}
 				totalFailed.Add(1)
 				t.Logf("run %s (iter %d): timeout", run.ID, iter)
-			}(i)
+			})
 		}
 		wg.Wait()
 	}

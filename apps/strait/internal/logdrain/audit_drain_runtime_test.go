@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -282,7 +283,7 @@ func TestSIEMDrain_Enqueue_Stop_NoSendOnClosedChannel(t *testing.T) {
 		drain := NewAuditSIEMDrain(srv.URL, "", 10, 10*time.Millisecond)
 		drain.Start(context.Background())
 
-		var wg sync.WaitGroup
+		var wg conc.WaitGroup
 		stopWaiting := make(chan struct{})
 		for range 8 {
 			wg.Go(func() {

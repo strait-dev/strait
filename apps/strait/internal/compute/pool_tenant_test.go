@@ -3,8 +3,9 @@ package compute
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestPoolKey_IncludesProjectID verifies that different projects produce different keys.
@@ -115,14 +116,12 @@ func TestPool_ConcurrentCrossProject(t *testing.T) {
 	projects := []string{"proj-A", "proj-B", "proj-C", "proj-D"}
 
 	// Each project releases machines concurrently.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for _, proj := range projects {
 		for i := range 5 {
-			wg.Add(1)
-			go func(p string, idx int) {
-				defer wg.Done()
-				pool.Release(p, "shared-img:v1", "iad", fmt.Sprintf("m-%s-%d", p, idx))
-			}(proj, i)
+			wg.Go(func() {
+				pool.Release(proj, "shared-img:v1", "iad", fmt.Sprintf("m-%s-%d", proj, i))
+			})
 		}
 	}
 	wg.Wait()

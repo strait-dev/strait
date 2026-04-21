@@ -14,6 +14,7 @@ import (
 	"strait/internal/queue"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/sourcegraph/conc"
 )
 
 func TestNewQueueNotifier(t *testing.T) {
@@ -427,16 +428,14 @@ func TestDequeueNFair_ConcurrentWorkers(t *testing.T) {
 	}
 
 	var (
-		wg   sync.WaitGroup
+		wg   conc.WaitGroup
 		mu   sync.Mutex
 		seen = make(map[string]int)
 	)
 
 	errCh := make(chan error, 4)
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			runs, err := q.DequeueNFair(ctx, 5)
 			if err != nil {
 				errCh <- err
@@ -447,7 +446,7 @@ func TestDequeueNFair_ConcurrentWorkers(t *testing.T) {
 				seen[runs[i].ID]++
 			}
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()

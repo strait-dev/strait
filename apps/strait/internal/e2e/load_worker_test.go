@@ -6,12 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadWorker_BulkTriggerThroughput(t *testing.T) {
@@ -55,14 +56,12 @@ func TestLoadWorker_ConcurrentTriggers(t *testing.T) {
 
 	const workers = 20
 	perWorker := loadVolume() / workers
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes, failures atomic.Int64
 	start := time.Now()
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range perWorker {
 				resp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger",
 					fmt.Sprintf(`{"payload":{"i":%d}}`, i))
@@ -72,7 +71,7 @@ func TestLoadWorker_ConcurrentTriggers(t *testing.T) {
 					failures.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -121,21 +120,19 @@ func TestLoadWorker_SDKHeartbeatFlood(t *testing.T) {
 
 	const heartbeats = 1000
 	const workers = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes atomic.Int64
 	start := time.Now()
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range heartbeats / workers {
 				resp := doSDKRequest(t, "POST", "/sdk/v1/runs/"+runID+"/heartbeat", runToken, "")
 				if resp.Code == 200 {
 					successes.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)

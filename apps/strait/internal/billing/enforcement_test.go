@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 func setupEnforcer(t *testing.T) (*Enforcer, *mockBillingStore, *miniredis.Miniredis) {
@@ -1020,27 +1020,23 @@ func TestOrgCache_ConcurrentAccess(t *testing.T) {
 
 	ctx := context.Background()
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
-	wg.Add(goroutines)
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 20 {
 				_, _ = enforcer.GetOrgPlanLimits(ctx, "org-conc-cache")
 			}
-		}()
+		})
 	}
 
 	// Invalidators running concurrently.
-	wg.Add(10)
 	for range 10 {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 20 {
 				enforcer.InvalidateOrgCache("org-conc-cache")
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

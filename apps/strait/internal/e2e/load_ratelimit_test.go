@@ -4,10 +4,11 @@ package e2e_test
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadRateLimit_BurstTrigger(t *testing.T) {
@@ -25,20 +26,18 @@ func TestLoadRateLimit_BurstTrigger(t *testing.T) {
 
 	const burst = 200
 	var successes, failures atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	start := time.Now()
 
 	for range burst {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			resp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger", `{"payload":{"burst":true}}`)
 			if resp.Code == 201 {
 				successes.Add(1)
 			} else {
 				failures.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -61,15 +60,13 @@ func TestLoadRateLimit_SustainedRead(t *testing.T) {
 
 	const duration = 5 * time.Second
 	var total, successes atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	deadline := time.Now().Add(duration)
 
 	const workers = 10
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for time.Now().Before(deadline) {
 				resp := doRequest(t, "GET", "/v1/jobs/", "", projectID)
 				total.Add(1)
@@ -77,7 +74,7 @@ func TestLoadRateLimit_SustainedRead(t *testing.T) {
 					successes.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -105,12 +102,10 @@ func TestLoadRateLimit_MixedBurstReadWrite(t *testing.T) {
 	const workers = 10
 	const requestsPerWorker = 50
 	var reads, writes, readSuccess, writeSuccess atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range requestsPerWorker {
 				if i%3 == 0 {
 					writes.Add(1)
@@ -127,7 +122,7 @@ func TestLoadRateLimit_MixedBurstReadWrite(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

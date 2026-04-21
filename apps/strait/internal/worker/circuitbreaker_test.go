@@ -1,9 +1,10 @@
 package worker
 
 import (
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestCircuitBreaker_StartsInClosedState(t *testing.T) {
@@ -143,21 +144,17 @@ func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 	cb := NewCircuitBreaker(CircuitBreakerConfig{FailureThreshold: 100, OpenDuration: time.Minute})
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 50 {
-		wg.Add(3)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			cb.Allow()
-		}()
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			cb.RecordFailure()
-		}()
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			cb.RecordSuccess()
-		}()
+		})
 	}
 	wg.Wait()
 

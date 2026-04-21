@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -853,7 +855,7 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 	}
 	body := webhookPayload(t, "customer.subscription.created", data)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errCount atomic.Int64
 	for range 20 {
 		wg.Go(func() {
@@ -898,7 +900,7 @@ func TestEnforcer_ConcurrentCheckSpendingLimit(t *testing.T) {
 	}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errCount atomic.Int64
 
 	for range 100 {
@@ -933,7 +935,7 @@ func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
 	}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 50 {
 		wg.Go(func() {
 			limits, err := e.GetOrgPlanLimits(context.Background(), "org-conc-limits")

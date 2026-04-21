@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 // TestRateLimit_ZeroWindow verifies behavior when window is zero.
@@ -154,7 +155,7 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 
 	var allowed atomic.Int64
 	var denied atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range goroutines {
 		wg.Go(func() {
