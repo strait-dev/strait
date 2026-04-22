@@ -385,14 +385,42 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	cancel()
-	_ = worker.Shutdown(context.Background())
 
 	if totalRequests.Load() != deliveryCount {
 		t.Fatalf("expected exactly %d requests, got %d", deliveryCount, totalRequests.Load())
 	}
 
-	// Verify all are marked delivered in the DB.
+	// Wait for the worker to mark all deliveries in the DB before
+	// canceling the context. The HTTP handler counts requests on receipt,
+	// but the DB update happens asynchronously after the response.
+	dbDeadline := time.After(10 * time.Second)
+	for {
+		allDelivered := true
+		for _, id := range ids {
+			got, err := st.GetWebhookDelivery(ctx, id)
+			if err != nil {
+				t.Fatalf("GetWebhookDelivery(%s) error = %v", id, err)
+			}
+			if got.Status != domain.WebhookStatusDelivered {
+				allDelivered = false
+				break
+			}
+		}
+		if allDelivered {
+			break
+		}
+		select {
+		case <-dbDeadline:
+			t.Fatal("timed out waiting for all deliveries to be marked delivered in DB")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	cancel()
+	_ = worker.Shutdown(context.Background())
+
+	// Final verification: all are marked delivered in the DB.
 	for _, id := range ids {
 		got, err := st.GetWebhookDelivery(ctx, id)
 		if err != nil {
