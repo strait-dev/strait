@@ -418,6 +418,7 @@ type Queries struct {
 	db                  DBTX
 	secretEncryptionKey string
 	auditSigningKey     []byte
+	maxSLOWindowHours   int
 
 	// tombstoneInsertHook is a test-only injection point invoked inside
 	// writeRetentionTombstone immediately before the anchor insert. When
@@ -447,6 +448,10 @@ func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 
 func (q *Queries) SetAuditSigningKey(key []byte) {
 	q.auditSigningKey = key
+}
+
+func (q *Queries) SetMaxSLOWindowHours(hours int) {
+	q.maxSLOWindowHours = hours
 }
 
 type TxBeginner interface {

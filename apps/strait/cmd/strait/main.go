@@ -301,6 +301,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// the same tx.
 	queries := store.NewWithContextRouting(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	if cfg.RunRetentionShort > 0 {
+		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
+	}
 	if cfg.InternalSecret != "" {
 		auditKey, auditKeyErr := store.DeriveAuditSigningKey(cfg.InternalSecret)
 		if auditKeyErr != nil {
