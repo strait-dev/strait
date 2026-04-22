@@ -134,6 +134,9 @@ func (baseReaperStore) ArchiveConsumedOutboxBatch(_ context.Context, _ time.Dura
 func (baseReaperStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+func (baseReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
 func (baseReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
 }
