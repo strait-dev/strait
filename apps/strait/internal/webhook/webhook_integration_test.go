@@ -119,16 +119,12 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	cancel()
-	_ = worker.Shutdown(context.Background())
 
 	if received.Load() != 1 {
 		t.Fatalf("expected 1 delivery, got %d", received.Load())
 	}
 
 	mu.Lock()
-	defer mu.Unlock()
-
 	if receivedHeaders.Get("Content-Type") != "application/json" {
 		t.Fatalf("expected Content-Type application/json, got %q", receivedHeaders.Get("Content-Type"))
 	}
@@ -143,6 +139,30 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 	if bodyMap["event_key"] != "test.event" {
 		t.Fatalf("expected event_key=test.event, got %v", bodyMap["event_key"])
 	}
+	mu.Unlock()
+
+	// Wait for the worker to persist the "delivered" status in the DB
+	// before canceling the context. The HTTP handler counts on receipt,
+	// but the DB update happens asynchronously after the response.
+	dbDeadline := time.After(5 * time.Second)
+	for {
+		got, err := st.GetWebhookDelivery(ctx, d.ID)
+		if err != nil {
+			t.Fatalf("GetWebhookDelivery() error = %v", err)
+		}
+		if got.Status == domain.WebhookStatusDelivered {
+			break
+		}
+		select {
+		case <-dbDeadline:
+			t.Fatalf("timed out waiting for DB status update, status = %q", got.Status)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	cancel()
+	_ = worker.Shutdown(context.Background())
 
 	got, err := st.GetWebhookDelivery(ctx, d.ID)
 	if err != nil {

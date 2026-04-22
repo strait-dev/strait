@@ -65,11 +65,18 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	}
 
 	// With buffer=256 and a hanging server, the forwarder goroutine will
-	// have sent at least one batch before blocking on the HTTP response.
-	// Under race-detector overhead, the run-loop may fire more than once
-	// before the first request blocks, so we assert >= 1.
-	if got := hits.Load(); got < 1 {
-		t.Errorf("expected >= 1 in-flight request while hanging; got %d", got)
+	// send at least one batch before blocking on the HTTP response.
+	// On heavily-loaded CI runners (especially with -race), the forwarder
+	// goroutine may not be scheduled immediately, so poll briefly.
+	hitDeadline := time.After(3 * time.Second)
+	for hits.Load() < 1 {
+		select {
+		case <-hitDeadline:
+			t.Fatalf("expected >= 1 in-flight request while hanging; got %d", hits.Load())
+		default:
+			runtime.Gosched()
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 }
 
