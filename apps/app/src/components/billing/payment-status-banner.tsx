@@ -35,7 +35,7 @@ const PaymentStatusBanner = () => {
           Your account is restricted due to failed payment. New runs are
           blocked.
         </p>
-        <Button onClick={handleUpdatePayment} size="sm" variant="destructive">
+        <Button onClick={handleUpdatePayment} variant="destructive">
           Update Payment Method
         </Button>
       </div>
@@ -50,7 +50,7 @@ const PaymentStatusBanner = () => {
           ? ` Update your payment method by ${graceEnd} to avoid service interruption.`
           : " Please update your payment method."}
       </p>
-      <Button onClick={handleUpdatePayment} size="sm" variant="default">
+      <Button onClick={handleUpdatePayment} variant="default">
         Update Payment
       </Button>
     </div>

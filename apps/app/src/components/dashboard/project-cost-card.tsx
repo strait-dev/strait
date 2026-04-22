@@ -34,7 +34,7 @@ const ProjectCostCard = ({ activeProjectId }: { activeProjectId: string }) => {
         <CardTitle className="font-medium text-sm">
           This Project's Cost
         </CardTitle>
-        <Button render={<Link to="/app/billing" />} size="sm" variant="link">
+        <Button render={<Link to="/app/billing" />} variant="link">
           View Billing
         </Button>
       </CardHeader>

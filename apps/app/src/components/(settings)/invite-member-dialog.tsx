@@ -65,7 +65,7 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
 
   return (
     <Dialog onOpenChange={setOpen} open={open}>
-      <DialogTrigger render={<Button size="sm" />}>
+      <DialogTrigger render={<Button />}>
         <HugeiconsIcon className="size-4" icon={PlusIcon} />
         Invite Member
       </DialogTrigger>

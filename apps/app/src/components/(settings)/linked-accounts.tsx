@@ -112,7 +112,6 @@ const LinkedAccounts = () => {
                     <Button
                       disabled={isProcessing || accounts.length <= 1}
                       onClick={() => handleUnlink(provider)}
-                      size="sm"
                       variant="outline"
                     >
                       {isProcessing ? (
@@ -127,7 +126,6 @@ const LinkedAccounts = () => {
                     <Button
                       disabled={isProcessing}
                       onClick={() => handleLink(provider)}
-                      size="sm"
                     >
                       {isProcessing ? (
                         <HugeiconsIcon

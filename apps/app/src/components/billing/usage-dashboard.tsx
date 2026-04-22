@@ -158,7 +158,6 @@ const UsageDashboard = () => {
         <div className="flex gap-2">
           <Button
             onClick={() => navigate({ to: "/app/upgrade" })}
-            size="sm"
             variant="outline"
           >
             Upgrade Plan
@@ -166,7 +165,6 @@ const UsageDashboard = () => {
           <Button
             disabled={isRedirecting}
             onClick={handleManageBilling}
-            size="sm"
             variant="outline"
           >
             Manage Billing
@@ -469,7 +467,6 @@ const UsageDashboard = () => {
             </div>
             <Button
               onClick={() => navigate({ to: "/app/billing" })}
-              size="sm"
               variant="outline"
             >
               Set Limit
@@ -496,7 +493,6 @@ const UsageDashboard = () => {
                   </span>
                   <Button
                     onClick={() => navigate({ to: "/app/upgrade" })}
-                    size="sm"
                     variant="outline"
                   >
                     Upgrade
@@ -517,7 +513,6 @@ const UsageDashboard = () => {
           <Button
             disabled={isRedirecting}
             onClick={handleManageBilling}
-            size="sm"
             variant="link"
           >
             Manage Billing
@@ -525,7 +520,6 @@ const UsageDashboard = () => {
           <Button
             disabled={isRedirecting}
             onClick={handleViewInvoices}
-            size="sm"
             variant="link"
           >
             View Invoices

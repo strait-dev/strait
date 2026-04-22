@@ -94,7 +94,7 @@ function AnalyticsPage() {
     <Shell>
       <div className="flex flex-col gap-3 pt-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-balance font-normal text-xl tracking-tight sm:text-2xl">
+          <h1 className="text-balance font-normal text-xl tracking-tight">
             Analytics
           </h1>
           <p className="text-muted-foreground text-sm">
@@ -106,7 +106,6 @@ function AnalyticsPage() {
             <Button
               key={w.value}
               onClick={() => setWindow(w.value)}
-              size="sm"
               variant={window === w.value ? "default" : "outline"}
             >
               {w.label}

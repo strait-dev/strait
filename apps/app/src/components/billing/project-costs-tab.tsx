@@ -206,7 +206,6 @@ const ProjectCostsTab = () => {
                                 action: budgetAction || "notify",
                               })
                             }
-                            size="sm"
                             variant="ghost"
                           >
                             Edit
@@ -223,7 +222,6 @@ const ProjectCostsTab = () => {
                               action: "notify",
                             })
                           }
-                          size="sm"
                           variant="ghost"
                         >
                           Set Budget

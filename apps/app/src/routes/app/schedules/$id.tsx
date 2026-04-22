@@ -86,7 +86,7 @@ function ScheduleDetailPage() {
       <div className="flex items-start justify-between pt-4 pb-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <h1 className="text-balance font-normal text-2xl tracking-tight">
+            <h1 className="text-balance font-normal text-xl tracking-tight">
               {job.name}
             </h1>
             <StatusBadge
@@ -99,11 +99,11 @@ function ScheduleDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button size="sm">
+          <Button>
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Trigger
           </Button>
-          <Button size="sm" variant="outline">
+          <Button variant="outline">
             <HugeiconsIcon
               className="mr-1.5"
               icon={job.enabled ? PauseActionIcon : PlayActionIcon}
@@ -162,9 +162,9 @@ function ScheduleDetailPage() {
         <TabsContent className="mt-6 space-y-6" value="settings">
           {/* Configuration */}
           <div className="space-y-3 rounded-md border p-4">
-            <h3 className="font-medium text-muted-foreground text-xs uppercase">
+            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
               Configuration
-            </h3>
+            </h4>
             <div className="space-y-2.5">
               <ConfigRow
                 icon={GlobeIcon}
@@ -192,10 +192,10 @@ function ScheduleDetailPage() {
           {/* Tags */}
           {job.tags && Object.keys(job.tags).length > 0 && (
             <div className="rounded-md border p-4">
-              <h3 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase">
+              <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
                 <HugeiconsIcon icon={TagIcon} size={12} />
                 Tags
-              </h3>
+              </h4>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(job.tags).map(([key, val]) => (
                   <Badge key={key} variant="secondary">
