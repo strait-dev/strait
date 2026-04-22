@@ -2782,3 +2782,77 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 		t.Errorf("step 2: pause_reason should be empty, got %q", got2.PauseReason)
 	}
 }
+
+// --------------------------------------------------------------------------
+// H1 regression: ListOrgsInGracePeriod must include MonthlyUsageEmail
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListOrgsInGracePeriod_MonthlyUsageEmail(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-grace-email-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.UpdateMonthlyUsageEmail(ctx, orgID, true); err != nil {
+		t.Fatalf("UpdateMonthlyUsageEmail: %v", err)
+	}
+
+	past := time.Now().UTC().Add(-48 * time.Hour)
+	if err := pgStore.UpdatePaymentStatus(ctx, orgID, "grace", &past); err != nil {
+		t.Fatalf("UpdatePaymentStatus: %v", err)
+	}
+
+	subs, err := pgStore.ListOrgsInGracePeriod(ctx)
+	if err != nil {
+		t.Fatalf("ListOrgsInGracePeriod: %v", err)
+	}
+
+	for _, s := range subs {
+		if s.OrgID == orgID {
+			if !s.MonthlyUsageEmail {
+				t.Fatalf("expected MonthlyUsageEmail=true, got false")
+			}
+			return
+		}
+	}
+	t.Fatal("org not found in grace period list")
+}
+
+// --------------------------------------------------------------------------
+// H1 regression: ListStaleSubscriptions must include MonthlyUsageEmail
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-stale-email-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.UpdateMonthlyUsageEmail(ctx, orgID, true); err != nil {
+		t.Fatalf("UpdateMonthlyUsageEmail: %v", err)
+	}
+
+	staleEnd := time.Now().UTC().Add(-72 * time.Hour)
+	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgID, "pro", "active", &staleEnd, &staleEnd); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionFull: %v", err)
+	}
+
+	subs, err := pgStore.ListStaleSubscriptions(ctx)
+	if err != nil {
+		t.Fatalf("ListStaleSubscriptions: %v", err)
+	}
+
+	for _, s := range subs {
+		if s.OrgID == orgID {
+			if !s.MonthlyUsageEmail {
+				t.Fatalf("expected MonthlyUsageEmail=true, got false")
+			}
+			return
+		}
+	}
+	t.Fatal("org not found in stale subscriptions list")
+}
