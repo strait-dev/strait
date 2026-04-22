@@ -23,7 +23,7 @@ const PAIN_POINTS = [
 
 <section
   aria-label="The problem with background job systems"
-  class="bg-muted/30 py-16 sm:py-20"
+  class="infinity-border-y overflow-hidden py-16 sm:py-20"
 >
   <Shell variant="wide">
     <div class="mb-14 max-w-3xl">
@@ -36,9 +36,14 @@ const PAIN_POINTS = [
       </p>
     </div>
 
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {PAIN_POINTS.map((point) => (
-        <div class="rounded-xl border border-border/40 bg-card p-5 sm:p-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2">
+      {PAIN_POINTS.map((point, i) => (
+        <div class:list={[
+          "p-5 sm:p-6",
+          i > 0 && "border-t border-border sm:border-t-0",
+          i >= 2 && "sm:border-t sm:border-border",
+          i % 2 !== 0 && "sm:border-l sm:border-border",
+        ]}>
           <p class="text-muted-foreground/50 text-sm leading-relaxed line-through decoration-destructive/40">
             {point.before}
           </p>

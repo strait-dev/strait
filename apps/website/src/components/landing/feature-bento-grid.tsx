@@ -78,7 +78,10 @@ const FEATURES: FeatureCard[] = [
 
 /* -- Main component -- */
 const FeatureBentoGrid = () => (
-  <section className="py-20 sm:py-28" id="features">
+  <section
+    className="infinity-border-y overflow-hidden py-20 sm:py-28"
+    id="features"
+  >
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">

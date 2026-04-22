@@ -63,7 +63,7 @@ const ArchitectureList = () => {
 };
 
 const CredibilitySection = () => (
-  <section className="py-20 sm:py-28">
+  <section className="infinity-border-y overflow-hidden py-20 sm:py-28">
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
@@ -77,9 +77,9 @@ const CredibilitySection = () => (
         </h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3">
         {/* Open Source */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 sm:p-8">
+        <div className="p-6 sm:p-8">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
               <svg
@@ -110,7 +110,7 @@ const CredibilitySection = () => (
         </div>
 
         {/* Technical Foundation */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 sm:p-8">
+        <div className="border-border border-t p-6 sm:p-8 lg:border-t-0 lg:border-l">
           <h3 className="mb-4 font-semibold text-foreground">
             Technical Foundation
           </h3>
@@ -129,7 +129,7 @@ const CredibilitySection = () => (
         </div>
 
         {/* Infrastructure Comparison */}
-        <div className="rounded-2xl border border-border/60 bg-card p-6 sm:p-8">
+        <div className="border-border border-t p-6 sm:p-8 lg:border-t-0 lg:border-l">
           <h3 className="mb-4 font-semibold text-foreground">
             Infrastructure Comparison
           </h3>
