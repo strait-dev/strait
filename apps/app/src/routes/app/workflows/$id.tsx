@@ -314,7 +314,7 @@ function WorkflowDetailPage() {
           <DataTable
             emptyState={
               <TableEmptyState
-                description="No runs found for this workflow."
+                description="No runs yet. Trigger this workflow to start an execution."
                 hideButton
                 icon={
                   <HugeiconsIcon

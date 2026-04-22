@@ -433,7 +433,7 @@ function JobDetailPage() {
             <DataTable
               emptyState={
                 <TableEmptyState
-                  description="No runs found for this job."
+                  description="No runs yet. Trigger this job to start an execution."
                   hideButton
                   icon={
                     <HugeiconsIcon

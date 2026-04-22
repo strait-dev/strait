@@ -26,8 +26,8 @@ const EntityNotFound = ({ entity, backTo, backLabel }: EntityNotFoundProps) => {
           {entity} not found
         </h2>
         <p className="max-w-sm text-pretty text-muted-foreground text-sm">
-          The {entity.toLowerCase()} you're looking for doesn't exist or may
-          have been removed.
+          This {entity.toLowerCase()} doesn't exist or was removed. Check the
+          URL or try searching.
         </p>
       </div>
       <div className="flex items-center gap-2 pt-1">

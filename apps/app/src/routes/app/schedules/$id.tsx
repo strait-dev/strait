@@ -144,7 +144,7 @@ function ScheduleDetailPage() {
           <DataTable
             emptyState={
               <TableEmptyState
-                description="No runs found for this schedule."
+                description="No runs yet. Runs will appear here each time the schedule fires."
                 hideButton
                 icon={
                   <HugeiconsIcon
