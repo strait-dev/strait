@@ -4,18 +4,18 @@ description: "The execution lifecycle of a job."
 icon: "play"
 ---
 
-A `JobRun` represents a single execution instance of a [Job](/concepts/jobs). It tracks the state, payload, result, and timing of the execution.
+A run is what you see when a job executes. Each run tracks everything about that execution: the input data, the result, how long it took, and whether it succeeded. Runs are created automatically (by cron schedules, workflows, or events) or manually through the API.
 
 ## JobRun Model
 
-The `JobRun` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
+A run includes the following fields:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `id` | `string` | Unique identifier (UUIDv7). |
 | `job_id` | `string` | Reference to the parent Job. |
 | `project_id` | `string` | The project this run belongs to. |
-| `status` | `RunStatus` | Current state in the FSM (e.g., `queued`, `executing`). |
+| `status` | `RunStatus` | Current lifecycle state (e.g., `queued`, `executing`, `completed`). See the state diagram below. |
 | `attempt` | `int` | Current retry attempt number (starts at 1). |
 | `payload` | `json` | The input data provided when the run was triggered. |
 | `result` | `json` | The output data returned by the job endpoint. |
@@ -43,15 +43,15 @@ The `JobRun` struct (defined in `apps/strait/internal/domain/types.go`) contains
 | `retry_backoff` | `string` | Optional override for the retry strategy. |
 | `retry_initial_delay_secs`| `int` | Optional override for initial retry delay. |
 | `retry_max_delay_secs` | `int` | Optional override for maximum retry delay. |
-| `execution_trace` | `json` | Detailed timing breakdown (TTFB, connect time, etc.). |
+| `execution_trace` | `json` | Detailed timing breakdown (time to first byte (TTFB), connect time, etc.). |
 | `debug_mode` | `bool` | Whether debug logging and bundle assembly are enabled. |
-| `continuation_of` | `string` | ID of the run this run is a continuation of. |
-| `lineage_depth` | `int` | Depth in the continuation chain. |
+| `continuation_of` | `string` | If this run continues a previous run (e.g., for long-running work split across multiple executions), this links back to the original. |
+| `lineage_depth` | `int` | How many continuations deep this run is. Useful for detecting runaway continuation loops. |
 | `created_at` | `time.Time` | When the run record was created. |
 
 ## Finite State Machine (FSM)
 
-The lifecycle of a run is strictly managed by a 13-state FSM.
+Each run moves through a defined set of states. The diagram below shows every possible transition.
 
 ### FSM Diagram
 
@@ -115,7 +115,7 @@ The lifecycle of a run is strictly managed by a 13-state FSM.
 - **system_failed**: Internal Strait error (e.g., database failure).
 - **canceled**: Manually terminated by a user or system.
 - **expired**: Run exceeded its `run_ttl_secs` before starting.
-- **dead_letter**: Permanently failed run moved to the DLQ for manual inspection.
+- **dead_letter**: Permanently failed run moved to the dead letter queue (a holding area for runs that failed all retries) for manual inspection.
 
 ## Terminal vs Non-Terminal States
 
@@ -131,11 +131,11 @@ The `execution_trace` field captures granular timing:
 - `queue_wait_ms`: Time spent in `queued` state.
 - `dequeue_ms`: Time taken to claim the run.
 - `connect_ms`: TCP/TLS connection time to the endpoint.
-- `ttfb_ms`: Time to first byte of the response.
+- `ttfb_ms`: Time to first byte — how long until the endpoint started responding.
 - `transfer_ms`: Time to download the response body.
 - `total_ms`: Total wall-clock time for the execution.
 
 ## Debug Mode and Lineage
 
-- **Debug Mode**: Enables detailed event logging and allows assembly of a "Debug Bundle" for troubleshooting.
-- **Continuation Lineage**: Tracks the relationship between runs when one run triggers another as a continuation, maintaining a `lineage_depth` and `continuation_of` reference.
+- **Debug Mode**: When you enable debug mode, Strait captures detailed event logs and assembles a debug bundle for troubleshooting.
+- **Continuation Lineage**: When one run triggers another as a continuation, Strait tracks the chain using `continuation_of` and `lineage_depth`, so you can trace the full history.

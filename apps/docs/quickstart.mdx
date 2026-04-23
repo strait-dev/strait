@@ -5,11 +5,11 @@ icon: "rocket"
 og:image: "/images/og.png"
 ---
 
-Follow these steps to set up Strait locally and run your first job. You'll have a production-grade job orchestration service running in under 10 minutes.
+Follow these steps to set up Strait locally and run your first job. You'll have a working job orchestration service running in under 10 minutes.
 
 ## Prerequisites
 
-Before you begin, ensure you have:
+Before you begin, make sure you have:
 
 <Steps>
   <Step title="Go 1.26+">
@@ -64,10 +64,10 @@ sequin            Up
 
 ## Step 2: Set Environment Variables
 
-Configure necessary environment variables for Strait to connect to infrastructure.
+Set environment variables so Strait can connect to PostgreSQL and Redis.
 
 <Info>
-Strait validates required environment variables on startup. Missing variables cause a clear error message with configuration instructions.
+Strait checks for required variables when it starts. If any are missing, it tells you exactly what's wrong.
 </Info>
 
 ```bash
@@ -105,7 +105,7 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 
 ## Step 3: Build and Run Strait
 
-Build Strait binary and start it in `all` mode (API + worker combined).
+Build the Strait binary and start it in `all` mode, which runs the API server and worker in one process.
 
 ```bash
 # Build the server from source
@@ -145,11 +145,7 @@ Scheduler running
 
 ## Step 4: Create a Job
 
-Create a new job definition via REST API or CLI. Jobs define the template for recurring tasks.
-
-<Info>
-Jobs are the core unit of work. They define the endpoint URL, timeout, retry strategy, and other configuration. Runs are execution instances of jobs.
-</Info>
+Create a new job via the REST API or CLI. A job is a template that defines what endpoint to call, how long to wait, and how many times to retry.
 
 <CodeGroup>
   ```bash curl
@@ -196,7 +192,7 @@ Expected response:
 
 ## Step 5: Trigger a Job
 
-Trigger a run for the job you just created. Strait will enqueue the run and a worker will dispatch it to the endpoint.
+Trigger a run for the job you just created. Strait enqueues the run, and a worker dispatches it to your endpoint.
 
 ```bash
 # Trigger with a payload
@@ -225,7 +221,7 @@ Expected response:
 
 <Steps>
   <Step title="Dequeued">
-    Worker claims the run using `SELECT FOR UPDATE SKIP LOCKED` and transitions to `dequeued` state.
+    A worker claims the run and transitions it to `dequeued` state.
   </Step>
   <Step title="Executing">
     Worker sends HTTP POST to `https://httpbin.org/post` with the payload.
@@ -240,7 +236,7 @@ Expected response:
 
 ## Step 6: Watch the Run
 
-Monitor the status of your job run in real-time.
+Monitor your job run in real time.
 
 ```bash
 # Get run status
@@ -251,7 +247,7 @@ curl http://localhost:8080/v1/runs/run_xyz789 \
 ./strait runs watch run_xyz789
 ```
 
-Run lifecycle states: `queued` → `dequeued` → `executing` → `completed` or `failed`.
+A run moves through these states: `queued` -> `dequeued` -> `executing` -> `completed` or `failed`.
 
 <Info>
 **Real-time updates**: Subscribe to Server-Sent Events via the `/v1/runs/{runID}/stream` endpoint for live status updates without polling.
@@ -259,7 +255,7 @@ Run lifecycle states: `queued` → `dequeued` → `executing` → `completed` or
 
 ## Step 7: Create a Simple Workflow
 
-Workflows allow you to chain multiple jobs together in a DAG (Directed Acyclic Graph). Steps can depend on outputs from parent steps.
+Workflows let you chain multiple jobs together as a dependency graph (DAG). Each step can depend on outputs from earlier steps.
 
 ```bash
 # Create a workflow with two sequential steps
@@ -287,7 +283,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 ```
 
 <Info>
-**Workflow Execution**: When triggered, Strait creates a `workflow_run`. Step `extract` executes first, then `transform` executes only after `extract` completes. The DAG engine handles fan-in automatically when multiple steps depend on the same parent.
+**Workflow Execution**: When you trigger a workflow, Strait creates a `workflow_run`. Step `extract` runs first, then `transform` runs only after `extract` completes. If multiple steps depend on the same parent, Strait waits for that parent to finish before running any of them.
 </Info>
 
 ## Troubleshooting
@@ -316,7 +312,7 @@ curl -X POST http://localhost:8080/v1/workflows \
   </Step>
   <Step title="Repeated Failures">
     <Details>
-      **Symptoms**: Job reaches `max_attempts` and transitions to `failed` or `dead_letter`.
+      **Symptoms**: Job reaches `max_attempts` and moves to `failed` or `dead_letter` (a holding area for jobs that failed all retries).
       **Checks**: Review endpoint logs for errors, check payload format, verify authentication headers.
       **Fix**: Fix underlying issue in endpoint code, adjust `retry_delays_secs` for custom retry strategy, increase `max_attempts`.
     </Details>
@@ -341,18 +337,18 @@ curl -X POST http://localhost:8080/v1/workflows \
 </Warning>
 
 <Warning>
-**Mistake 3: Insufficient JWT_SIGNING_KEY.** The key must be at least 32 characters for HS256 algorithm security. Generate with `openssl rand -base64 32` or use a password manager.
+**Mistake 3: Insufficient JWT_SIGNING_KEY.** The key must be at least 32 characters. Generate one with `openssl rand -base64 32` or use a password manager.
 </Warning>
 
 <Warning>
-**Mistake 4: Not checking worker pool capacity.** Monitor queue depth with `strait stats`. If jobs are queuing faster than workers can process, increase pool size via `WORKER_POOL_SIZE` environment variable.
+**Mistake 4: Not watching worker pool capacity.** Monitor queue depth with `strait stats`. If jobs queue faster than workers can process them, increase the pool size with the `WORKER_POOL_SIZE` environment variable.
 </Warning>
 
 ## What's Next?
 
 <CardGroup cols={2}>
-  <Card title="Architecture Deep Dive" icon="sitemap" href="/architecture">
-    Learn about queue mechanics, the 13-state FSM, workflow engine, and why we chose our technology stack.
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Learn how Strait's queue, workflow engine, and state machine work under the hood.
   </Card>
   <Card title="Concepts" icon="book" href="/concepts/jobs">
     Understand jobs, runs, workflows, scheduling, retry strategies, and cost budgets in depth.
@@ -361,26 +357,10 @@ curl -X POST http://localhost:8080/v1/workflows \
 
 <CardGroup cols={2}>
   <Card title="CLI Reference" icon="terminal" href="/cli/overview">
-    Master 48+ CLI commands with shell completion, contexts, aliases, and output formats.
+    Explore all CLI commands, shell completion, and output formats.
   </Card>
   <Card title="API Documentation" icon="api" href="/api-reference/overview">
     REST API endpoints for job management, workflow orchestration, and SDK interactions.
   </Card>
 </CardGroup>
 
-## Next Steps
-
-<CardGroup cols={2}>
-  <Card title="Jobs" icon="briefcase" href="/concepts/jobs">
-    Learn how jobs work in Strait.
-  </Card>
-  <Card title="Workflows" icon="diagram-project" href="/concepts/workflows">
-    Build multi-step workflow DAGs.
-  </Card>
-  <Card title="SDKs" icon="code" href="/sdks/overview">
-    Choose your language and start building.
-  </Card>
-  <Card title="Deployment" icon="cloud-arrow-up" href="/guides/deployment">
-    Deploy Strait to production.
-  </Card>
-</CardGroup>

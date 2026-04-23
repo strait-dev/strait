@@ -35,32 +35,24 @@ When a canary deployment is active, new workflow runs are routed to the source o
 
 At each interval, the health monitor compares the target version's metrics against thresholds:
 
-- **Promote**: If failure rate and P99 latency are both below thresholds, advance to the next traffic step
+- **Promote**: If failure rate and P99 latency (the worst-case response time for 99% of runs) are both below thresholds, advance to the next traffic step
 - **Rollback**: If either metric exceeds its threshold, roll back to 0% target traffic
 - **Hold**: If fewer than 5 runs exist for the target version, wait for more data
 
 ## Health Evaluation
 
-The `EvaluateHealth` function makes three-way decisions:
+At each interval, the health monitor makes a three-way decision:
 
-1. **Insufficient data** (< 5 target runs) -> `hold` (no action)
-2. **Failure rate > threshold** -> `rollback`
-3. **P99 latency > threshold** -> `rollback`
-4. **All checks pass** -> `promote`
+1. **Insufficient data** (fewer than 5 target runs) -- hold, wait for more data
+2. **Failure rate or P99 latency exceeds threshold** -- roll back
+3. **All checks pass** -- promote to next traffic step
 
 ## Canary States
 
-| State | Description |
-|-------|-------------|
-| `active` | Traffic is being split between versions |
-| `promoting` | Auto-promote is advancing to next step |
-| `rolling_back` | Rollback in progress |
+| State | Meaning |
+|-------|---------|
+| `active` | Traffic is split between versions |
+| `promoting` | Advancing to the next traffic step |
+| `rolling_back` | Reverting to the source version |
 | `completed` | Target version at 100%, canary finished |
-| `rolled_back` | Rolled back to source version |
-
-## Implementation
-
-- Router: `apps/strait/internal/workflow/canary.go`
-- Tests: `apps/strait/internal/workflow/canary_test.go` (25 tests including statistical routing verification, fuzz, adversarial)
-- Migration: `000160_canary_deployments`
-- DB: `canary_deployments` table with unique active-per-workflow constraint
+| `rolled_back` | Fully reverted to source version |

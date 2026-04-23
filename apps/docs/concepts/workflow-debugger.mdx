@@ -44,9 +44,3 @@ Data flow edges track which step's output feeds into which dependent step's inpu
 ```
 
 The data size is calculated from the parent step's output JSON length.
-
-## Implementation
-
-- Engine: `apps/strait/internal/workflow/debugger.go`
-- Types: `DebugView`, `DebugStep`, `DataFlowEdge`, `RunComparison`, `StepComparison`
-- Tests: `apps/strait/internal/workflow/debugger_test.go` (19 tests including adversarial)

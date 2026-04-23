@@ -4,21 +4,21 @@ description: "The fundamental unit of work in Strait."
 icon: "briefcase"
 ---
 
-Jobs define the configuration for a specific task that can be executed. They act as templates for **Runs**.
+A job defines a task you want Strait to execute — an HTTP endpoint to call, how often to call it, and what to do when things go wrong. Every time a job runs, Strait creates a [Run](/concepts/runs) to track that execution.
 
 ## Job Model
 
-The `Job` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
+A job includes the following fields:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (UUIDv7). |
-| `project_id` | `string` | The project this job belongs to. |
+| `id` | `string` | Auto-generated unique identifier. |
+| `project_id` | `string` | Project this job belongs to. |
 | `group_id` | `string` | Optional ID of the `JobGroup` for logical organization. |
-| `name` | `string` | Human-readable name of the job. |
-| `slug` | `string` | URL-friendly identifier, unique within a project. |
+| `name` | `string` | Display name shown in the dashboard. |
+| `slug` | `string` | URL-friendly identifier, unique within a project. Used in API paths like `/v1/jobs/{slug}`. |
 | `description` | `string` | Optional detailed description. |
-| `cron` | `string` | 5-field cron expression for automatic scheduling. |
+| `cron` | `string` | Cron expression for automatic scheduling (five fields: minute, hour, day-of-month, month, day-of-week). |
 | `cron_overlap_policy` | `string` | Behavior when a cron tick fires with active runs: `allow` (default), `skip`, or `cancel_running`. See [Scheduling](/concepts/scheduling). |
 | `payload_schema` | `json` | JSON Schema to validate incoming trigger payloads. |
 | `tags` | `map[string]string` | Key-value pairs for filtering and metadata. |
@@ -41,7 +41,7 @@ The `Job` struct (defined in `apps/strait/internal/domain/types.go`) contains th
 | `run_ttl_secs` | `int` | Time-to-live for runs before they are considered expired. |
 | `retry_strategy` | `string` | Strategy: `exponential`, `linear`, `fixed`, or `custom`. |
 | `retry_delays_secs` | `[]int` | Array of delays for the `custom` retry strategy. |
-| `poison_pill_threshold` | `*int` | Consecutive identical errors before auto-quarantine to DLQ. `null` or `0` disables. See [Resilience](/concepts/resilience#poison-pill-detection). |
+| `poison_pill_threshold` | `*int` | If the same error repeats this many times in a row, Strait stops retrying and moves the run to the dead letter queue (a holding area for runs that need manual inspection). `null` or `0` disables this. See [Resilience](/concepts/resilience#poison-pill-detection). |
 | `environment_id` | `string` | The environment (e.g., Staging, Production) this job is bound to. |
 | `version` | `int` | Auto-incrementing version number (starts at 1). |
 | `version_id` | `string` | Unique nanoid for this version (`ver_k8f2m9x1p3`). Changes on every update. |
@@ -74,13 +74,13 @@ Jobs are scoped to a `project_id`. The `slug` must be unique within that project
 ```
 </CodeGroup>
 
-- **Cron**: Standard 5-field syntax supported via `robfig/cron/v3`.
+- **Cron**: Standard five-field cron syntax (minute, hour, day-of-month, month, day-of-week).
 - **Execution Windows**: Restricts job execution to specific times (e.g., business hours).
 
 ## Concurrency and Rate Limiting
 
 - **Max Concurrency**: Limits the number of parallel executions for a single job definition.
-- **Rate Limiting**: Prevents thundering herds by capping the number of runs over a sliding window.
+- **Rate Limiting**: Prevents all runs from firing at the same time by capping the number of runs over a sliding window.
 - **Deduplication**: Uses `dedup_window_secs` and an idempotency key to ignore duplicate trigger requests within a short timeframe.
 
 ### Per-Key Concurrency
@@ -119,5 +119,5 @@ Jobs can be linked to an `environment_id`. This allows Strait to apply environme
 ## Related Concepts
 
 - [Runs](/concepts/runs): The execution instances of a job.
-- [Workflows](/concepts/workflows): DAGs that coordinate multiple jobs.
+- [Workflows](/concepts/workflows): Dependency graphs (DAGs) that coordinate multiple jobs.
 - **Job Groups**: Logical containers for related jobs within a project.
