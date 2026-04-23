@@ -60,7 +60,7 @@ export function StaticPricingTable() {
           >
             Yearly
           </button>
-          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground text-xs">
+          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground text-sm">
             Save ~{savingsPercent}%
           </span>
         </div>
@@ -104,7 +104,7 @@ export function StaticPricingTable() {
                         <Badge variant="outline">{plan.badge}</Badge>
                       )}
                   </div>
-                  <p className="mt-1.5 text-pretty text-muted-foreground text-xs leading-relaxed">
+                  <p className="mt-1.5 text-pretty text-muted-foreground text-sm leading-relaxed">
                     {plan.description}
                   </p>
                 </div>
@@ -119,7 +119,7 @@ export function StaticPricingTable() {
                         <span className="text-muted-foreground text-sm">
                           /yr
                         </span>
-                        <span className="text-muted-foreground/50 text-xs">
+                        <span className="text-muted-foreground/50 text-sm">
                           {priceDisplay}/mo
                         </span>
                       </div>
@@ -138,7 +138,7 @@ export function StaticPricingTable() {
                   </div>
 
                   {plan.trial && (
-                    <p className="mb-4 text-muted-foreground text-xs">
+                    <p className="mb-4 text-muted-foreground text-sm">
                       14-day free trial included
                     </p>
                   )}
@@ -146,7 +146,7 @@ export function StaticPricingTable() {
                   <div className="mb-5 border-border/40 border-t" />
 
                   {plan.computeCredit !== "100 runs/mo (micro, 10s)" && (
-                    <p className="mb-3 font-medium text-foreground text-xs">
+                    <p className="mb-3 font-medium text-foreground text-sm">
                       {plan.computeCredit} compute credit
                     </p>
                   )}
@@ -154,11 +154,11 @@ export function StaticPricingTable() {
                   <ul className="mb-6 flex-1 space-y-2">
                     {plan.features.map((feature) => (
                       <li
-                        className="flex items-start gap-2 text-xs leading-relaxed"
+                        className="flex items-start gap-2 text-sm leading-relaxed"
                         key={feature}
                       >
                         <HugeiconsIcon
-                          className="mt-0.5 size-3.5 shrink-0 text-foreground"
+                          className="mt-0.5 size-4 shrink-0 text-foreground"
                           icon={CheckmarkCircle02Icon}
                         />
                         <span className="text-pretty text-muted-foreground">
