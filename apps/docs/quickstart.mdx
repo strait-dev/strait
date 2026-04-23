@@ -16,7 +16,7 @@ Before you begin, ensure you have:
     Required to build and run Strait from source. Verify with `go version`. Download from [golang.org/dl](https://golang.org/dl).
   </Step>
   <Step title="Docker and Docker Compose">
-    Required to run PostgreSQL, Redis, and Sequin locally. Verify with `docker --version` and `docker compose version`. Download from [docker.com](https://www.docker.com/products/docker-desktop).
+    Required to run PostgreSQL, Redis, and Sequin (handles real-time database change delivery) locally. Verify with `docker --version` and `docker compose version`. Download from [docker.com](https://www.docker.com/products/docker-desktop).
   </Step>
   <Step title="curl (optional)">
     For API interaction examples. Most users can use the CLI instead. Verify with `curl --version`.
@@ -31,7 +31,7 @@ Docker Compose will start PostgreSQL 18, Redis 8, and Sequin in isolated contain
 
 ```bash
 # Clone the repository
-git clone https://github.com/leonardomso/strait.git
+git clone https://github.com/strait-dev/strait.git
 cd strait
 
 # Start all services

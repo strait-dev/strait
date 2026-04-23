@@ -45,31 +45,32 @@
             ]
           },
           {
-            "group": "More Concepts",
+            "group": "Features",
             "pages": [
-              "concepts/dag-runtime",
               "concepts/resilience",
               "concepts/webhooks",
+              "concepts/webhook-subscriptions",
               "concepts/environments",
               "concepts/versioning",
               "concepts/cost-budgets",
-              "concepts/cdc",
               "concepts/adaptive-concurrency",
               "concepts/audit-logging",
-              "concepts/webhook-subscriptions",
               "concepts/managed-execution",
-              "concepts/clickhouse-analytics",
               "concepts/log-drains",
               "concepts/event-sources",
-              "concepts/batch-operations"
+              "concepts/batch-operations",
+              "concepts/durable-workflows",
+              "concepts/compensating-transactions",
+              "concepts/canary-deployments",
+              "concepts/workflow-simulator",
+              "concepts/workflow-test-suites",
+              "concepts/workflow-debugger",
+              "concepts/job-chaining"
             ]
           },
           {
             "group": "Configuration",
-            "pages": [
-              "configuration/environment-variables",
-              "configuration/database"
-            ]
+            "pages": ["configuration/environment-variables"]
           },
           {
             "group": "Guides",
@@ -80,16 +81,11 @@
               "guides/sdk-integration",
               "guides/oidc",
               "guides/rbac",
-              "guides/audit-events",
               "guides/api-key-rotation",
-              "guides/performance-tuning",
-              "guides/capacity-planning",
               "guides/job-dependencies",
-              "guides/debug-bundles",
               "guides/job-groups",
               "guides/idempotency",
               "guides/workflow-approvals",
-              "guides/dag-operations-playbook",
               "guides/event-triggers"
             ]
           },
@@ -100,27 +96,6 @@
           {
             "group": "Integrations",
             "pages": ["integrations/index"]
-          },
-          {
-            "group": "Operations",
-            "pages": [
-              "operations/monitoring-and-alerts",
-              "operations/audit-runbook",
-              "operations/oidc-rollout",
-              "operations/rbac-policy-rollout",
-              "operations/api-key-rotation-rollout",
-              "operations/incident-response-authz"
-            ]
-          },
-          {
-            "group": "Development",
-            "pages": [
-              "development/contributing",
-              "development/testing",
-              "development/database-schema",
-              "development/technology-choices",
-              "migrations"
-            ]
           }
         ]
       },
@@ -188,7 +163,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/leonardomso/strait",
+      "github": "https://github.com/strait-dev/strait",
       "x": "https://twitter.com/leonardomso",
       "linkedin": "https://linkedin.com/company/strait"
     }

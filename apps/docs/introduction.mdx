@@ -63,7 +63,6 @@ Strait replaces that patchwork with one system:
 ```text
                     ┌──────────────────────────────────┐
                     │           API Server              │
-                    │  (Chi router + middleware)         │
                     │                                    │
                     │  /v1/jobs/* ── Job CRUD + Health   │
                     │  /v1/workflows/* ── DAG CRUD       │
@@ -89,24 +88,25 @@ Strait replaces that patchwork with one system:
                     │  environments ── endpoint config   │
                     │  project_quotas ── budget limits   │
                     │                                    │
-                    │  Queue: SELECT FOR UPDATE          │
-                    │         SKIP LOCKED                │
+                    │  Queue: Row-level locking          │
+                    │         Concurrent workers         │
                     └──────────┬───────────────────────┘
                                │ Dequeue
                                v
                     ┌──────────────────────────────────┐
                     │         Worker Executor            │
                     │                                    │
-                    │  Poll ─> DequeueN(available)       │
+                    │  Poll ─> Dequeue available runs    │
                     │  Workflow Engine:                  │
-                    │  - DAG Validation (Kahn's)         │
-                    │  - Atomic Fan-in (UPDATE...RET)    │
+                    │  - DAG Validation                  │
+                    │  - Atomic Fan-in                   │
                     │  - Condition Evaluation            │
                     │  - Template Rendering              │
                     │  - Sub-workflow Nesting            │
                     │                                    │
                     │  Job Execution:                    │
-                    │  - Resolve ─> Env override + SSRF  │
+                    │  - Resolve ─> Env override + URL   │
+                    │    validation                      │
                     │  - Execute ─> HTTP POST to endpt   │
                     │  - Retry ─> Smart strategy select  │
                     │  - Trace ─> Execution timing       │
@@ -139,10 +139,10 @@ Strait runs in three modes:
 
 <Steps>
   <Step title="Zero External Dependencies">
-    No RabbitMQ. No SQS. No Kafka. PostgreSQL handles queuing with `SELECT FOR UPDATE SKIP LOCKED`—lock-free concurrent workers without operational overhead. Single binary includes everything—no runtime dependencies to install.
+    No RabbitMQ. No SQS. No Kafka. PostgreSQL handles queuing with row-level locking—concurrent workers without operational overhead. Single binary includes everything—no runtime dependencies to install.
   </Step>
   <Step title="Production-Grade Concurrency">
-    Go goroutines provide parallel job execution without external coordination. Worker pool with bounded backpressure prevents memory exhaustion during traffic spikes. Structured concurrency patterns (`sourcegraph/conc`) ensure panic recovery and graceful shutdown.
+    Go goroutines provide parallel job execution without external coordination. Worker pool with bounded backpressure prevents memory exhaustion during traffic spikes. Structured concurrency patterns ensure panic recovery and graceful shutdown.
   </Step>
   <Step title="Built for AI Workloads">
     SDK endpoints designed for AI agents—logging, heartbeats, progress checkpoints, continuation for long-running workflows, and child job spawning. Cost budgets track token usage with micro-USD precision. Debug bundles aggregate execution data for troubleshooting.
@@ -215,7 +215,7 @@ Core domain concepts you'll encounter:
     Workflows orchestrate multiple jobs into DAGs. Steps can depend on outputs from parent steps, have conditional execution based on step status, include human approval gates, and wait for external events.
   </Tab>
   <Tab title="Event Triggers">
-    Event triggers pause workflow steps or job runs until an external event arrives via API. Waits are durable — stored as database rows, not goroutines — and can last days or weeks. Supports timeouts, webhook notifications, event chaining, and real-time SSE streaming.
+    Event triggers pause workflow steps or job runs until an external event arrives via API. Waits are durable — stored in the database — and can last days or weeks. Supports timeouts, webhook notifications, event chaining, and real-time SSE streaming.
   </Tab>
   <Tab title="Environments">
     Environments provide per-project, named configurations with key-value variables. Jobs can link to environments, enabling endpoint URL overrides for staging vs. production routing.
@@ -234,7 +234,7 @@ Step-by-step guides for common tasks:
     Docker deployment, Fly.io configuration, horizontal scaling strategies, and production readiness checklist.
   </Card>
   <Card title="Security" icon="shield" href="/guides/security">
-    SSRF protection, rate limiting, encryption at rest, and secure webhook delivery.
+    URL validation, rate limiting, encryption at rest, and secure webhook delivery.
   </Card>
   <Card title="Cost Budgets" icon="money-bill" href="/concepts/cost-budgets">
     Per-run and daily project limits. AI model usage tracking with micro-USD precision. Budget enforcement before execution.
@@ -261,11 +261,11 @@ Contributing to Strait or running it locally:
 
 Ready to dive deeper?
 
-- Learn about the [queue mechanics](/architecture#queue-mechanics) and how `SKIP LOCKED` works
+- Learn about the [queue mechanics](/architecture#queue-mechanics) and how the job queue works
 - Understand the [workflow engine](/architecture#workflow-engine) and DAG execution
 - Explore [retry strategies](/concepts/retry-strategies) -- exponential, linear, fixed, and custom
 - Set up [webhooks](/concepts/webhooks) with HMAC signing for event delivery
-- Build durable workflows with [event triggers](/concepts/event-triggers) -- wait for external events without holding goroutines
+- Build durable workflows with [event triggers](/concepts/event-triggers) -- wait for external events without blocking resources
 - Configure [cost budgets](/concepts/cost-budgets) for AI workloads
 
 Or jump straight into the [Quick Start Guide](/quickstart) and run your first job in 5 minutes.
