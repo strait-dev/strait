@@ -4,7 +4,7 @@ description: "Security features and protections implemented in Strait."
 icon: "shield"
 ---
 
-Strait includes several built-in security measures to protect the infrastructure and ensure the integrity of job executions.
+This page covers the security measures Strait uses to protect your infrastructure and job executions.
 
 <Info>
   Related guides: [Authentication & Authorization](/guides/authentication), [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [Audit Events](/guides/audit-events), [API Key Rotation](/guides/api-key-rotation).
@@ -12,7 +12,7 @@ Strait includes several built-in security measures to protect the infrastructure
 
 ## SSRF Protection
 
-To prevent Server-Side Request Forgery (SSRF), all user-provided URLs (e.g., for webhooks or job endpoints) are validated using the `validateURL` function.
+To prevent SSRF (Server-Side Request Forgery -- where an attacker tricks the server into making requests to internal services), Strait validates all user-provided URLs (e.g., webhook and job endpoint URLs).
 
 ### Blocked Hosts
 The following hosts are explicitly blocked:
@@ -21,7 +21,7 @@ The following hosts are explicitly blocked:
 - `169.254.169.254` (Cloud metadata service)
 
 ### Private IP Detection
-The system performs DNS resolution and checks if any of the resolved IP addresses belong to blocked ranges. This prevents access to internal network services.
+Strait resolves DNS for submitted URLs and rejects any that point to private IP ranges. This prevents access to internal network services.
 
 ### Blocked IP Ranges
 - Private IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
@@ -31,12 +31,11 @@ The system performs DNS resolution and checks if any of the resolved IP addresse
 - IPv6 Unique Local: `fc00::/7`
 
 ### Defense in Depth
-SSRF validation is applied in two layers:
-1. **API layer**: On job create/update for `endpoint_url`, `fallback_endpoint_url`, and `webhook_url`
-2. **Worker layer**: At dispatch time for environment-resolved endpoint overrides (`apps/strait/internal/worker/validate.go`)
-
+Strait validates URLs at two points:
+1. **API layer**: When you create or update a job's `endpoint_url`, `fallback_endpoint_url`, or `webhook_url`
+2. **Worker layer**: At dispatch time, when environment-specific endpoint overrides are resolved
 ### Allowed Ports
-To further restrict outbound traffic, only a specific set of standard and common development ports are allowed for webhooks:
+To further restrict outbound traffic, Strait only allows webhooks on standard and common development ports:
 - `80`, `443` (Standard HTTP/S)
 - `3000`, `4000`, `5000` (Common web frameworks)
 - `8080`, `8443` (Alternative HTTP/S)
@@ -44,7 +43,7 @@ To further restrict outbound traffic, only a specific set of standard and common
 
 ## Rate Limiting
 
-Strait implements rate limiting at multiple levels using the `httprate` middleware.
+Strait rate-limits requests at multiple levels.
 
 ### Global Rate Limit
 Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW`.
@@ -53,45 +52,45 @@ Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the to
 Controlled by `TRIGGER_RATE_LIMIT_REQUESTS`. This specifically limits the `/trigger` endpoints to prevent accidental or malicious job flooding.
 
 ### RBAC Control-Plane Rate Limits
-Mutating RBAC endpoints (role/member/tag-policy/resource-policy management and seed-role operations) have stricter per-route limits to reduce abuse risk on authorization control paths.
+Mutating RBAC endpoints (role, member, and policy management) have stricter per-route limits to reduce abuse risk on authorization controls.
 
 ## Request Protections
 
 ### Timeouts
-The `REQUEST_TIMEOUT` middleware ensures that no API request hangs indefinitely. The default timeout is 30 seconds if not specified.
+The request timeout ensures no API request hangs indefinitely. The default is 30 seconds.
 
 ### Body Size Limits
-The maximum allowed request body size is capped to prevent Denial of Service (DoS) attacks via large payloads.
+The maximum allowed request body size prevents denial-of-service attacks via large payloads.
 - **Default**: 1MB (`MAX_REQUEST_BODY_SIZE`)
 
 ### Validation
-All incoming JSON requests are validated using the `go-playground/validator` library. This ensures that required fields are present and data formats (like UUIDs or email addresses) are correct before processing.
+All incoming JSON requests are validated to ensure required fields are present and data formats (like UUIDs or email addresses) are correct before processing.
 
 ## CORS Configuration
 
-Cross-Origin Resource Sharing (CORS) is configured to allow secure access from web dashboards.
+CORS (Cross-Origin Resource Sharing) controls which web origins can call the API.
 - **Allowed Origins**: Configurable via `CORS_ALLOWED_ORIGINS`.
 - **Allowed Methods**: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`.
 - **Allowed Headers**: Includes `Authorization`, `X-Internal-Secret`, and idempotency keys.
 
 ## Input Sanitization
 
-The system uses a strict approach to input:
-- **Disallow Unknown Fields**: The JSON decoder is configured to fail if unknown fields are present in the request body.
-- **Type Safety**: Strong typing in Go ensures that input data matches the expected domain models.
-- **Constant-Time Comparison**: Used for internal secret validation to prevent timing attacks.
+Strait takes a strict approach to input:
+- **Disallow Unknown Fields**: The JSON decoder rejects requests that include unrecognized fields.
+- **Type Safety**: Strong typing ensures input data matches expected domain models.
+- **Constant-Time Comparison**: Internal secret validation uses constant-time comparison to prevent timing attacks.
 
 ## API Key Scope Enforcement
 
-Every API key has a set of scopes that restrict what it can do. Scopes are checked on every request by the `requirePermission` middleware. See [Authentication & Authorization](/guides/authentication) for the full scope list.
+Every API key has a set of scopes that restrict what it can do. Scopes are checked on every request. See [Authentication & Authorization](/guides/authentication) for the full scope list.
 
-Keys with empty scopes (`[]`) retain full access for backwards compatibility.
+Keys with empty scopes (`[]`) retain full access for backward compatibility.
 
 ## Role-Based Access Control
 
-Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four system roles (admin, operator, viewer, triggerer) are available, and custom roles can be created per-project.
+Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four built-in roles (admin, operator, viewer, triggerer) are available, and you can create custom roles per-project.
 
-RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without over-broad static roles.
+RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without relying on broad static roles.
 
 See [Authentication & Authorization](/guides/authentication#role-based-access-control-rbac) for details.
 

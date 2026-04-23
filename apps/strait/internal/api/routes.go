@@ -695,5 +695,7 @@ func (s *Server) routes() chi.Router {
 	// SDK configuration schema — served publicly so IDEs and SDK CI can fetch it.
 	r.Get("/schemas/v1/strait.json", s.handleStraitJSONSchema)
 
+	// Agent discovery (RFC 9728 OAuth Protected Resource Metadata).
+	r.Get("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
 	return r
 }

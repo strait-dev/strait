@@ -3,11 +3,11 @@ title: "Environments"
 description: "Managing project-specific configurations and routing."
 ---
 
-Environments provide a way to manage different configurations (e.g., Staging, Production) for your jobs and workflows within a single project.
+Environments let you run the same jobs and workflows against different configurations -- for example, routing to a staging API during development and a production API when you ship.
 
 ## Environment Model
 
-The `Environment` struct (defined in `apps/strait/internal/domain/types.go`) includes:
+Each environment has the following fields:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -15,9 +15,9 @@ The `Environment` struct (defined in `apps/strait/internal/domain/types.go`) inc
 | `project_id` | `string` | The project this environment belongs to. |
 | `name` | `string` | Human-readable name (e.g., "Production"). |
 | `slug` | `string` | URL-friendly identifier (e.g., "prod"). |
-| `parent_id` | `string` | Optional ID of a parent environment for variable inheritance. |
-| `is_standard` | `bool` | Whether this is a standard environment (development, staging, production). Standard environments cannot be deleted or renamed. |
-| `variables` | `map[string]string` | Key-value pairs for environment-specific configuration. Encrypted at rest when `SECRET_ENCRYPTION_KEY` is set. |
+| `parent_id` | `string` | Optional. Links to a parent environment for variable inheritance. |
+| `is_standard` | `bool` | Whether this is a built-in environment. Standard environments cannot be deleted or renamed. |
+| `variables` | `map[string]string` | Key-value configuration. Encrypted at rest when you set `SECRET_ENCRYPTION_KEY`. |
 
 ## Standard Environments
 
@@ -27,32 +27,24 @@ Every project is created with three standard environments:
 - **Staging** (`staging`)
 - **Production** (`production`)
 
-Standard environments cannot be deleted or renamed. Custom environments can be created as children of standard environments for more granular configuration.
+You cannot delete or rename standard environments. To add more granular configuration, create custom environments as children of standard ones.
 
 ## Variable Inheritance
 
-Environments support a hierarchical structure via the `parent_id` field.
-- **Inheritance**: An environment inherits all variables from its parent.
-- **Overrides**: If an environment defines a variable with the same key as its parent, the local value takes precedence.
-- **Resolution**: Strait recursively resolves variables up the parent chain to provide a final, flattened set of variables at execution time.
+You can nest environments by setting `parent_id`. A child environment inherits all variables from its parent. If the child defines the same key, the child's value wins. Strait resolves variables by walking up the parent chain and flattening the result at execution time.
 
 ## Endpoint URL Overrides
 
-One of the primary use cases for environments is routing the same job definition to different physical endpoints based on the environment.
-
-- **Mechanism**: If an environment defines an `ENDPOINT_URL` variable, the executor will use this value instead of the job's default `endpoint_url`.
-- **Dispatch Time**: The override is resolved at the moment of dispatch, allowing for dynamic routing without modifying the job definition.
+If an environment defines an `ENDPOINT_URL` variable, Strait uses that URL instead of the job's default `endpoint_url` at dispatch time. This lets you route the same job to different services without editing the job definition.
 
 ## SSRF Validation
 
-To prevent Server-Side Request Forgery (SSRF), all overridden URLs are strictly validated:
-- **Blocking**: Private IP ranges (e.g., `10.0.0.0/8`, `192.168.0.0/16`) and loopback addresses (`127.0.0.1`) are blocked.
-- **Layers**: Validation occurs in both the API layer (during environment/job updates) and the Worker layer (during override resolution).
+To prevent Server-Side Request Forgery (SSRF) -- where an attacker tricks your system into making requests to private networks -- Strait validates all overridden URLs:
+- **Blocked addresses**: Private IP ranges (`10.0.0.0/8`, `192.168.0.0/16`) and loopback addresses (`127.0.0.1`).
+- **Enforcement points**: Strait validates URLs both in the API layer (when you update an environment or job) and in the worker layer (when resolving the override at dispatch time).
 
 ## Use Case: Routing
 
-Environments allow you to maintain a single job definition (e.g., `process-order`) while routing it to different services:
-- **Staging Environment**: `ENDPOINT_URL=https://staging.api.myapp.com/jobs`
-- **Production Environment**: `ENDPOINT_URL=https://api.myapp.com/jobs`
-
-The environment system resolves variables and URL overrides for jobs with an assigned environment.
+You can maintain a single job definition (e.g., `process-order`) and route it to different services per environment:
+- **Staging**: `ENDPOINT_URL=https://staging.api.myapp.com/jobs`
+- **Production**: `ENDPOINT_URL=https://api.myapp.com/jobs`

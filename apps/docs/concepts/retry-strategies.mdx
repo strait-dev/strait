@@ -8,7 +8,7 @@ When a job execution fails (non-2xx response or timeout), Strait uses a retry st
 
 ## Core Strategies
 
-The system supports four primary retry strategies, defined in `apps/strait/internal/worker/backoff.go`.
+Strait supports four retry strategies.
 
 ### 1. Exponential (Default)
 The delay increases exponentially with each attempt.
@@ -51,14 +51,14 @@ Uses a user-provided array of delays in seconds.
 ## Common Properties
 
 ### Jitter
-A **±20% jitter** is applied to all calculated delays. This prevents "thundering herd" effects where many failed runs retry at the exact same millisecond, potentially overwhelming the target endpoint again.
+A **plus or minus 20% random variation (jitter)** is applied to all calculated delays. This prevents all failed runs from retrying at the exact same moment, which could overwhelm your endpoint.
 
 ### Delay Bounds
-- **Floor**: A minimum delay of **1 second** is enforced to prevent zero or negative delays.
-- **Cap**: All delays are capped at a maximum of **1 hour**.
+- **Minimum delay**: All delays are at least **1 second**, preventing zero or near-zero delays.
+- **Maximum delay**: All delays are capped at **1 hour**, no matter what the formula calculates.
 
-### Next Retry Gating
-The calculated delay is added to the current time to set the `next_retry_at` field on the run. The queue will not dequeue the run until this time has passed.
+### How Retries Are Scheduled
+Strait adds the calculated delay to the current time and records it as the run's `next_retry_at`. The run stays in the queue and won't execute again until that time passes.
 
 ## Configuration
 
@@ -70,6 +70,6 @@ Retries can be configured at multiple levels:
 
 ## Dead Letter Queue (DLQ)
 
-When a run exhausts its `max_attempts`, it transitions to the `dead_letter` state instead of `failed`. This allows engineers to inspect the failure and manually "replay" the run (resetting it to `queued`) once the underlying issue is resolved.
+The dead letter queue is a holding area for runs that have failed all their retry attempts. Instead of marking these runs as permanently `failed`, Strait moves them to `dead_letter` status so you can inspect the failure and manually replay the run once you've fixed the underlying issue.
 
-Runs can also be routed to the DLQ early via **poison pill detection**. When a job has `poison_pill_threshold` configured and the same error repeats consecutively across that many attempts, the run is fast-tracked to DLQ instead of continuing to retry. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.
+Strait can also fast-track runs to the dead letter queue using **poison pill detection**: if you set `poison_pill_threshold` on a job and the same error repeats that many times in a row, Strait stops retrying early instead of burning through all attempts. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.

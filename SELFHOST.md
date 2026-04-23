@@ -18,11 +18,11 @@ Both options run the community edition with all open-source features.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
 
-Clicking the button forks the repo and takes you through a Cloudflare Workers Builds import. Because this repo is a Bun monorepo and Cloudflare does not yet support Bun workspace resolution in one-click deploys, you will need to set **Root directory** to `apps/app` and provide a custom **Build command** during import — the Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc` so the rest of the flow is guided.
+Click the button to fork the repo and start a Cloudflare Workers Builds import. Because Cloudflare doesn't yet support Bun workspaces in one-click deploys, you'll need to set **Root directory** to `apps/app` and provide a custom **Build command** during import. The rest of the flow is guided -- Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc`.
 
 See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detailed walkthrough, including the exact build command string and the list of secrets you must set in the Cloudflare dashboard after the first deploy.
 
-**You still need the Strait API somewhere reachable by the Worker.** The easiest setup: run the API locally with Option 2 below (or on any VPS/Kubernetes/Fly.io host), expose it via `cloudflared tunnel` or a public hostname, and point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables.
+**The dashboard needs the Strait API server to function.** Run it locally with Option 2 below, on a VPS, or on Kubernetes -- then point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables. The easiest way to expose a local API is via `cloudflared tunnel` or a public hostname.
 
 ---
 
@@ -61,7 +61,11 @@ make selfhost-down
 make selfhost-reset
 ```
 
+---
+
 ## Creating Your First Job
+
+> The steps below apply regardless of which option you chose above.
 
 1. Open **http://localhost:3000** and sign up
 2. A workspace is created automatically for you
@@ -72,7 +76,7 @@ The dashboard guides you through installing the SDK, deploying a job, and trigge
 
 ### Advanced: API-only usage
 
-If you prefer using the API directly without the dashboard:
+If you prefer working with the API directly instead of the dashboard, here's a complete example that creates a project, generates an API key, and triggers a job.
 
 ```bash
 SECRET="<your INTERNAL_SECRET from .env.selfhost>"
@@ -201,35 +205,15 @@ Interactive API documentation is available via Scalar:
 
 The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
 
-## Audit tamper-evidence hardening (recommended for SOC 2)
+## Audit tamper-evidence hardening
 
-Strait's audit chain is HMAC-signed so tampering is always forensically
-detectable. For defense-in-depth, migration `000187_audit_events_dml_restrictions`
-also revokes `UPDATE` and `DELETE` on `audit_events` from the application role,
-limiting a compromised process to `INSERT` + `SELECT` + `UPDATE(signature)`.
-The migration only takes effect when the Strait process connects as a role
-named `strait_app`; it silently no-ops when the role is absent.
+Strait's audit log is HMAC-signed, so any tampering is forensically detectable out of the box. For additional defense-in-depth, you can restrict the application database role to insert-only access on the `audit_events` table. This prevents a compromised process from modifying or deleting audit history.
 
-On self-hosted installs the default `strait` superuser retains full DML. To
-enforce the restriction:
-
-```sql
-CREATE ROLE strait_app LOGIN PASSWORD 'choose-a-strong-password';
-GRANT CONNECT ON DATABASE strait TO strait_app;
-GRANT USAGE ON SCHEMA public TO strait_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO strait_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO strait_app;
-```
-
-Then point `DATABASE_URL` at `strait_app` and re-run migrations as the superuser
-so the REVOKE on `audit_events` applies. The `/health/ready` endpoint reports
-`audit_dml_guard: ok` once enforced and `degraded` otherwise, and the
-`strait_audit_dml_restriction_status` counter emits one sample per boot
-labeled `status=enforced|degraded`.
+See migration `000187_audit_events_dml_restrictions` for the exact setup, or check the [Mintlify docs](https://docs.strait.dev) for a step-by-step walkthrough. The `/health/ready` endpoint reports `audit_dml_guard: ok` once enforced.
 
 ## Monitoring
 
-Strait exposes a Prometheus-compatible `/metrics` endpoint with 50+ metrics (queue depth, dispatch latency, error rates, worker concurrency). Point your existing Prometheus/Datadog/New Relic at `http://localhost:8080/metrics`.
+Strait exposes Prometheus-compatible metrics at the `/metrics` endpoint. Point your existing Prometheus, Datadog, or New Relic scraper at `http://localhost:8080/metrics`.
 
 For advanced analytics dashboards, cost tracking, log search, and alerting -- use [Strait Cloud](https://strait.dev).
 
@@ -254,7 +238,7 @@ const run = await strait.jobs.trigger("my-job", {
 });
 ```
 
-**Python** ([github.com/strait-dev/python-sdk](https://github.com/strait-dev/python-sdk)):
+**Python** ([github.com/strait-dev/strait-python](https://github.com/strait-dev/strait-python)):
 ```bash
 pip install strait
 ```
@@ -265,9 +249,9 @@ client = Strait(base_url="http://localhost:8080", api_key="strait_...")
 run = client.jobs.trigger("my-job", payload={"userId": "123"})
 ```
 
-**Go** ([github.com/strait-dev/go-sdk](https://github.com/strait-dev/go-sdk)):
+**Go** ([github.com/strait-dev/strait-go](https://github.com/strait-dev/strait-go)):
 ```bash
-go get github.com/strait-dev/go-sdk
+go get github.com/strait-dev/strait-go
 ```
 ```go
 client := strait.New("http://localhost:8080", "strait_...")
@@ -298,7 +282,7 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 ```bash
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
 ```
-Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`).
+Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`). Check if Postgres is healthy with `docker ps`. If secrets look wrong, run `make selfhost-reset` followed by `make selfhost` to regenerate.
 
 **Dashboard can't reach the API:**
 Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. Restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`

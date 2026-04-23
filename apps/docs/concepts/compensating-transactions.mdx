@@ -4,14 +4,14 @@ description: "Saga-pattern rollback handlers for workflow steps that reverse sid
 sidebarTitle: "Compensation"
 ---
 
-When a workflow step fails after earlier steps have already completed, compensating transactions let you automatically reverse their side effects in order.
+When a workflow step fails after earlier steps have already completed, compensating transactions automatically reverse their side effects in order. This implements the saga pattern: instead of a single atomic transaction, each step has a paired undo action that runs on failure.
 
 ## How It Works
 
 1. Step A completes successfully (e.g., charge card)
 2. Step B completes successfully (e.g., reserve inventory)
 3. Step C fails after all retries
-4. Strait triggers compensation in reverse topological order:
+4. Strait triggers compensation in reverse dependency order (latest-completed first):
    - Run Step B's compensation job (with Step B's original output as input)
    - Run Step A's compensation job (with Step A's original output as input)
 5. Workflow run transitions to `compensated` (or `compensation_failed` if any compensation job fails)
@@ -49,9 +49,9 @@ If `send-confirmation` fails, Strait compensates `reserve-inventory` then `charg
 
 ## Workflow Run States
 
-Three new states added to the workflow run FSM:
+Three states track compensation progress through the workflow run state machine:
 
-- `compensating` -- compensation jobs are being executed
+- `compensating` -- compensation jobs are running
 - `compensated` -- all compensation jobs completed successfully (terminal)
 - `compensation_failed` -- at least one compensation job failed (terminal)
 
@@ -59,16 +59,8 @@ Valid transitions: `failed` or `timed_out` -> `compensating` -> `compensated` or
 
 ## Compensation Plan
 
-The compensation plan is built by `BuildCompensationPlan()` which:
+When compensation triggers, Strait:
 
-1. Collects completed step runs that have `compensation_job_id` configured
-2. Sorts them in reverse topological order (latest-executed first)
-3. Each compensation step receives the original step's output as input
-
-## Implementation
-
-- Engine: `apps/strait/internal/workflow/compensation.go`
-- FSM: `apps/strait/internal/domain/workflow_fsm.go`
-- Tests: `apps/strait/internal/workflow/compensation_test.go` (28 tests including FSM, fuzz, adversarial)
-- Migration: `000158_compensating_transactions`
-- DB table: `compensation_runs` tracks each compensation execution
+1. Collects completed step runs that have a `compensation_job_id` configured
+2. Sorts them in reverse dependency order (latest-completed first)
+3. Passes each step's original output as input to its compensation job

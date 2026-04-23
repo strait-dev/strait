@@ -4,7 +4,7 @@ description: "Authentication schemes, API key scopes, actor identity, and role-b
 icon: "key"
 ---
 
-Strait supports multiple authentication mechanisms and a layered authorization model: API key scopes for machine access and role-based access control (RBAC) for user access.
+Strait supports multiple authentication methods: API key scopes control machine access, and role-based access control (RBAC) controls user access.
 
 <Info>
   See also: [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [API Key Rotation](/guides/api-key-rotation), [Audit Events](/guides/audit-events), [Security](/guides/security).
@@ -40,11 +40,10 @@ curl -H "Authorization: Bearer strait_your_api_key_here" https://strait.dev/v1/j
 
 API keys:
 - Start with `strait_` prefix
-- Are SHA-256 hashed before storage
 - Track `last_used_at` timestamps
 - Support `expires_at` for time-limited access
 - Can be revoked at any time
-- Support rotation with grace periods (`replaced_by_key_id`, `grace_expires_at`)
+- Support rotation with grace periods
 - Are scoped to a project and a set of permissions
 
 ### 3. JWT Run Tokens (SDK)
@@ -90,7 +89,7 @@ Every API key has a list of scopes that control what it can do. Scopes are enfor
 
 ### Backwards Compatibility
 
-API keys with **empty scopes** (`[]`) retain full access. This ensures pre-existing keys continue to work after the scope enforcement upgrade.
+API keys with **empty scopes** (`[]`) retain full access. This preserves compatibility with keys created before scope enforcement.
 
 ### Scope Validation
 
@@ -106,7 +105,7 @@ curl -X POST https://strait.dev/v1/api-keys \
 
 ## Actor Identity
 
-Every request is attributed to an actor for audit purposes.
+Every request is attributed to an actor for audit logging.
 
 ### How Actor Identity Works
 
@@ -125,8 +124,8 @@ curl -H "X-Internal-Secret: your-secret" \
 
 When these headers are present, Strait:
 1. Sets `actor_type = "user"` and `actor_id = "user_abc123"` in the request context
-2. Applies `X-Project-Id` to request context when project-scoped authorization is required
-3. Asynchronously syncs the actor profile to the `known_actors` table
+2. Applies `X-Project-Id` for project-scoped authorization
+3. Syncs the actor profile for future reference
 4. Records the actor as `created_by` or `updated_by` on mutations
 
 ### Audit Columns
@@ -137,7 +136,7 @@ The following tables have audit columns:
 - `job_runs` — `created_by`
 - `workflow_runs` — `created_by`
 
-These are populated automatically from the request actor context.
+Strait populates these automatically from the request actor context.
 
 <Warning>
   **Security:** API key auth never honors `X-Actor-Id` headers. This prevents API key holders from impersonating users to gain RBAC permissions. Only the internal secret auth path trusts actor headers.
@@ -147,13 +146,13 @@ These are populated automatically from the request actor context.
 
 ## Role-Based Access Control (RBAC)
 
-RBAC provides fine-grained access control for users (as opposed to API keys, which use scopes).
+RBAC gives you fine-grained access control for users (as opposed to API keys, which use scopes).
 
 ### How It Works
 
 1. **Roles** define a set of permissions (same scope strings as API keys)
 2. **Members** link a user (from your external auth provider) to a role within a project
-3. When a user makes a request (via internal secret + `X-Actor-Id`), the middleware loads their role and checks permissions
+3. When a user makes a request (via internal secret + `X-Actor-Id`), Strait loads their role and checks permissions
 
 ### System Roles
 
@@ -207,45 +206,20 @@ curl -X DELETE https://strait.dev/v1/members/user_abc123 \
 
 ### Permission Resolution
 
-The `requirePermission` middleware resolves authorization in this order:
+Strait resolves authorization in this order:
 
-1. **Internal secret** (no scopes in context) → **allow** immediately
-2. **API key** → check if key's scopes include the required permission
-3. **User** → load role permissions from DB (cached for 30s), check if role includes the required permission
+1. **Internal secret** (no scopes in context) -> **allow** immediately
+2. **API key** -> check if the key's scopes include the required permission
+3. **User** -> load role permissions (cached for 30s), check if the role includes the required permission
 
-```
-Request → Auth middleware → requirePermission(scope)
-                                  │
-                                  ├─ scopes == nil? → ALLOW (internal secret)
-                                  │
-                                  ├─ actorType == "api_key"?
-                                  │     └─ HasScope(scopes, required)? → ALLOW / 403
-                                  │
-                                  ├─ actorType == "user"?
-                                  │     └─ GetUserPermissions(project, user)
-                                  │           └─ HasScope(permissions, required)? → ALLOW / 403
-                                  │
-                                  └─ unknown type → 403
-```
+If none of these match, the request gets a 403.
 
 ### Permission Cache
 
-User permissions are cached for 30 seconds to avoid hitting the database on every request. The cache is automatically invalidated when:
-- A member's role is changed (`POST /v1/members`)
-- A member is removed (`DELETE /v1/members/{userID}`)
-
+Strait caches user permissions for 30 seconds to reduce database lookups. The cache is automatically invalidated when you:
+- Change a member's role (`POST /v1/members`)
+- Remove a member (`DELETE /v1/members/{userID}`)
 ---
-
-## Middleware Chain
-
-Authentication flows through these middleware in `apps/strait/internal/api/middleware.go`:
-
-1. **`apiKeyOrSecretAuth`** — Routes to API key auth (`strait_` bearer), OIDC bearer auth (optional), or internal secret auth
-2. **`apiKeyAuth`** — Validates key hash, checks revocation/expiration/rotation grace, sets scopes + `actorType=api_key` in context
-3. **`internalSecretAuth`** — Constant-time secret comparison, optionally extracts actor from `X-Actor-*` and project from `X-Project-Id`
-4. **`oidcAuth`** — Validates configured OIDC bearer tokens and maps claims into actor/project context
-5. **`requirePermission(scope)`** — Checks authorization based on actor type (see Permission Resolution above)
-6. **`runTokenAuth`** — JWT validation for SDK endpoints only
 
 ## Managing API Keys
 
