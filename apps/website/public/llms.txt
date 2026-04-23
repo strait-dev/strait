@@ -1,74 +1,98 @@
-AI documentation index for Strait. For full reference, see llms-full.txt.
-
 # Strait
 
-> Open-source job orchestration platform. Schedule jobs, build workflow DAGs, chain jobs, manage retries, run canary deployments, simulate workflows, and monitor everything -- all from one dashboard.
+> Open-source job orchestration platform built on PostgreSQL. Schedule jobs, build workflow DAGs, manage retries, and monitor runs -- all from one dashboard.
 
-Strait handles the hard parts of background job execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, job chaining, saga-pattern compensation, canary deployments, workflow simulation, real-time analytics, and full observability. One API, five SDKs, zero vendor lock-in.
+Strait handles the hard parts of background job execution: scheduling, retries with exponential backoff, dependency graphs, concurrency limits, and real-time monitoring. It supports multi-step workflow DAGs with approval gates, compensation (saga pattern), canary deployments, and event-driven triggers. One API, five SDKs, zero vendor lock-in.
 
-Website: https://strait.dev
-App: https://app.strait.dev
-Docs: https://docs.strait.dev
+## Documentation
 
-## Why Strait
+### Getting Started
+- Introduction: https://docs.strait.dev/introduction
+- Quickstart: https://docs.strait.dev/quickstart
+- Architecture: https://docs.strait.dev/architecture
 
-- **No more lost jobs.** Every execution follows a 13-state finite state machine. You know exactly where each run is at all times.
-- **Retries that work.** Exponential backoff, fixed delays, custom sequences, and a dead letter queue for runs that exhaust all attempts.
-- **Workflows, not scripts.** Define multi-step DAGs with job steps, approval gates, sub-workflows, event waits, and sleep delays.
-- **Job chaining.** Trigger follow-up jobs on completion or failure with `on_complete_trigger_job` and `on_failure_trigger_job` (max chain depth: 10).
-- **Saga-pattern compensation.** Rollback failed workflow steps via `compensation_job_id` with dedicated states: compensating, compensated, compensation_failed.
-- **Durable workflows.** Track `expected_completion_at` on runs, set `expected_duration_secs` per step, and receive stage notifications on step transitions.
-- **Canary deployments.** Weighted version routing with automatic promote/rollback based on health thresholds.
-- **Workflow simulator.** Dry run, sandbox, and failure injection modes via `POST /v1/workflows/{id}/simulate`.
-- **Test suites.** Define workflow tests with mock servers and get JUnit XML output for CI integration.
-- **Workflow debugger.** Debug view, run comparison, and data flow tracking across workflow steps.
-- **Language-agnostic.** TypeScript, Python, Go, Ruby, and Rust SDKs with identical architecture. Define jobs in your language, run them anywhere.
-- **Self-hosted or managed.** Deploy on your infrastructure with PostgreSQL and optional Redis -- or use the managed platform at strait.dev.
-- **AI agent orchestration.** Cost tracking, tool call management, and purpose-built agent workflows.
+### Core Concepts
+- Jobs: https://docs.strait.dev/concepts/jobs -- Durable, retriable units of work with endpoint URLs, cron scheduling, and concurrency limits
+- Runs: https://docs.strait.dev/concepts/runs -- Individual job executions with full lifecycle tracking from queued through completion or failure
+- Workflows: https://docs.strait.dev/concepts/workflows -- Multi-step DAG orchestration with dependencies, conditions, and rollback
+- Durable Workflows: https://docs.strait.dev/concepts/durable-workflows -- Long-running workflows with expected completion tracking and stage notifications
+- DAG Runtime: https://docs.strait.dev/concepts/dag-runtime -- Topological execution engine for workflow step dependencies
+- Scheduling: https://docs.strait.dev/concepts/scheduling -- Cron-based and interval scheduling with timezone support
+- Retry Strategies: https://docs.strait.dev/concepts/retry-strategies -- Exponential backoff, fixed delay, and custom retry sequences with dead letter queue
+- Resilience: https://docs.strait.dev/concepts/resilience -- Circuit breakers, rate limiting, and fault tolerance patterns
+- Adaptive Concurrency: https://docs.strait.dev/concepts/adaptive-concurrency -- Dynamic concurrency adjustment based on system load
+- Job Chaining: https://docs.strait.dev/concepts/job-chaining -- Trigger follow-up jobs on completion or failure
+- Batch Operations: https://docs.strait.dev/concepts/batch-operations -- Bulk job creation, triggering, and management
+- Versioning: https://docs.strait.dev/concepts/versioning -- Atomic job version deployments without downtime
+- Canary Deployments: https://docs.strait.dev/concepts/canary-deployments -- Weighted version routing with auto-promote and auto-rollback
+- Compensating Transactions: https://docs.strait.dev/concepts/compensating-transactions -- Saga-pattern rollback for failed workflow steps
+- Event Sources: https://docs.strait.dev/concepts/event-sources -- Define and manage sources of events for trigger routing
+- Event Triggers: https://docs.strait.dev/concepts/event-triggers -- Start jobs or workflows in response to external signals
+- Webhooks: https://docs.strait.dev/concepts/webhooks -- Outbound webhook notifications for run state changes
+- Webhook Subscriptions: https://docs.strait.dev/concepts/webhook-subscriptions -- Subscribe to webhook events with filtering and delivery tracking
+- Environments: https://docs.strait.dev/concepts/environments -- Isolated execution environments for dev, staging, and production
+- Managed Execution: https://docs.strait.dev/concepts/managed-execution -- Strait-managed job execution without external endpoints
+- CDC: https://docs.strait.dev/concepts/cdc -- Change data capture for real-time event streaming from PostgreSQL
+- ClickHouse Analytics: https://docs.strait.dev/concepts/clickhouse-analytics -- Custom analytics exporter with historical run and event data
+- Cost Budgets: https://docs.strait.dev/concepts/cost-budgets -- Spending limits and cost tracking for AI agent workflows
+- Audit Logging: https://docs.strait.dev/concepts/audit-logging -- Immutable audit trail for all system actions
+- Log Drains: https://docs.strait.dev/concepts/log-drains -- Stream logs to external providers (Datadog, Grafana, Better Stack)
+- Workflow Debugger: https://docs.strait.dev/concepts/workflow-debugger -- Debug view, run comparison, and data flow tracking
+- Workflow Simulator: https://docs.strait.dev/concepts/workflow-simulator -- Dry run, sandbox, and failure injection modes for workflows
+- Workflow Test Suites: https://docs.strait.dev/concepts/workflow-test-suites -- Define workflow tests with mock servers and JUnit XML output
 
-## Key Features
+### Guides
+- Authentication: https://docs.strait.dev/guides/authentication -- API key and token-based authentication
+- OIDC: https://docs.strait.dev/guides/oidc -- OpenID Connect integration for SSO
+- RBAC: https://docs.strait.dev/guides/rbac -- Role-based access control and permission management
+- Security: https://docs.strait.dev/guides/security -- Security best practices and hardening
+- API Key Rotation: https://docs.strait.dev/guides/api-key-rotation -- Rotate API keys without downtime
+- Audit Events: https://docs.strait.dev/guides/audit-events -- Understanding and querying the audit log
+- SDK Integration: https://docs.strait.dev/guides/sdk-integration -- Connect your application using any SDK
+- Idempotency: https://docs.strait.dev/guides/idempotency -- Ensure exactly-once execution with idempotency keys
+- Job Dependencies: https://docs.strait.dev/guides/job-dependencies -- Define and manage step dependencies in workflows
+- Job Groups: https://docs.strait.dev/guides/job-groups -- Organize jobs into logical groups
+- DAG Operations Playbook: https://docs.strait.dev/guides/dag-operations-playbook -- Operational guide for managing DAG workflows
+- Event Triggers: https://docs.strait.dev/guides/event-triggers -- Set up event-driven job and workflow execution
+- Workflow Approvals: https://docs.strait.dev/guides/workflow-approvals -- Human-in-the-loop approval gates for workflow steps
+- Deployment: https://docs.strait.dev/guides/deployment -- Deploy Strait to your infrastructure
+- Capacity Planning: https://docs.strait.dev/guides/capacity-planning -- Size your deployment for expected workloads
+- Performance Tuning: https://docs.strait.dev/guides/performance-tuning -- Optimize throughput and latency
+- Debug Bundles: https://docs.strait.dev/guides/debug-bundles -- Export diagnostic data for troubleshooting
 
-1. **Job orchestration** -- Durable, retriable units of work with endpoint URLs, cron scheduling, concurrency limits, and webhook notifications.
-2. **Workflow DAGs** -- Multi-step pipelines with five step types and dependency graphs validated with topological sort.
-3. **13-state FSM** -- Deterministic run lifecycle from queued to completed with 14 transition events.
-4. **Job chaining** -- `on_complete_trigger_job` and `on_failure_trigger_job` fields to chain jobs sequentially (max depth: 10).
-5. **Compensation (saga pattern)** -- Rollback via `compensation_job_id` on workflow steps with compensating/compensated/compensation_failed states.
-6. **Durable workflows** -- `expected_completion_at` on runs, `expected_duration_secs` per step, stage notifications on step transitions.
-7. **Canary deployments** -- `canary_deployments` table with weighted version routing, auto-promote and auto-rollback on health thresholds.
-8. **Workflow simulator** -- `POST /v1/workflows/{id}/simulate` with dry_run, sandbox, and failure_injection modes.
-9. **Test suites** -- Workflow test definitions, mock server, JUnit XML output for CI pipelines.
-10. **Workflow debugger** -- Debug view, run comparison, data flow tracking across steps.
-11. **Event triggers** -- Pub/sub event routing with key-based and prefix-based matching.
-12. **Atomic deployments** -- Create, finalize, promote, and rollback job versions without downtime.
-13. **ClickHouse analytics** -- Custom analytics exporter with 12 tables and 32 API endpoints under `/v1/analytics/`.
-14. **Observability** -- Grafana Cloud (metrics + logs), ClickHouse (traces + analytics), Sentry (errors), Better Stack (uptime), OpenTelemetry integration.
-15. **AI agent orchestration** -- Cost tracking, tool call management, and agent workflow patterns.
-16. **Real-time dashboard** -- Monitor jobs, runs, workflows, schedules, logs, events, and webhooks.
-17. **API keys and RBAC** -- Granular scopes, role-based access control, and audit logging.
-18. **186 API endpoints** -- 19 domain services covering every aspect of job orchestration.
+### SDKs
+- Overview: https://docs.strait.dev/sdks/overview -- SDK architecture and common patterns
+- Configuration: https://docs.strait.dev/sdks/configuration -- Shared configuration options across all SDKs
+- TypeScript: https://docs.strait.dev/sdks/typescript -- Effect and Promise APIs for Node.js
+- Python: https://docs.strait.dev/sdks/python -- Sync and async clients for Python 3.11+
+- Go: https://docs.strait.dev/sdks/go -- Idiomatic Go with generics
+- Ruby: https://docs.strait.dev/sdks/ruby -- Faraday-based client for Ruby 3.1+
+- Rust: https://docs.strait.dev/sdks/rust -- Async/await with builder pattern
+
+### Operations
+- API Key Rotation Rollout: https://docs.strait.dev/operations/api-key-rotation-rollout -- Step-by-step API key rotation procedure
+- Audit Runbook: https://docs.strait.dev/operations/audit-runbook -- Operational procedures for audit log management
+- Incident Response (AuthZ): https://docs.strait.dev/operations/incident-response-authz -- Authorization incident response playbook
+- Monitoring and Alerts: https://docs.strait.dev/operations/monitoring-and-alerts -- Set up monitoring, dashboards, and alert rules
+- OIDC Rollout: https://docs.strait.dev/operations/oidc-rollout -- Roll out OIDC authentication to your organization
+- RBAC Policy Rollout: https://docs.strait.dev/operations/rbac-policy-rollout -- Deploy and validate RBAC policies
+
+### API Reference
+- REST API: https://docs.strait.dev/api-reference -- OpenAPI specification for all endpoints
+- Configuration: https://docs.strait.dev/configuration/environment-variables -- Environment variables reference
+- Migrations: https://docs.strait.dev/migrations -- Database migration guide
+
+## How Concepts Relate
+
+Jobs define what work to do -- an endpoint to call, retry rules, scheduling, and concurrency limits. Runs are individual executions of a job -- each run tracks its own state from queued through completion or failure. Workflows chain multiple jobs into DAGs with dependencies, conditions, approval gates, and rollback via compensating transactions. Event triggers start jobs or workflows in response to external signals. Environments isolate execution across dev, staging, and production. Versioning and canary deployments enable safe, incremental rollouts of job changes.
 
 ## SDKs
 
-- [TypeScript](https://docs.strait.dev/sdks/typescript): Effect and Promise APIs for Node.js
-- [Python](https://docs.strait.dev/sdks/python): Sync and async clients for Python 3.11+
-- [Go](https://docs.strait.dev/sdks/go): Idiomatic Go with generics
-- [Ruby](https://docs.strait.dev/sdks/ruby): Faraday-based client for Ruby 3.1+
-- [Rust](https://docs.strait.dev/sdks/rust): Async/await with builder pattern
-
-## Use Cases
-
-- **AI agent workflows** -- Orchestrate LLM agents with cost budgets, tool call tracking, and multi-step agent pipelines.
-- **Background processing** -- Execute long-running tasks with retries, concurrency limits, and dead letter recovery.
-- **Data pipelines** -- Build ETL workflows with step dependencies, approval gates, and error handling.
-- **Payment processing** -- Schedule and retry payment batches with idempotency keys and concurrency limits.
-- **Scheduled tasks** -- Generate and deliver reports on cron schedules with timezone support.
-
-## Pricing
-
-- **Free**: $0/mo -- For hobby projects and experimentation.
-- **Starter**: $29/mo -- For small teams getting started with job orchestration.
-- **Pro**: $99/mo -- For growing teams with production workloads.
-- **Enterprise**: Custom pricing -- For large organizations with advanced requirements.
+- TypeScript: https://github.com/strait-dev/strait-ts
+- Python: https://github.com/strait-dev/strait-python
+- Go: https://github.com/strait-dev/strait-go
+- Ruby: https://github.com/strait-dev/strait-ruby
+- Rust: https://github.com/strait-dev/strait-rust
 
 ## Pages
 
@@ -98,6 +122,9 @@ Docs: https://docs.strait.dev
 - Payment Processing: https://strait.dev/use-cases/payment-processing
 - Scheduled Tasks: https://strait.dev/use-cases/scheduled-tasks
 
+### Pricing
+- Pricing: https://strait.dev/pricing
+
 ## Links
 
 - Website: https://strait.dev
@@ -105,14 +132,6 @@ Docs: https://docs.strait.dev
 - Docs: https://docs.strait.dev
 - GitHub: https://github.com/strait-dev/strait
 - Full reference: https://strait.dev/llms-full.txt
-
-## Reading Order
-
-Start with Introduction and Getting Started. Then explore Jobs, Runs, and Workflows.
-
-## Core Concept Relationships
-
-Jobs define what work to do. Runs are individual executions of a job. Workflows chain multiple jobs together.
 
 ## Contact
 
