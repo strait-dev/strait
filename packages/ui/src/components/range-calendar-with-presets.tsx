@@ -224,7 +224,7 @@ export function RangeCalendarWithPresets({
         {currentPresets.map((preset) => (
           <Button
             className={cn(
-              Boolean(selected) && isSelectedPreset(preset)
+              selected && isSelectedPreset(preset)
                 ? "bg-accent text-accent-foreground"
                 : null
             )}

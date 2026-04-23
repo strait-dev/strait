@@ -285,7 +285,7 @@ const SubscriptionOverview = () => {
               {planInfo.isActive ? "Change Plan" : "Choose Plan"}
             </Button>
 
-            {!!planInfo.isActive && !!planInfo.isCanceled ? (
+            {planInfo.isActive && planInfo.isCanceled ? (
               <Button
                 disabled={isLoading === "reactivate"}
                 onClick={handleReactivateSubscription}
@@ -295,7 +295,7 @@ const SubscriptionOverview = () => {
                 {isLoading === "reactivate" ? "Reactivating..." : "Reactivate"}
               </Button>
             ) : null}
-            {!!planInfo.isActive && !planInfo.isCanceled ? (
+            {planInfo.isActive && !planInfo.isCanceled ? (
               <Button
                 className="text-destructive hover:text-destructive"
                 disabled={isLoading === "cancel"}
