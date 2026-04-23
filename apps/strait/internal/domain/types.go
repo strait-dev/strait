@@ -735,14 +735,12 @@ type EndpointHealthScore struct {
 
 // HealthLevel returns the health classification for the endpoint.
 func (h *EndpointHealthScore) HealthLevel() string {
-	switch {
-	case h.HealthScore < 30:
+	if h.HealthScore < 30 {
 		return "unhealthy"
-	case h.HealthScore <= 60:
+	} else if h.HealthScore <= 60 {
 		return "degraded"
-	default:
-		return "healthy"
 	}
+	return "healthy"
 }
 
 type WebhookDelivery struct {

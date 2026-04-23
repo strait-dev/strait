@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
 )
@@ -131,22 +133,19 @@ func TestCompletion_ConcurrentCompletionAndTimeout(t *testing.T) {
 	job := testJob("http://localhost", 3, 30)
 	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	var wg conc.WaitGroup
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		run := testRun(1)
 		run.Status = domain.StatusExecuting
 		exec.handleSuccess(context.Background(), run, job, nil, nil)
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		run := testRun(1)
 		run.Status = domain.StatusExecuting
 		exec.handleTimeout(context.Background(), run, job, policy, nil)
-	}()
+	})
 
 	wg.Wait()
 
@@ -293,17 +292,15 @@ func TestSnooze_ConcurrentSnoozeAndResume(t *testing.T) {
 	store := &mockExecutorStore{}
 	exec := newSnoozeTestExecutor(t, store, 0)
 
-	var wg sync.WaitGroup
-	wg.Add(20)
+	var wg conc.WaitGroup
 	for i := range 20 {
-		go func(n int) {
-			defer wg.Done()
+		wg.Go(func() {
 			run := testRun(1)
-			run.ID = "run-" + string(rune('A'+n%26))
+			run.ID = "run-" + string(rune('A'+i%26))
 			run.Status = domain.StatusDequeued
-			retryAt := time.Now().Add(time.Duration(n) * time.Second)
+			retryAt := time.Now().Add(time.Duration(i) * time.Second)
 			exec.snoozeRun(context.Background(), run, "concurrent test", &retryAt)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -395,18 +392,16 @@ func TestMiddleware_ConcurrentExecution(t *testing.T) {
 
 	handler := Chain(countMW)(func(_ context.Context, _ *ExecutionContext) {})
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 100
-	wg.Add(goroutines)
 	for i := range goroutines {
-		go func(n int) {
-			defer wg.Done()
+		wg.Go(func() {
 			ec := &ExecutionContext{
-				Run:   &domain.JobRun{ID: "run-" + string(rune('0'+n%10))},
+				Run:   &domain.JobRun{ID: "run-" + string(rune('0'+i%10))},
 				Start: time.Now(),
 			}
 			handler(context.Background(), ec)
-		}(i)
+		})
 	}
 	wg.Wait()
 

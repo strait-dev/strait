@@ -744,7 +744,7 @@ func TestCronScheduler_ConcurrentTriggerSameJob(t *testing.T) {
 		Cron:              "* * * * *",
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 20 {
 		wg.Go(func() {
 			cs.triggerJob(context.Background(), job)

@@ -6,10 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/store"
 )
@@ -143,7 +144,7 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 
 	const goroutines = 50
 	var (
-		wg          sync.WaitGroup
+		wg          conc.WaitGroup
 		acquired    atomic.Int32
 		pending     atomic.Int32
 		errors      atomic.Int32
@@ -152,9 +153,7 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 	start := make(chan struct{})
 
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			status, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 			if err != nil {
@@ -169,7 +168,7 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 			case store.IdempotencyPending:
 				pending.Add(1)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

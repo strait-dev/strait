@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Concurrency & Scale stress tests.
@@ -33,7 +34,7 @@ func burstTest(t *testing.T, n int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var succeeded, failed atomic.Int64
 	ids := make([]string, n)
 
@@ -81,7 +82,7 @@ func TestStress_Concurrent_Same_Preset(t *testing.T) {
 	defer cancel()
 
 	const n = 15
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	for range n {
 		wg.Go(func() {
@@ -105,7 +106,7 @@ func TestStress_Concurrent_Mixed_Presets(t *testing.T) {
 	defer cancel()
 
 	presets := []string{"micro", "small-1x", "small-2x", "micro", "small-1x"}
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	for _, p := range presets {
 		preset := p
@@ -132,7 +133,7 @@ func TestStress_Concurrent_Wait_Same_Job(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), id) })
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var results [2]*RunResult
 	for i := range 2 {
 		wg.Go(func() {
@@ -154,7 +155,7 @@ func TestStress_Concurrent_Create_And_Destroy(t *testing.T) {
 	defer cancel()
 
 	const n = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range n {
 		wg.Go(func() {
 			id, err := rt.Create(ctx, RunRequest{ImageURI: "alpine:3.19", MachinePreset: "micro", TimeoutSecs: 30})
@@ -186,7 +187,7 @@ func TestStress_Fan_Out_Fan_In(t *testing.T) {
 	defer cancel()
 
 	const children = 8
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	for i := range children {
 		wg.Go(func() {
@@ -215,7 +216,7 @@ func TestStress_Staggered_Start(t *testing.T) {
 	defer cancel()
 
 	const total = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 
 	for i := range total {
@@ -241,7 +242,7 @@ func TestStress_All_Presets_Parallel(t *testing.T) {
 	defer cancel()
 
 	presets := PresetOrder
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	for _, p := range presets {
 		preset := p
@@ -288,7 +289,7 @@ func TestStress_Router_Concurrent_10(t *testing.T) {
 	defer cancel()
 
 	const n = 8
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	for range n {
 		wg.Go(func() {
@@ -315,7 +316,7 @@ func TestStress_Router_Thundering_Herd(t *testing.T) {
 	defer cancel()
 
 	const n = 8
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	for range n {
 		wg.Go(func() {
@@ -362,7 +363,7 @@ func TestStress_Sustained_30s(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 	start := time.Now()
 	total := 0
@@ -434,7 +435,7 @@ func TestStress_Concurrent_Status_Polling(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), id) })
 
 	// Poll status 30 times concurrently.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errs atomic.Int64
 	for range 30 {
 		wg.Go(func() {
@@ -460,7 +461,7 @@ func TestStress_Concurrent_GetLogs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), r.MachineID) })
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 5 {
 		wg.Go(func() {
 			_, _ = rt.GetLogs(ctx, r.MachineID, 10)

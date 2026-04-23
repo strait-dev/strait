@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -192,15 +194,13 @@ func TestRotateAuditSigningKey_SerializedUnderContention(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 2)
 
 	var (
-		wg     sync.WaitGroup
+		wg     conc.WaitGroup
 		mu     sync.Mutex
 		epochs []int
 		errs   []error
 	)
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+	for range 2 {
+		wg.Go(func() {
 			e, err := q.RotateAuditSigningKey(ctx, projectID, "actor-contention")
 			mu.Lock()
 			defer mu.Unlock()
@@ -209,7 +209,7 @@ func TestRotateAuditSigningKey_SerializedUnderContention(t *testing.T) {
 				return
 			}
 			epochs = append(epochs, e)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -253,15 +253,13 @@ func TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration(t *testing.T) {
 
 	const n = 50
 	var (
-		wg     sync.WaitGroup
+		wg     conc.WaitGroup
 		mu     sync.Mutex
 		epochs = make([]int, 0, n)
 		errs   = make([]error, 0)
 	)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			e, err := q.RotateAuditSigningKey(ctx, projectID, "actor-heavy")
 			mu.Lock()
 			defer mu.Unlock()
@@ -270,7 +268,7 @@ func TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration(t *testing.T) {
 				return
 			}
 			epochs = append(epochs, e)
-		}()
+		})
 	}
 	wg.Wait()
 

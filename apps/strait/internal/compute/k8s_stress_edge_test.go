@@ -3,11 +3,11 @@ package compute
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -71,7 +71,7 @@ func TestStress_Double_Wait(t *testing.T) {
 	id, _ := rt.Create(ctx, RunRequest{ImageURI: "alpine:3.19", MachinePreset: "micro", TimeoutSecs: 30})
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), id) })
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var results [2]*RunResult
 	for i := range 2 {
 		wg.Go(func() {
@@ -96,7 +96,7 @@ func TestStress_Double_Destroy(t *testing.T) {
 
 	id, _ := rt.Create(ctx, RunRequest{ImageURI: "alpine:3.19", MachinePreset: "micro", TimeoutSecs: 30})
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errs [2]error
 	for i := range 2 {
 		wg.Go(func() {
@@ -223,7 +223,7 @@ func TestStress_Rapid_Status_100(t *testing.T) {
 	id, _ := rt.Create(ctx, RunRequest{ImageURI: "alpine:3.19", MachinePreset: "micro", TimeoutSecs: 30})
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), id) })
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errs atomic.Int64
 	for range 50 { // 50 instead of 100 to be kind to API.
 		wg.Go(func() {

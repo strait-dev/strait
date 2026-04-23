@@ -170,7 +170,7 @@ func (s *Server) handleAdminRetryOutbox(ctx context.Context, input *AdminOutboxM
 		case errors.Is(err, store.ErrOutboxRowNotFound):
 			return nil, huma.Error404NotFound("outbox row not found")
 		case errors.Is(err, store.ErrOutboxRowConflict):
-			return nil, huma.Error409Conflict(err.Error())
+			return nil, huma.Error409Conflict("an active retry already exists for this outbox row")
 		default:
 			return nil, huma.Error500InternalServerError("failed to retry quarantined outbox row")
 		}
@@ -206,7 +206,7 @@ func (s *Server) handleAdminPurgeOutbox(ctx context.Context, input *AdminOutboxM
 		case errors.Is(err, store.ErrOutboxRowNotFound):
 			return nil, huma.Error404NotFound("outbox row not found")
 		case errors.Is(err, store.ErrOutboxRowConflict):
-			return nil, huma.Error409Conflict(err.Error())
+			return nil, huma.Error409Conflict("outbox row state changed during purge")
 		default:
 			return nil, huma.Error500InternalServerError("failed to purge quarantined outbox row")
 		}

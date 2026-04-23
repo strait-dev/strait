@@ -14,6 +14,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestWorkflow_VersionPublishConcurrent fires concurrent workflow update
@@ -61,13 +63,12 @@ func TestWorkflow_VersionPublishConcurrent(t *testing.T) {
 	}
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 5 {
 		wg.Go(func() {
 			w := httptest.NewRecorder()
 			body := `{"name":"wf-updated","steps":[{"job_id":"job-1","step_ref":"s1"}]}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-conc", body))
-			// We do not assert specific codes; we verify no race or panic.
 			_ = w.Code
 		})
 	}
@@ -280,18 +281,16 @@ func TestWorkflow_ConcurrentApprovalDecision(t *testing.T) {
 	}
 	srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, wfCallback, wfCallback)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	codes := make([]int, 5)
 	for i := range 5 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			req := authedRequest(http.MethodPost, "/v1/workflow-runs/wr-appr/steps/step-a/approve", `{}`)
 			req.Header.Set("X-Actor", "user-1")
 			srv.ServeHTTP(w, req)
-			codes[idx] = w.Code
-		}(i)
+			codes[i] = w.Code
+		})
 	}
 	wg.Wait()
 

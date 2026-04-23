@@ -379,6 +379,125 @@ func TestAnomalyDetector_DefaultConfig_BackwardsCompatible(t *testing.T) {
 	}
 }
 
+func TestAnomalyDetector_MixedComputeAndAISpend(t *testing.T) {
+	today := time.Now().UTC()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+
+	var records []UsageRecord
+	for i := 1; i <= 7; i++ {
+		records = append(records, UsageRecord{
+			OrgID:            "org-mixed",
+			ProjectID:        "proj-a",
+			PeriodDate:       today.AddDate(0, 0, -i),
+			ComputeCostMicro: 500,
+			AICostMicro:      500,
+		})
+	}
+	// Today: compute 3000 + AI 2000 = 5000 total (5x avg of 1000).
+	records = append(records, UsageRecord{
+		OrgID:            "org-mixed",
+		ProjectID:        "proj-a",
+		PeriodDate:       today,
+		ComputeCostMicro: 3000,
+		AICostMicro:      2000,
+	})
+
+	store := &mockAnomalyStore{usageRecords: records}
+	detector := NewAnomalyDetector(store)
+
+	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-mixed"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].SpikeRatio != 5.0 {
+		t.Errorf("expected spike ratio 5.0, got %f", alerts[0].SpikeRatio)
+	}
+	if alerts[0].TodaySpend != 5000 {
+		t.Errorf("expected today spend 5000, got %d", alerts[0].TodaySpend)
+	}
+	if alerts[0].Avg7dSpend != 1000 {
+		t.Errorf("expected avg7d 1000, got %d", alerts[0].Avg7dSpend)
+	}
+}
+
+func TestAnomalyDetector_ExactWarningThreshold_Triggers(t *testing.T) {
+	today := time.Now().UTC()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+
+	var records []UsageRecord
+	for i := 1; i <= 7; i++ {
+		records = append(records, UsageRecord{
+			OrgID:            "org-1",
+			ProjectID:        "proj-a",
+			PeriodDate:       today.AddDate(0, 0, -i),
+			ComputeCostMicro: 1000,
+		})
+	}
+	// Today: exactly 3000 = 3.0x avg (exactly at default warning threshold).
+	records = append(records, UsageRecord{
+		OrgID:            "org-1",
+		ProjectID:        "proj-a",
+		PeriodDate:       today,
+		ComputeCostMicro: 3000,
+	})
+
+	store := &mockAnomalyStore{usageRecords: records}
+	detector := NewAnomalyDetector(store)
+
+	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// spikeRatio == 3.0, threshold is 3.0. Condition is `<`, so 3.0 is NOT less
+	// than 3.0 — it should trigger.
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert at exact threshold, got %d", len(alerts))
+	}
+	if alerts[0].Severity != AnomalySeverityWarning {
+		t.Errorf("expected warning severity, got %s", alerts[0].Severity)
+	}
+}
+
+func TestAnomalyDetector_TopContributor_MultipleRecords(t *testing.T) {
+	today := time.Now().UTC()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+
+	var records []UsageRecord
+	for i := 1; i <= 7; i++ {
+		records = append(records, UsageRecord{
+			OrgID:            "org-1",
+			ProjectID:        "proj-a",
+			PeriodDate:       today.AddDate(0, 0, -i),
+			ComputeCostMicro: 1000,
+		})
+	}
+	// Two records today: proj-a with 2000, proj-b with 5000. proj-b is top.
+	records = append(records,
+		UsageRecord{OrgID: "org-1", ProjectID: "proj-a", PeriodDate: today, ComputeCostMicro: 2000},
+		UsageRecord{OrgID: "org-1", ProjectID: "proj-b", PeriodDate: today, ComputeCostMicro: 5000},
+	)
+
+	store := &mockAnomalyStore{usageRecords: records}
+	detector := NewAnomalyDetector(store)
+
+	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].TopContributor != "proj-b" {
+		t.Errorf("expected top contributor proj-b, got %s", alerts[0].TopContributor)
+	}
+	if alerts[0].TodaySpend != 7000 {
+		t.Errorf("expected today spend 7000, got %d", alerts[0].TodaySpend)
+	}
+}
+
 func TestAnomalyDetector_ZeroThresholds_NoAlerts(t *testing.T) {
 	today := time.Now().UTC()
 	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)

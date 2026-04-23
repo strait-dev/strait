@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 type mockBudgetStore struct {
@@ -403,7 +404,7 @@ func TestBudgetMonitor_ConcurrentCheck_NoDuplicateAlert(t *testing.T) {
 
 	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			bm.check(context.Background())

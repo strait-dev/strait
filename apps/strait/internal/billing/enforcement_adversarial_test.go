@@ -14,6 +14,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -142,11 +143,9 @@ func TestCheckManagedRunLimit_Concurrent(t *testing.T) {
 	var allowed atomic.Int64
 	var rejected atomic.Int64
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range limits.FreeManagedRunsPerMonth {
 				err := enforcer.CheckManagedRunLimit(ctx, "org-conc")
 				if err != nil {
@@ -155,7 +154,7 @@ func TestCheckManagedRunLimit_Concurrent(t *testing.T) {
 					allowed.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -234,13 +233,11 @@ func TestEnsureOrgSubscription_ConcurrentIdempotent(t *testing.T) {
 	const goroutines = 50
 	errs := make(chan error, goroutines)
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- enforcer.EnsureOrgSubscription(ctx, "org-race")
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -424,14 +421,11 @@ func TestEnforcer_ConcurrentPlanChange_DuringLimitCheck(t *testing.T) {
 	ctx := context.Background()
 
 	const goroutines = 30
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
-	// Half do limit checks, half do plan upgrades + cache invalidations.
-	wg.Add(goroutines)
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
-			if idx%2 == 0 {
+		wg.Go(func() {
+			if i%2 == 0 {
 				_ = enforcer.CheckDailyRunLimit(ctx, "org-race")
 			} else {
 				planMu.Lock()
@@ -444,7 +438,7 @@ func TestEnforcer_ConcurrentPlanChange_DuringLimitCheck(t *testing.T) {
 				planMu.Unlock()
 				enforcer.InvalidateOrgCache("org-race")
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 	// No panics or data races under -race is the success criterion.
@@ -637,17 +631,15 @@ func TestEnforcer_ProjectSuspended_CacheRace(t *testing.T) {
 	ctx := context.Background()
 
 	const goroutines = 30
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
-			if idx%3 == 0 {
+		wg.Go(func() {
+			if i%3 == 0 {
 				enforcer.InvalidateProjectSuspendedCache("proj-race")
 			} else {
 				_ = enforcer.CheckProjectSuspended(ctx, "proj-race")
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 	// Success = no panics or races under -race.
@@ -671,17 +663,15 @@ func TestEnforcer_DailyRunLimit_ConcurrentUnlimited(t *testing.T) {
 	const runsPerGoroutine = 500
 	var rejected atomic.Int64
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range runsPerGoroutine {
 				if err := enforcer.CheckDailyRunLimit(ctx, "org-exhaust-conc"); err != nil {
 					rejected.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

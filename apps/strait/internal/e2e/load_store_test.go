@@ -5,12 +5,13 @@ package e2e_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadStore_CreateJobThroughput(t *testing.T) {
@@ -38,14 +39,13 @@ func TestLoadStore_ConcurrentJobCreation(t *testing.T) {
 
 	const workers = 20
 	perWorker := loadVolume() / workers
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes, failures atomic.Int64
 	start := time.Now()
 
 	for w := range workers {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
+		workerID := w
+		wg.Go(func() {
 			for i := range perWorker {
 				resp := doRequest(t, "POST", "/v1/jobs/", fmt.Sprintf(
 					`{"project_id":"%s","name":"cc-job-w%d-%d","slug":"cc-job-%d-w%d-%d","endpoint_url":"https://example.com/cc","max_attempts":1,"timeout_secs":30}`,
@@ -57,7 +57,7 @@ func TestLoadStore_ConcurrentJobCreation(t *testing.T) {
 					failures.Add(1)
 				}
 			}
-		}(w)
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -175,20 +175,19 @@ func TestLoadStore_ConcurrentStatusTransitions(t *testing.T) {
 	}
 
 	const workers = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes, failures atomic.Int64
 	start := time.Now()
 
 	chunkSize := len(runIDs) / workers
 	for w := range workers {
-		wg.Add(1)
 		startIdx := w * chunkSize
 		endIdx := startIdx + chunkSize
 		if w == workers-1 {
 			endIdx = len(runIDs)
 		}
-		go func(ids []string) {
-			defer wg.Done()
+		ids := runIDs[startIdx:endIdx]
+		wg.Go(func() {
 			for _, id := range ids {
 				if id == "" {
 					continue
@@ -205,7 +204,7 @@ func TestLoadStore_ConcurrentStatusTransitions(t *testing.T) {
 					failures.Add(1)
 				}
 			}
-		}(runIDs[startIdx:endIdx])
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)

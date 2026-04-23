@@ -3,11 +3,11 @@ package store
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/sourcegraph/conc"
 )
 
 // fakeTx is a minimal pgx.Tx test double. Only Exec, Query, and QueryRow
@@ -128,21 +128,18 @@ func TestCtxAwareDBTX_ContextsAreIndependent(t *testing.T) {
 	ctxA := ContextWithTx(context.Background(), txA)
 	ctxB := ContextWithTx(context.Background(), txB)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const iters = 50
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for range iters {
 			_, _ = wrapper.Exec(ctxA, "SELECT 'a'")
 		}
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		for range iters {
 			_, _ = wrapper.Exec(ctxB, "SELECT 'b'")
 		}
-	}()
+	})
 	wg.Wait()
 
 	if txA.execCalls != iters {

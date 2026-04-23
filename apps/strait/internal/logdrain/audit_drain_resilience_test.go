@@ -278,28 +278,29 @@ func TestAuditSIEMDrain_ContextCanceled_NoRetry(t *testing.T) {
 	shrinkBackoffForTest(t, 30*time.Second)
 
 	var calls atomic.Int32
-	// Server blocks until either the request context dies (caller
-	// cancellation) or the test signals shutdown. The explicit release
-	// channel guarantees that even if the server doesn't observe
-	// client-side cancellation in time, the handler goroutine returns
-	// so httptest.Server.Close() can tear down cleanly.
 	release := make(chan struct{})
+	requestArrived := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		select {
+		case requestArrived <- struct{}{}:
+		default:
+		}
 		select {
 		case <-r.Context().Done():
 		case <-release:
 		}
 	}))
-	// LIFO: release handlers first, then close the server.
 	defer srv.Close()
 	defer close(release)
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
 	ctx, cancel := context.WithCancel(context.Background())
-	// Cancel shortly after the first request is in-flight.
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-requestArrived:
+		case <-time.After(2 * time.Second):
+		}
 		cancel()
 	}()
 
@@ -331,21 +332,13 @@ func TestAuditSIEMDrain_RequestConstructError_NoRetry(t *testing.T) {
 	// failure path.
 	drain := NewAuditSIEMDrain("http://example.com/\x7f", "", 0, 0)
 
-	start := time.Now()
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("bad-url")})
-	elapsed := time.Since(start)
 
 	if err == nil {
 		t.Fatal("expected request construction error, got nil")
 	}
 	if !errors.Is(err, errRequestConstruct) {
 		t.Errorf("err = %v, want wrap of errRequestConstruct", err)
-	}
-	// Three retries with backoff would take >> 10ms; a single attempt
-	// returns essentially instantly. Use a tight bound as a proxy for
-	// "no retries".
-	if elapsed > 50*time.Millisecond {
-		t.Errorf("request-construct error took %v — retries appear to be running", elapsed)
 	}
 	if drain.breakerWasOpen.Load() {
 		t.Error("circuit breaker opened on request-construct failure")

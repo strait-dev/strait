@@ -10,17 +10,17 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/samber/lo"
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/testutil"
-
-	"github.com/google/uuid"
-	"github.com/samber/lo"
 )
 
 var testDB *testutil.TestDB
@@ -100,12 +100,9 @@ func TestUpsertJobMemoryWithQuota_ConcurrentPerJobLimit(t *testing.T) {
 	errs := make(chan error, 2)
 	keys := []string{"alpha", "beta"}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for _, key := range keys {
-		key := key
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			mem := &domain.JobMemory{
 				JobID:     job.ID,
@@ -115,7 +112,7 @@ func TestUpsertJobMemoryWithQuota_ConcurrentPerJobLimit(t *testing.T) {
 				SizeBytes: 8,
 			}
 			errs <- store.New(testDB.Pool).UpsertJobMemoryWithQuota(ctx, mem, 1024, 10)
-		}()
+		})
 	}
 
 	close(start)

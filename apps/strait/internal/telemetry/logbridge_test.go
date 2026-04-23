@@ -5,8 +5,9 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestInitLogBridge_NoEndpoint(t *testing.T) {
@@ -170,13 +171,11 @@ func TestNewTeeHandler_ConcurrentLogging(t *testing.T) {
 	tee := NewTeeHandler(h1, h2)
 	logger := slog.New(tee)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			logger.Info("concurrent log", "goroutine", n)
-		}(i)
+		wg.Go(func() {
+			logger.Info("concurrent log", "goroutine", i)
+		})
 	}
 	wg.Wait()
 

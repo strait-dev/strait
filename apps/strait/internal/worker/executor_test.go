@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
@@ -1896,7 +1898,13 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if attempts.Load() >= 1 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		cancel()
 	}()
 
@@ -4135,17 +4143,15 @@ func TestHandleFailure_RapidSequentialRetriesNoDataRace(t *testing.T) {
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, MaxAttempts: 10}
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			run := &domain.JobRun{
-				ID: fmt.Sprintf("run-%d", idx), JobID: "job-1",
-				Attempt: 1, Priority: idx % 10,
+				ID: fmt.Sprintf("run-%d", i), JobID: "job-1",
+				Attempt: 1, Priority: i % 10,
 			}
 			exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -4212,8 +4218,13 @@ func TestShutdown_WaitsForCallbacks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go exec.Run(ctx)
 
-	// Wait for the callback to start
-	time.Sleep(200 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if callbackCalled.Load() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)

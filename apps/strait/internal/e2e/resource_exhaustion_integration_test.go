@@ -9,13 +9,14 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestDoS_ConnectionPoolSaturation exhausts all database pool connections and
@@ -152,11 +153,10 @@ func TestDoS_ConcurrentSSEConnections(t *testing.T) {
 
 	// Create 50 concurrent requests to the stream endpoint.
 	const count = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := 0; i < count; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			runID := runIDs[idx%len(runIDs)]
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()
@@ -164,13 +164,19 @@ func TestDoS_ConcurrentSSEConnections(t *testing.T) {
 			req = req.WithContext(ctx)
 			w := httptest.NewRecorder()
 			testServer.ServeHTTP(w, req)
-		}(i)
+		})
 	}
 	wg.Wait()
 
 	// Wait for goroutines to clean up.
-	time.Sleep(500 * time.Millisecond)
-	runtime.GC()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		if runtime.NumGoroutine() <= baseline+20 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	current := runtime.NumGoroutine()
 	leaked := current - baseline
@@ -189,13 +195,12 @@ func TestDoS_CacheEvictionStorm(t *testing.T) {
 	client := testEnv.Redis.Client
 
 	const iterations = 500
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errors atomic.Int32
 
 	for i := 0; i < iterations; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			key := fmt.Sprintf("test:evict:%d", idx)
 			if err := client.Set(ctx, key, "value", time.Second).Err(); err != nil {
 				errors.Add(1)
@@ -203,7 +208,7 @@ func TestDoS_CacheEvictionStorm(t *testing.T) {
 			}
 			// Immediately delete.
 			client.Del(ctx, key)
-		}(i)
+		})
 	}
 	wg.Wait()
 

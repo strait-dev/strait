@@ -26,6 +26,7 @@ import (
 
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/semaphore"
@@ -123,7 +124,7 @@ type Executor struct {
 	defaultRegion            string
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
-	stripeUsageWG            sync.WaitGroup // tracks in-flight Stripe usage event goroutines
+	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once

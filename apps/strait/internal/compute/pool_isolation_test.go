@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestPool_CrossProjectSameImage verifies that different projects using the same
@@ -166,17 +168,14 @@ func TestPool_ConcurrentAcquireRelease(t *testing.T) {
 
 	pool := NewMachinePool(10)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 10 {
-		wg.Add(2)
-		go func(idx int) {
-			defer wg.Done()
-			pool.Release("proj-1", "myapp:v1", "iad", fmt.Sprintf("m-%d", idx))
-		}(i)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
+			pool.Release("proj-1", "myapp:v1", "iad", fmt.Sprintf("m-%d", i))
+		})
+		wg.Go(func() {
 			pool.Acquire("proj-1", "myapp:v1", "iad")
-		}(i)
+		})
 	}
 	wg.Wait()
 

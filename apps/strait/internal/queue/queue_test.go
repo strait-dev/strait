@@ -548,3 +548,247 @@ func TestCopyFromColumnsIncludesMetadata(t *testing.T) {
 		t.Fatalf("copyFromColumns does not contain \"metadata\"; columns = %v", copyFromColumns)
 	}
 }
+
+func TestEnqueue_TagsJSON_NonEmpty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Tags:      map[string]string{"env": "prod", "team": "core"},
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	tagsArg, ok := capturedArgs[23].([]byte)
+	if !ok {
+		t.Fatalf("arg[23] (tags) type = %T, want []byte", capturedArgs[23])
+	}
+	if string(tagsArg) == "{}" {
+		t.Error("tags JSON should not be empty when run.Tags is non-empty")
+	}
+	if !strings.Contains(string(tagsArg), "env") {
+		t.Errorf("tags JSON missing key 'env': %s", string(tagsArg))
+	}
+}
+
+func TestEnqueue_TagsJSON_Empty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	tagsArg, ok := capturedArgs[23].([]byte)
+	if !ok {
+		t.Fatalf("arg[23] (tags) type = %T, want []byte", capturedArgs[23])
+	}
+	if string(tagsArg) != "{}" {
+		t.Errorf("tags JSON should be '{}' for nil tags, got %s", string(tagsArg))
+	}
+}
+
+func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Metadata:  map[string]string{"source": "api"},
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	metaArg, ok := capturedArgs[30].([]byte)
+	if !ok {
+		t.Fatalf("arg[30] (metadata) type = %T, want []byte", capturedArgs[30])
+	}
+	if string(metaArg) == "{}" {
+		t.Error("metadata JSON should not be empty when run.Metadata is non-empty")
+	}
+	if !strings.Contains(string(metaArg), "source") {
+		t.Errorf("metadata JSON missing key 'source': %s", string(metaArg))
+	}
+}
+
+func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	metaArg, ok := capturedArgs[30].([]byte)
+	if !ok {
+		t.Fatalf("arg[30] (metadata) type = %T, want []byte", capturedArgs[30])
+	}
+	if string(metaArg) != "{}" {
+		t.Errorf("metadata JSON should be '{}' for nil metadata, got %s", string(metaArg))
+	}
+}
+
+func TestEnqueue_DefaultExecutionMode_HTTP(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	execMode, ok := capturedArgs[28].(string)
+	if !ok {
+		t.Fatalf("arg[28] (execution_mode) type = %T, want string", capturedArgs[28])
+	}
+	if execMode != string(domain.ExecutionModeHTTP) {
+		t.Errorf("default execution mode = %q, want %q", execMode, domain.ExecutionModeHTTP)
+	}
+}
+
+func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:         "job-1",
+		ProjectID:     "proj-1",
+		ExecutionMode: domain.ExecutionModeManaged,
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	execMode, ok := capturedArgs[28].(string)
+	if !ok {
+		t.Fatalf("arg[28] (execution_mode) type = %T, want string", capturedArgs[28])
+	}
+	if execMode != string(domain.ExecutionModeManaged) {
+		t.Errorf("execution mode = %q, want %q", execMode, domain.ExecutionModeManaged)
+	}
+}
+
+func TestBackoffDelay_ExactlyAtMaxDelay(t *testing.T) {
+	t.Parallel()
+	n := &QueueNotifier{
+		initialDelay: 16 * time.Second,
+		maxDelay:     16 * time.Second,
+	}
+	for range 50 {
+		delay := n.backoffDelay(0)
+		maxWithJitter := time.Duration(float64(16*time.Second) * 1.26)
+		if delay > maxWithJitter {
+			t.Fatalf("delay %v exceeds max with jitter at exact boundary", delay)
+		}
+		minWithJitter := time.Duration(float64(16*time.Second) * 0.74)
+		if delay < minWithJitter {
+			t.Fatalf("delay %v below min at exact boundary", delay)
+		}
+	}
+}

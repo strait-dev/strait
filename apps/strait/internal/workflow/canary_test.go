@@ -459,3 +459,199 @@ func TestMarshalAutoPromoteConfig(t *testing.T) {
 		t.Error("expected nil for nil config")
 	}
 }
+
+// 2A. ResolveVersion TrafficPct boundary tests.
+
+func TestCanary_ResolveVersion_TrafficPctZero_RandNotCalled(t *testing.T) {
+	t.Parallel()
+	canary := &CanaryDeployment{
+		SourceVersion: 1,
+		TargetVersion: 2,
+		TrafficPct:    0,
+		Status:        CanaryActive,
+	}
+	called := false
+	router := newCanaryRouterWithRandFn(func() float64 {
+		called = true
+		return 0.0
+	})
+	v := router.ResolveVersion(canary)
+	if v != 1 {
+		t.Errorf("TrafficPct=0: got version %d, want 1", v)
+	}
+	if called {
+		t.Error("randFn should not be called when TrafficPct <= 0")
+	}
+}
+
+func TestCanary_ResolveVersion_TrafficPct100_RandNotCalled(t *testing.T) {
+	t.Parallel()
+	canary := &CanaryDeployment{
+		SourceVersion: 1,
+		TargetVersion: 2,
+		TrafficPct:    100,
+		Status:        CanaryActive,
+	}
+	called := false
+	router := newCanaryRouterWithRandFn(func() float64 {
+		called = true
+		return 0.99
+	})
+	v := router.ResolveVersion(canary)
+	if v != 2 {
+		t.Errorf("TrafficPct=100: got version %d, want 2", v)
+	}
+	if called {
+		t.Error("randFn should not be called when TrafficPct >= 100")
+	}
+}
+
+func TestCanary_ResolveVersion_TrafficPctNegative(t *testing.T) {
+	t.Parallel()
+	canary := &CanaryDeployment{
+		SourceVersion: 1,
+		TargetVersion: 2,
+		TrafficPct:    -1,
+		Status:        CanaryActive,
+	}
+	router := newCanaryRouterWithRandFn(func() float64 { return 0.0 })
+	if v := router.ResolveVersion(canary); v != 1 {
+		t.Errorf("TrafficPct=-1: got version %d, want 1 (source)", v)
+	}
+}
+
+func TestCanary_ResolveVersion_TrafficPct101(t *testing.T) {
+	t.Parallel()
+	canary := &CanaryDeployment{
+		SourceVersion: 1,
+		TargetVersion: 2,
+		TrafficPct:    101,
+		Status:        CanaryActive,
+	}
+	router := newCanaryRouterWithRandFn(func() float64 { return 0.99 })
+	if v := router.ResolveVersion(canary); v != 2 {
+		t.Errorf("TrafficPct=101: got version %d, want 2 (target)", v)
+	}
+}
+
+// 2B. EvaluateHealth TargetRunCount boundary.
+
+func TestCanary_EvaluateHealth_ExactlyMinRuns(t *testing.T) {
+	t.Parallel()
+	health := CanaryHealthCheck{
+		TargetFailureRate: 1.0,
+		TargetLatencyP99:  100 * time.Millisecond,
+		TargetRunCount:    5,
+	}
+	config := &AutoPromoteConfig{
+		Enabled:              true,
+		FailureRateThreshold: 5.0,
+		LatencyP99Threshold:  10 * time.Second,
+	}
+	decision := EvaluateHealth(health, config)
+	if decision != CanaryDecisionPromote {
+		t.Errorf("TargetRunCount=5 (exactly minRuns): decision = %s, want promote", decision)
+	}
+}
+
+func TestCanary_EvaluateHealth_OneBelowMinRuns(t *testing.T) {
+	t.Parallel()
+	health := CanaryHealthCheck{
+		TargetFailureRate: 1.0,
+		TargetRunCount:    4,
+	}
+	config := &AutoPromoteConfig{
+		Enabled:              true,
+		FailureRateThreshold: 5.0,
+	}
+	decision := EvaluateHealth(health, config)
+	if decision != CanaryDecisionHold {
+		t.Errorf("TargetRunCount=4 (below minRuns): decision = %s, want hold", decision)
+	}
+}
+
+// 2C. EvaluateHealth threshold=0 means disabled.
+
+func TestCanary_EvaluateHealth_ZeroFailureThreshold(t *testing.T) {
+	t.Parallel()
+	health := CanaryHealthCheck{
+		TargetFailureRate: 50.0,
+		TargetRunCount:    10,
+	}
+	config := &AutoPromoteConfig{
+		Enabled:              true,
+		FailureRateThreshold: 0,
+	}
+	decision := EvaluateHealth(health, config)
+	if decision != CanaryDecisionPromote {
+		t.Errorf("FailureRateThreshold=0 should disable check: decision = %s, want promote", decision)
+	}
+}
+
+func TestCanary_EvaluateHealth_ZeroLatencyThreshold(t *testing.T) {
+	t.Parallel()
+	health := CanaryHealthCheck{
+		TargetLatencyP99: 999 * time.Second,
+		TargetRunCount:   10,
+	}
+	config := &AutoPromoteConfig{
+		Enabled:             true,
+		LatencyP99Threshold: 0,
+	}
+	decision := EvaluateHealth(health, config)
+	if decision != CanaryDecisionPromote {
+		t.Errorf("LatencyP99Threshold=0 should disable check: decision = %s, want promote", decision)
+	}
+}
+
+// 2D. ValidateCanaryRequest trafficPct boundary valid values.
+
+func TestValidateCanary_TrafficPctZeroValid(t *testing.T) {
+	t.Parallel()
+	if err := ValidateCanaryRequest("wf-1", 1, 2, 0); err != nil {
+		t.Errorf("trafficPct=0 should be valid: %v", err)
+	}
+}
+
+func TestValidateCanary_TrafficPct100Valid(t *testing.T) {
+	t.Parallel()
+	if err := ValidateCanaryRequest("wf-1", 1, 2, 100); err != nil {
+		t.Errorf("trafficPct=100 should be valid: %v", err)
+	}
+}
+
+// 2E. NextPromoteStep boundary: currentPct equals a step value.
+
+func TestCanary_NextPromoteStep_CurrentEqualsStep(t *testing.T) {
+	t.Parallel()
+	config := &AutoPromoteConfig{
+		Enabled: true,
+		Steps:   []int{10, 25, 50, 100},
+	}
+	got := NextPromoteStep(config, 10)
+	if got != 25 {
+		t.Errorf("NextPromoteStep(current=10) = %d, want 25 (next step, not same)", got)
+	}
+	got = NextPromoteStep(config, 25)
+	if got != 50 {
+		t.Errorf("NextPromoteStep(current=25) = %d, want 50", got)
+	}
+}
+
+func TestCanary_NextPromoteStep_EmptySteps(t *testing.T) {
+	t.Parallel()
+	config := &AutoPromoteConfig{Enabled: true, Steps: []int{}}
+	got := NextPromoteStep(config, 0)
+	if got != -1 {
+		t.Errorf("NextPromoteStep(empty steps) = %d, want -1", got)
+	}
+}
+
+func TestCanary_NextPromoteStep_DisabledConfig(t *testing.T) {
+	t.Parallel()
+	config := &AutoPromoteConfig{Enabled: false, Steps: []int{10, 25}}
+	got := NextPromoteStep(config, 0)
+	if got != -1 {
+		t.Errorf("NextPromoteStep(disabled) = %d, want -1", got)
+	}
+}

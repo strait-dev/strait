@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -112,7 +112,7 @@ func TestEnforcer_FailOpen_Concurrent(t *testing.T) {
 	e, _ := setupFailOpenEnforcer(t)
 
 	ctx := context.Background()
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make(chan error, 100)
 
 	for range 100 {

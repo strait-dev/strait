@@ -218,6 +218,62 @@ func TestIsPrivateIP(t *testing.T) {
 	}
 }
 
+func TestIsPrivateIP_IPv4CompatibleIPv6(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ip      net.IP
+		private bool
+	}{
+		{
+			name:    "only ip[12] non-zero (127.0.0.0 loopback range)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 0, 0, 0},
+			private: true,
+		},
+		{
+			name:    "only ip[13] non-zero (0.10.0.0 unspecified range)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0},
+			private: true,
+		},
+		{
+			name:    "only ip[14] non-zero (0.0.168.0 unspecified range)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 168, 0},
+			private: true,
+		},
+		{
+			name:    "only ip[15] non-zero (0.0.0.2 in 0/8 range)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2},
+			private: true,
+		},
+		{
+			name:    "all last 4 octets zero (unspecified address)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			private: true,
+		},
+		{
+			name:    "IPv4-compatible public IP (::8.8.8.8)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8},
+			private: false,
+		},
+		{
+			name:    "all four octets non-zero private (::10.20.30.40)",
+			ip:      net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 20, 30, 40},
+			private: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isPrivateIP(tt.ip)
+			if got != tt.private {
+				t.Errorf("isPrivateIP(%v) = %v, want %v", tt.ip, got, tt.private)
+			}
+		})
+	}
+}
+
 func TestValidateExternalURL_OctalIPBypass(t *testing.T) {
 	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost
@@ -279,6 +335,21 @@ func TestLooksLikeNonStandardIP(t *testing.T) {
 		{"192.168.1.1", false}, // standard decimal
 		{"1.2.3", false},       // not 4 parts
 		{"", false},            // empty
+
+		// Boundary characters for ssrf.go:109 mutant killing.
+		{"09.0.0.1", true},     // '9' at boundary of 0-9 range
+		{"0a.0.0.1", true},     // 'a' at boundary of a-f range
+		{"0f.0.0.1", true},     // 'f' at boundary of a-f range
+		{"0A.0.0.1", true},     // 'A' at boundary of A-F range
+		{"0F.0.0.1", true},     // 'F' at boundary of A-F range
+		{"01x.02.03.04", true}, // 'x' in non-prefix position
+		{"01X.02.03.04", true}, // 'X' in non-prefix position
+		{"0:.0.0.1", false},    // ':' (ASCII 58, just past '9')
+		{"0`.0.0.1", false},    // '`' (ASCII 96, just before 'a')
+		{"0g.0.0.1", false},    // 'g' (just past 'f')
+		{"0@.0.0.1", false},    // '@' (ASCII 64, just before 'A')
+		{"0G.0.0.1", false},    // 'G' (just past 'F')
+		{"0x.gg.0.1", false},   // hex prefix with len=2 (boundary for ssrf.go:129)
 	}
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {

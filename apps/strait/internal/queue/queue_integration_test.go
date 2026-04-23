@@ -21,6 +21,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 var testDB *testutil.TestDB
@@ -394,7 +395,7 @@ func TestDequeueN_ConcurrentWorkers(t *testing.T) {
 	}
 
 	var (
-		wg    sync.WaitGroup
+		wg    conc.WaitGroup
 		mu    sync.Mutex
 		seen  = make(map[string]int)
 		total int
@@ -402,10 +403,7 @@ func TestDequeueN_ConcurrentWorkers(t *testing.T) {
 
 	errCh := make(chan error, 5)
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			runs, err := q.DequeueN(ctx, 10)
 			if err != nil {
 				errCh <- err
@@ -418,7 +416,7 @@ func TestDequeueN_ConcurrentWorkers(t *testing.T) {
 				seen[runs[i].ID]++
 				total++
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -457,17 +455,14 @@ func TestDequeueN_SkipLocked_UnderContention(t *testing.T) {
 	}
 
 	var (
-		wg   sync.WaitGroup
+		wg   conc.WaitGroup
 		mu   sync.Mutex
 		seen = make(map[string]int)
 	)
 
 	errCh := make(chan error, 5)
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for {
 				runs, err := q.DequeueN(ctx, 5)
 				if err != nil {
@@ -484,7 +479,7 @@ func TestDequeueN_SkipLocked_UnderContention(t *testing.T) {
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -1483,15 +1478,13 @@ func TestEnqueue_MetadataConcurrentDequeue(t *testing.T) {
 	}
 
 	var (
-		wg   sync.WaitGroup
+		wg   conc.WaitGroup
 		mu   sync.Mutex
 		runs []domain.JobRun
 	)
 	errCh := make(chan error, 4)
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				dequeued, err := q.DequeueN(ctx, 5)
 				if err != nil {
@@ -1505,7 +1498,7 @@ func TestEnqueue_MetadataConcurrentDequeue(t *testing.T) {
 				runs = append(runs, dequeued...)
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

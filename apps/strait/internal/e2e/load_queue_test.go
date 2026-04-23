@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func loadVolume() int {
@@ -122,21 +123,20 @@ func TestLoadQueue_ConcurrentEnqueue(t *testing.T) {
 	const workers = 20
 	perWorker := loadVolume() / workers
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var failures atomic.Int64
 	start := time.Now()
 
 	for w := range workers {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
+		workerID := w
+		wg.Go(func() {
 			for i := range perWorker {
 				run := makeRun(jobID, projectID, fmt.Sprintf(`{"w":%d,"i":%d}`, workerID, i))
 				if err := testQueue.Enqueue(ctx, run); err != nil {
 					failures.Add(1)
 				}
 			}
-		}(w)
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -174,14 +174,12 @@ func TestLoadQueue_ConcurrentDequeue(t *testing.T) {
 	}
 
 	const workers = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var totalDequeued atomic.Int64
 	start := time.Now()
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				run, err := testQueue.Dequeue(ctx)
 				if err != nil || run == nil {
@@ -189,7 +187,7 @@ func TestLoadQueue_ConcurrentDequeue(t *testing.T) {
 				}
 				totalDequeued.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -215,15 +213,13 @@ func TestLoadQueue_EnqueueDequeueInterleaved(t *testing.T) {
 
 	const duration = 5 * time.Second
 	var enqueued, dequeued atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	ctx2, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx2.Done():
@@ -235,13 +231,11 @@ func TestLoadQueue_EnqueueDequeueInterleaved(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx2.Done():
@@ -253,7 +247,7 @@ func TestLoadQueue_EnqueueDequeueInterleaved(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

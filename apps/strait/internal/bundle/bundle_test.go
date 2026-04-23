@@ -374,3 +374,59 @@ func TestRedactedPlaceholder(t *testing.T) {
 		t.Errorf("RedactedPlaceholder = %q", RedactedPlaceholder)
 	}
 }
+
+func TestExportBundle_WebhookURLPreserved(t *testing.T) {
+	t.Parallel()
+	jobs := []domain.Job{
+		{Slug: "hook-job", Name: "Hook Job", WebhookURL: "https://hooks.example.com/notify"},
+	}
+	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, nil)
+	if len(b.Resources.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(b.Resources.Jobs))
+	}
+	if b.Resources.Jobs[0].WebhookURL != "https://hooks.example.com/notify" {
+		t.Errorf("WebhookURL = %q, want %q", b.Resources.Jobs[0].WebhookURL, "https://hooks.example.com/notify")
+	}
+}
+
+func TestExportBundle_EmptyWebhookURLStaysEmpty(t *testing.T) {
+	t.Parallel()
+	jobs := []domain.Job{
+		{Slug: "no-hook", Name: "No Hook", WebhookURL: ""},
+	}
+	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, nil)
+	if b.Resources.Jobs[0].WebhookURL != "" {
+		t.Errorf("WebhookURL = %q, want empty", b.Resources.Jobs[0].WebhookURL)
+	}
+}
+
+func TestExportBundle_NilVariablesStayNil(t *testing.T) {
+	t.Parallel()
+	envs := []domain.Environment{
+		{Name: "Empty", Slug: "empty", Variables: nil},
+	}
+	b := ExportBundle("proj-1", nil, nil, nil, envs, nil, nil)
+	if b.Resources.Environments[0].Variables != nil {
+		t.Errorf("expected nil Variables for env with no vars, got %v", b.Resources.Environments[0].Variables)
+	}
+}
+
+func TestExportBundle_VariablesRedactedNonNil(t *testing.T) {
+	t.Parallel()
+	envs := []domain.Environment{
+		{Name: "Prod", Slug: "prod", Variables: map[string]string{"SECRET": "hunter2", "TOKEN": "abc123"}},
+	}
+	b := ExportBundle("proj-1", nil, nil, nil, envs, nil, nil)
+	vars := b.Resources.Environments[0].Variables
+	if vars == nil {
+		t.Fatal("expected non-nil Variables map for env with variables")
+	}
+	if len(vars) != 2 {
+		t.Fatalf("expected 2 variable keys, got %d", len(vars))
+	}
+	for k, v := range vars {
+		if v != RedactedPlaceholder {
+			t.Errorf("variable %q = %q, want %q", k, v, RedactedPlaceholder)
+		}
+	}
+}
