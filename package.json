@@ -58,6 +58,6 @@
     "lefthook": "^2.1.6",
     "openapi-typescript": "^7.13.0",
     "turbo": "^2.9.6",
-    "ultracite": "7.6.0"
+    "ultracite": "7.6.1"
   }
 }
