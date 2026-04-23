@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestNewEncryptor_AcceptsRaw32ByteKey(t *testing.T) {
@@ -167,7 +168,7 @@ func TestEncryptor_ConcurrentUse(t *testing.T) {
 	const workers = 32
 	const iterations = 50
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range workers {
 		wg.Go(func() {
 			for j := range iterations {

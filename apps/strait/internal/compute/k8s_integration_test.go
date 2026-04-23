@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -247,7 +248,7 @@ func TestK8sIntegration_ConcurrentJobs(t *testing.T) {
 	defer cancel()
 
 	const n = 5
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]*RunResult, n)
 	errs := make([]error, n)
 

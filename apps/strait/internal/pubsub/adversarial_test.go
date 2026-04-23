@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -99,7 +101,7 @@ func TestSubscription_MessageOrdering_UnderConcurrentWrites(t *testing.T) {
 	// Multiple producers write to the channel concurrently.
 	const producers = 10
 	const perProducer = 100
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for p := range producers {
 		wg.Go(func() {
@@ -112,7 +114,7 @@ func TestSubscription_MessageOrdering_UnderConcurrentWrites(t *testing.T) {
 	// Read all messages concurrently.
 	received := make(map[string]bool)
 	var mu sync.Mutex
-	var readerWg sync.WaitGroup
+	var readerWg conc.WaitGroup
 	readerWg.Go(func() {
 		for range producers * perProducer {
 			msg := <-sub.Ch
@@ -279,7 +281,7 @@ func TestSubscription_MultipleCloseNoPanic(t *testing.T) {
 	sub := NewSubscription(ch, cancel)
 
 	// Close from multiple goroutines concurrently.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 50 {
 		wg.Go(func() {
 			sub.Close()
@@ -355,21 +357,18 @@ func TestResilientPublisher_ConcurrentSubscribeUnsubscribe(t *testing.T) {
 
 	rp := NewResilientPublisher(mock, slog.Default(), 3)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
 
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			channel := fmt.Sprintf("events:%d", idx)
+		wg.Go(func() {
+			channel := fmt.Sprintf("events:%d", i)
 			sub, err := rp.Subscribe(t.Context(), channel)
 			if err != nil {
 				return
 			}
-			// Immediately close (unsubscribe).
 			sub.Close()
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -391,25 +390,22 @@ func TestResilientPublisher_ConcurrentPublishAndSubscribe(t *testing.T) {
 
 	rp := NewResilientPublisher(mock, slog.Default(), 3)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
 
 	// Half publish, half subscribe -- all concurrently.
 	for i := range goroutines {
-		wg.Add(1)
 		if i%2 == 0 {
-			go func(idx int) {
-				defer wg.Done()
-				_ = rp.Publish(t.Context(), fmt.Sprintf("ch:%d", idx), []byte("data"))
-			}(i)
+			wg.Go(func() {
+				_ = rp.Publish(t.Context(), fmt.Sprintf("ch:%d", i), []byte("data"))
+			})
 		} else {
-			go func(idx int) {
-				defer wg.Done()
-				sub, err := rp.Subscribe(t.Context(), fmt.Sprintf("ch:%d", idx))
+			wg.Go(func() {
+				sub, err := rp.Subscribe(t.Context(), fmt.Sprintf("ch:%d", i))
 				if err == nil {
 					sub.Close()
 				}
-			}(i)
+			})
 		}
 	}
 
@@ -562,7 +558,7 @@ func TestResilientPublisher_ConcurrentPublishDegradation(t *testing.T) {
 
 	rp := NewResilientPublisher(mock, slog.Default(), 5)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 100 {
 		wg.Go(func() {
 			_ = rp.Publish(t.Context(), "events", []byte("data"))

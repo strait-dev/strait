@@ -8,10 +8,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/sourcegraph/conc"
 )
 
 // --- Entropy and randomness quality tests. ---.
@@ -81,14 +81,12 @@ func TestAllHexGenerators_NoCollisionIn1000(t *testing.T) {
 // multiple goroutines simultaneously.
 func TestGenerateTestSecret_ConcurrentSafe(t *testing.T) {
 	t.Parallel()
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]string, 100)
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			results[idx] = GenerateTestSecret(32)
-		}(i)
+		wg.Go(func() {
+			results[i] = GenerateTestSecret(32)
+		})
 	}
 	wg.Wait()
 
@@ -108,14 +106,12 @@ func TestGenerateTestSecret_ConcurrentSafe(t *testing.T) {
 // safe under concurrent access.
 func TestGenerateTestUserCode_ConcurrentSafe(t *testing.T) {
 	t.Parallel()
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]string, 100)
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			results[idx] = GenerateTestUserCode()
-		}(i)
+		wg.Go(func() {
+			results[i] = GenerateTestUserCode()
+		})
 	}
 	wg.Wait()
 

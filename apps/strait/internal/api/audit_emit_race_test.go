@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -31,7 +33,7 @@ func TestStopAuditAsyncDrain_ConcurrentAccess(t *testing.T) {
 
 	const goroutines = 10
 	const eventsPerGoroutine = 20
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range goroutines {
 		wg.Go(func() {
 			for range eventsPerGoroutine {

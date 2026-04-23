@@ -441,6 +441,95 @@ func TestClientNackServerError(t *testing.T) {
 	}
 }
 
+func TestIsServerErrorOrNetworkFailure_Status500_True(t *testing.T) {
+	t.Parallel()
+	resp := &http.Response{StatusCode: 500}
+	if !isServerErrorOrNetworkFailure(resp, nil) {
+		t.Fatal("expected true for status 500")
+	}
+}
+
+func TestIsServerErrorOrNetworkFailure_Status499_False(t *testing.T) {
+	t.Parallel()
+	resp := &http.Response{StatusCode: 499}
+	if isServerErrorOrNetworkFailure(resp, nil) {
+		t.Fatal("expected false for status 499")
+	}
+}
+
+func TestIsServerErrorOrNetworkFailure_Status501_True(t *testing.T) {
+	t.Parallel()
+	resp := &http.Response{StatusCode: 501}
+	if !isServerErrorOrNetworkFailure(resp, nil) {
+		t.Fatal("expected true for status 501")
+	}
+}
+
+func TestIsServerErrorOrNetworkFailure_NetworkError_True(t *testing.T) {
+	t.Parallel()
+	if !isServerErrorOrNetworkFailure(nil, errors.New("connection refused")) {
+		t.Fatal("expected true for network error")
+	}
+}
+
+func TestIsServerErrorOrNetworkFailure_Status200_False(t *testing.T) {
+	t.Parallel()
+	resp := &http.Response{StatusCode: 200}
+	if isServerErrorOrNetworkFailure(resp, nil) {
+		t.Fatal("expected false for status 200")
+	}
+}
+
+func TestNewClient_DefaultRetryPolicy_RetriesTwice(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("unavailable"))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-default", "token")
+	_, err := client.Receive(context.Background(), 1, 0)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	// Default MaxRetries=2 means 1 initial + 2 retries = 3 total hits.
+	if got := hits.Load(); got != 3 {
+		t.Fatalf("hits = %d, want 3 (1 initial + 2 retries)", got)
+	}
+}
+
+func TestNewClient_InvalidBaseURL_FallsBackToEmptyURL(t *testing.T) {
+	t.Parallel()
+	client := NewClient("://invalid", "consumer-1", "token")
+	_, err := client.Receive(context.Background(), 1, 0)
+	if err == nil {
+		t.Fatal("expected error for invalid base URL")
+	}
+	if !strings.Contains(err.Error(), "invalid base url") {
+		t.Fatalf("error = %q, want 'invalid base url'", err.Error())
+	}
+}
+
+func TestNewClient_NoAuthToken_OmitsHeader(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("Authorization = %q, want empty", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "")
+	_, err := client.Receive(context.Background(), 1, 0)
+	if err != nil {
+		t.Fatalf("Receive returned error: %v", err)
+	}
+}
+
 func newTestRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
 	return retrypolicy.NewBuilder[*http.Response]().
 		WithMaxRetries(2).

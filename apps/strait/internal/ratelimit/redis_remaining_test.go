@@ -30,7 +30,8 @@ func TestRedisRateLimiterAllow_RemainingCountAccurate(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 
 	for i := 1; i <= limit; i++ {
 		result, err := limiter.Allow(ctx, "key", limit, time.Minute)

@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Metrics & Observability stress tests.
@@ -194,7 +196,7 @@ func TestStress_Metrics_Concurrent_50(t *testing.T) {
 	defer cancel()
 
 	const n = 10 // Reduced for kind capacity.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range n {
 		wg.Go(func() {
 			r, err := rt.Run(ctx, RunRequest{ImageURI: "alpine:3.19", MachinePreset: "micro", TimeoutSecs: 30})

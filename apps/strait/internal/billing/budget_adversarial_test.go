@@ -5,10 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"math"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mockBudgetAdversarialStore extends mockBillingStore with configurable
@@ -184,7 +185,7 @@ func TestBudget_ConcurrentSpend(t *testing.T) {
 	store := &mockBudgetAdversarialStore{budget: 100000, action: "reject", spend: 50000}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errCount atomic.Int64
 
 	for range 100 {

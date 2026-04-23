@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestResilientPublisher_PublishBatch_DegradeAfterThreshold(t *testing.T) {
@@ -126,17 +128,15 @@ func TestResilientPublisher_PublishBatch_ConcurrentBatches(t *testing.T) {
 
 	rp := NewResilientPublisher(mock, nil, 3)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			msgs := []PubSubMessage{
-				{Channel: fmt.Sprintf("ch:%d:a", idx), Data: []byte("a")},
-				{Channel: fmt.Sprintf("ch:%d:b", idx), Data: []byte("b")},
+				{Channel: fmt.Sprintf("ch:%d:a", i), Data: []byte("a")},
+				{Channel: fmt.Sprintf("ch:%d:b", i), Data: []byte("b")},
 			}
 			_ = rp.PublishBatch(context.Background(), msgs)
-		}(i)
+		})
 	}
 	wg.Wait()
 

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 // G. Spending Limit Enforcement (10 tests).
@@ -99,7 +99,7 @@ func TestSpendingEnforcement(t *testing.T) {
 		}
 
 		enforcer := NewEnforcer(store, rdb, slog.Default())
-		var wg sync.WaitGroup
+		var wg conc.WaitGroup
 		var errCount atomic.Int64
 
 		for range 50 {

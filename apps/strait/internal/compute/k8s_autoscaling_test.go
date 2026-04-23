@@ -2,11 +2,11 @@ package compute
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
@@ -19,12 +19,10 @@ func TestK8s_ConcurrentJobCreation_ScalePressure(t *testing.T) {
 
 	const n = 50
 	var succeeded atomic.Int64
-	var wg sync.WaitGroup
-	wg.Add(n)
+	var wg conc.WaitGroup
 
-	for i := range n {
-		go func(idx int) {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			_, err := rt.Create(context.Background(), RunRequest{
 				ImageURI:      "alpine:3.21",
 				MachinePreset: "micro",
@@ -33,7 +31,7 @@ func TestK8s_ConcurrentJobCreation_ScalePressure(t *testing.T) {
 			if err == nil {
 				succeeded.Add(1)
 			}
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -58,20 +56,18 @@ func TestK8s_JobCreation_AllPresetsUnderLoad(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	rt := NewK8sRuntimeFromClient(cs, "default", "strait-job", "")
 
-	var wg sync.WaitGroup
-	wg.Add(len(presets))
+	var wg conc.WaitGroup
 
 	for _, preset := range presets {
-		go func(p string) {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := rt.Create(context.Background(), RunRequest{
 				ImageURI:      "alpine:3.21",
-				MachinePreset: p,
+				MachinePreset: preset,
 			})
 			if err != nil {
-				t.Errorf("preset %s failed: %v", p, err)
+				t.Errorf("preset %s failed: %v", preset, err)
 			}
-		}(preset)
+		})
 	}
 
 	wg.Wait()

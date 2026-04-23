@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -287,22 +289,20 @@ func TestTOCTOU_ConcurrentBudgetCheckSpend(t *testing.T) {
 	}
 
 	const goroutines = 100
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes int64
 	var mu sync.Mutex
 
-	wg.Add(goroutines)
 	start := make(chan struct{})
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			if atomicSpend() {
 				mu.Lock()
 				successes++
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	close(start)

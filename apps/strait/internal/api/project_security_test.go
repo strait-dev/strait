@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -34,11 +35,10 @@ func TestProject_ConcurrentCreationSameOrg(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	const goroutines = 20
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		go func(n int) {
-			defer wg.Done()
+		n := i
+		wg.Go(func() {
 			body := fmt.Sprintf(`{"id":"proj-%d","org_id":"org-race","name":"Project %d"}`, n, n)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
@@ -46,7 +46,7 @@ func TestProject_ConcurrentCreationSameOrg(t *testing.T) {
 			if w.Code != http.StatusCreated && w.Code != http.StatusInternalServerError {
 				t.Errorf("goroutine %d: unexpected status %d", n, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

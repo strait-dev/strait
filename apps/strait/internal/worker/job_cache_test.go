@@ -2,16 +2,16 @@ package worker
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/eko/gocache/lib/v4/cache"
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 
 	"strait/internal/cache/otterstore"
-
-	"github.com/eko/gocache/lib/v4/cache"
 )
 
 func newTestJobCache(t *testing.T, ttl time.Duration) *cache.Cache[*domain.Job] {
@@ -111,25 +111,21 @@ func TestJobCache_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Writers.
-	wg.Add(goroutines)
 	for i := range goroutines {
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			job := &domain.Job{ID: "job-conc", Version: i}
 			_ = jobCache.Set(ctx, "job-conc", job)
-		}(i)
+		})
 	}
 
 	// Readers.
-	wg.Add(goroutines)
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, _ = jobCache.Get(ctx, "job-conc")
-		}()
+		})
 	}
 
 	wg.Wait()

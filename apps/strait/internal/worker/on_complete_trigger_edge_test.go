@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -316,21 +317,19 @@ func TestOnCompleteTrigger_ConcurrentTriggers(t *testing.T) {
 	trigger := &mockWorkflowTriggerer{}
 	oct := NewOnCompleteTrigger(lookup, trigger, nil, nil, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			run := &domain.JobRun{
-				ID:     fmt.Sprintf("run-%d", idx),
+				ID:     fmt.Sprintf("run-%d", i),
 				Status: domain.StatusCompleted,
 			}
 			job := &domain.Job{
-				ID: fmt.Sprintf("job-%d", idx), ProjectID: "proj-1",
+				ID: fmt.Sprintf("job-%d", i), ProjectID: "proj-1",
 				OnCompleteTriggerWorkflow: "deploy",
 			}
 			oct.MaybeTrigger(context.Background(), run, job, json.RawMessage(`{}`))
-		}(i)
+		})
 	}
 	wg.Wait()
 

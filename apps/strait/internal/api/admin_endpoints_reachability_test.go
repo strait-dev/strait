@@ -37,8 +37,8 @@ func TestAdminEndpointsReachability(t *testing.T) {
 		GetAuditExportRowCapFunc:  func(_ context.Context, _ string) (int64, error) { return 0, nil },
 		SetAuditExportRowCapFunc:  func(_ context.Context, _ string, _ int64) error { return nil },
 		RotateAuditSigningKeyFunc: func(_ context.Context, _, _ string) (int, error) { return 1, nil },
-		GetAuditEventFunc: func(_ context.Context, _, _ string) (*domain.AuditEvent, error) {
-			return nil, nil
+		GetAuditEventFunc: func(_ context.Context, projectID, id string) (*domain.AuditEvent, error) {
+			return &domain.AuditEvent{ID: id, ProjectID: projectID}, nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -305,6 +307,49 @@ func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
 	}
 }
 
+func TestWebhookTrigger_CreateDeliveryError_Resilient(t *testing.T) {
+	t.Parallel()
+	store := &mockWebhookStore{
+		subs: []domain.WebhookSubscription{
+			{ID: "sub-1", ProjectID: "p1", WebhookURL: "https://a.com/hook", EventTypes: []string{"run.completed"}, Active: true},
+			{ID: "sub-2", ProjectID: "p1", WebhookURL: "https://b.com/hook", EventTypes: []string{"run.completed"}, Active: true},
+		},
+		deliveryErr: errors.New("db write failed"),
+	}
+	h := NewWebhookTriggerHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("expected nil error on delivery creation failure, got: %v", err)
+	}
+}
+
+func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
+	t.Parallel()
+	store := &mockWebhookStore{
+		subs: []domain.WebhookSubscription{
+			{ID: "sub-1", ProjectID: "p1", WebhookURL: "https://example.com/hook", EventTypes: []string{"run.canceled"}, Active: true},
+		},
+	}
+	h := NewWebhookTriggerHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("canceled", "p1", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(store.deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(store.deliveries))
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(store.deliveries[0].LastError), &payload); err != nil {
+		t.Fatalf("payload is not valid JSON: %v", err)
+	}
+	if payload["event_type"] != "run.canceled" {
+		t.Errorf("expected event_type=run.canceled, got %v", payload["event_type"])
+	}
+}
+
 func TestWebhookTrigger_ConcurrentEvents(t *testing.T) {
 	t.Parallel()
 	store := &mockWebhookStore{
@@ -314,17 +359,15 @@ func TestWebhookTrigger_ConcurrentEvents(t *testing.T) {
 	}
 	h := NewWebhookTriggerHandler(store, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 10 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			status := "completed"
 			if i%2 == 0 {
 				status = "failed"
 			}
 			_ = h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+string(rune('0'+i)), "job-1"))
-		}(i)
+		})
 	}
 	wg.Wait()
 

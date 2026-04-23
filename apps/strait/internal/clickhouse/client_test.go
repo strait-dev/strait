@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestNew_Disabled(t *testing.T) {
@@ -144,15 +145,13 @@ func TestExporter_ConcurrentEnqueue(t *testing.T) {
 
 	const goroutines = 10
 	const perGoroutine = 100
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range perGoroutine {
 				e.Enqueue("x")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -163,18 +162,15 @@ func TestExporter_ConcurrentEnqueue(t *testing.T) {
 
 func TestExporter_FlushDrainsPending(t *testing.T) {
 	t.Parallel()
-	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100, FlushInterval: 10 * time.Millisecond}, slog.Default())
+	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100}, slog.Default())
 
 	e.Enqueue("a")
 	e.Enqueue("b")
 
-	ctx := context.Background()
-	e.Start(ctx)
-	time.Sleep(50 * time.Millisecond)
-	e.Stop()
+	e.flush(context.Background())
 
 	if e.PendingCount() != 0 {
-		t.Errorf("after stop, pending = %d, want 0", e.PendingCount())
+		t.Errorf("after flush, pending = %d, want 0", e.PendingCount())
 	}
 }
 
@@ -276,29 +272,24 @@ func TestExporter_InsertBatch_NilClient(t *testing.T) {
 
 func TestExporter_MultipleBatchFlushes(t *testing.T) {
 	t.Parallel()
-	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100, FlushInterval: 10 * time.Millisecond}, slog.Default())
+	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100}, slog.Default())
 
 	now := time.Now()
 
-	ctx := context.Background()
-	e.Start(ctx)
-
-	// First batch.
 	for i := range 5 {
 		e.Enqueue(RunEventRecord{EventID: fmt.Sprintf("evt-%d", i), CreatedAt: now})
 	}
-	time.Sleep(30 * time.Millisecond)
+	e.flush(context.Background())
+	if e.PendingCount() != 0 {
+		t.Errorf("after first flush, pending = %d, want 0", e.PendingCount())
+	}
 
-	// Second batch.
 	for i := range 3 {
 		e.Enqueue(RunAnalyticsRecord{RunID: fmt.Sprintf("run-%d", i), CreatedAt: now})
 	}
-	time.Sleep(30 * time.Millisecond)
-
-	e.Stop()
-
+	e.flush(context.Background())
 	if e.PendingCount() != 0 {
-		t.Errorf("after stop, pending = %d, want 0", e.PendingCount())
+		t.Errorf("after second flush, pending = %d, want 0", e.PendingCount())
 	}
 }
 
@@ -471,6 +462,20 @@ func TestExporter_FlushResetsOnSuccess(t *testing.T) {
 
 	if failures != 0 {
 		t.Errorf("after success, consecutiveFailures = %d, want 0", failures)
+	}
+}
+
+func TestExporter_StopDrainsAllPending(t *testing.T) {
+	t.Parallel()
+	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100, FlushInterval: time.Hour}, slog.Default())
+	for i := range 10 {
+		e.Enqueue(RunEventRecord{EventID: fmt.Sprintf("evt-%d", i), CreatedAt: time.Now()})
+	}
+	ctx := context.Background()
+	e.Start(ctx)
+	e.Stop()
+	if e.PendingCount() != 0 {
+		t.Errorf("after Stop, pending = %d, want 0 (Stop must flush)", e.PendingCount())
 	}
 }
 

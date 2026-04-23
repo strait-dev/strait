@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Mock helpers for job chaining.
@@ -803,22 +805,20 @@ func TestChaining_ConcurrentCompletions(t *testing.T) {
 	enqueuer := &mockJobEnqueuer{}
 	oct := NewOnCompleteTrigger(nil, nil, jobLookup, enqueuer, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 50 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			run := &domain.JobRun{
-				ID:     fmt.Sprintf("run-%d", idx),
+				ID:     fmt.Sprintf("run-%d", i),
 				Status: domain.StatusCompleted,
 			}
 			job := &domain.Job{
-				ID:                   fmt.Sprintf("job-%d", idx),
+				ID:                   fmt.Sprintf("job-%d", i),
 				ProjectID:            "p",
 				OnCompleteTriggerJob: "next",
 			}
 			oct.MaybeTrigger(context.Background(), run, job, json.RawMessage(`{}`))
-		}(i)
+		})
 	}
 	wg.Wait()
 

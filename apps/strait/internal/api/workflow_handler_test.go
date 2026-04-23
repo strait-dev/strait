@@ -3885,6 +3885,7 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 	t.Parallel()
 
 	var webhookCreated atomic.Bool
+	webhookDone := make(chan struct{}, 1)
 	var getCalls atomic.Int32
 	ms := &APIStoreMock{
 		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -3904,6 +3905,10 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 		},
 		CreateWebhookDeliveryFunc: func(_ context.Context, d *domain.WebhookDelivery) error {
 			webhookCreated.Store(true)
+			select {
+			case webhookDone <- struct{}{}:
+			default:
+			}
 			if d.WebhookURL != "https://example.com/hook" {
 				t.Errorf("expected webhook URL, got %s", d.WebhookURL)
 			}
@@ -3920,10 +3925,9 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Give the background goroutine a moment to complete.
-	time.Sleep(100 * time.Millisecond)
-
-	if !webhookCreated.Load() {
+	select {
+	case <-webhookDone:
+	case <-time.After(2 * time.Second):
 		t.Error("expected webhook delivery to be created for pause event")
 	}
 }

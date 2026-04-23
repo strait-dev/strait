@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 var errSentinel = fmt.Errorf("sentinel")
@@ -116,7 +117,7 @@ func TestWrapf_NilError(t *testing.T) {
 
 func TestIn_ConcurrentUsage(t *testing.T) {
 	t.Parallel()
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 50 {
 		wg.Go(func() {
 			_ = In("worker").With("id", "x").Wrap(errSentinel)

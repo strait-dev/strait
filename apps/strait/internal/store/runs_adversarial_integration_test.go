@@ -5,11 +5,12 @@ package store_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // --------------------------------------------------------------------------.
@@ -27,15 +28,13 @@ func TestAdv_ConcurrentCreateRuns(t *testing.T) {
 
 	const n = 20
 	errs := make(chan error, n)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			run := baseRun(job, newID())
 			errs <- q.CreateRun(ctx, run)
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -73,15 +72,13 @@ func TestAdv_ConcurrentStatusTransitions(t *testing.T) {
 	const n = 10
 	results := make(chan error, n)
 	start := make(chan struct{})
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			results <- q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, nil)
-		}()
+		})
 	}
 
 	close(start)
@@ -182,12 +179,10 @@ func TestAdv_ConcurrentBatchInserts(t *testing.T) {
 
 	const n = 15
 	errs := make(chan error, n)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			item := &domain.BatchBufferItem{
 				JobID:       job.ID,
 				ProjectID:   job.ProjectID,
@@ -197,7 +192,7 @@ func TestAdv_ConcurrentBatchInserts(t *testing.T) {
 				TriggeredBy: "manual",
 			}
 			errs <- q.InsertBatchBufferItem(ctx, item)
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -240,15 +235,13 @@ func TestAdv_DrainBatchConcurrent(t *testing.T) {
 		err   error
 	}
 	results := make(chan result, 2)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			items, err := q.DrainBatchBuffer(ctx, job.ID, "drain-race", 10)
 			results <- result{items, err}
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -299,21 +292,19 @@ func TestAdv_ConcurrentJobMemoryUpserts(t *testing.T) {
 
 	const n = 10
 	errs := make(chan error, n)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for i := range n {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			mem := &domain.JobMemory{
 				JobID:     job.ID,
 				ProjectID: job.ProjectID,
-				MemoryKey: "key-" + string(rune('A'+idx)),
+				MemoryKey: "key-" + string(rune('A'+i)),
 				Value:     []byte(`"value"`),
 				SizeBytes: 7,
 			}
 			errs <- store.New(testDB.Pool).UpsertJobMemoryWithQuota(ctx, mem, 1024, 100)
-		}(i)
+		})
 	}
 	wg.Wait()
 	close(errs)

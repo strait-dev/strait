@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/ratelimit"
 	"strait/internal/testutil"
@@ -170,11 +171,9 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 	var mu sync.Mutex
 	var allowed, denied int
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res, err := rl.Allow(ctx, key, limit, window)
 			if err != nil {
 				t.Errorf("Allow() error = %v", err)
@@ -187,7 +186,7 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 			} else {
 				denied++
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -430,11 +429,9 @@ func TestConcurrency_ConcurrentAcquire(t *testing.T) {
 	var acquired int
 	tokens := make([]string, 0, maxConcurrent)
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			token, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
 			if err != nil {
 				t.Errorf("Acquire() error = %v", err)
@@ -446,7 +443,7 @@ func TestConcurrency_ConcurrentAcquire(t *testing.T) {
 				acquired++
 				tokens = append(tokens, token)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

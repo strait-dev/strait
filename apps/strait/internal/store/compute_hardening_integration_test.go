@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/google/uuid"
 )
 
 // --- Budget Reservation Integration Tests ---
@@ -69,21 +70,19 @@ func TestReserveBudget_ConcurrentRace(t *testing.T) {
 
 	// Launch two concurrent reservations of $0.006 each.
 	// Only one should succeed (6000+6000 = 12000 > 10000).
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes int
 	var mu sync.Mutex
 
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 2 {
+		wg.Go(func() {
 			err := q.ReserveBudget(ctx, projectID, newID(), jobID, "micro", 6000, "UTC", limit)
 			if err == nil {
 				mu.Lock()
 				successes++
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -367,20 +366,18 @@ func TestRecordOOMEvent_ConcurrentUpserts(t *testing.T) {
 	q := mustStore(t)
 
 	jobID := newID()
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errs []error
 	var mu sync.Mutex
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			if err := q.RecordOOMEvent(ctx, jobID, "micro"); err != nil {
 				mu.Lock()
 				errs = append(errs, err)
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

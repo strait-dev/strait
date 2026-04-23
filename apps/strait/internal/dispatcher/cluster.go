@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -259,18 +260,16 @@ func (r *ClusterRegistry) Pick(ctx context.Context, client *http.Client) (Cluste
 
 	// Query all clusters concurrently.
 	results := make([]clusterWithDepth, len(clusters))
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i, c := range clusters {
-		wg.Add(1)
-		go func(idx int, entry ClusterEntry) {
-			defer wg.Done()
+		wg.Go(func() {
 			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			results[idx] = clusterWithDepth{
-				cluster: entry,
-				depth:   queueDepth(queryCtx, entry.PrometheusURL, client),
+			results[i] = clusterWithDepth{
+				cluster: c,
+				depth:   queueDepth(queryCtx, c.PrometheusURL, client),
 			}
-		}(i, c)
+		})
 	}
 	wg.Wait()
 

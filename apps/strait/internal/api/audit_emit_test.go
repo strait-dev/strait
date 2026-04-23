@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/config"
 	"strait/internal/domain"
 )
@@ -293,7 +295,7 @@ func TestAuditDrainer_FieldAssignmentNoDataRace(t *testing.T) {
 		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
 	}
 	srv := newTestServer(t, ms, nil, nil)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	stop := make(chan struct{})
 	for range 4 {
 		wg.Go(func() {

@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -419,11 +420,10 @@ func TestDeployment_ConcurrentVersionPublish(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	const goroutines = 20
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		go func(n int) {
-			defer wg.Done()
+		n := i
+		wg.Go(func() {
 			body := fmt.Sprintf(`{
 				"project_id":"proj-1",
 				"environment":"production",
@@ -435,7 +435,7 @@ func TestDeployment_ConcurrentVersionPublish(t *testing.T) {
 			if w.Code != http.StatusCreated && w.Code != http.StatusInternalServerError {
 				t.Errorf("goroutine %d: unexpected status %d", n, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

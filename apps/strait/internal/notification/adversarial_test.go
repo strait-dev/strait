@@ -17,6 +17,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/jarcoal/httpmock"
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -101,7 +102,9 @@ func TestWebhookSender_MalformedPayloads(t *testing.T) {
 			del := newTestDelivery("test.event", tt.payload)
 
 			// Must not panic regardless of payload content.
-			_ = sender.Send(context.Background(), ch, del)
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			_ = sender.Send(sendCtx, ch, del)
 		})
 	}
 }
@@ -132,7 +135,9 @@ func TestSlackSender_MalformedConfig(t *testing.T) {
 			}
 			del := newTestDelivery("test.event", json.RawMessage(`{}`))
 
-			err := sender.Send(context.Background(), ch, del)
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			err := sender.Send(sendCtx, ch, del)
 			if err == nil {
 				t.Fatal("expected error for malformed config")
 			}
@@ -165,7 +170,9 @@ func TestDiscordSender_MalformedConfig(t *testing.T) {
 			}
 			del := newTestDelivery("test.event", json.RawMessage(`{}`))
 
-			err := sender.Send(context.Background(), ch, del)
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			err := sender.Send(sendCtx, ch, del)
 			if err == nil {
 				t.Fatal("expected error for malformed config")
 			}
@@ -204,7 +211,9 @@ func TestWebhookSender_SpecialCharacterPayloads(t *testing.T) {
 			ch := newTestChannel("https://example.com/hook", "test-secret-value")
 			del := newTestDelivery("test.event", json.RawMessage(tt.payload))
 
-			err := sender.Send(context.Background(), ch, del)
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			err := sender.Send(sendCtx, ch, del)
 			if err != nil {
 				t.Fatalf("Send failed: %v", err)
 			}
@@ -255,13 +264,18 @@ func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 	}
 
 	w := NewWorker(st, &http.Client{})
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	if updatedDelivery == nil {
 		t.Fatal("expected delivery to be updated")
 	}
 	if updatedDelivery.Status != "failed" {
 		t.Errorf("status = %q, want %q", updatedDelivery.Status, "failed")
+	}
+	if updatedDelivery.Attempts != 1 {
+		t.Errorf("Attempts = %d, want 1", updatedDelivery.Attempts)
 	}
 	if !strings.Contains(updatedDelivery.LastError, "unsupported channel type") {
 		t.Errorf("LastError = %q, want it to contain 'unsupported channel type'", updatedDelivery.LastError)
@@ -296,7 +310,9 @@ func TestWorker_DispatchChannelNotFound(t *testing.T) {
 	}
 
 	w := NewWorker(st, &http.Client{})
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	if updatedDelivery == nil {
 		t.Fatal("expected delivery to be updated after channel-not-found")
@@ -352,7 +368,9 @@ func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
 
 	w := NewWorker(st, &http.Client{})
 	w.RegisterSender(domain.ChannelTypeWebhook, &failingSender{err: errors.New("connection refused")})
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -411,7 +429,9 @@ func TestWorker_DispatchSenderError_ExhaustsMaxAttempts(t *testing.T) {
 
 	w := NewWorker(st, &http.Client{})
 	w.RegisterSender(domain.ChannelTypeWebhook, &failingSender{err: errors.New("still failing")})
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	if updatedDelivery == nil {
 		t.Fatal("expected delivery to be updated")
@@ -467,7 +487,9 @@ func TestWorker_LeaseLostDuringUpdate(t *testing.T) {
 
 	w := NewWorker(st, client)
 	// Should not panic when lease is lost.
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 }
 
 func TestWorker_UpdateClaimReturnsError(t *testing.T) {
@@ -508,7 +530,9 @@ func TestWorker_UpdateClaimReturnsError(t *testing.T) {
 
 	w := NewWorker(st, client)
 	// Should not panic on update error.
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 }
 
 func TestWorker_ClaimReturnsError(t *testing.T) {
@@ -522,7 +546,9 @@ func TestWorker_ClaimReturnsError(t *testing.T) {
 
 	w := NewWorker(st, &http.Client{})
 	// Should not panic; should log and return gracefully.
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 }
 
 func TestWorker_ContextCancelledDuringProcess(t *testing.T) {
@@ -562,17 +588,17 @@ func TestWebhookSender_ConcurrentSends(t *testing.T) {
 	ch := newTestChannel("https://example.com/hook", "secret")
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			del := newTestDelivery(
-				fmt.Sprintf("event.%d", idx),
-				json.RawMessage(fmt.Sprintf(`{"idx":%d}`, idx)),
+				fmt.Sprintf("event.%d", i),
+				json.RawMessage(fmt.Sprintf(`{"idx":%d}`, i)),
 			)
-			_ = sender.Send(context.Background(), ch, del)
-		}(i)
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			_ = sender.Send(sendCtx, ch, del)
+		})
 	}
 	wg.Wait()
 
@@ -601,14 +627,14 @@ func TestSlackSender_ConcurrentSends(t *testing.T) {
 	}
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, idx)))
-			_ = sender.Send(context.Background(), ch, del)
-		}(i)
+		wg.Go(func() {
+			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, i)))
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			_ = sender.Send(sendCtx, ch, del)
+		})
 	}
 	wg.Wait()
 
@@ -637,14 +663,14 @@ func TestDiscordSender_ConcurrentSends(t *testing.T) {
 	}
 
 	const goroutines = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, idx)))
-			_ = sender.Send(context.Background(), ch, del)
-		}(i)
+		wg.Go(func() {
+			del := newTestDelivery("test.event", json.RawMessage(fmt.Sprintf(`{"i":%d}`, i)))
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sendCancel()
+			_ = sender.Send(sendCtx, ch, del)
+		})
 	}
 	wg.Wait()
 
@@ -741,7 +767,9 @@ func TestWorker_BackoffCalculation(t *testing.T) {
 
 			w := NewWorker(st, &http.Client{})
 			w.RegisterSender(domain.ChannelTypeWebhook, &failingSender{err: errors.New("timeout")})
-			w.process(context.Background())
+			processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer processCancel()
+			w.process(processCtx)
 
 			if updatedDelivery == nil {
 				t.Fatal("expected delivery to be updated")
@@ -805,7 +833,9 @@ func TestWorker_ZeroMaxAttempts_FailsImmediately(t *testing.T) {
 
 	w := NewWorker(st, &http.Client{})
 	w.RegisterSender(domain.ChannelTypeWebhook, &failingSender{err: errors.New("fail")})
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	if updatedDelivery == nil {
 		t.Fatal("expected delivery to be updated")
@@ -861,7 +891,9 @@ func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 		httpmock.NewStringResponder(200, "ok"))
 
 	w := NewWorker(st, client)
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	if updatedDelivery == nil {
 		t.Fatal("expected delivery to be updated")
@@ -924,7 +956,9 @@ func TestWorker_ProcessesOneAtATime(t *testing.T) {
 		httpmock.NewStringResponder(200, "ok"))
 
 	w := NewWorker(st, client)
-	w.process(context.Background())
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -963,7 +997,9 @@ func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 		Payload:   payload,
 	}
 
-	err := sender.Send(context.Background(), channel, delivery)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	err := sender.Send(sendCtx, channel, delivery)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -994,7 +1030,9 @@ func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
 	}
 
 	// Should not panic; the email sender has a fallback for unparseable payloads.
-	err := sender.Send(context.Background(), channel, delivery)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	err := sender.Send(sendCtx, channel, delivery)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1024,7 +1062,9 @@ func TestEmailSender_NilPayload(t *testing.T) {
 	}
 
 	// Must not panic on nil payload.
-	err := sender.Send(context.Background(), channel, delivery)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	err := sender.Send(sendCtx, channel, delivery)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1040,7 +1080,9 @@ func TestWebhookSender_InvalidJSON_Config(t *testing.T) {
 	}
 	del := newTestDelivery("test.event", json.RawMessage(`{}`))
 
-	err := sender.Send(context.Background(), ch, del)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	err := sender.Send(sendCtx, ch, del)
 	if err == nil {
 		t.Fatal("expected error for invalid config JSON")
 	}
@@ -1059,7 +1101,7 @@ func TestWorker_ConcurrentStartStop(t *testing.T) {
 	w.Start(t.Context())
 
 	// Concurrently stop the worker from multiple goroutines.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 20 {
 		wg.Go(func() {
 			w.Stop()

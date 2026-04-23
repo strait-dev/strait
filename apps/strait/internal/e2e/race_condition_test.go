@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 // TestRace_DoubleDequeue enqueues a single run and races two goroutines to
@@ -30,13 +30,11 @@ func TestRace_DoubleDequeue(t *testing.T) {
 	job := testutil.MustCreateJob(t, ctx, testStore, nil)
 	_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var gotRun atomic.Int32
 
-	wg.Add(2)
 	for i := 0; i < 2; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			runs, err := testQueue.DequeueN(ctx, 1)
 			if err != nil {
 				return
@@ -44,7 +42,7 @@ func TestRace_DoubleDequeue(t *testing.T) {
 			if len(runs) > 0 {
 				gotRun.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -62,28 +60,24 @@ func TestRace_ConcurrentEnqueueDequeueInterleaving(t *testing.T) {
 	job := testutil.MustCreateJob(t, ctx, testStore, nil)
 
 	const half = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var dequeuedTotal atomic.Int32
 
 	// Start enqueue goroutines.
-	wg.Add(half)
 	for i := 0; i < half; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
-		}()
+		})
 	}
 
 	// Start dequeue goroutines.
-	wg.Add(half)
 	for i := 0; i < half; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			runs, err := testQueue.DequeueN(ctx, 1)
 			if err == nil && len(runs) > 0 {
 				dequeuedTotal.Add(int32(len(runs)))
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -104,22 +98,19 @@ func TestRace_ConcurrentJobPauseAndTrigger(t *testing.T) {
 	job := createJob(t, projectID, "pause-race-job", "pause-race-slug-"+newID())
 	jobID := asString(t, job, "id")
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	var wg conc.WaitGroup
 
 	var triggerStatus atomic.Int32
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{}`)
 		w := httptest.NewRecorder()
 		testServer.ServeHTTP(w, req)
 		triggerStatus.Store(int32(w.Code))
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_ = testStore.PauseJob(ctx, jobID, "race test")
-	}()
+	})
 
 	wg.Wait()
 
@@ -143,13 +134,12 @@ func TestRace_AdvisoryLockContention(t *testing.T) {
 	const maxPerKey = 2048
 	const maxPerJob = 10240
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var errCount atomic.Int32
 
-	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			mem := &domain.JobMemory{
 				ID:        uuid.Must(uuid.NewV7()).String(),
 				JobID:     job.ID,
@@ -161,7 +151,7 @@ func TestRace_AdvisoryLockContention(t *testing.T) {
 			if err := testStore.UpsertJobMemoryWithQuota(ctx, mem, maxPerKey, maxPerJob); err != nil {
 				errCount.Add(1)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -191,13 +181,11 @@ func TestRace_PubSubSubscribeUnsubscribe(t *testing.T) {
 	client := testEnv.Redis.Client
 
 	const goroutines = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Subscribers.
-	wg.Add(goroutines / 2)
 	for i := 0; i < goroutines/2; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sub := client.Subscribe(ctx, channel)
 			defer sub.Close()
 			// Receive one message or timeout.
@@ -206,16 +194,15 @@ func TestRace_PubSubSubscribeUnsubscribe(t *testing.T) {
 			case <-ch:
 			case <-ctx.Done():
 			}
-		}()
+		})
 	}
 
 	// Publishers.
-	wg.Add(goroutines / 2)
 	for i := 0; i < goroutines/2; i++ {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			client.Publish(ctx, channel, fmt.Sprintf("msg-%d", idx))
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -231,12 +218,10 @@ func TestRace_CacheInvalidationDuringRead(t *testing.T) {
 	jobResp := createJob(t, projectID, "cache-job", "cache-slug-"+newID())
 	jobID := asString(t, jobResp, "id")
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Writer goroutine: update the job description.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for i := 0; i < 5; i++ {
 			job, err := testStore.GetJob(ctx, jobID)
 			if err != nil {
@@ -245,19 +230,17 @@ func TestRace_CacheInvalidationDuringRead(t *testing.T) {
 			job.Description = fmt.Sprintf("updated-%d", i)
 			_ = testStore.UpdateJob(ctx, job)
 		}
-	}()
+	})
 
 	// Reader goroutines: read the job via API.
 	const readers = 5
-	wg.Add(readers)
 	for i := 0; i < readers; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			w := doRequest(t, http.MethodGet, "/v1/jobs/"+jobID, "")
 			if w.Code >= 500 {
 				t.Errorf("server error reading job during concurrent update: %d", w.Code)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -289,26 +272,22 @@ func TestRace_ConcurrentAPIKeyRotation(t *testing.T) {
 		t.Fatalf("CreateAPIKey error: %v", err)
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Revoke the key in a goroutine.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_ = testStore.RevokeAPIKey(ctx, apiKey.ID)
-	}()
+	})
 
 	// Concurrently make requests using the key.
 	const requestors = 5
-	wg.Add(requestors)
 	for i := 0; i < requestors; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			w := doSDKRequest(t, http.MethodGet, "/v1/jobs/", rawKey, "")
 			if w.Code >= 500 {
 				t.Errorf("server error during key rotation race: %d", w.Code)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -332,32 +311,29 @@ func TestRace_StatsAggregationDuringCompletions(t *testing.T) {
 		})
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Complete runs concurrently.
-	wg.Add(runCount)
 	for i := 0; i < runCount; i++ {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			_ = testStore.UpdateRunStatus(ctx, runs[idx].ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
 				"finished_at": time.Now(),
 			})
-		}(i)
+		})
 	}
 
 	// Read stats concurrently.
 	const statReaders = 5
-	wg.Add(statReaders)
 	for i := 0; i < statReaders; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := testStore.GetJobHealthStats(ctx, job.ID, time.Now().Add(-1*time.Hour))
 			if err != nil {
 				// Stats queries can fail if the table is being heavily modified,
 				// but they should not panic.
 				return
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -389,21 +365,17 @@ func TestRace_WebhookDeliveryRetryAndNew(t *testing.T) {
 		t.Fatalf("CreateWebhookDelivery error: %v", err)
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Retry the existing delivery.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = testStore.RetryWebhookDelivery(ctx, delivery.ID)
-	}()
+	})
 
 	// Create new deliveries concurrently.
 	const newDeliveries = 3
-	wg.Add(newDeliveries)
 	for i := 0; i < newDeliveries; i++ {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			d := &domain.WebhookDelivery{
 				ID:          uuid.Must(uuid.NewV7()).String(),
 				JobID:       job.ID,
@@ -414,7 +386,7 @@ func TestRace_WebhookDeliveryRetryAndNew(t *testing.T) {
 				MaxAttempts: 3,
 			}
 			_ = testStore.CreateWebhookDelivery(ctx, d)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -429,18 +401,17 @@ func TestRace_CircuitBreakerStateFlip(t *testing.T) {
 	endpointURL := "https://example.com/circuit-" + newID()
 
 	const goroutines = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
-	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			if idx%2 == 0 {
 				_ = testStore.RecordEndpointCircuitFailure(ctx, endpointURL, time.Now(), 3, 30*time.Second)
 			} else {
 				_ = testStore.RecordEndpointCircuitSuccess(ctx, endpointURL)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

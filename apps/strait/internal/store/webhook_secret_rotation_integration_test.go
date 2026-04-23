@@ -5,9 +5,10 @@ package store_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -118,15 +119,13 @@ func TestRotateWebhookSecret_ConcurrentRotations_BothSucceedFinalStateConsistent
 	//   1. Both calls returned nil error.
 	//   2. Current secret is one of the two new values.
 	//   3. Previous secret is non-empty (one of the rotations staged it).
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 2)
 	secrets := []string{"secret-race-a", "secret-race-b"}
 	for i := range 2 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			errs[idx] = q.RotateWebhookSecret(ctx, sub.ID, secrets[idx], time.Now().Add(time.Hour))
-		}(i)
+		wg.Go(func() {
+			errs[i] = q.RotateWebhookSecret(ctx, sub.ID, secrets[i], time.Now().Add(time.Hour))
+		})
 	}
 	wg.Wait()
 

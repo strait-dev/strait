@@ -136,6 +136,74 @@ func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testin
 	}
 }
 
+func TestPreviewDowngrade_IncludesRegions(t *testing.T) {
+	store := &mockDowngradeStore{
+		mockBillingStore: mockBillingStore{
+			subscriptions: map[string]*OrgSubscription{
+				"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
+			},
+			projects: map[string][]string{
+				"org-1": {"proj-1"},
+			},
+		},
+	}
+	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, imp := range impact.Impacts {
+		if imp.Resource == "regions" {
+			found = true
+			if imp.Current <= 0 {
+				t.Errorf("expected positive region count, got %d", imp.Current)
+			}
+			if imp.Limit <= 0 {
+				t.Errorf("expected positive region limit, got %d", imp.Limit)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected regions impact in downgrade preview")
+	}
+}
+
+func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
+	store := &mockDowngradeStore{
+		mockBillingStore: mockBillingStore{
+			subscriptions: map[string]*OrgSubscription{
+				"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
+			},
+			projects: map[string][]string{
+				"org-1": {"proj-1"},
+			},
+			httpJobCount: 3,
+		},
+	}
+	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, imp := range impact.Impacts {
+		if imp.Resource == "http_mode_jobs" {
+			found = true
+			if imp.Current != 3 {
+				t.Errorf("http_mode_jobs.Current = %d, want 3", imp.Current)
+			}
+			if imp.Limit != 0 {
+				t.Errorf("http_mode_jobs.Limit = %d, want 0", imp.Limit)
+			}
+			if imp.Action != ResourceActionRemove {
+				t.Errorf("http_mode_jobs.Action = %s, want remove", imp.Action)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected http_mode_jobs impact when downgrading from pro to free")
+	}
+}
+
 func TestAutoDisable_LogDrains_OverLimit_Disabled(t *testing.T) {
 	impacts := []ResourceImpact{
 		{Resource: "log_drains", Current: 5, Limit: 2, Action: ResourceActionReduce},
