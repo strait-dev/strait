@@ -104,7 +104,7 @@ export function StaticPricingTable() {
                         <Badge variant="outline">{plan.badge}</Badge>
                       )}
                   </div>
-                  <p className="mt-1.5 text-pretty text-muted-foreground leading-relaxed">
+                  <p className="mt-1.5 whitespace-pre-line text-muted-foreground leading-relaxed">
                     {plan.description}
                   </p>
                 </div>

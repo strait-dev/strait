@@ -52,7 +52,7 @@ export const PLANS: Record<PlanKey, Plan> = {
   free: {
     name: "Free",
     description:
-      "For side projects and experimentation. Get started with no commitment.",
+      "For side projects and experimentation.\nNo credit card required.",
     prices: { monthly: 0, yearly: 0 },
     trial: false,
     creditCardRequired: false,
@@ -98,7 +98,7 @@ export const PLANS: Record<PlanKey, Plan> = {
   starter: {
     name: "Starter",
     description:
-      "For small teams shipping to production. Everything you need to go live.",
+      "For small teams shipping to production.\nEverything you need to go live.",
     prices: { monthly: 1999, yearly: 19_999 },
     trial: false,
     creditCardRequired: true,
@@ -146,7 +146,7 @@ export const PLANS: Record<PlanKey, Plan> = {
   pro: {
     name: "Pro",
     description:
-      "For growing teams that need workflow orchestration and cost controls.",
+      "For growing teams and workflows.\nOrchestration and cost controls built in.",
     prices: { monthly: 4999, yearly: 49_999 },
     trial: false,
     creditCardRequired: true,
@@ -195,7 +195,7 @@ export const PLANS: Record<PlanKey, Plan> = {
   scale: {
     name: "Scale",
     description:
-      "For high-volume teams with audit trails, canary deploys, and advanced analytics.",
+      "For high-volume production workloads.\nAudit trails, canary deploys, analytics.",
     prices: { monthly: 9900, yearly: 99_000 },
     trial: false,
     creditCardRequired: true,
@@ -246,7 +246,7 @@ export const PLANS: Record<PlanKey, Plan> = {
   enterprise: {
     name: "Enterprise",
     description:
-      "For mission-critical workloads with dedicated infrastructure, SLAs, and compliance.",
+      "For mission-critical infrastructure.\nDedicated compute, SLAs, compliance.",
     prices: { monthly: -1, yearly: -1 },
     trial: false,
     creditCardRequired: false,
