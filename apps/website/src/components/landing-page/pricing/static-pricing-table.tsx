@@ -16,6 +16,13 @@ import { useMemo, useState } from "react";
 
 import { dashboardHref } from "@/lib/urls.ts";
 
+function planBorderClass(idx: number): string {
+  if (idx === 0) {
+    return "border-t sm:border-t lg:border-l-0";
+  }
+  return "border-t sm:border-t-0 sm:border-l lg:border-t-0 lg:border-l";
+}
+
 export function StaticPricingTable() {
   const [interval, setInterval] = useState<"monthly" | "yearly">("yearly");
 
@@ -59,8 +66,8 @@ export function StaticPricingTable() {
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
-        {PLAN_KEYS.map((key) => {
+      <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+        {PLAN_KEYS.map((key, idx) => {
           const plan = PLANS[key];
           const isEnterprise = key === "enterprise";
           const isFree = key === "free";
@@ -72,15 +79,16 @@ export function StaticPricingTable() {
           return (
             <div
               className={cn(
-                "relative flex h-full flex-col overflow-hidden rounded-xl border transition-shadow duration-150",
+                "relative flex h-full flex-col overflow-hidden border-border/60 transition-shadow duration-150",
                 plan.highlighted
-                  ? "border-primary/40"
-                  : "border-border/60 bg-card hover:border-border hover:shadow-md"
+                  ? "border-primary/40 bg-primary/[0.03]"
+                  : "hover:bg-muted/20",
+                planBorderClass(idx)
               )}
               key={key}
             >
               {plan.highlighted ? (
-                <div className="relative bg-primary px-5 py-6 sm:px-6">
+                <div className="relative bg-primary px-4 py-5">
                   <div className="showcase-dots pointer-events-none absolute inset-0" />
                   <div
                     className="pointer-events-none absolute inset-0 opacity-30"
@@ -93,34 +101,34 @@ export function StaticPricingTable() {
                     <span className="mb-3 inline-block rounded-md bg-primary-foreground/20 px-2.5 py-1 font-medium text-primary-foreground text-xs backdrop-blur-sm">
                       Most popular
                     </span>
-                    <h3 className="text-primary-foreground text-xl">
+                    <h3 className="text-lg text-primary-foreground">
                       {plan.name}
                     </h3>
-                    <p className="mt-2 max-w-sm text-pretty text-primary-foreground/70 text-sm leading-relaxed">
+                    <p className="mt-1.5 max-w-sm text-pretty text-primary-foreground/70 text-xs leading-relaxed">
                       {plan.description}
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="px-5 pt-6 sm:px-6">
+                <div className="px-4 pt-5">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-foreground text-xl">{plan.name}</h3>
+                    <h3 className="text-foreground text-lg">{plan.name}</h3>
                     {plan.badge && plan.badge !== "Most popular" && (
                       <Badge variant="outline">{plan.badge}</Badge>
                     )}
                   </div>
-                  <p className="mt-2 max-w-sm text-pretty text-muted-foreground text-sm leading-relaxed">
+                  <p className="mt-1.5 max-w-sm text-pretty text-muted-foreground text-xs leading-relaxed">
                     {plan.description}
                   </p>
                 </div>
               )}
 
-              <div className="flex flex-1 flex-col px-5 pb-6 sm:px-6">
-                <div className="mt-6 mb-6">
+              <div className="flex flex-1 flex-col px-4 pb-5">
+                <div className="mt-5 mb-5">
                   {interval === "yearly" && !(isEnterprise || isFree) ? (
                     <>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-4xl text-foreground tabular-nums sm:text-5xl">
+                        <span className="text-3xl text-foreground tabular-nums">
                           {formatPriceWithCents(plan.prices.yearly)}
                         </span>
                         <span className="text-muted-foreground text-sm">
@@ -134,7 +142,7 @@ export function StaticPricingTable() {
                   ) : (
                     <>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-4xl text-foreground tabular-nums sm:text-5xl">
+                        <span className="text-3xl text-foreground tabular-nums">
                           {priceDisplay}
                         </span>
                         {!(isEnterprise || isFree) && (
@@ -163,22 +171,22 @@ export function StaticPricingTable() {
                   </p>
                 )}
 
-                <div className="mb-6 border-border/40 border-t" />
+                <div className="mb-5 border-border/40 border-t" />
 
                 {plan.computeCredit !== "100 runs/mo (micro, 10s)" && (
-                  <p className="mb-4 font-medium text-foreground text-sm">
+                  <p className="mb-3 font-medium text-foreground text-xs">
                     {plan.computeCredit} compute credit
                   </p>
                 )}
 
-                <ul className="mb-8 flex-1 space-y-3">
+                <ul className="mb-6 flex-1 space-y-2">
                   {plan.features.map((feature) => (
                     <li
-                      className="flex items-start gap-3 text-sm leading-relaxed"
+                      className="flex items-start gap-2 text-xs leading-relaxed"
                       key={feature}
                     >
                       <HugeiconsIcon
-                        className="mt-0.5 size-4 shrink-0 text-foreground"
+                        className="mt-0.5 size-3.5 shrink-0 text-foreground"
                         icon={CheckmarkCircle02Icon}
                       />
                       <span className="text-pretty text-muted-foreground">
