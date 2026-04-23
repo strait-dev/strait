@@ -8,13 +8,13 @@
 
 **Production-grade job orchestration for engineering teams and AI agents — in a single binary.**
 
-Strait combines a queue, a scheduler, a state machine, and an executor into one Go service. PostgreSQL is the source of truth and the queue (`SELECT ... FOR UPDATE SKIP LOCKED`); Redis powers pub/sub and SSE; container workloads run on Docker or Kubernetes. No RabbitMQ, no SQS, no Kafka.
+Strait handles job queuing, scheduling, state tracking, and execution in one Go service backed by Postgres and Redis. No RabbitMQ, no SQS, no Kafka.
 
-- **13-state run FSM** — `queued`, `executing`, `completed`, `failed`, `timed_out`, `dead_letter`, and friends
-- **Workflow DAGs** — fan-in/fan-out, step conditions, template variables, sub-workflows, approval gates, compensating transactions (saga)
-- **Smart retries** — exponential / linear / fixed / custom delays with ±20% jitter, per-endpoint circuit breakers
-- **Durable workflows** — multi-day sleeps, checkpoints, expected completion tracking, stage notifications
-- **Observability first** — OpenTelemetry tracing, Prometheus metrics, structured JSON logging, real-time SSE streaming
+- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and dead-letter, with a real-time dashboard to match
+- **Workflow engine** — branching, parallel steps, sub-workflows, approval gates, and compensating transactions
+- **Smart retries** — configurable retry strategies with jitter and per-endpoint circuit breakers
+- **Durable workflows** — multi-day sleeps, checkpoints, expected completion tracking, and stage notifications
+- **Observability built in** — OpenTelemetry tracing, Prometheus metrics, structured logging, and real-time streaming
 - **Multi-language SDKs** — [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), [Rust](https://github.com/strait-dev/strait-rust), all with full feature parity
 - **Zero third-party runtime deps for self-host** — everything ships in Docker Compose
 
@@ -30,7 +30,7 @@ cd strait
 make selfhost
 ```
 
-That boots Postgres, Redis, Sequin (CDC), the Strait API, and the dashboard on your own machine. Open http://localhost:3000, sign up, and create your first job. **No Stripe. No billing. No telemetry. No third-party accounts.**
+That boots Postgres, Redis, Sequin, the Strait API, and the dashboard on your own machine. Open http://localhost:3000, sign up, and create your first job. **No Stripe. No billing. No telemetry. No third-party accounts.**
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
@@ -92,13 +92,13 @@ Important rules:
 
 | | Self-host (community) | Cloud ([strait.dev](https://strait.dev)) |
 |---|---|---|
-| Full job orchestration (FSM, retries, workflows, DLQ) | ✓ | ✓ |
-| Workflow DAGs, compensating transactions, approval gates | ✓ | ✓ |
-| Real-time CDC (Sequin) + SSE streaming | ✓ | ✓ |
+| Job orchestration with retries, workflows, and dead-letter queue | ✓ | ✓ |
+| Workflow engine with branching, rollback, and approval gates | ✓ | ✓ |
+| Real-time streaming and live updates | ✓ | ✓ |
 | All SDKs (TS, Python, Go, Ruby, Rust) | ✓ | ✓ |
 | Dashboard UI | ✓ | ✓ |
-| OpenTelemetry + Prometheus + structured logs | ✓ | ✓ |
-| API reference (OpenAPI 3.0 at `/reference`) | ✓ | ✓ |
+| Built-in observability (tracing, metrics, logs) | ✓ | ✓ |
+| Interactive API reference at `/reference` | ✓ | ✓ |
 | Billing, metering, usage limits, Stripe | — | ✓ |
 | Managed multi-region execution | — | ✓ |
 | Advanced analytics (ClickHouse) | — | ✓ |
@@ -115,10 +115,10 @@ Self-host is the community edition. Billing is compiled out of the dashboard ima
 | Product overview | [`apps/docs/introduction.mdx`](apps/docs/introduction.mdx) |
 | 10-minute quickstart | [`apps/docs/quickstart.mdx`](apps/docs/quickstart.mdx) |
 | Architecture deep dive | [`apps/docs/architecture.mdx`](apps/docs/architecture.mdx) |
-| Concepts (jobs, runs, workflows, cost budgets) | [`apps/docs/concepts/jobs.mdx`](apps/docs/concepts/jobs.mdx) |
+| Core concepts | [`apps/docs/concepts/jobs.mdx`](apps/docs/concepts/jobs.mdx) |
 | API reference | [`apps/docs/api-reference/overview.mdx`](apps/docs/api-reference/overview.mdx) |
-| SDK reference (5 languages) | [`apps/docs/sdks/overview.mdx`](apps/docs/sdks/overview.mdx) |
-| Operational guides (auth, RBAC, OIDC, security, performance) | [`apps/docs/guides/authentication.mdx`](apps/docs/guides/authentication.mdx) |
+| SDK reference | [`apps/docs/sdks/overview.mdx`](apps/docs/sdks/overview.mdx) |
+| Guides (auth, security, performance, and more) | [`apps/docs/guides/authentication.mdx`](apps/docs/guides/authentication.mdx) |
 | Contributor operating guide | [`AGENTS.md`](AGENTS.md) |
 | Self-host walkthrough | [`SELFHOST.md`](SELFHOST.md) |
 

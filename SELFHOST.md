@@ -201,35 +201,15 @@ Interactive API documentation is available via Scalar:
 
 The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
 
-## Audit tamper-evidence hardening (recommended for SOC 2)
+## Audit tamper-evidence hardening
 
-Strait's audit chain is HMAC-signed so tampering is always forensically
-detectable. For defense-in-depth, migration `000187_audit_events_dml_restrictions`
-also revokes `UPDATE` and `DELETE` on `audit_events` from the application role,
-limiting a compromised process to `INSERT` + `SELECT` + `UPDATE(signature)`.
-The migration only takes effect when the Strait process connects as a role
-named `strait_app`; it silently no-ops when the role is absent.
+Strait's audit log is HMAC-signed, so any tampering is forensically detectable out of the box. For additional defense-in-depth, you can restrict the application database role to insert-only access on the `audit_events` table. This prevents a compromised process from modifying or deleting audit history.
 
-On self-hosted installs the default `strait` superuser retains full DML. To
-enforce the restriction:
-
-```sql
-CREATE ROLE strait_app LOGIN PASSWORD 'choose-a-strong-password';
-GRANT CONNECT ON DATABASE strait TO strait_app;
-GRANT USAGE ON SCHEMA public TO strait_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO strait_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO strait_app;
-```
-
-Then point `DATABASE_URL` at `strait_app` and re-run migrations as the superuser
-so the REVOKE on `audit_events` applies. The `/health/ready` endpoint reports
-`audit_dml_guard: ok` once enforced and `degraded` otherwise, and the
-`strait_audit_dml_restriction_status` counter emits one sample per boot
-labeled `status=enforced|degraded`.
+See migration `000187_audit_events_dml_restrictions` for the exact setup, or check the [Mintlify docs](https://docs.strait.dev) for a step-by-step walkthrough. The `/health/ready` endpoint reports `audit_dml_guard: ok` once enforced.
 
 ## Monitoring
 
-Strait exposes a Prometheus-compatible `/metrics` endpoint with 50+ metrics (queue depth, dispatch latency, error rates, worker concurrency). Point your existing Prometheus/Datadog/New Relic at `http://localhost:8080/metrics`.
+Strait exposes Prometheus-compatible metrics at the `/metrics` endpoint. Point your existing Prometheus, Datadog, or New Relic scraper at `http://localhost:8080/metrics`.
 
 For advanced analytics dashboards, cost tracking, log search, and alerting -- use [Strait Cloud](https://strait.dev).
 
