@@ -38,7 +38,7 @@ export function StaticPricingTable() {
         <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card p-1">
           <button
             className={cn(
-              "min-h-11 rounded-full px-5 py-2.5 font-medium text-sm transition-colors",
+              "min-h-11 rounded-full px-5 py-2.5 font-medium transition-colors",
               interval === "monthly"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -50,7 +50,7 @@ export function StaticPricingTable() {
           </button>
           <button
             className={cn(
-              "min-h-11 rounded-full px-5 py-2.5 font-medium text-sm transition-colors",
+              "min-h-11 rounded-full px-5 py-2.5 font-medium transition-colors",
               interval === "yearly"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -60,7 +60,7 @@ export function StaticPricingTable() {
           >
             Yearly
           </button>
-          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground text-sm">
+          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground">
             Save ~{savingsPercent}%
           </span>
         </div>
@@ -104,7 +104,7 @@ export function StaticPricingTable() {
                         <Badge variant="outline">{plan.badge}</Badge>
                       )}
                   </div>
-                  <p className="mt-1.5 text-pretty text-muted-foreground text-sm leading-relaxed">
+                  <p className="mt-1.5 text-pretty text-muted-foreground leading-relaxed">
                     {plan.description}
                   </p>
                 </div>
@@ -116,10 +116,8 @@ export function StaticPricingTable() {
                         <span className="text-3xl text-foreground tabular-nums">
                           {formatPriceWithCents(plan.prices.yearly)}
                         </span>
-                        <span className="text-muted-foreground text-sm">
-                          /yr
-                        </span>
-                        <span className="text-muted-foreground/50 text-sm">
+                        <span className="text-muted-foreground">/yr</span>
+                        <span className="text-muted-foreground/50">
                           {priceDisplay}/mo
                         </span>
                       </div>
@@ -129,16 +127,14 @@ export function StaticPricingTable() {
                           {priceDisplay}
                         </span>
                         {!(isEnterprise || isFree) && (
-                          <span className="text-muted-foreground text-sm">
-                            /mo
-                          </span>
+                          <span className="text-muted-foreground">/mo</span>
                         )}
                       </div>
                     )}
                   </div>
 
                   {plan.trial && (
-                    <p className="mb-4 text-muted-foreground text-sm">
+                    <p className="mb-4 text-muted-foreground">
                       14-day free trial included
                     </p>
                   )}
@@ -146,7 +142,7 @@ export function StaticPricingTable() {
                   <div className="mb-5 border-border/40 border-t" />
 
                   {plan.computeCredit !== "100 runs/mo (micro, 10s)" && (
-                    <p className="mb-3 font-medium text-foreground text-sm">
+                    <p className="mb-3 font-medium text-foreground">
                       {plan.computeCredit} compute credit
                     </p>
                   )}
@@ -154,7 +150,7 @@ export function StaticPricingTable() {
                   <ul className="mb-6 flex-1 space-y-2">
                     {plan.features.map((feature) => (
                       <li
-                        className="flex items-start gap-2 text-sm leading-relaxed"
+                        className="flex items-start gap-2 leading-relaxed"
                         key={feature}
                       >
                         <HugeiconsIcon
@@ -183,7 +179,7 @@ export function StaticPricingTable() {
         </div>
       </div>
 
-      <p className="mt-8 text-center text-muted-foreground/60 text-sm">
+      <p className="mt-8 text-center text-muted-foreground/60">
         All plans include core orchestration capabilities. Cancel anytime.
       </p>
     </div>
