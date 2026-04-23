@@ -4,11 +4,11 @@ description: "Long-running workflows that span days or weeks with expected compl
 sidebarTitle: "Durable Workflows"
 ---
 
-Durable workflows handle execution that spans days or weeks -- waiting for external events, human approvals, or scheduled sleeps -- while surviving process restarts and infrastructure changes.
+Durable workflows handle processes that span days or weeks -- waiting for external events, human approvals, or scheduled pauses -- while surviving restarts and infrastructure changes. Use them when your workflow outlives a single request or process lifetime.
 
 ## Expected Completion Tracking
 
-Each workflow step can declare an `expected_duration_secs` estimate. When a workflow run starts, Strait calculates the expected completion time by finding the critical path (longest path) through the DAG and summing step durations.
+Each workflow step can declare an `expected_duration_secs` estimate. When a run starts, Strait calculates the expected completion time by finding the critical path -- the longest chain of dependent steps -- through the workflow graph and summing their durations.
 
 ```json
 {
@@ -54,17 +54,10 @@ The notification payload includes: workflow_id, workflow_run_id, step_ref, step_
 
 ## Durability Guarantees
 
-Sleep steps, wait-for-event steps, and approval steps all use database-scheduled triggers (via the `event_triggers` table), not in-memory timers. This means they survive process restarts:
+Sleep steps, wait-for-event steps, and approval steps all use database-scheduled triggers, not in-memory timers. This means they survive process restarts:
 
-- **Sleep steps**: Create an `EventTrigger` with `trigger_type = "sleep"` and `expires_at = now + duration`. The reaper completes the step when the trigger expires.
-- **Wait-for-event steps**: Create an `EventTrigger` with the rendered event key. External systems POST events to resolve the trigger.
-- **Approval steps**: Create both a `WorkflowStepApproval` record and an `EventTrigger` for unified tracking.
+- **Sleep steps**: Strait creates a trigger with an expiration time. When the trigger expires, the step completes automatically.
+- **Wait-for-event steps**: Strait creates a trigger keyed to a specific event. External systems POST events to resolve the trigger.
+- **Approval steps**: Strait creates both an approval record and a trigger for unified tracking.
 
-The stale run reaper distinguishes legitimately waiting workflows from stuck ones by checking whether active `EventTrigger` rows exist with future `expires_at` timestamps.
-
-## Implementation
-
-- Expected completion: `apps/strait/internal/workflow/expected_completion.go`
-- Stage notifications: `apps/strait/internal/workflow/stage_notifications.go`
-- Tests: 22 tests including critical path calculation, recalculation, fuzz, and adversarial
-- Migration: `000157_durable_workflows`
+The stale run reaper distinguishes legitimately waiting workflows from stuck ones by checking whether active triggers exist with future expiration timestamps.

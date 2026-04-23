@@ -1,6 +1,19 @@
 # Strait App
 
-Job orchestration management UI built with TanStack Start.
+Job orchestration management UI built with TanStack Start. Create and monitor jobs, track runs in real time, manage workflows and schedules, configure webhooks, and view logs.
+
+## Quick Start (local development)
+
+```bash
+# Install dependencies (from repo root)
+bun install
+
+# Start development server
+cd apps/app
+bun dev
+```
+
+The app runs at `http://localhost:5173`.
 
 ## Deploy to Cloudflare
 
@@ -36,29 +49,16 @@ Then redeploy once so the Worker picks up the new secrets — either push any co
 
 For the fully containerized alternative — running the dashboard itself in Docker alongside the API — see [SELFHOST.md](../../SELFHOST.md).
 
-## Quick Start (local development)
-
-```bash
-# Install dependencies (from repo root)
-bun install
-
-# Start development server
-cd apps/app
-bun dev
-```
-
-The app runs at `http://localhost:5173`.
-
 ## Tech Stack
 
 | Technology | Purpose |
 |---|---|
 | TanStack Start | React 19 + Vite SSR framework |
 | TanStack Router | File-based routing with loaders |
-| TanStack Query | Server state (5-minute staleTime) |
+| TanStack Query | Server state management |
 | Better Auth | Authentication (PostgreSQL + organization plugin) |
 | Stripe | Billing, subscriptions, and usage-based metering |
-| Effect | Typed error modeling in server functions |
+| Effect | Error handling |
 | Zustand | Client-side UI state |
 | Recharts | Dashboard and billing charts |
 | Biome | Linting and formatting |
@@ -164,47 +164,17 @@ The app never writes to the Go service DB directly. All mutations go through ser
 
 ### Authentication
 
-Better Auth with plugins: email/password, magic link, passkey (WebAuthn), Google OAuth, GitHub OAuth, Google One Tap, 2FA, and organizations. Stripe billing is handled via standalone server functions (Checkout Sessions, Customer Portal) and a Go backend webhook handler.
+Better Auth handles authentication with support for multiple providers, passkeys, and 2FA.
 
 The `authMiddleware` validates sessions and attaches `user`, `session`, and `activeOrganizationId` to server function context. IDOR protection is enforced via `requireOrgAccess` and `requireProjectAccess` middleware.
 
 ### Data Fetching
 
-Server functions wrapped in Effect for typed error handling, consumed via TanStack Query:
-
-```typescript
-// Server function with IDOR protection
-const getProjectBudgetServerFn = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context, data }) => {
-    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
-    return await runWithFallback(
-      apiEffect<ProjectBudgetData>("/v1/project-budget", {
-        params: { project_id: data.projectId },
-      }),
-      null
-    );
-  });
-
-// Query options consumed by components
-export const projectBudgetQueryOptions = (projectId: string) =>
-  queryOptions({
-    queryKey: queryKeys.billing.projectBudget(projectId).queryKey,
-    queryFn: () => getProjectBudgetServerFn({ data: { projectId } }),
-  });
-```
+Server functions use Effect for typed error handling, consumed via TanStack Query. See `src/hooks/` for examples.
 
 ### Billing
 
-Five plan tiers: `free < starter < pro < scale < enterprise`. Billing is managed through Stripe with webhook sync to the Go backend. Checkout uses Stripe-hosted pages (Checkout Sessions), subscription management uses the Stripe Customer Portal, and compute usage is tracked via Stripe Billing Meters. The billing dashboard includes usage charts, spending limits, anomaly detection, and project budgets.
-
-### Code Conventions
-
-- **Components**: `const` arrow functions with `export default` at end of file
-- **Routes**: `function` keyword for route components
-- **Hooks**: `export const` for all hook exports
-- **Search schemas**: exported from route files as `export const searchSchema`
-- **Status constants**: centralized in `lib/status.ts`
+Billing is handled through Stripe. The dashboard includes usage tracking, spending limits, and plan management.
 
 ### Workspace Dependencies
 

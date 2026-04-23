@@ -8,7 +8,7 @@ Managed execution lets you run user code inside ephemeral containers on [Fly Mac
 
 ## Overview
 
-By default, Strait executes jobs by sending an HTTP POST to a user-provided endpoint and interpreting the response as the run result. **Managed execution** replaces this with a container-based model: the orchestrator creates (or reuses) a Fly Machine, starts it with the run context injected as environment variables, and waits for the container process to exit.
+By default, Strait executes jobs by sending an HTTP POST to your endpoint. **Managed execution** replaces this with a container-based model: Strait provisions a Fly Machine, starts it with the run context as environment variables, and waits for the process to exit.
 
 ### When to Use Managed Execution
 
@@ -69,10 +69,10 @@ Machine presets define the CPU and memory allocation for managed runs. The prese
 
 ## How Managed Dispatch Works
 
-When the executor dequeues a run for a managed job, it follows a multi-step dispatch flow:
+When Strait dequeues a run for a managed job, it follows this flow:
 
 1. **Dequeue run.** The executor picks up a `queued` run from the queue.
-2. **Semaphore gate.** The run must acquire a slot from the `MAX_CONCURRENT_MACHINES` semaphore. If no slot is available, the run is snoozed back to `queued`.
+2. **Concurrency gate.** The run must acquire a slot from the `MAX_CONCURRENT_MACHINES` limit. If no slot is available, the run is re-queued.
 3. **Budget check.** The daily compute cost limit for the project is verified. If the budget is exceeded, the run is rejected.
 4. **Transition dequeued to executing.** The run status moves from `dequeued` to `executing`, recording `started_at`.
 5. **Build environment variables.** The executor assembles the full set of env vars (see [Environment Variables Injected](#environment-variables-injected)).
@@ -81,7 +81,7 @@ When the executor dequeues a run for a managed job, it follows a multi-step disp
    - **Paused machine:** If the run has a preserved `machine_id` from a previous pause, start that specific machine with fresh env vars.
    - **Cold create:** Provision a new Fly Machine with `auto_destroy=false`.
 7. **Wait for container exit.** The executor blocks until the machine process exits.
-8. **Record compute usage.** Wall-clock duration and preset cost rate are recorded in `run_compute_usage`.
+8. **Record compute usage.** Wall-clock duration and preset cost rate are recorded.
 9. **Handle result.** The executor checks for an SDK completion callback (race check). If no SDK result, the exit code is interpreted: `0` = completed, non-zero = failed.
 
 ## Machine Lifecycle
@@ -100,9 +100,9 @@ Managed machines follow a well-defined lifecycle through Fly's machine states.
 ### Key Behaviors
 
 - **`auto_destroy=false`** is set on all managed machines. This keeps machines in the `stopped` state after exit, enabling warm pool reuse.
-- **Start method:** The executor GETs the current machine config, PUTs updated environment variables, then POSTs a start request. This ensures each reuse gets fresh run context.
-- **Stop:** Sends a stop signal to the machine. If the machine returns a 404, it is treated as `ErrMachineGone` and the caller handles accordingly.
-- **Destroy:** Force-deletes the machine via the Fly API. Used during pool eviction, pruning, and shutdown.
+- **Start:** Strait updates environment variables on the machine, then starts it. Each reuse gets fresh run context.
+- **Stop:** Sends a stop signal. If the machine no longer exists (404), Strait treats it as gone and provisions a new one.
+- **Destroy:** Force-deletes the machine. Used during pool eviction, pruning, and shutdown.
 
 ## Warm Machine Pool
 
@@ -121,11 +121,11 @@ After a clean exit (exit code `0` and SDK completion received), the stopped mach
 
 ### Eviction
 
-When a pool key reaches its capacity, the **oldest** entry is evicted and destroyed via a callback. Eviction is bounded by a semaphore (max 10 concurrent destroy operations) with inline fallback if the semaphore is full.
+When a pool key reaches its capacity, the oldest entry is evicted and destroyed.
 
 ### Pruner
 
-A background goroutine runs every **5 minutes** and removes machines that have been idle for more than **10 minutes**. Pruned machines are destroyed via the Fly API.
+A background process runs every 5 minutes and removes machines that have been idle for more than 10 minutes.
 
 ### Shutdown
 
@@ -145,16 +145,16 @@ Managed runs support pause and resume, allowing long-running jobs to be suspende
 
 1. The API receives a resume request and transitions the run from `paused` to `queued`.
 2. The `machine_id` is **not** cleared, so the run retains its machine reference.
-3. When the executor re-dispatches the run, it detects the preserved `machine_id` and calls `Start(run.MachineID, freshEnv)` to reuse the stopped machine.
-4. If the machine is gone (due to `auto_destroy`, Fly timeout, or manual deletion), the executor falls back to a cold `Create`.
+3. When Strait re-dispatches the run, it detects the preserved `machine_id` and reuses the stopped machine.
+4. If the machine is gone (due to Fly cleanup or manual deletion), Strait falls back to provisioning a new one.
 
 ### Workflow Resume
 
-When paused runs are part of a workflow, `RequeuePausedJobRuns` also preserves the `machine_id`, ensuring workflows can resume containers across step boundaries.
+When paused runs are part of a workflow, Strait also preserves the `machine_id`, so workflows can resume containers across step boundaries.
 
 ## Environment Variables Injected
 
-The executor injects the following environment variables into every managed machine:
+Strait injects the following environment variables into every managed machine:
 
 | Variable | Description |
 | :--- | :--- |
@@ -183,7 +183,7 @@ Each preset has a per-second cost rate in micro-USD. The rate reflects the CPU a
 ### Billing Model
 
 - **Wall-clock billing:** Cost is calculated from `started_at` to `finished_at`, covering the full duration the machine was running.
-- **Storage:** Usage is recorded in the `run_compute_usage` table, linked to the run ID.
+- **Storage:** Usage is recorded per run for billing and quota enforcement.
 
 ### Daily Budget Enforcement
 
@@ -191,7 +191,7 @@ Projects can set a daily compute cost limit. The budget is checked at dispatch t
 
 ## Error Classification
 
-The executor classifies container exit codes into categories for appropriate handling:
+Strait classifies container exit codes into categories for appropriate handling:
 
 | Exit Code | Signal | Classification | Action |
 | :--- | :--- | :--- | :--- |
@@ -211,9 +211,9 @@ When a container exits with code `137` (OOM kill), the executor automatically up
 micro -> small-1x -> small-2x -> medium-1x -> medium-2x -> large-1x -> large-2x
 ```
 
-- The upgrade is recorded in `job_preset_recommendations` with a 24-hour decay window.
-- If the run is already on `large-2x` (max preset), it transitions to `dead_letter`.
-- Historical OOM data influences future runs: if a job has OOM'd within the last 24 hours, new runs start at the recommended preset instead of the configured default.
+- The upgrade is recorded and decays after 24 hours.
+- If the run is already on the largest preset (`large-2x`), it moves to a dead letter state (a holding area for runs that cannot be processed further).
+- Historical OOM data influences future runs: if a job has hit memory limits within the last 24 hours, new runs start at the recommended preset instead of the configured default.
 
 ## Crash Diagnostics
 
@@ -240,15 +240,15 @@ A soft-limit warning fires at **80%** of the daily budget, emitting a structured
 
 ## Resource Monitoring
 
-The SDK resource monitoring endpoint (`/sdk/v1/runs/{runID}/resources`) accepts in-container resource usage reports from the SDK.
+The SDKs monitor memory usage inside the container and report it back to Strait.
 
 ### How It Works
 
-1. The executor injects `STRAIT_MEMORY_LIMIT_MB` into the container environment, set to the preset's memory allocation.
-2. The Python and TypeScript SDKs start a background monitor at **5-second intervals** that reads container memory usage from `/sys/fs/cgroup`.
+1. Strait injects `STRAIT_MEMORY_LIMIT_MB` into the container, set to the preset's memory allocation.
+2. The SDK monitors memory usage at 5-second intervals.
 3. At **80%** memory utilization, the SDK emits a warning log.
 4. At **90%** memory utilization, the SDK emits an error log.
-5. Resource reports are posted to the orchestrator API for tracking and alerting.
+5. Resource reports are posted to Strait for tracking and alerting.
 
 ## Disk Sanitization
 
@@ -260,29 +260,21 @@ Machines reused from the warm pool or resumed from a paused state receive a clea
 
 ## Error Handling
 
-### Machine Gone (`ErrMachineGone`)
+### Machine Gone
 
-Returned when a machine has been deleted (404 from Fly). The caller falls back to provisioning a new machine via `Create`.
+When a machine has been deleted (404 from Fly), Strait falls back to provisioning a new machine.
 
 ### Retryable Errors
 
-HTTP status codes `429`, `500`, `503`, and connection refused errors are treated as transient infrastructure failures. The run is **snoozed** back to `queued` with a backoff delay. The machine is stopped before snoozing to prevent orphaned running containers.
+Transient infrastructure failures (rate limits, server errors, connection refused) cause the run to be re-queued with a backoff delay. The machine is stopped first to prevent orphaned containers.
 
 ### Fatal Errors
 
 HTTP `422` (invalid configuration) is treated as a non-recoverable error. The run transitions directly to `system_failed`.
 
-### HTTP Client
+### Cancellation
 
-The Fly API client uses **per-request context timeouts** rather than a global HTTP client timeout. This prevents one slow request from affecting the timeout budget of subsequent requests.
-
-### Snooze Path
-
-When a run is snoozed due to a transient error, the machine is stopped first. This ensures no container is left running while the run sits in the queue.
-
-### Cancel Race
-
-If a `Stop` call fails during cancellation (e.g., the machine is in a transitional state), `Destroy` is used as a fallback to ensure the machine is cleaned up.
+If a stop call fails during cancellation (e.g., the machine is in a transitional state), Strait force-deletes the machine to prevent orphaned containers.
 
 ## Configuration
 
@@ -295,7 +287,7 @@ The following environment variables configure the managed execution subsystem:
 | `FLY_APP_NAME` | Fly application name where machines are provisioned. | -- |
 | `FLY_REGION` | Default region for new machines. | `iad` |
 | `EXTERNAL_API_URL` | Public API URL passed to containers for SDK callbacks. | -- |
-| `MAX_CONCURRENT_MACHINES` | Maximum machines running simultaneously (semaphore size). | `10` |
+| `MAX_CONCURRENT_MACHINES` | Maximum machines running simultaneously. | `10` |
 | `WARM_POOL_ENABLED` | Enable the warm machine pool. | `true` |
 | `WARM_POOL_MAX_PER_JOB` | Maximum pooled machines per `image:region` key. | `3` |
 | `WARM_POOL_TTL` | TTL for idle warm machines before they are destroyed. | `5m` |

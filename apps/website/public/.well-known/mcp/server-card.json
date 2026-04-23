@@ -1,0 +1,22 @@
+{
+  "serverInfo": {
+    "name": "Strait MCP Server",
+    "version": "1.0.0",
+    "description": "Model Context Protocol server for Strait job orchestration. Manage jobs, runs, workflows, and schedules from AI assistants."
+  },
+  "url": "https://github.com/strait-dev/mcp",
+  "transport": {
+    "type": "stdio",
+    "description": "Install via npm: npx @strait/mcp"
+  },
+  "capabilities": {
+    "tools": true,
+    "resources": true,
+    "prompts": false
+  },
+  "documentation": "https://docs.strait.dev",
+  "links": {
+    "source": "https://github.com/strait-dev/mcp",
+    "api_reference": "https://docs.strait.dev/api-reference"
+  }
+}

@@ -1,6 +1,6 @@
 # Strait Website (`apps/website`)
 
-Marketing website for Strait built with Astro and deployed to Cloudflare Workers.
+The public marketing site for Strait, live at [strait.dev](https://strait.dev). Built with Astro and deployed to Cloudflare Workers.
 
 ## Stack
 
