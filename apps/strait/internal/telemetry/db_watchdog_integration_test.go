@@ -34,13 +34,33 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 	return testDB
 }
 
-// captureLogger returns a slog.Logger that writes JSON records into the
-// supplied bytes.Buffer, and the buffer. Tests can inspect the buffer to
-// count or grep log lines.
-func captureLogger() (*slog.Logger, *bytes.Buffer) {
-	var buf bytes.Buffer
-	h := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	return slog.New(h), &buf
+// safeBuffer is a goroutine-safe wrapper around bytes.Buffer so that the
+// watchdog goroutine (writing logs) and the test goroutine (reading logs)
+// don't race on the underlying byte slice.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (sb *safeBuffer) Write(p []byte) (int, error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+func (sb *safeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
+
+// captureLogger returns a slog.Logger that writes JSON records into a
+// thread-safe buffer, and the buffer. Tests can inspect the buffer to
+// count or grep log lines without racing against the watchdog goroutine.
+func captureLogger() (*slog.Logger, *safeBuffer) {
+	sb := &safeBuffer{}
+	h := slog.NewJSONHandler(sb, &slog.HandlerOptions{Level: slog.LevelDebug})
+	return slog.New(h), sb
 }
 
 func TestDBWatchdog_HappyPath_NoLongTxns(t *testing.T) {
