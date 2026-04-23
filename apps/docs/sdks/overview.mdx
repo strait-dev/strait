@@ -31,8 +31,8 @@ All five SDKs implement the same capabilities:
 | **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` | `Client.from_env` | `Client::from_env()` |
 | **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` | `define_job` / `define_workflow` | `define_job()` / `define_workflow()` |
 | **Composition helpers** | `withRetry()`, `waitForRun()`, `paginate()` | `with_retry()`, `wait_for_run()`, `paginate()` | `WithRetry()`, `WaitForRun()`, `Paginate()` | `with_retry`, `wait_for_run`, `paginate` | `with_retry()`, `wait_for_run()`, `paginate()` |
-| **FSM state machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` | `can_transition_run?` | `can_transition_run()` |
-| **DAG validation** | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm | Kahn's algorithm |
+| **State machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` | `can_transition_run?` | `can_transition_run()` |
+| **Dependency validation** | Cycle detection | Cycle detection | Cycle detection | Cycle detection | Cycle detection |
 | **Middleware hooks** | `onRequest` / `onResponse` / `onError` | `on_request` / `on_response` / `on_error` | `OnRequest` / `OnResponse` / `OnError` | `on_request` / `on_response` / `on_error` | `on_request` / `on_response` / `on_error` |
 | **Typed errors** | 10 error classes | 10 exception types | 10 error types | 10 error classes | 10 error variants |
 | **Custom HTTP client** | Custom `fetch` | `httpx.Client` | `HTTPDoer` interface | `#call` interface | `reqwest::Client` |

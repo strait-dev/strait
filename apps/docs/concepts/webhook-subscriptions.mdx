@@ -4,15 +4,13 @@ description: "Project-level webhook subscriptions for run lifecycle events."
 sidebarTitle: "Webhook Subscriptions"
 ---
 
-## Overview
-
-Webhook subscriptions allow projects to register URLs that receive notifications for run lifecycle events. Unlike per-job webhook_url configuration, subscriptions apply project-wide and support filtering by event type. This provides a centralized way to integrate Strait with external monitoring, logging, or automation systems.
+Webhook subscriptions let you register URLs that receive notifications when runs complete, fail, or time out. Unlike per-job `webhook_url` configuration, subscriptions apply project-wide and support filtering by event type.
 
 ## How It Works
 
-Subscriptions are registered per project via the API. When a matching event occurs (e.g., run completed, run failed), the system dispatches a signed HTTP POST to each active subscription URL. 
+You register subscriptions per project via the API. When a matching event occurs (e.g., a run completes or fails), Strait sends a signed HTTP POST to each active subscription URL.
 
-Deliveries use the durable delivery model, meaning they are persisted to the database before dispatch. This ensures that notifications are not lost if a worker process restarts. The system supports automatic retries with exponential backoff and dead letter storage for permanently failing deliveries.
+Deliveries are persisted to the database before dispatch, so notifications survive worker restarts. Strait retries with exponential backoff and stores permanently failing deliveries in a dead letter queue (a holding area for undeliverable messages you can investigate later).
 
 ## Event Types
 
@@ -22,18 +20,17 @@ Deliveries use the durable delivery model, meaning they are persisted to the dat
 | `run.failed` | Triggered when a job run fails with an error. |
 | `run.timed_out` | Triggered when a job run exceeds its timeout limit. |
 | `run.canceled` | Triggered when a job run is manually canceled. |
-| `workflow.completed` | Triggered when a workflow DAG finishes successfully. |
-| `workflow.failed` | Triggered when a workflow DAG fails. |
+| `workflow.completed` | A workflow finishes successfully. |
+| `workflow.failed` | A workflow fails. |
 
 ## Configuration
 
-Webhook subscriptions are always available for project-level webhook delivery.
 
-The circuit breaker protects subscription endpoints from cascading failures. If a target URL consistently returns errors, the circuit breaker will temporarily disable delivery to that endpoint to prevent system resource exhaustion.
+Strait uses a circuit breaker (a pattern that temporarily stops calling a failing endpoint to let it recover) to protect subscription endpoints. If a target URL consistently returns errors, Strait temporarily disables delivery to that endpoint.
 
 ## Security
 
-All deliveries are signed with HMAC-SHA256 using the subscription's secret. This ensures the authenticity and integrity of the notification, allowing your service to verify that the request originated from Strait.
+All deliveries are signed with HMAC-SHA256 using the subscription's secret, so your service can verify that the request came from Strait.
 
 The signature is included in the `X-Strait-Signature` header. Receivers should also validate the `X-Strait-Timestamp` to protect against replay attacks. See the webhooks concept doc for detailed signature verification steps and implementation examples.
 

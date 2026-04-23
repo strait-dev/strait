@@ -52,10 +52,4 @@ The response includes:
 
 ## Simulation History
 
-Past simulations are saved per-user in the `workflow_simulations` table for re-running and comparing against actual executions.
-
-## Implementation
-
-- Engine: `apps/strait/internal/workflow/simulator.go`
-- Tests: `apps/strait/internal/workflow/simulator_test.go` (26 tests including fuzz and adversarial)
-- Migration: `000159_workflow_simulations`
+Past simulations are saved per user so you can re-run them and compare against actual executions.

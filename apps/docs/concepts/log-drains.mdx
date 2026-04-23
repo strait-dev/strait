@@ -5,21 +5,21 @@ description: "Stream run logs to external HTTP destinations."
 
 Log drains forward run log events from your jobs to external HTTP endpoints in near real-time. This allows you to integrate Strait's execution logs with external observability platforms, SIEM tools, or custom log aggregation services.
 
-## LogDrain Model
+## Configuration
 
-The `LogDrain` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
+A log drain has the following settings:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier. |
+| `id` | `string` | Unique identifier (auto-generated). |
 | `project_id` | `string` | The project this log drain belongs to. |
 | `name` | `string` | Human-readable name of the log drain. |
 | `drain_type` | `string` | Format and protocol used for delivery (e.g., HTTP POST with JSON). |
-| `endpoint_url` | `string` | The HTTP URL where log events are delivered. |
+| `endpoint_url` | `string` | The URL where log events are sent. |
 | `auth_type` | `string` | Authentication method used when calling the endpoint. |
 | `auth_config` | `map[string]string` | Key-value pairs containing credentials for the chosen `auth_type`. |
 | `level_filter` | `[]string` | Optional list of log levels to forward. When empty, all levels are forwarded. |
-| `enabled` | `bool` | Whether the log drain is active and delivering events. |
+| `enabled` | `bool` | Whether the drain is actively delivering events. |
 | `created_at` | `time.Time` | Timestamp when the log drain was created. |
 | `updated_at` | `time.Time` | Timestamp of the last update. |
 

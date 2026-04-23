@@ -878,6 +878,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// RFC 8288 Link headers for agent discovery.
+	w.Header().Set("Link", `</reference/openapi.json>; rel="service-desc", </reference>; rel="service-doc", </.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`)
+
 	resp := map[string]any{
 		"status":    "ok",
 		"version":   s.version,
@@ -1122,4 +1125,34 @@ func (s *Server) handleStraitJSONSchema(w http.ResponseWriter, _ *http.Request) 
 	w.Header().Set("Content-Type", "application/schema+json")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(schemas.StraitJSON)
+}
+
+// handleOAuthProtectedResource serves RFC 9728 OAuth Protected Resource
+// Metadata so AI agents can discover how to authenticate with the API.
+func (s *Server) handleOAuthProtectedResource(w http.ResponseWriter, _ *http.Request) {
+	if !s.config.OIDCEnabled || s.config.OIDCIssuer == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	scopes := []string{
+		"openid", "profile", "email", "offline_access",
+		"jobs:read", "jobs:write", "jobs:trigger",
+		"runs:read", "runs:write",
+		"workflows:read", "workflows:write", "workflows:trigger",
+		"secrets:read", "secrets:write",
+		"stats:read",
+		"webhooks:read", "webhooks:write",
+		"projects:read", "projects:write", "projects:manage",
+	}
+
+	meta := map[string]any{
+		"resource":              s.config.ExternalAPIURL,
+		"authorization_servers": []string{s.config.OIDCIssuer},
+		"scopes_supported":      scopes,
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	respondJSON(w, http.StatusOK, meta)
 }

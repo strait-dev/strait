@@ -1,15 +1,15 @@
 ---
 title: "Event Triggers"
-description: "Pause execution until an external event arrives, with timeout support and zero held goroutines."
+description: "Pause execution until an external event arrives."
 icon: "bolt"
 ---
 
-Event triggers allow runs and workflow steps to pause execution and wait for an external event to arrive via API. They enable durable human-in-the-loop processes, inter-service coordination, and reactive workflows that can wait days, weeks, or months without holding goroutines or consuming resources.
+Event triggers let your workflows and runs pause and wait for something to happen outside Strait — a webhook from a third-party service, a human approval, or a signal from another system. The wait can last minutes, hours, or weeks without consuming compute resources. When the event arrives, execution picks up exactly where it left off.
 
 ## How It Works
 
 1. **Create a trigger**: A workflow step or SDK call creates an event trigger with a globally unique `event_key` and optional timeout.
-2. **Wait**: The step/run transitions to `waiting` status. No goroutine is held — the wait is a database row.
+2. **Wait**: The step or run transitions to `waiting` status. No compute resources are consumed — the wait is tracked in the database.
 3. **External event arrives**: An external system sends the event via `POST /v1/events/{eventKey}/send` with the matching `event_key`.
 4. **Resume**: The step/run resumes with the event payload as input data. Workflow progression continues automatically.
 
@@ -53,7 +53,7 @@ Callers are responsible for namespacing event keys to avoid collisions. Use a pa
 - Must be unique across all waiting triggers
 - Template rendering supported (e.g., `aml-check:{{payload.user_id}}`)
 
-Validation is enforced at all API entry points — `handleSendEvent`, `handleGetEventTrigger`, `handleCancelEventTrigger`, `handleEventTriggerStream`, `handleSendEventByPrefix`, and `handleSDKWaitForEvent` — as well as during template rendering in the workflow engine.
+Validation is enforced at all API entry points and during template rendering.
 
 ## Trigger Lifecycle
 
@@ -134,7 +134,7 @@ The `event_key` supports template variables rendered from the workflow trigger p
 
 ## Workflow Step: sleep
 
-Durable sleep steps pause a workflow for a specified duration without holding goroutines:
+Durable sleep steps pause a workflow for a specified duration without consuming resources:
 
 ```json
 {
@@ -145,11 +145,11 @@ Durable sleep steps pause a workflow for a specified duration without holding go
 }
 ```
 
-Sleep steps create an event trigger with `trigger_type: sleep` and an expiry time. When the reaper detects the expiry, it marks the trigger as `received` and completes the step — triggering workflow progression.
+The step completes automatically when the duration expires.
 
 ### Supported Durations
 
-Go duration strings: `30s`, `5m`, `1h`, `24h`, `168h` (7 days), etc.
+Use standard duration strings: `30s` (30 seconds), `5m` (5 minutes), `1h` (1 hour), `24h` (1 day), `168h` (7 days).
 
 ## Event Chaining
 
@@ -201,11 +201,7 @@ When the event arrives, the run is re-queued with the event payload as checkpoin
 
 ### Transaction Safety
 
-When sending an event that resolves a workflow step trigger, the API wraps both the trigger status update and the step completion in a single database transaction. If either operation fails, both roll back atomically — preventing inconsistency where a trigger is marked `received` but the step remains in `waiting` status.
-
-Fan-in progression (starting downstream steps) runs outside the transaction since it involves queues and multiple tables. The reconciliation reaper acts as a safety net for any edge cases.
-
-For job run sources, the existing `ReceiveEventAndRequeueRun` atomic path handles trigger update and run re-queue in a single operation.
+When an event resolves a workflow step trigger, Strait wraps both updates — the trigger status and the step completion — in a single database transaction. If either fails, both roll back, preventing inconsistency.
 
 ### By Exact Key
 
@@ -218,9 +214,9 @@ curl -X POST https://strait.dev/v1/events/{eventKey}/send \
   }'
 ```
 
-### By Prefix (Batch)
+### By Prefix (Resolve Multiple Triggers)
 
-Resolve all waiting triggers whose event key starts with a prefix:
+You can resolve all waiting triggers whose event key starts with a given prefix. This is useful when a batch operation completes and you want to unblock all related waiting steps at once:
 
 ```bash
 curl -X POST https://strait.dev/v1/events/prefix/batch-job:run-42:/send \
@@ -286,7 +282,7 @@ The stream receives:
 - Keepalive pings every 15 seconds
 - Automatic close on terminal state
 
-The SSE stream uses a direct Redis pubsub channel (`event_trigger:{id}`) for sub-millisecond delivery. CDC also publishes to a project-level channel as a reliable catch-all.
+The SSE stream delivers updates in sub-millisecond time.
 
 ### Browser Authentication
 
@@ -303,7 +299,7 @@ source.addEventListener("status", (event) => {
 });
 ```
 
-The `?token=` parameter is converted to an `Authorization: Bearer` header by the `sseTokenAuth` middleware before the standard auth middleware runs. Header-based auth continues to work unchanged — the query param is only used when no `Authorization` or `X-Internal-Secret` header is present.
+The `?token=` parameter is accepted as an alternative to the `Authorization` header, specifically for browser clients that cannot set custom headers.
 
 ## Monitoring
 
@@ -422,7 +418,7 @@ A background reconciliation reaper runs every 30 seconds to catch edge cases:
 
 ### Distributed Reaper
 
-In multi-instance deployments, the reaper uses PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure exactly one instance runs the reaper cycle at a time. Other instances skip the cycle gracefully and try again on the next interval.
+In multi-instance deployments, the reaper uses database-level locking to ensure exactly one instance runs the reaper cycle at a time. Other instances skip gracefully and try again on the next interval.
 
 This requires no external coordination service — the database itself provides leader election. If the active instance crashes, another instance acquires the lock on the next tick.
 

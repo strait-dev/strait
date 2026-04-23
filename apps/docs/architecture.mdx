@@ -1,18 +1,18 @@
 ---
 title: "Architecture"
-description: "Deep dive into Strait internals, design decisions, and component interactions."
+description: "Deep dive into how Strait works internally — its components, data flow, and key design decisions."
 icon: "sitemap"
 og:image: "/images/og.png"
 ---
 
-Strait is designed as a distributed job orchestration service that uses PostgreSQL as its primary state store and message queue.
+Strait runs as a distributed job orchestration service that uses PostgreSQL as both its state store and message queue.
 
 ## System Overview
 
 ```text
                     ┌──────────────────────────────────┐
                     │           API Server              │
-                    │  (Chi router + middleware)         │
+                    │  (HTTP router + middleware)         │
                     │                                    │
                     │  /v1/jobs/* ── Job CRUD + Health   │
                     │  /v1/workflows/* ── DAG CRUD + plan │
@@ -39,24 +39,24 @@ Strait is designed as a distributed job orchestration service that uses PostgreS
                     │  environments ── endpoint config   │
                     │  project_quotas ── budget limits   │
                     │                                    │
-                    │  Queue: SELECT FOR UPDATE          │
-                    │         SKIP LOCKED                │
+                    │  Queue: row-level locking           │
+                    │         (concurrent dequeue)        │
                     └──────────┬───────────────────────┘
                                │ Dequeue
                                v
                     ┌──────────────────────────────────┐
                     │         Worker Executor            │
                     │                                    │
-                    │  Poll ─> DequeueN(available)       │
+                    │  Poll ─> Claim N available runs     │
                     │  Workflow Engine:                  │
-                    │  - DAG Validation (Kahn's)         │
-                    │  - Atomic Fan-in (UPDATE...RET)    │
+                    │  - Dependency validation             │
+                    │  - Atomic fan-in                     │
                     │  - Condition Evaluation            │
                     │  - Template Rendering              │
                     │  - Sub-workflow Nesting            │
                     │                                    │
                     │  Job Execution:                    │
-                    │  - Resolve ─> Env override + SSRF  │
+                    │  - Resolve ─> Env + URL validation  │
                     │  - Execute ─> HTTP POST to endpt   │
                     │  - Retry ─> Smart strategy select  │
                     │  - Trace ─> Execution timing       │
@@ -103,27 +103,27 @@ The system is distributed as a single Go binary that can run in three modes:
 - **worker**: Runs executor, scheduler, and background maintenance tasks.
 - **all**: Runs both API and worker components in a single process.
 
-Graceful shutdown is implemented using `errgroup` and signal handling to ensure in-flight jobs are completed and resources are released cleanly.
+On shutdown, Strait waits for in-flight jobs to finish and releases all resources cleanly before the process exits.
 
 ## Component Architecture
 
-The core logic resides in `internal/` directory, organized into specialized packages.
+The core logic lives in the `internal/` directory, organized into specialized packages.
 
 <CardGroup cols={2}>
   <Card title="api" icon="server">
-    Implements Chi HTTP router, middleware chain, and authentication (Internal Secret + Run Token). Handles SSRF validation, health scoring, debug bundles, and DLQ management.
+    HTTP router, middleware chain, and authentication (Internal Secret + Run Token). Handles URL validation to block requests to private networks, health scoring, debug bundles, and dead letter queue (DLQ) management.
   </Card>
   <Card title="worker" icon="gears">
-    Handles pond/v2 executor pool with bounded queue backpressure, HTTP dispatch, smart retries, and state transitions. Exposes OTel metrics for pool observability.
+    Bounded worker pool with backpressure, HTTP dispatch, smart retries, and state transitions. Exposes metrics for pool observability.
   </Card>
   <Card title="workflow" icon="diagram-sankey">
-    Manages DAG execution, Kahn's algorithm validation, atomic fan-in logic, step conditions, and sub-workflow nesting.
+    Manages workflow graph execution, dependency validation (cycle detection), atomic fan-in logic, step conditions, and sub-workflow nesting.
   </Card>
   <Card title="queue" icon="list-check">
-    Implements Postgres-backed queue using `SKIP LOCKED` for atomic job claiming and batch dequeue operations.
+    Postgres-backed queue where each worker atomically claims jobs without blocking other workers. Supports batch dequeue.
   </Card>
   <Card title="store" icon="database">
-    Provides raw SQL access via `pgx/v5` with instrumented OTel spans, optimistic locking, and interface segregation.
+    Database access layer with instrumented tracing spans. Uses focused interfaces so each caller only depends on the methods it needs.
   </Card>
   <Card title="scheduler" icon="clock">
     Background components for Cron, delayed polling, stale run reaping, retention, and cost budget enforcement.
@@ -147,11 +147,11 @@ The core logic resides in `internal/` directory, organized into specialized pack
 | Component | Technology | Role |
 | :--- | :--- | :--- |
 | Runtime | Go 1.26 | Single binary, native concurrency, instant cold start |
-| Database | PostgreSQL 18 | State store + message queue via `SELECT FOR UPDATE SKIP LOCKED` |
+| Database | PostgreSQL 18 | State store + message queue with row-level locking for concurrent dequeue |
 | Cache/PubSub | Redis 8 | Pub/sub for SSE streaming, CDC event distribution |
 | SQL Driver | pgx/v5 | Raw SQL with connection pooling and prepared statements |
 | HTTP Router | Chi/v5 | Composable middleware, low-allocation request handling |
-| Concurrency | sourcegraph/conc | Panic-safe goroutine pools with context-aware cancellation |
+| Concurrency | sourcegraph/conc | Panic-safe concurrent task groups with context-aware cancellation |
 | Worker Pool | alitto/pond/v2 | Bounded queue backpressure with Prometheus metrics |
 | CDC | Sequin | Postgres WAL streaming through Redis channels |
 | Observability | OpenTelemetry | Vendor-neutral tracing (Jaeger/Tempo) and Prometheus metrics |
@@ -167,39 +167,39 @@ For detailed rationale behind each technology choice, see [Technology Choices](/
 
 Strait uses PostgreSQL as a message queue to minimize operational complexity and ensure transactional consistency.
 
-### SKIP LOCKED Dequeue
+### Concurrent Dequeue
 
-Multiple workers can poll the same job_runs table concurrently. `SELECT FOR UPDATE SKIP LOCKED` locks only the rows that will be processed by this worker and skips rows already locked by other workers. This provides:
+Multiple workers poll the same `job_runs` table concurrently. PostgreSQL's row-level locking lets each worker atomically claim available rows while skipping rows already claimed by other workers. This provides:
 
-- **Lock-free concurrency**: Workers don't block each other. Each worker claims rows it can process immediately.
-- **Exactly-once semantics**: A row locked by one worker cannot be claimed by another, preventing duplicate job execution.
-- **ACID guarantees**: The dequeue and status update happen in a single transaction. If the worker crashes after claiming but before processing, the transaction rolls back and the run returns to queued state.
+- **No blocking between workers**: Each worker claims only the rows it can process immediately, without waiting on other workers.
+- **No duplicate execution**: Once a worker claims a row, no other worker can claim the same one.
+- **Transactional safety**: The claim and status update happen in a single transaction. If a worker crashes after claiming but before processing, the transaction rolls back and the run returns to the queue.
 
-### Batch Dequeue (DequeueN)
+### Batch Dequeue
 
-Using a Common Table Expression (CTE), workers can claim up to N rows in a single database round-trip. The CTE selects rows with `SKIP LOCKED` and returns their IDs, then the outer UPDATE transitions them to `dequeued`. This amortizes network latency across multiple jobs.
+Workers claim up to N rows in a single database round-trip. The database selects available rows, locks them, and returns their IDs while an atomic update transitions them to `dequeued`. This amortizes network latency across multiple jobs.
 
 ### Priority and Ordering
 
 The queue respects two ordering dimensions:
 
-- **Priority**: Jobs with higher `priority` values are dequeued first (`ORDER BY priority DESC`).
-- **FIFO within priority**: Jobs with the same priority follow first-in-first-out ordering (`ORDER BY created_at ASC`).
+- **Priority**: Jobs with higher `priority` values dequeue first.
+- **FIFO within priority**: Jobs at the same priority level follow first-in-first-out ordering.
 
 ### Delayed and Retry Gating
 
-The dequeue query includes filters for `scheduled_at` and `next_retry_at` columns. Jobs are only dequeued when:
+Jobs are only dequeued when their timing conditions are met:
 
-- `scheduled_at IS NULL OR scheduled_at <= NOW()`: Delayed jobs wait until their scheduled time.
-- `next_retry_at IS NULL OR next_retry_at <= NOW()`: Retrying jobs wait until their backoff period expires.
+- **Delayed jobs** wait until their `scheduled_at` time arrives.
+- **Retrying jobs** wait until their backoff period (`next_retry_at`) expires.
 
 ### Visibility Timeout
 
 The transition from `queued` to `dequeued` acts as the visibility timeout mechanism. If a worker crashes after claiming but before processing, the stale reaper identifies runs stuck in `dequeued` state with no recent heartbeat and transitions them back to `queued` for reprocessing.
 
-## Finite State Machine (FSM)
+## Run State Machine
 
-The lifecycle of a job run is managed by an FSM with 13 possible states.
+Every job run moves through a state machine with 13 possible states. This governs the entire lifecycle from creation to completion (or failure).
 
 ```text
                     ┌─────────┐
@@ -243,7 +243,7 @@ The lifecycle of a job run is managed by an FSM with 13 possible states.
     Delayed jobs move to queued when scheduled time arrives. Can be canceled or expired before execution.
   </Step>
   <Step title="queued → dequeued, canceled, expired">
-    Dequeued by worker via SKIP LOCKED, or manually canceled, or expired if TTL elapses.
+    A worker claims the run, or you cancel it manually, or it expires if its TTL elapses.
   </Step>
   <Step title="dequeued → executing, queued, canceled, system_failed">
     Starts execution, returns to queue if worker fails, or system failure during dispatch.
@@ -259,13 +259,13 @@ The lifecycle of a job run is managed by an FSM with 13 possible states.
   </Step>
 </Steps>
 
-### Optimistic Locking
+### Safe Concurrent Transitions
 
-State transitions use optimistic locking with `WHERE status = $from` clause in the UPDATE statement. Multiple workers can attempt the same transition simultaneously, but only one will match the row and succeed. The others receive a 0-row update result and must retry the entire transition. This prevents race conditions without distributed locks or version numbers.
+When multiple workers try to transition the same run, only one succeeds. Each transition checks the run's current status before updating it — if the status has already changed, the update affects zero rows and the worker retries. This prevents race conditions without distributed locks or version numbers.
 
 ## Authentication
 
-The system implements two distinct authentication schemes:
+Strait uses two authentication schemes:
 
 <Tabs>
   <Tab title="Internal Secret">
@@ -280,28 +280,28 @@ The system implements two distinct authentication schemes:
 
 <Steps>
   <Step title="Trigger">
-    API receives POST to `/v1/jobs/{id}/trigger`. Cost budget check is performed. Create job_run with status=queued or delayed. Generate JWT run token.
+    You send a POST to `/v1/jobs/{id}/trigger`. Strait checks your cost budget, creates a job run (status `queued` or `delayed`), and generates a run token.
   </Step>
   <Step title="Dequeue">
-    Worker calls `DequeueN`, claiming runs via `SKIP LOCKED` and updating status to `dequeued`. Optimistic lock ensures only one worker claims each run.
+    A worker claims available runs from the queue and transitions them to `dequeued`. Row-level locking ensures only one worker claims each run.
   </Step>
   <Step title="Execute">
-    Execution submitted to pond/v2 worker pool using `context.WithoutCancel`. This ensures in-flight jobs complete even if Strait process shuts down. Background goroutine sends heartbeats to `job_runs.heartbeat_at`.
+    The run is submitted to the worker pool. In-flight jobs continue to completion even if Strait is shutting down. A background process sends heartbeats so the system can detect stalled runs.
   </Step>
   <Step title="Resolve Environment">
-    If job has `environment_id`, executor resolves environment variables. Check for `ENDPOINT_URL` override and validate with SSRF protection (blocks private/loopback IPs).
+    If your job has an `environment_id`, the executor resolves environment variables. It checks for `ENDPOINT_URL` overrides and validates URLs to block requests to private or loopback networks.
   </Step>
   <Step title="Dispatch">
     Executor sends HTTP POST to resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
   </Step>
   <Step title="Execution Tracing">
-    Capture timing breakdown: queue_wait_ms, dequeue_ms, connect_ms, ttfb_ms, transfer_ms, total_ms. Stored as JSONB in `execution_trace` column.
+    Strait captures a timing breakdown for each run: queue wait, dequeue, connection, time-to-first-byte, transfer, and total duration. Stored on the run for debugging and performance analysis.
   </Step>
   <Step title="Result Handling">
     2xx response → status=completed, store result. Non-2xx → schedule retry using job's retry_strategy or mark failed. Timeout → retry or timed_out. Adaptive timeout adjustment applied.
   </Step>
-  <Step title="DLQ">
-    If attempt >= max_attempts, transition to `dead_letter` instead of `failed`. Dead-lettered runs excluded from normal listings.
+  <Step title="Dead Letter">
+    If the run has exhausted all retry attempts, it transitions to `dead_letter` instead of `failed`. Dead-lettered runs are excluded from normal listings but you can replay them via the DLQ endpoint.
   </Step>
   <Step title="Webhook">
     Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/concepts/webhooks) for the full delivery lifecycle.
@@ -313,21 +313,21 @@ The system implements two distinct authentication schemes:
 
 ## Workflow Engine
 
-The workflow engine manages execution of Directed Acyclic Graphs (DAGs) where each node represents a job execution, human approval, or nested sub-workflow.
+The workflow engine executes dependency graphs (DAGs) where each node represents a job execution, human approval, or nested sub-workflow.
 
-### DAG Validation
+### Dependency Validation
 
-Before execution, the workflow definition is validated using Kahn's algorithm for cycle detection. The algorithm:
+Before execution, Strait checks that your workflow has no circular dependencies. The validation:
 
 1. Identifies all steps with no dependencies (roots).
 2. Removes roots from the graph and identifies newly exposed roots.
 3. Repeats until all steps are processed.
 
-If a cycle is detected, the workflow is rejected before any runs are created. This prevents infinite execution loops that could exhaust resources.
+If a cycle exists, Strait rejects the workflow before creating any runs. This prevents infinite execution loops that would exhaust resources.
 
 ### Atomic Fan-In
 
-When multiple parent steps complete concurrently, their child step must start only when all dependencies are satisfied. The engine uses a `deps_completed` counter on each `workflow_step_run`. As each parent completes, an `UPDATE ... RETURNING` query atomically increments the counter and identifies runs where `deps_completed == deps_required`. This ensures exactly one parent triggers the child, even with concurrent completions.
+When multiple parent steps complete concurrently, their child step must start only after all dependencies are satisfied. The engine tracks a completion counter on each step run. As each parent completes, the counter increments atomically — and only the final parent to complete triggers the child. This guarantees exactly-once child activation, even under concurrent completions.
 
 Step-level concurrency groups (`concurrency_key`) are enforced during scheduling. Steps that share the same key are serialized even when dependency fan-in says they are ready.
 
@@ -359,7 +359,7 @@ Steps can define an `output_transform` using JSONPath expressions. Before persis
     Human-in-the-loop gate. Creates `workflow_step_approvals` record with `pending` status. Also creates a parallel event trigger for API-based resolution. Workflow pauses until approval via API or CLI command. Timeout specified in `approval_timeout_secs`.
   </Tab>
   <Tab title="wait_for_event">
-    Durable external event wait. Creates an `event_triggers` record with `waiting` status and a globally unique `event_key`. No goroutine is held — the wait is a database row. External systems send events via `POST /v1/events/{eventKey}/send`. Supports template-rendered event keys and configurable timeouts.
+    Durable external event wait. Creates an `event_triggers` record with `waiting` status and a globally unique `event_key`. No thread or process is held — the wait is a database row. External systems send events via `POST /v1/events/{eventKey}/send`. Supports template-rendered event keys and configurable timeouts.
   </Tab>
   <Tab title="sleep">
     Durable sleep. Creates a sleep-type event trigger with an expiry time. The reaper completes the trigger when the duration expires, marking the step as completed and triggering downstream steps. Supports Go duration strings (e.g., `30s`, `5m`, `24h`).
@@ -369,32 +369,32 @@ Steps can define an `output_transform` using JSONPath expressions. Before persis
   </Tab>
 </Tabs>
 
-### Workflow FSM
+### Workflow State Machine
 
-The workflow engine manages two FSMs—one for workflow runs, one for step runs.
+The workflow engine manages two state machines — one for workflow runs, one for step runs.
 
 **Workflow Run States**: pending → running → paused → (completed | failed | timed_out | canceled)
 
 **Step Run States**: pending → (waiting | skipped | canceled) → running → (completed | failed)
 
-Callback handler `OnJobRunTerminal` drives workflow progression when any job run completes. This single entry point handles all terminal states (completed, failed, timed_out, crashed, canceled, system_failed, dead_letter) and determines next workflow actions—start ready children, apply failure policies, propagate sub-workflow outputs. Event-driven callbacks `OnEventReceived`, `OnStepCompleted`, and `OnStepFailed` handle event trigger resolution, sleep completion, and timeout/cancellation failures respectively. Event chaining is handled by `tryEmitEvent`, which auto-resolves waiting triggers when steps with `event_emit_key` complete.
+When any job run reaches a terminal state, the engine determines the next workflow actions: starting ready child steps, applying failure policies, and propagating sub-workflow outputs. Separate callbacks handle event trigger resolution, sleep completion, and timeout/cancellation failures. When a step with an `event_emit_key` completes, the engine automatically resolves any triggers waiting for that event.
 
 ### Policy Enforcement and Governance
 
-Workflow governance is managed with per-project policies stored in `workflow_policies` and exposed via `GET|PUT /v1/workflow-policies/{projectID}`.
+You can set per-project governance policies via `GET|PUT /v1/workflow-policies/{projectID}`.
 
 Policy checks run at workflow lifecycle boundaries:
 - **Create** (`POST /v1/workflows`)
 - **Update** (`PATCH /v1/workflows/{workflowID}`)
 - **Trigger** (`POST /v1/workflows/{workflowID}/trigger`)
 
-Current policy controls:
-- `max_fan_out`: maximum number of direct dependents per step
-- `max_depth`: maximum DAG depth (computed from dependency chains)
-- `forbidden_step_types`: denylisted step types for the project
-- `require_approval_for_deploy`: requires at least one approval step for deploy/release-like DAGs
+Available policy controls:
+- `max_fan_out`: maximum number of direct dependents any single step can have
+- `max_depth`: maximum depth of the dependency chain
+- `forbidden_step_types`: step types you want to block for this project
+- `require_approval_for_deploy`: requires at least one approval step for deploy/release workflows
 
-Violations fail fast at the API boundary, preventing invalid DAGs from entering runtime scheduling.
+Violations are rejected at the API boundary, preventing invalid workflows from reaching runtime.
 
 ### Scheduling Decisions and Explainability
 
@@ -661,7 +661,7 @@ Partial and composite indexes ensure query performance at scale:
 
 ### UUIDv7 Primary Keys
 
-UUIDv7 combines a timestamp (first 48 bits) with random bits. This provides:
+UUIDv7 is a time-ordered unique identifier that combines a timestamp with random bits. This provides:
 
 - **Natural sort order**: Rows are approximately ordered by creation time without a separate index column
 - **No sequence contention**: Auto-increment integers create hotspots during concurrent inserts
@@ -671,15 +671,15 @@ The time-ordered property enables efficient time-range queries—selecting runs 
 
 ### Raw SQL Over ORM
 
-Hand-written SQL via `pgx/v5` provides complete control over query execution plans. For operations like `SELECT FOR UPDATE SKIP LOCKED` and CTE-based batch dequeue, the exact query structure matters. ORMs may generate suboptimal queries or fail to support these PostgreSQL-specific features efficiently.
+Strait uses hand-written SQL for database access rather than an ORM (object-relational mapper). For operations like row-level locking during dequeue and batch claiming, the exact query structure matters. ORMs may generate suboptimal queries or fail to support these PostgreSQL-specific features.
 
-The trade-off is verbosity—SQL queries require manual maintenance—but the benefits include predictable performance, transparent optimization, and the ability to use database-specific features without fighting the abstraction layer.
+The trade-off is verbosity — SQL queries require manual maintenance — but you get predictable performance, transparent optimization, and full access to database-specific features without fighting an abstraction layer.
 
 ### Embedded Migrations
 
-Using `go:embed`, migration files are compiled into the binary. This eliminates the need to bundle migration files separately or mount them in containers. The binary is truly self-contained—no external file dependencies at startup.
+Migration files are compiled into the binary, so you don't need to bundle them separately or mount them in containers. The binary is self-contained — no external file dependencies at startup.
 
-Migrations run automatically on startup, checking `schema_migrations` table for the current version and applying pending migrations in a transaction. This ensures database schema always matches application code.
+Migrations run automatically on startup, checking the current schema version and applying pending migrations in a transaction. This ensures the database schema always matches the application code.
 
 ### Single Binary, Three Modes
 
@@ -691,9 +691,9 @@ Strait compiles to a single executable that can run in three modes:
 
 This flexibility enables horizontal scaling without multiple deployment artifacts. Deploy the same binary in production with different mode flags.
 
-### context.WithoutCancel for In-flight Jobs
+### In-flight Job Protection
 
-When a job run is dispatched, it uses a child context created with `context.WithoutCancel(parent)`. This means if the parent context is canceled (Strait shutdown), the goroutine continues execution until the HTTP request completes. Combined with `errgroup`, this ensures graceful shutdown—in-flight jobs finish before the process exits.
+When Strait dispatches a job, the run continues to completion even if Strait receives a shutdown signal. The process waits for all in-flight jobs to finish before exiting, ensuring graceful shutdown without partial execution or data loss.
 
 ### Engine Capabilities
 
@@ -701,45 +701,39 @@ Engine capabilities described in this document are built in and available by def
 
 ### Micro-USD Cost Tracking
 
-AI costs are tracked in micro-USD (1/1,000,000 USD) stored as `BIGINT`. This avoids floating-point precision issues that accumulate with repeated additions. Integer arithmetic provides exact financial calculations down to $0.000001 resolution.
+AI costs are tracked in micro-USD (1/1,000,000 of a dollar) stored as integers. This avoids floating-point precision issues that accumulate with repeated additions, providing exact financial calculations down to $0.000001 resolution.
 
-### Dead Letter as FSM State
+### Dead Letter as a Run State
 
-The DLQ is modeled as a first-class FSM state (`dead_letter`) rather than a separate table. This design choice:
+The dead letter queue (DLQ) — a holding area for jobs that failed all retries — is modeled as a first-class state (`dead_letter`) rather than a separate table. This means:
 
-- Allows standard run queries to include or exclude dead-lettered runs via status filter
-- Enables DLQ replay using the same state transition mechanism as retries
-- Maintains FSM invariants—all state transitions go through the same validation logic
+- You can include or exclude dead-lettered runs in standard queries via a status filter
+- Replaying a dead-lettered run uses the same transition mechanism as retries
+- All state transitions go through the same validation logic
 
 ### Transactional Event Sends
 
-When an event resolves a workflow step trigger, the trigger status update and step completion are wrapped in a single database transaction via `runInTx`. If either operation fails, both roll back atomically. This prevents the inconsistency where a trigger is marked `received` but the step remains `waiting`. The same pattern wraps workflow create/update/clone, SDK wait-for-event, and workflow run retry operations.
+When an event resolves a workflow step trigger, the trigger update and step completion happen in a single database transaction. If either operation fails, both roll back. This prevents inconsistencies where a trigger is marked `received` but the step remains `waiting`. The same transactional pattern wraps workflow create/update/clone, SDK wait-for-event, and workflow run retry operations.
 
 Fan-in progression (starting downstream steps) runs outside the transaction because it involves queue operations and multiple tables. The reconciliation reaper acts as a safety net for edge cases where progression fails.
 
-### Distributed Reaper with Advisory Locks
+### Single-Leader Reaper
 
-In multi-instance deployments, the reaper uses `pg_try_advisory_lock` to ensure single-leader execution. Each reaper cycle:
+In multi-instance deployments, only one instance runs the background reaper at a time. Each reaper cycle:
 
-1. Attempts to acquire session-level advisory lock `0x5374726169745265` ("StraitRe")
-2. If acquired: runs all reaper passes, then releases the lock
-3. If not acquired: skips the cycle entirely
+1. The instance attempts to acquire a database-level lock.
+2. If acquired: runs all reaper passes, then releases the lock.
+3. If not acquired: skips the cycle entirely.
 
-This provides leader election without external coordination (no ZooKeeper, no etcd). If the active instance crashes, the lock is released when its PostgreSQL session ends, and another instance acquires it on the next tick.
+This provides leader election without external coordination services. If the active instance crashes, the database releases the lock when the connection ends, and another instance acquires it on the next tick.
 
-### Interface Segregation
+### Focused Store Interfaces
 
-Store packages define small, focused interfaces (`JobStore`, `RunStore`, `WorkflowStore`, etc.) that only include methods needed by callers. This improves:
+Each part of the system depends only on the database methods it actually needs (e.g., `JobStore`, `RunStore`, `WorkflowStore`). This keeps components decoupled — changes to unrelated database methods don't affect callers — and makes testing simpler since you only need to mock the methods each component uses.
 
-- **Testability**: Mocks only implement required methods, not entire store
-- **Decoupling**: Changes to unrelated store methods don't require recompiling callers
-- **Encapsulation**: Internal store implementation details hidden from consumers
+### URL Validation (Defense in Depth)
 
-The `WithTx` helper accepts any `DBTX` interface (connection pool or transaction), enabling callers to write transaction-aware code without hard-coded transaction handling.
-
-### SSRF Validation in Both Layers
-
-Endpoint URL validation happens in both the API server (job creation/update) and the worker (environment override resolution). This defense-in-depth prevents bypassing SSRF checks via environment variable injection. Blocked address ranges include:
+Strait validates endpoint URLs in two places: when you create or update a job (API layer) and when the worker resolves environment overrides (execution layer). This defense-in-depth approach prevents bypassing URL checks via environment variable injection. Blocked address ranges include:
 
 - Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 - Loopback addresses (127.0.0.0/8, ::1/128)
@@ -751,11 +745,11 @@ Endpoint URL validation happens in both the API server (job creation/update) and
 
 ### Workflow Context Caching
 
-During step callback processing, the workflow engine loads the workflow run, step definitions, and step-by-ref index. These are immutable for the lifetime of a single callback. The `wfCtx` struct caches this data after the first load, eliminating 10-15 redundant database queries per step completion in multi-step workflows.
+During step callback processing, the workflow engine loads the workflow run, step definitions, and step-by-ref index. These don't change during a single callback, so the engine caches them after the first load. This eliminates 10-15 redundant database queries per step completion in multi-step workflows.
 
-### Transaction Safety via runInTx
+### Transaction Safety
 
-Multi-step write operations (workflow creation, event trigger registration, retry runs) use a `runInTx` abstraction that wraps store calls in a database transaction. In production, this delegates to `store.WithTx`; in tests, it passes through to the mock store directly. This provides atomicity without requiring mock implementations of `pgx.Tx`.
+Multi-step write operations (workflow creation, event trigger registration, retry runs) are wrapped in a database transaction. If any step fails, the entire operation rolls back. This provides atomicity for complex operations that touch multiple tables.
 
 Key operations wrapped in transactions:
 - Workflow create/update/clone (version snapshot + steps)
@@ -765,17 +759,17 @@ Key operations wrapped in transactions:
 
 ### Bounded Reaper Queries
 
-All reaper and poller queries include a `LIMIT` clause (default 1000) to prevent unbounded result sets during incident recovery or backlog processing. The retention worker uses CTE-based batch deletes with `FOR UPDATE SKIP LOCKED` (batch size 5000) instead of unbounded `DELETE` statements.
+All reaper and poller queries cap their result sets (default 1,000 rows) to prevent unbounded work during incident recovery or backlog processing. The retention worker deletes in batches of 5,000 instead of unbounded deletes.
 
 ### Reaper N+1 Elimination
 
-The workflow timeout reaper previously issued 2+2N database calls per timed-out workflow run (fetching step runs individually, then canceling each). This was replaced with 4 bulk calls per run using existing `CancelNonTerminalStepRuns` and `CancelJobRunsByWorkflowRun` methods.
+The workflow timeout reaper previously issued 2+2N database calls per timed-out workflow run (fetching and canceling step runs one by one). This was replaced with 4 bulk calls per run, drastically reducing database load during timeout storms.
 
 ### Bulk Operation Batching
 
-Bulk cancel (`POST /v1/runs/bulk-cancel`) was rewritten from 4N queries to 3 queries: batch fetch via `GetRunsByIDs`, batch cancel via `BulkCancelRuns` (single UPDATE with status filter), and batch child cancel via `CancelChildRunsByParentIDs`.
+Bulk cancel (`POST /v1/runs/bulk-cancel`) uses 3 queries regardless of batch size: one to fetch, one to cancel matching runs, and one to cancel child runs. Previously this scaled linearly with batch size.
 
-Bulk trigger (`POST /v1/jobs/{jobID}/trigger/bulk`) pre-computes project quota counts once before the loop instead of per-item, eliminating 2 redundant queries per item.
+Bulk trigger (`POST /v1/jobs/{jobID}/trigger/bulk`) checks your project quota once before the loop instead of per-item, eliminating 2 redundant queries per item.
 
 ## Graceful Shutdown
 
@@ -783,10 +777,10 @@ The shutdown sequence protects in-flight work:
 
 <Steps>
   <Step title="Signal Capture">
-    `signal.NotifyContext` captures SIGINT and SIGTERM. Context cancellation propagates through `errgroup`.
+    Strait captures SIGINT and SIGTERM. Cancellation propagates to all subsystems.
   </Step>
   <Step title="Worker Pool Shutdown">
-    Worker polling loop exits on context cancellation. `pool.Shutdown()` blocks until all in-flight goroutines complete.
+    The worker polling loop exits. The pool blocks until all in-flight jobs complete.
   </Step>
   <Step title="Scheduler Shutdown">
     Cron ticker stops, delayed poller exits, reaper stops. No new jobs scheduled.
@@ -795,11 +789,11 @@ The shutdown sequence protects in-flight work:
     Server shuts down with 10-second grace period to drain in-flight HTTP requests.
   </Step>
   <Step title="Resource Cleanup">
-    Database connections closed with context cancellation. Redis connections closed. OTel exporters flush metrics.
+    Database and Redis connections close. Metric exporters flush remaining data.
   </Step>
 </Steps>
 
-The use of `context.WithoutCancel` for job dispatch ensures that jobs already executing when shutdown begins are allowed to complete and record their results. This prevents partial execution and data loss during deployments.
+Jobs already executing when shutdown begins are allowed to complete and record their results. This prevents partial execution and data loss during deployments.
 
 ## Observability
 
@@ -807,7 +801,7 @@ The use of `context.WithoutCancel` for job dispatch ensures that jobs already ex
 
 OpenTelemetry spans cover critical operations:
 
-- **HTTP requests**: `otelchi` middleware traces request duration, path, and status code
+- **HTTP requests**: Middleware traces request duration, path, and status code
 - **Database queries**: Each store method is instrumented with span attributes (query type, table)
 - **Queue operations**: Dequeue, enqueue, and retry operations traced
 - **Workflow execution**: Step completion, fan-in triggers, sub-workflow propagation traced
@@ -821,8 +815,8 @@ Metrics exposed at `GET /metrics`:
 - `strait_run_transitions_total`: Counter for each FSM state transition (labeled by from_status, to_status)
 - `strait_dispatch_duration_seconds`: Histogram of HTTP dispatch latency (labeled by job_id, outcome)
 - `strait_dequeue_duration_seconds`: Histogram of queue polling latency
-- `strait_worker_pool_active`: Gauge of currently active worker goroutines
-- `strait_worker_pool_queued`: Gauge of tasks waiting in pool buffer
+- `strait_worker_pool_active`: Gauge of currently active workers
+- `strait_worker_pool_queued`: Gauge of tasks waiting in the pool buffer
 
 ### Structured Logging
 
@@ -838,13 +832,13 @@ Logs are human-readable in development and machine-parseable in production for l
 
 ## Concurrency Model
 
-Multiple worker processes can run concurrently, each polling the same PostgreSQL table. Coordination is handled entirely by `SELECT FOR UPDATE SKIP LOCKED`:
+Multiple worker processes can run concurrently, each polling the same PostgreSQL table. The database handles all coordination through row-level locking:
 
 1. **No distributed coordination needed**: Workers don't know about each other. Database locks provide coordination.
-2. **Scalability**: Add worker processes to increase dequeue throughput. No leader election or worker registry.
-3. **Safety**: Optimistic locking prevents race conditions during state transitions. Workers retry on conflict.
+2. **Scalability**: Add worker processes to increase throughput. No leader election or worker registry required.
+3. **Safety**: Concurrent state transitions are safe — only one worker can update a given run. Others retry on conflict.
 
-The worker pool uses `alitto/pond/v2` which provides:
+The worker pool provides:
 
 - **Bounded queue**: Buffer channel limits task submissions, preventing unbounded memory growth
 - **Backpressure**: When queue is full, task submission blocks, signaling workers are at capacity
@@ -853,14 +847,14 @@ The worker pool uses `alitto/pond/v2` which provides:
 
 ## Scheduler Background Tasks
 
-The scheduler package runs several background goroutines:
+The scheduler runs several background processes:
 
 <Tabs>
   <Tab title="Cron Scheduler">
-    Uses `robfig/cron/v3` to maintain job schedules. Every second, checks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Supports cron expressions, timezones, and execution windows.
+    Every second, checks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Supports cron expressions, timezones, and execution windows.
   </Tab>
   <Tab title="Delayed Poller">
-    Polls every 5 seconds for job_runs with `status = 'delayed'` where `scheduled_at <= NOW()`. Transitions them to `queued` for dequeue. Enables delayed job execution without cron.
+    Polls every 5 seconds for delayed runs whose `scheduled_at` time has arrived and transitions them to `queued`. This enables delayed job execution without cron.
   </Tab>
   <Tab title="Stale Reaper">
     Polls on the configured reaper interval and performs multiple stale-recovery passes:
@@ -870,19 +864,19 @@ The scheduler package runs several background goroutines:
     - **Timed out workflow runs**: marks workflow run `timed_out`, cancels non-terminal steps/job runs, and cancels pending event triggers
   </Tab>
   <Tab title="Event Trigger Reaper">
-    Polls every 30 seconds for expired event triggers (`status = 'waiting'` and `expires_at <= NOW()`). Transitions them to `timed_out` and drives step/run failure via `OnStepFailed`. Also handles:
-    - **Sleep triggers**: Marks expired sleep triggers as `received` and completes the step via `OnStepCompleted`
+    Polls every 30 seconds for expired event triggers (still `waiting` past their `expires_at`). Transitions them to `timed_out` and triggers step failure. Also handles:
+    - **Sleep triggers**: Completes sleep steps when their duration expires
     - **Inconsistent triggers**: Finds `received` triggers with still-`waiting` steps/runs (30s grace period) and re-resolves them
     - **Expired approvals**: Fails approval steps past their timeout
 
-    In multi-instance deployments, the reaper uses PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure exactly one instance runs the reaper cycle at a time. Other instances skip the cycle and try again on the next interval — no external coordination service required.
+    In multi-instance deployments, only one instance runs the reaper at a time using a database-level lock. Other instances skip the cycle and try again on the next interval.
   </Tab>
   <Tab title="Retention Worker">
     Every hour, deletes terminal runs based on retention policy:
     - completed/failed/canceled/expired: 30 days
     - timed_out/crashed/system_failed: 90 days
     - event triggers: configurable via `EVENT_TRIGGER_RETENTION`
-    Uses batch DELETE for efficient cleanup.
+    Deletes in batches for efficient cleanup.
   </Tab>
 </Tabs>
 
@@ -893,22 +887,22 @@ Strait exposes health and readiness endpoints for infrastructure orchestration:
 - **`GET /health`** (liveness): Returns 200 if the process is alive. Used by Kubernetes liveness probes.
 - **`GET /health/ready`** (readiness): Returns 200 when all dependencies are ready (database, Redis, worker pool). Returns 503 with a JSON body detailing which component is not ready. Used by Kubernetes readiness probes to prevent routing traffic to uninitialized instances.
 
-The health check system uses a component registry (`apps/strait/internal/health/registry.go`) where each subsystem registers its health check function. This enables extensible readiness verification without modifying the health endpoint handler.
+Each subsystem registers its own health check function, so you can extend readiness verification without modifying the health endpoint itself.
 
 ## Resilience Patterns
 
-Strait implements several resilience patterns to protect against cascading failures:
+Strait uses several patterns to protect against cascading failures:
 
-- **Circuit Breaker**: Per-endpoint circuit breaker tracks consecutive failures. When a threshold is reached, the circuit opens and subsequent dispatches are short-circuited to prevent overwhelming a failing endpoint. State is persisted in the `endpoint_circuit_state` PostgreSQL table.
-- **Concurrency Limiting**: Per-job `max_concurrency` cap is enforced at dequeue time via a COUNT subquery in the SKIP LOCKED query.
-- **Rate Limiting**: Per-job `rate_limit_max` and `rate_limit_window_secs` control dispatch throughput.
-- **Retry Strategies**: Configurable per-job with exponential, linear, fixed, or custom per-attempt delays. All strategies apply +/-20% jitter to prevent thundering herd.
+- **Circuit Breaker**: Tracks consecutive failures per endpoint. When failures exceed a threshold, the circuit "opens" and Strait stops dispatching to that endpoint until it recovers. This prevents overwhelming a failing service.
+- **Concurrency Limiting**: You can set a `max_concurrency` cap per job. Strait enforces this at dequeue time, so no more than N runs of the same job execute simultaneously.
+- **Rate Limiting**: Per-job `rate_limit_max` and `rate_limit_window_secs` control how fast Strait dispatches to your endpoint.
+- **Retry Strategies**: Configurable per-job with exponential, linear, fixed, or custom per-attempt delays. All strategies add random jitter (+/-20%) to prevent a thundering herd (all retries hitting your endpoint at the same time).
 
 For detailed resilience patterns, see [Resilience](/concepts/resilience).
 
 ## Managed Container Execution
 
-In addition to HTTP dispatch, Strait supports **managed execution** where jobs run inside ephemeral Fly Machines. This is designed for long-running tasks, custom runtimes, GPU workloads, and isolated execution environments.
+Beyond HTTP dispatch, Strait supports **managed execution** where your jobs run inside ephemeral Fly Machines. Use this for long-running tasks, custom runtimes, GPU workloads, and isolated execution environments.
 
 ### Dispatch Priority
 
@@ -938,10 +932,10 @@ The `MachinePool` is an in-memory cache keyed by `"{imageURI}:{region}"`. After 
 Pool operations:
 - **Acquire**: Pops the oldest machine for a given key (FIFO).
 - **Release**: Pushes a machine. Evicts oldest if at capacity (configurable `maxPer`, default 3).
-- **Prune**: Background goroutine removes machines idle for more than 10 minutes every 5 minutes.
+- **Prune**: Background process removes machines idle for more than 10 minutes, checking every 5 minutes.
 - **Drain**: On shutdown, all pooled machines are destroyed.
 
-Eviction callbacks are bounded by a semaphore (max 10 concurrent goroutines) with inline fallback to prevent unbounded goroutine growth.
+Eviction callbacks run with bounded concurrency (max 10 simultaneous) to prevent unbounded resource growth.
 
 ### Pause and Resume
 
@@ -1012,17 +1006,17 @@ For the full ClickHouse reference, see [ClickHouse Analytics](/concepts/clickhou
 - [Event Triggers](/concepts/event-triggers) -- Durable external event waits
 - [CDC](/concepts/cdc) -- Real-time change data capture
 - [Resilience](/concepts/resilience) -- Circuit breaker, rate limiting, and graceful degradation
-- [Security](/guides/security) -- SSRF protection, HMAC signing, and access control
+- [Security](/guides/security) -- URL validation, HMAC signing, and access control
 
 ## Performance Characteristics
 
 ### Queue Throughput
 
-Strait's queue is backed by PostgreSQL `SELECT FOR UPDATE SKIP LOCKED`, which provides lock-free concurrent dequeue. Under typical workloads, a single instance can sustain 1000+ dequeue operations per second with 32 concurrent workers.
+Strait's queue uses PostgreSQL row-level locking for concurrent dequeue without workers blocking each other. Under typical workloads, a single instance can sustain 1,000+ dequeue operations per second with 32 concurrent workers.
 
 ### Analytics Query Cost
 
-The analytics endpoint scans the `job_runs` table for a configurable time window (1-720 hours). Query cost scales linearly with the number of runs in the window. For datasets exceeding 1M runs in the analysis period, consider reducing `period_hours` or implementing materialized view pre-aggregation.
+The analytics endpoint scans the `job_runs` table for a configurable time window (1–720 hours). Query cost scales linearly with the number of runs in the window. For datasets exceeding 1M runs, consider reducing `period_hours` or using pre-aggregated views.
 
 ### Bulk Operation Limits
 

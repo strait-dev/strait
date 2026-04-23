@@ -3,18 +3,16 @@ title: "Versioning"
 description: "How Strait tracks job and workflow versions for safe updates and exact run provenance."
 ---
 
-Every job and workflow in Strait is versioned. When you update a job's configuration, the previous version is snapshotted so that in-flight runs continue to execute with the config they were enqueued under.
+Every job and workflow in Strait is versioned. When you update a job's configuration, Strait snapshots the previous version so that in-flight runs (runs that are currently queued or executing) continue with the config they were enqueued under.
 
 ## Dual Versioning
 
-Each job and workflow has two version identifiers:
+Strait tracks two version identifiers for each job and workflow. The integer gives you a readable sequence; the string ID is safe to expose in URLs without leaking ordering information.
 
 | Field | Type | Purpose |
 |-------|------|---------|
 | `version` | Integer | Auto-incrementing counter (1, 2, 3, ...). Used for ordering and internal references. |
-| `version_id` | String | Globally unique nanoid (`ver_k8f2m9x1p3`). Used as the public-facing identifier. |
-
-The integer `version` is predictable and easy to reason about. The `version_id` is a 16-character string (4-char prefix + 12-char nanoid using `0-9a-z` alphabet) that's safe to expose in URLs and APIs without leaking ordering information.
+| `version_id` | String | Globally unique nanoid (`ver_k8f2m9x1p3`). Used as the public-facing identifier in URLs and APIs. |
 
 ### Version Lifecycle
 
@@ -43,15 +41,15 @@ When the executor picks up the run, it reads the job config **at that version** 
 job, err := store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
 ```
 
-This prevents a common race condition: if you update a job's endpoint URL while runs are queued, those runs still execute against the old endpoint.
+This prevents a common race condition: if you update a job's endpoint URL while runs are queued, those queued runs still execute against the original endpoint.
 
 ### Fallback Behavior
 
-If no snapshot exists for the requested version (e.g., version 1 before snapshotting was implemented), the executor falls back to reading the live `jobs` table. This ensures backwards compatibility.
+If no snapshot exists for the requested version (e.g., version 1 before snapshotting was added), the executor reads from the live `jobs` table instead.
 
 ## Version Policy
 
-Each job and workflow has a `version_policy` that controls how queued runs interact with version updates:
+Each job and workflow has a `version_policy` that controls how queued runs interact with version updates. **Start with `pin` (the default)** unless you have a specific reason to upgrade in-flight runs:
 
 | Policy | Behavior | Use Case |
 |--------|----------|----------|
@@ -61,7 +59,7 @@ Each job and workflow has a `version_policy` that controls how queued runs inter
 
 ### `pin` (Default)
 
-The safest option. Runs always execute with the exact configuration they were enqueued under. A job update never affects already-queued runs.
+The safest option. Runs always execute with the exact configuration they were enqueued under. Updating a job never affects already-queued runs. Use this unless you have a reason not to.
 
 ```
 Enqueue run (job at v2) → Update job to v3 → Dequeue → Run executes with v2 config
@@ -77,7 +75,7 @@ Enqueue run (job at v2) → Update job to v3 → Dequeue → Run executes with v
 
 ### `minor`
 
-A middle ground. Queued runs upgrade only if the new version has `backwards_compatible = true`. This lets you control which updates are safe for in-flight runs.
+A middle ground. Queued runs upgrade only if the new version has `backwards_compatible = true`. This gives you explicit control over which updates are safe for in-flight runs.
 
 ```
 Enqueue run (job at v2) → Update job to v3 (backwards_compatible=true) → Dequeue → Run upgrades to v3
@@ -103,12 +101,12 @@ curl -X PATCH https://strait.dev/v1/jobs/job_123 \
 ```
 
 <Note>
-  Version policy is enforced at dequeue time by the worker dispatch path. `pin` is still the safest default and is applied automatically when no policy is provided.
+  Strait enforces version policy at dequeue time. `pin` is the default and the safest choice -- it applies automatically when you don't specify a policy.
 </Note>
 
 ## Version Snapshots
 
-The `job_versions` table stores a full snapshot of the job configuration at each version:
+Strait stores a full snapshot of the job configuration at each version in the `job_versions` table:
 
 - `endpoint_url`, `fallback_endpoint_url`
 - `max_attempts`, `timeout_secs`
@@ -120,7 +118,7 @@ The `job_versions` table stores a full snapshot of the job configuration at each
 - `enabled`
 - `version_id`, `backwards_compatible`
 
-Snapshots are created automatically on `UpdateJob`. The first version (at creation time) is captured when the first update occurs.
+Strait creates snapshots automatically when you call `UpdateJob`. The first version (at creation time) is captured when you make the first update.
 
 ## Browsing Versions
 
@@ -160,7 +158,7 @@ Response:
 
 ## Workflow Versioning
 
-Workflows use the same dual version model (`version` + `version_id`) and snapshot workflow definitions, including step graphs. Every time you update a workflow via `PATCH /v1/workflows/{workflowID}`, the `version` increments and the previous step graph is preserved.
+Workflows use the same dual version model (`version` + `version_id`) and snapshot workflow definitions, including step graphs. Every time you update a workflow via `PATCH /v1/workflows/{workflowID}`, the `version` increments and Strait preserves the previous step graph.
 
 ### Inspecting versions
 
@@ -171,7 +169,7 @@ Workflows use the same dual version model (`version` + `version_id`) and snapsho
 
 ### Breaking change detection
 
-When you update a workflow, the response includes information about in-flight runs on the previous version:
+When you update a workflow, the response tells you how many runs are still executing on the previous version:
 
 ```json
 {
@@ -182,7 +180,7 @@ When you update a workflow, the response includes information about in-flight ru
 }
 ```
 
-The `active_runs_on_previous_version` field appears whenever there are non-terminal runs still executing on the version that was just replaced. This gives you immediate visibility into whether your update might affect running workflows.
+The `active_runs_on_previous_version` field appears whenever there are still-running runs on the version you just replaced. This gives you immediate visibility into whether your update might affect running workflows.
 
 To explicitly acknowledge a breaking update, set `breaking_change` to `true` in the request body:
 

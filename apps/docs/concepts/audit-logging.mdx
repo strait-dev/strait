@@ -3,13 +3,11 @@ title: "Audit Logging"
 description: "Tracking mutations and administrative actions across the system."
 ---
 
-## Overview
-
-Audit logging records every mutation (create, update, delete) and administrative action performed in Strait. This feature provides a comprehensive trail of activity for security, compliance, and troubleshooting. Audit logging is enabled by default.
+Audit logging records every mutation (create, update, delete) and administrative action in Strait. Use it for security investigations, compliance requirements, and troubleshooting -- every change is traceable to a specific actor. Audit logging is enabled by default.
 
 ## What Gets Logged
 
-Every API mutation records the actor identity, action type, resource type and ID, timestamp, and relevant details. This ensures that any change to the system state can be traced back to its source.
+Every API mutation records who performed it, what changed, and when. This covers:
 
 Common examples of logged events include:
 - Job created or updated
@@ -22,7 +20,7 @@ Common examples of logged events include:
 
 ## Actor Identity
 
-Strait captures `created_by` and `updated_by` fields on core resources to maintain a clear chain of custody. The actor identity is derived from the authentication context:
+Strait captures `created_by` and `updated_by` fields on core resources to maintain a clear chain of custody:
 
 - **Users**: Identity from JWT or OIDC claims when actions are performed via the dashboard or CLI.
 - **Service Accounts**: Identity from the API key used for the request.
@@ -30,7 +28,7 @@ Strait captures `created_by` and `updated_by` fields on core resources to mainta
 
 ## Event Format
 
-Audit events are structured to provide consistent information across different types of actions.
+Each audit event contains a consistent set of fields:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -74,11 +72,11 @@ These fields are populated by middleware and included in the HMAC signature comp
 
 Audit events are written asynchronously by default to avoid adding latency to API responses.
 
-- **Async emit**: A buffered channel feeds a dedicated drainer goroutine. The buffer size is configurable via `AUDIT_ASYNC_BUFFER_SIZE` (default 8192).
+- **Async emit**: A buffered channel feeds a dedicated writer. The buffer size is configurable via `AUDIT_ASYNC_BUFFER_SIZE` (default 8192).
 - **Backpressure**: When the buffer exceeds 75% capacity, new events fall back to a synchronous write to prevent data loss. Both the fallback trigger and its outcome (success/failure) are metered.
 - **Retry**: Failed writes are retried up to 3 times with exponential backoff (50ms, 200ms, 1s). Each retry attempt is metered by attempt number and outcome.
-- **Dead letter queue**: Events that exhaust all retries are spilled to `audit_events_deadletter` with the last error and retry count preserved.
-- **Reclamation**: A background scheduler job periodically attempts to replay deadlettered events back into the primary chain.
+- **Dead letter queue**: Events that exhaust all retries are saved to a dead letter table with the last error and retry count preserved. A dead letter queue (DLQ) stores messages that could not be delivered after all retries, so you can investigate and replay them later.
+- **Reclamation**: A background job periodically replays dead-lettered events back into the primary chain.
 - **Graceful shutdown**: On SIGTERM, the drainer fully drains the channel, the SIEM forwarder flushes its buffer, and in-flight retries complete within a 5-second budget.
 
 ## SIEM Forwarding
@@ -91,7 +89,7 @@ Audit events can be forwarded to an external SIEM or log aggregator in real time
 | `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per batch. |
 | `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max time between flushes. |
 
-Events are batched as NDJSON. The forwarder uses a circuit breaker: after consecutive failures, it opens for a cooldown period before retrying. Events that cannot be forwarded are held in a ring buffer sub-DLQ; when the ring is full, the oldest undelivered events are dropped and counted.
+Events are batched as newline-delimited JSON. The forwarder uses a circuit breaker (a pattern that temporarily stops sending to a failing endpoint to let it recover). After consecutive failures, it opens for a cooldown period before retrying. Events that cannot be forwarded are held in a ring buffer; when full, the oldest undelivered events are dropped and counted.
 
 ## Retention
 
@@ -125,7 +123,7 @@ The chain verifier branches on schema_version when recomputing signatures, so mi
 
 ## Row-Level Security
 
-The `audit_events` table has Postgres row-level security (RLS) enabled and forced. Queries within a transaction that sets `app.current_project_id` can only see events belonging to that project. This provides defense-in-depth against cross-tenant data leakage, independent of application-layer access checks.
+The audit events table uses Postgres row-level security. Queries can only see events belonging to the current project. This provides defense-in-depth against cross-tenant data leakage, independent of application-layer access checks.
 
 ## Export
 

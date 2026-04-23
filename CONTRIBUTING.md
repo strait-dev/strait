@@ -1,5 +1,7 @@
 # Contributing to Strait
 
+Thanks for considering a contribution to Strait. Whether you're fixing a bug, improving documentation, or building a new feature, your help makes the project better for everyone. This guide will get you set up and oriented quickly.
+
 ## Prerequisites
 
 - [Go](https://go.dev/dl/) 1.26+
@@ -9,6 +11,10 @@
 - [lefthook](https://github.com/evilmartians/lefthook) (git hooks)
 
 ## Setup
+
+If you just want to try Strait before diving into the code, [SELFHOST.md](SELFHOST.md) is the fastest way to get the full stack running.
+
+To set up a development environment:
 
 ```bash
 # Clone the repo.
@@ -108,9 +114,11 @@ Do not add AI attribution or "Co-Authored-By" lines. Do not skip git hooks (`--n
 4. Open a PR with a clear title and description
 5. CI runs Test, Lint, and Security checks automatically
 
+If your change is large or touches multiple subsystems, consider opening an issue first to discuss the approach.
+
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview.
+See the [architecture docs](apps/docs/architecture.mdx) and [AGENTS.md](AGENTS.md) for a system overview.
 
 Key directories:
 - `apps/strait/` -- Go API server, worker, scheduler
