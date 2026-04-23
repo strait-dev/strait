@@ -259,7 +259,7 @@ type StepDepResult struct {
 	StepRef       string
 	DepsCompleted int
 	DepsRequired  int
-	JobID         string
+	JobID         *string
 	Condition     json.RawMessage
 	Payload       json.RawMessage
 	WorkflowRunID string

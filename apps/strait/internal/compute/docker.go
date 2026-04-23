@@ -12,6 +12,10 @@ import (
 	"github.com/google/uuid"
 )
 
+func dockerContainerName() string {
+	return fmt.Sprintf("strait-%s", strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", ""))
+}
+
 // validateImageURI rejects image URIs with shell metacharacters, path traversal,
 // URL schemes, and other injection vectors.
 func validateImageURI(uri string) error {
@@ -196,7 +200,7 @@ func (d *DockerRuntime) Create(ctx context.Context, req RunRequest) (string, err
 		}
 	}
 
-	containerName := fmt.Sprintf("strait-%s", uuid.Must(uuid.NewV7()).String()[:8])
+	containerName := dockerContainerName()
 
 	args := []string{"run", "-d", "--name", containerName}
 
@@ -284,7 +288,7 @@ func (d *DockerRuntime) Run(ctx context.Context, req RunRequest) (*RunResult, er
 		}
 	}
 
-	containerName := fmt.Sprintf("strait-%s", uuid.Must(uuid.NewV7()).String()[:8])
+	containerName := dockerContainerName()
 
 	args := []string{"run", "--name", containerName, "--rm"}
 
