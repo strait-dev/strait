@@ -3,11 +3,12 @@ package worker
 import (
 	"math"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // --------------------------------------------------------------------------.
@@ -159,21 +160,19 @@ func TestCircuitBreaker_ConcurrentTransitions(t *testing.T) {
 		OpenDuration:     time.Millisecond,
 	})
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range 100 {
 				_ = cb.Allow()
-				if (n+j)%3 == 0 {
+				if (i+j)%3 == 0 {
 					cb.RecordFailure()
 				} else {
 					cb.RecordSuccess()
 				}
 				_ = cb.State()
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -457,7 +456,7 @@ func TestBulkhead_ConcurrentAcquireRelease(t *testing.T) {
 	const limit = 5
 	jobID := "concurrent-test-job"
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 100 {
 		wg.Go(func() {
 			for range 50 {

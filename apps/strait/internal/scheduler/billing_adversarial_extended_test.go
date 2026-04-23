@@ -13,6 +13,8 @@ import (
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Section separator.
@@ -120,7 +122,7 @@ func TestAdv_DowngradeApplier_ConcurrentApply(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute).WithAdvisoryLocker(locker)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			applier.apply(context.Background())
@@ -223,7 +225,7 @@ func TestAdv_Reaper_ConcurrentReaping(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 5 {
 		wg.Go(func() {
 			r.ReapOnce(context.Background())
@@ -364,7 +366,7 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 
 	uf := NewUsageFlusher(s, time.Minute)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			uf.flush(context.Background())

@@ -11,6 +11,14 @@ func NewTestExporter() *Exporter {
 	}
 }
 
+// NewTestExporterStopping creates a test exporter in the "stopping" state.
+// Enqueue calls will return false.
+func NewTestExporterStopping() *Exporter {
+	e := NewTestExporter()
+	e.stopping.Store(true)
+	return e
+}
+
 // PendingLen returns the number of buffered records. Test-only.
 func (e *Exporter) PendingLen() int {
 	if e == nil {

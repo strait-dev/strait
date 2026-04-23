@@ -3,7 +3,6 @@ package billing
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 func setupSpendingEnforcer(t *testing.T, orgID, planTier string, spendingLimit int64, periodSpend int64) (*Enforcer, *mockBillingStore) {
@@ -161,7 +161,7 @@ func TestOverage_ConcurrentSpendChecks(t *testing.T) {
 	// This is just under the limit. Many concurrent checks should all pass.
 	enforcer, _ := setupSpendingEnforcer(t, "org-race", "pro", 10_000_000, 59_980_000)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make(chan error, 100)
 
 	for range 100 {

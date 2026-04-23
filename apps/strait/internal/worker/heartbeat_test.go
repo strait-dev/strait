@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type mockHeartbeatStore struct {
@@ -185,7 +187,7 @@ func TestHeartbeatManager_ConcurrentRegisterDeregister(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewHeartbeatManager(&mockHeartbeatStore{}, time.Hour)
 
-			var wg sync.WaitGroup
+			var wg conc.WaitGroup
 			for i := range tt.workers {
 				id := fmt.Sprintf("run-%d", i)
 				wg.Go(func() {

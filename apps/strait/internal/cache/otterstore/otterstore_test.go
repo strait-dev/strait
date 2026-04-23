@@ -11,6 +11,7 @@ import (
 
 	lib_store "github.com/eko/gocache/lib/v4/store"
 	"github.com/maypok86/otter"
+	"github.com/sourcegraph/conc"
 )
 
 func newTestStore(t *testing.T, cfg Config) *OtterStore {
@@ -258,7 +259,7 @@ func TestOtterStore_ConcurrentReadWrite(t *testing.T) {
 	s := newTestStore(t, Config{})
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
 
 	// Writers.
@@ -290,7 +291,7 @@ func TestOtterStore_ConcurrentSetDelete(t *testing.T) {
 	s := newTestStore(t, Config{})
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
 
 	for range goroutines {

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"strait/internal/pubsub"
 )
 
 func TestConsumerRegisterHandler(t *testing.T) {
@@ -283,7 +285,15 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(30 * time.Millisecond)
+	deadline := time.After(2 * time.Second)
+	for receiveCalls.Load() < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("consumer never called /receive within 2s")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	cancel()
 
 	select {
@@ -532,5 +542,156 @@ func TestConsumerDefaultBatchSize(t *testing.T) {
 	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
 	if consumer.config.BatchSize != 10 {
 		t.Fatalf("default BatchSize = %d, want 10", consumer.config.BatchSize)
+	}
+}
+
+func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
+	t.Parallel()
+
+	var receiveCalls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/receive"):
+			receiveCalls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("temporary failure"))
+		default:
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(
+		NewClient(ts.URL, "c-backoff", "token"),
+		ConsumerConfig{ConsumerName: "c-backoff", BatchSize: 1, WaitTimeMs: 1},
+		slog.Default(),
+	)
+
+	runDone := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		consumer.Run(ctx)
+		close(runDone)
+	}()
+
+	// Wait until at least one poll error occurs (consumer enters the 5s backoff select).
+	deadline := time.After(2 * time.Second)
+	for receiveCalls.Load() < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("receive was never called")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Shutdown while consumer is in 5s error backoff.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := consumer.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown during error backoff: %v", err)
+	}
+
+	select {
+	case <-runDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("consumer did not stop after shutdown during error backoff")
+	}
+}
+
+type mockCollectableHandler struct {
+	table     string
+	collectFn func(ctx context.Context, msg Message) (*pubsub.PubSubMessage, error)
+}
+
+func (h *mockCollectableHandler) Table() string { return h.table }
+func (h *mockCollectableHandler) Handle(_ context.Context, _ Message) error {
+	return nil
+}
+func (h *mockCollectableHandler) Collect(ctx context.Context, msg Message) (*pubsub.PubSubMessage, error) {
+	return h.collectFn(ctx, msg)
+}
+
+type consumerMockPublisher struct {
+	mu             sync.Mutex
+	publishBatchFn func(ctx context.Context, msgs []pubsub.PubSubMessage) error
+	batchCalls     int
+}
+
+func (p *consumerMockPublisher) Publish(_ context.Context, _ string, _ []byte) error { return nil }
+func (p *consumerMockPublisher) PublishBatch(ctx context.Context, msgs []pubsub.PubSubMessage) error {
+	p.mu.Lock()
+	p.batchCalls++
+	p.mu.Unlock()
+	if p.publishBatchFn != nil {
+		return p.publishBatchFn(ctx, msgs)
+	}
+	return nil
+}
+
+func TestConsumer_CollectReturnsNilMessage_AcksWithoutPublish(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var ackIDs []string
+	var nackCalls int
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/receive"):
+			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":1},"action":"update","metadata":{"table_name":"job_runs"}}]}`))
+		case strings.HasSuffix(r.URL.Path, "/ack"):
+			ids := decodeAckIDs(t, r)
+			mu.Lock()
+			ackIDs = append(ackIDs, ids...)
+			mu.Unlock()
+		case strings.HasSuffix(r.URL.Path, "/nack"):
+			mu.Lock()
+			nackCalls++
+			mu.Unlock()
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(
+		NewClient(ts.URL, "c-nil-collect", "token"),
+		ConsumerConfig{ConsumerName: "c-nil-collect", BatchSize: 10, WaitTimeMs: 1},
+		slog.Default(),
+	)
+
+	pub := &consumerMockPublisher{}
+	consumer.SetPublisher(pub)
+	consumer.RegisterHandler(&mockCollectableHandler{
+		table: "job_runs",
+		collectFn: func(_ context.Context, _ Message) (*pubsub.PubSubMessage, error) {
+			return nil, nil
+		},
+	})
+
+	if err := consumer.poll(context.Background()); err != nil {
+		t.Fatalf("poll error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ackIDs) != 1 || ackIDs[0] != "a1" {
+		t.Fatalf("ackIDs = %v, want [a1]", ackIDs)
+	}
+	if nackCalls != 0 {
+		t.Fatalf("nackCalls = %d, want 0", nackCalls)
+	}
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	if pub.batchCalls != 0 {
+		t.Fatalf("PublishBatch called %d times, want 0 (nil collect should not trigger batch)", pub.batchCalls)
+	}
+}
+
+func TestConsumer_RegisterHandler_Nil(t *testing.T) {
+	t.Parallel()
+	consumer := NewConsumer(NewClient("http://example.com", "c", ""), ConsumerConfig{ConsumerName: "c"}, nil)
+	consumer.RegisterHandler(nil)
+	if len(consumer.handlers) != 0 {
+		t.Fatalf("expected 0 handlers after registering nil, got %d", len(consumer.handlers))
 	}
 }

@@ -17,6 +17,7 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 )
 
 // mockDeliveryStore implements DeliveryStore for testing.
@@ -25,6 +26,7 @@ type mockDeliveryStore struct {
 	deliveries    []*domain.WebhookDelivery
 	notifyStatus  string
 	listPendingFn func(context.Context) ([]domain.WebhookDelivery, error)
+	getSecretsFn  func(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 }
 
 func (m *mockDeliveryStore) CreateWebhookDelivery(_ context.Context, d *domain.WebhookDelivery) error {
@@ -344,7 +346,10 @@ func (m *mockDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ 
 	return nil
 }
 
-func (m *mockDeliveryStore) GetWebhookSubscriptionSecrets(_ context.Context, _ string) (string, string, *time.Time, error) {
+func (m *mockDeliveryStore) GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+	if m.getSecretsFn != nil {
+		return m.getSecretsFn(ctx, subscriptionID)
+	}
 	return "", "", nil, nil
 }
 
@@ -3569,4 +3574,373 @@ func (m *errorDeliveryStore) getDeliveries() []*domain.WebhookDelivery {
 	cp := make([]*domain.WebhookDelivery, len(m.deliveries))
 	copy(cp, m.deliveries)
 	return cp
+}
+
+func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
+	t.Parallel()
+
+	var receivedSigHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSigHeader = r.Header.Get("X-Webhook-Signature")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	secret := "test-hmac-secret-key"
+	ms := &mockDeliveryStore{
+		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {
+			return secret, "", nil, nil
+		},
+	}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-hmac-1",
+		SubscriptionID: "sub-1",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"event":"run.completed"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	if receivedSigHeader == "" {
+		t.Fatal("expected X-Webhook-Signature header to be set")
+	}
+	if !strings.HasPrefix(receivedSigHeader, "sha256=") {
+		t.Fatalf("expected sha256= prefix, got %q", receivedSigHeader)
+	}
+
+	expectedSig := ComputeHMACSHA256(secret, []byte(`{"event":"run.completed"}`))
+	if receivedSigHeader != "sha256="+expectedSig {
+		t.Fatalf("signature mismatch: got %q, want sha256=%s", receivedSigHeader, expectedSig)
+	}
+}
+
+func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {
+	t.Parallel()
+
+	var receivedSig, receivedOldSig string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSig = r.Header.Get("X-Webhook-Signature")
+		receivedOldSig = r.Header.Get("X-Webhook-Signature-Old")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	secret := "new-secret"
+	prevSecret := "old-secret"
+	futureTime := time.Now().Add(time.Hour)
+	ms := &mockDeliveryStore{
+		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {
+			return secret, prevSecret, &futureTime, nil
+		},
+	}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-rotate-1",
+		SubscriptionID: "sub-1",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"event":"run.completed"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	if receivedSig == "" {
+		t.Fatal("expected X-Webhook-Signature header")
+	}
+	if receivedOldSig == "" {
+		t.Fatal("expected X-Webhook-Signature-Old header during active grace period")
+	}
+	if !strings.HasPrefix(receivedOldSig, "sha256=") {
+		t.Fatalf("expected sha256= prefix on old sig, got %q", receivedOldSig)
+	}
+}
+
+func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodExpired(t *testing.T) {
+	t.Parallel()
+
+	var receivedSig, receivedOldSig string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSig = r.Header.Get("X-Webhook-Signature")
+		receivedOldSig = r.Header.Get("X-Webhook-Signature-Old")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	pastTime := time.Now().Add(-time.Hour)
+	ms := &mockDeliveryStore{
+		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {
+			return "new-secret", "old-secret", &pastTime, nil
+		},
+	}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-expired-1",
+		SubscriptionID: "sub-1",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"event":"run.completed"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	if receivedSig == "" {
+		t.Fatal("expected X-Webhook-Signature header")
+	}
+	if receivedOldSig != "" {
+		t.Fatalf("expected no X-Webhook-Signature-Old after grace period expired, got %q", receivedOldSig)
+	}
+}
+
+func TestAttemptDelivery_WithSubscriptionID_SecretsLookupError(t *testing.T) {
+	t.Parallel()
+
+	var requestReceived atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestReceived.Store(true)
+		if r.Header.Get("X-Webhook-Signature") != "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{
+		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {
+			return "", "", nil, fmt.Errorf("secrets store unavailable")
+		},
+	}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-err-1",
+		SubscriptionID: "sub-1",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"event":"run.completed"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	if !requestReceived.Load() {
+		t.Fatal("expected delivery to still be attempted despite secrets lookup error")
+	}
+}
+
+func TestAttemptDelivery_EmptyFields_NoConditionalHeaders(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-no-headers",
+		EventTriggerID: "",
+		RunID:          "",
+		JobID:          "",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"test":"data"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	if headers == nil {
+		t.Fatal("expected request to be received")
+	}
+	if v := headers.Get("X-Strait-Trigger-ID"); v != "" {
+		t.Fatalf("expected no X-Strait-Trigger-ID when EventTriggerID is empty, got %q", v)
+	}
+	if v := headers.Get("X-Run-ID"); v != "" {
+		t.Fatalf("expected no X-Run-ID when RunID is empty, got %q", v)
+	}
+	if v := headers.Get("X-Job-ID"); v != "" {
+		t.Fatalf("expected no X-Job-ID when JobID is empty, got %q", v)
+	}
+}
+
+func TestAttemptDelivery_PopulatedFields_ConditionalHeadersPresent(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-with-headers",
+		EventTriggerID: "evt-42",
+		RunID:          "run-42",
+		JobID:          "job-42",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"test":"data"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	if headers == nil {
+		t.Fatal("expected request to be received")
+	}
+	if v := headers.Get("X-Strait-Trigger-ID"); v != "evt-42" {
+		t.Fatalf("X-Strait-Trigger-ID = %q, want %q", v, "evt-42")
+	}
+	if v := headers.Get("X-Run-ID"); v != "run-42" {
+		t.Fatalf("X-Run-ID = %q, want %q", v, "run-42")
+	}
+	if v := headers.Get("X-Job-ID"); v != "job-42" {
+		t.Fatalf("X-Job-ID = %q, want %q", v, "job-42")
+	}
+}
+
+func TestAttemptDelivery_RetryExhausted_DeadLetters(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-exhausted-1",
+		RunID:       "run-1",
+		JobID:       "job-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    4,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].Status != domain.WebhookStatusDead {
+		t.Fatalf("expected dead status when retryable but exhausted, got %s", deliveries[0].Status)
+	}
+}
+
+func TestBackoffForRetryPolicy_ExponentialCapsAt30Min(t *testing.T) {
+	t.Parallel()
+
+	// 5^5 = 3125 seconds = ~52 minutes, exceeds 30-minute cap.
+	got := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 5)
+	if got != 30*time.Minute {
+		t.Fatalf("exponential backoff for attempt 5 = %s, expected exactly 30m (cap)", got)
+	}
+}
+
+func TestBackoffForRetryPolicy_AttemptsZero_NormalizedToOne(t *testing.T) {
+	t.Parallel()
+
+	gotZero := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 0)
+	gotOne := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 1)
+	if gotZero != gotOne {
+		t.Fatalf("attempt 0 backoff = %s, attempt 1 = %s: expected same (normalized)", gotZero, gotOne)
+	}
+}
+
+func TestBackoffForRetryPolicy_LinearCapsAt30Min(t *testing.T) {
+	t.Parallel()
+
+	got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 500)
+	if got > 30*time.Minute {
+		t.Fatalf("linear backoff for attempt 500 = %s, expected <= 30m", got)
+	}
+	if got != 30*time.Minute {
+		t.Fatalf("linear backoff for attempt 500 = %s, expected exactly 30m (cap)", got)
+	}
+}
+
+func TestRecordCircuitBreakerState_AllStates(t *testing.T) {
+	t.Parallel()
+
+	m, _, shutdown, err := telemetry.InitMetrics("test-service", "test")
+	if err != nil {
+		t.Skipf("InitMetrics: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
+	worker := NewDeliveryWorker(&mockDeliveryStore{}, slog.Default(), WithMetrics(m))
+
+	for _, state := range []string{"closed", "open", "half_open"} {
+		worker.recordCircuitBreakerState(context.Background(), "https://example.com/test", state)
+	}
+}
+
+func TestRecordCircuitBreakerState_NilMetrics_NoOp(t *testing.T) {
+	t.Parallel()
+
+	worker := NewDeliveryWorker(&mockDeliveryStore{}, slog.Default())
+	worker.recordCircuitBreakerState(context.Background(), "https://example.com/test", "closed")
+}
+
+func TestRecordCircuitBreakerState_EmptyURL_NoOp(t *testing.T) {
+	t.Parallel()
+
+	m, _, shutdown, err := telemetry.InitMetrics("test-service", "test")
+	if err != nil {
+		t.Skipf("InitMetrics: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
+	worker := NewDeliveryWorker(&mockDeliveryStore{}, slog.Default(), WithMetrics(m))
+	worker.recordCircuitBreakerState(context.Background(), "", "closed")
 }

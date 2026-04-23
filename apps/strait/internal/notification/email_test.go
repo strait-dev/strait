@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
@@ -42,7 +43,9 @@ func TestEmailSender_SendSuccess(t *testing.T) {
 		Payload:   json.RawMessage(`{"project_id":"proj-1","daily_cost_microusd":85000}`),
 	}
 
-	err := sender.Send(context.Background(), channel, delivery)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := sender.Send(ctx, channel, delivery)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -77,7 +80,9 @@ func TestEmailSender_SendFailure_ReturnsError(t *testing.T) {
 		Payload:   json.RawMessage(`{}`),
 	}
 
-	err := sender.Send(context.Background(), channel, delivery)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := sender.Send(ctx, channel, delivery)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -160,7 +165,9 @@ func TestEmailSender_FormatsBillingAlertBody(t *testing.T) {
 				Payload:   payloadBytes,
 			}
 
-			err := sender.Send(context.Background(), channel, delivery)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := sender.Send(ctx, channel, delivery)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -194,7 +201,9 @@ func TestEmailSender_SetsCorrectFromAddress(t *testing.T) {
 		Payload:   json.RawMessage(`{"project_id":"proj-1"}`),
 	}
 
-	if err := sender.Send(context.Background(), channel, delivery); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sender.Send(ctx, channel, delivery); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -232,7 +241,9 @@ func TestEmailSender_SetsCorrectSubjectLine(t *testing.T) {
 				Payload:   json.RawMessage(`{}`),
 			}
 
-			if err := sender.Send(context.Background(), channel, delivery); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := sender.Send(ctx, channel, delivery); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -257,7 +268,9 @@ func TestEmailSender_DefaultFromAddress(t *testing.T) {
 		Payload:   json.RawMessage(`{}`),
 	}
 
-	if err := sender.Send(context.Background(), channel, delivery); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sender.Send(ctx, channel, delivery); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -280,7 +293,9 @@ func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {
 		Payload:   json.RawMessage(`{}`),
 	}
 
-	err := sender.Send(context.Background(), channel, delivery)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := sender.Send(ctx, channel, delivery)
 	if err == nil {
 		t.Fatal("expected error for empty recipient, got nil")
 	}
@@ -300,7 +315,9 @@ func TestEmailSender_InvalidConfig_Fails(t *testing.T) {
 		Payload:   json.RawMessage(`{}`),
 	}
 
-	err := sender.Send(context.Background(), channel, delivery)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := sender.Send(ctx, channel, delivery)
 	if err == nil {
 		t.Fatal("expected error for invalid config, got nil")
 	}

@@ -3,9 +3,10 @@ package worker
 import (
 	"fmt"
 	"hash/fnv"
-	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestShardedBulkhead_AcquireUpToLimit(t *testing.T) {
@@ -135,7 +136,7 @@ func TestShardedBulkhead_ConcurrentSameJob(t *testing.T) {
 
 	start := make(chan struct{})
 	var successes atomic.Int32
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range goroutines {
 		wg.Go(func() {
@@ -161,7 +162,7 @@ func TestShardedBulkhead_ConcurrentMultipleJobs(t *testing.T) {
 	const limit = 5
 	const goroutinesPerJob = 10
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]atomic.Int32, jobCount)
 
 	for j := range jobCount {
@@ -191,7 +192,7 @@ func TestShardedBulkhead_ConcurrentAcquireRelease(t *testing.T) {
 	const iterations = 1000
 	const limit = 50
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range goroutines {
 		wg.Go(func() {
 			for range iterations {

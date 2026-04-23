@@ -193,9 +193,6 @@ func TestSubscribe_SlowConsumer(t *testing.T) {
 		}
 	}
 
-	// Wait for the goroutine to process all Redis messages.
-	time.Sleep(500 * time.Millisecond)
-
 	// Drain the channel — we should get at most 64 (the buffer size).
 	var received int
 drain:

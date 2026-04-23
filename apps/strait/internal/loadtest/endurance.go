@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // EnduranceConfig configures the endurance test runner.
@@ -89,7 +91,7 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	var spikeActive atomic.Bool
 
 	// Baseline load goroutine
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	wg.Go(func() {
 		for {
 			select {

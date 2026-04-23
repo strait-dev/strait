@@ -8,13 +8,14 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestDoS_HTTPRequestTimeout verifies that a handler that takes too long
@@ -122,7 +123,7 @@ func TestDoS_MemoryBombPayload(t *testing.T) {
 	// Use ~512KB to avoid actual OOM but still stress the allocator.
 	largePayload := strings.Repeat("x", 512*1024)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const concurrency = 100 // Reduced from 1000 to keep test fast.
 
 	for range concurrency {
@@ -158,18 +159,15 @@ func TestDoS_EventTriggerFanout(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	const concurrency = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			body := fmt.Sprintf(`{"payload":{"idx":%d}}`, idx)
-			req := authedRequest(http.MethodPost, fmt.Sprintf("/v1/events/user.signup.%d/send", idx), body)
+		wg.Go(func() {
+			body := fmt.Sprintf(`{"payload":{"idx":%d}}`, i)
+			req := authedRequest(http.MethodPost, fmt.Sprintf("/v1/events/user.signup.%d/send", i), body)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
-			// We only verify no panic occurred.
-		}(i)
+		})
 	}
 	wg.Wait()
 }
@@ -203,12 +201,16 @@ func TestDoS_GoroutineLeakSSE(t *testing.T) {
 		srv.ServeHTTP(w, req)
 	}
 
-	// Allow goroutines to settle.
-	time.Sleep(200 * time.Millisecond)
-	runtime.GC()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		if runtime.NumGoroutine() <= baseline+10 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	current := runtime.NumGoroutine()
-	// Allow a generous margin for background goroutines.
 	leaked := current - baseline
 	if leaked > 10 {
 		t.Fatalf("possible goroutine leak: baseline=%d, current=%d, leaked=%d", baseline, current, leaked)
@@ -239,18 +241,16 @@ func TestDoS_WorkerPoolSaturation(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	const concurrency = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]int, concurrency)
 
 	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			req := authedRequest(http.MethodGet, "/v1/jobs/job-saturate", "")
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
-			results[idx] = w.Code
-		}(i)
+			results[i] = w.Code
+		})
 	}
 	wg.Wait()
 

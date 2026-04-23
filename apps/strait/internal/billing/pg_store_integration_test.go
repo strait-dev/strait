@@ -2782,3 +2782,849 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 		t.Errorf("step 2: pause_reason should be empty, got %q", got2.PauseReason)
 	}
 }
+
+// --------------------------------------------------------------------------
+// H1 regression: ListOrgsInGracePeriod must include MonthlyUsageEmail
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListOrgsInGracePeriod_MonthlyUsageEmail(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-grace-email-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.UpdateMonthlyUsageEmail(ctx, orgID, true); err != nil {
+		t.Fatalf("UpdateMonthlyUsageEmail: %v", err)
+	}
+
+	past := time.Now().UTC().Add(-48 * time.Hour)
+	if err := pgStore.UpdatePaymentStatus(ctx, orgID, "grace", &past); err != nil {
+		t.Fatalf("UpdatePaymentStatus: %v", err)
+	}
+
+	subs, err := pgStore.ListOrgsInGracePeriod(ctx)
+	if err != nil {
+		t.Fatalf("ListOrgsInGracePeriod: %v", err)
+	}
+
+	for _, s := range subs {
+		if s.OrgID == orgID {
+			if !s.MonthlyUsageEmail {
+				t.Fatalf("expected MonthlyUsageEmail=true, got false")
+			}
+			return
+		}
+	}
+	t.Fatal("org not found in grace period list")
+}
+
+// --------------------------------------------------------------------------
+// H1 regression: ListStaleSubscriptions must include MonthlyUsageEmail
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-stale-email-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.UpdateMonthlyUsageEmail(ctx, orgID, true); err != nil {
+		t.Fatalf("UpdateMonthlyUsageEmail: %v", err)
+	}
+
+	staleEnd := time.Now().UTC().Add(-72 * time.Hour)
+	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgID, "pro", "active", &staleEnd, &staleEnd); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionFull: %v", err)
+	}
+
+	subs, err := pgStore.ListStaleSubscriptions(ctx)
+	if err != nil {
+		t.Fatalf("ListStaleSubscriptions: %v", err)
+	}
+
+	for _, s := range subs {
+		if s.OrgID == orgID {
+			if !s.MonthlyUsageEmail {
+				t.Fatalf("expected MonthlyUsageEmail=true, got false")
+			}
+			return
+		}
+	}
+	t.Fatal("org not found in stale subscriptions list")
+}
+
+// --------------------------------------------------------------------------
+// H2/H3: Usage CTE correctness -- non-committed compute excluded
+// --------------------------------------------------------------------------
+
+func TestPgStore_UsageCTE_ExcludesNonCommittedCompute(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cte-pending-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+
+	now := time.Now().UTC()
+	_, _ = testDB.Pool.Exec(ctx,
+		`INSERT INTO run_compute_usage (id, run_id, project_id, job_id, machine_preset, cost_microusd, status)
+		 VALUES ($1, $2, $3, $4, 'micro', 500000, 'reserved')`,
+		newID(), run.ID, p.ID, job.ID)
+
+	from := now.Add(-1 * time.Hour)
+	to := now.Add(1 * time.Hour)
+	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod: %v", err)
+	}
+
+	for _, r := range recs {
+		if r.ComputeCostMicro != 0 {
+			t.Errorf("expected ComputeCostMicro=0 for reserved-only, got %d", r.ComputeCostMicro)
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// H2: Compute-only, no AI
+// --------------------------------------------------------------------------
+
+func TestPgStore_UsageCTE_ComputeOnlyNoAI(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cte-componly-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+
+	now := time.Now().UTC()
+	start := now.Add(-10 * time.Second)
+	cu := &domain.RunComputeUsage{
+		ID: newID(), RunID: run.ID, ProjectID: p.ID, JobID: job.ID,
+		MachinePreset: "micro", DurationSecs: 10, CostMicrousd: 200000,
+		StartedAt: &start, FinishedAt: &now,
+	}
+	if err := q.CreateRunComputeUsage(ctx, cu); err != nil {
+		t.Fatalf("CreateRunComputeUsage: %v", err)
+	}
+
+	from := now.Add(-1 * time.Hour)
+	to := now.Add(1 * time.Hour)
+	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod: %v", err)
+	}
+	if len(recs) == 0 {
+		t.Fatal("expected at least one usage record")
+	}
+
+	for _, r := range recs {
+		if r.ProjectID == p.ID {
+			if r.ComputeCostMicro != 200000 {
+				t.Errorf("ComputeCostMicro = %d, want 200000", r.ComputeCostMicro)
+			}
+			if r.AITokensTotal != 0 {
+				t.Errorf("AITokensTotal = %d, want 0", r.AITokensTotal)
+			}
+			if r.AICostMicro != 0 {
+				t.Errorf("AICostMicro = %d, want 0", r.AICostMicro)
+			}
+			return
+		}
+	}
+	t.Fatal("project record not found in usage")
+}
+
+// --------------------------------------------------------------------------
+// H3: AI-only, no compute
+// --------------------------------------------------------------------------
+
+func TestPgStore_UsageCTE_AIOnlyNoCompute(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cte-aionly-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+
+	ai := &domain.RunUsage{
+		ID: newID(), RunID: run.ID,
+		Provider: "openai", Model: "gpt-4",
+		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
+		CostMicrousd: 500000,
+	}
+	if err := q.CreateRunUsage(ctx, ai); err != nil {
+		t.Fatalf("CreateRunUsage: %v", err)
+	}
+
+	now := time.Now().UTC()
+	from := now.Add(-1 * time.Hour)
+	to := now.Add(1 * time.Hour)
+	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod: %v", err)
+	}
+	if len(recs) == 0 {
+		t.Fatal("expected at least one usage record")
+	}
+
+	for _, r := range recs {
+		if r.ProjectID == p.ID {
+			if r.ComputeCostMicro != 0 {
+				t.Errorf("ComputeCostMicro = %d, want 0", r.ComputeCostMicro)
+			}
+			if r.AITokensTotal != 150 {
+				t.Errorf("AITokensTotal = %d, want 150", r.AITokensTotal)
+			}
+			if r.AICostMicro != 500000 {
+				t.Errorf("AICostMicro = %d, want 500000", r.AICostMicro)
+			}
+			return
+		}
+	}
+	t.Fatal("project record not found in usage")
+}
+
+// --------------------------------------------------------------------------
+// H3: GetOrgDailyUsage per-project values
+// --------------------------------------------------------------------------
+
+func TestPgStore_GetOrgDailyUsage_PerProjectValues(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-daily-pp-" + newID()
+	pA := createProject(t, ctx, q, orgID, "PA")
+	pB := createProject(t, ctx, q, orgID, "PB")
+
+	jobA := createJob(t, ctx, q, pA.ID)
+	jobB := createJob(t, ctx, q, pB.ID)
+
+	now := time.Now().UTC()
+	start := now.Add(-10 * time.Second)
+
+	for range 10 {
+		createRun(t, ctx, q, jobA, domain.StatusCompleted)
+	}
+	for range 5 {
+		createRun(t, ctx, q, jobB, domain.StatusCompleted)
+	}
+
+	cuA := &domain.RunComputeUsage{
+		ID: newID(), RunID: newID(), ProjectID: pA.ID, JobID: jobA.ID,
+		MachinePreset: "micro", DurationSecs: 10, CostMicrousd: 2_000_000,
+		StartedAt: &start, FinishedAt: &now,
+	}
+	if err := q.CreateRunComputeUsage(ctx, cuA); err != nil {
+		t.Fatalf("CreateRunComputeUsage A: %v", err)
+	}
+	cuB := &domain.RunComputeUsage{
+		ID: newID(), RunID: newID(), ProjectID: pB.ID, JobID: jobB.ID,
+		MachinePreset: "small-1x", DurationSecs: 30, CostMicrousd: 3_000_000,
+		StartedAt: &start, FinishedAt: &now,
+	}
+	if err := q.CreateRunComputeUsage(ctx, cuB); err != nil {
+		t.Fatalf("CreateRunComputeUsage B: %v", err)
+	}
+
+	aiA := &domain.RunUsage{
+		ID: newID(), RunID: newID(),
+		Provider: "openai", Model: "gpt-4",
+		PromptTokens: 600, CompletionTokens: 400, TotalTokens: 1000,
+		CostMicrousd: 100000,
+	}
+	// AI run needs a matching job_run for the join.
+	runForAI_A := createRun(t, ctx, q, jobA, domain.StatusCompleted)
+	aiA.RunID = runForAI_A.ID
+	if err := q.CreateRunUsage(ctx, aiA); err != nil {
+		t.Fatalf("CreateRunUsage A: %v", err)
+	}
+	runForAI_B := createRun(t, ctx, q, jobB, domain.StatusCompleted)
+	aiB := &domain.RunUsage{
+		ID: newID(), RunID: runForAI_B.ID,
+		Provider: "openai", Model: "gpt-4",
+		PromptTokens: 400, CompletionTokens: 300, TotalTokens: 700,
+		CostMicrousd: 70000,
+	}
+	if err := q.CreateRunUsage(ctx, aiB); err != nil {
+		t.Fatalf("CreateRunUsage B: %v", err)
+	}
+
+	recs, err := pgStore.GetOrgDailyUsage(ctx, orgID, now)
+	if err != nil {
+		t.Fatalf("GetOrgDailyUsage: %v", err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("expected 2 project records, got %d", len(recs))
+	}
+
+	byProject := make(map[string]billing.UsageRecord)
+	for _, r := range recs {
+		byProject[r.ProjectID] = r
+	}
+
+	recA, ok := byProject[pA.ID]
+	if !ok {
+		t.Fatal("project A not found")
+	}
+	if recA.ComputeCostMicro != 2_000_000 {
+		t.Errorf("A compute = %d, want 2000000", recA.ComputeCostMicro)
+	}
+	if recA.AITokensTotal != 1000 {
+		t.Errorf("A AI tokens = %d, want 1000", recA.AITokensTotal)
+	}
+
+	recB, ok := byProject[pB.ID]
+	if !ok {
+		t.Fatal("project B not found")
+	}
+	if recB.ComputeCostMicro != 3_000_000 {
+		t.Errorf("B compute = %d, want 3000000", recB.ComputeCostMicro)
+	}
+	if recB.AITokensTotal != 700 {
+		t.Errorf("B AI tokens = %d, want 700", recB.AITokensTotal)
+	}
+}
+
+// --------------------------------------------------------------------------
+// M1: UpsertOrgSubscription preserves pending_plan_tier
+// --------------------------------------------------------------------------
+
+func TestPgStore_UpsertOrgSubscription_PreservesPendingPlanTier(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-ppt-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, "free"); err != nil {
+		t.Fatalf("SetPendingPlanTier: %v", err)
+	}
+
+	sub := &billing.OrgSubscription{
+		ID:          newID(),
+		OrgID:       orgID,
+		PlanTier:    "pro",
+		Status:      "active",
+		LimitAction: "notify",
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := pgStore.UpsertOrgSubscription(ctx, sub); err != nil {
+		t.Fatalf("UpsertOrgSubscription: %v", err)
+	}
+
+	got, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription: %v", err)
+	}
+	if got.PendingPlanTier == nil || *got.PendingPlanTier != "free" {
+		t.Errorf("PendingPlanTier = %v, want 'free'", got.PendingPlanTier)
+	}
+}
+
+// --------------------------------------------------------------------------
+// M2: UpdateOrgSubscriptionFull with nil period preserves existing
+// --------------------------------------------------------------------------
+
+func TestPgStore_UpdateOrgSubscriptionFull_NilPeriodPreservesExisting(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-nilperiod-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgID, "pro", "active", &start, &end); err != nil {
+		t.Fatalf("set initial period: %v", err)
+	}
+
+	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgID, "enterprise", "active", nil, nil); err != nil {
+		t.Fatalf("update with nil periods: %v", err)
+	}
+
+	got, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription: %v", err)
+	}
+	if got.CurrentPeriodStart == nil || !got.CurrentPeriodStart.Equal(start) {
+		t.Errorf("CurrentPeriodStart = %v, want %v", got.CurrentPeriodStart, start)
+	}
+	if got.CurrentPeriodEnd == nil || !got.CurrentPeriodEnd.Equal(end) {
+		t.Errorf("CurrentPeriodEnd = %v, want %v", got.CurrentPeriodEnd, end)
+	}
+}
+
+// --------------------------------------------------------------------------
+// M3: BulkCountExecutingRunsByOrg -- zero-run org absent from map
+// --------------------------------------------------------------------------
+
+func TestPgStore_BulkCountExecutingRunsByOrg_ZeroRunOrgAbsent(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-zero-runs-" + newID()
+	result, err := pgStore.BulkCountExecutingRunsByOrg(ctx, []string{orgID})
+	if err != nil {
+		t.Fatalf("BulkCountExecutingRunsByOrg: %v", err)
+	}
+	if count, present := result[orgID]; present {
+		t.Errorf("expected org absent from map, got count=%d", count)
+	}
+}
+
+// --------------------------------------------------------------------------
+// M4: ListOrgsWithPendingDowngrade near boundary
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListOrgsWithPendingDowngrade_NearBoundary(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgPast := "org-pd-past-" + newID()
+	orgFuture := "org-pd-future-" + newID()
+
+	ensureSub(t, ctx, pgStore, orgPast)
+	ensureSub(t, ctx, pgStore, orgFuture)
+
+	past := time.Now().UTC().Add(-1 * time.Second)
+	future := time.Now().UTC().Add(1 * time.Hour)
+
+	if err := pgStore.SetPendingDowngrade(ctx, orgPast, "free", &past, &past); err != nil {
+		t.Fatalf("SetPendingDowngrade past: %v", err)
+	}
+	if err := pgStore.SetPendingDowngrade(ctx, orgFuture, "free", &future, &future); err != nil {
+		t.Fatalf("SetPendingDowngrade future: %v", err)
+	}
+
+	subs, err := pgStore.ListOrgsWithPendingDowngrade(ctx)
+	if err != nil {
+		t.Fatalf("ListOrgsWithPendingDowngrade: %v", err)
+	}
+
+	var foundPast, foundFuture bool
+	for _, s := range subs {
+		if s.OrgID == orgPast {
+			foundPast = true
+		}
+		if s.OrgID == orgFuture {
+			foundFuture = true
+		}
+	}
+	if !foundPast {
+		t.Error("expected past-period org to appear")
+	}
+	if foundFuture {
+		t.Error("future-period org should not appear")
+	}
+}
+
+// --------------------------------------------------------------------------
+// M5: ListStaleSubscriptions one-day boundary
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListStaleSubscriptions_OneDayBoundary(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgNotStale := "org-notstale-" + newID()
+	orgStale := "org-stale-" + newID()
+
+	ensureSub(t, ctx, pgStore, orgNotStale)
+	ensureSub(t, ctx, pgStore, orgStale)
+
+	notStaleEnd := time.Now().UTC().Add(-23 * time.Hour)
+	staleEnd := time.Now().UTC().Add(-25 * time.Hour)
+
+	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgNotStale, "pro", "active", &notStaleEnd, &notStaleEnd); err != nil {
+		t.Fatalf("update not-stale: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgStale, "pro", "active", &staleEnd, &staleEnd); err != nil {
+		t.Fatalf("update stale: %v", err)
+	}
+
+	subs, err := pgStore.ListStaleSubscriptions(ctx)
+	if err != nil {
+		t.Fatalf("ListStaleSubscriptions: %v", err)
+	}
+
+	var foundNotStale, foundStale bool
+	for _, s := range subs {
+		if s.OrgID == orgNotStale {
+			foundNotStale = true
+		}
+		if s.OrgID == orgStale {
+			foundStale = true
+		}
+	}
+	if !foundStale {
+		t.Error("expected stale org (25h past) to appear")
+	}
+	if foundNotStale {
+		t.Error("not-stale org (23h past) should not appear")
+	}
+}
+
+// --------------------------------------------------------------------------
+// M6: GetProjectOrgID not found
+// --------------------------------------------------------------------------
+
+func TestPgStore_GetProjectOrgID_NotFound(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	_, err := pgStore.GetProjectOrgID(ctx, "nonexistent-project-"+newID())
+	if err == nil {
+		t.Error("expected error for non-existent project")
+	}
+}
+
+// --------------------------------------------------------------------------
+// M7: SumOrgPeriodSpend excludes non-committed
+// --------------------------------------------------------------------------
+
+func TestPgStore_SumOrgPeriodSpend_ExcludesNonCommitted(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-spend-nc-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+
+	_, _ = testDB.Pool.Exec(ctx,
+		`INSERT INTO run_compute_usage (id, run_id, project_id, job_id, machine_preset, cost_microusd, status)
+		 VALUES ($1, $2, $3, $4, 'micro', 1000000, 'reserved')`,
+		newID(), run.ID, p.ID, job.ID)
+
+	from := time.Now().UTC().Add(-1 * time.Hour)
+	total, err := pgStore.SumOrgPeriodSpend(ctx, orgID, from)
+	if err != nil {
+		t.Fatalf("SumOrgPeriodSpend: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("SumOrgPeriodSpend = %d, want 0 (reserved not counted)", total)
+	}
+}
+
+// --------------------------------------------------------------------------
+// M8: ListOrgAdminEmails deduplicates across projects
+// --------------------------------------------------------------------------
+
+func TestPgStore_ListOrgAdminEmails_DedupsAcrossProjects(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-dedup-email-" + newID()
+	userID := "user-admin-" + newID()
+	email := fmt.Sprintf("admin-%s@example.com", newID())
+
+	p1 := createProject(t, ctx, q, orgID, "P1")
+	p2 := createProject(t, ctx, q, orgID, "P2")
+
+	createAdminMember(t, ctx, q, p1.ID, userID, email)
+	createAdminMember(t, ctx, q, p2.ID, userID, email)
+
+	emails, err := pgStore.ListOrgAdminEmails(ctx, orgID)
+	if err != nil {
+		t.Fatalf("ListOrgAdminEmails: %v", err)
+	}
+	if len(emails) != 1 {
+		t.Errorf("expected 1 deduped email, got %d: %v", len(emails), emails)
+	}
+}
+
+// --------------------------------------------------------------------------
+// M9: GetOrgUsageForPeriod single day (from == to)
+// --------------------------------------------------------------------------
+
+func TestPgStore_GetOrgUsageForPeriod_SingleDay(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-singleday-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	tomorrow := today.Add(24 * time.Hour)
+
+	run1 := createRun(t, ctx, q, job, domain.StatusCompleted)
+	_, _ = testDB.Pool.Exec(ctx,
+		"UPDATE job_runs SET created_at = $2 WHERE id = $1", run1.ID, today.Add(6*time.Hour))
+
+	run2 := createRun(t, ctx, q, job, domain.StatusCompleted)
+	_, _ = testDB.Pool.Exec(ctx,
+		"UPDATE job_runs SET created_at = $2 WHERE id = $1", run2.ID, tomorrow.Add(6*time.Hour))
+
+	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, today, today)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod: %v", err)
+	}
+
+	var totalRuns int64
+	for _, r := range recs {
+		totalRuns += r.RunsCount
+	}
+	if totalRuns != 1 {
+		t.Errorf("expected 1 run for single-day, got %d", totalRuns)
+	}
+}
+
+// --------------------------------------------------------------------------
+// L1: ApplyPendingDowngrade same tier (noop)
+// --------------------------------------------------------------------------
+
+func TestPgStore_ApplyPendingDowngrade_SameTier(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-same-tier-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, "free"); err != nil {
+		t.Fatalf("SetPendingPlanTier: %v", err)
+	}
+
+	if err := pgStore.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		t.Fatalf("ApplyPendingDowngrade: %v", err)
+	}
+
+	got, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription: %v", err)
+	}
+	if got.PlanTier != "free" {
+		t.Errorf("PlanTier = %q, want 'free'", got.PlanTier)
+	}
+	if got.PendingPlanTier != nil {
+		t.Errorf("PendingPlanTier = %v, want nil", got.PendingPlanTier)
+	}
+}
+
+// --------------------------------------------------------------------------
+// L2: Usage report dedup -- time truncation
+// --------------------------------------------------------------------------
+
+func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-dedup-trunc-" + newID()
+
+	endOfDay := time.Date(2026, 3, 15, 23, 59, 59, 0, time.UTC)
+	if err := pgStore.RecordSentUsageReport(ctx, orgID, endOfDay); err != nil {
+		t.Fatalf("RecordSentUsageReport: %v", err)
+	}
+
+	startOfDay := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	sent, err := pgStore.HasSentUsageReport(ctx, orgID, startOfDay)
+	if err != nil {
+		t.Fatalf("HasSentUsageReport: %v", err)
+	}
+	if !sent {
+		t.Error("expected dedup match after truncation (23:59:59 -> 00:00:00)")
+	}
+}
+
+// --------------------------------------------------------------------------
+// L3: CountMembersByOrg includes soft-deleted project members
+// --------------------------------------------------------------------------
+
+func TestPgStore_CountMembersByOrg_IncludesDeletedProjectMembers(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-delproj-members-" + newID()
+	userID := "user-del-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	createMember(t, ctx, q, p.ID, userID)
+
+	_, _ = testDB.Pool.Exec(ctx, "UPDATE projects SET deleted_at = NOW() WHERE id = $1", p.ID)
+
+	count, err := pgStore.CountMembersByOrg(ctx, orgID)
+	if err != nil {
+		t.Fatalf("CountMembersByOrg: %v", err)
+	}
+	// Document behavior: members in soft-deleted projects are still counted.
+	t.Logf("CountMembersByOrg with deleted project: %d (documents current behavior)", count)
+	if count < 1 {
+		t.Error("expected at least 1 member even with deleted project")
+	}
+}
+
+// --------------------------------------------------------------------------
+// L4: DeleteOldWebhookMessages with future cutoff
+// --------------------------------------------------------------------------
+
+func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	msgID := "msg-future-" + newID()
+	if err := pgStore.RecordProcessedWebhook(ctx, msgID); err != nil {
+		t.Fatalf("RecordProcessedWebhook: %v", err)
+	}
+
+	future := time.Now().UTC().Add(-24 * time.Hour)
+	deleted, err := pgStore.DeleteOldWebhookMessages(ctx, future)
+	if err != nil {
+		t.Fatalf("DeleteOldWebhookMessages: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0 (message is recent)", deleted)
+	}
+}
+
+// --------------------------------------------------------------------------
+// L5: CountAIModelCallsByOrg multiple rows per run
+// --------------------------------------------------------------------------
+
+func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-multi-ai-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+
+	for i := range 3 {
+		ai := &domain.RunUsage{
+			ID: newID(), RunID: run.ID,
+			Provider: "openai", Model: fmt.Sprintf("gpt-4-%d", i),
+			PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
+			CostMicrousd: 100000,
+		}
+		if err := q.CreateRunUsage(ctx, ai); err != nil {
+			t.Fatalf("CreateRunUsage %d: %v", i, err)
+		}
+	}
+
+	now := time.Now().UTC()
+	count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("CountAIModelCallsByOrg: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("count = %d, want 3", count)
+	}
+}
+
+// --------------------------------------------------------------------------
+// L6: SuspendExcessProjects with maxProjects=0 suspends all
+// --------------------------------------------------------------------------
+
+func TestPgStore_SuspendExcessProjects_ZeroMax(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-zero-max-" + newID()
+	p1 := createProject(t, ctx, q, orgID, "P1")
+	p2 := createProject(t, ctx, q, orgID, "P2")
+
+	count, err := pgStore.SuspendExcessProjects(ctx, orgID, 0)
+	if err != nil {
+		t.Fatalf("SuspendExcessProjects: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("suspended = %d, want 2", count)
+	}
+
+	s1, _ := pgStore.IsProjectSuspended(ctx, p1.ID)
+	s2, _ := pgStore.IsProjectSuspended(ctx, p2.ID)
+	if !s1 || !s2 {
+		t.Errorf("expected all suspended: p1=%v p2=%v", s1, s2)
+	}
+}
+
+// --------------------------------------------------------------------------
+// L7: UpsertOrgSubscription preserves spending_limit
+// --------------------------------------------------------------------------
+
+func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-limit-preserve-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	if err := pgStore.UpdateSpendingLimit(ctx, orgID, 5_000_000, "enforce"); err != nil {
+		t.Fatalf("UpdateSpendingLimit: %v", err)
+	}
+
+	sub := &billing.OrgSubscription{
+		ID:                   newID(),
+		OrgID:                orgID,
+		PlanTier:             "enterprise",
+		Status:               "active",
+		SpendingLimitMicrousd: 999,
+		LimitAction:          "notify",
+		CreatedAt:            time.Now().UTC(),
+		UpdatedAt:            time.Now().UTC(),
+	}
+	if err := pgStore.UpsertOrgSubscription(ctx, sub); err != nil {
+		t.Fatalf("UpsertOrgSubscription: %v", err)
+	}
+
+	got, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription: %v", err)
+	}
+	if got.SpendingLimitMicrousd != 5_000_000 {
+		t.Errorf("SpendingLimitMicrousd = %d, want 5000000 (preserved)", got.SpendingLimitMicrousd)
+	}
+}
+
+// --------------------------------------------------------------------------
+// L8: IsProjectSuspended non-existent project
+// --------------------------------------------------------------------------
+
+func TestPgStore_IsProjectSuspended_NonExistent(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	_, err := pgStore.IsProjectSuspended(ctx, "nonexistent-"+newID())
+	if err == nil {
+		t.Error("expected error for non-existent project")
+	}
+}

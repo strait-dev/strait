@@ -2,6 +2,7 @@ package cdc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -127,5 +128,80 @@ func TestSLOHandler_StoreError_Resilient(t *testing.T) {
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	if err != nil {
 		t.Fatalf("expected nil error on store failure, got: %v", err)
+	}
+}
+
+func TestSLOHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{}
+	h := NewSLOHandler(store, nil)
+
+	msg := Message{
+		Action:   ActionUpdate,
+		Record:   json.RawMessage(`not valid json`),
+		Metadata: Metadata{TableName: "job_runs"},
+	}
+	err := h.Handle(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestSLOHandler_InsertEvaluationError_Resilient(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+			{JobSLO: domain.JobSLO{ID: "slo-2", JobID: "job-1"}},
+		},
+		evalErr: errors.New("db write failed"),
+	}
+	h := NewSLOHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("expected nil error on insert failure, got: %v", err)
+	}
+}
+
+func TestSLOHandler_TimedOutStatus(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("timed_out", "p1", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(store.evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation, got %d", len(store.evaluations))
+	}
+	if store.evaluations[0].CurrentValue != 0.0 {
+		t.Errorf("expected current_value=0.0 for timed_out, got %f", store.evaluations[0].CurrentValue)
+	}
+}
+
+func TestSLOHandler_CanceledStatus(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("canceled", "p1", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(store.evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation, got %d", len(store.evaluations))
+	}
+	if store.evaluations[0].CurrentValue != 0.0 {
+		t.Errorf("expected current_value=0.0 for canceled, got %f", store.evaluations[0].CurrentValue)
 	}
 }

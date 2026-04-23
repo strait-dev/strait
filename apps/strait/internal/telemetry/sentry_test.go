@@ -6,7 +6,10 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/getsentry/sentry-go"
 )
 
 // --- NewSentryHandler tests.
@@ -466,5 +469,162 @@ func TestSentryHandler_ChainedWithAttrsAndGroup(t *testing.T) {
 	}
 	if !strings.Contains(output, "http.path") {
 		t.Errorf("expected grouped key in output: %s", output)
+	}
+}
+
+type sentryEventCollector struct {
+	mu     sync.Mutex
+	events []*sentry.Event
+}
+
+func (c *sentryEventCollector) collect(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, event)
+	return event
+}
+
+func (c *sentryEventCollector) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.events)
+}
+
+func (c *sentryEventCollector) get(i int) *sentry.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.events[i]
+}
+
+func initTestSentry(t *testing.T, collector *sentryEventCollector) {
+	t.Helper()
+	err := sentry.Init(sentry.ClientOptions{
+		Dsn:        "https://examplePublicKey@o0.ingest.sentry.io/0",
+		BeforeSend: collector.collect,
+		Transport:  &sentry.HTTPSyncTransport{},
+	})
+	if err != nil {
+		t.Fatalf("sentry.Init error = %v", err)
+	}
+	t.Cleanup(func() {
+		sentry.Flush(0)
+	})
+}
+
+func TestSentryHandler_ErrorLevel_CapturesCalled(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := NewSentryHandler(inner)
+	logger := slog.New(h)
+
+	logger.Error("test error event")
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+}
+
+func TestSentryHandler_WarnLevel_NoCaptureCall(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := NewSentryHandler(inner)
+	logger := slog.New(h)
+
+	logger.Warn("test warning event")
+
+	if collector.len() != 0 {
+		t.Fatalf("expected 0 sentry events for warn level, got %d", collector.len())
+	}
+}
+
+func TestSentryHandler_ErrorWithErrorAttr_CapturesException(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := NewSentryHandler(inner)
+	logger := slog.New(h)
+
+	logger.Error("failed operation", "error", errors.New("db connection lost"))
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+	event := collector.get(0)
+	if len(event.Exception) == 0 {
+		t.Fatal("expected exception in sentry event, got message-only")
+	}
+}
+
+func TestSentryHandler_ErrorWithoutErrorAttr_CapturesMessage(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := NewSentryHandler(inner)
+	logger := slog.New(h)
+
+	logger.Error("plain error without error attr", "some_key", "some_value")
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+	event := collector.get(0)
+	if event.Message != "plain error without error attr" {
+		t.Errorf("expected message='plain error without error attr', got %q", event.Message)
+	}
+}
+
+func TestSentryHandler_TagKeys_SetAsTag(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := NewSentryHandler(inner)
+	logger := slog.New(h)
+
+	logger.Error("tag test", "run_id", "run-123", "project_id", "proj-456")
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+	event := collector.get(0)
+	if event.Tags["run_id"] != "run-123" {
+		t.Errorf("expected tag run_id=run-123, got %q", event.Tags["run_id"])
+	}
+	if event.Tags["project_id"] != "proj-456" {
+		t.Errorf("expected tag project_id=proj-456, got %q", event.Tags["project_id"])
+	}
+}
+
+func TestSentryHandler_NonTagKeys_SetAsExtra(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := NewSentryHandler(inner)
+	logger := slog.New(h)
+
+	logger.Error("extra test", "custom_field", "custom_value")
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+	event := collector.get(0)
+	if event.Extra["custom_field"] != "custom_value" {
+		t.Errorf("expected extra custom_field=custom_value, got %v", event.Extra["custom_field"])
+	}
+	if _, isTag := event.Tags["custom_field"]; isTag {
+		t.Error("custom_field should not be a tag")
 	}
 }

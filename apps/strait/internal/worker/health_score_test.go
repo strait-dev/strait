@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -446,18 +448,16 @@ func TestHealthScorer_ConcurrentAccess(t *testing.T) {
 	// Due to read-modify-write semantics, total_requests may be lower
 	// than the number of goroutines (lost updates are expected without
 	// external serialization).
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 50 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			_, _ = hs.RecordResult(ctx, DispatchResult{
 				EndpointURL:  "https://concurrent.com/api",
-				Success:      idx%3 != 0,
-				LatencyMs:    float64(idx * 10),
+				Success:      i%3 != 0,
+				LatencyMs:    float64(i * 10),
 				JobTimeoutMs: 5000,
 			})
-		}(i)
+		})
 	}
 	wg.Wait()
 

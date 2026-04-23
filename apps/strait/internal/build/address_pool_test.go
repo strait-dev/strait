@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 )
 
@@ -61,15 +63,13 @@ func TestAddressPool_ConcurrentNext(t *testing.T) {
 	// When extras is "b,c", primary "a" is overridden.
 	pool := NewAddressPool("a", "b,c")
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	const goroutines = 50
 	results := make([]string, goroutines)
-	wg.Add(goroutines)
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
-			results[idx] = pool.Next()
-		}(i)
+		wg.Go(func() {
+			results[i] = pool.Next()
+		})
 	}
 	wg.Wait()
 

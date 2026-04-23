@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -193,6 +194,73 @@ func TestParseKey_WrongLength(t *testing.T) {
 	_, err := NewEncryptor("12345")
 	if err == nil {
 		t.Fatal("expected error for wrong length key")
+	}
+}
+
+func TestDecrypt_ExactlyNonceSizeBytes(t *testing.T) {
+	t.Parallel()
+
+	enc := testEncryptor(t)
+	nonceSize := enc.aead.NonceSize()
+
+	ciphertext := make([]byte, nonceSize)
+	_, err := enc.Decrypt(ciphertext)
+	if err == nil {
+		t.Fatal("expected error for nonce-only ciphertext")
+	}
+	if errors.Is(err, errCiphertextTooShort) {
+		t.Fatal("ciphertext of exactly nonceSize should not be 'too short'")
+	}
+	if !errors.Is(err, errDecryptFailed) {
+		t.Fatalf("expected errDecryptFailed, got: %v", err)
+	}
+}
+
+func TestKeyRotator_DecryptNoOldKeys(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef0123456789abcdef")
+	rotator, err := NewKeyRotator(key)
+	if err != nil {
+		t.Fatalf("NewKeyRotator error: %v", err)
+	}
+
+	plaintext := []byte("no-old-keys-test")
+	ciphertext, err := rotator.Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt error: %v", err)
+	}
+
+	decrypted, err := rotator.Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt error: %v", err)
+	}
+
+	if !bytes.Equal(plaintext, decrypted) {
+		t.Fatalf("roundtrip mismatch: got %q, want %q", decrypted, plaintext)
+	}
+}
+
+func TestKeyRotator_DecryptExactlyNonceSizeBytes(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef0123456789abcdef")
+	rotator, err := NewKeyRotator(key)
+	if err != nil {
+		t.Fatalf("NewKeyRotator error: %v", err)
+	}
+
+	nonceSize := rotator.primary.aead.NonceSize()
+	ciphertext := make([]byte, nonceSize)
+	_, err = rotator.Decrypt(ciphertext)
+	if err == nil {
+		t.Fatal("expected error for nonce-only ciphertext")
+	}
+	if errors.Is(err, errCiphertextTooShort) {
+		t.Fatal("ciphertext of exactly nonceSize should not be 'too short' at KeyRotator level")
+	}
+	if !errors.Is(err, errDecryptFailed) {
+		t.Fatalf("expected errDecryptFailed, got: %v", err)
 	}
 }
 

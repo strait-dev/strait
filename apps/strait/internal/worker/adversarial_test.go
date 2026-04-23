@@ -6,13 +6,14 @@ import (
 	"log/slog"
 	"math"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
 	"strait/internal/telemetry"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Adversarial snooze tests.
@@ -486,16 +487,14 @@ func TestEmit_ConcurrentEmits_NoRace(t *testing.T) {
 		subscribers: []RunEventSubscriber{func(_ context.Context, _ RunLifecycleEvent) {}},
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 50 {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
+		wg.Go(func() {
 			exec.emit(context.Background(), RunLifecycleEvent{
 				Type: EventCompleted,
-				Run:  &domain.JobRun{ID: "run-" + strconv.Itoa(n)},
+				Run:  &domain.JobRun{ID: "run-" + strconv.Itoa(i)},
 			})
-		}(i)
+		})
 	}
 	wg.Wait()
 
