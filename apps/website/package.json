@@ -24,7 +24,7 @@
     "@hugeicons/react": "^1.1.6",
     "@strait/billing": "workspace:*",
     "@strait/ui": "workspace:*",
-    "@tailwindcss/vite": "4.1.18",
+    "@tailwindcss/vite": "4.2.4",
     "astro": "^6.1.9",
     "basehub": "^9.5.3",
     "clsx": "^2.1.1",
@@ -38,7 +38,7 @@
     "rough-notation": "^0.5.1",
     "sonner": "^2.0.7",
     "svg-dotted-map": "^2.1.0",
-    "tailwindcss": "4.1.18"
+    "tailwindcss": "4.2.4"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.8",
@@ -47,7 +47,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@typescript/native-preview": "^7.0.0-dev.20260422.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260423.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"

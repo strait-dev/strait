@@ -80,17 +80,12 @@ pre-push:
       fail_text: "typecheck failed"
       timeout: 180s
 
-    - name: go_lint_branch
+    - name: go_lint
       glob: "*.go"
       skip:
         - run: test "${SKIP_RUN_ALL:-0}" = "1"
-      run: |
-        export GOCACHE="$PWD/.cache/go-build"
-        export GOLANGCI_LINT_CACHE="$PWD/.cache/golangci-lint"
-        mkdir -p "$GOCACHE" "$GOLANGCI_LINT_CACHE"
-        git fetch origin master --quiet 2>/dev/null || true
-        cd apps/strait && golangci-lint run --new-from-rev=origin/master --timeout=5m ./...
-      fail_text: "Go lint failed (new issues vs origin/master)"
+      run: cd apps/strait && golangci-lint run --timeout=5m ./...
+      fail_text: "Go lint failed"
       timeout: 360s
 
 
