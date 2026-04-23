@@ -112,21 +112,19 @@ export function StaticPricingTable() {
                 <div className="flex flex-1 flex-col px-4 pb-5">
                   <div className="mt-5 mb-5">
                     {interval === "yearly" && !(isEnterprise || isFree) ? (
-                      <>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-3xl text-foreground tabular-nums">
-                            {formatPriceWithCents(plan.prices.yearly)}
-                          </span>
-                          <span className="text-muted-foreground text-sm">
-                            /yr
-                          </span>
-                        </div>
-                        <p className="mt-1 text-muted-foreground/60 text-xs">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-3xl text-foreground tabular-nums">
+                          {formatPriceWithCents(plan.prices.yearly)}
+                        </span>
+                        <span className="text-muted-foreground text-sm">
+                          /yr
+                        </span>
+                        <span className="text-muted-foreground/50 text-xs">
                           {priceDisplay}/mo
-                        </p>
-                      </>
+                        </span>
+                      </div>
                     ) : (
-                      <div className="flex items-baseline gap-1">
+                      <div className="flex items-baseline gap-1.5">
                         <span className="text-3xl text-foreground tabular-nums">
                           {priceDisplay}
                         </span>
