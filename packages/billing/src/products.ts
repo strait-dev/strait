@@ -51,7 +51,8 @@ export const PLAN_KEYS: PlanKey[] = [
 export const PLANS: Record<PlanKey, Plan> = {
   free: {
     name: "Free",
-    description: "For side projects and experimentation.",
+    description:
+      "For side projects and experimentation. Get started with no commitment.",
     prices: { monthly: 0, yearly: 0 },
     trial: false,
     creditCardRequired: false,
@@ -96,7 +97,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   starter: {
     name: "Starter",
-    description: "For small teams shipping to production.",
+    description:
+      "For small teams shipping to production. Everything you need to go live.",
     prices: { monthly: 1999, yearly: 19_999 },
     trial: false,
     creditCardRequired: true,
@@ -143,7 +145,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   pro: {
     name: "Pro",
-    description: "For growing teams that need workflow orchestration.",
+    description:
+      "For growing teams that need workflow orchestration and cost controls.",
     prices: { monthly: 4999, yearly: 49_999 },
     trial: false,
     creditCardRequired: true,
@@ -191,7 +194,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   scale: {
     name: "Scale",
-    description: "For high-volume teams with audit and canary deploy needs.",
+    description:
+      "For high-volume teams with audit trails, canary deploys, and advanced analytics.",
     prices: { monthly: 9900, yearly: 99_000 },
     trial: false,
     creditCardRequired: true,
@@ -242,7 +246,7 @@ export const PLANS: Record<PlanKey, Plan> = {
   enterprise: {
     name: "Enterprise",
     description:
-      "For mission-critical workloads with dedicated infrastructure and compliance.",
+      "For mission-critical workloads with dedicated infrastructure, SLAs, and compliance.",
     prices: { monthly: -1, yearly: -1 },
     trial: false,
     creditCardRequired: false,

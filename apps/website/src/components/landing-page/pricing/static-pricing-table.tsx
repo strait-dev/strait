@@ -126,28 +126,16 @@ export function StaticPricingTable() {
                         </p>
                       </>
                     ) : (
-                      <>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-3xl text-foreground tabular-nums">
-                            {priceDisplay}
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-3xl text-foreground tabular-nums">
+                          {priceDisplay}
+                        </span>
+                        {!(isEnterprise || isFree) && (
+                          <span className="text-muted-foreground text-sm">
+                            /mo
                           </span>
-                          {!(isEnterprise || isFree) && (
-                            <span className="text-muted-foreground text-sm">
-                              /mo
-                            </span>
-                          )}
-                        </div>
-                        {isFree && (
-                          <p className="mt-1 text-muted-foreground/60 text-xs">
-                            Free forever
-                          </p>
                         )}
-                        {isEnterprise && (
-                          <p className="mt-1 text-muted-foreground/60 text-xs">
-                            Starting at $1,500/mo
-                          </p>
-                        )}
-                      </>
+                      </div>
                     )}
                   </div>
 
