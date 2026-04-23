@@ -1,3 +1,5 @@
+AI documentation index for Strait. For full reference, see llms-full.txt.
+
 # Strait
 
 > Open-source job orchestration platform. Schedule jobs, build workflow DAGs, chain jobs, manage retries, run canary deployments, simulate workflows, and monitor everything -- all from one dashboard.
@@ -101,8 +103,16 @@ Docs: https://docs.strait.dev
 - Website: https://strait.dev
 - App: https://app.strait.dev
 - Docs: https://docs.strait.dev
-- GitHub: https://github.com/leonardomso/strait
+- GitHub: https://github.com/strait-dev/strait
 - Full reference: https://strait.dev/llms-full.txt
+
+## Reading Order
+
+Start with Introduction and Getting Started. Then explore Jobs, Runs, and Workflows.
+
+## Core Concept Relationships
+
+Jobs define what work to do. Runs are individual executions of a job. Workflows chain multiple jobs together.
 
 ## Contact
 

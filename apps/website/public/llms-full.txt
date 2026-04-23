@@ -57,6 +57,8 @@ Runs are individual job executions following a 13-state FSM:
 
 **Events**: ENQUEUE, DEQUEUE, EXECUTE, COMPLETE, FAIL, TIMEOUT, CRASH, SYSTEM_FAIL, CANCEL, EXPIRE, WAIT, REQUEUE, DEAD_LETTER, REPLAY
 
+Typical flow: queued -> executing -> completed. On error: failed / timed_out / dead_letter.
+
 ### Workflows
 Multi-step DAG orchestration with 5 step types:
 - **Job**: Execute a job as a workflow step
@@ -216,6 +218,8 @@ The Strait dashboard provides real-time monitoring and management:
 
 ## SDK Architecture
 
+SDKs wrap the REST API with typed clients. Use the high-level DSL (defineJob) for most cases.
+
 All 5 SDKs follow the same 5-layer architecture:
 
 ```
@@ -252,6 +256,12 @@ Configuration (strait.json / env vars / inline)
 19. **Health** -- Health check, readiness, metrics
 
 ### Error Types (10)
+
+The three most common errors and how to handle them:
+- TransportError = network failure (retry).
+- ValidationError = bad input (fix request).
+- UnauthorizedError = bad credentials (check API key).
+
 1. TransportError -- Network failures
 2. DecodeError -- JSON parse failures
 3. ValidationError -- Config/input validation (with issues list)
@@ -262,6 +272,7 @@ Configuration (strait.json / env vars / inline)
 8. ApiError -- Other HTTP errors
 9. TimeoutError -- Polling timeout (with run_id, elapsed_ms)
 10. DagValidationError -- DAG issues (cycles, missing_refs, duplicate_refs)
+
 
 ## Configuration
 
@@ -453,7 +464,7 @@ Compared to alternatives like Temporal, Inngest, Trigger.dev, Hatchet, BullMQ, C
 - Website: https://strait.dev
 - App: https://app.strait.dev
 - Docs: https://docs.strait.dev
-- GitHub: https://github.com/leonardomso/strait
+- GitHub: https://github.com/strait-dev/strait
 
 ## Contact
 

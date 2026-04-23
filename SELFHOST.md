@@ -18,11 +18,11 @@ Both options run the community edition with all open-source features.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
 
-Clicking the button forks the repo and takes you through a Cloudflare Workers Builds import. Because this repo is a Bun monorepo and Cloudflare does not yet support Bun workspace resolution in one-click deploys, you will need to set **Root directory** to `apps/app` and provide a custom **Build command** during import — the Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc` so the rest of the flow is guided.
+Click the button to fork the repo and start a Cloudflare Workers Builds import. Because Cloudflare doesn't yet support Bun workspaces in one-click deploys, you'll need to set **Root directory** to `apps/app` and provide a custom **Build command** during import. The rest of the flow is guided -- Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc`.
 
 See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detailed walkthrough, including the exact build command string and the list of secrets you must set in the Cloudflare dashboard after the first deploy.
 
-**You still need the Strait API somewhere reachable by the Worker.** The easiest setup: run the API locally with Option 2 below (or on any VPS/Kubernetes/Fly.io host), expose it via `cloudflared tunnel` or a public hostname, and point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables.
+**The dashboard needs the Strait API server to function.** Run it locally with Option 2 below, on a VPS, or on Kubernetes -- then point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables. The easiest way to expose a local API is via `cloudflared tunnel` or a public hostname.
 
 ---
 
@@ -61,7 +61,11 @@ make selfhost-down
 make selfhost-reset
 ```
 
+---
+
 ## Creating Your First Job
+
+> The steps below apply regardless of which option you chose above.
 
 1. Open **http://localhost:3000** and sign up
 2. A workspace is created automatically for you
@@ -72,7 +76,7 @@ The dashboard guides you through installing the SDK, deploying a job, and trigge
 
 ### Advanced: API-only usage
 
-If you prefer using the API directly without the dashboard:
+If you prefer working with the API directly instead of the dashboard, here's a complete example that creates a project, generates an API key, and triggers a job.
 
 ```bash
 SECRET="<your INTERNAL_SECRET from .env.selfhost>"
@@ -234,7 +238,7 @@ const run = await strait.jobs.trigger("my-job", {
 });
 ```
 
-**Python** ([github.com/strait-dev/python-sdk](https://github.com/strait-dev/python-sdk)):
+**Python** ([github.com/strait-dev/strait-python](https://github.com/strait-dev/strait-python)):
 ```bash
 pip install strait
 ```
@@ -245,9 +249,9 @@ client = Strait(base_url="http://localhost:8080", api_key="strait_...")
 run = client.jobs.trigger("my-job", payload={"userId": "123"})
 ```
 
-**Go** ([github.com/strait-dev/go-sdk](https://github.com/strait-dev/go-sdk)):
+**Go** ([github.com/strait-dev/strait-go](https://github.com/strait-dev/strait-go)):
 ```bash
-go get github.com/strait-dev/go-sdk
+go get github.com/strait-dev/strait-go
 ```
 ```go
 client := strait.New("http://localhost:8080", "strait_...")
@@ -278,7 +282,7 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 ```bash
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
 ```
-Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`).
+Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`). Check if Postgres is healthy with `docker ps`. If secrets look wrong, run `make selfhost-reset` followed by `make selfhost` to regenerate.
 
 **Dashboard can't reach the API:**
 Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. Restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`

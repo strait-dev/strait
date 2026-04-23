@@ -1,3 +1,5 @@
+AI documentation index for Strait. For full reference, see llms-full.txt.
+
 # Strait
 
 > Open-source job orchestration platform. Schedule jobs, build workflow DAGs, manage retries, and monitor runs — all from one dashboard.
@@ -46,10 +48,18 @@ strait jobs trigger process-payments
 - [REST API](https://docs.strait.dev/api-reference): 186 endpoints across 19 services
 - [Full LLM reference](https://app.strait.dev/llms-full.txt): Complete architecture and SDK documentation
 
+## Reading Order
+
+Start with Introduction and Getting Started. Then explore Jobs, Runs, and Workflows.
+
+## Core Concept Relationships
+
+Jobs define what work to do. Runs are individual executions of a job. Workflows chain multiple jobs together.
+
 ## Links
 
 - Docs: https://docs.strait.dev
-- GitHub: https://github.com/leonardomso/strait
+- GitHub: https://github.com/strait-dev/strait
 - Full reference: https://app.strait.dev/llms-full.txt
 
 ## Contact
