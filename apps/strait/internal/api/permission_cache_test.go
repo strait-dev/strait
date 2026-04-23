@@ -330,27 +330,27 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 	// Set initial value.
 	c.Set("proj", "user", []string{"old"})
 
-	// Use a started channel to ensure the reader goroutine is running
-	// before we start writing. Without this, the writes can finish
-	// before the reader is even scheduled (especially under -race).
-	started := make(chan struct{})
+	firstRead := make(chan struct{})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var readCount atomic.Int64
 	var wg conc.WaitGroup
 	wg.Go(func() {
-		close(started)
 		for ctx.Err() == nil {
 			c.Get("proj", "user")
-			readCount.Add(1)
+			if readCount.Add(1) == 1 {
+				close(firstRead)
+			}
 		}
 	})
 
-	// Wait for the reader to be scheduled.
-	<-started
+	select {
+	case <-firstRead:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for first read")
+	}
 
-	// Simultaneously set new values — should not deadlock.
 	for i := range 100 {
 		c.Set("proj", "user", []string{fmt.Sprintf("perm-%d", i)})
 	}

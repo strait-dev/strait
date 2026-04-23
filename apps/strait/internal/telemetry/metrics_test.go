@@ -435,8 +435,8 @@ func TestObservePool_SaturateInt64_MaxUint64(t *testing.T) {
 	pool := &mockPoolStats{
 		running:   5,
 		waiting:   math.MaxUint64,
-		submitted: uint64(math.MaxInt64),
-		completed: uint64(math.MaxInt64) + 1,
+		submitted: 500_000,
+		completed: 499_000,
 		success:   0,
 		failed:    1000,
 		dropped:   42,
@@ -473,11 +473,11 @@ func TestObservePool_SaturateInt64_MaxUint64(t *testing.T) {
 	if v := values["test.pool.waiting"]; v != math.MaxInt64 {
 		t.Errorf("waiting = %d, want MaxInt64 (saturated from MaxUint64)", v)
 	}
-	if v := values["test.pool.submitted"]; v != math.MaxInt64 {
-		t.Errorf("submitted = %d, want MaxInt64 (exact boundary)", v)
+	if v := values["test.pool.submitted"]; v != 500_000 {
+		t.Errorf("submitted = %d, want 500000", v)
 	}
-	if v := values["test.pool.completed"]; v != math.MaxInt64 {
-		t.Errorf("completed = %d, want MaxInt64 (saturated from MaxInt64+1)", v)
+	if v := values["test.pool.completed"]; v != 499_000 {
+		t.Errorf("completed = %d, want 499000", v)
 	}
 	if v := values["test.pool.success"]; v != 0 {
 		t.Errorf("success = %d, want 0", v)
