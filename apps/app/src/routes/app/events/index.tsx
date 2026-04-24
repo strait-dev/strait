@@ -66,7 +66,6 @@ function EventsPage() {
               search: (prev) => ({ ...prev, status: undefined, page: 1 }),
             })
           }
-          size="sm"
           variant={search.status ? "ghost" : "secondary"}
         >
           All
@@ -86,7 +85,6 @@ function EventsPage() {
                   }),
                 })
               }
-              size="sm"
               variant={active ? "secondary" : "ghost"}
             >
               <span

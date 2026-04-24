@@ -17,14 +17,14 @@
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^13.2.0",
+    "@astrojs/cloudflare": "^13.2.1",
     "@astrojs/react": "^5.0.4",
     "@astrojs/sitemap": "^3.7.2",
     "@hugeicons/core-free-icons": "^4.1.1",
     "@hugeicons/react": "^1.1.6",
     "@strait/billing": "workspace:*",
     "@strait/ui": "workspace:*",
-    "@tailwindcss/vite": "4.2.4",
+    "@tailwindcss/postcss": "4.2.4",
     "astro": "^6.1.9",
     "basehub": "^9.5.3",
     "clsx": "^2.1.1",

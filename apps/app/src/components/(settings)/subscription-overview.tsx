@@ -183,10 +183,7 @@ const SubscriptionOverview = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              render={<Link preload="intent" to="/app/upgrade" />}
-              size="lg"
-            >
+            <Button render={<Link preload="intent" to="/app/upgrade" />}>
               Choose Plan
             </Button>
           </CardContent>
@@ -268,7 +265,6 @@ const SubscriptionOverview = () => {
               className="flex items-center gap-2"
               disabled={isLoading === "portal"}
               onClick={handleOpenPortal}
-              size="lg"
             >
               <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
               {isLoading === "portal" ? "Opening..." : "Customer Portal"}
@@ -278,29 +274,26 @@ const SubscriptionOverview = () => {
               render={
                 <Link className="flex items-center gap-2" to="/app/upgrade" />
               }
-              size="lg"
               variant="outline"
             >
               <HugeiconsIcon className="size-4" icon={SparklesIcon} />
               {planInfo.isActive ? "Change Plan" : "Choose Plan"}
             </Button>
 
-            {!!planInfo.isActive && !!planInfo.isCanceled ? (
+            {planInfo.isActive && planInfo.isCanceled ? (
               <Button
                 disabled={isLoading === "reactivate"}
                 onClick={handleReactivateSubscription}
-                size="lg"
                 variant="outline"
               >
                 {isLoading === "reactivate" ? "Reactivating..." : "Reactivate"}
               </Button>
             ) : null}
-            {!!planInfo.isActive && !planInfo.isCanceled ? (
+            {planInfo.isActive && !planInfo.isCanceled ? (
               <Button
                 className="text-destructive hover:text-destructive"
                 disabled={isLoading === "cancel"}
                 onClick={handleCancelSubscription}
-                size="lg"
                 variant="ghost"
               >
                 {isLoading === "cancel" ? "Canceling..." : "Cancel"}

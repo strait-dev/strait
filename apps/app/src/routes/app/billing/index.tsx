@@ -75,7 +75,7 @@ function RouteComponent() {
     <Shell>
       <div className="flex w-full flex-col gap-6">
         <div>
-          <h1 className="text-balance font-normal text-foreground text-lg tracking-tight">
+          <h1 className="text-balance font-normal text-foreground text-xl tracking-tight">
             Billing
           </h1>
           <p className="text-muted-foreground text-sm">

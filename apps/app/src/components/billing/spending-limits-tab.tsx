@@ -169,7 +169,6 @@ const SpendingLimitsTab = () => {
                 <Button
                   key={amount}
                   onClick={() => handlePresetClick(amount)}
-                  size="sm"
                   variant={selectedAmount === amount ? "default" : "outline"}
                 >
                   ${amount}

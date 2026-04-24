@@ -68,12 +68,11 @@ const OverageWarningBanner = () => {
         <div className="flex items-center gap-2">
           <Button
             onClick={() => navigate({ to: "/app/billing" })}
-            size="sm"
             variant="destructive"
           >
             Set limit
           </Button>
-          <Button onClick={handleDismiss} size="sm" variant="ghost">
+          <Button onClick={handleDismiss} variant="ghost">
             Dismiss
           </Button>
         </div>
@@ -87,7 +86,7 @@ const OverageWarningBanner = () => {
         You've used <strong>{Math.round(creditUsedPercent)}%</strong> of your $
         {includedCreditDollars} compute credit this period.
       </p>
-      <Button onClick={handleDismiss} size="sm" variant="ghost">
+      <Button onClick={handleDismiss} variant="ghost">
         Dismiss
       </Button>
     </div>

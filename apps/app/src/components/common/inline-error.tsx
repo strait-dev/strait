@@ -18,7 +18,7 @@ const InlineError = ({
     />
     <p className="text-muted-foreground text-sm">{message}</p>
     {onRetry && (
-      <Button onClick={onRetry} size="sm" variant="ghost">
+      <Button onClick={onRetry} variant="ghost">
         Retry
       </Button>
     )}

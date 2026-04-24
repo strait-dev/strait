@@ -69,7 +69,6 @@ const SpendingLimitSetupBanner = () => {
               disabled={updateLimit.isPending}
               key={amount}
               onClick={() => handleSetLimit(amount)}
-              size="sm"
               variant="outline"
             >
               ${amount}
@@ -78,7 +77,6 @@ const SpendingLimitSetupBanner = () => {
           <Button
             disabled={updateLimit.isPending}
             onClick={handleDismiss}
-            size="sm"
             variant="ghost"
           >
             No limit

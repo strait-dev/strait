@@ -64,7 +64,7 @@ const PostPreview = ({
             </div>
 
             <h2
-              className="font-semibold text-xl transition-colors group-hover:text-foreground sm:text-2xl"
+              className="font-semibold text-2xl transition-colors group-hover:text-foreground sm:text-3xl lg:text-4xl"
               id={`article-${_slug}`}
             >
               {_title}

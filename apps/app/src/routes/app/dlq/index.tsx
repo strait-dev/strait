@@ -228,7 +228,6 @@ function DlqPage() {
             <Button
               disabled={bulkRetry.isPending}
               onClick={handleBulkRetry}
-              size="sm"
               variant="outline"
             >
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
@@ -237,7 +236,6 @@ function DlqPage() {
             <Button
               disabled={bulkDiscard.isPending}
               onClick={handleBulkDiscard}
-              size="sm"
               variant="destructive"
             >
               <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />

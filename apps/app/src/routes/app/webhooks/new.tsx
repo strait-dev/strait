@@ -137,10 +137,12 @@ function CreateWebhookPage() {
   return (
     <Shell>
       <div className="mb-6 flex items-center gap-3">
-        <Button render={<Link to="/app/webhooks" />} size="sm" variant="ghost">
+        <Button render={<Link to="/app/webhooks" />} variant="ghost">
           <HugeiconsIcon icon={ChevronLeftIcon} size={14} />
         </Button>
-        <h1 className="text-balance font-semibold text-lg">Create webhook</h1>
+        <h1 className="text-balance font-normal text-xl tracking-tight">
+          Create webhook
+        </h1>
       </div>
 
       <form

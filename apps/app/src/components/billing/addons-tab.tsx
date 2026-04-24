@@ -119,7 +119,7 @@ const AddonsTab = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="font-normal text-base text-foreground tracking-tight">
+        <h3 className="font-medium text-foreground text-sm tracking-tight">
           Add-on packs
         </h3>
         <p className="text-muted-foreground text-sm">
@@ -176,7 +176,6 @@ const AddonsTab = () => {
                         setLoadingSlug(null);
                       }
                     }}
-                    size="sm"
                     variant="outline"
                   >
                     {loadingSlug === addon.checkoutSlug

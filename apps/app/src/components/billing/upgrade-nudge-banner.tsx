@@ -57,10 +57,10 @@ const UpgradeNudgeBanner = () => {
           deploys.
         </p>
         <div className="flex items-center gap-2">
-          <Button onClick={handleUpgrade} size="sm" variant="default">
+          <Button onClick={handleUpgrade} variant="default">
             Upgrade to Scale
           </Button>
-          <Button onClick={handleDismiss} size="sm" variant="ghost">
+          <Button onClick={handleDismiss} variant="ghost">
             Dismiss
           </Button>
         </div>
@@ -89,10 +89,10 @@ const UpgradeNudgeBanner = () => {
             included.
           </p>
           <div className="flex items-center gap-2">
-            <Button onClick={handleUpgrade} size="sm" variant="default">
+            <Button onClick={handleUpgrade} variant="default">
               Upgrade to Scale
             </Button>
-            <Button onClick={handleDismiss} size="sm" variant="ghost">
+            <Button onClick={handleDismiss} variant="ghost">
               Dismiss
             </Button>
           </div>
@@ -118,10 +118,10 @@ const UpgradeNudgeBanner = () => {
           included credit.
         </p>
         <div className="flex items-center gap-2">
-          <Button onClick={handleUpgrade} size="sm" variant="default">
+          <Button onClick={handleUpgrade} variant="default">
             Upgrade
           </Button>
-          <Button onClick={handleDismiss} size="sm" variant="ghost">
+          <Button onClick={handleDismiss} variant="ghost">
             Dismiss
           </Button>
         </div>
@@ -142,10 +142,10 @@ const UpgradeNudgeBanner = () => {
         {firstAlert.message}
       </p>
       <div className="flex items-center gap-2">
-        <Button onClick={handleUpgrade} size="sm" variant="default">
+        <Button onClick={handleUpgrade} variant="default">
           Upgrade
         </Button>
-        <Button onClick={handleDismiss} size="sm" variant="ghost">
+        <Button onClick={handleDismiss} variant="ghost">
           Dismiss
         </Button>
       </div>

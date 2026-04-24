@@ -168,7 +168,6 @@ const TrialUpgradeCard = () => {
         <Button
           className={cn("w-full", colors.buttonClass)}
           render={<Link preload="intent" to="/app/upgrade" />}
-          size="sm"
           variant={colors.buttonVariant}
         >
           <HugeiconsIcon className="size-3" icon={colors.icon} />
