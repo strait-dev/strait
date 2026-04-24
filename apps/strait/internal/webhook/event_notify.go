@@ -9,7 +9,10 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -765,18 +768,33 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
 	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
 
-	// Sign the payload with the subscription's HMAC secret.
+	// Look up the subscription's HMAC secret up-front so we can both sign
+	// the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
+	// replay key is stable across retries of the same physical delivery
+	// row so subscribers can dedup independently of the attempt
+	// counter-based idempotency key; binding it to the secret prevents
+	// leaking raw internal delivery ids in the clear.
+	var subSecret, subPrevSecret string
+	var subGraceExpires *time.Time
 	if d.SubscriptionID != "" {
 		secret, prevSecret, graceExpires, lookupErr := n.store.GetWebhookSubscriptionSecrets(ctx, d.SubscriptionID)
 		if lookupErr != nil {
 			n.logger.Warn("failed to look up webhook signing secret", "delivery_id", d.ID, "subscription_id", d.SubscriptionID, "error", lookupErr)
-		} else if secret != "" {
-			sig := ComputeHMACSHA256(secret, body)
-			req.Header.Set("X-Webhook-Signature", "sha256="+sig)
-			if prevSecret != "" && graceExpires != nil && time.Now().Before(*graceExpires) {
-				oldSig := ComputeHMACSHA256(prevSecret, body)
-				req.Header.Set("X-Webhook-Signature-Old", "sha256="+oldSig)
-			}
+		} else {
+			subSecret = secret
+			subPrevSecret = prevSecret
+			subGraceExpires = graceExpires
+		}
+	}
+
+	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(subSecret), d.ID))
+
+	if subSecret != "" {
+		sig := ComputeHMACSHA256(subSecret, body)
+		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
+		if subPrevSecret != "" && subGraceExpires != nil && time.Now().Before(*subGraceExpires) {
+			oldSig := ComputeHMACSHA256(subPrevSecret, body)
+			req.Header.Set("X-Webhook-Signature-Old", "sha256="+oldSig)
 		}
 	}
 
@@ -1004,4 +1022,66 @@ func extractDomain(rawURL string) string {
 		return "unknown"
 	}
 	return u.Host
+}
+
+// replayKeyPrefix is the shared prefix for both the signed and unsigned
+// replay-key derivations.
+const replayKeyPrefix = "rk_"
+
+// replayKeyHexLen bounds the HMAC hex output so the header stays small
+// while retaining enough entropy (128 bits) to make collisions
+// effectively impossible across a single subscription's delivery
+// history.
+const replayKeyHexLen = 32
+
+// ComputeReplayKey derives a subscriber-visible replay key that is
+// stable across every retry of the same physical delivery row AND bound
+// to the subscription's HMAC secret. Subscribers can verify the key by
+// recomputing hmac_sha256(secret, delivery_id) and comparing the first
+// replayKeyHexLen hex chars, which proves the key was produced by a
+// party that holds the secret (i.e. our service) rather than leaking
+// internal delivery ids in the clear.
+//
+// The key is deterministic in (secret, delivery_id) by construction, so
+// no server-side persistence is required. Callers that do not have a
+// subscription secret available should use ComputeReplayKeyUnsigned.
+func ComputeReplayKey(secret []byte, deliveryID string) string {
+	if deliveryID == "" {
+		return ""
+	}
+	if len(secret) == 0 {
+		return ComputeReplayKeyUnsigned(deliveryID)
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(deliveryID))
+	// Truncate the raw HMAC bytes before hex-encoding rather than
+	// hex-encoding all 32 bytes and slicing 32 chars off the end: same
+	// output, roughly half the intermediate allocation on a hot
+	// signing path. replayKeyHexLen hex chars == replayKeyHexLen/2 raw
+	// bytes.
+	sum := mac.Sum(nil)
+	rawLen := min(replayKeyHexLen/2, len(sum))
+	return replayKeyPrefix + hex.EncodeToString(sum[:rawLen])
+}
+
+// ComputeReplayKeyUnsigned derives a deterministic replay key for
+// deliveries where no subscription secret is available — currently the
+// run-terminal webhook path in internal/worker/webhook.go, which fires
+// against a job-level URL and has no subscription row to bind against.
+// The returned key is stable across retries of the same underlying id
+// but is NOT HMAC-bound; subscribers must treat it as an opaque replay
+// discriminator rather than a proof of origin.
+func ComputeReplayKeyUnsigned(id string) string {
+	if id == "" {
+		return ""
+	}
+	return replayKeyPrefix + id
+}
+
+// replayKeyFromDeliveryID is retained for back-compat with call sites
+// that previously produced the unsigned form. New code should use
+// ComputeReplayKey (subscription deliveries) or ComputeReplayKeyUnsigned
+// (run-terminal deliveries) directly.
+func replayKeyFromDeliveryID(deliveryID string) string {
+	return ComputeReplayKeyUnsigned(deliveryID)
 }

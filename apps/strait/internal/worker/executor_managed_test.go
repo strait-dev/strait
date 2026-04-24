@@ -1511,7 +1511,7 @@ func TestManagedDispatch_InvalidPresetOverrideIgnored(t *testing.T) {
 	}
 }
 
-// Phase 2 tests.
+// Pool acquire and warm-start tests.
 
 func TestManagedDispatch_PoolAcquire_CallsStart(t *testing.T) {
 	t.Parallel()
@@ -1782,7 +1782,7 @@ func TestManagedDispatch_ShutdownDrainsPool(t *testing.T) {
 	}
 }
 
-// Phase 3 tests.
+// Resume and checkpoint tests.
 
 func TestManagedDispatch_ResumedRun_ReusesPausedMachine(t *testing.T) {
 	t.Parallel()
@@ -1981,7 +1981,7 @@ func TestManagedDispatch_ResumedRun_EnvContainsCheckpoint(t *testing.T) {
 	}
 }
 
-// Phase 4 tests.
+// Timeout and snooze tests.
 
 func TestManagedDispatch_CreateTimeout_Snoozes(t *testing.T) {
 	t.Parallel()
@@ -2276,7 +2276,7 @@ func TestManagedDispatch_MaxSnoozeExceeded_SystemFails(t *testing.T) {
 	}
 }
 
-// Phase 5 tests.
+// Dispatch metrics tests.
 
 func TestManagedDispatch_MetricsRecordPoolHit(t *testing.T) {
 	t.Parallel()
@@ -2355,7 +2355,7 @@ func TestManagedDispatch_MetricsRecordColdStart(t *testing.T) {
 	// No pool, no paused machine → cold_start path → metrics recorded.
 }
 
-// Phase 1: Exit code classification tests.
+// Exit code classification tests.
 
 func TestManagedDispatch_Exit137_OOM_ErrorClass(t *testing.T) {
 	t.Parallel()
@@ -2697,7 +2697,7 @@ func TestManagedDispatch_BeltAndSuspendersLogFetch(t *testing.T) {
 	}
 }
 
-// Phase 2: OOM-aware retry with preset upgrade.
+// OOM-aware retry with preset upgrade.
 
 func TestManagedDispatch_OOM_PresetUpgrade(t *testing.T) {
 	t.Parallel()
@@ -2924,7 +2924,7 @@ func TestManagedDispatch_OOM_PreservesSnoozeCount(t *testing.T) {
 	}
 }
 
-// Phase 3: STRAIT_CLEAN_START tests.
+// STRAIT_CLEAN_START tests.
 
 func TestManagedDispatch_PooledMachine_HasCleanStart(t *testing.T) {
 	t.Parallel()
@@ -3026,7 +3026,7 @@ func TestManagedDispatch_ColdCreate_NoCleanStart(t *testing.T) {
 	}
 }
 
-// Phase 4: Budget soft-limit warning tests.
+// Budget soft-limit warning tests.
 
 func TestManagedDispatch_BudgetWarning_CrossingThreshold(t *testing.T) {
 	t.Parallel()
@@ -3179,7 +3179,7 @@ func TestManagedDispatch_BudgetWarning_BelowThreshold_NoWarning(t *testing.T) {
 	}
 }
 
-// Phase 6: Multi-region failover tests.
+// Multi-region failover tests.
 
 func TestManagedDispatch_503Failover_SecondRegionSucceeds(t *testing.T) {
 	t.Parallel()
@@ -3312,7 +3312,7 @@ func TestManagedDispatch_All503_Snoozes(t *testing.T) {
 	}
 }
 
-// Phase 8: STRAIT_MEMORY_LIMIT_MB injection.
+// STRAIT_MEMORY_LIMIT_MB injection.
 
 func TestManagedDispatch_MemoryLimitInjected(t *testing.T) {
 	t.Parallel()

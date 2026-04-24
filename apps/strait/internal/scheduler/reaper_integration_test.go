@@ -122,6 +122,24 @@ func (baseReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent)
 func (baseReaperStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
 	return nil
 }
+func (baseReaperStore) ArchiveTerminalRunsPastRetention(_ context.Context, _, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) DeleteHistoryRunsPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) ArchiveConsumedOutboxBatch(_ context.Context, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (baseReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // 1. monitorQueueDepth

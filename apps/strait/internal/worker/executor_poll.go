@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -9,9 +10,25 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 
 	"github.com/getsentry/sentry-go"
 )
+
+// cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
+// so the executor can thread a claim cursor through DequeueN without
+// expanding the base queue.Queue interface (and therefore without breaking
+// every mock in the repository).
+type cursorAwareQueue interface {
+	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
+}
+
+// denormalizedDequeuer is the optional interface for the
+// job_active_counts-backed dequeue path. Same pattern as cursorAwareQueue:
+// opt-in via type assertion to avoid expanding the base Queue interface.
+type denormalizedDequeuer interface {
+	DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
+}
 
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
@@ -39,25 +56,58 @@ func (e *Executor) poll(ctx context.Context) {
 		available = e.maxDequeueBatchSize
 	}
 
+	// Short-circuit when the DB circuit breaker is open so
+	// we don't pile up goroutines on a slow Postgres.
+	if e.dbCircuit != nil && e.dbCircuit.State() == queue.CircuitOpen {
+		e.logger.Debug("poll skipped: db circuit open")
+		return
+	}
+
 	var runs []domain.JobRun
 	var err error
-	if len(e.partitionCycle) > 0 {
-		runs, err = e.dequeueAcrossPartitions(ctx, available)
-	} else if e.dequeueStrategy == "fair_round_robin" {
-		runs, err = e.queue.DequeueNFair(ctx, available)
-	} else {
-		runs, err = e.queue.DequeueN(ctx, available)
-	}
+
+	dequeueErr := e.dbCircuit.Do(ctx, func(innerCtx context.Context) error {
+		switch {
+		case len(e.partitionCycle) > 0:
+			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
+		case e.dequeueStrategy == "fair_round_robin":
+			runs, err = e.queue.DequeueNFair(innerCtx, available)
+		case e.useDenormalizedDequeue:
+			if dq, ok := e.queue.(denormalizedDequeuer); ok {
+				runs, err = dq.DequeueNDenormalized(innerCtx, available)
+			} else {
+				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
+		default:
+			if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
+				runs, err = cq.DequeueNWithCursor(innerCtx, available, e.claimCursor)
+			} else {
+				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
+		}
+		return err
+	})
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
 	}
-	if err != nil {
-		e.logger.Error("dequeue failed", "error", err)
+	if dequeueErr != nil {
+		if errors.Is(dequeueErr, queue.ErrCircuitOpen) {
+			e.logger.Debug("poll: db circuit open, skipping")
+		} else {
+			e.logger.Error("dequeue failed", "error", dequeueErr)
+		}
 		return
 	}
 	if len(runs) == 0 {
 		return
 	}
+
+	// Capture the claim time as close to DequeueN's return as possible so
+	// the ClaimToStart histogram measures the real gap between a run being
+	// claimed and user work starting, not the write time of StartedAt (which
+	// DequeueN sets inside its UPDATE and is therefore a mix of commit
+	// latency and clock skew).
+	claimedAt := time.Now()
 
 	e.logger.Info("dequeued runs", "count", len(runs))
 
@@ -74,6 +124,9 @@ func (e *Executor) poll(ctx context.Context) {
 
 		execCtx := context.WithoutCancel(ctx)
 		e.pool.Submit(execCtx, func() {
+			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
+				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
+			}
 			defer func() {
 				if r := recover(); r != nil {
 					sentry.WithScope(func(scope *sentry.Scope) {
@@ -112,11 +165,21 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 
 	remaining := capacity
 	iterations := len(e.partitionCycle)
+	qm, _ := queue.Metrics()
 	for i := 0; i < iterations && remaining > 0; i++ {
 		partition := e.partitionCycle[e.nextPartition%len(e.partitionCycle)]
 		e.nextPartition = (e.nextPartition + 1) % len(e.partitionCycle)
 
+		partStart := time.Now()
 		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
+		if qm != nil {
+			// We intentionally do NOT attach the partition/project_id as
+			// a label here: in fair-share mode the partition cycle holds
+			// project ids, which would explode Prometheus cardinality
+			// to O(projects). Aggregate across partitions instead; the
+			// per-tenant breakdown lives in ClickHouse analytics.
+			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
+		}
 		if err != nil {
 			return nil, err
 		}

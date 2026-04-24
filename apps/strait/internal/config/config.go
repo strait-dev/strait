@@ -70,6 +70,24 @@ type Config struct {
 	DBHealthCheckPeriod time.Duration `env:"DB_HEALTH_CHECK_PERIOD" default:"30s"`
 	DBStatementTimeout  time.Duration `env:"DB_STATEMENT_TIMEOUT" default:"30s"`
 
+	// MVCC horizon guardrails. These prevent stray long transactions
+	// from pinning pg_xmin and blocking autovacuum on hot queue tables.
+	DBIdleInTransactionTimeout time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
+	DBLockTimeout              time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
+	DBTransactionTimeout       time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"0"`
+	DBLongTxnAlertThreshold    time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
+	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
+	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
+
+	// Toggle the denormalized dequeue path (uses job_active_counts
+	// lookup table instead of COUNT-over-active-rows CTE).
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
+
+	// DLQ caps and overflow policy.
+	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
+	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
+	DLQOverflowPolicy string `env:"DLQ_OVERFLOW_POLICY" default:"drop_oldest"`
+
 	RateLimitRequests int           `env:"RATE_LIMIT_REQUESTS" default:"100"`
 	RateLimitWindow   time.Duration `env:"RATE_LIMIT_WINDOW" default:"1m"`
 
@@ -102,6 +120,29 @@ type Config struct {
 
 	WorkerDrainTimeout time.Duration `env:"WORKER_DRAIN_TIMEOUT" default:"30s"`
 
+	// WorkerEventChannelSize configures the buffered capacity of the executor's
+	// internal run-lifecycle event channel. Increasing this value trades memory
+	// for tolerance of bursty subscriber latency before events start dropping.
+	WorkerEventChannelSize int `env:"WORKER_EVENT_CHANNEL_SIZE" default:"1024"`
+
+	// SchedulerComponentShutdownTimeout bounds how long Scheduler.Stop will wait
+	// for any single background component to exit before emitting a warning and
+	// moving on. A stuck component past this deadline increments
+	// strait.scheduler.shutdown_timeouts_total and is reported in logs.
+	SchedulerComponentShutdownTimeout time.Duration `env:"SCHEDULER_COMPONENT_SHUTDOWN_TIMEOUT" default:"15s"`
+
+	// BackpressureSamplerInterval controls how often the scheduler samples
+	// per-project backpressure token buckets to populate the
+	// strait.queue.backpressure_tokens_available gauge. Set to 0 to disable
+	// the sampler; the gauge will simply report no points.
+	BackpressureSamplerInterval time.Duration `env:"BACKPRESSURE_SAMPLER_INTERVAL" default:"15s"`
+
+	// BackpressureSamplerN bounds the number of project rate-limit rows
+	// the sampler reads per tick. Larger values give better gauge
+	// coverage on high-tenant deployments at the cost of one extra
+	// indexed scan per interval. Defaults to 100 if unset or non-positive.
+	BackpressureSamplerN int `env:"BACKPRESSURE_SAMPLER_N" default:"100"`
+
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 
@@ -131,6 +172,10 @@ type Config struct {
 	EventTriggerRetention    time.Duration `env:"EVENT_TRIGGER_RETENTION"`
 	IndexMaintenanceInterval time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
 	ReaperDeleteBatchSize    int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
+	TerminalArchiveEnabled   bool          `env:"TERMINAL_ARCHIVE_ENABLED" default:"false"`
+	PartitionReclaimEnabled  bool          `env:"PARTITION_RECLAIM_ENABLED" default:"false"`
+	PartitionReclaimInterval time.Duration `env:"PARTITION_RECLAIM_INTERVAL" default:"24h"`
+	PartitionReclaimSafety   int           `env:"PARTITION_RECLAIM_SAFETY_MONTHS" default:"2"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
 	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
 	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`

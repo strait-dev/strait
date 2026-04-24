@@ -3,7 +3,7 @@ services:
     container_name: strait-postgres
     image: postgres:18-alpine
     ports:
-      - "5432:5432"
+      - "15432:5432"
     environment:
       POSTGRES_USER: strait
       POSTGRES_PASSWORD: strait
@@ -25,7 +25,7 @@ services:
     container_name: strait-redis
     image: redis:8-alpine
     ports:
-      - "6379:6379"
+      - "16379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

@@ -313,6 +313,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					}
 					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
+						if apiErr := enqueueAPIError(enqErr); apiErr != nil {
+							return nil, apiErr
+						}
 						return nil, huma.Error500InternalServerError("failed to enqueue batch run")
 					}
 					return &TriggerJobOutput{Body: map[string]any{
@@ -513,6 +516,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			slog.Error("idempotency conflict retry returned nil",
 				"job_id", job.ID,
 				"idempotency_key", idempotencyKey)
+		}
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
 		}
 		return nil, huma.Error500InternalServerError("failed to enqueue run")
 	}

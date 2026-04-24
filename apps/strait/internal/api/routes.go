@@ -402,7 +402,7 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Route("/api-keys", func(r chi.Router) {
-			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAPIKey))
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAPIKey))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAPIKeys))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/expiring-soon", TypedHandler(s, http.StatusOK, s.handleListExpiringKeys))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", TypedHandler(s, http.StatusCreated, s.handleRotateAPIKey))
@@ -633,6 +633,22 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/compensate", TypedHandler(s, http.StatusOK, s.handleCompensateWorkflowRun))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/compensation-plan", TypedHandler(s, http.StatusOK, s.handleGetCompensationPlan))
 			})
+		})
+
+		// Admin DLQ recovery endpoints. RBAC is enforced in-handler via
+		// the dlq:read / dlq:replay / dlq:purge scopes; each mutation
+		// writes an audit_events row with actor and before/after state.
+		r.Route("/admin/dlq", func(r chi.Router) {
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListDLQ))
+			r.Post("/{run_id}/replay", TypedHandler(s, http.StatusOK, s.handleAdminReplayDLQ))
+			r.Post("/{run_id}/unmask", TypedHandler(s, http.StatusOK, s.handleAdminUnmaskDLQ))
+			r.Post("/{run_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeDLQ))
+		})
+		r.Route("/admin/outbox", func(r chi.Router) {
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListOutbox))
+			r.Get("/{outbox_id}", TypedHandler(s, http.StatusOK, s.handleAdminGetOutbox))
+			r.Post("/{outbox_id}/retry", TypedHandler(s, http.StatusOK, s.handleAdminRetryOutbox))
+			r.Post("/{outbox_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeOutbox))
 		})
 	})
 

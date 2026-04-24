@@ -125,6 +125,10 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+func (m *mockQueue) EnqueueInTx(ctx context.Context, _ store.DBTX, run *domain.JobRun) error {
+	return m.Enqueue(ctx, run)
+}
+
 func (m *mockQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
 	return int64(len(runs)), nil
 }
@@ -342,6 +346,30 @@ func (m *mockReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ s
 	return nil
 }
 func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (m *mockReaperStore) ArchiveTerminalRunsPastRetention(_ context.Context, _, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteHistoryRunsPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) ArchiveConsumedOutboxBatch(_ context.Context, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
 }
 

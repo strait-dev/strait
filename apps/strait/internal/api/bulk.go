@@ -350,6 +350,9 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 						"idempotency_key", item.IdempotencyKey,
 						"item_index", itemIdx)
 				}
+				if apiErr := enqueueAPIError(err); apiErr != nil {
+					return nil, apiErr
+				}
 				return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to enqueue item %d", itemIdx))
 			}
 		} else {
@@ -370,6 +373,9 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 	// Batch insert all collected runs via COPY protocol.
 	if len(pendingRuns) > 0 {
 		if _, err := s.queue.EnqueueBatch(ctx, pendingRuns); err != nil {
+			if apiErr := enqueueAPIError(err); apiErr != nil {
+				return nil, apiErr
+			}
 			return nil, huma.Error500InternalServerError("failed to enqueue batch")
 		}
 	}

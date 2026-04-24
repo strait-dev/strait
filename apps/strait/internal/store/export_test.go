@@ -2,6 +2,8 @@ package store
 
 import "context"
 
+var HistoryArchiveColumnsForTest = historyArchiveColumns
+
 // SetTombstoneInsertHookForTest installs a pre-insert hook invoked inside
 // writeRetentionTombstone just before the anchor INSERT on the provided
 // *Queries instance. Passing nil restores the no-op default. Test-only —

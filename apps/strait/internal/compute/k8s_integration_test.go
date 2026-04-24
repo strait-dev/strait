@@ -31,6 +31,11 @@ func requireKindCluster(t *testing.T) *K8sRuntime {
 	if err != nil {
 		t.Skipf("cannot connect to k8s cluster: %v", err)
 	}
+	checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := rt.clientset.CoreV1().Namespaces().Get(checkCtx, "default", metav1.GetOptions{}); err != nil {
+		t.Skipf("cannot reach k8s cluster: %v", err)
+	}
 	return rt
 }
 

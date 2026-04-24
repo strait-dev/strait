@@ -132,7 +132,10 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		pricing_catalog, run_compute_usage, job_preset_recommendations,
 		projects, organization_subscriptions, usage_records,
 		organization_addons, sent_usage_reports, processed_webhook_messages,
-		enterprise_contracts
+		enterprise_contracts,
+		job_active_counts, dlq_counts, job_run_heartbeats,
+		job_retries, enqueue_outbox, project_rate_limits,
+		query_plan_baselines
 		CASCADE`)
 	if err != nil {
 		return fmt.Errorf("clean tables: %w", err)

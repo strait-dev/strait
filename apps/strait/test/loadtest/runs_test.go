@@ -327,7 +327,7 @@ func TestRuns_ListCheckpoints(t *testing.T) {
 
 	for i := range 5 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/checkpoint", fmt.Sprintf(
-			`{"data":{"step":%d,"progress":%.1f}}`, i, float64(i)*20.0,
+			`{"state":{"step":%d,"progress":%.1f}}`, i, float64(i)*20.0,
 		), http.Header{"Authorization": []string{"Bearer " + runToken}})
 	}
 
@@ -358,7 +358,7 @@ func TestRuns_ListUsage(t *testing.T) {
 
 	for i := range 3 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/usage", fmt.Sprintf(
-			`{"model":"gpt-4","input_tokens":%d,"output_tokens":%d,"cost_micros":%d}`,
+			`{"provider":"openai","model":"gpt-4","prompt_tokens":%d,"completion_tokens":%d,"cost_microusd":%d}`,
 			100*(i+1), 50*(i+1), 500*(i+1),
 		), http.Header{"Authorization": []string{"Bearer " + runToken}})
 	}
@@ -390,7 +390,7 @@ func TestRuns_ListToolCalls(t *testing.T) {
 
 	for i := range 3 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/tool-call", fmt.Sprintf(
-			`{"name":"search","input":{"q":"test-%d"},"output":{"result":"ok"}}`, i,
+			`{"tool_name":"search","input":{"q":"test-%d"},"output":{"result":"ok"}}`, i,
 		), http.Header{"Authorization": []string{"Bearer " + runToken}})
 	}
 
@@ -421,7 +421,7 @@ func TestRuns_ListOutputs(t *testing.T) {
 
 	for i := range 3 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/output", fmt.Sprintf(
-			`{"key":"result-%d","value":{"data":"output-%d"}}`, i, i,
+			`{"output_key":"result-%d","value":{"data":"output-%d"}}`, i, i,
 		), http.Header{"Authorization": []string{"Bearer " + runToken}})
 	}
 
@@ -565,8 +565,8 @@ func TestRuns_BulkDLQReplay(t *testing.T) {
 	jobID := seedJob(t, projectID)
 	ctx := context.Background()
 
-	deadLetterRunIDs := make([]string, 100)
-	for i := range 100 {
+	deadLetterRunIDs := make([]string, 500)
+	for i := range 500 {
 		runID, _ := seedRun(t, jobID)
 		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{"started_at": time.Now().UTC()}); err != nil {
 			t.Fatalf("dequeue run %s: %v", runID, err)

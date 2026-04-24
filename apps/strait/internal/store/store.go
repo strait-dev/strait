@@ -24,6 +24,8 @@ var (
 	ErrAuditEventNotFound           = errors.New("audit event not found")
 	ErrRunNotFound                  = errors.New("run not found")
 	ErrRunConflict                  = errors.New("run status update conflict")
+	ErrOutboxRowNotFound            = errors.New("outbox row not found")
+	ErrOutboxRowConflict            = errors.New("outbox row conflict")
 	ErrWorkflowNotFound             = errors.New("workflow not found")
 	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
 	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
@@ -99,11 +101,13 @@ type RunStore interface {
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error)
 	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error)
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	ReplayDeadLetterRunWithAudit(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	BatchUpdateHeartbeat(ctx context.Context, ids []string) error
@@ -255,7 +259,7 @@ type StepDepResult struct {
 	StepRef       string
 	DepsCompleted int
 	DepsRequired  int
-	JobID         string
+	JobID         *string
 	Condition     json.RawMessage
 	Payload       json.RawMessage
 	WorkflowRunID string
@@ -414,6 +418,7 @@ type Queries struct {
 	db                  DBTX
 	secretEncryptionKey string
 	auditSigningKey     []byte
+	maxSLOWindowHours   int
 
 	// tombstoneInsertHook is a test-only injection point invoked inside
 	// writeRetentionTombstone immediately before the anchor insert. When
@@ -443,6 +448,10 @@ func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 
 func (q *Queries) SetAuditSigningKey(key []byte) {
 	q.auditSigningKey = key
+}
+
+func (q *Queries) SetMaxSLOWindowHours(hours int) {
+	q.maxSLOWindowHours = hours
 }
 
 type TxBeginner interface {

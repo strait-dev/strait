@@ -348,7 +348,7 @@ func TestMachinePool_OnEvictPanic_DoesntCrashPool(t *testing.T) {
 	}
 }
 
-// Phase 4 tests.
+// Prune and post-prune acquire tests.
 
 func TestMachinePool_AcquireAfterPrune(t *testing.T) {
 	t.Parallel()

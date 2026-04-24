@@ -529,6 +529,9 @@ var _ APIStore = &APIStoreMock{}
 //			ListDeadLetterRunsFunc: func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 //				panic("mock out the ListDeadLetterRuns method")
 //			},
+//			ListDeadLetterRunsFilteredFunc: func(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+//				panic("mock out the ListDeadLetterRunsFiltered method")
+//			},
 //			ListDeploymentVersionsFunc: func(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error) {
 //				panic("mock out the ListDeploymentVersions method")
 //			},
@@ -685,6 +688,9 @@ var _ APIStore = &APIStoreMock{}
 //			MarkJobRunsPausedByWorkflowRunFunc: func(ctx context.Context, workflowRunID string) (int64, error) {
 //				panic("mock out the MarkJobRunsPausedByWorkflowRun method")
 //			},
+//			MarkRunReplayedFunc: func(ctx context.Context, originalRunID string, replayedByRunID string) error {
+//				panic("mock out the MarkRunReplayed method")
+//			},
 //			PauseJobFunc: func(ctx context.Context, id string, reason string) error {
 //				panic("mock out the PauseJob method")
 //			},
@@ -693,6 +699,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			PromoteDeploymentVersionFunc: func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error) {
 //				panic("mock out the PromoteDeploymentVersion method")
+//			},
+//			PurgeDLQRunFunc: func(ctx context.Context, runID string) error {
+//				panic("mock out the PurgeDLQRun method")
 //			},
 //			QueueStatsFunc: func(ctx context.Context) (*store.QueueStats, error) {
 //				panic("mock out the QueueStats method")
@@ -708,6 +717,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			ReplayDeadLetterRunFunc: func(ctx context.Context, runID string) (*domain.JobRun, error) {
 //				panic("mock out the ReplayDeadLetterRun method")
+//			},
+//			ReplayDeadLetterRunWithAuditFunc: func(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error) {
+//				panic("mock out the ReplayDeadLetterRunWithAudit method")
 //			},
 //			ReplayWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
 //				panic("mock out the ReplayWebhookDelivery method")
@@ -789,6 +801,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			TryAcquireIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error) {
 //				panic("mock out the TryAcquireIdempotencyKey method")
+//			},
+//			UnmaskDLQRunFunc: func(ctx context.Context, runID string) error {
+//				panic("mock out the UnmaskDLQRun method")
 //			},
 //			UpdateCanaryDeploymentTrafficFunc: func(ctx context.Context, workflowID string, trafficPct int) error {
 //				panic("mock out the UpdateCanaryDeploymentTraffic method")
@@ -1394,6 +1409,9 @@ type APIStoreMock struct {
 	// ListDeadLetterRunsFunc mocks the ListDeadLetterRuns method.
 	ListDeadLetterRunsFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 
+	// ListDeadLetterRunsFilteredFunc mocks the ListDeadLetterRunsFiltered method.
+	ListDeadLetterRunsFilteredFunc func(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
+
 	// ListDeploymentVersionsFunc mocks the ListDeploymentVersions method.
 	ListDeploymentVersionsFunc func(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error)
 
@@ -1550,6 +1568,9 @@ type APIStoreMock struct {
 	// MarkJobRunsPausedByWorkflowRunFunc mocks the MarkJobRunsPausedByWorkflowRun method.
 	MarkJobRunsPausedByWorkflowRunFunc func(ctx context.Context, workflowRunID string) (int64, error)
 
+	// MarkRunReplayedFunc mocks the MarkRunReplayed method.
+	MarkRunReplayedFunc func(ctx context.Context, originalRunID string, replayedByRunID string) error
+
 	// PauseJobFunc mocks the PauseJob method.
 	PauseJobFunc func(ctx context.Context, id string, reason string) error
 
@@ -1558,6 +1579,9 @@ type APIStoreMock struct {
 
 	// PromoteDeploymentVersionFunc mocks the PromoteDeploymentVersion method.
 	PromoteDeploymentVersionFunc func(ctx context.Context, deploymentID string, projectID string, environment string, updatedBy string) (*domain.DeploymentVersion, error)
+
+	// PurgeDLQRunFunc mocks the PurgeDLQRun method.
+	PurgeDLQRunFunc func(ctx context.Context, runID string) error
 
 	// QueueStatsFunc mocks the QueueStats method.
 	QueueStatsFunc func(ctx context.Context) (*store.QueueStats, error)
@@ -1573,6 +1597,9 @@ type APIStoreMock struct {
 
 	// ReplayDeadLetterRunFunc mocks the ReplayDeadLetterRun method.
 	ReplayDeadLetterRunFunc func(ctx context.Context, runID string) (*domain.JobRun, error)
+
+	// ReplayDeadLetterRunWithAuditFunc mocks the ReplayDeadLetterRunWithAudit method.
+	ReplayDeadLetterRunWithAuditFunc func(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 
 	// ReplayWebhookDeliveryFunc mocks the ReplayWebhookDelivery method.
 	ReplayWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
@@ -1654,6 +1681,9 @@ type APIStoreMock struct {
 
 	// TryAcquireIdempotencyKeyFunc mocks the TryAcquireIdempotencyKey method.
 	TryAcquireIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error)
+
+	// UnmaskDLQRunFunc mocks the UnmaskDLQRun method.
+	UnmaskDLQRunFunc func(ctx context.Context, runID string) error
 
 	// UpdateCanaryDeploymentTrafficFunc mocks the UpdateCanaryDeploymentTraffic method.
 	UpdateCanaryDeploymentTrafficFunc func(ctx context.Context, workflowID string, trafficPct int) error
@@ -3160,6 +3190,21 @@ type APIStoreMock struct {
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
 		}
+		// ListDeadLetterRunsFiltered holds details about calls to the ListDeadLetterRunsFiltered method.
+		ListDeadLetterRunsFiltered []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// JobID is the jobID argument value.
+			JobID *string
+			// Masked is the masked argument value.
+			Masked *bool
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor *time.Time
+		}
 		// ListDeploymentVersions holds details about calls to the ListDeploymentVersions method.
 		ListDeploymentVersions []struct {
 			// Ctx is the ctx argument value.
@@ -3740,6 +3785,15 @@ type APIStoreMock struct {
 			// WorkflowRunID is the workflowRunID argument value.
 			WorkflowRunID string
 		}
+		// MarkRunReplayed holds details about calls to the MarkRunReplayed method.
+		MarkRunReplayed []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OriginalRunID is the originalRunID argument value.
+			OriginalRunID string
+			// ReplayedByRunID is the replayedByRunID argument value.
+			ReplayedByRunID string
+		}
 		// PauseJob holds details about calls to the PauseJob method.
 		PauseJob []struct {
 			// Ctx is the ctx argument value.
@@ -3768,6 +3822,13 @@ type APIStoreMock struct {
 			Environment string
 			// UpdatedBy is the updatedBy argument value.
 			UpdatedBy string
+		}
+		// PurgeDLQRun holds details about calls to the PurgeDLQRun method.
+		PurgeDLQRun []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// RunID is the runID argument value.
+			RunID string
 		}
 		// QueueStats holds details about calls to the QueueStats method.
 		QueueStats []struct {
@@ -3809,6 +3870,15 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// RunID is the runID argument value.
 			RunID string
+		}
+		// ReplayDeadLetterRunWithAudit holds details about calls to the ReplayDeadLetterRunWithAudit method.
+		ReplayDeadLetterRunWithAudit []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// RunID is the runID argument value.
+			RunID string
+			// Audit is the audit argument value.
+			Audit *domain.AuditEvent
 		}
 		// ReplayWebhookDelivery holds details about calls to the ReplayWebhookDelivery method.
 		ReplayWebhookDelivery []struct {
@@ -4054,6 +4124,13 @@ type APIStoreMock struct {
 			Key string
 			// TTL is the ttl argument value.
 			TTL time.Duration
+		}
+		// UnmaskDLQRun holds details about calls to the UnmaskDLQRun method.
+		UnmaskDLQRun []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// RunID is the runID argument value.
+			RunID string
 		}
 		// UpdateCanaryDeploymentTraffic holds details about calls to the UpdateCanaryDeploymentTraffic method.
 		UpdateCanaryDeploymentTraffic []struct {
@@ -4495,6 +4572,7 @@ type APIStoreMock struct {
 	lockListCodeDeployments                sync.RWMutex
 	lockListCodeDeploymentsByOrg           sync.RWMutex
 	lockListDeadLetterRuns                 sync.RWMutex
+	lockListDeadLetterRunsFiltered         sync.RWMutex
 	lockListDeploymentVersions             sync.RWMutex
 	lockListEnvironments                   sync.RWMutex
 	lockListEventSources                   sync.RWMutex
@@ -4547,14 +4625,17 @@ type APIStoreMock struct {
 	lockMarkAPIKeyRotated                  sync.RWMutex
 	lockMarkAuditDeadletterReclaimed       sync.RWMutex
 	lockMarkJobRunsPausedByWorkflowRun     sync.RWMutex
+	lockMarkRunReplayed                    sync.RWMutex
 	lockPauseJob                           sync.RWMutex
 	lockPauseJobsByGroup                   sync.RWMutex
 	lockPromoteDeploymentVersion           sync.RWMutex
+	lockPurgeDLQRun                        sync.RWMutex
 	lockQueueStats                         sync.RWMutex
 	lockReceiveEventAndRequeueRun          sync.RWMutex
 	lockReleaseStaleClaimedDeployments     sync.RWMutex
 	lockRemoveMemberRole                   sync.RWMutex
 	lockReplayDeadLetterRun                sync.RWMutex
+	lockReplayDeadLetterRunWithAudit       sync.RWMutex
 	lockReplayWebhookDelivery              sync.RWMutex
 	lockRequeuePausedJobRuns               sync.RWMutex
 	lockRescheduleRun                      sync.RWMutex
@@ -4582,6 +4663,7 @@ type APIStoreMock struct {
 	lockSumRunTotalTokens                  sync.RWMutex
 	lockTouchAPIKeyLastUsed                sync.RWMutex
 	lockTryAcquireIdempotencyKey           sync.RWMutex
+	lockUnmaskDLQRun                       sync.RWMutex
 	lockUpdateCanaryDeploymentTraffic      sync.RWMutex
 	lockUpdateCodeDeploymentStatus         sync.RWMutex
 	lockUpdateEnvironment                  sync.RWMutex
@@ -11780,6 +11862,62 @@ func (mock *APIStoreMock) ListDeadLetterRunsCalls() []struct {
 	return calls
 }
 
+// ListDeadLetterRunsFiltered calls ListDeadLetterRunsFilteredFunc.
+func (mock *APIStoreMock) ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		JobID     *string
+		Masked    *bool
+		Limit     int
+		Cursor    *time.Time
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		JobID:     jobID,
+		Masked:    masked,
+		Limit:     limit,
+		Cursor:    cursor,
+	}
+	mock.lockListDeadLetterRunsFiltered.Lock()
+	mock.calls.ListDeadLetterRunsFiltered = append(mock.calls.ListDeadLetterRunsFiltered, callInfo)
+	mock.lockListDeadLetterRunsFiltered.Unlock()
+	if mock.ListDeadLetterRunsFilteredFunc == nil {
+		var (
+			jobRunsOut []domain.JobRun
+			errOut     error
+		)
+		return jobRunsOut, errOut
+	}
+	return mock.ListDeadLetterRunsFilteredFunc(ctx, projectID, jobID, masked, limit, cursor)
+}
+
+// ListDeadLetterRunsFilteredCalls gets all the calls that were made to ListDeadLetterRunsFiltered.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListDeadLetterRunsFilteredCalls())
+func (mock *APIStoreMock) ListDeadLetterRunsFilteredCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	JobID     *string
+	Masked    *bool
+	Limit     int
+	Cursor    *time.Time
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		JobID     *string
+		Masked    *bool
+		Limit     int
+		Cursor    *time.Time
+	}
+	mock.lockListDeadLetterRunsFiltered.RLock()
+	calls = mock.calls.ListDeadLetterRunsFiltered
+	mock.lockListDeadLetterRunsFiltered.RUnlock()
+	return calls
+}
+
 // ListDeploymentVersions calls ListDeploymentVersionsFunc.
 func (mock *APIStoreMock) ListDeploymentVersions(ctx context.Context, projectID string, environment string, limit int, cursor *time.Time) ([]domain.DeploymentVersion, error) {
 	callInfo := struct {
@@ -14290,6 +14428,49 @@ func (mock *APIStoreMock) MarkJobRunsPausedByWorkflowRunCalls() []struct {
 	return calls
 }
 
+// MarkRunReplayed calls MarkRunReplayedFunc.
+func (mock *APIStoreMock) MarkRunReplayed(ctx context.Context, originalRunID string, replayedByRunID string) error {
+	callInfo := struct {
+		Ctx             context.Context
+		OriginalRunID   string
+		ReplayedByRunID string
+	}{
+		Ctx:             ctx,
+		OriginalRunID:   originalRunID,
+		ReplayedByRunID: replayedByRunID,
+	}
+	mock.lockMarkRunReplayed.Lock()
+	mock.calls.MarkRunReplayed = append(mock.calls.MarkRunReplayed, callInfo)
+	mock.lockMarkRunReplayed.Unlock()
+	if mock.MarkRunReplayedFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.MarkRunReplayedFunc(ctx, originalRunID, replayedByRunID)
+}
+
+// MarkRunReplayedCalls gets all the calls that were made to MarkRunReplayed.
+// Check the length with:
+//
+//	len(mockedAPIStore.MarkRunReplayedCalls())
+func (mock *APIStoreMock) MarkRunReplayedCalls() []struct {
+	Ctx             context.Context
+	OriginalRunID   string
+	ReplayedByRunID string
+} {
+	var calls []struct {
+		Ctx             context.Context
+		OriginalRunID   string
+		ReplayedByRunID string
+	}
+	mock.lockMarkRunReplayed.RLock()
+	calls = mock.calls.MarkRunReplayed
+	mock.lockMarkRunReplayed.RUnlock()
+	return calls
+}
+
 // PauseJob calls PauseJobFunc.
 func (mock *APIStoreMock) PauseJob(ctx context.Context, id string, reason string) error {
 	callInfo := struct {
@@ -14421,6 +14602,45 @@ func (mock *APIStoreMock) PromoteDeploymentVersionCalls() []struct {
 	mock.lockPromoteDeploymentVersion.RLock()
 	calls = mock.calls.PromoteDeploymentVersion
 	mock.lockPromoteDeploymentVersion.RUnlock()
+	return calls
+}
+
+// PurgeDLQRun calls PurgeDLQRunFunc.
+func (mock *APIStoreMock) PurgeDLQRun(ctx context.Context, runID string) error {
+	callInfo := struct {
+		Ctx   context.Context
+		RunID string
+	}{
+		Ctx:   ctx,
+		RunID: runID,
+	}
+	mock.lockPurgeDLQRun.Lock()
+	mock.calls.PurgeDLQRun = append(mock.calls.PurgeDLQRun, callInfo)
+	mock.lockPurgeDLQRun.Unlock()
+	if mock.PurgeDLQRunFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.PurgeDLQRunFunc(ctx, runID)
+}
+
+// PurgeDLQRunCalls gets all the calls that were made to PurgeDLQRun.
+// Check the length with:
+//
+//	len(mockedAPIStore.PurgeDLQRunCalls())
+func (mock *APIStoreMock) PurgeDLQRunCalls() []struct {
+	Ctx   context.Context
+	RunID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		RunID string
+	}
+	mock.lockPurgeDLQRun.RLock()
+	calls = mock.calls.PurgeDLQRun
+	mock.lockPurgeDLQRun.RUnlock()
 	return calls
 }
 
@@ -14631,6 +14851,50 @@ func (mock *APIStoreMock) ReplayDeadLetterRunCalls() []struct {
 	mock.lockReplayDeadLetterRun.RLock()
 	calls = mock.calls.ReplayDeadLetterRun
 	mock.lockReplayDeadLetterRun.RUnlock()
+	return calls
+}
+
+// ReplayDeadLetterRunWithAudit calls ReplayDeadLetterRunWithAuditFunc.
+func (mock *APIStoreMock) ReplayDeadLetterRunWithAudit(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error) {
+	callInfo := struct {
+		Ctx   context.Context
+		RunID string
+		Audit *domain.AuditEvent
+	}{
+		Ctx:   ctx,
+		RunID: runID,
+		Audit: audit,
+	}
+	mock.lockReplayDeadLetterRunWithAudit.Lock()
+	mock.calls.ReplayDeadLetterRunWithAudit = append(mock.calls.ReplayDeadLetterRunWithAudit, callInfo)
+	mock.lockReplayDeadLetterRunWithAudit.Unlock()
+	if mock.ReplayDeadLetterRunWithAuditFunc == nil {
+		var (
+			jobRunOut *domain.JobRun
+			errOut    error
+		)
+		return jobRunOut, errOut
+	}
+	return mock.ReplayDeadLetterRunWithAuditFunc(ctx, runID, audit)
+}
+
+// ReplayDeadLetterRunWithAuditCalls gets all the calls that were made to ReplayDeadLetterRunWithAudit.
+// Check the length with:
+//
+//	len(mockedAPIStore.ReplayDeadLetterRunWithAuditCalls())
+func (mock *APIStoreMock) ReplayDeadLetterRunWithAuditCalls() []struct {
+	Ctx   context.Context
+	RunID string
+	Audit *domain.AuditEvent
+} {
+	var calls []struct {
+		Ctx   context.Context
+		RunID string
+		Audit *domain.AuditEvent
+	}
+	mock.lockReplayDeadLetterRunWithAudit.RLock()
+	calls = mock.calls.ReplayDeadLetterRunWithAudit
+	mock.lockReplayDeadLetterRunWithAudit.RUnlock()
 	return calls
 }
 
@@ -15808,6 +16072,45 @@ func (mock *APIStoreMock) TryAcquireIdempotencyKeyCalls() []struct {
 	mock.lockTryAcquireIdempotencyKey.RLock()
 	calls = mock.calls.TryAcquireIdempotencyKey
 	mock.lockTryAcquireIdempotencyKey.RUnlock()
+	return calls
+}
+
+// UnmaskDLQRun calls UnmaskDLQRunFunc.
+func (mock *APIStoreMock) UnmaskDLQRun(ctx context.Context, runID string) error {
+	callInfo := struct {
+		Ctx   context.Context
+		RunID string
+	}{
+		Ctx:   ctx,
+		RunID: runID,
+	}
+	mock.lockUnmaskDLQRun.Lock()
+	mock.calls.UnmaskDLQRun = append(mock.calls.UnmaskDLQRun, callInfo)
+	mock.lockUnmaskDLQRun.Unlock()
+	if mock.UnmaskDLQRunFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.UnmaskDLQRunFunc(ctx, runID)
+}
+
+// UnmaskDLQRunCalls gets all the calls that were made to UnmaskDLQRun.
+// Check the length with:
+//
+//	len(mockedAPIStore.UnmaskDLQRunCalls())
+func (mock *APIStoreMock) UnmaskDLQRunCalls() []struct {
+	Ctx   context.Context
+	RunID string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		RunID string
+	}
+	mock.lockUnmaskDLQRun.RLock()
+	calls = mock.calls.UnmaskDLQRun
+	mock.lockUnmaskDLQRun.RUnlock()
 	return calls
 }
 

@@ -4505,7 +4505,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 }
 
-// ============ Phase 8: Tests for previously untested store methods ============
+// ============ Tests for previously untested store methods ============
 
 func TestWorkflowRunLabels_CRUD(t *testing.T) {
 	ctx := context.Background()
@@ -5304,7 +5304,7 @@ func TestListRunLineage(t *testing.T) {
 }
 
 // ============================================================================
-// Phase 3-5: Store integration tests for untested methods + edge cases
+// Store integration tests for untested methods + edge cases
 // ============================================================================
 
 func TestGetDebugBundle(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/queue"
+	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/webhook"
@@ -300,6 +301,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// the same tx.
 	queries := store.NewWithContextRouting(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	if cfg.RunRetentionShort > 0 {
+		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
+	}
 	if cfg.InternalSecret != "" {
 		auditKey, auditKeyErr := store.DeriveAuditSigningKey(cfg.InternalSecret)
 		if auditKeyErr != nil {
@@ -307,7 +311,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 		queries.SetAuditSigningKey(auditKey)
 	}
-	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(true))
+	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
+	q := queue.NewPostgresQueue(
+		dbPool,
+		queue.WithPriorityAging(true),
+		queue.WithBackpressureController(bp),
+	)
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -406,17 +415,28 @@ func runServe(ctx context.Context, modeOverride string) error {
 		slog.Warn("STRIPE_WEBHOOK_SECRET is empty -- Stripe webhook signature verification is DISABLED")
 	}
 
+	// R4 hardening: startup safety checks. These are the "fail loud"
+	// mechanisms that prevent silent corruption.
+	if err := scheduler.EnsureQueueTriggersPresent(ctx, dbPool); err != nil {
+		return fmt.Errorf("queue trigger check: %w", err)
+	}
+	if err := queries.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion); err != nil {
+		return fmt.Errorf("schema version: %w", err)
+	}
+
 	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries, chExporter)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
 	startLogDrainWorker(g, cfg, queries, metrics)
 	startMaintenanceWorker(g, queries)
+	startDBWatchdog(g, cfg, dbPool)
+	startQueueHealthSampler(g, dbPool)
 	var chAnalytics api.AnalyticsStore
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

@@ -64,6 +64,12 @@ type ReaperStore interface {
 	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
+	ArchiveTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration, batchSize int) (int64, error)
+	DeleteHistoryRunsPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time.Duration, batchSize int) (int64, error)
+	DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
@@ -173,6 +179,7 @@ type Reaper struct {
 	auditDLQReclaimBatch       int
 	auditDLQMaxAgeDays         int
 	auditDLQMaxReclaimAttempts int
+	archiveEnabled             bool
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -296,6 +303,11 @@ func (r *Reaper) WithMachineDestroyer(d MachineDestroyer) *Reaper {
 // WithChExporter attaches the ClickHouse exporter for event trigger timeout analytics.
 func (r *Reaper) WithChExporter(e *clickhouse.Exporter) *Reaper {
 	r.chExporter = e
+	return r
+}
+
+func (r *Reaper) WithArchiveEnabled(enabled bool) *Reaper {
+	r.archiveEnabled = enabled
 	return r
 }
 
@@ -1017,8 +1029,17 @@ func (r *Reaper) reapStaleDequeued(ctx context.Context) {
 func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapTerminalRetention")
 	defer span.End()
-	const operation = "reap_terminal_retention"
 
+	if r.archiveEnabled {
+		r.archiveTerminalRuns(ctx)
+		r.archiveConsumedOutbox(ctx)
+		r.purgeStaleQuarantinedOutbox(ctx)
+		r.reapHistoryRetention(ctx)
+		r.reapOutboxHistoryRetention(ctx)
+		return
+	}
+
+	const operation = "reap_terminal_retention"
 	deleted, err := r.store.DeleteTerminalRunsPastRetention(ctx, r.shortRetention, r.longRetention)
 	if err != nil {
 		slog.Error("failed to delete retained terminal runs", "error", err)
@@ -1029,6 +1050,109 @@ func (r *Reaper) reapTerminalRetention(ctx context.Context) {
 	r.recordDeleted(ctx, "terminal_runs", deleted)
 	if deleted > 0 {
 		slog.Info("deleted terminal runs past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) archiveTerminalRuns(ctx context.Context) {
+	const operation = "archive_terminal_runs"
+	batchSize := r.deleteBatchLimit
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	archived, err := r.store.ArchiveTerminalRunsPastRetention(ctx, r.shortRetention, r.longRetention, batchSize)
+	if err != nil {
+		slog.Error("failed to archive terminal runs", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "archived_runs", archived)
+	if archived > 0 {
+		slog.Info("archived terminal runs to history", "count", archived)
+	}
+}
+
+func (r *Reaper) reapHistoryRetention(ctx context.Context) {
+	const operation = "reap_history_retention"
+	batchSize := r.deleteBatchLimit
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	cutoff := time.Now().Add(-r.longRetention)
+	deleted, err := r.store.DeleteHistoryRunsPastRetention(ctx, cutoff, batchSize)
+	if err != nil {
+		slog.Error("failed to delete history runs past retention", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "history_runs", deleted)
+	if deleted > 0 {
+		slog.Info("deleted history runs past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) archiveConsumedOutbox(ctx context.Context) {
+	const operation = "archive_consumed_outbox"
+	batchSize := r.deleteBatchLimit
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	archived, err := r.store.ArchiveConsumedOutboxBatch(ctx, r.shortRetention, batchSize)
+	if err != nil {
+		slog.Error("failed to archive consumed outbox rows", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "archived_outbox", archived)
+	if archived > 0 {
+		slog.Info("archived consumed outbox rows to history", "count", archived)
+	}
+}
+
+func (r *Reaper) reapOutboxHistoryRetention(ctx context.Context) {
+	const operation = "reap_outbox_history_retention"
+	batchSize := r.deleteBatchLimit
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	cutoff := time.Now().Add(-r.longRetention)
+	deleted, err := r.store.DeleteOutboxHistoryPastRetention(ctx, cutoff, batchSize)
+	if err != nil {
+		slog.Error("failed to delete outbox history past retention", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "outbox_history", deleted)
+	if deleted > 0 {
+		slog.Info("deleted outbox history past retention", "count", deleted)
+	}
+}
+
+func (r *Reaper) purgeStaleQuarantinedOutbox(ctx context.Context) {
+	const operation = "purge_stale_quarantined_outbox"
+	batchSize := r.deleteBatchLimit
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	cutoff := time.Now().Add(-r.longRetention)
+	deleted, err := r.store.PurgeQuarantinedOutboxOlderThan(ctx, cutoff, batchSize)
+	if err != nil {
+		slog.Error("failed to purge stale quarantined outbox rows", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+	r.recordDeleted(ctx, "quarantined_outbox", deleted)
+	if deleted > 0 {
+		slog.Info("purged stale quarantined outbox rows", "count", deleted)
 	}
 }
 

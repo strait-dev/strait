@@ -36,6 +36,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var pinnedImageURI *string
 	var pinnedImageDigest *string
 	var isRollback bool
+	var replayedRunID *string
 
 	err := scanner.Scan(
 		&run.ID,
@@ -76,6 +77,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&pinnedImageURI,
 		&pinnedImageDigest,
 		&isRollback,
+		&replayedRunID,
 	)
 	if err != nil {
 		return nil, err
@@ -150,6 +152,9 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		run.PinnedImageDigest = *pinnedImageDigest
 	}
 	run.IsRollback = isRollback
+	if replayedRunID != nil {
+		run.ReplayedRunID = *replayedRunID
+	}
 
 	return &run, nil
 }

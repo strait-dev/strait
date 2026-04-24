@@ -2,6 +2,9 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +29,7 @@ type mockDeliveryStore struct {
 	deliveries    []*domain.WebhookDelivery
 	notifyStatus  string
 	listPendingFn func(context.Context) ([]domain.WebhookDelivery, error)
+	subSecret     string
 	getSecretsFn  func(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 }
 
@@ -347,10 +351,12 @@ func (m *mockDeliveryStore) UpdateEventTriggerNotifyStatus(_ context.Context, _ 
 }
 
 func (m *mockDeliveryStore) GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.getSecretsFn != nil {
 		return m.getSecretsFn(ctx, subscriptionID)
 	}
-	return "", "", nil, nil
+	return m.subSecret, "", nil, nil
 }
 
 func (m *mockDeliveryStore) getNotifyStatus() string {
@@ -897,6 +903,181 @@ func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
 	}
 	if deliveries[0].WebhookURL != "https://example.com/match" {
 		t.Fatalf("expected webhook URL https://example.com/match, got %s", deliveries[0].WebhookURL)
+	}
+}
+
+func TestReplayKeyFromDeliveryID(t *testing.T) {
+	t.Parallel()
+	if got := replayKeyFromDeliveryID(""); got != "" {
+		t.Fatalf("empty delivery id should yield empty key, got %q", got)
+	}
+	if got := replayKeyFromDeliveryID("whd-42"); got != "rk_whd-42" {
+		t.Fatalf("unexpected replay key: %q", got)
+	}
+}
+
+// TestComputeReplayKey_HMACDerivation asserts the signed replay key is
+// exactly hex(hmac_sha256(secret, delivery_id)) truncated to
+// replayKeyHexLen, prefixed with rk_. A subscriber holding the secret
+// must be able to re-derive and verify the key for a given delivery id.
+func TestComputeReplayKey_HMACDerivation(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte("whsec_test_secret_bytes")
+	deliveryID := "whd-signed-1"
+
+	got := ComputeReplayKey(secret, deliveryID)
+
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(deliveryID))
+	want := replayKeyPrefix + hex.EncodeToString(mac.Sum(nil))[:replayKeyHexLen]
+
+	if got != want {
+		t.Fatalf("ComputeReplayKey=%q, want %q", got, want)
+	}
+	if !strings.HasPrefix(got, "rk_") {
+		t.Fatalf("expected rk_ prefix, got %q", got)
+	}
+	if len(got) != len("rk_")+replayKeyHexLen {
+		t.Fatalf("expected total length %d, got %d", len("rk_")+replayKeyHexLen, len(got))
+	}
+
+	// Same inputs must produce the same key (stability across retries).
+	again := ComputeReplayKey(secret, deliveryID)
+	if again != got {
+		t.Fatalf("non-deterministic: %q vs %q", got, again)
+	}
+
+	// Different secret must yield a different key (HMAC binding).
+	other := ComputeReplayKey([]byte("different_secret"), deliveryID)
+	if other == got {
+		t.Fatalf("key should change with secret")
+	}
+
+	// Empty delivery id returns empty.
+	if ComputeReplayKey(secret, "") != "" {
+		t.Fatalf("empty id must yield empty key")
+	}
+
+	// Empty secret falls back to unsigned helper.
+	unsigned := ComputeReplayKey(nil, deliveryID)
+	if unsigned != ComputeReplayKeyUnsigned(deliveryID) {
+		t.Fatalf("nil secret should match unsigned derivation")
+	}
+}
+
+func TestComputeReplayKeyUnsigned(t *testing.T) {
+	t.Parallel()
+	if got := ComputeReplayKeyUnsigned(""); got != "" {
+		t.Fatalf("empty id should yield empty key, got %q", got)
+	}
+	if got := ComputeReplayKeyUnsigned("run-9"); got != "rk_run-9" {
+		t.Fatalf("unexpected unsigned key: %q", got)
+	}
+}
+
+// TestAttemptDelivery_ReplayKeyStableAcrossRetries asserts that the new
+// X-Strait-Replay-Key header is identical across retries of the same delivery
+// row, unlike X-Strait-Idempotency-Key which intentionally changes per
+// attempt. This gives subscribers a stable dedup key that survives replays.
+func TestAttemptDelivery_ReplayKeyStableAcrossRetries(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var replayKeys []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		replayKeys = append(replayKeys, r.Header.Get("X-Strait-Replay-Key"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-replay-1",
+		RunID:       "run-1",
+		JobID:       "job-1",
+		WebhookURL:  ts.URL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		NextRetryAt: &now,
+		LastError:   `{"run_id":"run-1"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	for _, d := range ms.getDeliveries() {
+		if d.ID == "whd-replay-1" {
+			retryNow := time.Now().Add(-time.Second)
+			d.NextRetryAt = &retryNow
+		}
+	}
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(replayKeys) < 2 {
+		t.Fatalf("expected at least 2 attempts, got %d", len(replayKeys))
+	}
+	want := "rk_whd-replay-1"
+	for i, got := range replayKeys {
+		if got != want {
+			t.Fatalf("attempt %d: X-Strait-Replay-Key=%q, want %q", i, got, want)
+		}
+	}
+}
+
+// TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries asserts that distinct
+// delivery rows produce distinct replay keys (derived from the delivery id).
+func TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	seen := make(map[string]bool)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.Header.Get("X-Strait-Replay-Key")] = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	ids := []string{"whd-a", "whd-b", "whd-c"}
+	for _, id := range ids {
+		d := &domain.WebhookDelivery{
+			ID:          id,
+			RunID:       "run-" + id,
+			JobID:       "job-1",
+			WebhookURL:  ts.URL,
+			Status:      domain.WebhookStatusPending,
+			Attempts:    0,
+			MaxAttempts: 3,
+			NextRetryAt: &now,
+			LastError:   `{"k":"v"}`,
+		}
+		if err := ms.CreateWebhookDelivery(context.Background(), d); err != nil {
+			t.Fatalf("create delivery: %v", err)
+		}
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range ids {
+		if !seen["rk_"+id] {
+			t.Fatalf("expected replay key rk_%s not observed; saw %v", id, seen)
+		}
 	}
 }
 

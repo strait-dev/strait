@@ -52,3 +52,12 @@ This is configured per-job via the `dedup_window_secs` field. If set, Strait wil
 <Tip>
   Always use `X-Idempotency-Key` for critical operations. Use `dedup_window_secs` as a safety net to prevent accidental double-clicks or retry loops from client SDKs.
 </Tip>
+
+## Webhook Delivery Headers
+
+Outbound webhook deliveries ship two identity headers:
+
+- `X-Strait-Idempotency-Key`: formatted as `<delivery_id>:<attempt>` and changes on every retry. Useful for tracing an individual attempt.
+- `X-Strait-Replay-Key`: stable across every retry of the same delivery row. Dedup replays on this header — if your handler sees the same replay key twice, it is safe to treat the second invocation as a no-op. Derivation depends on the delivery path:
+  - **Subscription deliveries** (event triggers with a configured `webhook_subscription`) use an HMAC-bound form `"rk_" + hex(hmac_sha256(subscription_secret, delivery_id))[:32]`. A subscriber that holds the subscription secret can re-derive the key from the `X-Strait-Delivery-ID` header and verify it matches, proving the key was produced by Strait rather than replayed by a third party.
+  - **Run-terminal deliveries** (the per-job `webhook_url` fired on terminal run states) have no subscription secret and use the deterministic unsigned form `"rk_" + run_id`. Treat this form as an opaque replay discriminator, not a proof of origin — authenticate these deliveries via the `X-Strait-Signature` payload HMAC instead.

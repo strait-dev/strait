@@ -61,30 +61,46 @@ func (q *Queries) CountEnvironmentsByProject(ctx context.Context, projectID stri
 	return count, nil
 }
 
-// DeleteRunsByOrgOlderThan deletes terminal job runs for an org that are older
-// than the given retention duration. Returns the number of deleted rows.
+// DeleteRunsByOrgOlderThan is the soft-delete replacement for the
+// previous physical DELETE. Instead of creating dead tuples scattered across
+// every partition, it sets visible_until = NOW() which is HOT-update
+// eligible (the column is intentionally not indexed). pg_partman remains
+// the authoritative physical reaper via partition drop.
+//
+// Returns the number of rows marked invisible. The method name is kept for
+// API stability; the external contract (rows disappear from user-facing
+// listings after the call) is preserved as long as readers filter by the
+// MaskedClause fragment.
 func (q *Queries) DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, retention time.Duration) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteRunsByOrgOlderThan")
 	defer span.End()
 
 	cutoff := time.Now().Add(-retention)
 	result, err := q.db.Exec(ctx, `
-		DELETE FROM job_runs
-		WHERE id IN (
+		WITH to_mask AS (
 			SELECT jr.id FROM job_runs jr
 			JOIN jobs j ON jr.job_id = j.id
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND jr.status IN ('completed', 'failed', 'canceled', 'timed_out')
 			  AND jr.finished_at IS NOT NULL
 			  AND jr.finished_at < $2
+			  AND jr.visible_until IS NULL
 			LIMIT 1000
 		)
+		UPDATE job_runs
+		SET visible_until = NOW()
+		WHERE id IN (SELECT id FROM to_mask)
 	`, orgID, cutoff)
 	if err != nil {
-		return 0, fmt.Errorf("delete runs by org older than %v: %w", retention, err)
+		return 0, fmt.Errorf("mask runs by org older than %v: %w", retention, err)
 	}
 	return result.RowsAffected(), nil
 }
+
+// VisibleRunsClause is the shared SQL fragment that readers append to their
+// WHERE clause to hide soft-deleted rows. Leave out if the query is an
+// internal reaper scan that needs to see masked rows.
+const VisibleRunsClause = "(visible_until IS NULL OR visible_until > NOW())"
 
 // DeleteWorkflowRunsByOrgOlderThan deletes terminal workflow runs for an org that
 // are older than the given retention duration.

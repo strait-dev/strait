@@ -136,6 +136,7 @@ type RunStore interface {
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListChildRuns(ctx context.Context, parentRunID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListRunLineage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
@@ -143,6 +144,10 @@ type RunStore interface {
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	ReplayDeadLetterRunWithAudit(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
+	UnmaskDLQRun(ctx context.Context, runID string) error
+	PurgeDLQRun(ctx context.Context, runID string) error
+	MarkRunReplayed(ctx context.Context, originalRunID, replayedByRunID string) error
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	UpdateHeartbeat(ctx context.Context, id string) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
@@ -475,13 +480,14 @@ type APIError struct {
 }
 
 const (
-	ErrorCodeValidationError = "validation_error"
-	ErrorCodeNotFound        = "not_found"
-	ErrorCodeConflict        = "conflict"
-	ErrorCodeRateLimited     = "rate_limited"
-	ErrorCodeInternalError   = "internal_error"
-	ErrorCodeUnauthorized    = "unauthorized"
-	ErrorCodeForbidden       = "forbidden"
+	ErrorCodeValidationError  = "validation_error"
+	ErrorCodeNotFound         = "not_found"
+	ErrorCodeConflict         = "conflict"
+	ErrorCodeRateLimited      = "rate_limited"
+	ErrorCodeEnqueueThrottled = "enqueue_throttled"
+	ErrorCodeInternalError    = "internal_error"
+	ErrorCodeUnauthorized     = "unauthorized"
+	ErrorCodeForbidden        = "forbidden"
 )
 
 // AnalyticsStore is the subset of analytics query methods that can be backed
@@ -540,6 +546,7 @@ type AnalyticsStore interface {
 type Server struct {
 	router             chi.Router
 	store              APIStore
+	outboxAdminStore   outboxAdminStore
 	analyticsStore     AnalyticsStore
 	queue              queue.Queue
 	pubsub             pubsub.Publisher
@@ -754,6 +761,7 @@ func NewServer(deps ServerDeps) *Server {
 
 	srv := &Server{
 		store:              deps.Store,
+		outboxAdminStore:   resolveOutboxAdminStore(deps.Store),
 		analyticsStore:     deps.AnalyticsStore,
 		queue:              deps.Queue,
 		pubsub:             deps.PubSub,

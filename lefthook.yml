@@ -84,9 +84,10 @@ pre-push:
       glob: "*.go"
       skip:
         - run: test "${SKIP_RUN_ALL:-0}" = "1"
-      run: bun run go:lint
-      fail_text: "go:lint failed"
-      timeout: 180s
+      run: cd apps/strait && golangci-lint run --timeout=5m ./...
+      fail_text: "Go lint failed"
+      timeout: 360s
+
 
 commit-msg:
   commands:

@@ -920,7 +920,7 @@ func TestHandleRestartRun_InvalidPreset(t *testing.T) {
 	}
 }
 
-// Phase 3 tests.
+// Resume run tests.
 
 func TestHandleResumeRun_PreservesMachineID(t *testing.T) {
 	t.Parallel()
@@ -1031,7 +1031,7 @@ func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
 	}
 }
 
-// Phase 4 tests.
+// Pause run tests.
 
 func TestHandlePauseRun_ContainerStopFails_StillPauses(t *testing.T) {
 	t.Parallel()

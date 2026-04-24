@@ -294,7 +294,7 @@ func (q *Queries) ListRunsByOrg(ctx context.Context, orgID string, limit int, cu
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)`
 
