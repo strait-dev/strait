@@ -20,7 +20,8 @@
       "!**/.astro",
       "!**/_generated",
       "!**/routeTree.gen.ts",
-      "!**/basehub-types.d.ts"
+      "!**/basehub-types.d.ts",
+      "!**/.agents/skills"
     ]
   },
   "css": {

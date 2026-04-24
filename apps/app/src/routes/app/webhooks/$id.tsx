@@ -153,11 +153,11 @@ function WebhookDetailPage() {
   return (
     <Shell>
       <div className="mb-4 flex items-center gap-3">
-        <Button render={<Link to="/app/webhooks" />} size="sm" variant="ghost">
+        <Button render={<Link to="/app/webhooks" />} variant="ghost">
           <HugeiconsIcon icon={ChevronLeftIcon} size={14} />
         </Button>
         <div className="flex-1">
-          <h1 className="flex items-center gap-2 text-balance font-semibold text-lg">
+          <h1 className="flex items-center gap-2 text-balance font-normal text-xl tracking-tight">
             <HugeiconsIcon
               className="text-muted-foreground"
               icon={WebhookIcon}
@@ -172,16 +172,13 @@ function WebhookDetailPage() {
         <div className="flex items-center gap-2">
           <Button
             onClick={() => testWebhook.mutate(webhook.webhook_url)}
-            size="sm"
             variant="outline"
           >
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Send test
           </Button>
           <AlertDialog>
-            <AlertDialogTrigger
-              render={<Button size="sm" variant="destructive" />}
-            >
+            <AlertDialogTrigger render={<Button variant="destructive" />}>
               <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
               Delete
             </AlertDialogTrigger>

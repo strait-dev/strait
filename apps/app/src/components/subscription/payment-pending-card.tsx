@@ -54,7 +54,6 @@ const PaymentPendingCard = () => {
           className="flex-1"
           disabled={isLoading}
           onClick={handleOpenPortal}
-          size="sm"
         >
           <HugeiconsIcon className="size-3" icon={LinkSquareIcon} />
           {isLoading ? "Opening..." : "Manage"}
@@ -63,7 +62,6 @@ const PaymentPendingCard = () => {
         <Button
           className="flex-1"
           render={<Link preload="intent" to="/app/settings" />}
-          size="sm"
           variant="outline"
         >
           <HugeiconsIcon className="size-3" icon={CreditCardIcon} />

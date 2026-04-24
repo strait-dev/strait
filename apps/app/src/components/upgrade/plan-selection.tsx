@@ -255,9 +255,9 @@ const PricingCard = ({
       <div className="flex h-full flex-col p-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
               {plan.name}
-            </h3>
+            </h4>
             {isFreePlan || isEnterprise ? null : (
               <div
                 className={cn(
@@ -324,7 +324,6 @@ const PricingCard = ({
               onStartCheckout?.();
             }
           }}
-          size="sm"
           type="button"
           variant={getButtonVariant()}
         >
@@ -485,7 +484,7 @@ const FeatureComparisonMatrix = ({
 
   return (
     <div className="mt-12">
-      <h3 className="mb-6 text-balance text-center font-semibold text-lg">
+      <h3 className="mb-6 text-balance text-center font-medium text-sm">
         Full feature comparison
       </h3>
       <div className="overflow-x-auto">
@@ -557,7 +556,7 @@ const FAQ_ITEMS = [
 
 const PricingFAQ = () => (
   <div className="mx-auto mt-12 max-w-2xl">
-    <h3 className="mb-6 text-balance text-center font-semibold text-lg">
+    <h3 className="mb-6 text-balance text-center font-medium text-sm">
       Frequently asked questions
     </h3>
     <Accordion className="w-full">

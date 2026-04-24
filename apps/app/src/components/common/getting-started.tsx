@@ -94,7 +94,7 @@ export const GettingStarted = ({ user }: Props) => {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-balance font-normal text-2xl tracking-tight">
+        <h1 className="text-balance font-normal text-xl tracking-tight">
           Get started
         </h1>
         <p className="mt-1 text-muted-foreground">
@@ -127,7 +127,7 @@ export const GettingStarted = ({ user }: Props) => {
             </p>
             {organizationId && !hasProject ? (
               <div className="mt-3">
-                <Button onClick={() => setCreateOpen(true)} size="sm">
+                <Button onClick={() => setCreateOpen(true)}>
                   <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   Create project
                 </Button>

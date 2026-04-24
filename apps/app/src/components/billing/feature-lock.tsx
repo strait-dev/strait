@@ -72,7 +72,6 @@ const FeatureLock = ({ feature, children }: FeatureLockProps) => {
           </div>
           <Button
             onClick={() => navigate({ to: "/app/upgrade" })}
-            size="sm"
             variant="default"
           >
             Upgrade

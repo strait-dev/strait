@@ -16,7 +16,7 @@ const NotFound = () => (
         Page not found
       </h2>
       <p className="text-pretty text-muted-foreground text-sm">
-        The page you are looking for does not exist.
+        This URL doesn't match any page. It may have been moved or removed.
       </p>
     </div>
     <div className="flex items-center gap-2">

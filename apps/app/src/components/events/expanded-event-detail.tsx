@@ -31,7 +31,7 @@ const ExpandedEventDetail = ({
             {new Date(event.requested_at).toLocaleString()}
           </span>
         </div>
-        <Button onClick={onClose} size="sm" variant="ghost">
+        <Button onClick={onClose} variant="ghost">
           Close
         </Button>
       </div>

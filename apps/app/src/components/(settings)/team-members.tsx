@@ -273,7 +273,6 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                                   render={
                                     <Button
                                       disabled={leaveOrganization.isPending}
-                                      size="sm"
                                       variant="outline"
                                     />
                                   }
@@ -329,7 +328,6 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                                           removeMember.variables
                                             ?.memberIdOrEmail === member.id
                                         }
-                                        size="sm"
                                         variant="outline"
                                       />
                                     }
@@ -499,7 +497,6 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                                         invitation.role
                                       )
                                     }
-                                    size="sm"
                                     variant="outline"
                                   >
                                     {createInvitation.isPending ? (
@@ -521,7 +518,6 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                                   onClick={() =>
                                     handleCancelInvitation(invitation.id)
                                   }
-                                  size="sm"
                                   variant="outline"
                                 >
                                   {isCancelling ? (

@@ -24,7 +24,7 @@ let _stripeClient: Stripe | null = null;
 export const getStripeClient = (): Stripe => {
   if (!_stripeClient) {
     _stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-      apiVersion: "2026-03-25.dahlia",
+      apiVersion: "2026-04-22.dahlia",
     });
   }
   return _stripeClient;

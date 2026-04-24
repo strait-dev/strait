@@ -141,7 +141,6 @@ const AlertsForecastTab = () => {
                     </p>
                     <Button
                       onClick={() => navigate({ to: "/app/upgrade" })}
-                      size="sm"
                       variant="outline"
                     >
                       View Plans
@@ -246,7 +245,7 @@ const ThresholdForm = ({
       </div>
       {isDirty && (
         <div className="mt-4 flex justify-end">
-          <Button disabled={mutation.isPending} onClick={handleSave} size="sm">
+          <Button disabled={mutation.isPending} onClick={handleSave}>
             {mutation.isPending ? "Saving..." : "Save Thresholds"}
           </Button>
         </div>

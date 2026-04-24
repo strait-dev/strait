@@ -385,8 +385,9 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	cancel()
+	// Shutdown first to let in-flight DB writes complete, then cancel.
 	_ = worker.Shutdown(context.Background())
+	cancel()
 
 	if totalRequests.Load() != deliveryCount {
 		t.Fatalf("expected exactly %d requests, got %d", deliveryCount, totalRequests.Load())

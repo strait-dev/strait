@@ -106,7 +106,6 @@ const SessionManagement = () => {
               <Button
                 disabled={revokeOtherSessions.isPending}
                 onClick={handleRevokeAll}
-                size="sm"
                 variant="outline"
               >
                 {revokeOtherSessions.isPending ? (
@@ -121,7 +120,6 @@ const SessionManagement = () => {
             <Button
               disabled={revokeAllSessions.isPending}
               onClick={handleSignOutEverywhere}
-              size="sm"
               variant="destructive"
             >
               {revokeAllSessions.isPending ? (
@@ -184,7 +182,6 @@ const SessionManagement = () => {
                     <Button
                       disabled={isRevoking}
                       onClick={() => handleRevoke(session.token)}
-                      size="sm"
                       variant="outline"
                     >
                       {isRevoking ? (

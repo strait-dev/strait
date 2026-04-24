@@ -11,7 +11,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 	<Shell variant="wide">
 		<nav class="py-3">
 			<div class="flex h-12 items-center justify-between">
-				<a class="flex items-center space-x-2" href="/">
+				<a class="flex items-center space-x-2 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" href="/">
 					<span class="sr-only">{siteConfig.name}</span>
 					<img
 						alt={siteConfig.logo.alt}
@@ -30,7 +30,7 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 
 						return (
 							<a
-								class="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground"
+								class="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 								href={item.href}
 							>
 								{item.label}
@@ -41,13 +41,13 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 
 				<div class="hidden items-center gap-3 lg:flex">
 					<a
-						class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+						class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 						href={dashboardHref("/login")}
 					>
 						Sign in
 					</a>
 					<a
-						class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md"
+						class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 						href={dashboardHref("/login")}
 					>
 						Run your first job

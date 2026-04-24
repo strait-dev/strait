@@ -21,7 +21,9 @@ const ComparisonHighlights = ({
   return (
     <Reveal>
       <div className="mb-10">
-        <h2 className="text-2xl sm:text-3xl">What Strait does differently</h2>
+        <h2 className="text-2xl sm:text-3xl lg:text-4xl">
+          What Strait does differently
+        </h2>
         <p className="mt-3 text-muted-foreground text-sm leading-relaxed sm:text-base">
           Features where Strait offers a distinct advantage over{" "}
           {competitorName}.

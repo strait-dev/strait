@@ -143,7 +143,7 @@ function ConsentRow({
       <AlertDialog>
         <AlertDialogTrigger
           render={
-            <Button disabled={revoking} size="sm" variant="destructive">
+            <Button disabled={revoking} variant="destructive">
               {revoking ? "Revoking..." : "Revoke"}
             </Button>
           }

@@ -93,7 +93,7 @@ const HeaderDropdown = ({ group }: HeaderDropdownProps) => {
       <button
         aria-expanded={isOpen}
         aria-haspopup="true"
-        className="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground"
+        className="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         type="button"
       >
         {group.label}

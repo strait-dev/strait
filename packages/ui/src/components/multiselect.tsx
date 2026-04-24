@@ -879,7 +879,7 @@ function MultipleSelector({
             onFocus={handleInputFocus}
             onValueChange={handleInputValueChange}
             placeholder={
-              Boolean(hidePlaceholderWhenSelected) && selected.length !== 0
+              hidePlaceholderWhenSelected && selected.length !== 0
                 ? ""
                 : (placeholder ?? "")
             }
