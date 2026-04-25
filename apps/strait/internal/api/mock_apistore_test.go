@@ -1238,6 +1238,12 @@ type APIStoreMock struct {
 	// GetAgentFunc mocks the GetAgent method.
 	GetAgentFunc func(ctx context.Context, id string) (*domain.Agent, error)
 
+	// GetAgentHealthStatsFunc mocks the GetAgentHealthStats method.
+	GetAgentHealthStatsFunc func(ctx context.Context, agentID string, since time.Time) (*store.AgentHealthStats, error)
+
+	// GetAgentTopologyEdgesFunc mocks the GetAgentTopologyEdges method.
+	GetAgentTopologyEdgesFunc func(ctx context.Context, projectID string) ([]store.AgentMessageEdge, error)
+
 	// GetApprovalStatsFunc mocks the GetApprovalStats method.
 	GetApprovalStatsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error)
 
@@ -1426,6 +1432,15 @@ type APIStoreMock struct {
 
 	// ListActiveWorkflowVersionsFunc mocks the ListActiveWorkflowVersions method.
 	ListActiveWorkflowVersionsFunc func(ctx context.Context, workflowID string) ([]store.ActiveVersion, error)
+
+	// ListAgentDeploymentsFunc mocks the ListAgentDeployments method.
+	ListAgentDeploymentsFunc func(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error)
+
+	// ListAgentMessagesByAgentFunc mocks the ListAgentMessagesByAgent method.
+	ListAgentMessagesByAgentFunc func(ctx context.Context, agentID string, limit int, cursor *store.AgentMessageCursor) ([]domain.AgentMessage, error)
+
+	// ListAgentsFunc mocks the ListAgents method.
+	ListAgentsFunc func(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Agent, error)
 
 	// ListAgentsByJobIDsFunc mocks the ListAgentsByJobIDs method.
 	ListAgentsByJobIDsFunc func(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error)
@@ -4585,6 +4600,8 @@ type APIStoreMock struct {
 	lockFindRecentRunByPayload             sync.RWMutex
 	lockGetActiveCanaryDeployment          sync.RWMutex
 	lockGetAgent                              sync.RWMutex
+	lockGetAgentHealthStats                   sync.RWMutex
+	lockGetAgentTopologyEdges                 sync.RWMutex
 	lockGetAPIKeyByHash                    sync.RWMutex
 	lockGetAPIKeyByID                      sync.RWMutex
 	lockGetApprovalStats                   sync.RWMutex
@@ -4647,6 +4664,9 @@ type APIStoreMock struct {
 	lockInsertBatchBufferItem              sync.RWMutex
 	lockInsertEvent                        sync.RWMutex
 	lockListActiveWorkflowVersions         sync.RWMutex
+	lockListAgentDeployments                  sync.RWMutex
+	lockListAgentMessagesByAgent              sync.RWMutex
+	lockListAgents                            sync.RWMutex
 	lockListAgentsByJobIDs                    sync.RWMutex
 	lockListAPIKeysByOrg                   sync.RWMutex
 	lockListAPIKeysByProject               sync.RWMutex
@@ -17751,4 +17771,69 @@ func (mock *APIStoreMock) VerifyAuditChainIncrementalCalls() []struct {
 	calls = mock.calls.VerifyAuditChainIncremental
 	mock.lockVerifyAuditChainIncremental.RUnlock()
 	return calls
+}
+
+// GetAgentHealthStats calls GetAgentHealthStatsFunc.
+func (mock *APIStoreMock) GetAgentHealthStats(ctx context.Context, agentID string, since time.Time) (*store.AgentHealthStats, error) {
+	mock.lockGetAgentHealthStats.Lock()
+	defer mock.lockGetAgentHealthStats.Unlock()
+	if mock.GetAgentHealthStatsFunc == nil {
+		panic("APIStoreMock.GetAgentHealthStatsFunc: method is nil but APIStore.GetAgentHealthStats was just called")
+	}
+	return mock.GetAgentHealthStatsFunc(ctx, agentID, since)
+}
+
+// GetAgentTopologyEdges calls GetAgentTopologyEdgesFunc.
+func (mock *APIStoreMock) GetAgentTopologyEdges(ctx context.Context, projectID string) ([]store.AgentMessageEdge, error) {
+	mock.lockGetAgentTopologyEdges.Lock()
+	defer mock.lockGetAgentTopologyEdges.Unlock()
+	if mock.GetAgentTopologyEdgesFunc == nil {
+		panic("APIStoreMock.GetAgentTopologyEdgesFunc: method is nil but APIStore.GetAgentTopologyEdges was just called")
+	}
+	return mock.GetAgentTopologyEdgesFunc(ctx, projectID)
+}
+
+// ListAgentDeployments calls ListAgentDeploymentsFunc.
+func (mock *APIStoreMock) ListAgentDeployments(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error) {
+	mock.lockListAgentDeployments.Lock()
+	defer mock.lockListAgentDeployments.Unlock()
+	if mock.ListAgentDeploymentsFunc == nil {
+		panic("APIStoreMock.ListAgentDeploymentsFunc: method is nil but APIStore.ListAgentDeployments was just called")
+	}
+	return mock.ListAgentDeploymentsFunc(ctx, agentID, limit, cursor)
+}
+
+// ListAgentMessagesByAgent calls ListAgentMessagesByAgentFunc.
+func (mock *APIStoreMock) ListAgentMessagesByAgent(ctx context.Context, agentID string, limit int, cursor *store.AgentMessageCursor) ([]domain.AgentMessage, error) {
+	mock.lockListAgentMessagesByAgent.Lock()
+	defer mock.lockListAgentMessagesByAgent.Unlock()
+	if mock.ListAgentMessagesByAgentFunc == nil {
+		panic("APIStoreMock.ListAgentMessagesByAgentFunc: method is nil but APIStore.ListAgentMessagesByAgent was just called")
+	}
+	return mock.ListAgentMessagesByAgentFunc(ctx, agentID, limit, cursor)
+}
+
+// ListAgents calls ListAgentsFunc.
+func (mock *APIStoreMock) ListAgents(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Agent, error) {
+	mock.lockListAgents.Lock()
+	defer mock.lockListAgents.Unlock()
+	if mock.ListAgentsFunc == nil {
+		panic("APIStoreMock.ListAgentsFunc: method is nil but APIStore.ListAgents was just called")
+	}
+	return mock.ListAgentsFunc(ctx, projectID, limit, cursor)
+}
+
+// SetAgentEnabled is a no-op mock.
+func (mock *APIStoreMock) SetAgentEnabled(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+
+// DismissRecommendation is a no-op mock.
+func (mock *APIStoreMock) DismissRecommendation(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+// CancelActiveRunsForJob is a no-op mock.
+func (mock *APIStoreMock) CancelActiveRunsForJob(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+	return nil, nil
 }

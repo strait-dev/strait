@@ -419,6 +419,8 @@ func mapAgentServiceError(err error) error {
 		return huma.Error429TooManyRequests("monthly agent run quota exceeded")
 	case errors.Is(err, agents.ErrConcurrencyExceeded):
 		return huma.Error429TooManyRequests("agent has too many concurrent runs")
+	case errors.Is(err, agents.ErrAgentDisabled):
+		return huma.Error409Conflict("agent is disabled")
 	}
 
 	var fieldErr *domain.FieldError
@@ -483,18 +485,7 @@ func (s *Server) handleListAgentVersions(ctx context.Context, input *ListAgentVe
 		}
 	}
 
-	// Use the store directly since the agent service's agentStore interface
-	// has ListAgentDeployments but the Service interface doesn't expose it.
-	// The store.Queries implements both APIStore and the needed method.
-	type deploymentLister interface {
-		ListAgentDeployments(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error)
-	}
-	lister, ok := s.store.(deploymentLister)
-	if !ok {
-		return nil, huma.Error500InternalServerError("deployment listing not supported")
-	}
-
-	deployments, listErr := lister.ListAgentDeployments(ctx, input.AgentID, limit, nil)
+	deployments, listErr := s.store.ListAgentDeployments(ctx, input.AgentID, limit, nil)
 	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list agent versions")
 	}
@@ -718,14 +709,99 @@ func (s *Server) handleApplyRecommendation(ctx context.Context, input *ApplyReco
 	return &ApplyRecommendationOutput{Body: updated}, nil
 }
 
+type DismissRecommendationRequest struct {
+	RecommendationID string `json:"recommendation_id" validate:"required"`
+}
+
 type DismissRecommendationInput struct {
+	AgentID string `path:"agentID"`
+	Body    DismissRecommendationRequest
+}
+
+func (s *Server) handleDismissRecommendation(ctx context.Context, input *DismissRecommendationInput) (*struct{}, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	actor := actorFromContext(ctx)
+
+	if _, agentErr := svc.GetAgent(ctx, projectID, input.AgentID); agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
+	type dismisser interface {
+		DismissRecommendation(ctx context.Context, agentID, recID, actor string) error
+	}
+	d, ok := s.store.(dismisser)
+	if !ok {
+		return nil, huma.Error500InternalServerError("dismiss not supported")
+	}
+	if err := d.DismissRecommendation(ctx, input.AgentID, input.Body.RecommendationID, actor); err != nil {
+		return nil, huma.Error500InternalServerError("failed to dismiss recommendation")
+	}
+	return nil, nil
+}
+
+type KillAgentInput struct {
 	AgentID string `path:"agentID"`
 }
 
-func (s *Server) handleDismissRecommendation(ctx context.Context, _ *DismissRecommendationInput) (*struct{}, error) {
-	// Dismiss is a no-op for now. Could store dismissed recs in a JSONB field later.
-	_ = ctx
-	return nil, nil
+type KillAgentOutput struct {
+	Body struct {
+		CancelledRuns int    `json:"cancelled_runs"`
+		AgentID       string `json:"agent_id"`
+		Status        string `json:"status"`
+	}
+}
+
+func (s *Server) handleKillAgent(ctx context.Context, input *KillAgentInput) (*KillAgentOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	actor := actorFromContext(ctx)
+
+	cancelled, killErr := svc.KillAgent(ctx, projectID, input.AgentID, actor)
+	if killErr != nil {
+		return nil, mapAgentServiceError(killErr)
+	}
+
+	out := &KillAgentOutput{}
+	out.Body.CancelledRuns = cancelled
+	out.Body.AgentID = input.AgentID
+	out.Body.Status = "disabled"
+	return out, nil
+}
+
+type EnableAgentInput struct {
+	AgentID string `path:"agentID"`
+}
+
+type EnableAgentOutput struct {
+	Body struct {
+		AgentID string `json:"agent_id"`
+		Status  string `json:"status"`
+	}
+}
+
+func (s *Server) handleEnableAgent(ctx context.Context, input *EnableAgentInput) (*EnableAgentOutput, error) {
+	svc, err := s.requireAgentService()
+	if err != nil {
+		return nil, err
+	}
+	projectID := projectIDFromContext(ctx)
+	actor := actorFromContext(ctx)
+
+	if enableErr := svc.EnableAgent(ctx, projectID, input.AgentID, actor); enableErr != nil {
+		return nil, mapAgentServiceError(enableErr)
+	}
+
+	out := &EnableAgentOutput{}
+	out.Body.AgentID = input.AgentID
+	out.Body.Status = "enabled"
+	return out, nil
 }
 
 type CompareAgentRunsInput struct {
@@ -831,13 +907,8 @@ func (s *Server) handleGetAgentHealth(ctx context.Context, input *GetAgentHealth
 		return nil, mapAgentServiceError(agentErr)
 	}
 
-	q, ok := s.store.(*store.Queries)
-	if !ok {
-		return nil, huma.Error500InternalServerError("health stats not supported")
-	}
-
 	since := time.Now().Add(-24 * time.Hour)
-	stats, statsErr := q.GetAgentHealthStats(ctx, input.AgentID, since)
+	stats, statsErr := s.store.GetAgentHealthStats(ctx, input.AgentID, since)
 	if statsErr != nil {
 		return nil, huma.Error500InternalServerError("failed to get agent health stats")
 	}

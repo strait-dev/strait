@@ -42,6 +42,7 @@ var (
 	ErrConcurrencyExceeded = errors.New("agent has too many concurrent runs")
 	ErrAgentQuotaExceeded  = errors.New("agent quota exceeded for this project")
 	ErrRunQuotaExceeded    = errors.New("monthly agent run quota exceeded")
+	ErrAgentDisabled       = errors.New("agent is disabled")
 )
 
 // DirectRunResult contains the data needed for client-side dispatch.
@@ -79,6 +80,8 @@ type Service interface {
 	PrepareDirectRun(ctx context.Context, req RunAgentRequest) (*DirectRunResult, error)
 	ListAgentRuns(ctx context.Context, projectID, agentID string, limit, offset int) ([]domain.JobRun, error)
 	ReplayAgentRun(ctx context.Context, req ReplayAgentRunRequest) (*domain.JobRun, error)
+	KillAgent(ctx context.Context, projectID, agentID, actor string) (int, error)
+	EnableAgent(ctx context.Context, projectID, agentID, actor string) error
 	Close()
 }
 
@@ -112,6 +115,8 @@ type agentStore interface {
 	GetActiveAgentCanaryWithTarget(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, *domain.AgentDeployment, error)
 	GetEnvironment(ctx context.Context, envID string) (*domain.Environment, error)
 	ListProjectSecretsByEnv(ctx context.Context, projectID, environmentID string) ([]domain.ProjectSecret, error)
+	SetAgentEnabled(ctx context.Context, agentID string, enabled bool) error
+	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
 }
 
 type Provider interface {
@@ -580,6 +585,31 @@ func (s *localService) DeleteAgent(ctx context.Context, projectID, agentID strin
 	})
 }
 
+func (s *localService) KillAgent(ctx context.Context, projectID, agentID, actor string) (int, error) {
+	agent, err := s.GetAgent(ctx, projectID, agentID)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.store.SetAgentEnabled(ctx, agentID, false); err != nil {
+		return 0, fmt.Errorf("disable agent: %w", err)
+	}
+	cancelled, err := s.store.CancelActiveRunsForJob(ctx, agent.JobID, "agent killed by "+actor)
+	if err != nil {
+		return 0, fmt.Errorf("cancel active runs: %w", err)
+	}
+	return len(cancelled), nil
+}
+
+func (s *localService) EnableAgent(ctx context.Context, projectID, agentID, actor string) error {
+	if _, err := s.GetAgent(ctx, projectID, agentID); err != nil {
+		return err
+	}
+	if err := s.store.SetAgentEnabled(ctx, agentID, true); err != nil {
+		return fmt.Errorf("enable agent: %w", err)
+	}
+	return nil
+}
+
 func (s *localService) DeployAgent(ctx context.Context, projectID, agentID, actor string) (*domain.AgentDeployment, error) {
 	return s.DeployAgentToEnv(ctx, projectID, agentID, "", actor)
 }
@@ -685,6 +715,9 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
 	if err != nil {
 		return nil, err
+	}
+	if !agent.Enabled {
+		return nil, ErrAgentDisabled
 	}
 	job, err := s.store.GetJob(ctx, agent.JobID)
 	if err != nil {
@@ -792,6 +825,9 @@ func (s *localService) PrepareDirectRun(ctx context.Context, req RunAgentRequest
 	agent, err := s.GetAgent(ctx, req.ProjectID, req.AgentID)
 	if err != nil {
 		return nil, err
+	}
+	if !agent.Enabled {
+		return nil, ErrAgentDisabled
 	}
 	job, err := s.store.GetJob(ctx, agent.JobID)
 	if err != nil {
@@ -1275,6 +1311,26 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 			envelope.Secrets = make(map[string]string, len(secrets))
 			for _, s := range secrets {
 				envelope.Secrets[s.SecretKey] = s.EncryptedValue
+			}
+		}
+	}
+
+	// Populate available peer agents for agent-as-tool invocation.
+	// Fail-open: errors are logged but don't block the run.
+	peerAgents, peerErr := s.store.ListAgents(ctx, agent.ProjectID, 50, nil)
+	if peerErr != nil {
+		slog.Warn("failed to list peer agents for envelope",
+			"run_id", run.ID,
+			"error", peerErr)
+	} else {
+		for _, peer := range peerAgents {
+			if peer.ID != agent.ID && peer.Enabled {
+				envelope.AvailableAgents = append(envelope.AvailableAgents, AvailableAgent{
+					ID:          peer.ID,
+					Slug:        peer.Slug,
+					Name:        peer.Name,
+					Description: peer.Description,
+				})
 			}
 		}
 	}

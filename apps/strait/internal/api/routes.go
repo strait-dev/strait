@@ -735,6 +735,7 @@ func (s *Server) routes() chi.Router {
 				r.Post("/trigger-workflow", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerWorkflow))
 				r.Post("/trigger-agent", TypedHandler(s, http.StatusCreated, s.handleSDKTriggerAgent))
 				r.Post("/await-run", TypedHandler(s, http.StatusOK, s.handleSDKAwaitRun))
+				r.Post("/invoke-agent", TypedHandler(s, http.StatusOK, s.handleInvokeAgent))
 			})
 			r.Route("/memory", func(r chi.Router) {
 				r.Post("/{key}", TypedHandler(s, http.StatusCreated, s.handleSDKSetMemory))

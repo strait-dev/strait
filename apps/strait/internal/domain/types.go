@@ -155,6 +155,13 @@ type Project struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// DismissedRecommendation records a dismissed cost optimization recommendation.
+type DismissedRecommendation struct {
+	RecommendationID string    `json:"recommendation_id"`
+	DismissedAt      time.Time `json:"dismissed_at"`
+	DismissedBy      string    `json:"dismissed_by"`
+}
+
 type Agent struct {
 	ID                       string          `json:"id"`
 	ProjectID                string          `json:"project_id"`
@@ -169,7 +176,9 @@ type Agent struct {
 	CreatedBy                string          `json:"created_by,omitempty"`
 	UpdatedBy                string          `json:"updated_by,omitempty"`
 	CreatedAt                time.Time       `json:"created_at"`
-	UpdatedAt                time.Time       `json:"updated_at"`
+	UpdatedAt                time.Time                `json:"updated_at"`
+	Enabled                  bool                     `json:"enabled"`
+	DismissedRecommendations []DismissedRecommendation `json:"dismissed_recommendations,omitempty"`
 }
 
 type AgentDeploymentStatus string
@@ -1049,7 +1058,7 @@ type DeploymentVersion struct {
 
 func (s RunStatus) IsTerminal() bool {
 	switch s {
-	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired, StatusDeadLetter:
+	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
 		return true
 	default:
 		return false

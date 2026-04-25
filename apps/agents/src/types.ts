@@ -43,6 +43,12 @@ export type DispatchEnvelope = {
     checkpoint_at?: string;
     previous_error?: string;
   };
+  available_agents?: Array<{
+    id: string;
+    slug: string;
+    name?: string;
+    description?: string;
+  }>;
 };
 
 export type CloudflareSandboxPolicy = {

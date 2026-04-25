@@ -7,7 +7,6 @@ import (
 
 	"strait/internal/agents"
 	"strait/internal/domain"
-	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -94,12 +93,7 @@ func (s *Server) handleListAgentMessages(ctx context.Context, input *ListAgentMe
 		return nil, huma.Error400BadRequest("project context is required")
 	}
 
-	q, ok := s.store.(*store.Queries)
-	if !ok {
-		return nil, huma.Error500InternalServerError("message listing not supported")
-	}
-
-	messages, err := q.ListAgentMessagesByAgent(ctx, input.AgentID, 50, nil)
+	messages, err := s.store.ListAgentMessagesByAgent(ctx, input.AgentID, 50, nil)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list messages")
 	}
@@ -115,13 +109,7 @@ func (s *Server) handleGetAgentTopology(ctx context.Context, _ *GetAgentTopology
 		return nil, huma.Error400BadRequest("project context is required")
 	}
 
-	q, ok := s.store.(*store.Queries)
-	if !ok {
-		return nil, huma.Error500InternalServerError("topology not supported")
-	}
-
-	// Get all agents for the project to build nodes.
-	agentList, err := q.ListAgents(ctx, projectID, 500, nil)
+	agentList, err := s.store.ListAgents(ctx, projectID, 500, nil)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list agents")
 	}
@@ -136,7 +124,7 @@ func (s *Server) handleGetAgentTopology(ctx context.Context, _ *GetAgentTopology
 	}
 
 	// Get edges from message flow.
-	edgeRows, err := q.GetAgentTopologyEdges(ctx, projectID)
+	edgeRows, err := s.store.GetAgentTopologyEdges(ctx, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get topology edges")
 	}

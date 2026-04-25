@@ -11,6 +11,7 @@ import (
 	agentsvc "strait/internal/agents"
 	"strait/internal/config"
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type stubAgentService struct {
@@ -66,6 +67,15 @@ func (s *stubAgentService) PrepareDirectRun(_ context.Context, _ agentsvc.RunAge
 
 func (s *stubAgentService) ReplayAgentRun(_ context.Context, _ agentsvc.ReplayAgentRunRequest) (*domain.JobRun, error) {
 	return nil, nil
+}
+
+
+func (s *stubAgentService) KillAgent(_ context.Context, _, _, _ string) (int, error) {
+	return 0, nil
+}
+
+func (s *stubAgentService) EnableAgent(_ context.Context, _, _, _ string) error {
+	return nil
 }
 
 func (s *stubAgentService) Close() {}
@@ -332,7 +342,15 @@ func TestHandleRunAgentConcurrencyExceeded(t *testing.T) {
 func TestHandleGetAgentTopologyEmpty(t *testing.T) {
 	t.Parallel()
 
-	srv := newAgentTestServer(t, &stubAgentService{
+	mockStore := &APIStoreMock{
+		ListAgentsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.Agent, error) {
+			return []domain.Agent{}, nil
+		},
+		GetAgentTopologyEdgesFunc: func(_ context.Context, _ string) ([]store.AgentMessageEdge, error) {
+			return []store.AgentMessageEdge{}, nil
+		},
+	}
+	svc := &stubAgentService{
 		createAgentFunc:   func(context.Context, agentsvc.CreateAgentRequest) (*domain.Agent, error) { return nil, nil },
 		getAgentFunc:      func(context.Context, string, string) (*domain.Agent, error) { return nil, nil },
 		listAgentsFunc:    func(context.Context, string, int, *time.Time) ([]domain.Agent, error) { return nil, nil },
@@ -341,15 +359,26 @@ func TestHandleGetAgentTopologyEmpty(t *testing.T) {
 		deployAgentFunc:   func(context.Context, string, string, string) (*domain.AgentDeployment, error) { return nil, nil },
 		runAgentFunc:      func(context.Context, agentsvc.RunAgentRequest) (*domain.JobRun, error) { return nil, nil },
 		listAgentRunsFunc: func(context.Context, string, string, int, int) ([]domain.JobRun, error) { return nil, nil },
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+		},
+		Store:        mockStore,
+		AgentService: svc,
+		Queue:        &mockQueue{},
+		Edition:      domain.EditionCloud,
 	})
+	t.Cleanup(srv.Close)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/agents/topology", "", "proj-1"))
 
-	// The mock store is not *store.Queries, so topology handler returns 500.
-	// This tests that the route is registered and the handler runs.
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 (mock store), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

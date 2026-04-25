@@ -104,6 +104,10 @@ func (m *mockMWAgentService) ListAgentRuns(_ context.Context, _, _ string, _, _ 
 func (m *mockMWAgentService) ReplayAgentRun(_ context.Context, _ ReplayAgentRunRequest) (*domain.JobRun, error) {
 	return nil, nil
 }
+func (m *mockMWAgentService) KillAgent(_ context.Context, _, _, _ string) (int, error) {
+	return 0, nil
+}
+func (m *mockMWAgentService) EnableAgent(_ context.Context, _, _, _ string) error { return nil }
 func (m *mockMWAgentService) Close() {}
 
 // -- Lifecycle tests.

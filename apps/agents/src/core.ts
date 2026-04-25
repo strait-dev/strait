@@ -335,6 +335,9 @@ export function buildRuntimeOutput(
       outputs.push(networkToolCall);
     }
 
+    // Emit discovery events for available peer agents.
+    outputs.push(...buildAgentToolRegistrations(envelope));
+
     if (scenario === "duplicate_checkpoint") {
       outputs.push({
         kind: "event",
@@ -416,6 +419,35 @@ export function buildRuntimeOutput(
 
     return outputs;
   }).pipe(Effect.mapError(toError));
+}
+
+/**
+ * Registers available peer agents as tool definitions in the output stream.
+ * Agents are invoked via the SDK invoke-agent callback endpoint;
+ * this emits discovery events so the caller knows which agents are available.
+ */
+function buildAgentToolRegistrations(
+  envelope: DispatchEnvelope
+): RuntimeOutputLine[] {
+  if (!envelope.available_agents?.length) {
+    return [];
+  }
+  return envelope.available_agents.map((agent) => ({
+    kind: "event" as const,
+    event: {
+      type: "tool_call" as const,
+      tool_name: `strait.agent.${agent.slug}`,
+      input: {
+        agent_id: agent.id,
+        agent_slug: agent.slug,
+        name: agent.name ?? agent.slug,
+        description: agent.description ?? "",
+      },
+      output: { registered: true },
+      duration_ms: 0,
+      status: "registered",
+    },
+  }));
 }
 
 function buildNetworkToolCall(

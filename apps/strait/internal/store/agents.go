@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-const agentColumns = `id, project_id, job_id, name, slug, description, model, model_fallbacks, config, provider_secrets_encrypted, created_by, updated_by, created_at, updated_at`
+const agentColumns = `id, project_id, job_id, name, slug, description, model, model_fallbacks, config, provider_secrets_encrypted, created_by, updated_by, created_at, updated_at, enabled, dismissed_recommendations`
 
 const agentDeploymentColumns = `id, agent_id, environment_id, version, status, provider, config_snapshot, provider_metadata, created_by, created_at, updated_at, deployed_at`
 
@@ -28,6 +28,7 @@ func scanAgent(scanner interface {
 	var createdBy *string
 	var updatedBy *string
 	var providerSecretsEncrypted *string
+	var dismissedRecsJSON []byte
 	if err := scanner.Scan(
 		&agent.ID,
 		&agent.ProjectID,
@@ -43,6 +44,8 @@ func scanAgent(scanner interface {
 		&updatedBy,
 		&agent.CreatedAt,
 		&agent.UpdatedAt,
+		&agent.Enabled,
+		&dismissedRecsJSON,
 	); err != nil {
 		return nil, err
 	}
@@ -54,6 +57,9 @@ func scanAgent(scanner interface {
 	}
 	if updatedBy != nil {
 		agent.UpdatedBy = *updatedBy
+	}
+	if len(dismissedRecsJSON) > 0 {
+		_ = json.Unmarshal(dismissedRecsJSON, &agent.DismissedRecommendations)
 	}
 	return &agent, nil
 }
@@ -275,6 +281,37 @@ func (q *Queries) UpdateAgent(ctx context.Context, agent *domain.Agent) error {
 		return fmt.Errorf("update agent: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) SetAgentEnabled(ctx context.Context, agentID string, enabled bool) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetAgentEnabled")
+	defer span.End()
+	_, err := q.db.Exec(ctx, `UPDATE agents SET enabled = $2, updated_at = NOW() WHERE id = $1`, agentID, enabled)
+	if err != nil {
+		return fmt.Errorf("set agent enabled: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) DismissRecommendation(ctx context.Context, agentID, recID, actor string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DismissRecommendation")
+	defer span.End()
+	rec := domain.DismissedRecommendation{
+		RecommendationID: recID,
+		DismissedAt:      time.Now(),
+		DismissedBy:      actor,
+	}
+	recJSON, err := json.Marshal([]domain.DismissedRecommendation{rec})
+	if err != nil {
+		return fmt.Errorf("marshal dismissed recommendation: %w", err)
+	}
+	_, err = q.db.Exec(ctx,
+		`UPDATE agents SET dismissed_recommendations = dismissed_recommendations || $2::jsonb, updated_at = NOW() WHERE id = $1`,
+		agentID, recJSON)
+	if err != nil {
+		return fmt.Errorf("dismiss recommendation: %w", err)
+	}
 	return nil
 }
 

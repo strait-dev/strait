@@ -66,6 +66,7 @@ type APIStore interface {
 	RunStore
 	WorkflowStore
 	AgentLookupStore
+	AgentExtendedStore
 	DeploymentStore
 	CodeDeploymentStore
 	EventTriggerStore
@@ -88,6 +89,15 @@ type ProjectStore interface {
 type AgentLookupStore interface {
 	GetAgent(ctx context.Context, id string) (*domain.Agent, error)
 	ListAgentsByJobIDs(ctx context.Context, projectID string, jobIDs []string) ([]domain.Agent, error)
+}
+
+// AgentExtendedStore extends agent lookup with analytics and messaging queries.
+type AgentExtendedStore interface {
+	ListAgents(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Agent, error)
+	ListAgentDeployments(ctx context.Context, agentID string, limit int, cursor *time.Time) ([]domain.AgentDeployment, error)
+	GetAgentHealthStats(ctx context.Context, agentID string, since time.Time) (*store.AgentHealthStats, error)
+	ListAgentMessagesByAgent(ctx context.Context, agentID string, limit int, cursor *store.AgentMessageCursor) ([]domain.AgentMessage, error)
+	GetAgentTopologyEdges(ctx context.Context, projectID string) ([]store.AgentMessageEdge, error)
 }
 
 // JobStore handles job CRUD, groups, environments, secrets, and dependencies.

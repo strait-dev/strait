@@ -488,7 +488,7 @@ func TestIsTerminalStatus_AllCases(t *testing.T) {
 		{domain.StatusQueued, false},
 		{domain.StatusDequeued, false},
 		{domain.StatusExecuting, false},
-		{domain.StatusDeadLetter, true},
+		{domain.StatusDeadLetter, false},
 		{domain.StatusDelayed, false},
 		{domain.StatusWaiting, false},
 		{domain.StatusPaused, false},

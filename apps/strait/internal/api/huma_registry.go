@@ -272,6 +272,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleDeployAgent)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "kill-agent", Method: http.MethodPost, Path: "/v1/agents/{agentID}/kill",
+		Summary: "Kill agent", Description: "Disable agent and cancel all in-flight runs",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleKillAgent)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "enable-agent", Method: http.MethodPost, Path: "/v1/agents/{agentID}/enable",
+		Summary: "Enable agent", Description: "Re-enable a disabled agent",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleEnableAgent)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "run-agent", Method: http.MethodPost, Path: "/v1/agents/{agentID}/run",
 		Summary: "Run an agent", Description: "Triggers a local stub run for the latest deployed agent version.",
 		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 429, 500},
@@ -1862,6 +1874,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Spawn a child run", Description: "Spawns a child run from within the current run for fan-out patterns.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
 	}, s.handleSDKSpawn)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "sdk-invoke-agent", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/invoke-agent",
+		Summary: "Invoke agent as tool", Description: "Synchronously invokes another agent by slug and polls until completion.",
+		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 408, 409, 500, 503},
+	}, s.handleInvokeAgent)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-continue", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/continue",

@@ -116,7 +116,21 @@ func GenerateRecommendations(ctx context.Context, store CostOptimizerStore, agen
 		})
 	}
 
-	return recommendations, nil
+	// Filter out dismissed recommendations.
+	dismissed := make(map[string]struct{}, len(agent.DismissedRecommendations))
+	for _, d := range agent.DismissedRecommendations {
+		dismissed[d.RecommendationID] = struct{}{}
+	}
+	var filtered []CostRecommendation
+	for _, r := range recommendations {
+		if _, ok := dismissed[r.ID]; !ok {
+			filtered = append(filtered, r)
+		}
+	}
+	if filtered == nil {
+		filtered = []CostRecommendation{}
+	}
+	return filtered, nil
 }
 
 // safeIDPrefix returns up to the first 8 characters of an ID for use in
