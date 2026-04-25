@@ -5,11 +5,11 @@ package clickhouse
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/metric/noop"
 )
 
@@ -386,7 +386,7 @@ func TestExporter_ConcurrentEnqueueAndFlush(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.Start(ctx)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var enqueued atomic.Int64
 
 	// Spawn writers.
@@ -575,6 +575,176 @@ func TestTestExporter_NilPendingAt(t *testing.T) {
 	var e *Exporter
 	if e.PendingAt(0) != nil {
 		t.Error("nil exporter PendingAt should return nil")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// insertBatch: partial record types kill CONDITIONALS_BOUNDARY on len guards.
+// ---------------------------------------------------------------------------.
+
+func TestExporter_InsertBatch_OnlyRunEvents_NoOtherTableErrors(t *testing.T) {
+	t.Parallel()
+	client := newFailingClient(t)
+	e := &Exporter{
+		client:  client,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	batch := []any{
+		RunEventRecord{EventID: "e1", RunID: "r1", ProjectID: "p1", CreatedAt: time.Now()},
+	}
+	err := e.insertBatch(context.Background(), batch)
+	if err == nil {
+		t.Fatal("expected error from failing client")
+	}
+	errMsg := err.Error()
+	if !contains(errMsg, "run_events") {
+		t.Error("expected error to mention run_events")
+	}
+	absentTables := []string{
+		"run_analytics", "compute_usage", "run_usage_events",
+		"workflow_approval_events", "job_metadata", "webhook_delivery_events",
+		"workflow_run_analytics", "workflow_step_analytics", "event_trigger_events",
+		"billing_events",
+	}
+	for _, table := range absentTables {
+		if contains(errMsg, table) {
+			t.Errorf("error should NOT mention %q (no records of that type), got: %s", table, errMsg)
+		}
+	}
+}
+
+func TestExporter_InsertBatch_OnlyAnalytics_NoOtherTableErrors(t *testing.T) {
+	t.Parallel()
+	client := newFailingClient(t)
+	e := &Exporter{
+		client:  client,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	batch := []any{
+		RunAnalyticsRecord{RunID: "r1", ProjectID: "p1", CreatedAt: time.Now()},
+	}
+	err := e.insertBatch(context.Background(), batch)
+	if err == nil {
+		t.Fatal("expected error from failing client")
+	}
+	errMsg := err.Error()
+	if !contains(errMsg, "run_analytics") {
+		t.Error("expected error to mention run_analytics")
+	}
+	if contains(errMsg, "run_events") {
+		t.Errorf("error should NOT mention run_events (no records of that type)")
+	}
+}
+
+func TestExporter_InsertBatch_OnlyBillingEvents_NoOtherTableErrors(t *testing.T) {
+	t.Parallel()
+	client := newFailingClient(t)
+	e := &Exporter{
+		client:  client,
+		config:  ExporterConfig{BatchSize: 100},
+		logger:  slog.Default(),
+		pending: make([]any, 0),
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+
+	batch := []any{
+		BillingEventRecord{Timestamp: time.Now(), OrgID: "org-1", EventType: "charge"},
+	}
+	err := e.insertBatch(context.Background(), batch)
+	if err == nil {
+		t.Fatal("expected error from failing client")
+	}
+	errMsg := err.Error()
+	if !contains(errMsg, "billing_events") {
+		t.Error("expected error to mention billing_events")
+	}
+	if contains(errMsg, "run_events") {
+		t.Errorf("error should NOT mention run_events")
+	}
+	if contains(errMsg, "run_analytics") {
+		t.Errorf("error should NOT mention run_analytics")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Client pool defaults kill CONDITIONALS_BOUNDARY on maxOpen/maxIdle.
+// ---------------------------------------------------------------------------.
+
+func TestNewClient_DefaultPoolSettings(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		Enabled:      false,
+		MaxOpenConns: 0,
+		MaxIdleConns: 0,
+	}
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	if maxOpen != 10 {
+		t.Errorf("default maxOpen = %d, want 10", maxOpen)
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	if maxIdle != 5 {
+		t.Errorf("default maxIdle = %d, want 5", maxIdle)
+	}
+}
+
+func TestNewClient_NegativePoolSettings(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		MaxOpenConns: -1,
+		MaxIdleConns: -3,
+	}
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	if maxOpen != 10 {
+		t.Errorf("negative maxOpen should default to 10, got %d", maxOpen)
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	if maxIdle != 5 {
+		t.Errorf("negative maxIdle should default to 5, got %d", maxIdle)
+	}
+}
+
+func TestNewClient_PositivePoolSettings_Preserved(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		MaxOpenConns: 20,
+		MaxIdleConns: 8,
+	}
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	if maxOpen != 20 {
+		t.Errorf("explicit maxOpen should be preserved, got %d", maxOpen)
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	if maxIdle != 8 {
+		t.Errorf("explicit maxIdle should be preserved, got %d", maxIdle)
 	}
 }
 

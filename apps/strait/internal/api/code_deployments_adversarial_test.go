@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 	"strait/internal/objectstore"
 	"strait/internal/store"
@@ -210,12 +212,11 @@ func TestHandleConfirmCodeDeployment_ConcurrentCalls(t *testing.T) {
 	srv := newTestServerWithObjectStore(t, ms, &mockObjectStore{})
 
 	results := make([]int, goroutines)
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			body := fmt.Sprintf(`{"project_id": %q}`, projectID)
 			req := authedProjectRequest(
 				http.MethodPost,
@@ -225,7 +226,7 @@ func TestHandleConfirmCodeDeployment_ConcurrentCalls(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
 			results[idx] = w.Code
-		}(i)
+		})
 	}
 	wg.Wait()
 

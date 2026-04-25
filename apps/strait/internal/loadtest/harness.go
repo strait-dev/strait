@@ -29,8 +29,6 @@ const (
 	ModeMixed ExecutionMode = "mixed"
 )
 
-const defaultManagedImage = "ghcr.io/strait-dev/strait-loadtest:loadtest-python"
-
 // Harness is the top-level test orchestrator. It sets up infrastructure,
 // runs scenarios, and collects results.
 type Harness struct {
@@ -395,11 +393,10 @@ func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[
 }
 
 // managedJobConfigs returns the job configurations for managed container jobs.
+// Callers using ModeManaged or ModeMixed must set HarnessConfig.ManagedImage
+// to a pullable container image; there is no default.
 func (h *Harness) managedJobConfigs(projectID string) []JobConfig {
 	image := h.Config.ManagedImage
-	if image == "" {
-		image = defaultManagedImage
-	}
 
 	return []JobConfig{
 		{

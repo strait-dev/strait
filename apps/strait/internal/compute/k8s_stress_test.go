@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Stress tests for K8sRuntime on real Kubernetes (kind).
@@ -20,7 +21,7 @@ func TestK8sStress_BurstCreate(t *testing.T) {
 	defer cancel()
 
 	const burst = 15
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var succeeded, failed atomic.Int64
 	jobIDs := make([]string, burst)
 
@@ -56,7 +57,7 @@ func TestK8sStress_BurstCreate(t *testing.T) {
 	// Wait for all jobs to complete.
 	t.Log("waiting for all jobs to complete...")
 	waitStart := time.Now()
-	var waitWG sync.WaitGroup
+	var waitWG conc.WaitGroup
 	var completions, timeouts atomic.Int64
 
 	for i := range burst {
@@ -98,7 +99,7 @@ func TestK8sStress_RapidCreateDestroy(t *testing.T) {
 	defer cancel()
 
 	const count = 20
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var created, destroyed atomic.Int64
 
 	t.Logf("rapid create-destroy %d jobs...", count)
@@ -150,7 +151,7 @@ func TestK8sStress_MixedWorkload(t *testing.T) {
 		{"small-calc", "small-1x", "expr 42 + 58"},
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var succeeded atomic.Int64
 
 	t.Logf("running %d mixed workload jobs...", len(specs))
@@ -231,7 +232,7 @@ func TestK8sStress_MetricsUnderLoad(t *testing.T) {
 	defer cancel()
 
 	const n = 5
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	for range n {
 		wg.Go(func() {
@@ -278,7 +279,7 @@ func TestK8sStress_RouterFallbackUnderLoad(t *testing.T) {
 	router := NewRuntimeRouter(failingPrimary, rt)
 
 	const n = 3
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var succeeded atomic.Int64
 
 	for range n {

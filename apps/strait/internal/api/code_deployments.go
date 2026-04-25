@@ -123,6 +123,12 @@ func (s *Server) handleCreateCodeDeployment(ctx context.Context, input *CreateCo
 		return nil, huma.Error500InternalServerError("failed to generate upload URL")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionCodeDeploymentCreated, "code_deployment", deployment.ID, map[string]any{
+		"job_id":            deployment.JobID,
+		"runtime":           string(deployment.Runtime),
+		"source_size_bytes": deployment.SourceSizeBytes,
+	})
+
 	out := &CreateCodeDeploymentOutput{}
 	out.Body.Deployment = deployment
 	out.Body.UploadURL = uploadURL
@@ -217,6 +223,12 @@ func (s *Server) handleConfirmCodeDeployment(ctx context.Context, input *Confirm
 		return nil, huma.Error500InternalServerError("failed to confirm deployment")
 	}
 	d.Status = domain.DeploymentStatusBuilding
+
+	s.emitAuditEvent(ctx, domain.AuditActionCodeDeploymentConfirmed, "code_deployment", d.ID, map[string]any{
+		"job_id":            d.JobID,
+		"runtime":           string(d.Runtime),
+		"source_size_bytes": d.SourceSizeBytes,
+	})
 
 	return &ConfirmCodeDeploymentOutput{Body: d}, nil
 }
@@ -320,6 +332,11 @@ func (s *Server) handleRollbackCodeDeployment(ctx context.Context, input *Rollba
 		}
 		return nil, huma.Error500InternalServerError("failed to roll back deployment")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionCodeDeploymentRolledBack, "code_deployment", d.ID, map[string]any{
+		"job_id":  d.JobID,
+		"runtime": string(d.Runtime),
+	})
 
 	return &RollbackCodeDeploymentOutput{Body: d}, nil
 }

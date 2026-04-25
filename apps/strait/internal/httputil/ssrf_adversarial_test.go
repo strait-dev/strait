@@ -281,6 +281,21 @@ func TestSSRF_NonStandardIPDetection(t *testing.T) {
 		{".1.2.3", false},          // leading dot = empty part
 		{"1..2.3", false},          // empty middle part
 		{"abc.def.ghi.jkl", false}, // alpha only
+
+		// Boundary characters for ssrf.go:109 mutant killing.
+		{"09.0.0.1", true},
+		{"0a.0.0.1", true},
+		{"0f.0.0.1", true},
+		{"0A.0.0.1", true},
+		{"0F.0.0.1", true},
+		{"01x.02.03.04", true},
+		{"01X.02.03.04", true},
+		{"0:.0.0.1", false},
+		{"0`.0.0.1", false},
+		{"0g.0.0.1", false},
+		{"0@.0.0.1", false},
+		{"0G.0.0.1", false},
+		{"0x.gg.0.1", false},
 	}
 
 	for _, tt := range tests {

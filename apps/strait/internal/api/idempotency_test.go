@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -921,19 +923,18 @@ func TestIdempotency_ConcurrentRequestsSameKey(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 
 	const concurrency = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]*httptest.ResponseRecorder, concurrency)
 
 	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", "concurrent-key")
 			srv.ServeHTTP(w, r)
 			results[idx] = w
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -978,13 +979,12 @@ func TestIdempotency_ConcurrentRequestsMixedHitMiss(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 
 	const concurrency = 5
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	responses := make([]map[string]any, concurrency)
 
 	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", "mixed-key")
@@ -992,7 +992,7 @@ func TestIdempotency_ConcurrentRequestsMixedHitMiss(t *testing.T) {
 			var resp map[string]any
 			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			responses[idx] = resp
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -2135,11 +2135,10 @@ func TestIdempotency_ManyUniqueKeysConcurrently(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 
 	const n = 50
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", fmt.Sprintf("unique-key-%d", idx))
@@ -2147,7 +2146,7 @@ func TestIdempotency_ManyUniqueKeysConcurrently(t *testing.T) {
 			if w.Code != http.StatusCreated {
 				t.Errorf("key %d: expected 201, got %d", idx, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

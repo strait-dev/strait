@@ -5,9 +5,10 @@ package billing_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -158,12 +159,11 @@ func TestAdversarial_ConcurrentUpsert(t *testing.T) {
 
 	orgID := "org-race-" + newID()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 10)
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			sub := &billing.OrgSubscription{
 				ID:          newID(),
 				OrgID:       orgID,
@@ -174,7 +174,7 @@ func TestAdversarial_ConcurrentUpsert(t *testing.T) {
 				UpdatedAt:   time.Now().UTC(),
 			}
 			errs[idx] = pgStore.UpsertOrgSubscription(ctx, sub)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -272,14 +272,13 @@ func TestAdversarial_ConcurrentWebhookRecord(t *testing.T) {
 
 	msgID := "msg-concurrent-" + newID()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 50)
 	for i := range 50 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			errs[idx] = pgStore.RecordProcessedWebhook(ctx, msgID)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -420,18 +419,17 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 		t.Fatalf("seed upsert: %v", err)
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 10)
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			c := *base
 			c.ID = fmt.Sprintf("contract_conc_%d", idx)
 			c.ComputeDiscountPct = idx
 			c.Notes = fmt.Sprintf("writer_%d", idx)
 			errs[idx] = pgStore.UpsertEnterpriseContract(ctx, &c)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -583,5 +581,219 @@ func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 	_, err := pgStore.GetEnterpriseContract(ctx, "")
 	if err == nil {
 		t.Fatal("expected error for empty org ID")
+	}
+}
+
+// --------------------------------------------------------------------------
+// H5: DeactivateExcessCronJobs keeps the newest by updated_at
+// --------------------------------------------------------------------------
+
+func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cron-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var jobIDs []string
+	for i := range 5 {
+		j := createJob(t, ctx, q, p.ID)
+		jobIDs = append(jobIDs, j.ID)
+		_, _ = testDB.Pool.Exec(ctx,
+			"UPDATE jobs SET updated_at = $2 WHERE id = $1",
+			j.ID, base.Add(time.Duration(i)*time.Hour))
+	}
+
+	deactivated, err := pgStore.DeactivateExcessCronJobs(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessCronJobs: %v", err)
+	}
+	if deactivated != 3 {
+		t.Fatalf("deactivated = %d, want 3", deactivated)
+	}
+
+	for i, jid := range jobIDs {
+		var cron string
+		if err := testDB.Pool.QueryRow(ctx,
+			"SELECT COALESCE(cron, '') FROM jobs WHERE id = $1", jid).Scan(&cron); err != nil {
+			t.Fatalf("query job %d: %v", i, err)
+		}
+		isNewest := i >= 3
+		hasCron := cron != ""
+		if isNewest && !hasCron {
+			t.Errorf("job %d (newest) should still have cron, got empty", i)
+		}
+		if !isNewest && hasCron {
+			t.Errorf("job %d (oldest) should have cron cleared, got %q", i, cron)
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// H6: DeactivateExcessEnvironments keeps the newest by created_at
+// --------------------------------------------------------------------------
+
+func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-env-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var envIDs []string
+	for i := range 4 {
+		eid := createEnvironment(t, ctx, p.ID, fmt.Sprintf("env-%d", i))
+		envIDs = append(envIDs, eid)
+		_, _ = testDB.Pool.Exec(ctx,
+			"UPDATE environments SET created_at = $2 WHERE id = $1",
+			eid, base.Add(time.Duration(i)*time.Hour))
+	}
+
+	deactivated, err := pgStore.DeactivateExcessEnvironments(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessEnvironments: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, eid := range envIDs {
+		var exists bool
+		err := testDB.Pool.QueryRow(ctx,
+			"SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)", eid).Scan(&exists)
+		if err != nil {
+			t.Fatalf("check env %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !exists {
+			t.Errorf("env %d (newest) should still exist", i)
+		}
+		if !isNewest && exists {
+			t.Errorf("env %d (oldest) should be deleted", i)
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// H7: DeactivateExcessWebhookSubscriptions keeps the newest by created_at
+// --------------------------------------------------------------------------
+
+func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-wh-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var whIDs []string
+	for i := range 5 {
+		wid := createWebhookSub(t, ctx, p.ID, fmt.Sprintf("https://example.com/wh%d", i))
+		whIDs = append(whIDs, wid)
+		_, _ = testDB.Pool.Exec(ctx,
+			"UPDATE webhook_subscriptions SET created_at = $2 WHERE id = $1",
+			wid, base.Add(time.Duration(i)*time.Hour))
+	}
+
+	deactivated, err := pgStore.DeactivateExcessWebhookSubscriptions(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessWebhookSubscriptions: %v", err)
+	}
+	if deactivated != 3 {
+		t.Fatalf("deactivated = %d, want 3", deactivated)
+	}
+
+	for i, wid := range whIDs {
+		var active bool
+		if err := testDB.Pool.QueryRow(ctx,
+			"SELECT active FROM webhook_subscriptions WHERE id = $1", wid).Scan(&active); err != nil {
+			t.Fatalf("check wh %d: %v", i, err)
+		}
+		isNewest := i >= 3
+		if isNewest && !active {
+			t.Errorf("webhook %d (newest) should still be active", i)
+		}
+		if !isNewest && active {
+			t.Errorf("webhook %d (oldest) should be deactivated", i)
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// H4: SuspendExcessProjects determinism with tied created_at
+// --------------------------------------------------------------------------
+
+func TestAdversarial_SuspendExcessProjects_TiedCreatedAt(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-tied-" + newID()
+	tiedTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	var projectIDs []string
+	for i := range 3 {
+		p := createProject(t, ctx, q, orgID, fmt.Sprintf("P%d", i))
+		projectIDs = append(projectIDs, p.ID)
+		_, _ = testDB.Pool.Exec(ctx,
+			"UPDATE projects SET created_at = $2 WHERE id = $1",
+			p.ID, tiedTime)
+	}
+
+	count, err := pgStore.SuspendExcessProjects(ctx, orgID, 1)
+	if err != nil {
+		t.Fatalf("SuspendExcessProjects: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("suspended = %d, want 2", count)
+	}
+
+	var keptID string
+	for _, pid := range projectIDs {
+		suspended, err := pgStore.IsProjectSuspended(ctx, pid)
+		if err != nil {
+			t.Fatalf("IsProjectSuspended(%s): %v", pid, err)
+		}
+		if !suspended {
+			keptID = pid
+		}
+	}
+	if keptID == "" {
+		t.Fatal("expected exactly one project to be kept")
+	}
+
+	// Unsuspend all and repeat -- the same project should be kept.
+	_, _ = testDB.Pool.Exec(ctx,
+		"UPDATE projects SET suspended = false WHERE org_id = $1", orgID)
+
+	count2, err := pgStore.SuspendExcessProjects(ctx, orgID, 1)
+	if err != nil {
+		t.Fatalf("second SuspendExcessProjects: %v", err)
+	}
+	if count2 != 2 {
+		t.Fatalf("second suspended = %d, want 2", count2)
+	}
+
+	var keptID2 string
+	for _, pid := range projectIDs {
+		suspended, err := pgStore.IsProjectSuspended(ctx, pid)
+		if err != nil {
+			t.Fatalf("IsProjectSuspended(%s): %v", pid, err)
+		}
+		if !suspended {
+			keptID2 = pid
+		}
+	}
+	if keptID2 != keptID {
+		t.Errorf("non-deterministic: first kept %s, second kept %s", keptID, keptID2)
 	}
 }

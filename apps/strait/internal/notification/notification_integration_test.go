@@ -19,6 +19,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 var testDB *testutil.TestDB
@@ -385,18 +386,16 @@ func TestConcurrentClaims_NoDoubleClaim(t *testing.T) {
 	const concurrency = 10
 	results := make(chan []domain.NotificationDelivery, concurrency)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range concurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
 			if err != nil {
 				t.Errorf("concurrent claim error: %v", err)
 				return
 			}
 			results <- claimed
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

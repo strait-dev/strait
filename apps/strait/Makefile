@@ -1,6 +1,6 @@
 .PHONY: build test lint vet preflight deploy deploy-staging
 .PHONY: dev dev-up dev-down dev-http dev-docker dev-status dev-logs dev-clean
-.PHONY: loadtest-up loadtest-down loadtest-server loadtest-quick loadtest-throughput
+.PHONY: loadtest-server loadtest-quick loadtest-throughput
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
 .PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
 .PHONY: test-k8s-unit test-k8s-integration
@@ -163,16 +163,6 @@ LOADTEST_RUN = \
 	INTERNAL_SECRET="loadtest-secret-that-is-long-enough" \
 	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
 	REDIS_URL="redis://localhost:6379"
-
-loadtest-up:
-	docker compose -f docker-compose.loadtest.yml up -d
-	@echo "Postgres:   localhost:5432"
-	@echo "Redis:      localhost:6379"
-	@echo "Prometheus: http://localhost:9090"
-	@echo "Grafana:    http://localhost:3001 (admin/admin)"
-
-loadtest-down:
-	docker compose -f docker-compose.loadtest.yml down
 
 loadtest-server:
 	$(LOADTEST_ENV) go run ./cmd/strait

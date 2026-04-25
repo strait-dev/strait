@@ -202,9 +202,9 @@ export const ChatVisual4 = () => (
     <div className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5">
       <span className="text-muted-foreground text-xs">Generating...</span>
       <div className="flex gap-0.5">
-        <span className="size-1 animate-bounce rounded-full bg-primary [animation-delay:0ms]" />
-        <span className="size-1 animate-bounce rounded-full bg-primary [animation-delay:150ms]" />
-        <span className="size-1 animate-bounce rounded-full bg-primary [animation-delay:300ms]" />
+        <span className="size-1 animate-dot-pulse rounded-full bg-primary [animation-delay:0ms]" />
+        <span className="size-1 animate-dot-pulse rounded-full bg-primary [animation-delay:150ms]" />
+        <span className="size-1 animate-dot-pulse rounded-full bg-primary [animation-delay:300ms]" />
       </div>
     </div>
   </div>

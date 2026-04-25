@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	lib_store "github.com/eko/gocache/lib/v4/store"
+	"github.com/sourcegraph/conc"
 )
 
 // TestCache_ZeroTTL verifies that a zero TTL falls back to the default 1h.
@@ -100,7 +100,7 @@ func TestCache_ConcurrentGetSet(t *testing.T) {
 	s := newTestStore(t, Config{})
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
 		id := i
 		wg.Go(func() {

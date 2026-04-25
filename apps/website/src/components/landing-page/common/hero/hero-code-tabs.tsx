@@ -7,9 +7,7 @@ const CopyButton = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  useEffect(() => {
-    return () => clearTimeout(timerRef.current);
-  }, []);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(text);

@@ -164,7 +164,7 @@ const ApiKeysManagement = () => {
               }}
               open={createOpen}
             >
-              <DialogTrigger render={<Button size="sm" />}>
+              <DialogTrigger render={<Button />}>
                 <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 Create Key
               </DialogTrigger>
@@ -438,7 +438,6 @@ const ApiKeysManagement = () => {
                                 render={
                                   <Button
                                     disabled={isRevoking}
-                                    size="sm"
                                     variant="destructive"
                                   />
                                 }

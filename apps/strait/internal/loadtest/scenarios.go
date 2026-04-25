@@ -171,6 +171,91 @@ func ProductionValidation() Scenario {
 	}
 }
 
+// BackpressureCeiling ramps enqueue across N projects past the token
+// bucket and measures the rejection rate plus steady-state dequeue
+// throughput. It is the canonical scenario for validating that
+// per-project rate limiting shields the queue from a noisy tenant.
+func BackpressureCeiling() Scenario {
+	return Scenario{
+		Name:        "backpressure_ceiling",
+		Description: "Ramp enqueue across N projects past token bucket; measure rejection rate and steady-state dequeue throughput.",
+		Tier:        2,
+		Duration:    45 * time.Minute,
+		RampConfig: &RampConfig{
+			Mode:         RampThroughput,
+			StartRate:    100,
+			StepSize:     100,
+			StepInterval: 30 * time.Second,
+			StopCondition: StopCondition{
+				MaxQueueDepth: 50000,
+				MaxLatencyP99: 10 * time.Second,
+				MaxErrorRate:  0.5,
+				MaxDuration:   45 * time.Minute,
+			},
+		},
+	}
+}
+
+// CircuitBreakerChaos uses pgxslow to inject DB slowness and asserts
+// that the circuit opens within threshold, dequeue short-circuits, and
+// the system recovers once latency returns to baseline.
+func CircuitBreakerChaos() Scenario {
+	return Scenario{
+		Name:        "circuit_breaker_chaos",
+		Description: "Inject DB slowness via pgxslow; assert circuit opens, dequeue short-circuits, recovers after backoff.",
+		Tier:        5,
+		Duration:    30 * time.Minute,
+	}
+}
+
+// OutboxBurst bulk-enqueues via outbox with the flusher paused,
+// releases it, and measures flusher throughput plus the
+// outbox_lag_seconds histogram.
+func OutboxBurst() Scenario {
+	return Scenario{
+		Name:        "outbox_burst",
+		Description: "Bulk-enqueue via outbox with flusher paused, release, measure flusher throughput and outbox_lag_seconds.",
+		Tier:        2,
+		Duration:    20 * time.Minute,
+	}
+}
+
+// DenormalizedDequeueDelta runs ThroughputCeiling twice — with
+// QUEUE_USE_DENORMALIZED_DEQUEUE true and false — and emits a delta
+// report so the denormalized path's lift is measurable.
+func DenormalizedDequeueDelta() Scenario {
+	return Scenario{
+		Name:        "denormalized_dequeue_delta",
+		Description: "ThroughputCeiling with QUEUE_USE_DENORMALIZED_DEQUEUE true vs false; emit delta report.",
+		Tier:        1,
+		Duration:    4 * time.Hour,
+	}
+}
+
+// PartitionCycleMatrix varies the partitionCycle length (1, 4, 12) at a
+// fixed enqueue rate and captures per-partition P99 dequeue latency via
+// the partition_dequeue_lag_seconds histogram.
+func PartitionCycleMatrix() Scenario {
+	return Scenario{
+		Name:        "partition_cycle_matrix",
+		Description: "Vary partitionCycle (1, 4, 12) at fixed enqueue rate; measure per-partition P99 dequeue latency.",
+		Tier:        2,
+		Duration:    90 * time.Minute,
+	}
+}
+
+// ArchiveStress enqueues 10k terminal runs, runs the archive loop for
+// 60 seconds, and measures rows/sec throughput. Validates that the
+// archive CTE (INSERT INTO history + DELETE FROM hot) scales linearly.
+func ArchiveStress() Scenario {
+	return Scenario{
+		Name:        "archive_stress",
+		Description: "Insert 10k terminal runs, archive for 60s, measure archive throughput and verify zero stranded rows.",
+		Tier:        2,
+		Duration:    5 * time.Minute,
+	}
+}
+
 // AllScenarios returns every pre-defined scenario.
 func AllScenarios() []Scenario {
 	return []Scenario{
@@ -184,5 +269,11 @@ func AllScenarios() []Scenario {
 		ChaosAll(),
 		ErrorScenarios(),
 		ProductionValidation(),
+		BackpressureCeiling(),
+		CircuitBreakerChaos(),
+		OutboxBurst(),
+		DenormalizedDequeueDelta(),
+		PartitionCycleMatrix(),
+		ArchiveStress(),
 	}
 }

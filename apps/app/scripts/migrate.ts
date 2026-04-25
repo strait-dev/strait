@@ -40,7 +40,9 @@ async function migrate() {
   if (toBeAdded.length > 0) {
     console.log("Columns to add:");
     for (const col of toBeAdded) {
-      console.log(`  + ${col.table}.${col.fields ? Object.keys(col.fields).join(", ") : "unknown"}`);
+      console.log(
+        `  + ${col.table}.${col.fields ? Object.keys(col.fields).join(", ") : "unknown"}`
+      );
     }
     console.log();
   }

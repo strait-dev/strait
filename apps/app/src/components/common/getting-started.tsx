@@ -31,7 +31,7 @@ const SDK_TABS = [
   {
     value: "go",
     label: "Go",
-    install: "go get github.com/straitdev/strait-go",
+    install: "go get github.com/strait-dev/strait-go",
   },
   { value: "rust", label: "Rust", install: "cargo add strait-sdk" },
   {
@@ -62,7 +62,7 @@ async def hello_world(payload):
     return {"success": True}`,
   go: `package main
 
-import "github.com/straitdev/strait-go"
+import "github.com/strait-dev/strait-go"
 
 func main() {
     s := strait.New(strait.WithAPIKey("your-api-key"))
@@ -94,7 +94,7 @@ export const GettingStarted = ({ user }: Props) => {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-balance font-normal text-2xl tracking-tight">
+        <h1 className="text-balance font-normal text-xl tracking-tight">
           Get started
         </h1>
         <p className="mt-1 text-muted-foreground">
@@ -127,7 +127,7 @@ export const GettingStarted = ({ user }: Props) => {
             </p>
             {organizationId && !hasProject ? (
               <div className="mt-3">
-                <Button onClick={() => setCreateOpen(true)} size="sm">
+                <Button onClick={() => setCreateOpen(true)}>
                   <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   Create project
                 </Button>

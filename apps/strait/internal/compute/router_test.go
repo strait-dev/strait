@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mockRuntime is a simple mock for router testing.
@@ -295,7 +297,7 @@ func TestRuntimeRouter_ConcurrentCreates(t *testing.T) {
 	}
 
 	router := NewRuntimeRouter(primary, fallback)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 20 {
 		wg.Go(func() {
 			_, _ = router.Create(context.Background(), RunRequest{})

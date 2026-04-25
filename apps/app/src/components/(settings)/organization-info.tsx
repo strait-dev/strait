@@ -212,7 +212,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
               <div className="flex flex-col gap-1">
                 <Button
                   onClick={() => fileInputRef.current?.click()}
-                  size="sm"
                   type="button"
                   variant="outline"
                 >

@@ -18,6 +18,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------
@@ -276,25 +277,22 @@ func TestWorkflowRunStatus_ConcurrentUpdates(t *testing.T) {
 
 	// Two concurrent attempts to move from running -> completed and running -> failed.
 	// Only one should succeed; the other should hit a conflict.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make(chan error, 2)
 
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		results <- store.New(testDB.Pool).UpdateWorkflowRunStatus(ctx, run.ID,
 			domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{
 				"finished_at": time.Now().UTC(),
 			})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		results <- store.New(testDB.Pool).UpdateWorkflowRunStatus(ctx, run.ID,
 			domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
 				"error":       "concurrent failure",
 				"finished_at": time.Now().UTC(),
 			})
-	}()
+	})
 
 	wg.Wait()
 	close(results)
@@ -499,26 +497,23 @@ func TestStepRunStatus_ConcurrentUpdatesWithinSameWorkflow(t *testing.T) {
 	})
 
 	// Concurrently complete both step runs.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errCh := make(chan error, 2)
 
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		errCh <- store.New(testDB.Pool).UpdateStepRunStatusFrom(ctx, srA.ID,
 			domain.StepRunning, domain.StepCompleted, map[string]any{
 				"output":      json.RawMessage(`{"stepA":"done"}`),
 				"finished_at": time.Now().UTC(),
 			})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		errCh <- store.New(testDB.Pool).UpdateStepRunStatusFrom(ctx, srB.ID,
 			domain.StepRunning, domain.StepFailed, map[string]any{
 				"error":       "step B failed",
 				"finished_at": time.Now().UTC(),
 			})
-	}()
+	})
 
 	wg.Wait()
 	close(errCh)
@@ -566,25 +561,22 @@ func TestStepRunStatus_ConflictOnSameStepRun(t *testing.T) {
 	})
 
 	// Two goroutines race to transition running -> completed vs running -> failed.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make(chan error, 2)
 
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		results <- store.New(testDB.Pool).UpdateStepRunStatusFrom(ctx, sr.ID,
 			domain.StepRunning, domain.StepCompleted, map[string]any{
 				"finished_at": time.Now().UTC(),
 			})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		results <- store.New(testDB.Pool).UpdateStepRunStatusFrom(ctx, sr.ID,
 			domain.StepRunning, domain.StepFailed, map[string]any{
 				"error":       "race failure",
 				"finished_at": time.Now().UTC(),
 			})
-	}()
+	})
 
 	wg.Wait()
 	close(results)
@@ -698,16 +690,14 @@ func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	}
 
 	var (
-		wg   sync.WaitGroup
+		wg   conc.WaitGroup
 		mu   sync.Mutex
 		seen = make(map[string]int)
 	)
 
 	errCh := make(chan error, 4)
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			runs, err := q.DequeueN(ctx, 10)
 			if err != nil {
 				errCh <- err
@@ -718,7 +708,7 @@ func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 			for i := range runs {
 				seen[runs[i].ID]++
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

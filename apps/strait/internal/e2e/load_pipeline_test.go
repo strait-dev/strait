@@ -5,12 +5,13 @@ package e2e_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadPipeline_TriggerDequeueComplete(t *testing.T) {
@@ -90,14 +91,12 @@ func TestLoadPipeline_ConcurrentFullLifecycle(t *testing.T) {
 
 	const workers = 10
 	perWorker := loadVolume() / (workers * 5)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var triggered, completed atomic.Int64
 	start := time.Now()
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range perWorker {
 				resp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger",
 					fmt.Sprintf(`{"payload":{"i":%d}}`, i))
@@ -124,7 +123,7 @@ func TestLoadPipeline_ConcurrentFullLifecycle(t *testing.T) {
 					completed.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -154,14 +153,13 @@ func TestLoadPipeline_MultiJobParallel(t *testing.T) {
 		jobIDs[j] = asString(t, mustDecodeObject(t, w), "id")
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var totalTriggered, totalCompleted atomic.Int64
 	start := time.Now()
 
 	for _, jid := range jobIDs {
-		wg.Add(1)
-		go func(jobID string) {
-			defer wg.Done()
+		jobID := jid
+		wg.Go(func() {
 			for i := range runsPerJob {
 				resp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger",
 					fmt.Sprintf(`{"payload":{"i":%d}}`, i))
@@ -188,7 +186,7 @@ func TestLoadPipeline_MultiJobParallel(t *testing.T) {
 					totalCompleted.Add(1)
 				}
 			}
-		}(jid)
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)

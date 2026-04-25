@@ -45,6 +45,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
+	r.Use(s.attachAuditContext)
 	r.Use(s.requestLogger)
 	r.Use(s.requestMetrics)
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
@@ -243,13 +244,14 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(requireJSONAccept)
 		r.Use(requireJSONContentType)
-		r.Use(s.projectContextMiddleware)
+		r.Use(s.rlsTxMiddleware)
 		r.Use(s.projectRateLimit)
 		r.Use(s.planUsageHeaders)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeSecretsWrite), rateLimit(20, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateSecret))
 			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListSecrets))
+			r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/{secretID}", TypedHandler(s, http.StatusOK, s.handleGetSecret))
 			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteSecret))
 		})
 
@@ -485,7 +487,7 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.Route("/api-keys", func(r chi.Router) {
-			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeAPIKeysManage), httprate.LimitByIP(10, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAPIKey))
+			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateAPIKey))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAPIKeys))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/expiring-soon", TypedHandler(s, http.StatusOK, s.handleListExpiringKeys))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", TypedHandler(s, http.StatusCreated, s.handleRotateAPIKey))
@@ -577,8 +579,27 @@ func (s *Server) routes() chi.Router {
 		r.Route("/audit-events", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAuditEvents))
 			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/export", TypedHandler(s, http.StatusOK, s.handleExportAuditEvents))
-			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
+			r.With(s.requirePermission(domain.ScopeRBACManage), s.auditVerifyRateLimit).Get("/verify", TypedHandler(s, http.StatusOK, s.handleVerifyAuditChain))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetAuditEvent))
 		})
+
+		// Audit admin surface. Mounted under /v1 so they pick up the shared
+		// auth + rate-limit + timeout middleware stack. requireInternalSecretMiddleware
+		// gates the entire route group at the router layer (defense-in-depth);
+		// handlers also call requireAdmin internally for belt-and-suspenders.
+		r.Route("/audit", func(r chi.Router) {
+			r.Use(s.requireInternalSecretMiddleware)
+			r.Get("/deadletter", TypedHandler(s, http.StatusOK, s.handleListDeadletter))
+			r.Post("/deadletter/{id}/replay", TypedHandler(s, http.StatusOK, s.handleReplayDeadletter))
+			r.Delete("/deadletter/{id}", TypedHandler(s, http.StatusOK, s.handleDropDeadletter))
+		})
+		r.Route("/projects/{id}/audit", func(r chi.Router) {
+			r.Use(s.requireInternalSecretMiddleware)
+			r.Get("/retention", TypedHandler(s, http.StatusOK, s.handleGetAuditRetention))
+			r.Put("/retention", TypedHandler(s, http.StatusOK, s.handleSetAuditRetention))
+			r.Post("/rotate-key", TypedHandler(s, http.StatusOK, s.handleRotateAuditSigningKey))
+		})
+		r.With(s.requireInternalSecretMiddleware).Put("/projects/{id}/quotas/audit-export-cap", TypedHandler(s, http.StatusOK, s.handleUpdateAuditExportCap))
 
 		r.Route("/export", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/jobs", TypedHandler(s, http.StatusOK, s.handleExportJobs))
@@ -698,6 +719,22 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/compensation-plan", TypedHandler(s, http.StatusOK, s.handleGetCompensationPlan))
 			})
 		})
+
+		// Admin DLQ recovery endpoints. RBAC is enforced in-handler via
+		// the dlq:read / dlq:replay / dlq:purge scopes; each mutation
+		// writes an audit_events row with actor and before/after state.
+		r.Route("/admin/dlq", func(r chi.Router) {
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListDLQ))
+			r.Post("/{run_id}/replay", TypedHandler(s, http.StatusOK, s.handleAdminReplayDLQ))
+			r.Post("/{run_id}/unmask", TypedHandler(s, http.StatusOK, s.handleAdminUnmaskDLQ))
+			r.Post("/{run_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeDLQ))
+		})
+		r.Route("/admin/outbox", func(r chi.Router) {
+			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListOutbox))
+			r.Get("/{outbox_id}", TypedHandler(s, http.StatusOK, s.handleAdminGetOutbox))
+			r.Post("/{outbox_id}/retry", TypedHandler(s, http.StatusOK, s.handleAdminRetryOutbox))
+			r.Post("/{outbox_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeOutbox))
+		})
 	})
 
 	r.Route("/sdk/v1", func(r chi.Router) {
@@ -743,5 +780,7 @@ func (s *Server) routes() chi.Router {
 	// SDK configuration schema — served publicly so IDEs and SDK CI can fetch it.
 	r.Get("/schemas/v1/strait.json", s.handleStraitJSONSchema)
 
+	// Agent discovery (RFC 9728 OAuth Protected Resource Metadata).
+	r.Get("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
 	return r
 }

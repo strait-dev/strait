@@ -156,6 +156,61 @@ type Metrics struct {
 	OverageEntered            metric.Int64Counter
 	HTTPModeRunsCompleted     metric.Int64Counter
 	HTTPModeGateRejected      metric.Int64Counter
+
+	// Audit event metrics.
+	AuditEventsEmitted      metric.Int64Counter
+	AuditEventsDropped      metric.Int64Counter
+	AuditEventsTruncated    metric.Int64Counter
+	AuditDetailsRedacted    metric.Int64Counter
+	AuditEventsDeadlettered metric.Int64Counter
+	AuditReclaimerSuccess   metric.Int64Counter
+	AuditReclaimerFailed    metric.Int64Counter
+	AuditReclaimerAbandoned metric.Int64Counter
+	AuditDeadletterAged     metric.Int64Counter
+	AuditRetentionDeleted   metric.Int64Counter
+	AuditSIEMDropped        metric.Int64Counter
+	AuditSIEMForwarded      metric.Int64Counter
+	AuditSIEMFailed         metric.Int64Counter
+	AuditSIEMCircuitOpen    metric.Int64Counter
+	AuditSIEMBatchSize      metric.Int64Histogram
+	// AuditSIEMBreakerState is a per-scrape observable gauge reporting
+	// the SIEM circuit-breaker state (0=closed, 1=half_open, 2=open).
+	// Wired via ObserveSIEMBreakerState against an
+	// AuditSIEMBreakerStateProvider so operators can alert on a stuck
+	// "open" state rather than the cumulative AuditSIEMCircuitOpen count.
+	AuditSIEMBreakerState metric.Int64ObservableGauge
+	// AuditEventsSyncFallback counts emit-time backpressure fallbacks to a
+	// synchronous DB write, labeled by outcome ("success"|"failure"). Pairs
+	// with AuditEventsDropped{reason="backpressure_degraded"} which counts
+	// the trigger event regardless of outcome.
+	AuditEventsSyncFallback metric.Int64Counter
+
+	// Audit async drainer queue saturation gauges (reported via
+	// ObserveAuditDrainer callback against an AuditDrainerStatsProvider).
+	AuditDrainerQueueDepth    metric.Int64ObservableGauge
+	AuditDrainerQueueCapacity metric.Int64ObservableGauge
+
+	// Audit export row-cap metric. Incremented whenever an export stream
+	// terminates because it reached the configured row cap, labeled by
+	// project_id.
+	AuditEventsExportCapped metric.Int64Counter
+
+	// Audit chain verification counters. ChainVerifyTotal increments on
+	// every verification attempt (pass or fail); ChainVerifyFailed only
+	// on failures, labeled by reason. Together they power a failure rate
+	// alert via failed/total.
+	AuditChainVerifyTotal  metric.Int64Counter
+	AuditChainVerifyFailed metric.Int64Counter
+
+	// AuditDMLRestrictionStatus is a startup counter incremented exactly
+	// once per process boot with the current migration 000187 enforcement
+	// posture. status=enforced means UPDATE on audit_events is restricted
+	// to the signature column for the database role; status=degraded
+	// means the migration is a no-op (strait_app role missing or the
+	// current role has full UPDATE). Alerts fire when degraded > 0 on
+	// any deployment that is supposed to be SOC 2 evidence-gating.
+	AuditRetryAttempts        metric.Int64Counter
+	AuditDMLRestrictionStatus metric.Int64Counter
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
@@ -861,6 +916,127 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 
+	auditEventsEmitted, _ := meter.Int64Counter(
+		"strait.audit.events_emitted_total",
+		metric.WithDescription("Total audit events successfully written to the audit log"),
+		metric.WithUnit("1"),
+	)
+	auditEventsDropped, _ := meter.Int64Counter(
+		"strait.audit.events_dropped_total",
+		metric.WithDescription("Total audit events dropped (async buffer full or write failure)"),
+		metric.WithUnit("1"),
+	)
+	auditEventsTruncated, _ := meter.Int64Counter(
+		"strait.audit.events_truncated_total",
+		metric.WithDescription("Total audit events whose details were truncated for exceeding the size cap"),
+		metric.WithUnit("1"),
+	)
+	auditDetailsRedacted, _ := meter.Int64Counter(
+		"strait.audit.details_redacted_total",
+		metric.WithDescription("Total audit events whose details had secret-shaped substrings redacted at emit time, labeled by shape"),
+		metric.WithUnit("1"),
+	)
+	auditEventsDeadlettered, _ := meter.Int64Counter(
+		"strait.audit.events_deadlettered_total",
+		metric.WithDescription("Total audit events spilled to the deadletter table after retry exhaustion"),
+		metric.WithUnit("1"),
+	)
+	auditReclaimerSuccess, _ := meter.Int64Counter(
+		"strait.audit.reclaimer_success_total",
+		metric.WithDescription("Total audit deadletter events successfully reclaimed into the primary chain"),
+		metric.WithUnit("1"),
+	)
+	auditReclaimerFailed, _ := meter.Int64Counter(
+		"strait.audit.reclaimer_failed_total",
+		metric.WithDescription("Total audit deadletter reclaim attempts that failed, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	auditReclaimerAbandoned, _ := meter.Int64Counter(
+		"strait.audit.reclaimer_abandoned_total",
+		metric.WithDescription("Total audit deadletter rows whose reclaim attempts hit the configured max-attempts cap and were skipped this tick"),
+		metric.WithUnit("1"),
+	)
+	auditDeadletterAged, _ := meter.Int64Counter(
+		"strait.audit.deadletter_aged_total",
+		metric.WithDescription("Total audit deadletter rows dropped by the DLQ retention reaper after exceeding AUDIT_DLQ_MAX_AGE_DAYS, labeled by project_id"),
+		metric.WithUnit("1"),
+	)
+	auditRetentionDeleted, _ := meter.Int64Counter(
+		"strait.audit.retention_deleted_total",
+		metric.WithDescription("Total audit events deleted by the retention reaper, labeled by project_id"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMDropped, _ := meter.Int64Counter(
+		"strait.audit.siem_dropped_total",
+		metric.WithDescription("Total audit events dropped from the SIEM forwarding queue, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMForwarded, _ := meter.Int64Counter(
+		"strait.audit.siem_forwarded_total",
+		metric.WithDescription("Total audit events successfully forwarded to the SIEM endpoint"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMFailed, _ := meter.Int64Counter(
+		"strait.audit.siem_failed_total",
+		metric.WithDescription("Total audit SIEM forward failures, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMCircuitOpen, _ := meter.Int64Counter(
+		"strait.audit.siem_circuit_open_total",
+		metric.WithDescription("Total transitions of the audit SIEM circuit breaker into the open state"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMBatchSize, _ := meter.Int64Histogram(
+		"strait_audit_siem_batch_size",
+		metric.WithDescription("Audit SIEM forwarded batch size in events"),
+		metric.WithUnit("1"),
+	)
+	auditSIEMBreakerState, _ := meter.Int64ObservableGauge(
+		"strait.audit.siem_breaker_state",
+		metric.WithDescription("Current audit SIEM circuit-breaker state (0=closed, 1=half_open, 2=open)"),
+		metric.WithUnit("1"),
+	)
+	auditEventsSyncFallback, _ := meter.Int64Counter(
+		"strait.audit.events_sync_fallback_total",
+		metric.WithDescription("Total async-drainer backpressure events that fell back to a synchronous DB write, labeled by outcome (success|failure)"),
+		metric.WithUnit("1"),
+	)
+	auditDrainerQueueDepth, _ := meter.Int64ObservableGauge(
+		"strait.audit.drainer_queue_depth",
+		metric.WithDescription("Current depth of the async audit-emit drain channel"),
+		metric.WithUnit("1"),
+	)
+	auditDrainerQueueCapacity, _ := meter.Int64ObservableGauge(
+		"strait.audit.drainer_queue_capacity",
+		metric.WithDescription("Buffer capacity of the async audit-emit drain channel"),
+		metric.WithUnit("1"),
+	)
+	auditEventsExportCapped, _ := meter.Int64Counter(
+		"strait.audit.events_export_capped_total",
+		metric.WithDescription("Total audit exports that terminated because they hit the configured row cap, labeled by project_id"),
+		metric.WithUnit("1"),
+	)
+	auditChainVerifyTotal, _ := meter.Int64Counter(
+		"strait.audit.chain_verify_total",
+		metric.WithDescription("Total audit chain verification attempts (pass or fail)"),
+		metric.WithUnit("1"),
+	)
+	auditChainVerifyFailed, _ := meter.Int64Counter(
+		"strait.audit.chain_verify_failed_total",
+		metric.WithDescription("Total audit chain verification attempts that did not pass, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	auditRetryAttempts, _ := meter.Int64Counter(
+		"strait.audit.retry_attempts_total",
+		metric.WithDescription("Total audit event write retry attempts, labeled by attempt number (1-3) and outcome (success|exhausted)"),
+		metric.WithUnit("1"),
+	)
+	auditDMLRestrictionStatus, _ := meter.Int64Counter(
+		"strait.audit.dml_restriction_status",
+		metric.WithDescription("Startup posture of migration 000187 audit_events DML restrictions, labeled by status (enforced|degraded)"),
+		metric.WithUnit("1"),
+	)
+
 	m := &Metrics{
 		RunTransitions:               runTransitions,
 		DequeueDuration:              dequeueDuration,
@@ -955,6 +1131,30 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		OverageEntered:               overageEntered,
 		HTTPModeRunsCompleted:        httpModeRunsCompleted,
 		HTTPModeGateRejected:         httpModeGateRejected,
+		AuditEventsEmitted:           auditEventsEmitted,
+		AuditEventsDropped:           auditEventsDropped,
+		AuditEventsTruncated:         auditEventsTruncated,
+		AuditDetailsRedacted:         auditDetailsRedacted,
+		AuditEventsDeadlettered:      auditEventsDeadlettered,
+		AuditReclaimerSuccess:        auditReclaimerSuccess,
+		AuditReclaimerFailed:         auditReclaimerFailed,
+		AuditReclaimerAbandoned:      auditReclaimerAbandoned,
+		AuditDeadletterAged:          auditDeadletterAged,
+		AuditRetentionDeleted:        auditRetentionDeleted,
+		AuditSIEMDropped:             auditSIEMDropped,
+		AuditSIEMForwarded:           auditSIEMForwarded,
+		AuditSIEMFailed:              auditSIEMFailed,
+		AuditSIEMCircuitOpen:         auditSIEMCircuitOpen,
+		AuditSIEMBatchSize:           auditSIEMBatchSize,
+		AuditSIEMBreakerState:        auditSIEMBreakerState,
+		AuditEventsSyncFallback:      auditEventsSyncFallback,
+		AuditDrainerQueueDepth:       auditDrainerQueueDepth,
+		AuditDrainerQueueCapacity:    auditDrainerQueueCapacity,
+		AuditEventsExportCapped:      auditEventsExportCapped,
+		AuditChainVerifyTotal:        auditChainVerifyTotal,
+		AuditChainVerifyFailed:       auditChainVerifyFailed,
+		AuditRetryAttempts:           auditRetryAttempts,
+		AuditDMLRestrictionStatus:    auditDMLRestrictionStatus,
 	}
 
 	slog.Info("prometheus metrics enabled")
@@ -1008,6 +1208,59 @@ func (m *Metrics) ObservePool(meter metric.Meter, pool PoolStatsProvider) error 
 		m.PoolSuccessfulTasks,
 		m.PoolFailedTasks,
 		m.PoolDroppedTasks,
+	)
+	return err
+}
+
+// AuditDrainerStatsProvider exposes the async audit-emit channel's
+// instantaneous depth and static capacity for the ObserveAuditDrainer
+// asynchronous gauge callback.
+type AuditDrainerStatsProvider interface {
+	AuditDrainerQueueDepth() int64
+	AuditDrainerQueueCapacity() int64
+}
+
+// AuditSIEMBreakerStateProvider exposes the current SIEM circuit-breaker
+// state as an int64 (0=closed, 1=half_open, 2=open). Implemented by
+// *logdrain.AuditSIEMDrain via its BreakerState() method.
+type AuditSIEMBreakerStateProvider interface {
+	BreakerState() int64
+}
+
+// ObserveSIEMBreakerState wires an asynchronous callback that reports the
+// current SIEM circuit-breaker state on every Prometheus scrape. Returns
+// nil when the provider is nil or the gauge is not configured (callable
+// safely from the worker process where SIEM may be disabled).
+func (m *Metrics) ObserveSIEMBreakerState(meter metric.Meter, provider AuditSIEMBreakerStateProvider) error {
+	if provider == nil || m.AuditSIEMBreakerState == nil {
+		return nil
+	}
+	_, err := meter.RegisterCallback(
+		func(_ context.Context, o metric.Observer) error {
+			o.ObserveInt64(m.AuditSIEMBreakerState, provider.BreakerState())
+			return nil
+		},
+		m.AuditSIEMBreakerState,
+	)
+	return err
+}
+
+// ObserveAuditDrainer registers an asynchronous callback that reports
+// the audit async drainer's queue depth and capacity on every Prometheus
+// scrape. Call after both Metrics and the Server (which implements the
+// provider) are created.
+func (m *Metrics) ObserveAuditDrainer(meter metric.Meter, provider AuditDrainerStatsProvider) error {
+	if m.AuditDrainerQueueDepth == nil || m.AuditDrainerQueueCapacity == nil {
+		return nil
+	}
+	_, err := meter.RegisterCallback(
+		func(_ context.Context, o metric.Observer) error {
+			o.ObserveInt64(m.AuditDrainerQueueDepth, provider.AuditDrainerQueueDepth())
+			o.ObserveInt64(m.AuditDrainerQueueCapacity, provider.AuditDrainerQueueCapacity())
+			return nil
+		},
+		m.AuditDrainerQueueDepth,
+		m.AuditDrainerQueueCapacity,
 	)
 	return err
 }

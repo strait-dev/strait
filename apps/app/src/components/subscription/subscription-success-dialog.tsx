@@ -112,7 +112,7 @@ const SubscriptionSuccessDialog = ({
         </div>
 
         <CredenzaFooter className="flex justify-center pt-4">
-          <Button className="px-8" onClick={handleClose} size="lg">
+          <Button className="px-8" onClick={handleClose}>
             Start Exploring
           </Button>
         </CredenzaFooter>

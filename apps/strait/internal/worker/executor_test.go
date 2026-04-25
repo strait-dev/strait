@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/domain"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
@@ -272,6 +274,12 @@ func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	return calls
 }
 
+type mockDegradedNotifier struct {
+	ch <-chan struct{}
+}
+
+func (m *mockDegradedNotifier) Degraded() <-chan struct{} { return m.ch }
+
 type mockExecQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
@@ -284,6 +292,10 @@ func (m *mockExecQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		return nil
 	}
 	return m.enqueueFn(ctx, run)
+}
+
+func (m *mockExecQueue) EnqueueInTx(ctx context.Context, _ orcstore.DBTX, run *domain.JobRun) error {
+	return m.Enqueue(ctx, run)
 }
 
 func (m *mockExecQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
@@ -1166,6 +1178,155 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 	}
 }
 
+func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
+	t.Parallel()
+
+	wake := make(chan struct{}, 1)
+	degradedCh := make(chan struct{})
+	pollCount := make(chan struct{}, 100)
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			select {
+			case pollCount <- struct{}{}:
+			default:
+			}
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                 pool,
+		Queue:                q,
+		Wake:                 wake,
+		Degraded:             &mockDegradedNotifier{ch: degradedCh},
+		DegradedPollInterval: 50 * time.Millisecond,
+		Store:                &mockExecutorStore{},
+		PollInterval:         time.Hour,
+		HeartbeatInterval:    time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(done)
+	}()
+
+	// Close the degraded channel to simulate notifier entering degraded mode.
+	close(degradedCh)
+
+	// With a 50ms degraded poll interval, we should see multiple polls quickly.
+	deadline := time.After(2 * time.Second)
+	polls := 0
+	for polls < 3 {
+		select {
+		case <-pollCount:
+			polls++
+		case <-deadline:
+			t.Fatalf("expected at least 3 degraded polls, got %d", polls)
+		}
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not stop after context cancel")
+	}
+}
+
+type rearmDegradedNotifier struct {
+	mu    sync.Mutex
+	calls int
+	chs   []<-chan struct{}
+}
+
+func (r *rearmDegradedNotifier) Degraded() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	idx := r.calls
+	r.calls++
+	if idx < len(r.chs) {
+		return r.chs[idx]
+	}
+	return make(chan struct{})
+}
+
+func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
+	t.Parallel()
+
+	wake := make(chan struct{}, 1)
+	pollCount := atomic.Int64{}
+
+	closedCh := make(chan struct{})
+	close(closedCh)
+	openCh := make(chan struct{})
+
+	notifier := &rearmDegradedNotifier{
+		chs: []<-chan struct{}{closedCh, openCh},
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			pollCount.Add(1)
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                 pool,
+		Queue:                q,
+		Wake:                 wake,
+		Degraded:             notifier,
+		DegradedPollInterval: 50 * time.Millisecond,
+		Store:                &mockExecutorStore{},
+		PollInterval:         time.Hour,
+		HeartbeatInterval:    time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		exec.Run(ctx)
+		close(done)
+	}()
+
+	// The first Degraded() call returns closedCh, so the executor should
+	// enter degraded mode and start fast polling.
+	time.Sleep(200 * time.Millisecond)
+
+	// Simulate reconnect: send a wake event.
+	wake <- struct{}{}
+	time.Sleep(100 * time.Millisecond)
+
+	// After recovery, the executor re-armed with openCh (the second call
+	// to Degraded()). Since openCh is never closed, the executor should NOT
+	// re-enter degraded mode. Record the poll count and wait.
+	baseline := pollCount.Load()
+	time.Sleep(300 * time.Millisecond)
+	final := pollCount.Load()
+
+	// Under normal poll interval (1 hour), no additional polls should fire.
+	// Allow 1 extra poll from timing slack.
+	if final-baseline > 2 {
+		t.Errorf("executor re-entered degraded fast-poll: %d polls after recovery, want <= 2", final-baseline)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not stop after context cancel")
+	}
+}
+
 func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 	t.Parallel()
 
@@ -1737,7 +1898,13 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if attempts.Load() >= 1 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		cancel()
 	}()
 
@@ -3976,17 +4143,15 @@ func TestHandleFailure_RapidSequentialRetriesNoDataRace(t *testing.T) {
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, MaxAttempts: 10}
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			run := &domain.JobRun{
-				ID: fmt.Sprintf("run-%d", idx), JobID: "job-1",
-				Attempt: 1, Priority: idx % 10,
+				ID: fmt.Sprintf("run-%d", i), JobID: "job-1",
+				Attempt: 1, Priority: i % 10,
 			}
 			exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -4053,8 +4218,13 @@ func TestShutdown_WaitsForCallbacks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go exec.Run(ctx)
 
-	// Wait for the callback to start
-	time.Sleep(200 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if callbackCalled.Load() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)

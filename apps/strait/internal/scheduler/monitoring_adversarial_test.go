@@ -3,11 +3,12 @@ package scheduler
 import (
 	"context"
 	"math"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Anomaly Monitor Tests.
@@ -148,7 +149,7 @@ func TestGracePeriod_ConcurrentEnforce(t *testing.T) {
 	}
 	gpe := NewGracePeriodEnforcer(s, nil, time.Minute)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 20 {
 		wg.Go(func() {
 			gpe.enforce(context.Background())

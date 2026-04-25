@@ -68,68 +68,6 @@ func TestProtectedHeaders_NullByteBypass(t *testing.T) {
 	}
 }
 
-// TestDrainAuth_BearerToken verifies the bearer auth path sets the correct header format.
-func TestDrainAuth_BearerToken(t *testing.T) {
-	t.Parallel()
-
-	token := "sk-test-12345"
-	expected := "Bearer " + token
-	got := "Bearer " + token
-
-	if got != expected {
-		t.Errorf("bearer format = %q, want %q", got, expected)
-	}
-}
-
-// TestDrainAuth_BasicAuth verifies the basic auth encoding uses standard format.
-func TestDrainAuth_BasicAuth(t *testing.T) {
-	t.Parallel()
-
-	// The service uses req.SetBasicAuth(user, pass) which is standard Go.
-	// Verify the config map access pattern.
-	config := map[string]string{
-		"username": "admin",
-		"password": "secret",
-	}
-
-	user := config["username"]
-	pass := config["password"]
-
-	if user != "admin" || pass != "secret" {
-		t.Fatal("auth config map access failed")
-	}
-
-	// Missing keys return empty strings.
-	emptyConfig := map[string]string{}
-	if emptyConfig["username"] != "" {
-		t.Fatal("missing key should return empty string")
-	}
-}
-
-// TestDrainEndpoint_SSRF verifies internal IPs can appear in endpoint URLs.
-// The service does not validate endpoints, so SSRF prevention must happen elsewhere.
-func TestDrainEndpoint_SSRF(t *testing.T) {
-	t.Parallel()
-
-	// These are internal/private IPs that a real SSRF filter should block.
-	// The logdrain service itself does not filter these.
-	internalURLs := []string{
-		"http://127.0.0.1:8080/drain",
-		"http://169.254.169.254/latest/meta-data/",
-		"http://10.0.0.1/internal",
-		"http://[::1]/drain",
-		"http://localhost/drain",
-	}
-
-	for _, u := range internalURLs {
-		if u == "" {
-			t.Error("URL should not be empty")
-		}
-		// Documenting that the service does not reject these.
-		// SSRF prevention is handled at a higher layer.
-	}
-}
-
 // FuzzProtectedHeaders fuzzes header names to verify the lookup is consistent.
 func FuzzProtectedHeaders(f *testing.F) {
 	f.Add("host")

@@ -20,6 +20,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 const ctxProjectIDKey contextKey = "project_id"
@@ -32,6 +33,24 @@ const ctxAuthKeyObjKey contextKey = "api_key_obj"
 const ctxNotifyRecipientTypeKey contextKey = "notify_recipient_type"
 const ctxNotifyRecipientIDKey contextKey = "notify_recipient_id"
 const ctxNotifyTenantIDKey contextKey = "notify_tenant_id"
+
+// ctxInternalCallerKey is set to true by internalSecretAuth after the
+// X-Internal-Secret header passes constant-time comparison. It is the
+// authoritative signal that a request was authenticated via the internal
+// secret — unlike nil scopes, which is also true for unauthenticated
+// requests that never reached any auth middleware.
+const ctxInternalCallerKey contextKey = "internal_caller"
+
+// Forensic metadata propagated through request context into audit events.
+const ctxRemoteIPKey contextKey = "remote_ip"
+const ctxUserAgentKey contextKey = "user_agent"
+const ctxRequestIDKey contextKey = "request_id"
+const ctxTraceIDKey contextKey = "trace_id"
+
+// auditUserAgentMaxBytes caps the user agent string stored on each audit
+// event. Real-world UAs are typically <200 chars; anything longer is
+// almost certainly probing or pathological.
+const auditUserAgentMaxBytes = 2048
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -135,6 +154,79 @@ func projectIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+func remoteIPFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxRemoteIPKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func userAgentFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxUserAgentKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func requestIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxRequestIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxTraceIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// attachAuditContext middleware stamps the request context with the
+// forensic metadata (remote IP, user agent, request ID, trace ID) that
+// audit events will later record. Installed early in the middleware
+// chain so every downstream handler — even those that bypass auth —
+// sees the same set of values.
+func (s *Server) attachAuditContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r))
+		ua := r.UserAgent()
+		if len(ua) > auditUserAgentMaxBytes {
+			ua = ua[:auditUserAgentMaxBytes]
+		}
+		ctx = context.WithValue(ctx, ctxUserAgentKey, ua)
+		if reqID := chimw.GetReqID(ctx); reqID != "" {
+			ctx = context.WithValue(ctx, ctxRequestIDKey, reqID)
+		}
+		// Trace ID: populated by OTel middleware if installed. We read
+		// it via the span context to avoid a hard dependency on
+		// otelchi's internal context keys.
+		//
+		// The span is empty when tracing is disabled — in that case
+		// TraceID() returns an all-zero value and we leave the audit
+		// field blank.
+		if traceID := traceIDFromRequest(r); traceID != "" {
+			ctx = context.WithValue(ctx, ctxTraceIDKey, traceID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// traceIDFromRequest extracts the OTel trace ID from the request span,
+// or the empty string if no span is active.
+func traceIDFromRequest(r *http.Request) string {
+	sc := oteltrace.SpanContextFromContext(r.Context())
+	if !sc.IsValid() {
+		return ""
+	}
+	tid := sc.TraceID()
+	if !tid.IsValid() {
+		return ""
+	}
+	return tid.String()
 }
 
 // errProjectMismatch is returned when a resource's project_id does not match the
@@ -376,6 +468,11 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
+		// Mark the request as authenticated via internal secret. This flag is
+		// checked by isInternalCaller() and requireAdmin(), and is set here —
+		// after the ConstantTimeCompare above passes — so unauthenticated
+		// requests (no secret, wrong secret) never have it.
+		ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 
 		// Optionally carry explicit project context for internal calls (e.g. RBAC management).
 		// Check X-Project-Id header first, fall back to query param for backward compat.
@@ -487,6 +584,31 @@ func scopesFromContext(ctx context.Context) []string {
 		return v
 	}
 	return nil
+}
+
+// isInternalCaller returns true only when the request was authenticated via
+// the X-Internal-Secret header. Checking this flag is more reliable than
+// checking scopesFromContext(ctx) == nil because nil scopes are also present
+// on unauthenticated requests that bypassed auth middleware entirely.
+func isInternalCaller(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxInternalCallerKey).(bool)
+	return v
+}
+
+// requireInternalSecretMiddleware is a chi middleware that enforces
+// internal-secret-only access at the router layer. It returns 403 for any
+// request that was not positively authenticated via the X-Internal-Secret
+// header (i.e. isInternalCaller returns false). Applying this at the route
+// group level provides defense-in-depth: even if a handler's own requireAdmin
+// call were skipped or removed, the middleware layer still gates access.
+func (s *Server) requireInternalSecretMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isInternalCaller(r.Context()) {
+			respondError(w, r, http.StatusForbidden, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requirePermission returns a middleware that checks authorization based on
@@ -638,8 +760,18 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	}
 }
 
-// projectContextMiddleware sets the app.current_project_id session variable
-// for RLS policies when the request has a project context.
+// projectContextMiddleware is retained for long-lived SSE routes that
+// cannot safely hold a transaction open for the duration of the stream.
+// For those routes the middleware is effectively a no-op for tenant
+// isolation: the set_config call is transaction-local and is lost the
+// moment its implicit transaction commits, so subsequent queries in the
+// SSE handler run without a project context and fall back to
+// application-level filtering. The main /v1 route group uses
+// rlsTxMiddleware instead, which provides real RLS enforcement.
+//
+// TODO: tighten SSE isolation by making SSE handlers run their initial
+// DB fetch inside store.WithTx + set_config and then release the tx
+// before entering the long-running pub/sub loop.
 func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
 	setter, ok := s.store.(ProjectContextSetter)
 	if !ok {
@@ -658,6 +790,80 @@ func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
 			}()
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// rlsTxMiddleware wraps each request in a per-request Postgres transaction
+// and binds it to the request context via store.ContextWithTx. Every store
+// method called during the request routes its queries through that tx
+// (via the ctxAwareDBTX wrapper installed by store.NewWithContextRouting),
+// which means the SELECT set_config('app.current_project_id', $1, true)
+// call made at the start of the tx actually persists for every subsequent
+// query in the request. Without this, RLS tenant isolation does not work
+// under a connection pool because set_config's transaction-local setting
+// is lost the moment an implicit transaction commits.
+//
+// The middleware fails closed: any error beginning the tx, setting the
+// project context, or (after the handler runs) committing the tx results
+// in a 500 response. A panic in the handler rolls the tx back and
+// re-panics so the server's outer recovery middleware still handles it.
+//
+// Apply this middleware only to short-lived request handlers. Long-lived
+// SSE or streaming routes continue to use projectContextMiddleware and
+// rely on application-level filtering in the handler.
+func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
+	if s.txPool == nil {
+		// No tx pool configured (unit tests with a mock store). Fall
+		// back to the legacy middleware so tests still exercise the
+		// SetProjectContext code path.
+		return s.projectContextMiddleware(next)
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		projectID := projectIDFromContext(r.Context())
+		if projectID == "" {
+			// Routes with no project context (public endpoints, health
+			// checks) skip the tx wrap entirely.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx := r.Context()
+		tx, err := s.txPool.Begin(ctx)
+		if err != nil {
+			slog.Error("failed to begin RLS tx", "project_id", projectID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
+			return
+		}
+
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+				slog.Warn("failed to rollback RLS tx after set_config error", "error", rbErr)
+			}
+			slog.Error("failed to set RLS project context", "project_id", projectID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
+			return
+		}
+
+		ctx = store.ContextWithTx(ctx, tx)
+
+		// Track whether a panic occurred so we can rollback instead of
+		// committing. Without this, a recovered panic could leave the
+		// handler's partial writes committed.
+		panicked := true
+		defer func() {
+			if panicked {
+				if rbErr := tx.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+					slog.Warn("failed to rollback RLS tx after panic", "error", rbErr)
+				}
+			}
+		}()
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+
+		panicked = false
+		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+		}
 	})
 }
 
@@ -778,6 +984,56 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	return resolvedRateLimit{}
 }
 
+// auditVerifyRateLimit enforces a per-project rate limit on the audit chain
+// verify endpoint. The default of 1 req/project/60s is plenty for SOC 2
+// evidence generation while still preventing a single tenant from
+// dominating verifier compute (chain replay is O(events) per call). When
+// no rate limiter is configured (test paths or RedisClient absent) the
+// middleware is a no-op so unit tests continue to pass.
+//
+// Internal-secret callers bypass — operations / smoke tests need to
+// verify on demand without bumping into the per-tenant quota.
+const (
+	auditVerifyRateLimitRequests   = 1
+	auditVerifyRateLimitWindowSecs = 60
+)
+
+func (s *Server) auditVerifyRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.rateLimiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx := r.Context()
+		if isInternalCaller(ctx) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		projectID := projectIDFromContext(ctx)
+		if projectID == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := "rl:audit_verify:" + projectID
+		window := time.Duration(auditVerifyRateLimitWindowSecs) * time.Second
+		result, rlErr := s.rateLimiter.AllowStrict(ctx, key, auditVerifyRateLimitRequests, window)
+		if rlErr != nil {
+			slog.Error("audit verify rate limiter error, failing closed",
+				"key", key, "error", rlErr)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit service unavailable")
+			return
+		}
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(auditVerifyRateLimitRequests))
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
+		if !result.Allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(auditVerifyRateLimitWindowSecs))
+			respondError(w, r, http.StatusTooManyRequests, "audit verify rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // projectRateLimit enforces per-API-key and per-project rate limits using Redis.
 func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -788,9 +1044,7 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		// Internal secret auth (no scopes set) bypasses rate limiting
-		// so internal callers and stress tests are not throttled.
-		if scopesFromContext(ctx) == nil && r.Header.Get("X-Internal-Secret") != "" {
+		if isInternalCaller(ctx) {
 			next.ServeHTTP(w, r)
 			return
 		}

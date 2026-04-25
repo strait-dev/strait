@@ -4,10 +4,11 @@ package e2e_test
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadWorkflow_CreateThroughput(t *testing.T) {
@@ -72,14 +73,12 @@ func TestLoadWorkflow_ConcurrentTrigger(t *testing.T) {
 
 	const workers = 10
 	perWorker := loadVolume() / (workers * 2)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes, failures atomic.Int64
 	start := time.Now()
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range perWorker {
 				resp := doRequest(t, "POST", "/v1/workflows/"+wfID+"/trigger",
 					fmt.Sprintf(`{"payload":{"i":%d}}`, i))
@@ -89,7 +88,7 @@ func TestLoadWorkflow_ConcurrentTrigger(t *testing.T) {
 					failures.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -135,14 +134,13 @@ func TestLoadWorkflow_MultiWorkflowCreation(t *testing.T) {
 	const projectCount = 5
 	const wfPerProject = 20
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var total atomic.Int64
 	start := time.Now()
 
 	for p := range projectCount {
-		wg.Add(1)
-		go func(projIdx int) {
-			defer wg.Done()
+		projIdx := p
+		wg.Go(func() {
 			projectID := fmt.Sprintf("proj-lwf-multi-%d-%d", time.Now().UnixNano(), projIdx)
 			for i := range wfPerProject {
 				resp := doRequest(t, "POST", "/v1/workflows/", fmt.Sprintf(
@@ -153,7 +151,7 @@ func TestLoadWorkflow_MultiWorkflowCreation(t *testing.T) {
 					total.Add(1)
 				}
 			}
-		}(p)
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -330,13 +332,12 @@ func TestConcurrentTrigger(t *testing.T) {
 
 	const goroutines = 50
 	var reqCount atomic.Uint64
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	errs := make([]error, goroutines)
 
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{}}`)
 			r.RemoteAddr = uniqueRemoteAddr(&reqCount)
@@ -344,7 +345,7 @@ func TestConcurrentTrigger(t *testing.T) {
 			if w.Code != http.StatusCreated {
 				errs[idx] = fmt.Errorf("goroutine %d: expected 201, got %d", idx, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -380,13 +381,12 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 	const itemsPerRequest = 10
 	body := `{"items":[{},{},{},{},{},{},{},{},{},{}]}`
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	errs := make([]error, goroutines)
 
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body)
 			r.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", idx+1)
@@ -394,7 +394,7 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 			if w.Code != http.StatusCreated {
 				errs[idx] = fmt.Errorf("goroutine %d: expected 201, got %d", idx, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -450,13 +450,12 @@ func TestConcurrentBulkCancel(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	errs := make([]error, goroutines)
 
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			start := idx * runsPerRequest
 			runIDs := make([]string, 0, runsPerRequest)
 			for j := range runsPerRequest {
@@ -473,7 +472,7 @@ func TestConcurrentBulkCancel(t *testing.T) {
 			if w.Code != http.StatusOK {
 				errs[idx] = fmt.Errorf("goroutine %d: expected 200, got %d", idx, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -551,13 +550,12 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, mq, nil)
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	errs := make([]error, goroutines)
 
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 
 			switch idx % 4 {
@@ -597,7 +595,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 					errs[idx] = fmt.Errorf("stats expected 200, got %d", w.Code)
 				}
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -668,13 +666,12 @@ func TestSustainedLoad(t *testing.T) {
 	const requestsPerWorker = 30
 	const totalRequests = workers * requestsPerWorker
 
-	var wg sync.WaitGroup
-	wg.Add(workers)
+	var wg conc.WaitGroup
 	errs := make([]error, workers)
 
 	for i := range workers {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			for j := range requestsPerWorker {
 				w := httptest.NewRecorder()
 				r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"sustained":true}}`)
@@ -686,7 +683,7 @@ func TestSustainedLoad(t *testing.T) {
 				}
 				time.Sleep(2 * time.Millisecond)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -723,13 +720,12 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	const goroutines = 50
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	errs := make([]error, goroutines)
 
 	for i := range goroutines {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 			r.Header.Set("Authorization", "Bearer "+rawKey)
@@ -737,7 +733,7 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 			if w.Code != http.StatusOK {
 				errs[idx] = fmt.Errorf("goroutine %d: expected 200, got %d", idx, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

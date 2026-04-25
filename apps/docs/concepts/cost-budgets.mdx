@@ -3,7 +3,7 @@ title: "Cost Budgets"
 description: "Tracking and limiting AI model usage costs."
 ---
 
-Strait includes a built-in cost tracking and budgeting system, primarily designed for managing expenses related to AI model usage (e.g., OpenAI, Anthropic).
+Cost budgets let you cap how much your jobs spend on AI model usage (e.g., OpenAI, Anthropic). Set per-run and daily project limits to prevent runaway costs.
 
 ## Micro-USD Precision
 
@@ -11,13 +11,13 @@ All costs are tracked in **micro-USD** (1/1,000,000 of a USD) using integer prec
 
 - **Example**: $0.01 (1 cent) is represented as `10,000` micro-USD.
 
-## Usage Model
+## Usage Tracking
 
-The `RunUsage` struct (defined in `apps/strait/internal/domain/types.go`) tracks individual usage events:
+Each usage event records:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (UUIDv7). |
+| `id` | `string` | Unique identifier. |
 | `run_id` | `string` | Reference to the Job Run. |
 | `provider` | `string` | AI provider (e.g., `openai`, `anthropic`). |
 | `model` | `string` | Model name (e.g., `gpt-4o`). |
@@ -28,7 +28,7 @@ The `RunUsage` struct (defined in `apps/strait/internal/domain/types.go`) tracks
 
 ## Budget Limits
 
-Budgets are defined in the `project_quotas` table and enforced at two levels:
+You can set budget limits at two levels:
 
 ### 1. Per-Run Budget
 - **Field**: `max_cost_per_run_microusd`
@@ -40,24 +40,16 @@ Budgets are defined in the `project_quotas` table and enforced at two levels:
 - **Enforcement**: Checked at **trigger time**.
 - **Behavior**: Before a new run is enqueued, the system aggregates the total cost of all runs for the current day (based on the project's configured timezone). If the limit is reached, the trigger request is rejected.
 
-## Budget Checks
+## How Enforcement Works
 
-Budget validation occurs **before** recording the usage or enqueuing the run. This ensures that limits are strictly enforced and that violating requests do not inflate the recorded costs.
+Strait checks budget limits **before** recording usage or enqueuing a run, so violating requests never inflate recorded costs.
 
-## Project Quotas Table
+## Quota Settings
 
-The `project_quotas` table stores the limits for each project:
+Each project can configure these limits:
 
-```sql
-project_id            TEXT PRIMARY KEY
-max_queued_runs       INT NOT NULL DEFAULT 1000
-max_executing_runs    INT NOT NULL DEFAULT 100
-max_jobs              INT NOT NULL DEFAULT 100
-timezone              TEXT NOT NULL DEFAULT 'UTC'
-max_cost_per_run_microusd  BIGINT NOT NULL DEFAULT 0  -- 0 = unlimited
-max_daily_cost_microusd    BIGINT NOT NULL DEFAULT 0  -- 0 = unlimited
-```
-
-## Budget Enforcement
-
-Usage reports are always recorded, and budget checks are performed at trigger time and during execution.
+| Setting | Default | Meaning |
+| :--- | :--- | :--- |
+| `max_cost_per_run_microusd` | `0` (unlimited) | Maximum cost a single run can accumulate. |
+| `max_daily_cost_microusd` | `0` (unlimited) | Maximum total cost across all runs per day. |
+| `timezone` | `UTC` | Timezone used to define the daily budget window. |

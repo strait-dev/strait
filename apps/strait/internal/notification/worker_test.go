@@ -3,12 +3,13 @@ package notification
 import (
 	"context"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // stubNotificationStore implements store.NotificationStore with no-ops.
@@ -64,35 +65,44 @@ func TestWorker_StopIsIdempotent(t *testing.T) {
 	w := NewWorker(&stubNotificationStore{}, &http.Client{})
 	w.Start(t.Context())
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			w.Stop()
 		})
 	}
-	wg.Wait() // must not panic
+	wg.Wait()
 }
 
 // panicNotificationStore panics on ClaimPendingNotificationDeliveries to test recovery.
 type panicNotificationStore struct {
 	stubNotificationStore
+	called chan struct{}
 }
 
 func (s *panicNotificationStore) ClaimPendingNotificationDeliveries(_ context.Context, _ int, _ time.Duration) ([]domain.NotificationDelivery, error) {
+	select {
+	case <-s.called:
+	default:
+		close(s.called)
+	}
 	panic("test panic in ClaimPendingNotificationDeliveries")
 }
 
 func TestWorker_PanicRecovery(t *testing.T) {
 	t.Parallel()
-	w := NewWorker(&panicNotificationStore{}, &http.Client{})
+	store := &panicNotificationStore{called: make(chan struct{})}
+	w := NewWorker(store, &http.Client{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	w.Start(ctx)
 
-	// Give the worker time to process (and panic/recover).
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-store.called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ClaimPendingNotificationDeliveries was never called")
+	}
 
-	// If panic recovery works, Stop should not hang.
 	cancel()
 	done := make(chan struct{})
 	go func() {
@@ -102,8 +112,25 @@ func TestWorker_PanicRecovery(t *testing.T) {
 
 	select {
 	case <-done:
-		// success: worker stopped despite panic
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker did not stop after panic; recovery may not be working")
+	}
+}
+
+func TestWorker_StopAfterContextCancel(t *testing.T) {
+	t.Parallel()
+	w := NewWorker(&stubNotificationStore{}, &http.Client{})
+	ctx, cancel := context.WithCancel(context.Background())
+	w.Start(ctx)
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		w.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not return within 2s after context cancel")
 	}
 }

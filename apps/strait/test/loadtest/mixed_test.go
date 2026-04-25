@@ -302,7 +302,7 @@ func TestMixed_Secrets(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/secrets/", func() []byte {
 		return []byte(fmt.Sprintf(
-			`{"project_id":"%s","key":"SECRET_%s","value":"supersecret-%s"}`,
+			`{"project_id":"%s","secret_key":"SECRET_%s","value":"supersecret-%s"}`,
 			projectID, newID(), newID(),
 		))
 	})

@@ -613,3 +613,261 @@ func TestUsageService_UpdateEmailPreferences(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestStddev_Identical(t *testing.T) {
+	t.Parallel()
+	if got := stddev([]float64{5, 5, 5, 5}); got != 0 {
+		t.Errorf("stddev([5,5,5,5]) = %f, want 0", got)
+	}
+}
+
+func TestBuildAlerts_ExactThresholdBoundaries(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+
+	tests := []struct {
+		name     string
+		percent  float64
+		wantSev  string
+		wantType string
+	}{
+		{"at_100", 100.0, "limit_reached", "limit_reached"},
+		{"at_95", 95.0, "critical", "approaching_limit"},
+		{"at_85", 85.0, "warning", "approaching_limit"},
+		{"at_70", 70.0, "info", "approaching_limit"},
+		{"below_70", 69.9, "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			usage := UsageDimensions{
+				RunsToday: UsageDimension{Used: 0, Limit: 100, Percent: tt.percent},
+			}
+			alerts := svc.buildAlerts(usage)
+			if tt.wantSev == "" {
+				for _, a := range alerts {
+					if a.Dimension == "runs_today" {
+						t.Errorf("expected no alert for runs_today at %.1f%%, got %+v", tt.percent, a)
+					}
+				}
+			} else {
+				var found bool
+				for _, a := range alerts {
+					if a.Dimension == "runs_today" {
+						found = true
+						if a.Severity != tt.wantSev {
+							t.Errorf("severity = %q, want %q", a.Severity, tt.wantSev)
+						}
+						if a.Type != tt.wantType {
+							t.Errorf("type = %q, want %q", a.Type, tt.wantType)
+						}
+					}
+				}
+				if !found {
+					t.Errorf("expected alert for runs_today at %.1f%%", tt.percent)
+				}
+			}
+		})
+	}
+}
+
+func TestUsageService_SetAnomalyConfig_Valid(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	err := svc.SetAnomalyConfig(context.Background(), "org-1", 2.0, 8.0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUsageService_SetAnomalyConfig_WarningTooLow(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	err := svc.SetAnomalyConfig(context.Background(), "org-1", 1.0, 5.0)
+	if err == nil {
+		t.Fatal("expected error for warning <= 1.0")
+	}
+}
+
+func TestUsageService_SetAnomalyConfig_CriticalBelowWarning(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	err := svc.SetAnomalyConfig(context.Background(), "org-1", 3.0, 3.0)
+	if err == nil {
+		t.Fatal("expected error for critical <= warning")
+	}
+}
+
+func TestUsageService_SetProjectBudget_Valid(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "reject")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUsageService_SetProjectBudget_InvalidAction(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid action")
+	}
+}
+
+func TestUsageService_SetProjectBudget_NegativeNormalized(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	err := svc.SetProjectBudget(context.Background(), "proj-1", -5, "notify")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUsageService_GetProjectBudget_DefaultNoBudget(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	resp, err := svc.GetProjectBudget(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ProjectID != "proj-1" {
+		t.Errorf("ProjectID = %q, want proj-1", resp.ProjectID)
+	}
+	if resp.MonthlyBudgetMicro != -1 {
+		t.Errorf("MonthlyBudgetMicro = %d, want -1", resp.MonthlyBudgetMicro)
+	}
+	if resp.PercentUsed != 0 {
+		t.Errorf("PercentUsed = %f, want 0 (no budget)", resp.PercentUsed)
+	}
+}
+
+func TestUsageService_GetAnomalyConfig_DefaultsForMissingSubscription(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	resp, err := svc.GetAnomalyConfig(context.Background(), "org-none")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.WarningThreshold != spikeWarning {
+		t.Errorf("WarningThreshold = %f, want %f", resp.WarningThreshold, spikeWarning)
+	}
+	if resp.CriticalThreshold != spikeCritical {
+		t.Errorf("CriticalThreshold = %f, want %f", resp.CriticalThreshold, spikeCritical)
+	}
+}
+
+func TestUsageService_GetAnomalyConfig_WithSubscription_ZeroThresholds(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.WarningThreshold != spikeWarning {
+		t.Errorf("WarningThreshold = %f, want %f (default for zero)", resp.WarningThreshold, spikeWarning)
+	}
+}
+
+func TestUsageService_GetAnomalyConfig_CustomThresholdsFromSubscription(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {
+				OrgID:                    "org-1",
+				PlanTier:                 "pro",
+				Status:                   "active",
+				AnomalyThresholdWarning:  2.5,
+				AnomalyThresholdCritical: 8.0,
+			},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.WarningThreshold != 2.5 {
+		t.Errorf("WarningThreshold = %f, want 2.5", resp.WarningThreshold)
+	}
+	if resp.CriticalThreshold != 8.0 {
+		t.Errorf("CriticalThreshold = %f, want 8.0", resp.CriticalThreshold)
+	}
+}
+
+func TestUsageService_GetCurrentUsage_PaymentStatus(t *testing.T) {
+	t.Parallel()
+	gracePeriod := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-1": {
+				OrgID:          "org-1",
+				PlanTier:       "starter",
+				Status:         "active",
+				PaymentStatus:  "past_due",
+				GracePeriodEnd: &gracePeriod,
+			},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.PaymentStatus != "past_due" {
+		t.Errorf("PaymentStatus = %q, want past_due", resp.PaymentStatus)
+	}
+	if resp.GracePeriodEnd == nil {
+		t.Fatal("expected non-nil GracePeriodEnd")
+	}
+	if *resp.GracePeriodEnd == "" {
+		t.Error("expected non-empty GracePeriodEnd")
+	}
+}
+
+func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-s": {OrgID: "org-s", PlanTier: "starter", Status: "active"},
+		},
+		periodSpendByOrg: map[string]int64{
+			"org-s": CreditStarterMicrousd,
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+	resp, err := svc.GetCurrentUsage(context.Background(), "org-s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OverageMicro != 0 {
+		t.Errorf("overage at exactly included credit should be 0, got %d", resp.OverageMicro)
+	}
+	assertFloatApprox(t, resp.CreditUsedPercent, 100)
+	if resp.CreditRemainingMicro != 0 {
+		t.Errorf("remaining credit should be 0 at boundary, got %d", resp.CreditRemainingMicro)
+	}
+}
+
+func TestUsageService_GetUsageForecast_ZeroHistory(t *testing.T) {
+	t.Parallel()
+	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
+	forecast, err := svc.GetUsageForecast(context.Background(), "org-empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forecast.ProjectedMonthlyRuns != 0 {
+		t.Errorf("ProjectedMonthlyRuns = %d, want 0", forecast.ProjectedMonthlyRuns)
+	}
+	if forecast.ProjectedMonthlyComputeUsd != 0 {
+		t.Errorf("ProjectedMonthlyComputeUsd = %f, want 0", forecast.ProjectedMonthlyComputeUsd)
+	}
+}

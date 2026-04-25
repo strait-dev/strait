@@ -255,7 +255,7 @@ const PricingComparisonClient = ({
                 type="button"
               >
                 <span>{option.label}</span>
-                {!!option.helper && option.value === "yearly" ? (
+                {option.helper && option.value === "yearly" ? (
                   <span className="rounded-full bg-success px-2 py-0.5 font-medium text-white text-xs">
                     {option.helper}
                   </span>

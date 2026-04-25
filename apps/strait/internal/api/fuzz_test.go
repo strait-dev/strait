@@ -177,7 +177,7 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 	f.Add("v-old", 2, -1, true)
 
 	f.Fuzz(func(t *testing.T, versionID string, version int, activeCount int, breakingChange bool) {
-		var auditCalled bool
+		var capturedAction string
 		ms := &APIStoreMock{
 			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
 				return &domain.Workflow{
@@ -197,8 +197,8 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 			CountActiveWorkflowRunsByVersionFunc: func(_ context.Context, _, _ string) (int, error) {
 				return activeCount, nil
 			},
-			CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
-				auditCalled = true
+			CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+				capturedAction = ev.Action
 				return nil
 			},
 		}
@@ -233,11 +233,18 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 				hasCount, shouldHaveCount, versionID, version, activeCount)
 		}
 
-		// Audit should only fire when breaking_change=true AND count > 0 AND version guard passes
-		shouldAudit := breakingChange && versionID != "" && version >= 1 && activeCount > 0
-		if auditCalled != shouldAudit {
-			t.Fatalf("auditCalled=%v, want=%v (breaking=%v versionID=%q version=%d count=%d)",
-				auditCalled, shouldAudit, breakingChange, versionID, version, activeCount)
+		// Post-STR-373 invariant: every successful workflow update emits an
+		// audit event. The action is workflow.updated_breaking only when
+		// breaking_change=true AND the version guard passes AND there are
+		// active runs on the previous version; otherwise it is workflow.updated.
+		shouldBeBreaking := breakingChange && versionID != "" && version >= 1 && activeCount > 0
+		wantAction := "workflow.updated"
+		if shouldBeBreaking {
+			wantAction = "workflow.updated_breaking"
+		}
+		if capturedAction != wantAction {
+			t.Fatalf("audit action = %q, want %q (breaking=%v versionID=%q version=%d count=%d)",
+				capturedAction, wantAction, breakingChange, versionID, version, activeCount)
 		}
 	})
 }

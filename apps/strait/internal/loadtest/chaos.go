@@ -10,9 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // ChaosScenario defines a single chaos test.
@@ -120,7 +121,7 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 	ce.triggerCount.Store(0)
 	ce.errorCount.Store(0)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	wg.Go(func() {
 		ce.generateLoad(loadCtx)
 	})
@@ -142,8 +143,6 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 		chaosErr = ce.chaosDatabaseFailover(ctx)
 	case "redis_total_failure":
 		chaosErr = ce.chaosRedisFailure(ctx)
-	case "docker_daemon_restart":
-		chaosErr = ce.chaosDockerRestart(ctx)
 	case "connection_pool_exhaustion":
 		chaosErr = ce.chaosPoolExhaustion(ctx)
 	case "disk_pressure":
@@ -309,34 +308,6 @@ func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 	return nil
 }
 
-func (ce *ChaosEngine) chaosDockerRestart(ctx context.Context) error {
-	// First, list container IDs matching the ancestor filter.
-	// Go's exec.Command does not interpret shell expansion like $(...),
-	// so we must run docker ps separately and parse the output.
-	listCmd := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "ancestor=strait-loadtest-python")
-	out, err := listCmd.Output()
-	if err != nil {
-		// No containers running or docker not available
-		return fmt.Errorf("listing containers: %w", err)
-	}
-
-	containerIDs := strings.Fields(strings.TrimSpace(string(out)))
-	if len(containerIDs) == 0 {
-		return nil
-	}
-
-	// Restart each container individually
-	for _, id := range containerIDs {
-		restart := exec.CommandContext(ctx, "docker", "restart", id)
-		if err := restart.Run(); err != nil {
-			return fmt.Errorf("failed to restart container %s: %w", id, err)
-		}
-	}
-
-	time.Sleep(30 * time.Second)
-	return nil
-}
-
 func (ce *ChaosEngine) chaosPoolExhaustion(ctx context.Context) error {
 	// Reduce connection pool via pg_terminate_backend
 	if ce.harness.Pool == nil {
@@ -428,7 +399,7 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 
 	var cascadeErr atomic.Value
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Simultaneously: kill Redis + spike traffic + kill worker
 	// Kill Redis

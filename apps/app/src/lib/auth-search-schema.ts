@@ -10,7 +10,7 @@ const safeRedirect = z
   .optional()
   .transform((val) => {
     if (!val) {
-      return undefined;
+      return;
     }
     // Only allow relative paths starting with /
     // Reject absolute URLs, protocol-relative, and javascript: URIs
@@ -20,7 +20,7 @@ const safeRedirect = z
       val.startsWith("/\\") ||
       val.toLowerCase().includes("://")
     ) {
-      return undefined;
+      return;
     }
     return val;
   })

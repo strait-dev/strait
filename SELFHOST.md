@@ -1,14 +1,40 @@
 # Self-Hosting Strait
 
-Run Strait on your own infrastructure with a single command.
+Strait offers two self-hosting paths. Pick whichever matches how you want to run the dashboard.
 
-## Prerequisites
+| | Option 1 — Cloudflare dashboard | Option 2 — Full Docker stack |
+|---|---|---|
+| Setup | One click | `make selfhost` |
+| Dashboard runs on | Your own Cloudflare account | Your own hardware |
+| API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
+| Postgres | Neon / Supabase / Fly PG / self-hosted | Bundled `postgres:18-alpine` |
+| Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
+
+Both options run the community edition with all open-source features.
+
+---
+
+## Option 1 — Deploy the dashboard to Cloudflare
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+
+Click the button to fork the repo and start a Cloudflare Workers Builds import. Because Cloudflare doesn't yet support Bun workspaces in one-click deploys, you'll need to set **Root directory** to `apps/app` and provide a custom **Build command** during import. The rest of the flow is guided -- Hyperdrive binding, non-secret variables, and secret prompts are predeclared in `apps/app/wrangler.jsonc`.
+
+See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detailed walkthrough, including the exact build command string and the list of secrets you must set in the Cloudflare dashboard after the first deploy.
+
+**The dashboard needs the Strait API server to function.** Run it locally with Option 2 below, on a VPS, or on Kubernetes -- then point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables. The easiest way to expose a local API is via `cloudflared tunnel` or a public hostname.
+
+---
+
+## Option 2 — Run the full stack locally with Docker Compose
+
+### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - 2 GB RAM minimum (4 GB recommended)
 - Ports 3000 (Dashboard), 8080 (API), 5432 (Postgres), 6379 (Redis), 7376 (Sequin) available
 
-## Quick Start
+### Quick Start
 
 ```bash
 # 1. Clone the repository.
@@ -35,7 +61,11 @@ make selfhost-down
 make selfhost-reset
 ```
 
+---
+
 ## Creating Your First Job
+
+> The steps below apply regardless of which option you chose above.
 
 1. Open **http://localhost:3000** and sign up
 2. A workspace is created automatically for you
@@ -46,7 +76,7 @@ The dashboard guides you through installing the SDK, deploying a job, and trigge
 
 ### Advanced: API-only usage
 
-If you prefer using the API directly without the dashboard:
+If you prefer working with the API directly instead of the dashboard, here's a complete example that creates a project, generates an API key, and triggers a job.
 
 ```bash
 SECRET="<your INTERNAL_SECRET from .env.selfhost>"
@@ -175,9 +205,15 @@ Interactive API documentation is available via Scalar:
 
 The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
 
+## Audit tamper-evidence hardening
+
+Strait's audit log is HMAC-signed, so any tampering is forensically detectable out of the box. For additional defense-in-depth, you can restrict the application database role to insert-only access on the `audit_events` table. This prevents a compromised process from modifying or deleting audit history.
+
+See migration `000187_audit_events_dml_restrictions` for the exact setup, or check the [Mintlify docs](https://docs.strait.dev) for a step-by-step walkthrough. The `/health/ready` endpoint reports `audit_dml_guard: ok` once enforced.
+
 ## Monitoring
 
-Strait exposes a Prometheus-compatible `/metrics` endpoint with 50+ metrics (queue depth, dispatch latency, error rates, worker concurrency). Point your existing Prometheus/Datadog/New Relic at `http://localhost:8080/metrics`.
+Strait exposes Prometheus-compatible metrics at the `/metrics` endpoint. Point your existing Prometheus, Datadog, or New Relic scraper at `http://localhost:8080/metrics`.
 
 For advanced analytics dashboards, cost tracking, log search, and alerting -- use [Strait Cloud](https://strait.dev).
 
@@ -202,7 +238,7 @@ const run = await strait.jobs.trigger("my-job", {
 });
 ```
 
-**Python** ([github.com/strait-dev/python-sdk](https://github.com/strait-dev/python-sdk)):
+**Python** ([github.com/strait-dev/strait-python](https://github.com/strait-dev/strait-python)):
 ```bash
 pip install strait
 ```
@@ -213,9 +249,9 @@ client = Strait(base_url="http://localhost:8080", api_key="strait_...")
 run = client.jobs.trigger("my-job", payload={"userId": "123"})
 ```
 
-**Go** ([github.com/strait-dev/go-sdk](https://github.com/strait-dev/go-sdk)):
+**Go** ([github.com/strait-dev/strait-go](https://github.com/strait-dev/strait-go)):
 ```bash
-go get github.com/strait-dev/go-sdk
+go get github.com/strait-dev/strait-go
 ```
 ```go
 client := strait.New("http://localhost:8080", "strait_...")
@@ -228,18 +264,6 @@ curl -X POST http://localhost:8080/v1/jobs/my-job/trigger \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{"payload": {"userId": "123"}}'
-```
-
-## Load Testing
-
-Test your deployment with the packaged stress test:
-
-```bash
-docker run --rm --network host \
-  -e STRAIT_URL=http://localhost:8080 \
-  -e INTERNAL_SECRET="<your secret>" \
-  -e ITERATIONS=1000 \
-  ghcr.io/strait-dev/strait-loadtest
 ```
 
 ## Resetting
@@ -258,7 +282,7 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 ```bash
 docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
 ```
-Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`).
+Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`). Check if Postgres is healthy with `docker ps`. If secrets look wrong, run `make selfhost-reset` followed by `make selfhost` to regenerate.
 
 **Dashboard can't reach the API:**
 Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. Restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`

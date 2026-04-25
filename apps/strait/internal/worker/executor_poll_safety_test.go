@@ -24,11 +24,12 @@ func TestExecutor_HeartbeatTrackedForShutdown(t *testing.T) {
 		logger:       slog.Default(),
 	}
 
+	e.heartbeat.Register("run-heartbeat-test")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go e.Run(ctx)
 
-	// Give heartbeat time to start and tick at least once.
-	time.Sleep(100 * time.Millisecond)
+	waitForHeartbeatCalls(t, hbStore, 1, 500*time.Millisecond)
 
 	cancel()
 

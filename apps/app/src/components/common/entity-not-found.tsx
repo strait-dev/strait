@@ -22,26 +22,23 @@ const EntityNotFound = ({ entity, backTo, backLabel }: EntityNotFoundProps) => {
         />
       </div>
       <div className="space-y-1.5">
-        <h2 className="font-medium text-base text-secondary-foreground">
+        <h2 className="font-normal text-lg text-secondary-foreground">
           {entity} not found
         </h2>
         <p className="max-w-sm text-pretty text-muted-foreground text-sm">
-          The {entity.toLowerCase()} you're looking for doesn't exist or may
-          have been removed.
+          This {entity.toLowerCase()} doesn't exist or was removed. Check the
+          URL or try searching.
         </p>
       </div>
       <div className="flex items-center gap-2 pt-1">
         <Button
           onClick={() => window.history.back()}
-          size="sm"
           type="button"
           variant="outline"
         >
           Go back
         </Button>
-        <Button render={<Link to={back} />} size="sm">
-          {label}
-        </Button>
+        <Button render={<Link to={back} />}>{label}</Button>
       </div>
     </div>
   );

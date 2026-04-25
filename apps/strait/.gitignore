@@ -1,3 +1,4 @@
-strait
+/strait
 .strait/
 docs/openapi.json
+internal/loadtest/reports/

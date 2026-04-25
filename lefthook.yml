@@ -1,15 +1,93 @@
+min_version: 2.1.5
+assert_lefthook_installed: true
+
+output:
+  - meta
+  - summary
+  - failure
+  - execution_info
+  - execution_out
+
 pre-commit:
   parallel: true
+  follow: true
   commands:
-    run_all:
-      run: bun run run-all
-      fail_text: "run-all failed"
-    app_typecheck:
-      run: cd apps/app && bun run typecheck
-      fail_text: "App typecheck failed"
     gitleaks:
-      run: command -v gitleaks > /dev/null 2>&1 && gitleaks protect --staged --no-banner || true
+      priority: 1
+      run: |
+        if command -v gitleaks > /dev/null 2>&1; then
+          gitleaks protect --staged --config=apps/strait/.gitleaks.toml --no-banner
+        fi
       fail_text: "Secrets detected in staged files"
+      timeout: 30s
+      skip:
+        - merge
+        - rebase
+
+    biome:
+      priority: 2
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
+      run: bunx biome check --write --unsafe --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+      fail_text: "Biome check failed"
+      timeout: 60s
+      skip:
+        - merge
+        - rebase
+
+pre-push:
+  follow: true
+  parallel: true
+  jobs:
+    - name: gitleaks
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: |
+        if command -v gitleaks > /dev/null 2>&1; then
+          gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --log-opts="origin/master..HEAD"
+        fi
+      fail_text: "Secrets detected in commits being pushed"
+      timeout: 60s
+
+    - name: manypkg_check
+      glob:
+        - "package.json"
+        - "**/package.json"
+        - "bun.lock"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bun run manypkg:check
+      fail_text: "manypkg check failed"
+      timeout: 30s
+
+    - name: biome
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bunx biome check .
+      fail_text: "biome check failed"
+      timeout: 60s
+
+    - name: typecheck
+      glob:
+        - "*.{ts,tsx,js,jsx,mjs,cjs}"
+        - "package.json"
+        - "bun.lock"
+        - "turbo.json"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: bun run typecheck
+      fail_text: "typecheck failed"
+      timeout: 180s
+
+    - name: go_lint
+      glob: "*.go"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: cd apps/strait && golangci-lint run --timeout=5m ./...
+      fail_text: "Go lint failed"
+      timeout: 360s
+
 
 commit-msg:
   commands:

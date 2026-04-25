@@ -3,7 +3,7 @@ title: "Event Sources"
 description: "Named inbound event channels that route external events to jobs and workflows."
 ---
 
-An `EventSource` is a named inbound event channel. External systems dispatch events to a source by name, and the source routes them to one or more jobs or workflows via **subscriptions**. Each subscription can optionally filter on the event payload, so a single source can fan out to multiple targets selectively.
+An event source is a named inbound channel. External systems dispatch events to a source by name, and the source routes them to one or more jobs or workflows via **subscriptions**. Each subscription can optionally filter on the event payload, so a single source can fan out (deliver one event to multiple targets simultaneously).
 
 ## Event Sources vs Event Triggers
 
@@ -16,9 +16,9 @@ Event Sources and [Event Triggers](/concepts/event-triggers) serve different pur
 Event Sources push events into the system. Event Triggers wait for events from within the system.
 </Note>
 
-## EventSource Model
+## Event Source Fields
 
-The `EventSource` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
+Each event source has:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -31,9 +31,9 @@ The `EventSource` struct (defined in `apps/strait/internal/domain/types.go`) con
 | `created_at` | `time.Time` | Timestamp when the source was created. |
 | `updated_at` | `time.Time` | Timestamp of the last update. |
 
-## EventSubscription Model
+## Subscription Fields
 
-An `EventSubscription` binds an event source to a target (a job or workflow). When an event is dispatched to the source, each enabled subscription is evaluated and, if matched, triggers its target.
+A subscription binds an event source to a target (a job or workflow). When an event arrives at the source, each enabled subscription is evaluated and, if matched, triggers its target.
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -52,7 +52,7 @@ A subscription connects a source to a target. Two target types are supported:
 - **`job`** -- When matched, a new job run is enqueued with `triggered_by: "event"` and the dispatched payload.
 - **`workflow`** -- When matched, a new workflow run is triggered with the dispatched payload.
 
-A single event source can have multiple subscriptions, each pointing to a different target and each with its own filter expression. This allows one inbound event to fan out to several jobs and workflows simultaneously.
+A single event source can have multiple subscriptions, each pointing to a different target with its own filter expression. This lets one inbound event trigger several jobs and workflows at once.
 
 ## Filter Expressions
 

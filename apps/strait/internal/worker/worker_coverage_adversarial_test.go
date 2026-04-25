@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +13,8 @@ import (
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -57,8 +58,13 @@ func TestAdaptiveRun_ContextCancellation(t *testing.T) {
 		close(done)
 	}()
 
-	// Let a few probes fire.
-	time.Sleep(20 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if probeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	cancel()
 
 	select {
@@ -146,7 +152,9 @@ func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
 	a := NewAdaptiveConcurrency(1, 100, 10)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	var probeCalls atomic.Int32
 	probe := func(_ context.Context) (int, float64, error) {
+		probeCalls.Add(1)
 		return 0, 0, errors.New("probe error with nil logger")
 	}
 
@@ -156,7 +164,13 @@ func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(20 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if probeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	cancel()
 
 	select {
@@ -203,17 +217,14 @@ func TestAdaptiveConcurrency_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 1000, 50)
-	var wg sync.WaitGroup
-	// Hammer Observe and CurrentLimit from multiple goroutines.
+	var wg conc.WaitGroup
 	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range 100 {
-				_ = a.Observe(idx*100+j, float64(idx)/10.0)
+				_ = a.Observe(i*100+j, float64(i)/10.0)
 				_ = a.CurrentLimit()
 			}
-		}(i)
+		})
 	}
 
 	wg.Wait()

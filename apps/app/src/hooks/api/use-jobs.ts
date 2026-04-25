@@ -23,96 +23,105 @@ export const fetchJobs = createServerFn({ method: "GET" })
     (data: ListParams & { status?: string; search?: string }) => data
   )
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<PaginatedResponse<Job>> => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<Job>>("/v1/jobs", {
-        params: {
-          limit: data.limit,
-          cursor: data.cursor,
-          status: data.status,
-          search: data.search,
-        },
-      })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<PaginatedResponse<Job>> =>
+      await runWithSentryReport(
+        apiEffect<PaginatedResponse<Job>>("/v1/jobs", {
+          params: {
+            limit: data.limit,
+            cursor: data.cursor,
+            status: data.status,
+            search: data.search,
+          },
+        })
+      )
+  );
 
 export const fetchJob = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<Job> => {
-    return await runWithSentryReport(apiEffect<Job>(`/v1/jobs/${data.id}`));
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<Job> =>
+      await runWithSentryReport(apiEffect<Job>(`/v1/jobs/${data.id}`))
+  );
 
 export const triggerJobFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { id: string; payload?: unknown; priority?: number }) => data
   )
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<JobRun> => {
-    return await runWithSentryReport(
-      apiEffect<JobRun>(`/v1/jobs/${data.id}/trigger`, {
-        method: "POST",
-        body: { payload: data.payload, priority: data.priority },
-      })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<JobRun> =>
+      await runWithSentryReport(
+        apiEffect<JobRun>(`/v1/jobs/${data.id}/trigger`, {
+          method: "POST",
+          body: { payload: data.payload, priority: data.priority },
+        })
+      )
+  );
 
 export const updateJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<Job> => {
-    const { id, ...body } = data;
-    return await runWithSentryReport(
-      apiEffect<Job>(`/v1/jobs/${id}`, { method: "PATCH", body })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<Job> => {
+      const { id, ...body } = data;
+      return await runWithSentryReport(
+        apiEffect<Job>(`/v1/jobs/${id}`, { method: "PATCH", body })
+      );
+    }
+  );
 
 export const fetchJobHealth = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string; window?: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<JobHealthResponse> => {
-    return await runWithSentryReport(
-      apiEffect<JobHealthResponse>(`/v1/jobs/${data.id}/health`, {
-        params: { window: data.window },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<JobHealthResponse> =>
+      await runWithSentryReport(
+        apiEffect<JobHealthResponse>(`/v1/jobs/${data.id}/health`, {
+          params: { window: data.window },
+        })
+      )
+  );
 
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/jobs/${data.id}`, { method: "DELETE" })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/jobs/${data.id}`, { method: "DELETE" })
+      )
+  );
 
 export const pauseJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; reason?: string }) => data)
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<Job> => {
-    return await runWithSentryReport(
-      apiEffect<Job>(`/v1/jobs/${data.id}/pause`, {
-        method: "POST",
-        body: { reason: data.reason },
-      })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<Job> =>
+      await runWithSentryReport(
+        apiEffect<Job>(`/v1/jobs/${data.id}/pause`, {
+          method: "POST",
+          body: { reason: data.reason },
+        })
+      )
+  );
 
 export const resumeJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<Job> => {
-    return await runWithSentryReport(
-      apiEffect<Job>(`/v1/jobs/${data.id}/resume`, { method: "POST" })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<Job> =>
+      await runWithSentryReport(
+        apiEffect<Job>(`/v1/jobs/${data.id}/resume`, { method: "POST" })
+      )
+  );
 
 type ListJobsInput = ListParams & { status?: string; search?: string };
 

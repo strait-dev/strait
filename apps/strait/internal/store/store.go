@@ -21,8 +21,11 @@ var (
 	ErrWebhookSubscriptionNotFound       = errors.New("webhook subscription not found")
 	ErrEnvironmentNotFound               = errors.New("environment not found")
 	ErrJobSecretNotFound                 = errors.New("job secret not found")
+	ErrAuditEventNotFound                = errors.New("audit event not found")
 	ErrRunNotFound                       = errors.New("run not found")
 	ErrRunConflict                       = errors.New("run status update conflict")
+	ErrOutboxRowNotFound                 = errors.New("outbox row not found")
+	ErrOutboxRowConflict                 = errors.New("outbox row conflict")
 	ErrWorkflowNotFound                  = errors.New("workflow not found")
 	ErrWorkflowStepNotFound              = errors.New("workflow step not found")
 	ErrWorkflowRunNotFound               = errors.New("workflow run not found")
@@ -113,11 +116,13 @@ type RunStore interface {
 	ListRunsByJob(ctx context.Context, jobID string, limit, offset int) ([]domain.JobRun, error)
 	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error)
 	BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateRunStatusReturningOld(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) (domain.RunStatus, error)
 	ReplayDeadLetterRun(ctx context.Context, runID string) (*domain.JobRun, error)
+	ReplayDeadLetterRunWithAudit(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 	UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	BatchUpdateHeartbeat(ctx context.Context, ids []string) error
@@ -269,7 +274,7 @@ type StepDepResult struct {
 	StepRef       string
 	DepsCompleted int
 	DepsRequired  int
-	JobID         string
+	JobID         *string
 	Condition     json.RawMessage
 	Payload       json.RawMessage
 	WorkflowRunID string
@@ -503,6 +508,24 @@ type Queries struct {
 	db                  DBTX
 	secretEncryptionKey string
 	auditSigningKey     []byte
+	maxSLOWindowHours   int
+
+	// tombstoneInsertHook is a test-only injection point invoked inside
+	// writeRetentionTombstone immediately before the anchor insert. When
+	// non-nil and it returns a non-nil error, writeRetentionTombstone
+	// aborts with that error — which (because the tombstone runs inside
+	// the same transaction as the DELETE) triggers a rollback of the
+	// trim. Populated only by SetTombstoneInsertHookForTest in _test.go;
+	// the production constructor leaves it nil and no public setter
+	// exists, so this seam cannot leak outside tests.
+	tombstoneInsertHook func(ctx context.Context) error
+
+	// auditEventPostInsertHook is a test-only injection point invoked
+	// inside CreateAuditEvent after the signed INSERT statement succeeds
+	// but before the surrounding transaction commits. Returning a
+	// non-nil error forces the tx to roll back, leaving no row behind.
+	// Populated only by SetAuditEventPostInsertHookForTest in _test.go.
+	auditEventPostInsertHook func(ctx context.Context) error
 }
 
 func New(db DBTX) *Queries {
@@ -517,12 +540,54 @@ func (q *Queries) SetAuditSigningKey(key []byte) {
 	q.auditSigningKey = key
 }
 
+func (q *Queries) SetMaxSLOWindowHours(hours int) {
+	q.maxSLOWindowHours = hours
+}
+
 type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// TxBeginnerOptions is the subset of pgxpool.Pool / *pgx.Conn that starts a
+// transaction with explicit TxOptions. Implemented by both concrete types.
+type TxBeginnerOptions interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
 	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("failed to rollback transaction", "error", rbErr)
+		}
+	}()
+
+	if err := fn(New(tx)); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	committed = true
+
+	return nil
+}
+
+// WithTxOptions runs fn inside a transaction opened with the given TxOptions.
+// Use this when the caller needs to pin an isolation level (e.g.
+// pgx.RepeatableRead for per-project retention trims so the DISTINCT
+// project-id SELECT and per-project DELETEs observe a consistent snapshot).
+func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}

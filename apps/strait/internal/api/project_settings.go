@@ -82,5 +82,10 @@ func (s *Server) handleUpdateProjectSettings(ctx context.Context, input *UpdateP
 	if err != nil {
 		return nil, err
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionProjectSettingsUpdated, "project_settings", projectID, map[string]any{
+		"changes": input.Body,
+	})
+
 	return &UpdateProjectSettingsOutput{Body: out.Body}, nil
 }

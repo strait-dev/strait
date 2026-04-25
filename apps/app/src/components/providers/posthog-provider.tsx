@@ -65,6 +65,5 @@ export const PostHogProvider = ({ children }: PostHogProviderProps) => {
   );
 };
 
-export const usePostHog = (): PostHogInstance | null => {
-  return useContext(PostHogContext);
-};
+export const usePostHog = (): PostHogInstance | null =>
+  useContext(PostHogContext);

@@ -4,10 +4,11 @@ package e2e_test
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadWebhook_SubscriptionCRUD(t *testing.T) {
@@ -79,14 +80,13 @@ func TestLoadWebhook_ConcurrentSubscriptionCreation(t *testing.T) {
 
 	const workers = 10
 	perWorker := loadVolume() / (workers * 5)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successes, failures atomic.Int64
 	start := time.Now()
 
 	for w := range workers {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
+		workerID := w
+		wg.Go(func() {
 			for i := range perWorker {
 				resp := doRequest(t, "POST", "/v1/webhooks/subscriptions/", fmt.Sprintf(
 					`{"project_id":"%s","webhook_url":"https://example.com/wh-w%d-%d","event_types":["run.completed"],"secret":"whsec-w%d-%d"}`,
@@ -98,7 +98,7 @@ func TestLoadWebhook_ConcurrentSubscriptionCreation(t *testing.T) {
 					failures.Add(1)
 				}
 			}
-		}(w)
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)

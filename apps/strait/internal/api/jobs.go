@@ -198,6 +198,10 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
 	}
 
+	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+
 	// Region and plan-based gating validation.
 	if err := s.checkRegionForPlan(ctx, req.ProjectID, req.Region); err != nil {
 		return nil, err
@@ -321,6 +325,16 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 
 	s.enqueueJobMetadata(job)
 
+	s.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", job.ID, map[string]any{
+		"name":           job.Name,
+		"slug":           job.Slug,
+		"cron":           job.Cron,
+		"execution_mode": string(job.ExecutionMode),
+		"group_id":       job.GroupID,
+		"environment_id": job.EnvironmentID,
+		"enabled":        job.Enabled,
+	})
+
 	return &CreateJobOutput{Body: job}, nil
 }
 
@@ -341,6 +355,9 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if job == nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
@@ -489,6 +506,20 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.RetryDelaysSecs != nil {
 		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+	}
+
+	{
+		rlw := job.RateLimitWindowSecs
+		if req.RateLimitWindowSecs != nil {
+			rlw = *req.RateLimitWindowSecs
+		}
+		dw := job.DedupWindowSecs
+		if req.DedupWindowSecs != nil {
+			dw = *req.DedupWindowSecs
+		}
+		if err := s.validateWindowsAgainstRetention(rlw, dw); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 	}
@@ -688,6 +719,12 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 
 	s.enqueueJobMetadata(job)
 
+	s.emitAuditEvent(ctx, domain.AuditActionJobUpdated, "job", job.ID, map[string]any{
+		"changes": req,
+		"name":    job.Name,
+		"slug":    job.Slug,
+	})
+
 	return &UpdateJobOutput{Body: job}, nil
 }
 
@@ -735,7 +772,7 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 		"job_id", input.JobID,
 		"actor", actorFromContext(ctx),
 		"project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, "job.delete", "job", input.JobID, nil)
+	s.emitAuditEvent(ctx, domain.AuditActionJobDeleted, "job", input.JobID, nil)
 
 	return nil, nil
 }
@@ -846,6 +883,12 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, huma.Error500InternalServerError("failed to clone job")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionJobCloned, "job", clone.ID, map[string]any{
+		"source_job_id": source.ID,
+		"new_name":      clone.Name,
+		"new_slug":      clone.Slug,
+	})
+
 	return &CloneJobOutput{Body: clone}, nil
 }
 
@@ -897,6 +940,23 @@ func (s *Server) defaultJobTimeoutSecs() int {
 		return s.config.DefaultJobTimeoutSecs
 	}
 	return 300
+}
+
+func (s *Server) validateWindowsAgainstRetention(rateLimitWindowSecs, dedupWindowSecs int) error {
+	if s.config == nil {
+		return nil
+	}
+	maxSecs := int(s.config.RunRetentionShort.Seconds())
+	if maxSecs <= 0 {
+		return nil
+	}
+	if rateLimitWindowSecs > maxSecs {
+		return fmt.Errorf("rate_limit_window_secs (%d) exceeds hot retention (%d seconds)", rateLimitWindowSecs, maxSecs)
+	}
+	if dedupWindowSecs > maxSecs {
+		return fmt.Errorf("dedup_window_secs (%d) exceeds hot retention (%d seconds)", dedupWindowSecs, maxSecs)
+	}
+	return nil
 }
 
 // Batch job definition operations (2.38).
@@ -1046,6 +1106,18 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		return nil, &rawStatusError{status: http.StatusBadRequest, body: resp}
 	}
 
+	if len(resp.Created) > 0 {
+		ids := make([]string, 0, len(resp.Created))
+		for i := range resp.Created {
+			ids = append(ids, resp.Created[i].ID)
+		}
+		s.emitAuditEvent(ctx, domain.AuditActionJobBatchCreated, "job", "", map[string]any{
+			"count":   len(ids),
+			"job_ids": ids,
+			"errors":  len(resp.Errors),
+		})
+	}
+
 	return &BatchCreateJobsOutput{Body: resp}, nil
 }
 
@@ -1074,6 +1146,11 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionJobBatchEnabled, "job", "", map[string]any{
+		"count":   updated,
+		"job_ids": req.IDs,
+	})
+
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
 }
 
@@ -1096,6 +1173,11 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionJobBatchDisabled, "job", "", map[string]any{
+		"count":   updated,
+		"job_ids": req.IDs,
+	})
 
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
 }
@@ -1233,7 +1315,7 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 			"reason", input.Body.Reason,
 			"actor", actorFromContext(ctx),
 			"project_id", projectIDFromContext(ctx))
-		s.emitAuditEvent(ctx, "job.paused", "job", input.JobID, map[string]any{
+		s.emitAuditEvent(ctx, domain.AuditActionJobPaused, "job", input.JobID, map[string]any{
 			"reason": input.Body.Reason,
 		})
 	}
@@ -1283,7 +1365,7 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 			"job_id", input.JobID,
 			"actor", actorFromContext(ctx),
 			"project_id", projectIDFromContext(ctx))
-		s.emitAuditEvent(ctx, "job.resumed", "job", input.JobID, nil)
+		s.emitAuditEvent(ctx, domain.AuditActionJobResumed, "job", input.JobID, nil)
 	}
 
 	updated, err := s.store.GetJob(ctx, input.JobID)

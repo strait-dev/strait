@@ -27,6 +27,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   AlertIcon,
   AnalyticsIcon,
@@ -242,32 +243,36 @@ const AppSidebar = ({ session }: Props) => {
           </Collapsible>
         </SidebarGroup>
 
-        {/* Billing */}
-        <SidebarGroup>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={
-                  pathname === "/app/billing" ||
-                  pathname.startsWith("/app/billing/")
-                }
-                render={<Link to="/app/billing" />}
-                tooltip="Billing"
-              >
-                <HugeiconsIcon
-                  className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
-                  icon={CreditCardIcon}
-                  size={22}
-                />
-                <span>Billing</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
+        {/* Billing — cloud edition only. Self-host builds hide this
+            entire section so users cannot reach Stripe checkout or
+            the customer portal. See `src/lib/edition.ts`. */}
+        {isCommunityEdition ? null : (
+          <SidebarGroup>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={
+                    pathname === "/app/billing" ||
+                    pathname.startsWith("/app/billing/")
+                  }
+                  render={<Link to="/app/billing" />}
+                  tooltip="Billing"
+                >
+                  <HugeiconsIcon
+                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                    icon={CreditCardIcon}
+                    size={22}
+                  />
+                  <span>Billing</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
-      {hasPendingPayment ? <PaymentPendingCard /> : null}
-      {shouldShowUpgrade ? <TrialUpgradeCard /> : null}
+      {!isCommunityEdition && hasPendingPayment ? <PaymentPendingCard /> : null}
+      {!isCommunityEdition && shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
       <SidebarFooter className="flex flex-col border-sidebar-border border-t">
         <Suspense

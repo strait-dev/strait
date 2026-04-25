@@ -3,7 +3,7 @@ title: "Idempotency"
 description: "Preventing duplicate job executions using idempotency keys and payload hashing."
 ---
 
-Strait provides robust mechanisms to ensure that the same job is not executed multiple times accidentally, which is critical for non-idempotent operations like processing payments or sending notifications.
+Strait prevents duplicate job executions so that non-idempotent operations like processing payments or sending notifications only happen once.
 
 ## Idempotency Keys
 
@@ -33,14 +33,14 @@ In addition to explicit keys, Strait can automatically deduplicate runs based on
 This is configured per-job via the `dedup_window_secs` field. If set, Strait will look for any recent run (within the window) that has the exact same payload hash.
 
 ### How it Works
-1. Strait canonicalizes the JSON payload and generates a SHA-256 hash.
-2. It searches for a run of the same job with the same payload hash within the configured `dedup_window_secs`.
+1. Strait normalizes the JSON payload (sorting keys, stripping whitespace differences) and generates a hash.
+2. It checks for a run of the same job with the same payload hash within the configured `dedup_window_secs`.
 3. If found, it returns the existing run.
 
-## Implementation Details
+## How Deduplication is Enforced
 
-- **Database Index**: Idempotency is enforced at the database level using a unique partial index on `(job_id, idempotency_key)`.
-- **Canonicalization**: Before hashing, payloads are unmarshaled and remarshaled to ensure that differences in whitespace or key order do not result in different hashes for the same logical data.
+- **Idempotency keys** are enforced at the database level with a unique constraint on `(job_id, idempotency_key)`, so duplicates are impossible even under concurrent requests.
+- **Payload dedup** normalizes payloads before hashing so that whitespace or key-order differences don't create false misses.
 
 ## Summary of Deduplication Logic
 
@@ -52,3 +52,12 @@ This is configured per-job via the `dedup_window_secs` field. If set, Strait wil
 <Tip>
   Always use `X-Idempotency-Key` for critical operations. Use `dedup_window_secs` as a safety net to prevent accidental double-clicks or retry loops from client SDKs.
 </Tip>
+
+## Webhook Delivery Headers
+
+Outbound webhook deliveries ship two identity headers:
+
+- `X-Strait-Idempotency-Key`: formatted as `<delivery_id>:<attempt>` and changes on every retry. Useful for tracing an individual attempt.
+- `X-Strait-Replay-Key`: stable across every retry of the same delivery row. Dedup replays on this header — if your handler sees the same replay key twice, it is safe to treat the second invocation as a no-op. Derivation depends on the delivery path:
+  - **Subscription deliveries** (event triggers with a configured `webhook_subscription`) use an HMAC-bound form `"rk_" + hex(hmac_sha256(subscription_secret, delivery_id))[:32]`. A subscriber that holds the subscription secret can re-derive the key from the `X-Strait-Delivery-ID` header and verify it matches, proving the key was produced by Strait rather than replayed by a third party.
+  - **Run-terminal deliveries** (the per-job `webhook_url` fired on terminal run states) have no subscription secret and use the deterministic unsigned form `"rk_" + run_id`. Treat this form as an opaque replay discriminator, not a proof of origin — authenticate these deliveries via the `X-Strait-Signature` payload HMAC instead.

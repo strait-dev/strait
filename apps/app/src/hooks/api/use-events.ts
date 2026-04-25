@@ -21,30 +21,32 @@ export const fetchEvents = createServerFn({ method: "GET" })
     ) => data
   )
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<PaginatedResponse<EventTrigger>> => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<EventTrigger>>("/v1/events", {
-        params: {
-          limit: data.limit,
-          cursor: data.cursor,
-          status: data.status,
-          workflow_run_id: data.workflow_run_id,
-          source_type: data.source_type,
-        },
-      })
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<PaginatedResponse<EventTrigger>> =>
+      await runWithSentryReport(
+        apiEffect<PaginatedResponse<EventTrigger>>("/v1/events", {
+          params: {
+            limit: data.limit,
+            cursor: data.cursor,
+            status: data.status,
+            workflow_run_id: data.workflow_run_id,
+            source_type: data.source_type,
+          },
+        })
+      )
+  );
 
 export const fetchEvent = createServerFn({ method: "GET" })
   .inputValidator((data: { eventKey: string }) => data)
   .middleware([authMiddleware])
-  // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-  .handler(async ({ data }): Promise<EventTrigger> => {
-    return await runWithSentryReport(
-      apiEffect<EventTrigger>(`/v1/events/${data.eventKey}`)
-    );
-  });
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ data }): Promise<EventTrigger> =>
+      await runWithSentryReport(
+        apiEffect<EventTrigger>(`/v1/events/${data.eventKey}`)
+      )
+  );
 
 export const eventsQueryOptions = (
   search?: ListParams & {

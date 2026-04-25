@@ -1,8 +1,11 @@
 package billing
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"strait/internal/domain"
 )
 
 func TestWelcomeEmailHTML_EscapesHTMLInPlanName(t *testing.T) {
@@ -156,4 +159,67 @@ func TestContractExpiryHTML_ContainsDate(t *testing.T) {
 	if !strings.Contains(output, "Scale") {
 		t.Fatal("contract expiry email should mention fallback to Scale plan")
 	}
+}
+
+func TestCreditDisplayUSD_AllTiers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tier string
+		want string
+	}{
+		{"free", "$0.00"},
+		{"starter", "$19.99"},
+		{"pro", "$49.99"},
+		{"scale", "$99.00"},
+		{"enterprise", "Custom (per contract)"},
+		{"unknown", "$0.00"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tier, func(t *testing.T) {
+			t.Parallel()
+			got := creditDisplayUSD(domain.PlanTier(tt.tier))
+			if got != tt.want {
+				t.Errorf("creditDisplayUSD(%q) = %q, want %q", tt.tier, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPlanDisplayName_AllTiers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tier string
+		want string
+	}{
+		{"free", "Free"},
+		{"starter", "Starter"},
+		{"pro", "Pro"},
+		{"scale", "Scale"},
+		{"enterprise", "Enterprise"},
+		{"unknown", "Free"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tier, func(t *testing.T) {
+			t.Parallel()
+			got := planDisplayName(domain.PlanTier(tt.tier))
+			if got != tt.want {
+				t.Errorf("planDisplayName(%q) = %q, want %q", tt.tier, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewResendWelcomeEmailFunc_InvalidEmail(t *testing.T) {
+	t.Parallel()
+	fn := NewResendWelcomeEmailFunc("re_test_key", "")
+	err := fn(context.Background(), "org-1", domain.PlanStarter, "not-an-email")
+	if err == nil {
+		t.Fatal("expected error for invalid email")
+	}
+}
+
+func TestNewResendWelcomeEmailFunc_DefaultFromEmail(t *testing.T) {
+	t.Parallel()
+	_ = NewResendWelcomeEmailFunc("re_test_key", "")
+	// Just verifying no panic with empty fromEmail (defaults to "noreply@strait.dev").
 }

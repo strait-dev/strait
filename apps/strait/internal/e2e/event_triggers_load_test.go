@@ -7,11 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestEventTriggerLoadCreate measures throughput of creating event triggers.
@@ -72,20 +73,19 @@ func TestEventTriggerLoadSendConcurrent(t *testing.T) {
 		}
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, concurrency)
 	now := time.Now()
 	payload := json.RawMessage(`{"approved":true}`)
 
 	start := time.Now()
 	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			errs[idx] = testStore.UpdateEventTriggerStatus(
 				ctx, triggers[idx].ID, domain.EventTriggerStatusReceived, payload, &now, "",
 			)
-		}(i)
+		})
 	}
 	wg.Wait()
 	elapsed := time.Since(start)

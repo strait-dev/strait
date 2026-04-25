@@ -11,7 +11,7 @@ This page documents all environment variables available for configuring Strait.
 </Note>
 
 <Tip>
-  All environment variables are managed via [Doppler](https://doppler.com) (project: `strait`, configs: `dev` / `stg` / `prd`). Use `doppler run -- <cmd>` to inject secrets locally, or see the [Deployment Guide](/guides/deployment) for production setup.
+  Set these as environment variables in your deployment platform (e.g., Vercel, Railway, Docker, or your CI/CD pipeline). See the [Deployment Guide](/guides/deployment) for production setup.
 </Tip>
 
 ## Core Configuration
@@ -51,7 +51,7 @@ This page documents all environment variables available for configuring Strait.
 | `OTLP_METRIC_ENDPOINT` | String | - | Separate OTLP endpoint for metrics push (if different from trace endpoint). |
 | `OTLP_METRIC_ENABLED` | Boolean | `false` | Enable OTLP metric push export. |
 | `SENTRY_DSN` | String | - | Sentry DSN for error tracking. |
-| `SENTRY_ENVIRONMENT` | String | - | Environment tag for Sentry and OTel resources (`dev`, `stg`, `prd`). Sets `deployment.environment` on all OTel metrics, traces, and logs. |
+| `SENTRY_ENVIRONMENT` | String | - | Environment tag for Sentry and OTel resources (e.g., `development`, `staging`, `production`). Sets `deployment.environment` on all OTel metrics, traces, and logs. |
 | `UPSTASH_REDIS_REST_URL` | String | - | Upstash Redis REST API URL. |
 | `UPSTASH_REDIS_REST_TOKEN` | String | - | Upstash Redis REST API token. |
 

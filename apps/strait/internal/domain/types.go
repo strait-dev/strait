@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// RunStatus is the enum for job_runs.status.
+//
+//nolint:recvcheck // Scan requires a pointer receiver; Value uses value receiver by convention
 type RunStatus string
 
 const (
@@ -208,10 +211,12 @@ var SystemRolePermissions = map[string][]string{
 		ScopeWorkflowsRead, ScopeWorkflowsWrite, ScopeWorkflowsTrigger,
 		ScopeSecretsRead, ScopeStatsRead, ScopeRBACManage,
 		ScopeProjectsRead, ScopeProjectsWrite,
+		ScopeDLQRead, ScopeDLQReplay,
+		ScopeOutboxRead, ScopeOutboxRetry, ScopeOutboxPurge,
 	},
 	"viewer": {
 		ScopeJobsRead, ScopeRunsRead, ScopeWorkflowsRead, ScopeStatsRead,
-		ScopeProjectsRead,
+		ScopeProjectsRead, ScopeDLQRead,
 	},
 	"triggerer": {
 		ScopeJobsRead, ScopeJobsTrigger,
@@ -231,19 +236,44 @@ type KnownActor struct {
 }
 
 // AuditEvent records sensitive control-plane actions for compliance and forensics.
+//
+// SchemaVersion controls which canonical form is used to compute the HMAC
+// signature. Version 1 includes only the original fields; version 2 extends
+// the canonical form with RemoteIP, UserAgent, RequestID, TraceID, and
+// SchemaVersion itself. The verifier branches on SchemaVersion when recomputing
+// signatures so old and new events can coexist in the same chain.
 type AuditEvent struct {
-	ID           string          `json:"id"`
-	ProjectID    string          `json:"project_id"`
-	ActorID      string          `json:"actor_id"`
-	ActorType    string          `json:"actor_type"`
-	Action       string          `json:"action"`
-	ResourceType string          `json:"resource_type"`
-	ResourceID   string          `json:"resource_id"`
-	Details      json.RawMessage `json:"details,omitempty"`
-	Signature    string          `json:"signature,omitempty"`
-	PreviousHash string          `json:"previous_hash,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
+	ID            string          `json:"id"`
+	ProjectID     string          `json:"project_id"`
+	ActorID       string          `json:"actor_id"`
+	ActorType     string          `json:"actor_type"`
+	Action        string          `json:"action"`
+	ResourceType  string          `json:"resource_type"`
+	ResourceID    string          `json:"resource_id"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	Signature     string          `json:"signature,omitempty" doc:"HMAC-SHA256 signature for tamper detection"`
+	PreviousHash  string          `json:"previous_hash,omitempty" doc:"Hash of the preceding event in the chain"`
+	CreatedAt     time.Time       `json:"created_at"`
+	RemoteIP      string          `json:"remote_ip,omitempty" doc:"Client IP address that initiated the request"`
+	UserAgent     string          `json:"user_agent,omitempty" doc:"HTTP User-Agent header (capped at 2048 chars)"`
+	RequestID     string          `json:"request_id,omitempty" doc:"Unique request identifier for correlation"`
+	TraceID       string          `json:"trace_id,omitempty" doc:"OpenTelemetry trace ID when available"`
+	SchemaVersion uint16          `json:"schema_version,omitempty" doc:"Signature schema version (1=original, 2=with forensic fields)"`
+	// IsAnchor marks the row as a chain-boundary anchor (e.g. signing key
+	// rotation). Anchors are out-of-band forensic markers: they are NOT
+	// part of the canonical HMAC form, but the verifier honors them as
+	// epoch boundaries so a rotation does not invalidate pre-rotation
+	// signatures.
+	IsAnchor bool `json:"is_anchor,omitempty"`
+	// RotationEpoch is the signing key epoch under which this row was
+	// written. Epoch 0 is the initial key. Monotonically increasing per
+	// project. Also not part of the canonical HMAC form.
+	RotationEpoch int `json:"rotation_epoch,omitempty"`
 }
+
+// AuditEventSchemaVersionCurrent is the schema version stamped on new
+// audit events. Bump whenever the canonical form changes.
+const AuditEventSchemaVersionCurrent uint16 = 2
 
 // AuditChainVerification is the result of verifying the HMAC chain
 // integrity for a project's audit event log.
@@ -255,6 +285,18 @@ type AuditChainVerification struct {
 	LastEventID   string `json:"last_event_id,omitempty"`
 	BrokenAtID    string `json:"broken_at_id,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// ChainStart records the previous_hash of the first surviving event.
+	// When retention has trimmed the tail, this is not the ZeroHash — it
+	// is the signature of the (now deleted) event that preceded the first
+	// surviving event. Consumers can record this to prove continuity
+	// across retention windows.
+	ChainStart string `json:"chain_start,omitempty"`
+	// Incremental reports whether this verification was an incremental
+	// re-check from a stored checkpoint or a full-chain scan from the
+	// earliest surviving event. Clients can use this alongside
+	// EventsChecked to distinguish a cheap re-check from an expensive
+	// full verify.
+	Incremental bool `json:"incremental,omitempty"`
 }
 
 type Job struct {
@@ -484,8 +526,12 @@ type JobRun struct {
 	PinnedImageDigest string `json:"pinned_image_digest,omitempty"`
 	// IsRollback is true when this run was created after a RollbackToDeployment
 	// call, meaning the job is using an older deployment rather than the latest build.
-	IsRollback bool      `json:"is_rollback,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	IsRollback bool `json:"is_rollback,omitempty"`
+	// ReplayedRunID is set on a dead-letter run after it has been successfully
+	// replayed via the admin DLQ endpoint; points to the new run that superseded
+	// it. NULL for runs that have not been replayed.
+	ReplayedRunID string    `json:"replayed_run_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type BatchOperation struct {
@@ -689,14 +735,12 @@ type EndpointHealthScore struct {
 
 // HealthLevel returns the health classification for the endpoint.
 func (h *EndpointHealthScore) HealthLevel() string {
-	switch {
-	case h.HealthScore < 30:
+	if h.HealthScore < 30 {
 		return "unhealthy"
-	case h.HealthScore <= 60:
+	} else if h.HealthScore <= 60 {
 		return "degraded"
-	default:
-		return "healthy"
 	}
+	return "healthy"
 }
 
 type WebhookDelivery struct {

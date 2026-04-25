@@ -5,21 +5,77 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      go:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "go"
 
   - package-ecosystem: "npm"
     directory: "/apps/app"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      app:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "npm"
 
   - package-ecosystem: "npm"
     directory: "/apps/website"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    groups:
+      website:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "npm"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  - package-ecosystem: "docker"
+    directory: "/apps/strait"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      docker:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"

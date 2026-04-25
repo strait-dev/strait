@@ -20,58 +20,62 @@ import { authMiddleware } from "@/middlewares/auth";
 export const fetchApiKeys = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<PaginatedResponse<APIKey>>("/v1/api-keys", {
-        params: { limit: data.limit, cursor: data.cursor },
-      })
-    );
-  });
+  .handler(
+    async ({ data }) =>
+      await runWithSentryReport(
+        apiEffect<PaginatedResponse<APIKey>>("/v1/api-keys", {
+          params: { limit: data.limit, cursor: data.cursor },
+        })
+      )
+  );
 
 export const createApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { name: string; scopes: string[]; expiresInDays?: number }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<APIKey & { key: string }>("/v1/api-keys", {
-        method: "POST",
-        body: {
-          name: data.name,
-          scopes: data.scopes,
-          expires_in_days: data.expiresInDays,
-        },
-      })
-    );
-  });
+  .handler(
+    async ({ data }) =>
+      await runWithSentryReport(
+        apiEffect<APIKey & { key: string }>("/v1/api-keys", {
+          method: "POST",
+          body: {
+            name: data.name,
+            scopes: data.scopes,
+            expires_in_days: data.expiresInDays,
+          },
+        })
+      )
+  );
 
 export const revokeApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator((data: { keyId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/api-keys/${data.keyId}`, {
-        method: "DELETE",
-      })
-    );
-  });
+  .handler(
+    async ({ data }) =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/api-keys/${data.keyId}`, {
+          method: "DELETE",
+        })
+      )
+  );
 
 export const rotateApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { keyId: string; gracePeriodMinutes?: number }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    return await runWithSentryReport(
-      apiEffect<RotateAPIKeyResponse>(`/v1/api-keys/${data.keyId}/rotate`, {
-        method: "POST",
-        body: data.gracePeriodMinutes
-          ? { grace_period_minutes: data.gracePeriodMinutes }
-          : undefined,
-      })
-    );
-  });
+  .handler(
+    async ({ data }) =>
+      await runWithSentryReport(
+        apiEffect<RotateAPIKeyResponse>(`/v1/api-keys/${data.keyId}/rotate`, {
+          method: "POST",
+          body: data.gracePeriodMinutes
+            ? { grace_period_minutes: data.gracePeriodMinutes }
+            : undefined,
+        })
+      )
+  );
 
 export const apiKeysQueryOptions = (search?: ListParams) =>
   queryOptions({

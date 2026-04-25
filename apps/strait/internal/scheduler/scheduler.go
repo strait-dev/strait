@@ -53,7 +53,18 @@ type Scheduler struct {
 	notifyDispatcher         *NotifyDispatcher
 	notifySESFeedback        *NotifySESFeedbackConsumer
 	notifyCleanup            *NotifyCleanup
+	priorityPromoter         *PriorityPromoter
+	counterReconciler        *CounterReconciler
+	partitionEnsurer         *PartitionEnsurer
+	partitionTuner           *PartitionTuner
+	partitionReclaimer       *PartitionReclaimer
+	dlqAgeOut                *DLQAgeOut
+	outboxFlusher            *OutboxFlusher
+	planDriftMonitor         *PlanDriftMonitor
+	backpressureSampler      *BackpressureSampler
 	wg                       conc.WaitGroup
+	tracker                  componentTracker
+	componentShutdownTimeout time.Duration
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -69,14 +80,20 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithDeleteBatchSize(cfg.ReaperDeleteBatchSize).
 			WithStalledThreshold(cfg.StalledWorkflowThreshold).
 			WithStalledAction(cfg.StalledWorkflowAction).
-			WithNotifyEscalationPolicy(cfg.NotifyEscalationTiers, cfg.NotifyEscalationMinInterval),
-		indexMaintainer:       NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
-		debouncePoller:        NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
-		batchFlusher:          NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator:       NewStatsAggregator(s),
-		budgetMonitor:         NewBudgetMonitor(s, nil, 5*time.Minute),
-		costEstimateRefresher: NewCostEstimateRefresher(s, time.Hour),
-		memoryCleanup:         NewMemoryCleanup(s, 5*time.Minute),
+			WithNotifyEscalationPolicy(cfg.NotifyEscalationTiers, cfg.NotifyEscalationMinInterval).
+			WithAuditRetention(cfg.AuditRetentionDefaultDays).
+			WithAuditDLQReclaimBatch(cfg.AuditDLQReclaimBatch).
+			WithAuditDLQMaxAgeDays(cfg.AuditDLQMaxAgeDays).
+			WithAuditDLQMaxReclaimAttempts(cfg.AuditDLQMaxReclaimAttempts).
+			WithArchiveEnabled(cfg.TerminalArchiveEnabled),
+		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator:          NewStatsAggregator(s),
+		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
+		costEstimateRefresher:    NewCostEstimateRefresher(s, time.Hour),
+		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
+		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
 	if notifyStore, ok := any(s).(notifyDispatcherStore); ok {
 		sched.notifyDispatcher = NewNotifyDispatcher(notifyStore, cfg.PollerInterval, NotifyEmailDefaults{
@@ -172,6 +189,72 @@ func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption 
 	}
 }
 
+// WithPriorityPromoter enables priority aging via a dedicated
+// scheduler goroutine instead of a mutable dequeue ORDER BY.
+func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
+	return func(s *Scheduler) {
+		s.priorityPromoter = p
+	}
+}
+
+// WithCounterReconciler enables counter drift reconciliation.
+func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
+	return func(s *Scheduler) {
+		s.counterReconciler = r
+	}
+}
+
+// WithPartitionEnsurer enables partition self-heal.
+func WithPartitionEnsurer(p *PartitionEnsurer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.partitionEnsurer = p
+	}
+}
+
+// WithPartitionTuner enables per-partition autovacuum tuning.
+func WithPartitionTuner(p *PartitionTuner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.partitionTuner = p
+	}
+}
+
+func WithPartitionReclaimer(p *PartitionReclaimer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.partitionReclaimer = p
+	}
+}
+
+// WithDLQAgeOut enables DLQ archival.
+func WithDLQAgeOut(a *DLQAgeOut) SchedulerOption {
+	return func(s *Scheduler) {
+		s.dlqAgeOut = a
+	}
+}
+
+// WithOutboxFlusher enables outbox promotion.
+func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
+	return func(s *Scheduler) {
+		s.outboxFlusher = f
+	}
+}
+
+// WithPlanDriftMonitor enables daily plan drift detection.
+func WithPlanDriftMonitor(m *PlanDriftMonitor) SchedulerOption {
+	return func(s *Scheduler) {
+		s.planDriftMonitor = m
+	}
+}
+
+// WithBackpressureSampler enables the periodic sampler that populates
+// the strait.queue.backpressure_tokens_available gauge from the
+// project_rate_limits table. Pass nil (or a nil sampler built by
+// NewBackpressureSampler when disabled) to skip registration.
+func WithBackpressureSampler(s *BackpressureSampler) SchedulerOption {
+	return func(sched *Scheduler) {
+		sched.backpressureSampler = s
+	}
+}
+
 // WithDowngradeApplier enables periodic application of pending plan downgrades.
 func WithDowngradeApplier(applier *DowngradeApplier) SchedulerOption {
 	return func(s *Scheduler) {
@@ -228,44 +311,82 @@ func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
 	}
 }
 
+// WithIndexMaintainerAdvisoryLocker enables single-leader execution of the
+// periodic REINDEX loop across multiple worker instances sharing a database.
+// Without this, every worker runs REINDEX independently, which is safe (the
+// underlying REINDEX INDEX CONCURRENTLY takes its own heavy lock) but wastes
+// work.
+func WithIndexMaintainerAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.indexMaintainer.WithAdvisoryLocker(locker)
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
 	}
 
 	s.cron.Start()
-	safeGo(&s.wg, "poller", func() { s.poller.Run(ctx) })
-	safeGo(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
-	safeGo(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
-	safeGo(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
-	safeGo(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
-	safeGo(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
-	safeGo(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
-	safeGo(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
-	safeGo(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
+	s.tracker.track(&s.wg, "poller", func() { s.poller.Run(ctx) })
+	s.tracker.track(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
+	s.tracker.track(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
+	s.tracker.track(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
+	s.tracker.track(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
+	s.tracker.track(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
+	s.tracker.track(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
+	s.tracker.track(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
+	s.tracker.track(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
 	if s.usageFlusher != nil {
-		safeGo(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
+		s.tracker.track(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
 	}
 	if s.concurrentReconciler != nil {
-		safeGo(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
+		s.tracker.track(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
 	}
 	if s.downgradeApplier != nil {
-		safeGo(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
+		s.tracker.track(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
 	}
 	if s.anomalyMonitor != nil {
-		safeGo(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
+		s.tracker.track(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
 	}
 	if s.gracePeriodEnforcer != nil {
-		safeGo(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+		s.tracker.track(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
 	}
 	if s.staleSubscriptionChecker != nil {
-		safeGo(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
+		s.tracker.track(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
 	}
 	if s.webhookMessageCleanup != nil {
-		safeGo(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
+		s.tracker.track(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
 	}
 	if s.contractExpiryChecker != nil {
-		safeGo(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+		s.tracker.track(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+	}
+	if s.priorityPromoter != nil {
+		s.tracker.track(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
+	}
+	if s.counterReconciler != nil {
+		s.tracker.track(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
+	}
+	if s.partitionEnsurer != nil {
+		s.tracker.track(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
+	}
+	if s.partitionTuner != nil {
+		s.tracker.track(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
+	}
+	if s.partitionReclaimer != nil {
+		s.tracker.track(&s.wg, "partition_reclaimer", func() { s.partitionReclaimer.Run(ctx) })
+	}
+	if s.dlqAgeOut != nil {
+		s.tracker.track(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
+	}
+	if s.outboxFlusher != nil {
+		s.tracker.track(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
+	}
+	if s.planDriftMonitor != nil {
+		s.tracker.track(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
+	}
+	if s.backpressureSampler != nil {
+		s.tracker.track(&s.wg, "backpressure_sampler", func() { s.backpressureSampler.Run(ctx) })
 	}
 	if s.notifyDispatcher != nil {
 		safeGo(&s.wg, "notify_dispatcher", func() { s.notifyDispatcher.Run(ctx) })
@@ -284,6 +405,25 @@ func (s *Scheduler) Start(ctx context.Context) error {
 func (s *Scheduler) Stop() {
 	stopCtx := s.cron.Stop()
 	<-stopCtx.Done()
-	s.wg.Wait()
-	slog.Info("scheduler stopped")
+
+	timeout := s.componentShutdownTimeout
+	if timeout <= 0 {
+		timeout = defaultComponentShutdownTimeout
+	}
+
+	// Wait per-component with a bounded deadline so a single stuck goroutine
+	// can no longer pin the entire shutdown path. Components past the
+	// deadline are logged and counted on strait.scheduler.shutdown_timeouts_total.
+	// Once the deadline is hit we return immediately instead of blocking on
+	// the aggregate WaitGroup forever.
+	timedOut := s.tracker.waitWithTimeout(context.Background(), timeout)
+	if timedOut == 0 {
+		s.wg.Wait()
+	} else {
+		slog.Warn("scheduler stop returning before all components exited",
+			"timed_out_components", timedOut,
+		)
+	}
+
+	slog.Info("scheduler stopped", "timed_out_components", timedOut)
 }

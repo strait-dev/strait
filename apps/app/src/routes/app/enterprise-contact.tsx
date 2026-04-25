@@ -127,10 +127,10 @@ function EnterpriseContactPage() {
   return (
     <Shell>
       <div className="mb-6 flex items-center gap-3">
-        <Button render={<Link to="/app/upgrade" />} size="sm" variant="ghost">
+        <Button render={<Link to="/app/upgrade" />} variant="ghost">
           <HugeiconsIcon icon={ChevronLeftIcon} size={14} />
         </Button>
-        <h1 className="text-balance font-semibold text-lg">
+        <h1 className="text-balance font-normal text-xl tracking-tight">
           Contact Enterprise Sales
         </h1>
       </div>

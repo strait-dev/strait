@@ -7,7 +7,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { Suspense } from "react";
 import AddonsTab from "@/components/billing/addons-tab";
 import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
@@ -30,6 +30,7 @@ import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { spendingLimitQueryOptions } from "@/hooks/billing/use-spending-limit";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   ActivityIcon,
   AlertIcon,
@@ -40,6 +41,14 @@ import {
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/billing/")({
+  // Cloud-only: Billing, usage history, spending limits, and Stripe
+  // addon purchases are not available in the community edition.
+  // See `src/lib/edition.ts` for the gate.
+  beforeLoad: () => {
+    if (isCommunityEdition) {
+      throw redirect({ to: "/app" });
+    }
+  },
   loader: async ({ context }) => {
     const ctx = context as AppRouteContext;
     await Promise.allSettled([
@@ -66,7 +75,7 @@ function RouteComponent() {
     <Shell>
       <div className="flex w-full flex-col gap-6">
         <div>
-          <h1 className="text-balance font-normal text-foreground text-lg tracking-tight">
+          <h1 className="text-balance font-normal text-foreground text-xl tracking-tight">
             Billing
           </h1>
           <p className="text-muted-foreground text-sm">

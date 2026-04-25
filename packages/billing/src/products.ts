@@ -51,7 +51,8 @@ export const PLAN_KEYS: PlanKey[] = [
 export const PLANS: Record<PlanKey, Plan> = {
   free: {
     name: "Free",
-    description: "For side projects and experimentation.",
+    description:
+      "For side projects and experimentation.\nNo credit card required.",
     prices: { monthly: 0, yearly: 0 },
     trial: false,
     creditCardRequired: false,
@@ -96,7 +97,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   starter: {
     name: "Starter",
-    description: "For small teams shipping to production.",
+    description:
+      "For small teams shipping to production.\nEverything you need to go live.",
     prices: { monthly: 1999, yearly: 19_999 },
     trial: false,
     creditCardRequired: true,
@@ -143,7 +145,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   pro: {
     name: "Pro",
-    description: "For growing teams that need workflow orchestration.",
+    description:
+      "For growing teams and workflows.\nOrchestration and cost controls built in.",
     prices: { monthly: 4999, yearly: 49_999 },
     trial: false,
     creditCardRequired: true,
@@ -191,7 +194,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   },
   scale: {
     name: "Scale",
-    description: "For high-volume teams with audit and canary deploy needs.",
+    description:
+      "For high-volume production workloads.\nAudit trails, canary deploys, analytics.",
     prices: { monthly: 9900, yearly: 99_000 },
     trial: false,
     creditCardRequired: true,
@@ -242,30 +246,22 @@ export const PLANS: Record<PlanKey, Plan> = {
   enterprise: {
     name: "Enterprise",
     description:
-      "For mission-critical workloads with dedicated infrastructure and compliance.",
+      "For mission-critical infrastructure.\nDedicated compute, SLAs, compliance.",
     prices: { monthly: -1, yearly: -1 },
     trial: false,
     creditCardRequired: false,
     computeCredit: "Starting at $1,000/mo",
     features: [
       "Everything in Scale",
-      "SSO (SAML 2.0 + OIDC)",
-      "SCIM directory sync",
-      "Dedicated compute (isolated infra)",
-      "Static egress IPs",
-      "VPC peering",
-      "99.9%+ SLA with credits",
+      "SSO and SCIM provisioning",
+      "Dedicated isolated compute",
+      "VPC peering and static IPs",
+      "99.9% SLA with credits",
       "90-day data retention",
-      "Dedicated CSM + named engineer",
-      "P1: 1h / P2: 4h / P3: 24h response",
-      "Custom RBAC policies",
-      "IP allowlisting",
-      "Session management",
-      "Secret rotation",
-      "Audit log export (SIEM)",
-      "Data residency (EU/US/APAC)",
-      "Reserved capacity",
-      "Priority queue",
+      "Dedicated support engineer",
+      "Custom RBAC and IP allowlisting",
+      "SIEM export and data residency",
+      "Reserved capacity and priority queue",
     ],
     limits: {
       organizations: null,
@@ -301,7 +297,7 @@ export const PLANS: Record<PlanKey, Plan> = {
 
 export function formatPlanPrice(
   plan: Plan,
-  interval: "monthly" | "yearly",
+  interval: "monthly" | "yearly"
 ): string {
   const price = plan.prices[interval];
   if (price === 0) {

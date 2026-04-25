@@ -5,9 +5,10 @@ package store_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -1234,17 +1235,14 @@ func TestUpdateCodeDeploymentStatus_ConcurrentTerminalIdempotent(t *testing.T) {
 		t.Fatalf("confirm: %v", err)
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	errs := make([]error, 2)
 	for i := 0; i < 2; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = q.UpdateCodeDeploymentStatus(ctx, d.ID, domain.DeploymentStatusFailed, map[string]any{
 				"error_message": fmt.Sprintf("worker %d failure", i),
 			})
-		}()
+		})
 	}
 	wg.Wait()
 

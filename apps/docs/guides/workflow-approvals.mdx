@@ -213,7 +213,7 @@ Approval steps do not require a `job_id` since they don't execute any job. They 
 
 Approval steps automatically create a parallel [Event Trigger](/concepts/event-triggers) when the workflow engine starts them. This means approvals can be resolved via either:
 
-1. **The approve API endpoint** (legacy): `POST /v1/workflow-runs/{id}/steps/{ref}/approve`
+1. **The approve API endpoint**: `POST /v1/workflow-runs/{id}/steps/{ref}/approve`
 2. **The event trigger API**: `POST /v1/events/{eventKey}/send` with the approval's event key
 
 The event trigger provides additional capabilities:

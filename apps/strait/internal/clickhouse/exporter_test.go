@@ -22,16 +22,12 @@ func TestExporter_Start_PanicRecovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	exporter.Start(ctx)
 
-	// The exporter should survive a flush with normal records and stop cleanly.
 	exporter.Enqueue(RunEventRecord{
 		EventID:   "evt-1",
 		RunID:     "run-1",
 		ProjectID: "proj-1",
 		CreatedAt: time.Now(),
 	})
-
-	// Give the ticker time to flush.
-	time.Sleep(100 * time.Millisecond)
 
 	cancel()
 
@@ -135,21 +131,13 @@ func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
 	exporter := NewExporter(&Client{}, ExporterConfig{
 		Enabled:       true,
 		BatchSize:     100,
-		FlushInterval: 50 * time.Millisecond,
+		FlushInterval: time.Minute,
 	}, slog.Default())
 
-	ctx := context.Background()
-	exporter.Start(ctx)
-
-	// Enqueue an unknown type.
 	exporter.Enqueue("unknown-type-string")
 
-	// Give the ticker time to flush.
-	time.Sleep(100 * time.Millisecond)
+	exporter.flush(context.Background())
 
-	exporter.Stop()
-
-	// Should have flushed successfully (unknown type logged as warning, not error).
 	if exporter.PendingCount() != 0 {
 		t.Errorf("expected 0 pending after flush, got %d", exporter.PendingCount())
 	}

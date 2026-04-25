@@ -95,7 +95,9 @@ const ErrorDisplay = ({
           {code}
         </p>
       )}
-      <h1 className="mt-2 text-2xl text-foreground sm:text-3xl">{title}</h1>
+      <h1 className="mt-2 text-4xl text-foreground sm:text-5xl lg:text-6xl">
+        {title}
+      </h1>
       <p className="mt-4 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
         {description}
       </p>

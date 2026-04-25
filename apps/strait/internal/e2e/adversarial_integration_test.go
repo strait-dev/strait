@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 // TestAdversarial_SQLInjectionThruAPI verifies that SQL injection payloads in
@@ -70,13 +70,11 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 	_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
 
 	const goroutines = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var gotRun atomic.Int32
 
-	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			runs, err := testQueue.DequeueN(ctx, 1)
 			if err != nil {
 				return
@@ -84,7 +82,7 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 			if len(runs) > 0 {
 				gotRun.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -247,14 +245,13 @@ func TestAdversarial_JobMemoryQuotaConcurrentWrites(t *testing.T) {
 	const maxPerKey = 1024
 	const maxPerJob = 4096
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var successCount atomic.Int32
 	var quotaErrors atomic.Int32
 
-	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			mem := &domain.JobMemory{
 				ID:        uuid.Must(uuid.NewV7()).String(),
 				JobID:     job.ID,
@@ -269,7 +266,7 @@ func TestAdversarial_JobMemoryQuotaConcurrentWrites(t *testing.T) {
 			} else {
 				quotaErrors.Add(1)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -297,20 +294,19 @@ func TestAdversarial_BudgetEnforcementConcurrentSpend(t *testing.T) {
 	jobID := asString(t, job, "id")
 
 	const goroutines = 10
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var created atomic.Int32
 
-	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{"idx":`+fmt.Sprintf("%d", idx)+`}`)
 			w := httptest.NewRecorder()
 			testServer.ServeHTTP(w, req)
 			if w.Code == http.StatusCreated {
 				created.Add(1)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

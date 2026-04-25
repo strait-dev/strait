@@ -439,10 +439,10 @@ func TestJobs_BatchEnableDisable(t *testing.T) {
 	idsJSON += "]"
 
 	disableTgt := newTargeter("POST", "/v1/jobs/batch-disable", func() []byte {
-		return []byte(fmt.Sprintf(`{"project_id":"%s","job_ids":%s}`, projectID, idsJSON))
+		return []byte(fmt.Sprintf(`{"ids":%s}`, idsJSON))
 	})
 	enableTgt := newTargeter("POST", "/v1/jobs/batch-enable", func() []byte {
-		return []byte(fmt.Sprintf(`{"project_id":"%s","job_ids":%s}`, projectID, idsJSON))
+		return []byte(fmt.Sprintf(`{"ids":%s}`, idsJSON))
 	})
 
 	t.Run("disable/baseline", func(t *testing.T) {

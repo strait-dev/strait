@@ -17,6 +17,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/robfig/cron/v3"
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -900,7 +901,7 @@ func TestPoolPruner_ConcurrentAccess(t *testing.T) {
 
 	pruner := NewPoolPruner(pool, rt, 20*time.Millisecond, time.Nanosecond)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	wg.Go(func() {
 		pruner.Run(ctx)
 	})
@@ -1124,7 +1125,7 @@ func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 	bm.alerted["proj-y:1970-01-01"] = true
 	bm.alertedMu.Unlock()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 20 {
 		wg.Go(func() {
 			bm.check(context.Background())
@@ -1672,7 +1673,7 @@ func TestCronScheduler_ConcurrentLoadAndStop(t *testing.T) {
 
 	cs := NewCronScheduler(context.Background(), ms, q, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 5 {
 		wg.Go(func() {
 			_ = cs.LoadJobs(context.Background())

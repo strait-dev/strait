@@ -26,13 +26,14 @@ const SetPassword = ({ email }: Props) => {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   const startCooldown = () => {
     setCooldown(RESEND_COOLDOWN_SECONDS);

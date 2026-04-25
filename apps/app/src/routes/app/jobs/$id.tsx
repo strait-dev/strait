@@ -233,7 +233,7 @@ function JobDetailPage() {
       <div className="flex flex-col gap-3 pt-4 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-3">
-            <h1 className="text-balance font-normal text-xl tracking-tight sm:text-2xl">
+            <h1 className="text-balance font-normal text-xl tracking-tight">
               {job.name}
             </h1>
             <StatusBadge
@@ -251,7 +251,6 @@ function JobDetailPage() {
           <Button
             disabled={triggerJob.isPending}
             onClick={() => triggerJob.mutate({ id: job.id })}
-            size="sm"
           >
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             {triggerJob.isPending ? "Triggering..." : "Trigger"}
@@ -263,7 +262,6 @@ function JobDetailPage() {
                 ? pauseJob.mutate({ id: job.id })
                 : resumeJob.mutate({ id: job.id })
             }
-            size="sm"
             variant="outline"
           >
             <HugeiconsIcon
@@ -291,7 +289,6 @@ function JobDetailPage() {
               <Button
                 key={w.value}
                 onClick={() => setHealthWindow(w.value)}
-                size="sm"
                 variant={healthWindow === w.value ? "default" : "outline"}
               >
                 {w.label}
@@ -436,7 +433,7 @@ function JobDetailPage() {
             <DataTable
               emptyState={
                 <TableEmptyState
-                  description="No runs found for this job."
+                  description="No runs yet. Trigger this job to start an execution."
                   hideButton
                   icon={
                     <HugeiconsIcon

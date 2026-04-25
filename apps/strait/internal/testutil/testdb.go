@@ -64,6 +64,20 @@ func SetupTestDB(ctx context.Context, migrationsPath string) (*TestDB, error) {
 		return nil, err
 	}
 
+	// Create a non-superuser role for RLS tests. The POSTGRES_USER the
+	// testcontainers image creates (`test`) is a superuser, which bypasses
+	// row-level security even under FORCE ROW LEVEL SECURITY. Without a
+	// non-superuser role, we can't actually test that RLS policies filter
+	// cross-tenant rows. Tests that need to verify RLS enforcement do
+	// `SET LOCAL ROLE strait_app` inside their transaction to temporarily
+	// drop to this role. The superuser that seeded the data is implicitly
+	// a member of all roles so SET LOCAL ROLE just works.
+	if err := setupRLSTestRole(ctx, pool); err != nil {
+		pool.Close()
+		_ = pgContainer.Terminate(ctx)
+		return nil, fmt.Errorf("setup rls test role: %w", err)
+	}
+
 	return &TestDB{
 		Pool:      pool,
 		Container: pgContainer,
@@ -108,6 +122,30 @@ func ensureTestDBExtensions(ctx context.Context, connStr string) error {
 	return nil
 }
 
+// setupRLSTestRole creates a non-superuser, non-BYPASSRLS role and grants
+// it the DML privileges integration tests need. This runs after migrations
+// so every table exists at grant time.
+func setupRLSTestRole(ctx context.Context, pool *pgxpool.Pool) error {
+	stmts := []string{
+		`DO $$ BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'strait_app') THEN
+				CREATE ROLE strait_app NOLOGIN NOBYPASSRLS;
+			END IF;
+		END $$`,
+		`GRANT USAGE ON SCHEMA public TO strait_app`,
+		`GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO strait_app`,
+		`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO strait_app`,
+		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO strait_app`,
+		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO strait_app`,
+	}
+	for _, s := range stmts {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			return fmt.Errorf("exec %q: %w", s, err)
+		}
+	}
+	return nil
+}
+
 func (tdb *TestDB) CleanTables(ctx context.Context) error {
 	if tdb == nil || tdb.Pool == nil {
 		return nil
@@ -121,7 +159,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		workflow_versions, workflow_steps, workflows,
 		webhook_deliveries, webhook_subscriptions,
 		api_keys, job_versions, run_events,
-		event_triggers, audit_events, tag_policies,
+		event_triggers, audit_events, audit_events_deadletter, tag_policies,
 		event_subscriptions, event_sources, log_drains, batch_operations,
 		job_runs, job_secrets, job_dependencies, jobs, job_groups,
 		environments, endpoint_circuit_state, project_quotas,
@@ -136,7 +174,10 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		topics, subscribers,
 		projects, organization_subscriptions, usage_records,
 		organization_addons, sent_usage_reports, processed_webhook_messages,
-		enterprise_contracts
+		enterprise_contracts,
+		job_active_counts, dlq_counts, job_run_heartbeats,
+		job_retries, enqueue_outbox, project_rate_limits,
+		query_plan_baselines
 		CASCADE`)
 	if err != nil {
 		return fmt.Errorf("clean tables: %w", err)

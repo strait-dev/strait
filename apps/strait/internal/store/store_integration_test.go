@@ -10,17 +10,17 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/samber/lo"
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/testutil"
-
-	"github.com/google/uuid"
-	"github.com/samber/lo"
 )
 
 var testDB *testutil.TestDB
@@ -100,12 +100,9 @@ func TestUpsertJobMemoryWithQuota_ConcurrentPerJobLimit(t *testing.T) {
 	errs := make(chan error, 2)
 	keys := []string{"alpha", "beta"}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for _, key := range keys {
-		key := key
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			mem := &domain.JobMemory{
 				JobID:     job.ID,
@@ -115,7 +112,7 @@ func TestUpsertJobMemoryWithQuota_ConcurrentPerJobLimit(t *testing.T) {
 				SizeBytes: 8,
 			}
 			errs <- store.New(testDB.Pool).UpsertJobMemoryWithQuota(ctx, mem, 1024, 10)
-		}()
+		})
 	}
 
 	close(start)
@@ -4508,7 +4505,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 }
 
-// ============ Phase 8: Tests for previously untested store methods ============
+// ============ Tests for previously untested store methods ============
 
 func TestWorkflowRunLabels_CRUD(t *testing.T) {
 	ctx := context.Background()
@@ -5307,7 +5304,7 @@ func TestListRunLineage(t *testing.T) {
 }
 
 // ============================================================================
-// Phase 3-5: Store integration tests for untested methods + edge cases
+// Store integration tests for untested methods + edge cases
 // ============================================================================
 
 func TestGetDebugBundle(t *testing.T) {
@@ -8149,8 +8146,8 @@ func TestAuditEvents_CreateAndListFiltersAndSort(t *testing.T) {
 	if err := q.CreateAuditEvent(ctx, ev1); err != nil {
 		t.Fatalf("CreateAuditEvent(ev1) error = %v", err)
 	}
-	if len(ev1.Details) != 0 {
-		t.Fatalf("CreateAuditEvent(ev1) details len = %d, want 0", len(ev1.Details))
+	if string(ev1.Details) != "{}" {
+		t.Fatalf("CreateAuditEvent(ev1) details = %s, want {}", string(ev1.Details))
 	}
 
 	ev2 := &domain.AuditEvent{ProjectID: projectID, ActorID: "actor-a", ActorType: "user", Action: "job.update", ResourceType: "job", ResourceID: "job-2", Details: json.RawMessage(`{"changed":true}`)}

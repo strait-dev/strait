@@ -79,6 +79,10 @@ typings/
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 
+# Lefthook worktree-scoped tool caches (per-agent isolation)
+.cache/go-build/
+.cache/golangci-lint/
+
 # ==============================================================================
 # ENVIRONMENT VARIABLES & SECRETS
 # ==============================================================================
@@ -296,11 +300,6 @@ __pycache__/
 apps/cli/out/
 .env*.local
 .env.selfhost
-
-# Stress test artifacts
-e2e_stress_report_*
-apps/strait/e2e_stress
-apps/strait/echoserver
 
 # ==============================================================================
 # Infrastructure is in a separate private repo (strait-dev/infra).

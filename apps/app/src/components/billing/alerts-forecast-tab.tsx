@@ -141,7 +141,6 @@ const AlertsForecastTab = () => {
                     </p>
                     <Button
                       onClick={() => navigate({ to: "/app/upgrade" })}
-                      size="sm"
                       variant="outline"
                     >
                       View Plans
@@ -167,28 +166,26 @@ const ThresholdConfigCard = ({
 }: {
   warningThreshold: number;
   criticalThreshold: number;
-}) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-medium text-sm">
-          Anomaly Detection Thresholds
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-4 text-muted-foreground text-sm">
-          Configure the spike ratio thresholds that trigger anomaly alerts. A
-          spike ratio compares today&apos;s spend against the 7-day average.
-        </p>
-        <ThresholdForm
-          criticalThreshold={criticalThreshold}
-          key={`${warningThreshold}-${criticalThreshold}`}
-          warningThreshold={warningThreshold}
-        />
-      </CardContent>
-    </Card>
-  );
-};
+}) => (
+  <Card>
+    <CardHeader>
+      <CardTitle className="font-medium text-sm">
+        Anomaly Detection Thresholds
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      <p className="mb-4 text-muted-foreground text-sm">
+        Configure the spike ratio thresholds that trigger anomaly alerts. A
+        spike ratio compares today&apos;s spend against the 7-day average.
+      </p>
+      <ThresholdForm
+        criticalThreshold={criticalThreshold}
+        key={`${warningThreshold}-${criticalThreshold}`}
+        warningThreshold={warningThreshold}
+      />
+    </CardContent>
+  </Card>
+);
 
 const ThresholdForm = ({
   warningThreshold,
@@ -248,7 +245,7 @@ const ThresholdForm = ({
       </div>
       {isDirty && (
         <div className="mt-4 flex justify-end">
-          <Button disabled={mutation.isPending} onClick={handleSave} size="sm">
+          <Button disabled={mutation.isPending} onClick={handleSave}>
             {mutation.isPending ? "Saving..." : "Save Thresholds"}
           </Button>
         </div>

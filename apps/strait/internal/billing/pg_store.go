@@ -829,6 +829,7 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE payment_status = 'grace'
@@ -852,6 +853,7 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.MonthlyUsageEmail,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning grace period org: %w", err)
@@ -874,6 +876,7 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			grace_period_end, COALESCE(payment_status, 'ok'),
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE status = 'active'
@@ -899,6 +902,7 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 			&sub.EnforcementMode,
+			&sub.MonthlyUsageEmail,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning stale subscription: %w", err)

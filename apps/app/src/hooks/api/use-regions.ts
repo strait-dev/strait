@@ -14,11 +14,10 @@ import { requireProjectAccess } from "@/middlewares/require-access";
 
 export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async () => {
-    return await runWithSentryReport(
-      apiEffect<{ regions: Region[] }>("/v1/regions")
-    );
-  });
+  .handler(
+    async () =>
+      await runWithSentryReport(apiEffect<{ regions: Region[] }>("/v1/regions"))
+  );
 
 export const fetchProjectSettings = createServerFn({ method: "GET" })
   .inputValidator((data: { projectId: string }) =>

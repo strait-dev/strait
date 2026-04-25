@@ -28,4 +28,8 @@ User-agent: anthropic-ai
 Allow: /
 Disallow: /api/
 
-Sitemap: https://trystrait.ai/sitemap.xml
+# Content Signals (RFC draft-romm-aipref-contentsignals)
+# Allow AI search indexing and answer generation. Deny training on our content.
+Content-Signal: ai-train=no, search=yes, ai-input=yes
+
+Sitemap: https://strait.dev/sitemap.xml

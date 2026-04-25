@@ -6,15 +6,16 @@ import (
 	"errors"
 	"log/slog"
 	"math"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/sourcegraph/conc"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -378,7 +379,7 @@ func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
 	}
 	cb := newTestCallback(ms)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 10 {
 		wg.Go(func() {
 			run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}
@@ -1106,5 +1107,1151 @@ func TestAdvisoryXactLockIDForStepRun_Deterministic(t *testing.T) {
 	// Must be non-negative (masked with 0x7fffffffffffffff).
 	if id1 < 0 {
 		t.Fatal("lock ID should be non-negative")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 3: checkStepRetry boundary tests (callback_retry.go)
+// ---------------------------------------------------------------------------.
+
+func TestCheckStepRetry_MaxAttemptsZero(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", StepRef: "a", Attempt: 1}
+	jobRun := &domain.JobRun{ID: "jr-1", Status: domain.StatusFailed}
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"},
+		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 0}},
+	)
+	shouldRetry, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if shouldRetry {
+		t.Fatal("RetryMaxAttempts=0 should not retry")
+	}
+}
+
+func TestCheckStepRetry_MaxAttemptsNegative(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", StepRef: "a", Attempt: 1}
+	jobRun := &domain.JobRun{ID: "jr-1", Status: domain.StatusFailed}
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"},
+		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: -1}},
+	)
+	shouldRetry, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if shouldRetry {
+		t.Fatal("RetryMaxAttempts=-1 should not retry")
+	}
+}
+
+func TestCheckStepRetry_AttemptEqualsMax(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", StepRef: "a", Attempt: 3}
+	jobRun := &domain.JobRun{ID: "jr-1", Status: domain.StatusFailed}
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"},
+		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 3}},
+	)
+	shouldRetry, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if shouldRetry {
+		t.Fatal("Attempt=3, MaxAttempts=3 should not retry (exhausted)")
+	}
+}
+
+func TestCheckStepRetry_AttemptBelowMax(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", StepRef: "a", Attempt: 2}
+	jobRun := &domain.JobRun{ID: "jr-1", Status: domain.StatusFailed}
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"},
+		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 3}},
+	)
+	shouldRetry, _, newAttempt, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !shouldRetry {
+		t.Fatal("Attempt=2, MaxAttempts=3 should retry")
+	}
+	if newAttempt != 3 {
+		t.Errorf("newAttempt = %d, want 3", newAttempt)
+	}
+}
+
+func TestCheckStepRetry_StepNotFound(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", StepRef: "missing", Attempt: 1}
+	jobRun := &domain.JobRun{ID: "jr-1", Status: domain.StatusFailed}
+	wc := testWfCtx(
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"},
+		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 3}},
+	)
+	_, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
+	if err == nil {
+		t.Fatal("expected error for missing step definition")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 4A: OnJobRunTerminal OutputTransform tests
+// ---------------------------------------------------------------------------.
+
+func TestOnJobRunTerminal_OutputTransformApplied(t *testing.T) {
+	t.Parallel()
+	var storedFields map[string]any
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "transform-step", Status: domain.StepRunning,
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "transform-step", OutputTransform: "result"},
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			storedFields = fields
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listDependentsByDependencyJobFn: func(_ context.Context, _ string) ([]domain.JobDependency, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-1",
+		WorkflowStepRunID: "sr-1",
+		Status:            domain.StatusCompleted,
+		Result:            json.RawMessage(`{"result":"value","extra":"data"}`),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if storedFields == nil {
+		t.Fatal("expected fields to be stored")
+	}
+	output, ok := storedFields["output"].(json.RawMessage)
+	if !ok {
+		t.Fatal("expected output field in stored fields")
+	}
+	if string(output) == `{"result":"value","extra":"data"}` {
+		t.Error("output should be transformed, not raw")
+	}
+	if len(output) == 0 {
+		t.Error("output should not be empty after transform")
+	}
+}
+
+func TestOnJobRunTerminal_NoOutputTransform(t *testing.T) {
+	t.Parallel()
+	var storedFields map[string]any
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "no-transform", Status: domain.StepRunning,
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "no-transform", OutputTransform: ""},
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			storedFields = fields
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listDependentsByDependencyJobFn: func(_ context.Context, _ string) ([]domain.JobDependency, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-1",
+		WorkflowStepRunID: "sr-1",
+		Status:            domain.StatusCompleted,
+		Result:            json.RawMessage(`{"result":"value"}`),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output, ok := storedFields["output"].(json.RawMessage)
+	if !ok {
+		t.Fatal("expected output field")
+	}
+	if string(output) != `{"result":"value"}` {
+		t.Errorf("output should be preserved as-is: got %s", string(output))
+	}
+}
+
+func TestOnJobRunTerminal_EmptyResult_NoTransform(t *testing.T) {
+	t.Parallel()
+	var storedFields map[string]any
+	ms := &mockCallbackStore{
+		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "step-a", Status: domain.StepRunning,
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "step-a", OutputTransform: "result"},
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			storedFields = fields
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listDependentsByDependencyJobFn: func(_ context.Context, _ string) ([]domain.JobDependency, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{
+		ID:                "jr-1",
+		WorkflowStepRunID: "sr-1",
+		Status:            domain.StatusCompleted,
+		Result:            nil,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, hasOutput := storedFields["output"]; hasOutput {
+		t.Error("empty result should not produce output field")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 4B: emitEventIfConfigured source type branches
+// ---------------------------------------------------------------------------.
+
+func TestEmitEventIfConfigured_JobRunSourceType(t *testing.T) {
+	t.Parallel()
+	var requeued bool
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-1",
+				EventKey:   "my-event",
+				SourceType: domain.EventSourceJobRun,
+				JobRunID:   "jr-waiting",
+				Status:     domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
+			if id == "jr-waiting" && from == domain.StatusWaiting && to == domain.StatusQueued {
+				requeued = true
+			}
+			return nil
+		},
+	}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{
+		ID: "sr-1", StepRef: "emitter", Output: json.RawMessage(`{"ok":true}`),
+	}
+	step := &domain.WorkflowStep{StepRef: "emitter", EventEmitKey: "my-event"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	cb.emitEventIfConfigured(context.Background(), stepRun, step, wfRun)
+	if !requeued {
+		t.Fatal("expected job run to be re-queued via UpdateRunStatus")
+	}
+}
+
+func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
+	t.Parallel()
+	var updateRunCalled bool
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-1",
+				EventKey:   "my-event",
+				SourceType: domain.EventSourceJobRun,
+				JobRunID:   "",
+				Status:     domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			updateRunCalled = true
+			return nil
+		},
+	}
+	cb := newTestCallback(ms)
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1", StepRef: "emitter"}
+	step := &domain.WorkflowStep{StepRef: "emitter", EventEmitKey: "my-event"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	cb.emitEventIfConfigured(context.Background(), stepRun, step, wfRun)
+	if updateRunCalled {
+		t.Fatal("should not call UpdateRunStatus when JobRunID is empty")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 5A: scheduleRunnableSteps concurrency key tests
+// ---------------------------------------------------------------------------.
+
+func TestScheduleRunnableSteps_ConcurrencyKeyBlocking(t *testing.T) {
+	t.Parallel()
+	var enqueuedSteps []string
+	ms := &mockCallbackStore{}
+	eng := NewWorkflowEngine(&mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}, &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedSteps = append(enqueuedSteps, run.JobID)
+			return nil
+		},
+	}, slog.Default())
+	cb := NewStepCallback(ms, eng, slog.Default())
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", ConcurrencyKey: "ck-1", JobID: "j-a"},
+		{StepRef: "b", ConcurrencyKey: "ck-1", JobID: "j-b"},
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	runningSteps := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", Status: domain.StepRunning},
+	}
+	runnableSteps := []domain.WorkflowStepRun{
+		{ID: "sr-b", StepRef: "b", Status: domain.StepPending, DepsCompleted: 1, DepsRequired: 1},
+	}
+	statuses := map[string]domain.StepRunStatus{"a": domain.StepRunning}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, runningSteps, runnableSteps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, jobID := range enqueuedSteps {
+		if jobID == "j-b" {
+			t.Fatal("step b should be blocked by concurrency key ck-1")
+		}
+	}
+}
+
+func TestScheduleRunnableSteps_DifferentConcurrencyKeys(t *testing.T) {
+	t.Parallel()
+	var enqueuedSteps []string
+	ms := &mockCallbackStore{}
+	eng := NewWorkflowEngine(&mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}, &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedSteps = append(enqueuedSteps, run.JobID)
+			return nil
+		},
+	}, slog.Default())
+	cb := NewStepCallback(ms, eng, slog.Default())
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", ConcurrencyKey: "ck-1", JobID: "j-a"},
+		{StepRef: "b", ConcurrencyKey: "ck-2", JobID: "j-b"},
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	runningSteps := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", Status: domain.StepRunning},
+	}
+	runnableSteps := []domain.WorkflowStepRun{
+		{ID: "sr-b", StepRef: "b", Status: domain.StepPending, DepsCompleted: 1, DepsRequired: 1},
+	}
+	statuses := map[string]domain.StepRunStatus{"a": domain.StepRunning}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, runningSteps, runnableSteps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, jobID := range enqueuedSteps {
+		if jobID == "j-b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("step b should NOT be blocked (different concurrency key)")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 5B: scheduleRunnableSteps resource class capacity
+// ---------------------------------------------------------------------------.
+
+func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
+	t.Parallel()
+	var enqueuedSteps []string
+	ms := &mockCallbackStore{}
+	eng := NewWorkflowEngine(&mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}, &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedSteps = append(enqueuedSteps, run.JobID)
+			return nil
+		},
+	}, slog.Default())
+	cb := NewStepCallback(ms, eng, slog.Default())
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "existing", ResourceClass: "large", JobID: "j-existing"},
+		{StepRef: "new-step", ResourceClass: "large", JobID: "j-new"},
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+
+	runningSteps := make([]domain.WorkflowStepRun, 5)
+	for i := range runningSteps {
+		runningSteps[i] = domain.WorkflowStepRun{
+			ID: "sr-existing-" + string(rune('0'+i)), StepRef: "existing", Status: domain.StepRunning,
+		}
+	}
+	runnableSteps := []domain.WorkflowStepRun{
+		{ID: "sr-new", StepRef: "new-step", Status: domain.StepPending, DepsCompleted: 1, DepsRequired: 1},
+	}
+	statuses := map[string]domain.StepRunStatus{}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, runningSteps, runnableSteps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, jobID := range enqueuedSteps {
+		if jobID == "j-new" {
+			t.Fatal("new-step should be blocked by large resource class capacity (5/5)")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 5C: scheduleRunnableSteps DependsOn parent outputs
+// ---------------------------------------------------------------------------.
+
+func TestScheduleRunnableSteps_NoDependsOn_NoParentOutputs(t *testing.T) {
+	t.Parallel()
+	var getStepOutputsCalled bool
+	ms := &mockCallbackStore{
+		getStepOutputsFn: func(_ context.Context, _ string, _ []string) (map[string]json.RawMessage, error) {
+			getStepOutputsCalled = true
+			return nil, nil
+		},
+	}
+	eng := NewWorkflowEngine(&mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}, &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
+	}, slog.Default())
+	cb := NewStepCallback(ms, eng, slog.Default())
+
+	steps := []domain.WorkflowStep{{StepRef: "a", JobID: "j-a"}}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	runnableSteps := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", WorkflowRunID: "wr-1", Status: domain.StepPending, DepsCompleted: 0, DepsRequired: 0},
+	}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, map[string]domain.StepRunStatus{}, nil, runnableSteps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if getStepOutputsCalled {
+		t.Error("GetStepOutputs should not be called for step with no DependsOn")
+	}
+}
+
+func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
+	t.Parallel()
+	var getStepOutputsCalled bool
+	ms := &mockCallbackStore{
+		getStepOutputsFn: func(_ context.Context, _ string, refs []string) (map[string]json.RawMessage, error) {
+			getStepOutputsCalled = true
+			if len(refs) != 1 || refs[0] != "parent" {
+				t.Fatalf("unexpected step refs: %v", refs)
+			}
+			return map[string]json.RawMessage{"parent": json.RawMessage(`{"data":"out"}`)}, nil
+		},
+	}
+	eng := NewWorkflowEngine(&mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}, &mockEngineQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
+	}, slog.Default())
+	cb := NewStepCallback(ms, eng, slog.Default())
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "parent", JobID: "j-parent"},
+		{StepRef: "child", DependsOn: []string{"parent"}, JobID: "j-child"},
+	}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	runnableSteps := []domain.WorkflowStepRun{
+		{ID: "sr-child", StepRef: "child", WorkflowRunID: "wr-1", Status: domain.StepPending, DepsCompleted: 1, DepsRequired: 1},
+	}
+	statuses := map[string]domain.StepRunStatus{"parent": domain.StepCompleted}
+
+	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, nil, runnableSteps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !getStepOutputsCalled {
+		t.Fatal("expected GetStepOutputs to be called for step with DependsOn")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 5E: propagateToParent -- direct lookup vs fallback
+// ---------------------------------------------------------------------------.
+
+func TestPropagateToParent_WithParentStepRunID(t *testing.T) {
+	t.Parallel()
+	var directLookupUsed bool
+	ms := &mockCallbackStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-wr" {
+				return &domain.WorkflowRun{
+					ID: "parent-wr", WorkflowID: "parent-wf", Status: domain.WfStatusRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			if id == "parent-sr" {
+				directLookupUsed = true
+				return &domain.WorkflowStepRun{
+					ID: "parent-sr", StepRef: "sub-step", WorkflowRunID: "parent-wr", Status: domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "sub-step"}}, nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	childRun := &domain.WorkflowRun{
+		ID:                  "child-wr",
+		WorkflowID:          "child-wf",
+		ParentWorkflowRunID: "parent-wr",
+		ParentStepRunID:     "parent-sr",
+		Status:              domain.WfStatusCompleted,
+	}
+	err := cb.propagateToParent(context.Background(), childRun, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !directLookupUsed {
+		t.Fatal("expected direct lookup via ParentStepRunID, not fallback scan")
+	}
+}
+
+func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
+	t.Parallel()
+	var fallbackUsed bool
+	ms := &mockCallbackStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-wr" {
+				return &domain.WorkflowRun{
+					ID: "parent-wr", WorkflowID: "parent-wf", Status: domain.WfStatusRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{
+				{StepRef: "sub-step", StepType: domain.WorkflowStepTypeSubWorkflow, SubWorkflowID: "child-wf"},
+			}, nil
+		},
+		getStepRunByRunAndRefFn: func(_ context.Context, _ string, ref string) (*domain.WorkflowStepRun, error) {
+			if ref == "sub-step" {
+				fallbackUsed = true
+				return &domain.WorkflowStepRun{
+					ID: "parent-sr", StepRef: "sub-step", WorkflowRunID: "parent-wr", Status: domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	childRun := &domain.WorkflowRun{
+		ID:                  "child-wr",
+		WorkflowID:          "child-wf",
+		ParentWorkflowRunID: "parent-wr",
+		ParentStepRunID:     "",
+		Status:              domain.WfStatusCompleted,
+	}
+	err := cb.propagateToParent(context.Background(), childRun, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !fallbackUsed {
+		t.Fatal("expected fallback scan via step matching when ParentStepRunID is empty")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 5F: propagateToParent output aggregation
+// ---------------------------------------------------------------------------.
+
+func TestPropagateToParent_CompletedWithOutputs(t *testing.T) {
+	t.Parallel()
+	var storedOutput json.RawMessage
+	ms := &mockCallbackStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-wr" {
+				return &domain.WorkflowRun{
+					ID: "parent-wr", WorkflowID: "parent-wf", Status: domain.WfStatusRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			if id == "parent-sr" {
+				return &domain.WorkflowStepRun{
+					ID: "parent-sr", StepRef: "sub-step", WorkflowRunID: "parent-wr", Status: domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			if out, ok := fields["output"]; ok {
+				storedOutput = out.(json.RawMessage)
+			}
+			return nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "sub-step"}}, nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	childRun := &domain.WorkflowRun{
+		ID:                  "child-wr",
+		WorkflowID:          "child-wf",
+		ParentWorkflowRunID: "parent-wr",
+		ParentStepRunID:     "parent-sr",
+		Status:              domain.WfStatusCompleted,
+	}
+	childStepRuns := []domain.WorkflowStepRun{
+		{ID: "csr-1", StepRef: "step-a", Output: json.RawMessage(`{"a":"out"}`)},
+		{ID: "csr-2", StepRef: "step-b", Output: json.RawMessage(`{"b":"out"}`)},
+	}
+	err := cb.propagateToParent(context.Background(), childRun, childStepRuns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if storedOutput == nil {
+		t.Fatal("expected aggregated output on parent step")
+	}
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(storedOutput, &parsed); err != nil {
+		t.Fatalf("failed to parse aggregated output: %v", err)
+	}
+	if _, ok := parsed["step-a"]; !ok {
+		t.Error("expected step-a output in aggregated result")
+	}
+	if _, ok := parsed["step-b"]; !ok {
+		t.Error("expected step-b output in aggregated result")
+	}
+}
+
+func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
+	t.Parallel()
+	var storedOutput json.RawMessage
+	var outputFieldSet bool
+	ms := &mockCallbackStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-wr" {
+				return &domain.WorkflowRun{
+					ID: "parent-wr", WorkflowID: "parent-wf", Status: domain.WfStatusRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			if id == "parent-sr" {
+				return &domain.WorkflowStepRun{
+					ID: "parent-sr", StepRef: "sub-step", WorkflowRunID: "parent-wr", Status: domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			if out, ok := fields["output"]; ok {
+				outputFieldSet = true
+				storedOutput = out.(json.RawMessage)
+			}
+			return nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "sub-step"}}, nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	childRun := &domain.WorkflowRun{
+		ID:                  "child-wr",
+		WorkflowID:          "child-wf",
+		ParentWorkflowRunID: "parent-wr",
+		ParentStepRunID:     "parent-sr",
+		Status:              domain.WfStatusCompleted,
+	}
+	childStepRuns := []domain.WorkflowStepRun{
+		{ID: "csr-1", StepRef: "step-a", Output: nil},
+	}
+	err := cb.propagateToParent(context.Background(), childRun, childStepRuns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if outputFieldSet {
+		t.Errorf("should not set output field when no child step has output, got %s", string(storedOutput))
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 5G: propagateToParent canceled child
+// ---------------------------------------------------------------------------.
+
+func TestPropagateToParent_CanceledChild(t *testing.T) {
+	t.Parallel()
+	var parentStepFailed bool
+	var errorMsg string
+	ms := &mockCallbackStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id == "parent-wr" {
+				return &domain.WorkflowRun{
+					ID: "parent-wr", WorkflowID: "parent-wf", Status: domain.WfStatusRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			if id == "parent-sr" {
+				return &domain.WorkflowStepRun{
+					ID: "parent-sr", StepRef: "sub-step", WorkflowRunID: "parent-wr", Status: domain.StepRunning,
+				}, nil
+			}
+			return nil, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, fields map[string]any) error {
+			if status == domain.StepFailed {
+				parentStepFailed = true
+				if e, ok := fields["error"].(string); ok {
+					errorMsg = e
+				}
+			}
+			return nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "sub-step"}}, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+		cancelNonTerminalStepRunsFn: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
+			return 0, nil
+		},
+		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	childRun := &domain.WorkflowRun{
+		ID:                  "child-wr",
+		WorkflowID:          "child-wf",
+		ParentWorkflowRunID: "parent-wr",
+		ParentStepRunID:     "parent-sr",
+		Status:              domain.WfStatusCanceled,
+	}
+	err := cb.propagateToParent(context.Background(), childRun, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !parentStepFailed {
+		t.Fatal("expected parent step to be failed when child is canceled")
+	}
+	if errorMsg == "" {
+		t.Error("expected error message describing canceled sub-workflow")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// Phase 6: OnEventReceived tests
+// ---------------------------------------------------------------------------.
+
+func TestOnEventReceived_NilTrigger(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	err := cb.OnEventReceived(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("expected nil error for nil trigger, got: %v", err)
+	}
+}
+
+func TestOnEventReceived_NonWorkflowStepSource(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	trigger := &domain.EventTrigger{
+		ID:                "evt-1",
+		SourceType:        domain.EventSourceJobRun,
+		WorkflowStepRunID: "sr-1",
+	}
+	err := cb.OnEventReceived(context.Background(), trigger)
+	if err != nil {
+		t.Fatalf("expected nil error for non-workflow-step source, got: %v", err)
+	}
+}
+
+func TestOnEventReceived_EmptyStepRunID(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{}
+	cb := newTestCallback(ms)
+	trigger := &domain.EventTrigger{
+		ID:                "evt-1",
+		SourceType:        domain.EventSourceWorkflowStep,
+		WorkflowStepRunID: "",
+	}
+	err := cb.OnEventReceived(context.Background(), trigger)
+	if err != nil {
+		t.Fatalf("expected nil error for empty WorkflowStepRunID, got: %v", err)
+	}
+}
+
+func TestOnEventReceived_TerminalNonCompleted(t *testing.T) {
+	t.Parallel()
+	ms := &mockCallbackStore{
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID: id, StepRef: "failed-step", WorkflowRunID: "wr-1", Status: domain.StepFailed,
+			}, nil
+		},
+	}
+	cb := newTestCallback(ms)
+	trigger := &domain.EventTrigger{
+		ID:                "evt-1",
+		SourceType:        domain.EventSourceWorkflowStep,
+		WorkflowStepRunID: "sr-1",
+	}
+	err := cb.OnEventReceived(context.Background(), trigger)
+	if err != nil {
+		t.Fatalf("expected nil error for terminal non-completed step, got: %v", err)
+	}
+}
+
+func TestOnEventReceived_NonTerminalStep_WithPayload(t *testing.T) {
+	t.Parallel()
+	var storedFields map[string]any
+	ms := &mockCallbackStore{
+		getWorkflowStepRunFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID: "sr-1", StepRef: "wait-step", WorkflowRunID: "wr-1", Status: domain.StepWaiting,
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			storedFields = fields
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "wait-step"}}, nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	trigger := &domain.EventTrigger{
+		ID:                "evt-1",
+		SourceType:        domain.EventSourceWorkflowStep,
+		WorkflowStepRunID: "sr-1",
+		ResponsePayload:   json.RawMessage(`{"event":"data"}`),
+	}
+	err := cb.OnEventReceived(context.Background(), trigger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if storedFields == nil {
+		t.Fatal("expected step run to be updated")
+	}
+	output, ok := storedFields["output"]
+	if !ok {
+		t.Fatal("expected output field when trigger has ResponsePayload")
+	}
+	if string(output.(json.RawMessage)) != `{"event":"data"}` {
+		t.Errorf("unexpected output: %s", string(output.(json.RawMessage)))
+	}
+}
+
+func TestOnEventReceived_NonTerminalStep_EmptyPayload(t *testing.T) {
+	t.Parallel()
+	var storedFields map[string]any
+	ms := &mockCallbackStore{
+		getWorkflowStepRunFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
+			return &domain.WorkflowStepRun{
+				ID: "sr-1", StepRef: "wait-step", WorkflowRunID: "wr-1", Status: domain.StepWaiting,
+			}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
+			storedFields = fields
+			return nil
+		},
+		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{StepRef: "wait-step"}}, nil
+		},
+		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
+			return nil, nil
+		},
+		listStepRunStatusesByWorkflowRunFn: func(_ context.Context, _ string) (map[string]domain.StepRunStatus, error) {
+			return nil, nil
+		},
+		listRunningStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		listRunnableStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStepRun, error) {
+			return nil, nil
+		},
+		countNonTerminalStepRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 0, nil
+		},
+		listFailedStepRunRefsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	trigger := &domain.EventTrigger{
+		ID:                "evt-1",
+		SourceType:        domain.EventSourceWorkflowStep,
+		WorkflowStepRunID: "sr-1",
+		ResponsePayload:   nil,
+	}
+	err := cb.OnEventReceived(context.Background(), trigger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if storedFields == nil {
+		t.Fatal("expected step run to be updated")
+	}
+	if _, hasOutput := storedFields["output"]; hasOutput {
+		t.Error("should not set output field when ResponsePayload is empty")
 	}
 }

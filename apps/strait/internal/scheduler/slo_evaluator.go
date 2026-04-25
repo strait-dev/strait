@@ -82,6 +82,8 @@ func (e *SLOEvaluator) Evaluate(ctx context.Context) error {
 	return nil
 }
 
+// evaluateSLO queries the hot job_runs table only. WindowHours exceeding
+// hot retention is rejected at the store write boundary (CreateJobSLO).
 func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now time.Time) error {
 	since := now.Add(-time.Duration(slo.WindowHours) * time.Hour)
 

@@ -3,13 +3,11 @@ title: "Audit Logging"
 description: "Tracking mutations and administrative actions across the system."
 ---
 
-## Overview
-
-Audit logging records every mutation (create, update, delete) and administrative action performed in Strait. This feature provides a comprehensive trail of activity for security, compliance, and troubleshooting. Audit logging is enabled by default.
+Audit logging records every mutation (create, update, delete) and administrative action in Strait. Use it for security investigations, compliance requirements, and troubleshooting -- every change is traceable to a specific actor. Audit logging is enabled by default.
 
 ## What Gets Logged
 
-Every API mutation records the actor identity, action type, resource type and ID, timestamp, and relevant metadata. This ensures that any change to the system state can be traced back to its source.
+Every API mutation records who performed it, what changed, and when. This covers:
 
 Common examples of logged events include:
 - Job created or updated
@@ -17,10 +15,12 @@ Common examples of logged events include:
 - Role assigned to a user
 - API key rotated
 - Webhook subscription created
+- Secret read or listed (read access auditing)
+- Audit events exported or chain verified
 
 ## Actor Identity
 
-Strait captures `created_by` and `updated_by` fields on core resources to maintain a clear chain of custody. The actor identity is derived from the authentication context:
+Strait captures `created_by` and `updated_by` fields on core resources to maintain a clear chain of custody:
 
 - **Users**: Identity from JWT or OIDC claims when actions are performed via the dashboard or CLI.
 - **Service Accounts**: Identity from the API key used for the request.
@@ -28,25 +28,122 @@ Strait captures `created_by` and `updated_by` fields on core resources to mainta
 
 ## Event Format
 
-Audit events are structured to provide consistent information across different types of actions.
+Each audit event contains a consistent set of fields:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `action` | `string` | The specific action performed (e.g., "job.created"). |
-| `resource_type` | `string` | The type of resource affected (e.g., "job", "run"). |
+| `action` | `string` | The specific action performed (e.g., `job.created`). |
+| `resource_type` | `string` | The type of resource affected (e.g., `job`, `run`). |
 | `resource_id` | `string` | The unique identifier of the affected resource. |
-| `actor` | `string` | The identity of the entity that performed the action. |
+| `actor_id` | `string` | The identity of the entity that performed the action. |
+| `actor_type` | `string` | The type of actor (`user`, `api_key`, `internal`). |
 | `project_id` | `string` | The project where the action occurred. |
-| `metadata` | `json` | Additional context or parameters related to the action. |
-| `timestamp` | `time` | The date and time when the event was recorded. |
+| `details` | `json` | Additional context or parameters related to the action. |
+| `created_at` | `time` | The date and time when the event was recorded. |
+| `remote_ip` | `string` | Client IP address that initiated the request. |
+| `user_agent` | `string` | HTTP User-Agent header (capped at 2048 chars). |
+| `request_id` | `string` | Unique request identifier for correlation. |
+| `trace_id` | `string` | OpenTelemetry trace ID when available. |
+| `schema_version` | `int` | Signature schema version (1=original, 2=with forensic fields). |
+| `signature` | `string` | HMAC-SHA256 signature for tamper detection. |
+| `previous_hash` | `string` | Hash of the preceding event in the chain. |
 
-## Configuration
+## Chain Integrity
 
-No additional configuration is required to start capturing events.
+Every audit event is signed with HMAC-SHA256 and chained to the previous event in the same project. This creates a tamper-evident log where any insertion, deletion, or modification breaks the cryptographic chain.
 
-Events are stored in the primary database for persistence and are also emitted to the internal event system, allowing for real-time monitoring or integration with external logging providers.
+- **Signing**: The signing key is derived from `SECRET_ENCRYPTION_KEY` via HKDF. Each event's signature covers all fields (including forensic columns for schema version 2).
+- **Chaining**: `previous_hash` links each event to its predecessor. An advisory lock per project ensures serial insertion order.
+- **Verification**: `GET /v1/audit-events/verify` walks the chain and validates every signature. Supports both full and incremental modes (via `?incremental=true`).
+- **Key rotation**: `POST /v1/audit-events/rotate-key` rotates the signing key. A tombstone event marks the boundary so verification can span key generations.
+
+## Forensic Enrichment
+
+Every audit event captures HTTP context for forensic analysis:
+
+- `remote_ip` — client IP, extracted from `X-Forwarded-For` or the connection.
+- `user_agent` — truncated at 2048 characters to prevent storage abuse.
+- `request_id` — unique per-request identifier for log correlation.
+- `trace_id` — OpenTelemetry trace ID when distributed tracing is configured.
+
+These fields are populated by middleware and included in the HMAC signature computation for schema version 2 events.
+
+## Reliability
+
+Audit events are written asynchronously by default to avoid adding latency to API responses.
+
+- **Async emit**: A buffered channel feeds a dedicated writer. The buffer size is configurable via `AUDIT_ASYNC_BUFFER_SIZE` (default 8192).
+- **Backpressure**: When the buffer exceeds 75% capacity, new events fall back to a synchronous write to prevent data loss. Both the fallback trigger and its outcome (success/failure) are metered.
+- **Retry**: Failed writes are retried up to 3 times with exponential backoff (50ms, 200ms, 1s). Each retry attempt is metered by attempt number and outcome.
+- **Dead letter queue**: Events that exhaust all retries are saved to a dead letter table with the last error and retry count preserved. A dead letter queue (DLQ) stores messages that could not be delivered after all retries, so you can investigate and replay them later.
+- **Reclamation**: A background job periodically replays dead-lettered events back into the primary chain.
+- **Graceful shutdown**: On SIGTERM, the drainer fully drains the channel, the SIEM forwarder flushes its buffer, and in-flight retries complete within a 5-second budget.
+
+## SIEM Forwarding
+
+Audit events can be forwarded to an external SIEM or log aggregator in real time.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | HTTP(S) URL to POST batched events to. |
+| `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per batch. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max time between flushes. |
+
+Events are batched as newline-delimited JSON. The forwarder uses a circuit breaker (a pattern that temporarily stops sending to a failing endpoint to let it recover). After consecutive failures, it opens for a cooldown period before retrying. Events that cannot be forwarded are held in a ring buffer; when full, the oldest undelivered events are dropped and counted.
+
+## Retention
+
+Audit events are automatically pruned by a background reaper.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Server-wide default retention window. |
+
+### Per-project overrides
+
+Admins can override the retention window per project:
+
+- `GET /v1/projects/{id}/audit/retention` — returns `{days, inherited_from_default}`. When no override is set, `days` is the server default and `inherited_from_default` is `true`.
+- `PUT /v1/projects/{id}/audit/retention` — body `{days}`. `days > 0` overrides the default; `days = 0` disables retention trimming entirely (events are never deleted); `days < 0` is rejected.
+
+Both endpoints require admin access and emit an `audit.retention_updated` event.
+
+### Tombstone anchors
+
+When events are deleted by the retention reaper, a tombstone anchor event is inserted to preserve chain continuity. The tombstone records the count of deleted events and the time range they covered, allowing the chain verifier to account for the gap.
+
+## Schema Versioning
+
+Audit events carry a `schema_version` field to support backwards-compatible evolution of the signature scheme.
+
+- **Version 1** (original): Signature covers the original 10 fields (action, resource_type, resource_id, actor_id, actor_type, project_id, details, created_at, previous_hash, id).
+- **Version 2** (current): Adds forensic fields (remote_ip, user_agent, request_id, trace_id) to the signature input. All new events are written as v2.
+
+The chain verifier branches on schema_version when recomputing signatures, so mixed v1/v2 chains verify correctly.
+
+## Row-Level Security
+
+The audit events table uses Postgres row-level security. Queries can only see events belonging to the current project. This provides defense-in-depth against cross-tenant data leakage, independent of application-layer access checks.
+
+## Export
+
+Audit events can be exported via `GET /v1/audit-events/export` in JSON, NDJSON, or CSV format. Exports are rate-limited to 10 per project per hour and capped at a configurable row limit (default 1M rows). The response includes an `X-Audit-Signature` trailer with the HMAC of the streamed payload for integrity verification.
+
+## Environment Variables
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `SECRET_ENCRYPTION_KEY` | _(required)_ | Base key for HKDF derivation of the audit signing key. |
+| `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default retention window in days. |
+| `AUDIT_DLQ_MAX_AGE_DAYS` | `30` | Max age of deadlettered events before the DLQ reaper drops them. |
+| `AUDIT_ASYNC_BUFFER_SIZE` | `8192` | Capacity of the async emit channel. |
+| `AUDIT_EXPORT_ROW_CAP_DEFAULT` | `1000000` | Default max rows per export stream. |
+| `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | SIEM forwarding target URL. |
+| `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per SIEM batch. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max interval between SIEM flushes. |
 
 ## Related Concepts
 
 - [Authentication](/guides/authentication)
 - [RBAC](/guides/rbac)
+- [Security Model](/guides/security)

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestLoadTestMassiveParallel(t *testing.T) {
@@ -72,11 +74,10 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 
 	for batch := 0; batch < totalRuns; batch += batchSize {
 		end := min(batch+batchSize, totalRuns)
-		var wg sync.WaitGroup
+		var wg conc.WaitGroup
 		for i := batch; i < end; i++ {
-			wg.Add(1)
-			go func(idx int) {
-				defer wg.Done()
+			idx := i
+			wg.Go(func() {
 				jobIdx := idx % numJobs
 				jobID := jobIDs[jobIdx]
 
@@ -104,7 +105,7 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 				triggerMu.Lock()
 				allRuns = append(allRuns, runInfo{ID: run.ID, JobID: jobID, Index: idx})
 				triggerMu.Unlock()
-			}(i)
+			})
 		}
 		wg.Wait()
 	}
@@ -122,14 +123,13 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 	var statusMu sync.Mutex
 	deadline := time.Now().Add(pollTimeout)
 
-	var pollWg sync.WaitGroup
+	var pollWg conc.WaitGroup
 	// Poll in batches of 50 to avoid overwhelming the API.
 	sem := make(chan struct{}, 50)
 	for _, r := range allRuns {
-		pollWg.Add(1)
+		ri := r
 		sem <- struct{}{}
-		go func(ri runInfo) {
-			defer pollWg.Done()
+		pollWg.Go(func() {
 			defer func() { <-sem }()
 
 			for time.Now().Before(deadline) {
@@ -155,7 +155,7 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 			statusMu.Lock()
 			statusCounts["timeout"]++
 			statusMu.Unlock()
-		}(r)
+		})
 	}
 	pollWg.Wait()
 
@@ -251,11 +251,10 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 	var failed atomic.Int32
 
 	start := time.Now()
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range numRuns {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			resp, body, err := client.do("POST", fmt.Sprintf("/v1/jobs/%s/trigger", job.ID), map[string]any{
 				"payload": map[string]any{"i": idx},
 			})
@@ -270,7 +269,7 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 			mu.Lock()
 			runIDs = append(runIDs, run.ID)
 			mu.Unlock()
-		}(i)
+		})
 	}
 	wg.Wait()
 	triggerDuration := time.Since(start)
@@ -382,13 +381,12 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 	const numWfRuns = 20
 	wfRunIDs := make([]string, 0, numWfRuns)
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	start := time.Now()
 	for i := range numWfRuns {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			resp, body, _ := client.do("POST", fmt.Sprintf("/v1/workflows/%s/trigger", wf.ID), map[string]any{
 				"payload": map[string]any{"wf_idx": idx},
 			})
@@ -402,7 +400,7 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 			mu.Lock()
 			wfRunIDs = append(wfRunIDs, run.ID)
 			mu.Unlock()
-		}(i)
+		})
 	}
 	wg.Wait()
 	t.Logf("Triggered %d workflow runs (5 steps each = %d total job dispatches expected)", len(wfRunIDs), len(wfRunIDs)*5)
@@ -490,21 +488,18 @@ func TestLoadTestAPIEndpointStress(t *testing.T) {
 	}
 
 	results := make([]result, len(endpoints))
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	start := time.Now()
 	for epIdx, ep := range endpoints {
-		wg.Add(1)
-		go func(idx int, method, path string) {
-			defer wg.Done()
-
+		idx, method, path := epIdx, ep.method, ep.path
+		wg.Go(func() {
 			var count, errors atomic.Int64
 			var latencies []time.Duration
 			var latMu sync.Mutex
 
-			var innerWg sync.WaitGroup
+			var innerWg conc.WaitGroup
 			for range concurrency {
-				innerWg.Add(1)
 				innerWg.Go(func() {
 					for time.Since(start) < duration {
 						reqStart := time.Now()
@@ -538,7 +533,7 @@ func TestLoadTestAPIEndpointStress(t *testing.T) {
 				latP50:   p50,
 				latP99:   p99,
 			}
-		}(epIdx, ep.method, ep.path)
+		})
 	}
 	wg.Wait()
 
