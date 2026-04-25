@@ -6,13 +6,14 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestCallback_StepOutputInjection verifies that malicious output in a step
@@ -135,12 +136,10 @@ func TestCallback_ConcurrentCallbacks(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := 1; i <= 3; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			id := "jr-" + strings.Repeat("x", idx)
+		wg.Go(func() {
+			id := "jr-" + strings.Repeat("x", i)
 			run := &domain.JobRun{
 				ID:                id,
 				JobID:             "job-1",
@@ -149,7 +148,7 @@ func TestCallback_ConcurrentCallbacks(t *testing.T) {
 				WorkflowStepRunID: "sr-" + id,
 			}
 			_ = cb.OnJobRunTerminal(context.Background(), run)
-		}(i)
+		})
 	}
 	wg.Wait()
 

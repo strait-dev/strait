@@ -58,6 +58,10 @@ type mockBillingStore struct {
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	projectOrgMap              map[string]string
 	agentSpendByOrg            map[string]int64
+	activeAddons               []Addon
+	httpJobCount               int
+	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
+	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
 }
 
 func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
@@ -299,7 +303,10 @@ func (m *mockBillingStore) UpdateAgentSpendingLimit(_ context.Context, _ string,
 	return nil
 }
 
-func (m *mockBillingStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
+func (m *mockBillingStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
+	if m.getProjectBudgetFn != nil {
+		return m.getProjectBudgetFn(ctx, projectID)
+	}
 	return -1, "notify", nil
 }
 
@@ -307,7 +314,10 @@ func (m *mockBillingStore) SetProjectBudget(_ context.Context, _ string, _ int64
 	return nil
 }
 
-func (m *mockBillingStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
+func (m *mockBillingStore) GetProjectPeriodSpend(ctx context.Context, projectID string, periodStart time.Time) (int64, error) {
+	if m.getProjectPeriodSpendFn != nil {
+		return m.getProjectPeriodSpendFn(ctx, projectID, periodStart)
+	}
 	return 0, nil
 }
 
@@ -378,7 +388,7 @@ func (m *mockBillingStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, 
 }
 
 func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addon, error) {
-	return nil, nil
+	return m.activeAddons, nil
 }
 
 func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
@@ -439,5 +449,5 @@ func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string,
 }
 
 func (m *mockBillingStore) CountHTTPJobsByOrg(_ context.Context, _ string) (int, error) {
-	return 0, nil
+	return m.httpJobCount, nil
 }

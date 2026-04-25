@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 	"strait/internal/eventfilter"
@@ -351,18 +352,17 @@ func TestEventSource_ConcurrentDispatch(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, mq, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			body := fmt.Sprintf(`{"source":"my-source","project_id":"proj-1","payload":{"idx":%d}}`, idx)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
 			if w.Code != http.StatusOK {
 				t.Errorf("dispatch %d: expected 200, got %d", idx, w.Code)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

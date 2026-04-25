@@ -58,6 +58,11 @@ func (s *Server) handleCreateJobDependency(ctx context.Context, input *CreateJob
 	if err := s.store.CreateJobDependency(ctx, dep); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create job dependency")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionJobDependencyCreated, "job_dependency", dep.ID, map[string]any{
+		"job_id":            jobID,
+		"depends_on_job_id": req.DependsOnJobID,
+		"condition":         condition,
+	})
 	return &CreateJobDependencyOutput{Body: dep}, nil
 }
 
@@ -105,6 +110,10 @@ func (s *Server) handleDeleteJobDependency(ctx context.Context, input *DeleteJob
 	if err := s.store.DeleteJobDependency(ctx, input.DepID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete job dependency")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionJobDependencyDeleted, "job_dependency", input.DepID, map[string]any{
+		"job_id":            input.JobID,
+		"depends_on_job_id": dep.DependsOnJobID,
+	})
 	return nil, nil
 }
 

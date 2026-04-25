@@ -83,9 +83,7 @@ export const formatRBAC = (level: string): string => {
  * @param value - Whether the feature is available.
  * @returns "Yes" for true, "-" for false.
  */
-export const formatBoolean = (value: boolean): string => {
-  return value ? "Yes" : "-";
-};
+export const formatBoolean = (value: boolean): string => (value ? "Yes" : "-");
 
 /** Human-readable support level labels. */
 const SUPPORT_LABELS: Record<string, string> = {
@@ -102,6 +100,5 @@ const SUPPORT_LABELS: Record<string, string> = {
  * @param level - Support level identifier (e.g. "community", "dedicated").
  * @returns Human-readable label, or the raw level if not recognized.
  */
-export const formatSupportLevel = (level: string): string => {
-  return SUPPORT_LABELS[level] ?? level;
-};
+export const formatSupportLevel = (level: string): string =>
+  SUPPORT_LABELS[level] ?? level;

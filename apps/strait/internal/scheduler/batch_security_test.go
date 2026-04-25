@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +11,8 @@ import (
 	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestBatchFlusher_DisabledJobSkip verifies that a job disabled between
@@ -261,7 +262,7 @@ func TestAutoRotate_ConcurrentRotation(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for range 5 {
 		wg.Go(func() {
 			r.autoRotateAPIKeys(context.Background())

@@ -14,38 +14,36 @@ const ROW_KEYS = [
 ];
 const CELL_KEYS = ["cell-0", "cell-1", "cell-2", "cell-3", "cell-4"];
 
-const TablePageSkeleton = () => {
-  return (
-    <Shell>
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-9 w-32" />
-      </div>
-      <div className="flex items-center gap-2">
-        <Skeleton className="h-9 w-64" />
-        <Skeleton className="h-9 w-24" />
-      </div>
-      <div className="rounded-md border">
-        <div className="border-b px-4 py-3">
-          <div className="flex gap-8">
-            {HEADER_KEYS.map((key) => (
-              <Skeleton className="h-4 w-24" key={key} />
-            ))}
-          </div>
+const TablePageSkeleton = () => (
+  <Shell>
+    <div className="flex items-center justify-between">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-9 w-32" />
+    </div>
+    <div className="flex items-center gap-2">
+      <Skeleton className="h-9 w-64" />
+      <Skeleton className="h-9 w-24" />
+    </div>
+    <div className="rounded-md border">
+      <div className="border-b px-4 py-3">
+        <div className="flex gap-8">
+          {HEADER_KEYS.map((key) => (
+            <Skeleton className="h-4 w-24" key={key} />
+          ))}
         </div>
-        {ROW_KEYS.map((rowKey) => (
-          <div
-            className="flex gap-8 border-b px-4 py-3 last:border-b-0"
-            key={rowKey}
-          >
-            {CELL_KEYS.map((cellKey) => (
-              <Skeleton className="h-4 w-24" key={cellKey} />
-            ))}
-          </div>
-        ))}
       </div>
-    </Shell>
-  );
-};
+      {ROW_KEYS.map((rowKey) => (
+        <div
+          className="flex gap-8 border-b px-4 py-3 last:border-b-0"
+          key={rowKey}
+        >
+          {CELL_KEYS.map((cellKey) => (
+            <Skeleton className="h-4 w-24" key={cellKey} />
+          ))}
+        </div>
+      ))}
+    </div>
+  </Shell>
+);
 
 export default TablePageSkeleton;

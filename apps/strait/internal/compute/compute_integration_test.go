@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/compute"
 )
 
@@ -228,25 +229,21 @@ func TestPool_ConcurrentAcquireRelease(t *testing.T) {
 
 	var acquired atomic.Int64
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	// Concurrent acquirers.
 	for range 30 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if _, ok := pool.Acquire("proj-1", "image:v1", "iad"); ok {
 				acquired.Add(1)
 			}
-		}()
+		})
 	}
 
 	// Concurrent releasers.
 	for i := range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			pool.Release("proj-1", "image:v1", "iad", fmt.Sprintf("m-new-%d", i))
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -269,26 +266,22 @@ func TestPool_ConcurrentPrune(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	var totalPruned atomic.Int64
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 
 	// Run concurrent prune and acquire operations.
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			n := pool.Prune(50*time.Millisecond, func(machineID string) error {
 				return nil
 			})
 			totalPruned.Add(int64(n))
-		}()
+		})
 	}
 
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			pool.Acquire("proj-1", "image:v1", "iad")
-		}()
+		})
 	}
 
 	wg.Wait()

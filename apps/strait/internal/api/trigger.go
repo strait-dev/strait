@@ -313,6 +313,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					}
 					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
+						if apiErr := enqueueAPIError(enqErr); apiErr != nil {
+							return nil, apiErr
+						}
 						return nil, huma.Error500InternalServerError("failed to enqueue batch run")
 					}
 					return &TriggerJobOutput{Body: map[string]any{
@@ -514,8 +517,20 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				"job_id", job.ID,
 				"idempotency_key", idempotencyKey)
 		}
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
+		}
 		return nil, huma.Error500InternalServerError("failed to enqueue run")
 	}
+
+	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+		"run_id":               run.ID,
+		"scheduled_at":         scheduledAt,
+		"priority":             req.Priority,
+		"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
+		"tag_keys":             tagKeys(runTags),
+		"triggered_by":         run.TriggeredBy,
+	})
 
 	return &TriggerJobOutput{Body: map[string]any{
 		"id":              run.ID,
@@ -524,6 +539,29 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		"run_token":       tokenString,
 		"idempotency_hit": false,
 	}}, nil
+}
+
+// hashIdempotencyKey returns a short SHA-256 prefix of the idempotency key,
+// safe for audit logs. Raw keys are never recorded.
+func hashIdempotencyKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// tagKeys returns the sorted tag keys of a tag map. Values are never included
+// in audit events because they may contain user data.
+func tagKeys(tags map[string]string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, error) {

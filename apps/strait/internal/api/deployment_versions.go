@@ -90,6 +90,11 @@ func (s *Server) handleCreateDeploymentVersion(ctx context.Context, input *Creat
 	if err := s.store.CreateDeploymentVersion(ctx, deployment); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create deployment version")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionDeploymentVersionCreated, "deployment_version", deployment.ID, map[string]any{
+		"environment": deployment.Environment,
+		"runtime":     deployment.Runtime,
+		"strategy":    string(deployment.Strategy),
+	})
 	return &CreateDeploymentVersionOutput{Body: deployment}, nil
 }
 
@@ -142,6 +147,9 @@ func (s *Server) handleFinalizeDeploymentVersion(ctx context.Context, input *Fin
 		}
 		return nil, huma.Error500InternalServerError("failed to finalize deployment version")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionDeploymentVersionFinalized, "deployment_version", deployment.ID, map[string]any{
+		"environment": deployment.Environment,
+	})
 	return &FinalizeDeploymentVersionOutput{Body: deployment}, nil
 }
 
@@ -169,6 +177,9 @@ func (s *Server) handlePromoteDeploymentVersion(ctx context.Context, input *Prom
 		}
 		return nil, huma.Error500InternalServerError("failed to promote deployment version")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionDeploymentVersionPromoted, "deployment_version", deployment.ID, map[string]any{
+		"environment": req.Environment,
+	})
 	return &PromoteDeploymentVersionOutput{Body: deployment}, nil
 }
 
@@ -196,5 +207,8 @@ func (s *Server) handleRollbackDeploymentVersion(ctx context.Context, input *Rol
 		}
 		return nil, huma.Error500InternalServerError("failed to rollback deployment version")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionDeploymentVersionRolledBack, "deployment_version", deployment.ID, map[string]any{
+		"environment": req.Environment,
+	})
 	return &RollbackDeploymentVersionOutput{Body: deployment}, nil
 }

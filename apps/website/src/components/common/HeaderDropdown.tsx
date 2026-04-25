@@ -71,13 +71,14 @@ const HeaderDropdown = ({ group }: HeaderDropdownProps) => {
   }, [isOpen, closeImmediately]);
 
   // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   return (
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: hover/focus handlers needed for mega-menu dropdown behavior
@@ -92,7 +93,7 @@ const HeaderDropdown = ({ group }: HeaderDropdownProps) => {
       <button
         aria-expanded={isOpen}
         aria-haspopup="true"
-        className="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground"
+        className="inline-flex h-9 items-center gap-1 rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         type="button"
       >
         {group.label}

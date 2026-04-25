@@ -97,7 +97,6 @@ const PendingInvitations = () => {
                   <Button
                     disabled={isRejecting || isAccepting}
                     onClick={() => handleReject(invitation.id)}
-                    size="sm"
                     variant="outline"
                   >
                     {isRejecting ? (
@@ -113,7 +112,6 @@ const PendingInvitations = () => {
                   <Button
                     disabled={isAccepting || isRejecting}
                     onClick={() => handleAccept(invitation.id)}
-                    size="sm"
                   >
                     {isAccepting ? (
                       <HugeiconsIcon

@@ -17,6 +17,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/queue"
+	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 	"strait/internal/webhook"
@@ -300,6 +301,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// the same tx.
 	queries := store.NewWithContextRouting(dbPool)
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	if cfg.RunRetentionShort > 0 {
+		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
+	}
 	if cfg.InternalSecret != "" {
 		auditKey, auditKeyErr := store.DeriveAuditSigningKey(cfg.InternalSecret)
 		if auditKeyErr != nil {
@@ -307,7 +311,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 		queries.SetAuditSigningKey(auditKey)
 	}
-	q := queue.NewPostgresQueue(dbPool, queue.WithPriorityAging(true))
+	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
+	q := queue.NewPostgresQueue(
+		dbPool,
+		queue.WithPriorityAging(true),
+		queue.WithBackpressureController(bp),
+	)
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -374,6 +383,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if rdb != nil {
 		healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
 	}
+	healthReg.Register(health.NewAuditProbe(queries))
+	healthReg.Register(health.NewAuditDMLGuardProbe(queries))
+	logAuditDMLGuardStartup(ctx, queries, metrics)
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
@@ -403,17 +415,28 @@ func runServe(ctx context.Context, modeOverride string) error {
 		slog.Warn("STRIPE_WEBHOOK_SECRET is empty -- Stripe webhook signature verification is DISABLED")
 	}
 
+	// R4 hardening: startup safety checks. These are the "fail loud"
+	// mechanisms that prevent silent corruption.
+	if err := scheduler.EnsureQueueTriggersPresent(ctx, dbPool); err != nil {
+		return fmt.Errorf("queue trigger check: %w", err)
+	}
+	if err := queries.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion); err != nil {
+		return fmt.Errorf("schema version: %w", err)
+	}
+
 	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries, chExporter)
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
 	startLogDrainWorker(g, cfg, queries, metrics)
 	startMaintenanceWorker(g, queries)
+	startDBWatchdog(g, cfg, dbPool)
+	startQueueHealthSampler(g, dbPool)
 	var chAnalytics api.AnalyticsStore
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)
@@ -459,4 +482,41 @@ func setupLogging(level, format string) {
 	}
 
 	slog.SetDefault(slog.New(handler))
+}
+
+// logAuditDMLGuardStartup runs once at boot to surface the migration
+// 000187 enforcement posture. On self-hosted installs that never
+// provisioned the strait_app role the migration silently no-ops —
+// without this check that condition is invisible in logs until the
+// next chain verification. The guard probe reports the same state on
+// every health scrape; this function is the boot-time analogue so the
+// first log line already calls out the gap.
+func logAuditDMLGuardStartup(ctx context.Context, checker health.AuditDMLPrivilegeChecker, metrics *telemetry.Metrics) {
+	if checker == nil {
+		return
+	}
+	recordStatus := func(status string) {
+		if metrics == nil || metrics.AuditDMLRestrictionStatus == nil {
+			return
+		}
+		metrics.AuditDMLRestrictionStatus.Add(ctx, 1,
+			otelmetric.WithAttributes(otelattr.String("status", status)))
+	}
+	restricted, err := checker.AuditEventsUpdateRestricted(ctx)
+	if err != nil {
+		slog.Warn("audit DML restriction probe failed at startup",
+			"error", err,
+			"hint", "self-hosted installs must run against the strait_app role for migration 000187 to enforce UPDATE restrictions; see SELFHOST.md")
+		recordStatus("degraded")
+		return
+	}
+	if !restricted {
+		slog.Warn("audit_events UPDATE is not restricted for current role; migration 000187 DML guardrail is a no-op",
+			"status", "degraded",
+			"hint", "connect the app as the strait_app role (or an equivalent least-privilege role) so the REVOKE UPDATE / GRANT UPDATE (signature) migration takes effect")
+		recordStatus("degraded")
+		return
+	}
+	slog.Info("audit_events DML restriction enforced at database role level", "status", "enforced")
+	recordStatus("enforced")
 }

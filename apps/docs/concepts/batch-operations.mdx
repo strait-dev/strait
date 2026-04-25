@@ -6,20 +6,20 @@ sidebarTitle: "Batch Operations"
 
 A `BatchOperation` tracks the outcome of a bulk trigger request against a [Job](/concepts/jobs). When you trigger a job with multiple items in a single request (via `POST /v1/jobs/{jobID}/trigger-bulk`), Strait creates a batch operation to record how many items were submitted and how many [Runs](/concepts/runs) were actually created.
 
-## BatchOperation Model
+## Fields
 
-The `BatchOperation` struct (defined in `apps/strait/internal/domain/types.go`) contains the following fields:
+Each batch operation tracks:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier for the batch operation. |
+| `id` | `string` | Unique identifier (auto-generated). |
 | `project_id` | `string` | The project this batch operation belongs to. |
 | `job_id` | `string` | The job that was bulk-triggered. |
 | `item_count` | `int` | Number of items submitted in the bulk trigger request. |
 | `created_count` | `int` | Number of runs actually created (may be less than `item_count`). |
 | `created_by` | `string` | Actor ID who initiated the bulk trigger (user ID or `apikey:<id>`). |
 | `created_at` | `time.Time` | Timestamp when the batch operation was created. |
-| `finished_at` | `*time.Time` | Timestamp when all items in the batch have been processed. Null while processing is in progress. |
+| `finished_at` | `*time.Time` | Set when all items have been processed. Null while in progress. |
 
 ## How Batch Operations Work
 

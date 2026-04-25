@@ -64,7 +64,7 @@ const PasskeyManagement = () => {
               Manage passkeys for passwordless sign in.
             </CardDescription>
           </div>
-          <Button disabled={addPasskey.isPending} onClick={handleAdd} size="sm">
+          <Button disabled={addPasskey.isPending} onClick={handleAdd}>
             {addPasskey.isPending ? (
               <HugeiconsIcon
                 className="size-3 animate-spin"
@@ -118,7 +118,6 @@ const PasskeyManagement = () => {
                   <Button
                     disabled={isDeleting}
                     onClick={() => handleDelete(passkey.id)}
-                    size="sm"
                     variant="destructive"
                   >
                     {isDeleting ? (

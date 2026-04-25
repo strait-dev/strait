@@ -107,12 +107,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -132,7 +132,7 @@ jobs:
 
       - name: Build and push (multi-arch)
         id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: apps/strait
           file: apps/strait/Dockerfile
@@ -159,6 +159,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -172,6 +173,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Sign image and attestations (keyless)
         env:
@@ -243,12 +245,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -270,7 +272,7 @@ jobs:
 
       - name: Build and push (multi-arch)
         id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: apps/strait
           file: apps/strait/Dockerfile
@@ -298,6 +300,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -311,6 +314,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           timeout: 10m
+          trivyignores: ./.trivyignore
 
       - name: Sign image and attestations (keyless)
         env:
@@ -365,9 +369,130 @@ jobs:
             docker buildx imagetools inspect "$tag" > /dev/null
           done <<< "${{ steps.meta.outputs.tags }}"
 
+  strait-app:
+    needs: check-ci
+    name: Strait App Image
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Node + QEMU arm64 cross-compilation is ~2x slower than Go. Cold
+    # builds on first run take 15-20 min; warm builds complete in ~5.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # keyless cosign signing via Fulcio OIDC
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/strait-dev/strait-app
+          # Mirror the community-api tag strategy. docker-compose.selfhost.yml
+          # pins `:latest` so the mutable tag is load-bearing here.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          # Context is the repo root, not apps/app. The TanStack Start
+          # app depends on workspace packages @strait/transactional and
+          # @strait/ui — bun install has to see the full graph.
+          context: .
+          file: apps/app/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=strait-app
+          cache-to: type=gha,mode=max,scope=strait-app
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ github.event.head_commit.timestamp }}
+
+      - name: Scan pushed image with Trivy (amd64)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait-app@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+          trivyignores: ./.trivyignore
+
+      - name: Scan pushed image with Trivy (arm64)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ${{ env.REGISTRY }}/strait-dev/strait-app@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+          trivyignores: ./.trivyignore
+
+      - name: Sign image and attestations (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          # See community-api for the rationale behind --recursive and the
+          # OIDC issuer / TSA compatibility notes. Same Kyverno policy
+          # applies to all three images.
+          cosign sign --yes --recursive \
+            --timeout=3m \
+            "${REGISTRY}/strait-dev/strait-app@${DIGEST}"
+
+      - name: Verify signature
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/strait-dev/strait/.github/workflows/publish-images.yml@refs/tags/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${REGISTRY}/strait-dev/strait-app@${DIGEST}"
+
+      - name: Verify pushed tags are pullable from GHCR
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Verifying $tag..."
+            docker buildx imagetools inspect "$tag" > /dev/null
+          done <<< "${{ steps.meta.outputs.tags }}"
+
   release-gate:
     name: Release Gate
-    needs: [community-api, cloud-api]
+    needs: [community-api, cloud-api, strait-app]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -376,9 +501,11 @@ jobs:
         run: |
           community="${{ needs.community-api.result }}"
           cloud="${{ needs.cloud-api.result }}"
+          app="${{ needs.strait-app.result }}"
           echo "community-api=$community"
           echo "cloud-api=$cloud"
-          if [[ "$community" != "success" || "$cloud" != "success" ]]; then
+          echo "strait-app=$app"
+          if [[ "$community" != "success" || "$cloud" != "success" || "$app" != "success" ]]; then
             echo "::error::one or more image jobs did not succeed"
             exit 1
           fi
@@ -405,7 +532,7 @@ jobs:
           args: --latest --strip all
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
@@ -428,7 +555,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -476,7 +603,7 @@ jobs:
             return 0
           }
 
-          for image in strait strait-cloud; do
+          for image in strait strait-cloud strait-app; do
             CUR_TAG="${CURRENT#v}"
             PREV_TAG="${PREV#v}"
 
@@ -508,7 +635,7 @@ jobs:
 
       - name: Upload SBOM artifacts
         if: steps.prev.outputs.tag != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-diff
           path: sbom-artifacts/

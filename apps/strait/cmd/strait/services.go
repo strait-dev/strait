@@ -202,12 +202,30 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	}
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
 
-	// Apply statement_timeout to the API connection pool to prevent runaway queries.
-	if cfg.DBStatementTimeout > 0 {
-		if poolConfig.ConnConfig.RuntimeParams == nil {
-			poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	// Apply MVCC horizon guardrails and timeouts (Phase 1).
+	// These runtime params are applied to every connection in the pool via pgx's
+	// StartupMessage. They prevent stray long transactions from pinning pg_xmin
+	// and blocking autovacuum on hot queue tables.
+	if poolConfig.ConnConfig.RuntimeParams == nil {
+		poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	config.ApplyDBRuntimeParams(poolConfig.ConnConfig.RuntimeParams, cfg)
+	// transaction_timeout is Postgres 17+; set via AfterConnect and ignore errors
+	// so the pool still boots on older servers.
+	if cfg.DBTransactionTimeout > 0 {
+		prevAfterConnect := poolConfig.AfterConnect
+		timeoutMs := cfg.DBTransactionTimeout.Milliseconds()
+		poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if prevAfterConnect != nil {
+				if err := prevAfterConnect(ctx, conn); err != nil {
+					return err
+				}
+			}
+			if _, err := conn.Exec(ctx, fmt.Sprintf("SET transaction_timeout = %d", timeoutMs)); err != nil {
+				slog.Debug("transaction_timeout unsupported on this postgres version", "error", err)
+			}
+			return nil
 		}
-		poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", cfg.DBStatementTimeout.Milliseconds())
 	}
 
 	const maxRetries = 5
@@ -579,6 +597,19 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		slog.Info("agent billing enabled")
 	}
 
+	siemDrain := logdrain.NewAuditSIEMDrain(
+		cfg.AuditSIEMEndpoint,
+		cfg.AuditSIEMAuthToken,
+		cfg.AuditSIEMBatchSize,
+		cfg.AuditSIEMFlushInterval,
+	)
+	if siemDrain != nil {
+		slog.Info("audit SIEM drain enabled",
+			"endpoint", cfg.AuditSIEMEndpoint,
+			"batch_size", cfg.AuditSIEMBatchSize,
+			"flush_interval", cfg.AuditSIEMFlushInterval)
+	}
+
 	srv := api.NewServer(api.ServerDeps{
 		Config:             cfg,
 		Store:              queries,
@@ -606,7 +637,19 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Version:            version,
 		CDCWebhookReceiver: cdcWebhookReceiver,
 		ObjectStore:        buildObjectStore(cfg),
+		SIEMDrain:          siemDrain,
 	})
+	if metrics != nil {
+		if err := metrics.ObserveAuditDrainer(otel.Meter("strait"), srv); err != nil {
+			slog.Warn("failed to register audit drainer metrics callback", "error", err)
+		}
+		if siemDrain != nil {
+			if err := metrics.ObserveSIEMBreakerState(otel.Meter("strait"), siemDrain); err != nil {
+				slog.Warn("failed to register SIEM breaker state metrics callback", "error", err)
+			}
+		}
+	}
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           srv,
@@ -637,7 +680,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -703,6 +746,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Pool:                    p,
 		Queue:                   q,
 		Wake:                    wake,
+		Degraded:                notifier,
 		ConcurrencyLimit:        adaptive,
 		Store:                   queries,
 		TxPool:                  txPool,
@@ -723,6 +767,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
 		DefaultRegion:           cfg.DefaultRegion,
+		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
+		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
 
 	// Only wire billing enforcement in the executor when explicitly enabled.
@@ -874,9 +920,71 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
 			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
+			scheduler.WithPriorityPromoter(
+				scheduler.NewPriorityPromoter(dbPool, scheduler.PriorityPromoterConfig{
+					Interval:     60 * time.Second,
+					AgeThreshold: 5 * time.Minute,
+					MaxPriority:  1000,
+					BatchLimit:   500,
+					Logger:       slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithCounterReconciler(
+				scheduler.NewCounterReconciler(dbPool, scheduler.CounterReconcilerConfig{
+					Interval: time.Hour,
+					Logger:   slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithPartitionEnsurer(
+				scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
+					Interval:    24 * time.Hour,
+					MonthsAhead: 2,
+					Logger:      slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithPartitionTuner(
+				scheduler.NewPartitionTuner(queries, scheduler.PartitionTunerConfig{
+					Interval: 7 * 24 * time.Hour,
+					Logger:   slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithDLQAgeOut(
+				scheduler.NewDLQAgeOut(queries, scheduler.DLQAgeOutConfig{
+					Interval:   24 * time.Hour,
+					Retention:  30 * 24 * time.Hour,
+					BatchLimit: 1000,
+					Logger:     slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithOutboxFlusher(
+				scheduler.NewOutboxFlusher(dbPool, q, scheduler.OutboxFlusherConfig{
+					Interval:  time.Second,
+					BatchSize: 500,
+					Logger:    slog.Default(),
+				}),
+			),
+			scheduler.WithPlanDriftMonitor(
+				scheduler.NewPlanDriftMonitor(queries, scheduler.PlanDriftMonitorConfig{
+					Queries:  scheduler.DefaultWatchedQueries(),
+					Interval: 24 * time.Hour,
+					Logger:   slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if containerRuntime != nil {
 			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
+		}
+		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
+			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
+				Interval:     cfg.PartitionReclaimInterval,
+				SafetyMonths: cfg.PartitionReclaimSafety,
+				Logger:       slog.Default(),
+			}).WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithPartitionReclaimer(reclaimer))
+			slog.Info("partition reclaimer enabled",
+				"interval", cfg.PartitionReclaimInterval,
+				"safety_months", cfg.PartitionReclaimSafety,
+			)
 		}
 		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
@@ -899,6 +1007,28 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
 			slog.Info("per-org plan retention enabled")
+		}
+		// Backpressure sampler: produces the per-project
+		// strait.queue.backpressure_tokens_available gauge. Without this
+		// loop the gauge has no producer and dashboards render empty.
+		// Gated by interval > 0 so operators can opt out via
+		// BACKPRESSURE_SAMPLER_INTERVAL=0.
+		if cfg.BackpressureSamplerInterval > 0 {
+			qm, qmErr := queue.Metrics()
+			if qmErr != nil || qm == nil {
+				slog.Warn("backpressure sampler disabled: queue metrics unavailable", "err", qmErr)
+			} else if bp == nil {
+				slog.Warn("backpressure sampler disabled: controller unavailable")
+			} else {
+				sampler := scheduler.NewBackpressureSampler(bp, qm, cfg.BackpressureSamplerInterval, cfg.BackpressureSamplerN)
+				if sampler != nil {
+					schedOpts = append(schedOpts, scheduler.WithBackpressureSampler(sampler))
+					slog.Info("backpressure sampler enabled",
+						"interval", cfg.BackpressureSamplerInterval,
+						"sample_n", cfg.BackpressureSamplerN,
+					)
+				}
+			}
 		}
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
 			schedOpts...,
@@ -1141,6 +1271,43 @@ func startMaintenanceWorker(g *pool.ContextPool, queries *store.Queries) {
 				}
 			}
 		}
+	})
+}
+
+// startQueueHealthSampler launches the Phase 2 queue-health sampler. Reads
+// pg_stat_user_tables for job_runs partitions every 30s and publishes live/
+// dead tuple counts, HOT ratio, and oldest queued age gauges.
+func startQueueHealthSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
+	sampler, err := queue.NewHealthSampler(dbPool, 30*time.Second, slog.Default())
+	if err != nil {
+		slog.Warn("failed to create queue health sampler, skipping", "error", err)
+		return
+	}
+	g.Go(func(ctx context.Context) error {
+		slog.Info("queue health sampler started")
+		sampler.Run(ctx)
+		return nil
+	})
+}
+
+// startDBWatchdog launches the Phase 1 MVCC-horizon watchdog.
+func startDBWatchdog(g *pool.ContextPool, cfg *config.Config, dbPool *pgxpool.Pool) {
+	if !cfg.DBWatchdogEnabled {
+		slog.Info("db watchdog disabled via config")
+		return
+	}
+	watchdog, err := telemetry.NewDBWatchdog(dbPool, cfg.DBWatchdogInterval, cfg.DBLongTxnAlertThreshold, slog.Default())
+	if err != nil {
+		slog.Warn("failed to create db watchdog, skipping", "error", err)
+		return
+	}
+	g.Go(func(ctx context.Context) error {
+		slog.Info("db watchdog started",
+			"interval", cfg.DBWatchdogInterval,
+			"alert_threshold", cfg.DBLongTxnAlertThreshold,
+		)
+		watchdog.Run(ctx)
+		return nil
 	})
 }
 

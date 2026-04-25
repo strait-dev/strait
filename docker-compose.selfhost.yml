@@ -109,8 +109,36 @@ services:
       retries: 10
       start_period: 60s
 
+  # One-shot init container that runs Better Auth migrations against the
+  # shared Postgres before strait-app starts. Uses the Bun builder image
+  # with the repo mounted because the published strait-app runtime image
+  # is intentionally minimal (node:22-alpine + compiled bundle + static
+  # assets, no source or package manager). Self-host users already have
+  # the repo cloned per SELFHOST.md, so mounting the source tree costs
+  # nothing extra. The install is fast on re-runs because bun caches
+  # node_modules on the host volume.
+  strait-app-migrate:
+    image: oven/bun:1.3.11-alpine
+    restart: "no"
+    working_dir: /repo/apps/app
+    command:
+      - sh
+      - -c
+      - "bun install --frozen-lockfile && bun run db:migrate:bun"
+    volumes:
+      - ./:/repo
+    env_file:
+      - .env.selfhost
+    environment:
+      AUTH_DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
+      BETTER_AUTH_URL: http://localhost:3000
+      RESEND_API_KEY: "re_selfhost_placeholder"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   strait-app:
-    image: ghcr.io/strait-dev/strait-app:latest
+    image: ${STRAIT_APP_IMAGE:-ghcr.io/strait-dev/strait-app:latest}
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -129,6 +157,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      strait-app-migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

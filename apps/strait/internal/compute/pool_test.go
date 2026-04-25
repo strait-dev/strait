@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestMachinePool_AcquireFromPopulated(t *testing.T) {
@@ -268,18 +270,16 @@ func TestMachinePool_ConcurrentStress(t *testing.T) {
 	t.Parallel()
 	pool := NewMachinePool(5)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 500 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			key := fmt.Sprintf("img-%d", idx%10)
-			if idx%2 == 0 {
-				pool.Release("proj-1", key, "iad", fmt.Sprintf("m-%d", idx))
+		wg.Go(func() {
+			key := fmt.Sprintf("img-%d", i%10)
+			if i%2 == 0 {
+				pool.Release("proj-1", key, "iad", fmt.Sprintf("m-%d", i))
 			} else {
 				pool.Acquire("proj-1", key, "iad")
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -348,7 +348,7 @@ func TestMachinePool_OnEvictPanic_DoesntCrashPool(t *testing.T) {
 	}
 }
 
-// Phase 4 tests.
+// Prune and post-prune acquire tests.
 
 func TestMachinePool_AcquireAfterPrune(t *testing.T) {
 	t.Parallel()
@@ -396,14 +396,12 @@ func TestMachinePool_Size_AccurateUnderConcurrency(t *testing.T) {
 	t.Parallel()
 	pool := NewMachinePool(100)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			key := fmt.Sprintf("img-%d", idx%10)
-			pool.Release("proj-1", key, "iad", fmt.Sprintf("m-%d", idx))
-		}(i)
+		wg.Go(func() {
+			key := fmt.Sprintf("img-%d", i%10)
+			pool.Release("proj-1", key, "iad", fmt.Sprintf("m-%d", i))
+		})
 	}
 	wg.Wait()
 
@@ -532,15 +530,13 @@ func TestMachinePool_ConcurrentAcquireRelease_NoDeadlock(t *testing.T) {
 		time.Sleep(10 * time.Millisecond) // Simulate slow eviction.
 	})
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 200 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			img := fmt.Sprintf("img-%d", idx%5)
-			pool.Release("proj-1", img, "iad", fmt.Sprintf("m-%d", idx))
+		wg.Go(func() {
+			img := fmt.Sprintf("img-%d", i%5)
+			pool.Release("proj-1", img, "iad", fmt.Sprintf("m-%d", i))
 			pool.Acquire("proj-1", img, "iad")
-		}(i)
+		})
 	}
 
 	done := make(chan struct{})

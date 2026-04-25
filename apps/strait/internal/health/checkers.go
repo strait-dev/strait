@@ -56,12 +56,16 @@ func NewMigrationChecker(current uint, dirty bool, err error) Checker {
 }
 
 func NewSchedulerChecker(lastTickFn func() time.Time, maxAge time.Duration) Checker {
+	return newSchedulerChecker(lastTickFn, maxAge, time.Now)
+}
+
+func newSchedulerChecker(lastTickFn func() time.Time, maxAge time.Duration, nowFn func() time.Time) Checker {
 	return NewChecker("scheduler", func(_ context.Context) error {
 		lastTick := lastTickFn()
 		if lastTick.IsZero() {
 			return fmt.Errorf("scheduler tick unavailable")
 		}
-		if time.Since(lastTick) > maxAge {
+		if nowFn().Sub(lastTick) > maxAge {
 			return fmt.Errorf("scheduler stale: last tick at %s exceeds max age %s", lastTick.UTC().Format(time.RFC3339), maxAge)
 		}
 		return nil

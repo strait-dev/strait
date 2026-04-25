@@ -53,9 +53,3 @@ When `on_failure_trigger_job` fires, the downstream job receives a structured fa
 ## Chain Depth Enforcement
 
 To prevent infinite loops (Job A triggers Job B triggers Job A), Strait enforces a maximum chain depth of 10. Each downstream run increments the `lineage_depth` counter. When the limit is reached, the trigger is logged and skipped.
-
-## Implementation
-
-- Engine: `apps/strait/internal/worker/on_complete_trigger.go`
-- Tests: `apps/strait/internal/worker/job_chaining_test.go` (31 tests including fuzz and adversarial)
-- Migration: `000156_add_job_chaining`

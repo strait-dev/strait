@@ -8,10 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestBuilder_WithSOCI_DefaultDisabled verifies that a freshly constructed Builder
@@ -306,14 +307,12 @@ func TestBuilder_GenerateSOCIIndex_ConcurrentSafe(t *testing.T) {
 		return nil
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	var wg conc.WaitGroup
 	for i := range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			b.generateSOCIIndex(context.Background(),
 				fmt.Sprintf("registry.example.com/repo:tag-%d", i))
-		}()
+		})
 	}
 	wg.Wait()
 

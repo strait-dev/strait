@@ -1,0 +1,23 @@
+-- Phase 3: DLQ admin recovery endpoints require tracking replay lineage so
+-- operators can see that a dead-lettered run was superseded by a new one.
+-- The column is plain-nullable UUID without a foreign-key constraint:
+-- job_runs is partitioned by month (PARTITION BY RANGE on created_at), and
+-- Postgres does not support a self-referential FK whose target key is just
+-- (id) on a partitioned table — the partition column would have to be part
+-- of the referenced key. Lineage integrity is enforced at the application
+-- layer in store.MarkRunReplayed (the caller always sets this column to an
+-- id the caller just wrote inside the same transaction), and partition
+-- drops are tolerated because a broken pointer reads as "unknown ancestor"
+-- rather than corrupting the run row.
+--
+-- No index is created on this column. CREATE INDEX CONCURRENTLY is not
+-- supported on partitioned parent tables, and a non-concurrent CREATE
+-- INDEX would briefly lock job_runs against writes (and is rejected by
+-- the migration linter). No current query filters by replayed_run_id
+-- (MarkRunReplayed updates by id, the admin DLQ list filters by status
+-- and project_id), so the speculative partial index is omitted. If a
+-- future query needs it, add a per-partition CREATE INDEX CONCURRENTLY
+-- migration plus a hook in partition_ensurer to cover new partitions.
+
+ALTER TABLE job_runs ADD COLUMN IF NOT EXISTS replayed_run_id UUID NULL;
+UPDATE schema_version SET version = 211, updated_at = NOW();

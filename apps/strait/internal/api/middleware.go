@@ -20,6 +20,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 const ctxProjectIDKey contextKey = "project_id"
@@ -29,6 +30,24 @@ const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
+
+// ctxInternalCallerKey is set to true by internalSecretAuth after the
+// X-Internal-Secret header passes constant-time comparison. It is the
+// authoritative signal that a request was authenticated via the internal
+// secret — unlike nil scopes, which is also true for unauthenticated
+// requests that never reached any auth middleware.
+const ctxInternalCallerKey contextKey = "internal_caller"
+
+// Forensic metadata propagated through request context into audit events.
+const ctxRemoteIPKey contextKey = "remote_ip"
+const ctxUserAgentKey contextKey = "user_agent"
+const ctxRequestIDKey contextKey = "request_id"
+const ctxTraceIDKey contextKey = "trace_id"
+
+// auditUserAgentMaxBytes caps the user agent string stored on each audit
+// event. Real-world UAs are typically <200 chars; anything longer is
+// almost certainly probing or pathological.
+const auditUserAgentMaxBytes = 2048
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -132,6 +151,79 @@ func projectIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+func remoteIPFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxRemoteIPKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func userAgentFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxUserAgentKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func requestIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxRequestIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxTraceIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// attachAuditContext middleware stamps the request context with the
+// forensic metadata (remote IP, user agent, request ID, trace ID) that
+// audit events will later record. Installed early in the middleware
+// chain so every downstream handler — even those that bypass auth —
+// sees the same set of values.
+func (s *Server) attachAuditContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r))
+		ua := r.UserAgent()
+		if len(ua) > auditUserAgentMaxBytes {
+			ua = ua[:auditUserAgentMaxBytes]
+		}
+		ctx = context.WithValue(ctx, ctxUserAgentKey, ua)
+		if reqID := chimw.GetReqID(ctx); reqID != "" {
+			ctx = context.WithValue(ctx, ctxRequestIDKey, reqID)
+		}
+		// Trace ID: populated by OTel middleware if installed. We read
+		// it via the span context to avoid a hard dependency on
+		// otelchi's internal context keys.
+		//
+		// The span is empty when tracing is disabled — in that case
+		// TraceID() returns an all-zero value and we leave the audit
+		// field blank.
+		if traceID := traceIDFromRequest(r); traceID != "" {
+			ctx = context.WithValue(ctx, ctxTraceIDKey, traceID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// traceIDFromRequest extracts the OTel trace ID from the request span,
+// or the empty string if no span is active.
+func traceIDFromRequest(r *http.Request) string {
+	sc := oteltrace.SpanContextFromContext(r.Context())
+	if !sc.IsValid() {
+		return ""
+	}
+	tid := sc.TraceID()
+	if !tid.IsValid() {
+		return ""
+	}
+	return tid.String()
 }
 
 // errProjectMismatch is returned when a resource's project_id does not match the
@@ -365,6 +457,11 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
+		// Mark the request as authenticated via internal secret. This flag is
+		// checked by isInternalCaller() and requireAdmin(), and is set here —
+		// after the ConstantTimeCompare above passes — so unauthenticated
+		// requests (no secret, wrong secret) never have it.
+		ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 
 		// Optionally carry explicit project context for internal calls (e.g. RBAC management).
 		// Check X-Project-Id header first, fall back to query param for backward compat.
@@ -476,6 +573,31 @@ func scopesFromContext(ctx context.Context) []string {
 		return v
 	}
 	return nil
+}
+
+// isInternalCaller returns true only when the request was authenticated via
+// the X-Internal-Secret header. Checking this flag is more reliable than
+// checking scopesFromContext(ctx) == nil because nil scopes are also present
+// on unauthenticated requests that bypassed auth middleware entirely.
+func isInternalCaller(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxInternalCallerKey).(bool)
+	return v
+}
+
+// requireInternalSecretMiddleware is a chi middleware that enforces
+// internal-secret-only access at the router layer. It returns 403 for any
+// request that was not positively authenticated via the X-Internal-Secret
+// header (i.e. isInternalCaller returns false). Applying this at the route
+// group level provides defense-in-depth: even if a handler's own requireAdmin
+// call were skipped or removed, the middleware layer still gates access.
+func (s *Server) requireInternalSecretMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isInternalCaller(r.Context()) {
+			respondError(w, r, http.StatusForbidden, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requirePermission returns a middleware that checks authorization based on
@@ -851,6 +973,56 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	return resolvedRateLimit{}
 }
 
+// auditVerifyRateLimit enforces a per-project rate limit on the audit chain
+// verify endpoint. The default of 1 req/project/60s is plenty for SOC 2
+// evidence generation while still preventing a single tenant from
+// dominating verifier compute (chain replay is O(events) per call). When
+// no rate limiter is configured (test paths or RedisClient absent) the
+// middleware is a no-op so unit tests continue to pass.
+//
+// Internal-secret callers bypass — operations / smoke tests need to
+// verify on demand without bumping into the per-tenant quota.
+const (
+	auditVerifyRateLimitRequests   = 1
+	auditVerifyRateLimitWindowSecs = 60
+)
+
+func (s *Server) auditVerifyRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.rateLimiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx := r.Context()
+		if isInternalCaller(ctx) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		projectID := projectIDFromContext(ctx)
+		if projectID == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := "rl:audit_verify:" + projectID
+		window := time.Duration(auditVerifyRateLimitWindowSecs) * time.Second
+		result, rlErr := s.rateLimiter.AllowStrict(ctx, key, auditVerifyRateLimitRequests, window)
+		if rlErr != nil {
+			slog.Error("audit verify rate limiter error, failing closed",
+				"key", key, "error", rlErr)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit service unavailable")
+			return
+		}
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(auditVerifyRateLimitRequests))
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
+		if !result.Allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(auditVerifyRateLimitWindowSecs))
+			respondError(w, r, http.StatusTooManyRequests, "audit verify rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // projectRateLimit enforces per-API-key and per-project rate limits using Redis.
 func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -861,9 +1033,7 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		// Internal secret auth (no scopes set) bypasses rate limiting
-		// so internal callers and stress tests are not throttled.
-		if scopesFromContext(ctx) == nil && r.Header.Get("X-Internal-Secret") != "" {
+		if isInternalCaller(ctx) {
 			next.ServeHTTP(w, r)
 			return
 		}

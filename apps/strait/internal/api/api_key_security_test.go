@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -135,18 +136,17 @@ func TestAPIKey_ConcurrentRotation(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := range 2 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			body := `{"grace_period_minutes":60}`
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/key-1/rotate", body))
 			if w.Code == http.StatusInternalServerError {
 				t.Errorf("rotation %d should not cause 500: %s", idx, w.Body.String())
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 }

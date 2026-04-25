@@ -8,10 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const (
-	authFailKeyPrefix = "auth:fail:"
-	authFailWindowTTL = 15 * time.Minute
-)
+const authFailKeyPrefix = "auth:fail:"
 
 // AuthLimiterThreshold defines a lockout level triggered at a given failure count.
 type AuthLimiterThreshold struct {
@@ -19,12 +16,20 @@ type AuthLimiterThreshold struct {
 	Lockout  time.Duration
 }
 
-// DefaultAuthThresholds are the progressive lockout levels.
-var DefaultAuthThresholds = []AuthLimiterThreshold{
-	{Failures: 50, Lockout: 15 * time.Minute},
-	{Failures: 25, Lockout: 5 * time.Minute},
-	{Failures: 10, Lockout: 1 * time.Minute},
+func authFailWindow() time.Duration {
+	return 15 * time.Minute
 }
+
+func defaultAuthThresholds() []AuthLimiterThreshold {
+	return []AuthLimiterThreshold{
+		{Failures: 50, Lockout: 15 * time.Minute},
+		{Failures: 25, Lockout: 5 * time.Minute},
+		{Failures: 10, Lockout: 1 * time.Minute},
+	}
+}
+
+// DefaultAuthThresholds are the progressive lockout levels.
+var DefaultAuthThresholds = defaultAuthThresholds()
 
 // AuthLimiter tracks failed authentication attempts per IP in Redis
 // and enforces progressive lockout.
@@ -52,7 +57,7 @@ func (a *AuthLimiter) RecordFailure(ctx context.Context, ip string) {
 	key := authFailKeyPrefix + ip
 	pipe := a.client.Pipeline()
 	pipe.Incr(ctx, key)
-	pipe.PExpire(ctx, key, authFailWindowTTL)
+	pipe.PExpire(ctx, key, authFailWindow())
 	_, _ = pipe.Exec(ctx) // best-effort; fail open
 }
 

@@ -257,6 +257,9 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 	// Check for typed API errors that carry a full APIError body.
 	var tae *typedAPIError
 	if errors.As(err, &tae) {
+		for key, value := range tae.headers {
+			w.Header().Set(key, value)
+		}
 		respondError(w, r, tae.status, tae.apiError)
 		return
 	}
@@ -282,6 +285,7 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 type typedAPIError struct {
 	status   int
 	apiError APIError
+	headers  map[string]string
 }
 
 func (e *typedAPIError) Error() string {

@@ -56,6 +56,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListSecrets)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "get-secret", Method: http.MethodGet, Path: "/v1/secrets/{secretID}",
+		Summary: "Get a secret", Description: "Returns metadata for a single secret. The encrypted and decrypted values are never included.",
+		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetSecret)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "delete-secret", Method: http.MethodDelete, Path: "/v1/secrets/{secretID}",
 		Summary: "Delete a secret", Description: "Permanently deletes a secret.",
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -536,6 +542,55 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Get resolved variables", Description: "Returns the resolved environment variables with inheritance applied.",
 		Tags: []string{"Environments"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleGetResolvedVariables)
+
+	// -- Admin DLQ --
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-list-dlq", Method: http.MethodGet, Path: "/v1/admin/dlq",
+		Summary: "List dead-letter runs (admin)", Description: "Admin-only paginated listing of dead-letter runs with optional job_id and masked filters.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleAdminListDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-replay-dlq", Method: http.MethodPost, Path: "/v1/admin/dlq/{run_id}/replay",
+		Summary: "Replay a dead-letter run (admin)", Description: "Re-enqueues a dead-letter run via the admin path and records an audit event. Requires the dlq:replay scope.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleAdminReplayDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-unmask-dlq", Method: http.MethodPost, Path: "/v1/admin/dlq/{run_id}/unmask",
+		Summary: "Unmask a dead-letter run (admin)", Description: "Clears visible_until on a dead-letter run so it is no longer hidden by the age-out masker. Requires the dlq:replay scope.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleAdminUnmaskDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-purge-dlq", Method: http.MethodPost, Path: "/v1/admin/dlq/{run_id}/purge",
+		Summary: "Purge a dead-letter run (admin)", Description: "Hard-deletes a dead-letter run. Requires the dlq:purge scope.",
+		Tags: []string{"Admin DLQ"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
+	}, s.handleAdminPurgeDLQ)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-list-outbox", Method: http.MethodGet, Path: "/v1/admin/outbox",
+		Summary: "List quarantined outbox rows (admin)", Description: "Read-only paginated listing of terminal outbox rows that were quarantined after enqueue promotion failed.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500, 503},
+	}, s.handleAdminListOutbox)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-get-outbox", Method: http.MethodGet, Path: "/v1/admin/outbox/{outbox_id}",
+		Summary: "Get a quarantined outbox row (admin)", Description: "Returns one quarantined outbox row including the stored terminal error text.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500, 503},
+	}, s.handleAdminGetOutbox)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-retry-outbox", Method: http.MethodPost, Path: "/v1/admin/outbox/{outbox_id}/retry",
+		Summary: "Retry a quarantined outbox row (admin)", Description: "Creates a fresh retry clone from a quarantined outbox row and records an audit event. Requires the outbox:retry scope.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500, 503},
+	}, s.handleAdminRetryOutbox)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "admin-purge-outbox", Method: http.MethodPost, Path: "/v1/admin/outbox/{outbox_id}/purge",
+		Summary: "Purge a quarantined outbox row (admin)", Description: "Hard-deletes a quarantined outbox row and records an audit event. Requires the outbox:purge scope.",
+		Tags: []string{"Admin Outbox"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500, 503},
+	}, s.handleAdminPurgeOutbox)
 
 	// -- Runs --
 	RegisterTypedOp(api, OpMeta{
@@ -1195,6 +1250,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleExportAuditEvents)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-audit-event", Method: http.MethodGet, Path: "/v1/audit-events/{id}",
+		Summary: "Get an audit event", Description: "Returns a single audit event scoped to the current project. The read itself is audited.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleGetAuditEvent)
+
 	// -- Data Export --
 	RegisterTypedOp(api, OpMeta{
 		ID: "export-jobs", Method: http.MethodGet, Path: "/v1/export/jobs",
@@ -1219,6 +1280,53 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Verify audit chain", Description: "Verifies the integrity of the audit event hash chain.",
 		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleVerifyAuditChain)
+
+	// -- Audit deadletter (admin) --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-audit-deadletter", Method: http.MethodGet, Path: "/v1/audit/deadletter",
+		Summary: "List audit deadletter entries", Description: "Returns a paginated list of audit events that failed to persist to the chain and are awaiting reclamation. Admin-only.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "replay-audit-deadletter", Method: http.MethodPost, Path: "/v1/audit/deadletter/{id}/replay",
+		Summary: "Replay an audit deadletter entry", Description: "Moves a deadletter entry into the primary audit chain and removes it from the DLQ on success. Admin-only.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleReplayDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "drop-audit-deadletter", Method: http.MethodDelete, Path: "/v1/audit/deadletter/{id}",
+		Summary: "Drop an audit deadletter entry", Description: "Permanently deletes a deadletter entry, accepting data loss. Admin-only. The drop itself is audited.",
+		Tags: []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleDropDeadletter)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-audit-export-cap", Method: http.MethodPut, Path: "/v1/projects/{id}/quotas/audit-export-cap",
+		Summary:     "Update audit export row cap",
+		Description: "Sets the per-project row cap applied to audit export streams. 0 re-inherits the server default. Admin-only, audited.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleUpdateAuditExportCap)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-audit-retention", Method: http.MethodGet, Path: "/v1/projects/{id}/audit/retention",
+		Summary:     "Get audit retention override",
+		Description: "Returns the per-project audit retention window (days). Reports whether the value is inherited from the server default or explicitly overridden (including the explicit 0 = disable-trim case). Admin-only.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleGetAuditRetention)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "set-audit-retention", Method: http.MethodPut, Path: "/v1/projects/{id}/audit/retention",
+		Summary:     "Update audit retention override",
+		Description: "Sets the per-project audit retention window (days). 0 disables retention trimming for the project; negative values are rejected. Admin-only, audited.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleSetAuditRetention)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "rotate-audit-signing-key", Method: http.MethodPost, Path: "/v1/projects/{id}/audit/rotate-key",
+		Summary:     "Rotate the audit signing key",
+		Description: "Rotates the per-project HMAC signing key for the audit chain. Stores the new per-epoch key encrypted and emits an is_anchor=TRUE audit.key_rotated event under the new key. Admin-only.",
+		Tags:        []string{"Audit"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleRotateAuditSigningKey)
 
 	// -- RBAC: Resource Policies --
 	RegisterTypedOp(api, OpMeta{

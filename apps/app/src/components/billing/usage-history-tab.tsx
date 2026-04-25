@@ -143,7 +143,6 @@ const UsageHistoryTab = () => {
             <Button
               disabled={isEmpty || csvExport.isPending}
               onClick={() => csvExport.mutate()}
-              size="sm"
               variant="outline"
             >
               {csvExport.isPending ? "Exporting..." : "Download CSV"}
@@ -151,7 +150,6 @@ const UsageHistoryTab = () => {
             <Button
               disabled={isEmpty || pdfExport.isPending}
               onClick={() => pdfExport.mutate()}
-              size="sm"
               variant="outline"
             >
               {pdfExport.isPending ? "Exporting..." : "Download PDF"}

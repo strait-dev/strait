@@ -4,11 +4,11 @@ description: "Dynamic worker pool sizing based on system load and throughput."
 sidebarTitle: "Adaptive Concurrency"
 ---
 
-Adaptive concurrency dynamically adjusts the worker pool size between configurable min/max bounds based on observed throughput and error rates. This ensures optimal resource utilization while protecting downstream services from being overwhelmed during traffic spikes.
+Adaptive concurrency automatically adjusts the number of workers between configurable min/max bounds based on observed throughput and error rates. Use it when your workload fluctuates and you want Strait to scale execution capacity without manual tuning.
 
 ## Overview
 
-The adaptive concurrency feature allows Strait to scale its execution capacity up or down automatically. Instead of a fixed number of workers, the system observes the health of the job execution environment and adjusts the concurrency level in real-time. This prevents the "thundering herd" problem and ensures that the system remains responsive under heavy load.
+Instead of a fixed worker count, Strait monitors job completion rates, error rates, and queue depth, then adjusts concurrency in real time. This prevents a burst of traffic from overwhelming downstream services while still processing as fast as conditions allow.
 
 ## How It Works
 
@@ -16,16 +16,14 @@ The system monitors job completion rates, error rates, and queue depth to determ
 
 - **Scaling Up**: When throughput is high and error rates remain low, the system gradually increases the number of concurrent workers to maximize processing speed.
 - **Scaling Down**: When errors spike or throughput drops significantly, the system aggressively reduces concurrency to alleviate pressure on the system.
-- **Algorithm**: It uses an Additive Increase, Multiplicative Decrease (AIMD) algorithm, similar to TCP congestion control, to find the stable operating point for the current workload.
+- **Algorithm**: Uses AIMD (Additive Increase, Multiplicative Decrease) -- the same approach TCP uses for congestion control. Concurrency rises gradually when things are healthy and drops sharply when errors spike, converging on a stable operating point.
 
 ## Configuration
 
-The following environment variables control the behavior of the adaptive concurrency engine:
-
-| Variable | Default | Description |
+| Variable | Default | What it controls |
 | :--- | :--- | :--- |
-| `ADAPTIVE_CONCURRENCY_MIN` | 1 | The minimum number of concurrent workers. |
-| `ADAPTIVE_CONCURRENCY_MAX` | `WORKER_CONCURRENCY` | The maximum number of concurrent workers. |
+| `ADAPTIVE_CONCURRENCY_MIN` | 1 | Floor for the worker count. Strait never scales below this. |
+| `ADAPTIVE_CONCURRENCY_MAX` | `WORKER_CONCURRENCY` | Ceiling for the worker count. Strait never scales above this. |
 
 ## When to Use
 

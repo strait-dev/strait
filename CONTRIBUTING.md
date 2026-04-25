@@ -1,5 +1,7 @@
 # Contributing to Strait
 
+Thanks for considering a contribution to Strait. Whether you're fixing a bug, improving documentation, or building a new feature, your help makes the project better for everyone. This guide will get you set up and oriented quickly.
+
 ## Prerequisites
 
 - [Go](https://go.dev/dl/) 1.26+
@@ -9,6 +11,10 @@
 - [lefthook](https://github.com/evilmartians/lefthook) (git hooks)
 
 ## Setup
+
+If you just want to try Strait before diving into the code, [SELFHOST.md](SELFHOST.md) is the fastest way to get the full stack running.
+
+To set up a development environment:
 
 ```bash
 # Clone the repo.
@@ -132,9 +138,11 @@ This builds the runtime worker from `apps/agents` and copies the output into
 `runtime_worker_bundle.js`. The bundle is checked in because `go build` requires
 embedded files to exist at compile time.
 
+If your change is large or touches multiple subsystems, consider opening an issue first to discuss the approach.
+
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview.
+See the [architecture docs](apps/docs/architecture.mdx) and [AGENTS.md](AGENTS.md) for a system overview.
 
 Key directories:
 - `apps/strait/` -- Go API server, worker, scheduler

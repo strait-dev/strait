@@ -18,7 +18,7 @@
           "options": [
             { "selected": false, "text": "1m", "value": "1m" },
             { "selected": false, "text": "5m", "value": "5m" },
-            { "selected": true,  "text": "10m", "value": "10m" },
+            { "selected": true, "text": "10m", "value": "10m" },
             { "selected": false, "text": "30m", "value": "30m" },
             { "selected": false, "text": "1h", "value": "1h" }
           ],

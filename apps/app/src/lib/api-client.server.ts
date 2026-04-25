@@ -46,7 +46,7 @@ async function resolveProjectId(): Promise<string | undefined> {
   } catch {
     // Session resolution is best-effort
   }
-  return undefined;
+  return;
 }
 
 /** Build the URL with query params. */

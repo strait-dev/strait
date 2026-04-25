@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -29,6 +30,11 @@ func requireKindCluster(t *testing.T) *K8sRuntime {
 	rt, err := NewK8sRuntime(kubeconfig, "default", "", "")
 	if err != nil {
 		t.Skipf("cannot connect to k8s cluster: %v", err)
+	}
+	checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := rt.clientset.CoreV1().Namespaces().Get(checkCtx, "default", metav1.GetOptions{}); err != nil {
+		t.Skipf("cannot reach k8s cluster: %v", err)
 	}
 	return rt
 }
@@ -247,7 +253,7 @@ func TestK8sIntegration_ConcurrentJobs(t *testing.T) {
 	defer cancel()
 
 	const n = 5
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	results := make([]*RunResult, n)
 	errs := make([]error, n)
 

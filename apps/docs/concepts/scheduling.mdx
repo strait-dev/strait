@@ -4,15 +4,14 @@ description: "Managing when jobs and workflows execute."
 icon: "calendar"
 ---
 
-Strait provides several mechanisms to control the timing of job and workflow executions, from recurring cron schedules to delayed one-off runs.
+Strait gives you several ways to control when your jobs and workflows run — recurring schedules, one-time delayed execution, and time-based windows that restrict when work can happen.
 
 ## Cron Scheduling
 
 Jobs and workflows can be configured with a `cron` expression for automatic, recurring execution.
 
-- **Syntax**: Standard 5-field cron syntax (e.g., `0 * * * *` for every hour).
-- **Timezone Support**: Schedules can be pinned to a specific timezone (e.g., `America/Los_Angeles`) via the `timezone` (for jobs) or `cron_timezone` (for workflows) fields.
-- **Implementation**: Handled by the `CronScheduler` using the `robfig/cron/v3` library.
+- **Syntax**: Five-field cron expressions. The five fields are, in order: minute (0-59), hour (0-23), day of month (1-31), month (1-12), and day of week (0-6, where 0 is Sunday). For example, `0 * * * *` means "every hour, on the hour" and `30 9 * * 1-5` means "weekdays at 9:30 AM".
+- **Timezone Support**: You can pin schedules to a specific timezone (e.g., `America/Los_Angeles`) using the `timezone` field (for jobs) or `cron_timezone` field (for workflows). Without this, schedules run in UTC.
 
 <Note>
 If a job is disabled (`enabled: false`), its cron schedule is ignored by the scheduler.
@@ -27,22 +26,22 @@ Runs can be scheduled to execute at a specific point in the future.
 
 ## Stale Run Reaper
 
-To ensure system reliability, the `Reaper` background component monitors for runs that have become "stale."
+Strait monitors for runs that have become stuck or unresponsive.
 
-- **Heartbeat Monitoring**: Executing runs are expected to send periodic heartbeats. If a run's `heartbeat_at` timestamp exceeds a configurable threshold, the reaper identifies it as stale.
-- **Stale Dequeued Runs**: Runs that were claimed (`dequeued`) but never transitioned to `executing` are also reaped.
-- **Actions**: Stale runs may be transitioned to `crashed` or `system_failed`, allowing them to be retried if attempts remain.
+- **Heartbeat Monitoring**: While a run is executing, it sends periodic heartbeats. If a run stops sending heartbeats past a configurable threshold, Strait marks it as stale.
+- **Stale Dequeued Runs**: If a worker claims a run but never starts executing it, Strait catches that too.
+- **Recovery**: Stale runs transition to `crashed` or `system_failed`. If retry attempts remain, Strait automatically retries them.
 
 ## Retention Policies
 
-The `RetentionWorker` manages the cleanup of old run data to prevent database bloat.
+Strait automatically cleans up old run data to keep your database lean.
 
 - **Short Retention (30 days)**: Applied to terminal runs in `completed`, `failed`, `canceled`, or `expired` states.
 - **Long Retention (90 days)**: Applied to terminal runs in `timed_out`, `crashed`, or `system_failed` states, providing a longer window for debugging critical failures.
 
 ## Execution Windows
 
-Jobs can define an `execution_window_cron`. This restricts the job from being dequeued unless the current time matches the provided cron-like expression.
+You can restrict when a job is allowed to run by setting an `execution_window_cron`. Strait only dequeues the job when the current time matches the expression.
 
 <Example>
 `0 9-17 * * 1-5` restricts a job to only run during business hours (9 AM - 5 PM, Monday through Friday).

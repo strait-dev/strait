@@ -43,6 +43,7 @@ import {
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { importPKCS8, SignJWT } from "jose";
 import { Client, type Pool } from "pg";
+import { isCommunityEdition } from "@/lib/edition";
 import {
   ALL_OAUTH_SCOPES,
   DEFAULT_REGISTRATION_SCOPES,
@@ -72,7 +73,7 @@ import { getResend } from "@/lib/resend.server";
  * Falls back to `AUTH_DATABASE_URL` for local development where
  * Hyperdrive provides a local connection string automatically.
  */
-function getAuthConnectionString(): string {
+export function getAuthConnectionString(): string {
   const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
     | { connectionString: string }
     | undefined;

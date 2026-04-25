@@ -435,3 +435,106 @@ func TestCalculateSLACredit_CustomSLATarget(t *testing.T) {
 		t.Errorf("CalculateSLACredit(99.99, 99.99) = %d, want 0", got)
 	}
 }
+
+func TestApplyComputeDiscount_NegativeCostReturnsZero(t *testing.T) {
+	t.Parallel()
+	if got := ApplyComputeDiscount(-100, 10); got != 0 {
+		t.Errorf("ApplyComputeDiscount(-100, 10) = %d, want 0", got)
+	}
+}
+
+func TestApplyComputeDiscount_BoundaryDiscount1(t *testing.T) {
+	t.Parallel()
+	got := ApplyComputeDiscount(1000, 1)
+	if got != 990 {
+		t.Errorf("ApplyComputeDiscount(1000, 1) = %d, want 990", got)
+	}
+}
+
+func TestApplyComputeDiscount_BoundaryDiscount99(t *testing.T) {
+	t.Parallel()
+	got := ApplyComputeDiscount(1000, 99)
+	if got != 10 {
+		t.Errorf("ApplyComputeDiscount(1000, 99) = %d, want 10", got)
+	}
+}
+
+func TestApplyComputeDiscount_Over100(t *testing.T) {
+	t.Parallel()
+	if got := ApplyComputeDiscount(1000, 150); got != 0 {
+		t.Errorf("ApplyComputeDiscount(1000, 150) = %d, want 0 (>= 100 returns 0)", got)
+	}
+}
+
+func TestValidateEnterpriseContract_NegativeCredit(t *testing.T) {
+	t.Parallel()
+	c := &EnterpriseContract{
+		OrgID:                  "org-1",
+		EnterpriseTier:         EnterpriseTierStarter,
+		AnnualCommitmentCents:  1_800_000,
+		IncludedCreditMicrousd: -1,
+		ContractStartDate:      time.Now(),
+		ContractEndDate:        time.Now().AddDate(1, 0, 0),
+		BillingCadence:         "annual",
+	}
+	if err := ValidateEnterpriseContract(c); err == nil {
+		t.Fatal("expected error for negative credit")
+	}
+}
+
+func TestValidateEnterpriseContract_DiscountBoundaries(t *testing.T) {
+	t.Parallel()
+	base := func() *EnterpriseContract {
+		return &EnterpriseContract{
+			OrgID:                 "org-1",
+			EnterpriseTier:        EnterpriseTierStarter,
+			AnnualCommitmentCents: 1_800_000,
+			ContractStartDate:     time.Now(),
+			ContractEndDate:       time.Now().AddDate(1, 0, 0),
+			BillingCadence:        "annual",
+		}
+	}
+
+	// Discount at 0 should pass.
+	c := base()
+	c.ComputeDiscountPct = 0
+	if err := ValidateEnterpriseContract(c); err != nil {
+		t.Errorf("discount=0 should be valid: %v", err)
+	}
+
+	// Discount at 100 should pass.
+	c = base()
+	c.ComputeDiscountPct = 100
+	if err := ValidateEnterpriseContract(c); err != nil {
+		t.Errorf("discount=100 should be valid: %v", err)
+	}
+
+	// Discount at -1 should fail.
+	c = base()
+	c.ComputeDiscountPct = -1
+	if err := ValidateEnterpriseContract(c); err == nil {
+		t.Error("discount=-1 should be invalid")
+	}
+
+	// Discount at 101 should fail.
+	c = base()
+	c.ComputeDiscountPct = 101
+	if err := ValidateEnterpriseContract(c); err == nil {
+		t.Error("discount=101 should be invalid")
+	}
+}
+
+func TestValidateEnterpriseContract_ExactMinCommitment(t *testing.T) {
+	t.Parallel()
+	c := &EnterpriseContract{
+		OrgID:                 "org-1",
+		EnterpriseTier:        EnterpriseTierStarter,
+		AnnualCommitmentCents: EnterpriseStarterAnnualCents,
+		ContractStartDate:     time.Now(),
+		ContractEndDate:       time.Now().AddDate(1, 0, 0),
+		BillingCadence:        "annual",
+	}
+	if err := ValidateEnterpriseContract(c); err != nil {
+		t.Errorf("exact min commitment should be valid: %v", err)
+	}
+}

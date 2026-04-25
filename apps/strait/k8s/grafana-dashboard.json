@@ -4,10 +4,7 @@
     "uid": "strait-platform",
     "timezone": "browser",
     "refresh": "30s",
-    "tags": [
-      "strait",
-      "production"
-    ],
+    "tags": ["strait", "production"],
     "templating": {
       "list": [
         {
@@ -1347,6 +1344,143 @@
           {
             "expr": "histogram_quantile(0.95, sum(rate(strait_code_deploy_tarball_bytes_bucket[30m])) by (le))",
             "legendFormat": "P95"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Partition Dequeue Lag (P50/P95/P99)",
+        "description": "Wall-clock duration of per-partition dequeue calls.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 0, "y": 106 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(strait_queue_partition_dequeue_lag_seconds_bucket[5m])) by (le, partition))",
+            "legendFormat": "P50 {{partition}}"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(strait_queue_partition_dequeue_lag_seconds_bucket[5m])) by (le, partition))",
+            "legendFormat": "P95 {{partition}}"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_queue_partition_dequeue_lag_seconds_bucket[5m])) by (le, partition))",
+            "legendFormat": "P99 {{partition}}"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Claim→Start Latency (P50/P95/P99)",
+        "description": "Time between a run being claimed and user work starting.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 12, "y": 106 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(strait_queue_claim_to_start_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(strait_queue_claim_to_start_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_queue_claim_to_start_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Worker Pool Queue Depth",
+        "description": "Tasks waiting in the pool queue.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 0, "y": 113 },
+        "targets": [
+          { "expr": "strait_pool_waiting_tasks", "legendFormat": "waiting" }
+        ]
+      },
+      {
+        "title": "Queue Internals — DB Circuit Transitions",
+        "description": "Rate of DB circuit breaker state transitions.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 12, "y": 113 },
+        "targets": [
+          {
+            "expr": "sum(rate(strait_queue_circuit_state_transitions_total[5m])) by (from, to)",
+            "legendFormat": "{{from}} -> {{to}}"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Outbox Lag (P50/P95/P99)",
+        "description": "Age of outbox rows at the time the flusher promoted them.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 0, "y": 120 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(strait_queue_outbox_lag_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(strait_queue_outbox_lag_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_queue_outbox_lag_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Backpressure Tokens Available (sampled)",
+        "description": "Available backpressure tokens by sampled project.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 12, "y": 120 },
+        "targets": [
+          {
+            "expr": "strait_queue_backpressure_tokens_available",
+            "legendFormat": "{{project_id}}"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Retry Attempt Distribution (P50/P95/P99)",
+        "description": "Attempt number observed each time a run is re-enqueued.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 0, "y": 127 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(strait_worker_retry_attempts_bucket[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(strait_worker_retry_attempts_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(strait_worker_retry_attempts_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — Event Channel Drops",
+        "description": "Rate of executor lifecycle events dropped because the event channel was full or closed.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 12, "y": 127 },
+        "targets": [
+          {
+            "expr": "sum(rate(strait_worker_event_channel_dropped_total[5m])) by (kind)",
+            "legendFormat": "{{kind}}"
+          }
+        ]
+      },
+      {
+        "title": "Queue Internals — DLQ Oldest Unmasked Age",
+        "description": "Age of the oldest visible dead-letter row.",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 24, "x": 0, "y": 134 },
+        "targets": [
+          {
+            "expr": "strait_queue_dlq_oldest_unmasked_age_seconds",
+            "legendFormat": "age_seconds"
           }
         ]
       }

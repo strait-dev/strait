@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"strait/internal/billing"
 	"strait/internal/compute"
@@ -23,6 +26,9 @@ import (
 
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
+	"github.com/sourcegraph/conc"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -119,7 +125,7 @@ type Executor struct {
 	defaultRegion            string
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
-	stripeUsageWG            sync.WaitGroup // tracks in-flight Stripe usage event goroutines
+	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -127,6 +133,26 @@ type Executor struct {
 	callbackWG               sync.WaitGroup
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
+	claimCursor              *queue.ClaimCursor
+	degradedPollInterval     time.Duration
+	degraded                 queue.DegradedNotifier
+	useDenormalizedDequeue   bool
+	dbCircuit                *queue.DBCircuit
+	eventChannelSize         int
+	saturationWarnMu         sync.Mutex
+	saturationLastWarn       map[string]time.Time
+	// queueMetrics caches the process-wide queue metrics handle so the
+	// hot-path lifecycle emit/drop paths avoid a sync.Once + error-check
+	// lookup per event. Resolved once in NewExecutor; may be nil if the
+	// metrics subsystem failed to initialise (tests without OTEL).
+	queueMetrics *queue.QueueMetrics
+	// instanceID is a stable identifier for this process used as the
+	// "instance" attribute on multi-instance gauges (notably
+	// EventChannelSaturationRatio) so multi-pod deployments can tell
+	// which replica is saturated. Resolved lazily once via
+	// resolveInstanceID and cached for the life of the executor.
+	instanceIDOnce sync.Once
+	instanceID     string
 }
 
 type ConcurrencyLimitProvider interface {
@@ -172,12 +198,43 @@ type ExecutorConfig struct {
 	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	// DegradedPollInterval is the shortened poll interval used when the
+	// queue notifier enters degraded mode (LISTEN disconnected for too long).
+	// Zero/negative falls back to 1 second.
+	DegradedPollInterval time.Duration
+	// Degraded provides a channel that closes when the queue notifier enters
+	// degraded mode. The executor re-invokes Degraded() on each recovery to
+	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
+	// degraded-mode support.
+	Degraded queue.DegradedNotifier
+	// UseDenormalizedDequeue opts into the job_active_counts-backed
+	// dequeue path. Defaults to false so existing deployments are unaffected.
+	UseDenormalizedDequeue bool
+	// DBCircuitConfig configures the circuit breaker for the
+	// dequeue hot path. Zero values fall back to defaults.
+	DBCircuitConfig queue.DBCircuitConfig
+	// EventChannelSize overrides the default (1024) buffered capacity of the
+	// run-lifecycle event channel. Zero/negative values fall back to the
+	// default. Values below 16 are clamped to 16.
+	EventChannelSize int
 }
 
 const (
 	defaultCircuitFailureThreshold = 5
 	defaultCircuitOpenDuration     = time.Minute
+	defaultEventChannelSize        = 1024
+	minEventChannelSize            = 16
+	eventChannelSaturationRatio    = 0.8
+	eventChannelWarnInterval       = 30 * time.Second
+	defaultDegradedPollInterval    = time.Second
 )
+
+func resolveDegradedPollInterval(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultDegradedPollInterval
+	}
+	return d
+}
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	httpClient := cfg.HTTPClient
@@ -257,7 +314,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
 		webhookMaxRetry:          whMaxAttempts,
-		eventCh:                  make(chan runEventEnvelope, 256),
+		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
+		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),
+		saturationLastWarn:       make(map[string]time.Time),
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
@@ -278,7 +337,25 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
+		claimCursor:              queue.NewClaimCursor(60 * time.Second),
+		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
+		degraded:                 cfg.Degraded,
+		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
+		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
+		queueMetrics:             resolveQueueMetrics(),
 	}
+}
+
+// resolveQueueMetrics fetches the singleton queue metrics handle once at
+// executor construction. Returns nil when the metrics subsystem failed
+// to initialise so hot-path callers can nil-guard cheaply instead of
+// re-entering the sync.Once on every emit.
+func resolveQueueMetrics() *queue.QueueMetrics {
+	qm, err := queue.Metrics()
+	if err != nil {
+		return nil
+	}
+	return qm
 }
 
 // CloseCache shuts down the otter cache if one was created.
@@ -323,17 +400,102 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"type", event.Type,
 				"run_id", event.Run.ID,
 			)
+			e.recordEventChannelDrop(ctx, "closed")
 		}
 	}()
 
 	select {
 	case e.eventCh <- runEventEnvelope{ctx: ctx, event: event}:
+		e.sampleEventChannelSaturation(ctx, string(event.Type))
 	default:
-		e.logger.Warn("event channel full, dropping event",
-			"type", event.Type,
-			"run_id", event.Run.ID,
+		if e.shouldLogSaturation(string(event.Type)) {
+			e.logger.Warn("event channel full, dropping event",
+				"type", event.Type,
+				"run_id", event.Run.ID,
+			)
+		}
+		e.recordEventChannelDrop(ctx, string(event.Type))
+	}
+}
+
+// resolveEventChannelSize applies defaults and a lower bound to the configured
+// event channel capacity.
+func resolveEventChannelSize(configured int) int {
+	if configured <= 0 {
+		return defaultEventChannelSize
+	}
+	if configured < minEventChannelSize {
+		return minEventChannelSize
+	}
+	return configured
+}
+
+// sampleEventChannelSaturation records the current channel fill ratio and emits
+// a rate-limited warning log plus the saturation gauge whenever it exceeds the
+// threshold. Per-kind throttling prevents log floods under sustained pressure.
+func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string) {
+	if e.eventChannelSize <= 0 {
+		return
+	}
+	ratio := float64(len(e.eventCh)) / float64(e.eventChannelSize)
+	if qm := e.queueMetrics; qm != nil && qm.EventChannelSaturationRatio != nil {
+		qm.EventChannelSaturationRatio.Record(ctx, ratio,
+			metric.WithAttributes(attribute.String("instance", e.resolveInstanceID())))
+	}
+	if ratio > eventChannelSaturationRatio && e.shouldLogSaturation(kind) {
+		e.logger.Warn("event channel saturated",
+			"kind", kind,
+			"ratio", ratio,
+			"depth", len(e.eventCh),
+			"capacity", e.eventChannelSize,
 		)
 	}
+}
+
+// resolveInstanceID returns a stable per-process identifier suitable
+// for use as a metric attribute. Prefers the OS hostname (matches K8s
+// pod name in standard deployments); falls back to a process-scoped
+// UUID if Hostname errors or returns empty. Resolution happens at most
+// once per Executor; subsequent calls return the cached value.
+func (e *Executor) resolveInstanceID() string {
+	e.instanceIDOnce.Do(func() {
+		host, err := os.Hostname()
+		if err == nil && host != "" {
+			e.instanceID = host
+			return
+		}
+		e.instanceID = uuid.NewString()
+	})
+	return e.instanceID
+}
+
+// shouldLogSaturation returns true at most once per eventChannelWarnInterval
+// per event kind, so the warn log survives sustained backpressure without
+// spamming.
+func (e *Executor) shouldLogSaturation(kind string) bool {
+	e.saturationWarnMu.Lock()
+	defer e.saturationWarnMu.Unlock()
+	if e.saturationLastWarn == nil {
+		e.saturationLastWarn = make(map[string]time.Time)
+	}
+	now := time.Now()
+	if last, ok := e.saturationLastWarn[kind]; ok && now.Sub(last) < eventChannelWarnInterval {
+		return false
+	}
+	e.saturationLastWarn[kind] = now
+	return true
+}
+
+// recordEventChannelDrop increments the drop counter labelled by event kind.
+// No-op when queue metrics have not been initialised. Uses the cached
+// Executor queueMetrics handle to avoid a sync.Once + error-check
+// lookup on every drop in the lifecycle hot path.
+func (e *Executor) recordEventChannelDrop(ctx context.Context, kind string) {
+	qm := e.queueMetrics
+	if qm == nil || qm.EventChannelDropped == nil {
+		return
+	}
+	qm.EventChannelDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", kind)))
 }
 
 // runEventLoop drains the event channel and fans out to all subscribers.
@@ -428,6 +590,12 @@ func (e *Executor) Run(ctx context.Context) {
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
+	var degradedCh <-chan struct{}
+	if e.degraded != nil {
+		degradedCh = e.degraded.Degraded()
+	}
+	inDegradedMode := false
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -441,6 +609,22 @@ func (e *Executor) Run(ctx context.Context) {
 				e.wake = nil
 				continue
 			}
+			if inDegradedMode {
+				ticker.Reset(e.pollInterval)
+				inDegradedMode = false
+				if e.degraded != nil {
+					degradedCh = e.degraded.Degraded()
+				}
+				e.logger.Info("executor restored normal poll interval after wake reconnect")
+			}
+			e.doPoll(ctx)
+		case <-degradedCh:
+			ticker.Reset(e.degradedPollInterval)
+			inDegradedMode = true
+			degradedCh = nil
+			e.logger.Warn("executor entering degraded mode: fast polling engaged",
+				"degraded_poll_interval", e.degradedPollInterval,
+			)
 			e.doPoll(ctx)
 		case <-ticker.C:
 			e.doPoll(ctx)

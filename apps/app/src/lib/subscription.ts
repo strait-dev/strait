@@ -25,6 +25,7 @@ async function getPolarClient(): Promise<Polar> {
   }
   return _polarClient;
 }
+import { isCommunityEdition } from "@/lib/edition";
 
 type CustomerPortalResponse = {
   url: string | null;
@@ -34,10 +35,21 @@ type CustomerPortalResponse = {
 /**
  * Server function to get customer portal URL using email lookup.
  * This works around the limitation where customers don't have externalId set.
+ *
+ * Community edition returns an error payload — the customer portal
+ * is a cloud-only feature and self-host users have no Stripe
+ * customers to manage.
  */
 export const getCustomerPortalUrlServerFn = createServerFn({
   method: "GET",
 }).handler(async ({ context }): Promise<CustomerPortalResponse> => {
+  if (isCommunityEdition) {
+    return {
+      url: null,
+      error: "Customer portal is not available in community edition",
+    };
+  }
+
   const ctx = context as { session?: { user: { email: string } } } | undefined;
   const session = ctx?.session;
 

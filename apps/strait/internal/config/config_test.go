@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1417,5 +1419,60 @@ func TestValidateCloudflareConfig_MissingRequired(t *testing.T) {
 	cfg := &Config{CFAccountID: "acct-123"}
 	if err := validateCloudflareConfig(cfg); err == nil {
 		t.Fatal("expected error for incomplete cloudflare config")
+	}
+}
+
+// TestEnvExample_ListsAllAuditVars asserts the repository .env.example file
+// enumerates every AUDIT_* config field. If a new field is added to config.go
+// without updating .env.example, this test fails. When run outside a repo
+// checkout (e.g. from a packaged tarball) the file may not be findable —
+// in that case the test is skipped with a diagnostic listing the search path.
+func TestEnvExample_ListsAllAuditVars(t *testing.T) {
+	required := []string{
+		"AUDIT_RETENTION_DEFAULT_DAYS",
+		"AUDIT_ASYNC_BUFFER_SIZE",
+		"AUDIT_SIEM_ENDPOINT",
+		"AUDIT_SIEM_AUTH_TOKEN",
+		"AUDIT_SIEM_BATCH_SIZE",
+		"AUDIT_SIEM_FLUSH_INTERVAL",
+		"AUDIT_EXPORT_ROW_CAP_DEFAULT",
+		"AUDIT_DLQ_RECLAIM_BATCH",
+	}
+
+	// Walk up from the test file's cwd looking for .env.example at the
+	// repository root. Test cwd is the package dir.
+	start, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	var found string
+	var tried []string
+	dir := start
+	for range 10 {
+		candidate := filepath.Join(dir, ".env.example")
+		tried = append(tried, candidate)
+		if _, err := os.Stat(candidate); err == nil {
+			found = candidate
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	if found == "" {
+		t.Skipf(".env.example not found; searched: %v", tried)
+	}
+
+	data, err := os.ReadFile(found)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", found, err)
+	}
+	content := string(data)
+	for _, key := range required {
+		if !strings.Contains(content, key+"=") {
+			t.Errorf("%s: missing %q= entry", found, key)
+		}
 	}
 }

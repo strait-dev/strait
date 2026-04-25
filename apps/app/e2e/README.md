@@ -1,6 +1,6 @@
 # E2E Tests
 
-Playwright end-to-end tests for the Strait dashboard app.
+Playwright tests for the Strait dashboard. Run these to verify end-to-end user flows before submitting changes to the frontend.
 
 ## Prerequisites
 
@@ -44,12 +44,12 @@ These default automatically in local development through `bun run dev`.
 
 1. Create a spec file in the appropriate `e2e/tests/<category>/` directory
 2. Import the test fixture: `import { test, expect } from "../../fixtures";`
-3. Tests using the `chromium` project get an authenticated `page` with `storageState`
+   The fixture re-exports Playwright's `test` and `expect` plus custom helpers: an authenticated `page` (already logged in) and an `api` helper for creating test data.
+3. Tests using the `chromium` project get an authenticated `page` with `storageState`. The `chromium` project uses stored authentication so tests start already logged in -- no manual login step needed.
 4. Auth tests should use `test.use({ storageState: { cookies: [], origins: [] } })` to clear session
 5. Use the `api` fixture to seed test data via the Go API
 6. Clean up seeded data in `test.afterAll`
 7. Add `data-testid` attributes to components as needed
-
 ## Test structure
 
 ```
@@ -80,9 +80,8 @@ e2e/
 
 ## CI
 
-Tests run in GitHub Actions via `.github/workflows/e2e.yml` with 4 parallel shards.
-Each shard gets an isolated Postgres database (`strait_e2e_{run_id}_{shard}`) and
-Redis DB index to prevent conflicts between parallel PR runs.
+Tests run in CI with 4 parallel shards. Each shard gets its own Postgres database
+(`strait_e2e_{run_id}_{shard}`) and Redis DB index to prevent conflicts.
 
 ## Debugging
 

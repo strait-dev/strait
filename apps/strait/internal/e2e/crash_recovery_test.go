@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 // TestCrashRecovery_MigrationIdempotency verifies that running migrations a
@@ -147,18 +147,17 @@ func TestCrashRecovery_ProjectQuotaAtomicity(t *testing.T) {
 	}
 
 	// Concurrently update the quota.
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func(val int) {
-			defer wg.Done()
+		val := i
+		wg.Go(func() {
 			_, execErr := testEnv.DB.Pool.Exec(ctx,
 				`UPDATE project_job_quotas SET max_queued_runs = $1 WHERE project_id = $2`,
 				100+val, projectID)
 			if execErr != nil {
 				t.Logf("concurrent quota update: %v", execErr)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -185,13 +184,11 @@ func TestCrashRecovery_JobDependencyRace(t *testing.T) {
 
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var createErrors, deleteErrors atomic.Int32
 
-	for i := 0; i < 10; i++ {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			dep := &domain.JobDependency{
 				JobID:          job2ID,
 				DependsOnJobID: job1ID,
@@ -200,9 +197,8 @@ func TestCrashRecovery_JobDependencyRace(t *testing.T) {
 			if err := testStore.CreateJobDependency(ctx, dep); err != nil {
 				createErrors.Add(1)
 			}
-		}()
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			// Try to delete any existing dependency.
 			_, err := testEnv.DB.Pool.Exec(ctx,
 				`DELETE FROM job_dependencies WHERE job_id = $1 AND depends_on_job_id = $2`,
@@ -210,7 +206,7 @@ func TestCrashRecovery_JobDependencyRace(t *testing.T) {
 			if err != nil {
 				deleteErrors.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -253,14 +249,12 @@ func TestCrashRecovery_WorkflowRunVersionUpdate(t *testing.T) {
 		t.Fatalf("create workflow: %v", err)
 	}
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var runCreated atomic.Bool
 	var versionUpdated atomic.Bool
 
 	// Goroutine 1: create a workflow run.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		wr := &domain.WorkflowRun{
 			WorkflowID:      wf.ID,
 			ProjectID:       projectID,
@@ -273,19 +267,17 @@ func TestCrashRecovery_WorkflowRunVersionUpdate(t *testing.T) {
 			return
 		}
 		runCreated.Store(true)
-	}()
+	})
 
 	// Goroutine 2: update the workflow (bumps version).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		wf.Name = "Version Race Updated"
 		if updateErr := testStore.UpdateWorkflow(ctx, wf); updateErr != nil {
 			t.Logf("update workflow: %v", updateErr)
 			return
 		}
 		versionUpdated.Store(true)
-	}()
+	})
 
 	wg.Wait()
 

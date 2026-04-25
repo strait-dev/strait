@@ -850,6 +850,7 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			agent_stripe_subscription_id, agent_current_period_start, agent_current_period_end,
 			COALESCE(agent_spending_limit_microusd, -1),
 			agent_pending_plan_tier,
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE payment_status = 'grace'
@@ -877,6 +878,7 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			&sub.AgentStripeSubscriptionID, &sub.AgentCurrentPeriodStart, &sub.AgentCurrentPeriodEnd,
 			&sub.AgentSpendingLimitMicrousd,
 			&sub.AgentPendingPlanTier,
+			&sub.MonthlyUsageEmail,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning grace period org: %w", err)
@@ -903,6 +905,7 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			agent_stripe_subscription_id, agent_current_period_start, agent_current_period_end,
 			COALESCE(agent_spending_limit_microusd, -1),
 			agent_pending_plan_tier,
+			COALESCE(monthly_usage_email, false),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE status = 'active'
@@ -932,6 +935,7 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			&sub.AgentStripeSubscriptionID, &sub.AgentCurrentPeriodStart, &sub.AgentCurrentPeriodEnd,
 			&sub.AgentSpendingLimitMicrousd,
 			&sub.AgentPendingPlanTier,
+			&sub.MonthlyUsageEmail,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning stale subscription: %w", err)

@@ -112,5 +112,5 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 		ExpiresAt:      &expiresAt,
 	}
 
-	return p.queue.Enqueue(ctx, run)
+	return queue.EnqueueWithRetry(ctx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig())
 }

@@ -125,6 +125,10 @@ func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+func (m *mockQueue) EnqueueInTx(ctx context.Context, _ store.DBTX, run *domain.JobRun) error {
+	return m.Enqueue(ctx, run)
+}
+
 func (m *mockQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
 	return int64(len(runs)), nil
 }
@@ -311,6 +315,62 @@ func (m *mockReaperStore) CancelJobRunsByWorkflowRun(ctx context.Context, workfl
 		return m.cancelJobRunsByWorkflowRunFn(ctx, workflowRunID, finishedAt, reason)
 	}
 	return 0, nil
+}
+
+// Audit reaper interface stubs for mockReaperStore.
+func (m *mockReaperStore) DeleteAuditEventsBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockReaperStore) DeleteAuditEventsBeforeExcluding(_ context.Context, _ time.Time, _ []string) (int64, error) {
+	return 0, nil
+}
+func (m *mockReaperStore) ListAuditRetentionOverrides(_ context.Context) ([]store.AuditRetentionOverride, error) {
+	return nil, nil
+}
+func (m *mockReaperStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
+	return nil, nil, nil
+}
+func (m *mockReaperStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
+	return nil
+}
+func (m *mockReaperStore) DeleteAuditEventDeadletter(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) ListAuditEventsDeadletterWithAttempts(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+	return nil, nil, nil, nil
+}
+func (m *mockReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (m *mockReaperStore) ArchiveTerminalRunsPastRetention(_ context.Context, _, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteHistoryRunsPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) ArchiveConsumedOutboxBatch(_ context.Context, _ time.Duration, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) DeleteOutboxHistoryPastRetention(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
+	return nil, nil
 }
 
 // mockMachineDestroyer implements MachineDestroyer for testing.

@@ -502,3 +502,34 @@ func TestIsTerminalStatus_AllCases(t *testing.T) {
 		})
 	}
 }
+
+// TestEmit_ChannelFull_DropCounterNoDeadlock verifies that when the event
+// channel is saturated, emit returns promptly (no deadlock) and the drop
+// counter hook is exercised without panicking.
+func TestEmit_ChannelFull_DropCounterNoDeadlock(t *testing.T) {
+	t.Parallel()
+	exec := &Executor{
+		eventCh:     make(chan runEventEnvelope, 1),
+		logger:      slog.Default(),
+		subscribers: []RunEventSubscriber{func(_ context.Context, _ RunLifecycleEvent) {}},
+	}
+	run := &domain.JobRun{ID: "run-drop"}
+
+	// Fill the single slot.
+	exec.emit(context.Background(), RunLifecycleEvent{Type: EventCompleted, Run: run})
+
+	// Further emits must not block and must not panic even with no OTEL
+	// meter provider installed (queue metrics noop to a noop meter).
+	done := make(chan struct{})
+	go func() {
+		for range 32 {
+			exec.emit(context.Background(), RunLifecycleEvent{Type: EventCompleted, Run: run})
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("emit blocked on full channel")
+	}
+}

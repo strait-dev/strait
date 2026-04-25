@@ -133,7 +133,7 @@ func (p *MachinePool) Release(projectID, imageURI, region, machineID string) {
 func (p *MachinePool) Prune(maxAge time.Duration, destroyFn func(machineID string) error) int {
 	cutoff := time.Now().Add(-maxAge)
 
-	// Phase 1: collect machines to prune under the lock.
+	// Step 1: collect machines to prune under the lock.
 	var toPrune []string
 
 	p.mu.Lock()
@@ -154,7 +154,7 @@ func (p *MachinePool) Prune(maxAge time.Duration, destroyFn func(machineID strin
 	}
 	p.mu.Unlock()
 
-	// Phase 2: destroy outside the lock so slow I/O doesn't block pool ops.
+	// Step 2: destroy outside the lock so slow I/O doesn't block pool ops.
 	if destroyFn != nil {
 		for _, id := range toPrune {
 			_ = destroyFn(id)

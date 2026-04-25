@@ -3,12 +3,12 @@ title: "RBAC & Policy Authorization"
 description: "Roles, inheritance, resource policies, and tag policies in Strait."
 ---
 
-Strait supports layered authorization for user actors:
+Strait gives you four layers of authorization for user actors:
 
 1. **Role permissions** (project roles)
-2. **Role inheritance** (`parent_role_id` chains)
-3. **Resource policies** (direct user grant on a specific resource)
-4. **Tag policies** (grant by resource tag match)
+2. **Role inheritance** (parent role chains -- a role inherits all permissions from its parent)
+3. **Resource policies** (grant a user direct access to a specific resource)
+4. **Tag policies** (grant access to any resource matching a tag)
 
 API keys continue to use scope-based authorization.
 
@@ -43,7 +43,7 @@ API keys continue to use scope-based authorization.
 
 ## Permission Resolution Order
 
-For user actors, `requirePermission()` resolves access in this order:
+For user actors, Strait resolves access in this order:
 
 1. Role/inherited role permissions
 2. Resource policy permissions for `(resource_type, resource_id, user_id)`
@@ -51,9 +51,9 @@ For user actors, `requirePermission()` resolves access in this order:
 
 ## Notes
 
-- RBAC mutations are rate-limited with stricter control-plane limits.
-- Permission cache is auto-invalidated when memberships/policies change.
-- Audit events are emitted for RBAC control-plane mutations.
+- Strait rate-limits RBAC mutation endpoints with stricter control-plane limits.
+- The permission cache is automatically invalidated when you change memberships or policies.
+- Audit events are emitted for RBAC mutations.
 
 See also:
 - [Authentication & Authorization](/guides/authentication)

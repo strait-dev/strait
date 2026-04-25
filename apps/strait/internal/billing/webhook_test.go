@@ -826,9 +826,12 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		store := &mockBillingStore{}
 		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 
-		called := false
+		done := make(chan struct{}, 1)
 		welcomeFn := func(_ context.Context, _ string, _ domain.PlanTier, _ string) error {
-			called = true
+			select {
+			case done <- struct{}{}:
+			default:
+			}
 			return nil
 		}
 
@@ -858,11 +861,10 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 			t.Fatalf("expected 200, got %d", rr.Code)
 		}
 
-		// Give async goroutine a chance to run (it should not).
-		time.Sleep(100 * time.Millisecond)
-
-		if called {
+		select {
+		case <-done:
 			t.Error("welcome email should not be called when customer email is empty")
+		case <-time.After(200 * time.Millisecond):
 		}
 	})
 

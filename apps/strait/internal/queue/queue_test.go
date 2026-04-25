@@ -46,6 +46,51 @@ func (m *mockDBTX) QueryRow(ctx context.Context, sql string, args ...any) pgx.Ro
 // Verify mockDBTX implements store.DBTX at compile time.
 var _ store.DBTX = (*mockDBTX)(nil)
 
+// mockTxDBTX wraps mockDBTX and adds TxBeginner support for statement timeout tests.
+type mockTxDBTX struct {
+	mockDBTX
+	beginFn func(ctx context.Context) (pgx.Tx, error)
+}
+
+func (m *mockTxDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
+	if m.beginFn != nil {
+		return m.beginFn(ctx)
+	}
+	return nil, errors.New("not implemented")
+}
+
+var _ store.TxBeginner = (*mockTxDBTX)(nil)
+
+// mockTx implements pgx.Tx for testing statement timeout in transactions.
+type mockTx struct {
+	mockDBTX
+	commitFn   func(ctx context.Context) error
+	rollbackFn func(ctx context.Context) error
+}
+
+func (m *mockTx) Begin(_ context.Context) (pgx.Tx, error) { return nil, errors.New("nested") }
+func (m *mockTx) Commit(ctx context.Context) error {
+	if m.commitFn != nil {
+		return m.commitFn(ctx)
+	}
+	return nil
+}
+func (m *mockTx) Rollback(ctx context.Context) error {
+	if m.rollbackFn != nil {
+		return m.rollbackFn(ctx)
+	}
+	return nil
+}
+func (m *mockTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
+	return 0, nil
+}
+func (m *mockTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
+func (m *mockTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
+func (m *mockTx) Prepare(_ context.Context, _ string, _ string) (*pgconn.StatementDescription, error) {
+	return nil, nil
+}
+func (m *mockTx) Conn() *pgx.Conn { return nil }
+
 // mockRow implements pgx.Row.
 type mockRow struct {
 	scanFn func(dest ...any) error
@@ -305,12 +350,17 @@ func TestDequeueN_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
 	q := NewPostgresQueue(db, WithPriorityAging(true))
 	_, _ = q.DequeueN(context.Background(), 10)
 
-	if !strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueN() query missing priority aging formula: %s", query)
+	// Priority aging is now handled by the scheduler promoter, not
+	// a mutable ORDER BY. WithPriorityAging is a no-op kept for compat.
+	if strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueN() query unexpectedly contains aging formula: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
+		t.Fatalf("DequeueN() query missing static priority ordering: %s", query)
 	}
 }
 
-func TestDequeueNByProject_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
+func TestDequeueNByProject_QueryUsesStaticPriorityOrdering(t *testing.T) {
 	t.Parallel()
 
 	var query string
@@ -324,8 +374,11 @@ func TestDequeueNByProject_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
 	q := NewPostgresQueue(db, WithPriorityAging(true))
 	_, _ = q.DequeueNByProject(context.Background(), 10, "proj-1")
 
-	if !strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueNByProject() query missing priority aging formula: %s", query)
+	if strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
+		t.Fatalf("DequeueNByProject() query unexpectedly contains aging formula: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
+		t.Fatalf("DequeueNByProject() query missing static priority ordering: %s", query)
 	}
 }
 
@@ -375,13 +428,20 @@ func TestDequeueN_SetsStatementTimeout(t *testing.T) {
 	t.Parallel()
 
 	var execSQL string
-	db := &mockDBTX{
-		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-			execSQL = sql
-			return pgconn.CommandTag{}, nil
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execSQL = sql
+				return pgconn.CommandTag{}, nil
+			},
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return nil, errors.New("no rows")
+			},
 		},
-		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-			return nil, errors.New("no rows") // short-circuit
+	}
+	db := &mockTxDBTX{
+		beginFn: func(_ context.Context) (pgx.Tx, error) {
+			return tx, nil
 		},
 	}
 
@@ -486,5 +546,249 @@ func TestCopyFromColumnsIncludesMetadata(t *testing.T) {
 	t.Parallel()
 	if !slices.Contains(copyFromColumns, "metadata") {
 		t.Fatalf("copyFromColumns does not contain \"metadata\"; columns = %v", copyFromColumns)
+	}
+}
+
+func TestEnqueue_TagsJSON_NonEmpty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Tags:      map[string]string{"env": "prod", "team": "core"},
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	tagsArg, ok := capturedArgs[23].([]byte)
+	if !ok {
+		t.Fatalf("arg[23] (tags) type = %T, want []byte", capturedArgs[23])
+	}
+	if string(tagsArg) == "{}" {
+		t.Error("tags JSON should not be empty when run.Tags is non-empty")
+	}
+	if !strings.Contains(string(tagsArg), "env") {
+		t.Errorf("tags JSON missing key 'env': %s", string(tagsArg))
+	}
+}
+
+func TestEnqueue_TagsJSON_Empty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	tagsArg, ok := capturedArgs[23].([]byte)
+	if !ok {
+		t.Fatalf("arg[23] (tags) type = %T, want []byte", capturedArgs[23])
+	}
+	if string(tagsArg) != "{}" {
+		t.Errorf("tags JSON should be '{}' for nil tags, got %s", string(tagsArg))
+	}
+}
+
+func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Metadata:  map[string]string{"source": "api"},
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	metaArg, ok := capturedArgs[30].([]byte)
+	if !ok {
+		t.Fatalf("arg[30] (metadata) type = %T, want []byte", capturedArgs[30])
+	}
+	if string(metaArg) == "{}" {
+		t.Error("metadata JSON should not be empty when run.Metadata is non-empty")
+	}
+	if !strings.Contains(string(metaArg), "source") {
+		t.Errorf("metadata JSON missing key 'source': %s", string(metaArg))
+	}
+}
+
+func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	metaArg, ok := capturedArgs[30].([]byte)
+	if !ok {
+		t.Fatalf("arg[30] (metadata) type = %T, want []byte", capturedArgs[30])
+	}
+	if string(metaArg) != "{}" {
+		t.Errorf("metadata JSON should be '{}' for nil metadata, got %s", string(metaArg))
+	}
+}
+
+func TestEnqueue_DefaultExecutionMode_HTTP(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	execMode, ok := capturedArgs[28].(string)
+	if !ok {
+		t.Fatalf("arg[28] (execution_mode) type = %T, want string", capturedArgs[28])
+	}
+	if execMode != string(domain.ExecutionModeHTTP) {
+		t.Errorf("default execution mode = %q, want %q", execMode, domain.ExecutionModeHTTP)
+	}
+}
+
+func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []any
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, args ...any) pgx.Row {
+			capturedArgs = args
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresQueue(db)
+	run := &domain.JobRun{
+		JobID:         "job-1",
+		ProjectID:     "proj-1",
+		ExecutionMode: domain.ExecutionModeManaged,
+	}
+
+	if err := q.Enqueue(context.Background(), run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	execMode, ok := capturedArgs[28].(string)
+	if !ok {
+		t.Fatalf("arg[28] (execution_mode) type = %T, want string", capturedArgs[28])
+	}
+	if execMode != string(domain.ExecutionModeManaged) {
+		t.Errorf("execution mode = %q, want %q", execMode, domain.ExecutionModeManaged)
+	}
+}
+
+func TestBackoffDelay_ExactlyAtMaxDelay(t *testing.T) {
+	t.Parallel()
+	n := &QueueNotifier{
+		initialDelay: 16 * time.Second,
+		maxDelay:     16 * time.Second,
+	}
+	for range 50 {
+		delay := n.backoffDelay(0)
+		maxWithJitter := time.Duration(float64(16*time.Second) * 1.26)
+		if delay > maxWithJitter {
+			t.Fatalf("delay %v exceeds max with jitter at exact boundary", delay)
+		}
+		minWithJitter := time.Duration(float64(16*time.Second) * 0.74)
+		if delay < minWithJitter {
+			t.Fatalf("delay %v below min at exact boundary", delay)
+		}
 	}
 }

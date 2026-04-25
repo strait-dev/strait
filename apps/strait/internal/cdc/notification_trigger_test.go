@@ -175,3 +175,54 @@ func TestNotificationTrigger_PayloadHasRunData(t *testing.T) {
 		t.Errorf("expected event_type=run.completed, got %v", payload["event_type"])
 	}
 }
+
+func TestNotificationTrigger_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	store := &mockNotificationStore{}
+	h := NewNotificationTriggerHandler(store, nil)
+
+	msg := Message{
+		Action:   ActionUpdate,
+		Record:   json.RawMessage(`not valid json`),
+		Metadata: Metadata{TableName: "job_runs"},
+	}
+	err := h.Handle(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestNotificationTrigger_EmptyProjectID(t *testing.T) {
+	t.Parallel()
+	store := &mockNotificationStore{
+		channels: []domain.NotificationChannel{
+			{ID: "ch-1", ProjectID: "p1", ChannelType: "slack", Enabled: true},
+		},
+	}
+	h := NewNotificationTriggerHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(store.deliveries) != 0 {
+		t.Fatal("expected no deliveries for empty project_id")
+	}
+}
+
+func TestNotificationTrigger_CreateDeliveryError_Resilient(t *testing.T) {
+	t.Parallel()
+	store := &mockNotificationStore{
+		channels: []domain.NotificationChannel{
+			{ID: "ch-1", ProjectID: "p1", ChannelType: "slack", Enabled: true},
+			{ID: "ch-2", ProjectID: "p1", ChannelType: "email", Enabled: true},
+		},
+		deliveryErr: errors.New("db write failed"),
+	}
+	h := NewNotificationTriggerHandler(store, nil)
+
+	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
+	if err != nil {
+		t.Fatalf("expected nil error on delivery creation failure, got: %v", err)
+	}
+}

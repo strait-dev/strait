@@ -11,9 +11,20 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+func validateSLOWindow(windowHours, maxHours int) error {
+	if maxHours > 0 && windowHours > maxHours {
+		return fmt.Errorf("window_hours (%d) exceeds hot retention (%d hours)", windowHours, maxHours)
+	}
+	return nil
+}
+
 func (q *Queries) CreateJobSLO(ctx context.Context, slo *domain.JobSLO) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobSLO")
 	defer span.End()
+
+	if err := validateSLOWindow(slo.WindowHours, q.maxSLOWindowHours); err != nil {
+		return err
+	}
 
 	const sql = `
 		INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours)

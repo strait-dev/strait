@@ -2,7 +2,7 @@
 # natively instead of running under QEMU emulation, which is 10-30x slower.
 # Base image pinned to the multi-arch manifest-list digest. Dependabot's
 # docker ecosystem keeps this bumped weekly.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:c2a1f7b2095d046ae14b286b18413a05bb82c9bca9b25fe7ff5efef0f0826166 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS builder
 
 RUN apk add --no-cache ca-certificates
 
@@ -34,7 +34,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 # Supply chain security: the tarball checksum is verified against the upstream
 # sha256sum.txt before extraction. Update both SOCI_VERSION and the expected
 # checksums whenever upgrading.
-FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS soci-fetch
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS soci-fetch
 ARG SOCI_VERSION=0.13.0
 ARG SOCI_SHA256_AMD64=8951d87d6d17d719f7155d89f25ce08e139c3b48ef3323ee8e347de2d8c2d555
 ARG SOCI_SHA256_ARM64=dab5117cc50b0343521ae9f6dc691b4d3ab5f7eb19404d1f7c35524b48bcdad5

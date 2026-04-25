@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
 )
@@ -328,21 +329,19 @@ func TestHealthScorer_ConcurrentMultiEndpoint(t *testing.T) {
 	hs := NewHealthScorer(store)
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	endpoints := []string{"https://a.com", "https://b.com", "https://c.com", "https://d.com"}
 
 	for _, ep := range endpoints {
 		for i := range 25 {
-			wg.Add(1)
-			go func(endpoint string, idx int) {
-				defer wg.Done()
+			wg.Go(func() {
 				_, _ = hs.RecordResult(ctx, DispatchResult{
-					EndpointURL:  endpoint,
-					Success:      idx%2 == 0,
-					LatencyMs:    float64(idx * 5),
+					EndpointURL:  ep,
+					Success:      i%2 == 0,
+					LatencyMs:    float64(i * 5),
 					JobTimeoutMs: 1000,
 				})
-			}(ep, i)
+			})
 		}
 	}
 	wg.Wait()

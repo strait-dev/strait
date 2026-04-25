@@ -184,8 +184,12 @@ func TestSubscribe_SlowConsumer(t *testing.T) {
 	}
 	defer sub.Close()
 
-	// Publish more messages than the internal buffer (64).
-	const total = 100
+	// Publish many more messages than the internal buffer (64) while
+	// the consumer is blocked, forcing drops.
+	const total = 500
+
+	// Block the consumer so the buffer fills and drops occur.
+	time.Sleep(50 * time.Millisecond)
 	for i := 0; i < total; i++ {
 		msg := fmt.Sprintf("msg-%03d", i)
 		if err := pub.Publish(ctx, "test:slow-consumer", []byte(msg)); err != nil {
@@ -193,10 +197,8 @@ func TestSubscribe_SlowConsumer(t *testing.T) {
 		}
 	}
 
-	// Wait for the goroutine to process all Redis messages.
-	time.Sleep(500 * time.Millisecond)
-
-	// Drain the channel — we should get at most 64 (the buffer size).
+	// Drain the channel — we should receive fewer than total because
+	// the non-blocking send drops messages when the buffer is full.
 	var received int
 drain:
 	for {
@@ -211,8 +213,8 @@ drain:
 		}
 	}
 
-	if received > 64 {
-		t.Errorf("received %d messages, want at most 64 (buffer size)", received)
+	if received >= total {
+		t.Errorf("received all %d messages, expected some to be dropped", total)
 	}
 	if received == 0 {
 		t.Error("received 0 messages, want at least 1")

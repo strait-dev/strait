@@ -120,7 +120,6 @@ func TestWorker_StartStop(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(200 * time.Millisecond)
 	cancel()
 
 	select {
@@ -137,7 +136,6 @@ func TestWorker_StopMethod(t *testing.T) {
 
 	ctx := context.Background()
 	go w.Run(ctx)
-	time.Sleep(100 * time.Millisecond)
 
 	stopped := make(chan struct{})
 	go func() {

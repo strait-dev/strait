@@ -1,11 +1,19 @@
 import { Shell } from "@strait/ui/components/shell";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import MigrationCalculator from "@/components/billing/migration-calculator";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
+import { isCommunityEdition } from "@/lib/edition";
 
 export const Route = createFileRoute("/app/pricing/compare")({
+  // Cloud-only: pricing comparison against competitors is not
+  // relevant for the community edition.
+  beforeLoad: () => {
+    if (isCommunityEdition) {
+      throw redirect({ to: "/app" });
+    }
+  },
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,
@@ -18,7 +26,7 @@ function RouteComponent() {
     <Shell>
       <div className="flex w-full flex-col gap-6">
         <div>
-          <h1 className="text-balance font-semibold text-2xl tracking-tight">
+          <h1 className="text-balance font-normal text-xl tracking-tight">
             Compare with competitors
           </h1>
           <p className="mt-1 text-muted-foreground">

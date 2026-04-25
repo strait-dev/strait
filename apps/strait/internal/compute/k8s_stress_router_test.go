@@ -3,10 +3,11 @@ package compute
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Router & Fallback stress tests.
@@ -196,7 +197,7 @@ func TestStress_Router_Concurrent_Mixed(t *testing.T) {
 
 	// Half go to K8s directly, half go through router with failing primary.
 	const n = 6
-	var wg sync.WaitGroup
+	var wg conc.WaitGroup
 	var ok atomic.Int64
 
 	for i := range n {

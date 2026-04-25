@@ -4,7 +4,7 @@ description: "Guide for deploying and scaling Strait in production."
 icon: "cloud-arrow-up"
 ---
 
-Strait is designed as a single Go binary that can be deployed in various environments, from local development with Docker Compose to production on Fly.io or Kubernetes.
+Strait ships as a single Go binary. You can deploy it anywhere from Docker Compose locally to Fly.io or Kubernetes in production.
 
 ## Architecture Overview
 
@@ -74,9 +74,9 @@ Strait can run in three different modes, controlled by the `--mode` flag or the 
 
 Strait requires the following backing services:
 
-- **PostgreSQL 18**: Primary data store and job queue (uses `SKIP LOCKED`).
-- **Redis 8**: Used for pub/sub, SSE streaming, and CDC event publishing.
-- **Sequin**: Required for Change Data Capture (CDC) from the Postgres WAL.
+- **PostgreSQL 18**: Primary data store and job queue.
+- **Redis 8**: Pub/sub, SSE streaming, and CDC event publishing.
+- **Sequin**: Change Data Capture (CDC) -- streams database changes from the Postgres write-ahead log to Redis.
 
 ### Docker Compose (Development)
 For local development, use `apps/strait/docker-compose.yml`:
@@ -168,14 +168,14 @@ fly tokens create deploy -a strait
 See [Environment Variables](/configuration/environment-variables) for the full reference.
 
 ### Scaling Strategy
-For high-traffic production environments, it is recommended to separate the API and worker processes:
+To handle higher traffic, separate the API and worker processes:
 
-1. **Scale API**: Increase the number of instances running in `api` mode to handle more concurrent HTTP requests.
-2. **Scale Workers**: Increase the number of instances running in `worker` mode to process more jobs from the queue. Since workers use `SKIP LOCKED`, they can safely compete for jobs without double-processing.
+1. **Scale API**: Add more instances in `api` mode to handle more concurrent HTTP requests.
+2. **Scale Workers**: Add more instances in `worker` mode to process more jobs. Workers safely compete for jobs without double-processing.
 
 ## Graceful Shutdown
 
-Strait implements graceful shutdown for both the API and the worker:
+Strait shuts down gracefully in both modes:
 - **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
 - **Worker**: Stops dequeuing new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
 

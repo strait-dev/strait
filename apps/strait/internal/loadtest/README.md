@@ -1,14 +1,13 @@
 # Load Testing Framework
 
-Find where Strait breaks. Runs real workloads, measures throughput/latency/concurrency,
-detects memory leaks, and simulates chaos.
+Measure Strait's performance limits. Tests progressively increase load to find throughput ceilings, concurrency limits, and stability issues.
 
 ## Quick Start
 
 From `apps/strait/`:
 
 ```bash
-# 1. Start your usual dev infrastructure (Postgres + Redis)
+# 1. Start Postgres and Redis (see apps/strait/ docker compose up -d)
 make dev-up
 
 # 2. Start Strait configured for load testing
@@ -20,6 +19,10 @@ make loadtest-quick
 
 That's it. The quick validation ramps from 10 to ~100 jobs/sec and finds your
 approximate throughput ceiling.
+
+Start with `loadtest-quick` to find your approximate ceiling. If you need precise
+numbers, run `loadtest-throughput` and `loadtest-concurrency`. For production
+validation, run `loadtest-endurance`.
 
 ## All Commands
 
@@ -36,6 +39,8 @@ make loadtest-report       # Generate HTML/JSON report from results
 make loadtest-unit         # Run unit tests for the framework itself
 ```
 
+Note: The `make loadtest-*` targets are defined in the loadtest Makefile at `apps/strait/Makefile`. Run them from the `apps/strait/` directory.
+
 ## Test Tiers
 
 | Tier | Test | Duration | What It Finds |
@@ -43,8 +48,8 @@ make loadtest-unit         # Run unit tests for the framework itself
 | 0 | Quick Validation | 15 min | Approximate throughput ceiling |
 | 1 | Throughput Ceiling | ~1-2h | Exact max jobs/sec before breaking |
 | 2 | Concurrency Ceiling | ~1h | Max concurrent connections |
-| 3 | Multi-Tenant Simulation | 4-8h | Real production behavior with 500-2000 tenants |
-| 3 | Breaking Point | 2-6h | Exact tenant count where system degrades |
+| 3a | Multi-Tenant Simulation | 4-8h | Real production behavior with 500-2000 tenants |
+| 3b | Breaking Point | 2-6h | Exact tenant count where system degrades |
 | 4 | Endurance | 24-72h | Memory leaks, goroutine leaks, performance drift |
 | 5 | Chaos Engineering | ~4h | Recovery from failure scenarios |
 

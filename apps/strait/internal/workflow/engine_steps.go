@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 	"strait/internal/store"
 
 	"go.opentelemetry.io/otel"
@@ -166,7 +167,7 @@ func (e *WorkflowEngine) startStep(
 			jobRun.Metadata["_trace_state"] = ts
 		}
 	}
-	if err := e.queue.Enqueue(ctx, jobRun); err != nil {
+	if err := queue.EnqueueWithRetry(ctx, e.queue, jobRun, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
 		return fmt.Errorf("enqueue step job run: %w", err)
 	}
 

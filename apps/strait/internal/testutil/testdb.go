@@ -129,7 +129,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		webhook_deliveries, webhook_subscriptions,
 		notification_deliveries, notification_channels,
 		api_keys, job_versions, run_events,
-		event_triggers, audit_events, tag_policies,
+		event_triggers, audit_events, audit_events_deadletter, tag_policies,
 		event_subscriptions, event_sources, log_drains, batch_operations,
 		job_runs, job_secrets, job_dependencies, jobs, job_groups,
 		environments, endpoint_circuit_state, project_quotas,
@@ -139,7 +139,10 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		pricing_catalog, run_compute_usage, job_preset_recommendations,
 		projects, organization_subscriptions, usage_records,
 		organization_addons, sent_usage_reports, processed_webhook_messages,
-		enterprise_contracts
+		enterprise_contracts,
+		job_active_counts, dlq_counts, job_run_heartbeats,
+		job_retries, enqueue_outbox, project_rate_limits,
+		query_plan_baselines
 		CASCADE`)
 	if err != nil {
 		return fmt.Errorf("clean tables: %w", err)

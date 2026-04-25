@@ -14,6 +14,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
+import { assertCloudEdition } from "@/lib/edition";
 import { findOrCreateCustomer, getStripeClient } from "@/lib/stripe.server";
 import { authMiddleware } from "@/middlewares/auth";
 
@@ -30,6 +31,9 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
+    // Defense in depth: refuse to talk to Stripe in community edition
+    // even though this component is already unreachable from the nav.
+    assertCloudEdition("Addon checkout");
     const stripe = getStripeClient();
 
     const priceId = ADDON_PRICE_MAP[data.checkoutSlug];
@@ -115,7 +119,7 @@ const AddonsTab = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="font-normal text-base text-foreground tracking-tight">
+        <h3 className="font-medium text-foreground text-sm tracking-tight">
           Add-on packs
         </h3>
         <p className="text-muted-foreground text-sm">
@@ -172,7 +176,6 @@ const AddonsTab = () => {
                         setLoadingSlug(null);
                       }
                     }}
-                    size="sm"
                     variant="outline"
                   >
                     {loadingSlug === addon.checkoutSlug

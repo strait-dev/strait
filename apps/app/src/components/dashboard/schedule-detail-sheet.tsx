@@ -31,15 +31,13 @@ const DetailRow = ({
   icon: any;
   label: string;
   value: string;
-}) => {
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto font-mono text-sm">{value}</span>
-    </div>
-  );
-};
+}) => (
+  <div className="flex items-center gap-2 text-sm">
+    <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
+    <span className="text-muted-foreground">{label}</span>
+    <span className="ml-auto font-mono text-sm">{value}</span>
+  </div>
+);
 
 const ScheduleDetailSheet = ({
   schedule,

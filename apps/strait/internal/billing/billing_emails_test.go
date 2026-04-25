@@ -86,6 +86,53 @@ func TestBillingEmailSender_NilSafety(t *testing.T) {
 	s.SendOverageAlert(context.Background(), nil, "", "", "")
 	s.SendPaymentFailed(context.Background(), nil, "", time.Now())
 	s.SendPlanChanged(context.Background(), nil, "", "")
+	s.SendEnterpriseContractReminder(context.Background(), nil, "", true, 30)
+	s.SendDowngradeHTTPJobsWarning(context.Background(), nil, "", 0)
+}
+
+func TestBillingEmailSender_EmptyRecipients(t *testing.T) {
+	t.Parallel()
+	s := NewBillingEmailSender("re_test_key", "", nil)
+	if s == nil {
+		t.Fatal("expected non-nil sender")
+	}
+	// Empty to slice should not panic or send.
+	s.SendSpendingLimitWarning(context.Background(), []string{}, "Pro", "$50", "$100", "80%")
+	s.SendOverageAlert(context.Background(), []string{}, "Pro", "$10", "$50")
+	s.SendPaymentFailed(context.Background(), []string{}, "Pro", time.Now())
+	s.SendPlanChanged(context.Background(), []string{}, "Pro", "Scale")
+	s.SendEnterpriseContractReminder(context.Background(), []string{}, "2026-12-31", false, 30)
+	s.SendDowngradeHTTPJobsWarning(context.Background(), []string{}, "2026-05-01", 3)
+}
+
+func TestNewBillingEmailSender_DefaultFromEmail(t *testing.T) {
+	t.Parallel()
+	s := NewBillingEmailSender("re_test_key", "", nil)
+	if s == nil {
+		t.Fatal("expected non-nil sender")
+	}
+	if s.fromEmail != "billing@strait.dev" {
+		t.Errorf("fromEmail = %q, want billing@strait.dev", s.fromEmail)
+	}
+}
+
+func TestNewBillingEmailSender_CustomFromEmail(t *testing.T) {
+	t.Parallel()
+	s := NewBillingEmailSender("re_test_key", "custom@example.com", nil)
+	if s == nil {
+		t.Fatal("expected non-nil sender")
+	}
+	if s.fromEmail != "custom@example.com" {
+		t.Errorf("fromEmail = %q, want custom@example.com", s.fromEmail)
+	}
+}
+
+func TestDowngradeHTTPJobsWarningHTML_EscapesHTML(t *testing.T) {
+	t.Parallel()
+	html := downgradeHTTPJobsWarningHTML("<script>alert(1)</script>", 3)
+	if strings.Contains(html, "<script>") {
+		t.Fatal("HTML not escaped in periodEnd")
+	}
 }
 
 func FuzzBillingEmailHTML(f *testing.F) {

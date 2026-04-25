@@ -222,6 +222,52 @@ func TestIsValidAddonType(t *testing.T) {
 	}
 }
 
+func TestAllAddonTypes_Count(t *testing.T) {
+	t.Parallel()
+	types := AllAddonTypes()
+	if len(types) != 5 {
+		t.Errorf("AllAddonTypes() count = %d, want 5", len(types))
+	}
+}
+
+func TestAddonPacks_AllDefined(t *testing.T) {
+	t.Parallel()
+	for _, at := range AllAddonTypes() {
+		if _, ok := AddonPacks[at]; !ok {
+			t.Errorf("missing AddonPacks entry for %q", at)
+		}
+	}
+}
+
+func TestAddonPacks_PositiveValues(t *testing.T) {
+	t.Parallel()
+	for at, pack := range AddonPacks {
+		if pack.PackSize <= 0 {
+			t.Errorf("AddonPacks[%q].PackSize = %d, want > 0", at, pack.PackSize)
+		}
+		if pack.PriceCents <= 0 {
+			t.Errorf("AddonPacks[%q].PriceCents = %d, want > 0", at, pack.PriceCents)
+		}
+		if pack.Type != at {
+			t.Errorf("AddonPacks[%q].Type = %q, want %q", at, pack.Type, at)
+		}
+		if pack.DisplayName == "" {
+			t.Errorf("AddonPacks[%q].DisplayName is empty", at)
+		}
+	}
+}
+
+func TestAddonPacks_DataRetention_HasMaxTotal(t *testing.T) {
+	t.Parallel()
+	pack := AddonPacks[AddonDataRetention]
+	if pack.MaxTotal <= 0 {
+		t.Errorf("DataRetention MaxTotal = %d, want > 0 (capped)", pack.MaxTotal)
+	}
+	if pack.MaxTotal != 90 {
+		t.Errorf("DataRetention MaxTotal = %d, want 90", pack.MaxTotal)
+	}
+}
+
 func FuzzEffectiveLimits(f *testing.F) {
 	f.Add("concurrent_runs", 1, true)
 	f.Add("members", 5, true)

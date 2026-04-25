@@ -139,7 +139,7 @@ Pause a workflow for a specific duration:
 }
 ```
 
-The sleep step creates a trigger with an expiry time. The reaper completes it when the time arrives. No goroutines are held.
+The sleep step creates a trigger with an expiry time. Strait automatically completes it when the time arrives -- no resources are held while waiting.
 
 ## Pattern 5: SDK Wait for Event
 
@@ -231,10 +231,10 @@ curl -X DELETE https://strait.dev/v1/events/aml:user-456 \
 
 If a `notify_url` is configured and delivery fails:
 
-1. The delivery is persisted to the database
+1. The delivery is saved to the database
 2. Retried with exponential backoff (5s, 25s, 125s, 625s)
-3. After 5 failed attempts, the delivery is dead-lettered
-4. 4xx responses are dead-lettered immediately
+3. After 5 failed attempts, the delivery is marked as permanently failed and stops retrying
+4. 4xx responses are marked as permanently failed immediately (no retries -- the request itself is invalid)
 
 ## Best Practices
 
@@ -297,7 +297,7 @@ strait triggers purge --older-than 90 --dry-run
 strait triggers purge --older-than 90
 ```
 
-The reaper also automatically cleans up based on `EVENT_TRIGGER_RETENTION` (default: 30 days). Adjust for your compliance requirements:
+Strait also automatically cleans up old triggers based on `EVENT_TRIGGER_RETENTION` (default: 30 days). Adjust for your compliance requirements:
 
 ```bash
 # Keep triggers for 1 year

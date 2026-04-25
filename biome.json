@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": ["ultracite/core", "ultracite/react"],
+  "extends": ["ultracite/biome/core", "ultracite/biome/react"],
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -17,8 +17,11 @@
       "!tanstack",
       "!dist",
       "!build",
+      "!**/.astro",
       "!**/_generated",
-      "!**/routeTree.gen.ts"
+      "!**/routeTree.gen.ts",
+      "!**/basehub-types.d.ts",
+      "!**/.agents/skills"
     ]
   },
   "css": {

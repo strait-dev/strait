@@ -76,6 +76,11 @@ func (s *Server) handleExportJobs(ctx context.Context, input *ExportJobsInput) (
 		})
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionJobsExported, "job", "", map[string]any{
+		"format":     format,
+		"project_id": projectID,
+	})
+
 	return nil, nil //nolint:nilnil
 }
 
@@ -178,6 +183,13 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 		})
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionRunsExported, "run", "", map[string]any{
+		"format":     format,
+		"from":       input.From,
+		"to":         input.To,
+		"project_id": projectID,
+	})
+
 	return nil, nil //nolint:nilnil
 }
 
@@ -232,6 +244,11 @@ func (s *Server) handleExportWorkflows(ctx context.Context, input *ExportWorkflo
 			})
 		})
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowsExported, "workflow", "", map[string]any{
+		"format":     format,
+		"project_id": projectID,
+	})
 
 	return nil, nil //nolint:nilnil
 }

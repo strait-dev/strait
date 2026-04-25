@@ -4,16 +4,16 @@ description: "Coordinating complex tasks with Directed Acyclic Graphs (DAGs)."
 icon: "diagram-project"
 ---
 
-Workflows allow you to orchestrate multiple jobs, approvals, and sub-workflows in a structured DAG. They handle dependencies, data flow, and conditional execution.
+A workflow is a set of steps with dependencies between them. You define which steps run first, which wait for others to finish, and what happens when something fails. Strait runs the steps in the right order, passing data between them.
 
 ## DAG Concepts
 
-A workflow is defined as a Directed Acyclic Graph (DAG) where:
-- **Steps**: The nodes of the graph.
-- **Dependencies**: The edges of the graph, defined by the `depends_on` field.
-- **Fan-in/Fan-out**: Multiple steps can depend on one (fan-out), or one step can depend on many (fan-in).
+A workflow is structured as a directed acyclic graph (DAG) — a dependency graph where steps can depend on other steps, but circular dependencies are not allowed:
+- **Steps** are the individual units of work (the nodes).
+- **Dependencies** connect steps via the `depends_on` field (the edges).
+- **Fan-out** means one step triggers multiple downstream steps. **Fan-in** means one step waits for multiple upstream steps to finish.
 
-Validation guardrail: a workflow can include up to **1000** steps.
+A workflow can include up to **1000** steps.
 
 <Note>
 For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/concepts/dag-runtime).
@@ -23,11 +23,11 @@ For implementation-level behavior (scheduler decisions, explainability APIs, cri
 
 | Type | Description |
 | :--- | :--- |
-| `job` | Executes a standard [Job](/concepts/jobs). |
-| `approval` | A human-in-the-loop gate that waits for manual approval or rejection. |
-| `sub_workflow` | Triggers another workflow as a nested step. |
-| `wait_for_event` | Pauses until an external event arrives via API. See [Event Triggers](/concepts/event-triggers). |
-| `sleep` | Durable sleep — pauses for a specified duration without holding goroutines. |
+| `job` | Runs a [Job](/concepts/jobs). Use for any work that calls an HTTP endpoint. |
+| `approval` | Pauses the workflow until a person approves or rejects. Use for deploy gates, compliance checks, or anything requiring human sign-off. |
+| `sub_workflow` | Runs another workflow as a nested step. Use to reuse an existing workflow as part of a larger pipeline. |
+| `wait_for_event` | Pauses until an external event arrives via API. Use for third-party callbacks or human-in-the-loop steps. See [Event Triggers](/concepts/event-triggers). |
+| `sleep` | Pauses for a specified duration without consuming resources. Use for cooldown periods or scheduled delays. |
 
 ## Workflow Versioning
 
@@ -55,7 +55,7 @@ Use `{{var}}` syntax with dot notation to access data:
 - `{{parent_outputs.step_ref.key}}`: Access the output of a specific parent step.
 
 ### Output Transforms
-Steps can define an `output_transform` using **JSONPath** (via `gjson`). This allows a step to export only a specific subset of its result to downstream steps.
+Steps can define an `output_transform` using JSONPath expressions. This lets a step export only a subset of its result to downstream steps.
 
 ### Payload Merging
 The payload for a step is constructed by merging three layers:
@@ -89,8 +89,8 @@ Project-level governance controls that apply to all workflows in a project:
 
 | Policy | Description |
 | :--- | :--- |
-| `max_fan_out` | Maximum number of direct dependents a single step can have. Prevents explosion of parallelism. |
-| `max_depth` | Maximum DAG depth (longest path from root to leaf). Limits nesting complexity. |
+| `max_fan_out` | Maximum steps a single step can trigger. Prevents one step from spawning too many parallel branches. |
+| `max_depth` | Maximum sequential dependencies from start to finish. Prevents deeply nested workflows that are hard to debug. |
 | `forbidden_step_types` | List of step types that cannot be used in workflows for this project. |
 | `require_approval_for_deploy` | When true, requires an approval step before any deploy-type step. |
 
@@ -228,7 +228,7 @@ Guardrails:
 
 ### wait_for_event
 
-Pauses the workflow until an external event arrives via API. The step creates an [Event Trigger](/concepts/event-triggers) with a globally unique `event_key` and optional timeout. No goroutines are held — the wait is a database row.
+Pauses the workflow until an external event arrives via API. The step creates an [Event Trigger](/concepts/event-triggers) with a globally unique `event_key` and optional timeout. The wait consumes no compute resources.
 
 ```json
 {
@@ -244,7 +244,7 @@ When the event arrives (via `POST /v1/events/{eventKey}/send`), the step complet
 
 ### sleep
 
-Durable sleep step that pauses for a specified duration:
+Durable sleep steps pause a workflow for a specified duration without consuming resources:
 
 ```json
 {
@@ -255,7 +255,7 @@ Durable sleep step that pauses for a specified duration:
 }
 ```
 
-Internally creates a sleep-type event trigger. The reaper completes it when the duration expires.
+The step completes automatically when the duration expires.
 
 ### Event Chaining
 

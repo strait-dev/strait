@@ -69,6 +69,21 @@ func TestConfig_String_NoSecrets(t *testing.T) {
 	}
 }
 
+func TestConfig_String_NoLeadingSpace(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Mode: "all",
+		Port: 8080,
+	}
+	str := cfg.String()
+	if strings.HasPrefix(str, " ") {
+		t.Errorf("Config.String() has leading space: %q", str[:20])
+	}
+	if str == "" {
+		t.Fatal("Config.String() is empty")
+	}
+}
+
 func FuzzConfig_String(f *testing.F) {
 	f.Add("secret1", "secret2", "secret3")
 

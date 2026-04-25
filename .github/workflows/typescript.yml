@@ -1,0 +1,61 @@
+name: TypeScript
+
+on:
+  push:
+    paths:
+      - "apps/app/**"
+      - "apps/website/**"
+      - "apps/docs/**"
+      - "packages/**"
+      - "biome.json"
+      - "turbo.json"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*.json"
+      - ".github/workflows/typescript.yml"
+      - ".github/actions/setup-js/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typescript-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Turbo remote cache. Turbo auto-detects Turbo Cloud when TURBO_TOKEN and
+# TURBO_TEAM are set; TURBO_API lets you point at a self-hosted cache
+# (e.g. ducktors/turborepo-remote-cache on Cloudflare Workers). When none
+# are configured, turbo silently falls back to the local filesystem cache.
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_API: ${{ vars.TURBO_API }}
+
+jobs:
+  biome:
+    name: Biome check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./.github/actions/setup-js
+
+      - name: Manypkg check
+        run: bun run manypkg:check
+
+      - name: Biome check
+        run: bunx biome check .
+
+  typecheck:
+    name: Typecheck
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./.github/actions/setup-js
+        with:
+          node: "true"
+
+      - name: Typecheck
+        run: bun run typecheck
