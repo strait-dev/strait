@@ -361,6 +361,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	var workflowSteps []WorkflowStepAnalyticsRecord
 	var eventTriggers []EventTriggerEventRecord
 	var billing []BillingEventRecord
+	var agentAnalytics []AgentRunAnalyticsRecord
 
 	for _, rec := range batch {
 		switch r := rec.(type) {
@@ -386,6 +387,8 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			eventTriggers = append(eventTriggers, r)
 		case BillingEventRecord:
 			billing = append(billing, r)
+		case AgentRunAnalyticsRecord:
+			agentAnalytics = append(agentAnalytics, r)
 		default:
 			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
 		}
@@ -447,6 +450,11 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			errs = append(errs, fmt.Errorf("billing_events: %w", err))
 		}
 	}
+	if len(agentAnalytics) > 0 {
+		if err := e.insertAgentRunAnalytics(ctx, agentAnalytics); err != nil {
+			errs = append(errs, fmt.Errorf("agent_run_analytics: %w", err))
+		}
+	}
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -468,6 +476,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		"workflow_steps", len(workflowSteps),
 		"event_triggers", len(eventTriggers),
 		"billing_events", len(billing),
+		"agent_analytics", len(agentAnalytics),
 	)
 	return nil
 }
@@ -642,4 +651,21 @@ func (e *Exporter) PendingCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.pending)
+}
+
+func (e *Exporter) insertAgentRunAnalytics(ctx context.Context, records []AgentRunAnalyticsRecord) error {
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO agent_run_analytics (run_id, agent_slug, agent_id, project_id, status, duration_ms, model, provider, prompt_tokens, completion_tokens, total_tokens, cost_microusd, tool_call_count, checkpoint_count, error_class, created_at, started_at, finished_at) VALUES "
+	placeholders := make([]string, len(records))
+	args := make([]any, 0, len(records)*18)
+
+	for i, r := range records {
+		placeholders[i] = row
+		args = append(args, r.RunID, r.AgentSlug, r.AgentID, r.ProjectID, r.Status,
+			r.DurationMs, r.Model, r.Provider, r.PromptTokens, r.CompletionTokens,
+			r.TotalTokens, r.CostMicrousd, r.ToolCallCount, r.CheckpointCount,
+			r.ErrorClass, r.CreatedAt, r.StartedAt, r.FinishedAt)
+	}
+
+	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
 }

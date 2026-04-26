@@ -256,6 +256,11 @@ type Config struct {
 	ClickHouseFlushInterval time.Duration `env:"CLICKHOUSE_FLUSH_INTERVAL" default:"5s"`
 	ClickHouseExportEnabled bool          `env:"CLICKHOUSE_EXPORT_ENABLED" default:"false"`
 
+	// Cost anomaly detection
+	CostAnomalyEnabled   bool          `env:"COST_ANOMALY_ENABLED" default:"false"`
+	CostAnomalyThreshold float64       `env:"COST_ANOMALY_THRESHOLD" default:"2.0"`
+	CostAnomalyInterval  time.Duration `env:"COST_ANOMALY_CHECK_INTERVAL" default:"1h"`
+
 	// OTel metrics push
 	OTLPMetricEndpoint string `env:"OTLP_METRIC_ENDPOINT"`
 	OTLPMetricEnabled  bool   `env:"OTLP_METRIC_ENABLED" default:"false"`

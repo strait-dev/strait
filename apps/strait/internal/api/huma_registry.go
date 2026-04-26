@@ -362,6 +362,36 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleUpdateModelRouting)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "get-autopilot-config", Method: http.MethodGet, Path: "/v1/agents/{agentID}/autopilot",
+		Summary: "Get autopilot config", Description: "Returns the autopilot budget configuration for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleGetAutopilotConfig)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-autopilot-config", Method: http.MethodPut, Path: "/v1/agents/{agentID}/autopilot",
+		Summary: "Update autopilot config", Description: "Creates or updates the autopilot budget configuration for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleUpdateAutopilotConfig)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-autopilot-history", Method: http.MethodGet, Path: "/v1/agents/{agentID}/autopilot/history",
+		Summary: "List autopilot history", Description: "Returns autopilot actions taken for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleListAutopilotHistory)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-cost-anomalies", Method: http.MethodGet, Path: "/v1/agents/{agentID}/anomalies",
+		Summary: "List cost anomalies", Description: "Returns detected cost anomalies for an agent.",
+		Tags: []string{"Agents", "Cost Intelligence"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListCostAnomalies)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "snooze-cost-anomaly", Method: http.MethodPut, Path: "/v1/agents/{agentID}/anomalies/{anomalyID}/snooze",
+		Summary: "Snooze a cost anomaly", Description: "Snoozes a cost anomaly for a specified duration.",
+		Tags: []string{"Agents", "Cost Intelligence"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleSnoozeCostAnomaly)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "get-agent-run-timeline", Method: http.MethodGet, Path: "/v1/agents/analytics/run-timeline",
 		Summary: "Get agent run timeline", Description: "Returns bucketed run counts over time for an agent.",
 		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
@@ -706,6 +736,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Replay a dead-letter run", Description: "Replays a single run from the dead-letter queue.",
 		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
 	}, s.handleReplayDeadLetterRun)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "whatif-estimate", Method: http.MethodGet, Path: "/v1/runs/{runID}/whatif/estimate",
+		Summary: "Estimate what-if cost", Description: "Estimates what a run would cost with a different model without executing it.",
+		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleWhatIfEstimate)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "whatif-replay", Method: http.MethodPost, Path: "/v1/runs/{runID}/whatif",
+		Summary: "What-if model replay", Description: "Re-runs a completed run with a different model and compares cost and latency.",
+		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+	}, s.handleWhatIfReplay)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-child-runs", Method: http.MethodGet, Path: "/v1/runs/{runID}/children",

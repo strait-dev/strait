@@ -1733,6 +1733,9 @@ type APIStoreMock struct {
 	// SumRunCostMicrousdFunc mocks the SumRunCostMicrousd method.
 	SumRunCostMicrousdFunc func(ctx context.Context, runID string) (int64, error)
 
+	// LookupPricingFunc mocks the LookupPricing method.
+	LookupPricingFunc func(ctx context.Context, provider string, model string) (int64, int64, error)
+
 	// SumRunTotalTokensFunc mocks the SumRunTotalTokens method.
 	SumRunTotalTokensFunc func(ctx context.Context, runID string) (int64, error)
 
@@ -4197,6 +4200,15 @@ type APIStoreMock struct {
 			// RunID is the runID argument value.
 			RunID string
 		}
+		// LookupPricing holds details about calls to the LookupPricing method.
+		LookupPricing []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Provider is the provider argument value.
+			Provider string
+			// Model is the model argument value.
+			Model string
+		}
 		// SumRunTotalTokens holds details about calls to the SumRunTotalTokens method.
 		SumRunTotalTokens []struct {
 			// Ctx is the ctx argument value.
@@ -4767,6 +4779,7 @@ type APIStoreMock struct {
 	lockSumJobMemorySizeBytes              sync.RWMutex
 	lockSumProjectDailyCostMicrousd        sync.RWMutex
 	lockSumRunCostMicrousd                 sync.RWMutex
+	lockLookupPricing                      sync.RWMutex
 	lockSumRunTotalTokens                  sync.RWMutex
 	lockTouchAPIKeyLastUsed                sync.RWMutex
 	lockTryAcquireIdempotencyKey           sync.RWMutex
@@ -16312,6 +16325,51 @@ func (mock *APIStoreMock) SumRunCostMicrousdCalls() []struct {
 	return calls
 }
 
+// LookupPricing calls LookupPricingFunc.
+func (mock *APIStoreMock) LookupPricing(ctx context.Context, provider string, model string) (int64, int64, error) {
+	callInfo := struct {
+		Ctx      context.Context
+		Provider string
+		Model    string
+	}{
+		Ctx:      ctx,
+		Provider: provider,
+		Model:    model,
+	}
+	mock.lockLookupPricing.Lock()
+	mock.calls.LookupPricing = append(mock.calls.LookupPricing, callInfo)
+	mock.lockLookupPricing.Unlock()
+	if mock.LookupPricingFunc == nil {
+		var (
+			n1Out  int64
+			n2Out  int64
+			errOut error
+		)
+		return n1Out, n2Out, errOut
+	}
+	return mock.LookupPricingFunc(ctx, provider, model)
+}
+
+// LookupPricingCalls gets all the calls that were made to LookupPricing.
+// Check the length with:
+//
+//	len(mockedAPIStore.LookupPricingCalls())
+func (mock *APIStoreMock) LookupPricingCalls() []struct {
+	Ctx      context.Context
+	Provider string
+	Model    string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Provider string
+		Model    string
+	}
+	mock.lockLookupPricing.RLock()
+	calls = mock.calls.LookupPricing
+	mock.lockLookupPricing.RUnlock()
+	return calls
+}
+
 // SumRunTotalTokens calls SumRunTotalTokensFunc.
 func (mock *APIStoreMock) SumRunTotalTokens(ctx context.Context, runID string) (int64, error) {
 	callInfo := struct {
@@ -17836,4 +17894,14 @@ func (mock *APIStoreMock) DismissRecommendation(_ context.Context, _, _, _ strin
 // CancelActiveRunsForJob is a no-op mock.
 func (mock *APIStoreMock) CancelActiveRunsForJob(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
 	return nil, nil
+}
+
+// ListCostAnomalies is a no-op mock.
+func (mock *APIStoreMock) ListCostAnomalies(_ context.Context, _ string, _ int) ([]domain.CostAnomaly, error) {
+	return nil, nil
+}
+
+// SnoozeAnomaly is a no-op mock.
+func (mock *APIStoreMock) SnoozeAnomaly(_ context.Context, _ string, _ time.Time) error {
+	return nil
 }

@@ -23,7 +23,8 @@ type RuntimeDispatchEnvelope struct {
 	// Provider API keys (OpenAI/Anthropic/etc.) stay on RuntimeDispatchAgent
 	// — those are credentials for the agent itself, not environment config.
 	Secrets         map[string]string  `json:"secrets,omitempty"`
-	AvailableAgents []AvailableAgent   `json:"available_agents,omitempty"`
+	AvailableAgents  []AvailableAgent   `json:"available_agents,omitempty"`
+	CachedToolCalls  []CachedToolCall   `json:"cached_tool_calls,omitempty"`
 }
 
 // AvailableAgent describes a peer agent that can be invoked via the
@@ -33,6 +34,13 @@ type AvailableAgent struct {
 	Slug        string `json:"slug"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// CachedToolCall contains a cached tool response for what-if replay.
+type CachedToolCall struct {
+	ToolName string          `json:"tool_name"`
+	Input    json.RawMessage `json:"input"`
+	Output   json.RawMessage `json:"output"`
 }
 
 type RuntimeDispatchRun struct {

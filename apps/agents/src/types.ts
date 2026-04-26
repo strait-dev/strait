@@ -49,6 +49,11 @@ export type DispatchEnvelope = {
     name?: string;
     description?: string;
   }>;
+  cached_tool_calls?: Array<{
+    tool_name: string;
+    input?: JsonValue;
+    output?: JsonValue;
+  }>;
 };
 
 export type CloudflareSandboxPolicy = {

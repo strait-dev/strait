@@ -269,6 +269,32 @@ FROM run_usage_events
 GROUP BY project_id, day
 `
 
+// AgentRunAnalyticsTable is the DDL for the agent_run_analytics ClickHouse table.
+const AgentRunAnalyticsTable = `
+CREATE TABLE IF NOT EXISTS agent_run_analytics (
+    run_id          String,
+    agent_slug      String,
+    agent_id        String,
+    project_id      String,
+    status          String,
+    duration_ms     UInt64,
+    model           String,
+    provider        String,
+    prompt_tokens   UInt64,
+    completion_tokens UInt64,
+    total_tokens    UInt64,
+    cost_microusd   Int64,
+    tool_call_count UInt32,
+    checkpoint_count UInt32,
+    error_class     String DEFAULT '',
+    created_at      DateTime64(3),
+    started_at      DateTime64(3),
+    finished_at     DateTime64(3)
+) ENGINE = MergeTree()
+ORDER BY (project_id, agent_id, created_at)
+TTL toDateTime(created_at) + INTERVAL 365 DAY
+`
+
 // schemaAlterations contains ALTER TABLE statements for adding columns to
 // existing tables. Each statement uses ADD COLUMN IF NOT EXISTS so they are
 // safe to run repeatedly.
@@ -325,6 +351,7 @@ func CreateSchema(ctx context.Context, c *Client) error {
 		{"run_stats_daily", RunStatsDailyTable},
 		{"cost_daily", CostDailyTable},
 		{"billing_events", BillingEventsTable},
+		{"agent_run_analytics", AgentRunAnalyticsTable},
 	}
 
 	for _, t := range tables {
@@ -366,6 +393,7 @@ type AgentRunAnalyticsRecord struct {
 	Status           string    `ch:"status"`
 	DurationMs       uint64    `ch:"duration_ms"`
 	Model            string    `ch:"model"`
+	Provider         string    `ch:"provider"`
 	PromptTokens     uint64    `ch:"prompt_tokens"`
 	CompletionTokens uint64    `ch:"completion_tokens"`
 	TotalTokens      uint64    `ch:"total_tokens"`

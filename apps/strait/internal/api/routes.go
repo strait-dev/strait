@@ -368,6 +368,11 @@ func (s *Server) routes() chi.Router {
 				})
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/model-routing", TypedHandler(s, http.StatusOK, s.handleGetModelRouting))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/model-routing", TypedHandler(s, http.StatusOK, s.handleUpdateModelRouting))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/autopilot", TypedHandler(s, http.StatusOK, s.handleGetAutopilotConfig))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/autopilot", TypedHandler(s, http.StatusOK, s.handleUpdateAutopilotConfig))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/autopilot/history", TypedHandler(s, http.StatusOK, s.handleListAutopilotHistory))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/anomalies", TypedHandler(s, http.StatusOK, s.handleListCostAnomalies))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/anomalies/{anomalyID}/snooze", TypedHandler(s, http.StatusOK, s.handleSnoozeCostAnomaly))
 			})
 		})
 
@@ -412,6 +417,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", TypedHandler(s, http.StatusOK, s.handleListRunState))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/resources", TypedHandler(s, http.StatusOK, s.handleListRunResources))
+				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/whatif/estimate", TypedHandler(s, http.StatusOK, s.handleWhatIfEstimate))
+				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/whatif", TypedHandler(s, http.StatusCreated, s.handleWhatIfReplay))
 			})
 		})
 

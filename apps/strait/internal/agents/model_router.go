@@ -80,3 +80,8 @@ func (r *ModelRouter) CheckQualityGate(ctx context.Context, agentID string, tier
 	route.QualityScore = latestScore
 	return r.store.UpsertModelRouting(ctx, route)
 }
+
+// SetModelForTier creates or updates a model route for a specific tier.
+func (r *ModelRouter) SetModelForTier(ctx context.Context, route *domain.ModelRoute) error {
+	return r.store.UpsertModelRouting(ctx, route)
+}

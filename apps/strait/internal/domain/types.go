@@ -162,6 +162,21 @@ type DismissedRecommendation struct {
 	DismissedBy      string    `json:"dismissed_by"`
 }
 
+// CostAnomaly represents a detected cost spending anomaly for an agent.
+type CostAnomaly struct {
+	ID                  string     `json:"id"`
+	AgentID             string     `json:"agent_id"`
+	ProjectID           string     `json:"project_id"`
+	DetectedAt          time.Time  `json:"detected_at"`
+	DailyCostMicrousd   int64      `json:"daily_cost_microusd"`
+	BaselineAvgMicrousd int64      `json:"baseline_avg_microusd"`
+	Multiplier          float64    `json:"multiplier"`
+	Threshold           float64    `json:"threshold"`
+	Status              string     `json:"status"` // open, resolved, snoozed
+	ResolvedAt          *time.Time `json:"resolved_at,omitempty"`
+	SnoozedUntil        *time.Time `json:"snoozed_until,omitempty"`
+}
+
 type Agent struct {
 	ID                       string          `json:"id"`
 	ProjectID                string          `json:"project_id"`
@@ -1759,4 +1774,56 @@ type CodeDeployment struct {
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
 	FinishedAt       *time.Time            `json:"finished_at,omitempty"`
+}
+
+// AutopilotAction records an autopilot budget adjustment.
+type AutopilotAction struct {
+	ID            string    `json:"id"`
+	AgentID       string    `json:"agent_id"`
+	Tier          string    `json:"tier"`
+	PreviousModel string    `json:"previous_model"`
+	NewModel      string    `json:"new_model"`
+	BudgetPct     float64   `json:"budget_pct"`
+	QualityScore  float64   `json:"quality_score,omitempty"`
+	Action        string    `json:"action"` // downgrade, revert, skip
+	Reason        string    `json:"reason"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// AutopilotConfig is stored in agent.Config under the "autopilot" key.
+type AutopilotConfig struct {
+	Enabled          bool    `json:"enabled"`
+	BudgetMicrousd   int64   `json:"budget_microusd"`
+	CheapestModel    string  `json:"cheapest_model"`
+	QualityThreshold float64 `json:"quality_threshold"` // default 85
+	ObservationMins  int     `json:"observation_mins"`  // default 10
+}
+
+
+// WhatIfReplayResult contains the comparison between original and replayed runs.
+type WhatIfReplayResult struct {
+	OriginalRunID     string `json:"original_run_id"`
+	ReplayRunID       string `json:"replay_run_id"`
+	TargetModel       string `json:"target_model"`
+	OriginalModel     string `json:"original_model"`
+	CostDelta         int64  `json:"cost_delta_microusd"`
+	OriginalCost      int64  `json:"original_cost_microusd"`
+	ReplayCost        int64  `json:"replay_cost_microusd"`
+	LatencyDeltaMs    int    `json:"latency_delta_ms"`
+	OriginalLatencyMs int    `json:"original_latency_ms"`
+	ReplayLatencyMs   int    `json:"replay_latency_ms"`
+	StatusMatch       bool   `json:"status_match"`
+	OriginalStatus    string `json:"original_status"`
+	ReplayStatus      string `json:"replay_status"`
+}
+
+// WhatIfEstimate is a cost estimate without executing the replay.
+type WhatIfEstimate struct {
+	OriginalRunID string  `json:"original_run_id"`
+	TargetModel   string  `json:"target_model"`
+	OriginalModel string  `json:"original_model"`
+	OriginalCost  int64   `json:"original_cost_microusd"`
+	EstimatedCost int64   `json:"estimated_cost_microusd"`
+	CostDelta     int64   `json:"cost_delta_microusd"`
+	SavingsPct    float64 `json:"savings_pct"`
 }

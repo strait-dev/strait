@@ -183,6 +183,7 @@ type RunStore interface {
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	LookupPricing(ctx context.Context, provider, model string) (inputCostMicrousd, outputCostMicrousd int64, err error)
 	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
@@ -252,6 +253,8 @@ type RunStore interface {
 	ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error)
 	DeleteJobMemory(ctx context.Context, jobID, key string) error
 	SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error)
+	ListCostAnomalies(ctx context.Context, agentID string, limit int) ([]domain.CostAnomaly, error)
+	SnoozeAnomaly(ctx context.Context, id string, until time.Time) error
 }
 
 type LogDrainStore interface {

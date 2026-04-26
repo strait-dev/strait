@@ -731,6 +731,11 @@ func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (in
 	return inputCost, outputCost, nil
 }
 
+// LookupPricing returns the per-token cost in microusd for the given provider/model pair.
+func (q *Queries) LookupPricing(ctx context.Context, provider, model string) (inputCostMicrousd, outputCostMicrousd int64, err error) {
+	return q.lookupPricing(ctx, provider, model)
+}
+
 // SumRunCostMicrousd returns the total cost of all usage records for a single run.
 func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunCostMicrousd")
