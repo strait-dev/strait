@@ -359,6 +359,13 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/evals", TypedHandler(s, http.StatusCreated, s.handleSubmitEval))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/rollback", TypedHandler(s, http.StatusOK, s.handleRollbackAgent))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/evals", TypedHandler(s, http.StatusOK, s.handleListEvals))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/eval/run", TypedHandler(s, http.StatusCreated, s.handleRunEval))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/golden-sets", TypedHandler(s, http.StatusCreated, s.handleCreateGoldenSet))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/golden-sets", TypedHandler(s, http.StatusOK, s.handleListGoldenSets))
+				r.Route("/golden-sets/{name}", func(r chi.Router) {
+					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetGoldenSet))
+					r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteGoldenSet))
+				})
 			})
 		})
 

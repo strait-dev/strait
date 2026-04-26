@@ -796,6 +796,34 @@ type EvalRun struct {
 	CreatedAt    time.Time       `json:"created_at"`
 }
 
+// GoldenSet stores reference input/output pairs for agent quality evaluation.
+type GoldenSet struct {
+	ID        string          `json:"id"`
+	AgentID   string          `json:"agent_id"`
+	ProjectID string          `json:"project_id"`
+	Name      string          `json:"name"`
+	Cases     json.RawMessage `json:"cases"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// GoldenCase is a single test case within a golden set.
+type GoldenCase struct {
+	ID             string          `json:"id"`
+	Input          json.RawMessage `json:"input"`
+	ExpectedOutput json.RawMessage `json:"expected_output"`
+	Tags           []string        `json:"tags,omitempty"`
+}
+
+// EvalCaseResult is the outcome of running one golden case against an agent.
+type EvalCaseResult struct {
+	CaseID    string `json:"case_id"`
+	Passed    bool   `json:"passed"`
+	Actual    string `json:"actual,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	LatencyMs int    `json:"latency_ms,omitempty"`
+}
+
 // AgentCanaryDeployment represents an active canary between two agent deployments.
 type AgentCanaryDeployment struct {
 	ID                 string     `json:"id"`

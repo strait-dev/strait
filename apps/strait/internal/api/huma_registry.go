@@ -320,6 +320,36 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListEvals)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "run-agent-eval", Method: http.MethodPost, Path: "/v1/agents/{agentID}/eval/run",
+		Summary: "Run agent eval", Description: "Executes a golden set evaluation against an agent and records results.",
+		Tags: []string{"Agents", "Evals"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleRunEval)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "create-golden-set", Method: http.MethodPost, Path: "/v1/agents/{agentID}/golden-sets",
+		Summary: "Create golden set", Description: "Creates or updates a golden set of test cases for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleCreateGoldenSet)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-golden-sets", Method: http.MethodGet, Path: "/v1/agents/{agentID}/golden-sets",
+		Summary: "List golden sets", Description: "Returns all golden sets for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleListGoldenSets)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-golden-set", Method: http.MethodGet, Path: "/v1/agents/{agentID}/golden-sets/{name}",
+		Summary: "Get golden set", Description: "Returns a golden set by name.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleGetGoldenSet)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "delete-golden-set", Method: http.MethodDelete, Path: "/v1/agents/{agentID}/golden-sets/{name}",
+		Summary: "Delete golden set", Description: "Deletes a golden set by name.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleDeleteGoldenSet)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "get-agent-run-timeline", Method: http.MethodGet, Path: "/v1/agents/analytics/run-timeline",
 		Summary: "Get agent run timeline", Description: "Returns bucketed run counts over time for an agent.",
 		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
