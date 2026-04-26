@@ -300,6 +300,7 @@ __pycache__/
 apps/cli/out/
 .env*.local
 .env.selfhost
+backups/
 
 # ==============================================================================
 # Infrastructure is in a separate private repo (strait-dev/infra).

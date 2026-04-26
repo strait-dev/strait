@@ -189,8 +189,8 @@ Edition is set at compile time via Go build tags. The `STRAIT_EDITION` env var i
 cd apps/strait && docker compose up -d
 
 # 2. Required env (see .env.example for the full list)
-export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
-export REDIS_URL=redis://localhost:6379
+export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:16379
 export INTERNAL_SECRET=<32+ chars>
 export JWT_SIGNING_KEY=<32+ chars>
 

@@ -1,3 +1,12 @@
+# Local development infrastructure for Strait.
+#
+# This starts only the dependencies (Postgres, Redis, Sequin).
+# Run the API separately: go run ./cmd/strait --mode all
+# Or use: make dev (starts these containers + runs the API).
+#
+# Ports use non-standard host mappings (15432, 16379) to avoid
+# clashing with Postgres/Redis already running on the host.
+
 services:
   postgres:
     container_name: strait-postgres
@@ -39,7 +48,7 @@ services:
 
   sequin:
     container_name: strait-sequin
-    image: sequin/sequin:latest
+    image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
     ports:
       - "7376:7376"
     environment:
@@ -49,6 +58,8 @@ services:
       PG_PASSWORD: strait
       PG_DATABASE: strait
       REDIS_URL: redis://redis:6379
+      # Dev-only hardcoded secrets. Do NOT use in production.
+      # Self-host generates random values via selfhost-init.sh.
       SECRET_KEY_BASE: "tONJRnB3NMPNPSbvLsKzE/r6lklVO+04MfFNWPBzBtBt2G5H0rrn8bwdHcRXiSQ3"
       VAULT_KEY: "Gw1VfMPCshBaUeXrOvIPFTVtW/d5xlv93F7BPfVo7Ys="
     depends_on:
@@ -57,7 +68,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7376/health"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7376/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

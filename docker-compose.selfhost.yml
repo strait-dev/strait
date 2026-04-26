@@ -13,6 +13,7 @@
 
 services:
   postgres:
+    container_name: strait-postgres
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
@@ -36,6 +37,7 @@ services:
       retries: 5
 
   redis:
+    container_name: strait-redis
     image: redis:8-alpine
     restart: unless-stopped
     ports:
@@ -48,7 +50,8 @@ services:
 
   # Strait API starts first to run migrations and create tables.
   strait:
-    image: ghcr.io/strait-dev/strait:latest
+    container_name: strait-api
+    image: ${STRAIT_IMAGE:-ghcr.io/strait-dev/strait:latest}
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -81,6 +84,7 @@ services:
 
   # Sequin starts after Strait so tables and replication slot exist.
   sequin:
+    container_name: strait-sequin
     image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
     restart: unless-stopped
     ports:
@@ -103,7 +107,7 @@ services:
       strait:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7376/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -118,6 +122,7 @@ services:
   # nothing extra. The install is fast on re-runs because bun caches
   # node_modules on the host volume.
   strait-app-migrate:
+    container_name: strait-app-migrate
     image: oven/bun:1.3.11-alpine
     restart: "no"
     working_dir: /repo/apps/app
@@ -138,6 +143,7 @@ services:
         condition: service_healthy
 
   strait-app:
+    container_name: strait-app
     image: ${STRAIT_APP_IMAGE:-ghcr.io/strait-dev/strait-app:latest}
     restart: unless-stopped
     ports:
