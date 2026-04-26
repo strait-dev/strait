@@ -47,7 +47,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@typescript/native-preview": "^7.0.0-dev.20260423.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260426.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
