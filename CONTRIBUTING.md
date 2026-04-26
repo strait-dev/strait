@@ -80,7 +80,7 @@ cd apps/app && bun test
 
 ```bash
 # Go linting.
-cd apps/strait && golangci-lint run --timeout=5m ./...
+cd apps/strait && golangci-lint run --timeout=10m ./...
 
 # Frontend linting.
 cd apps/app && bun run biome:lint

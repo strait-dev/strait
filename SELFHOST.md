@@ -193,7 +193,7 @@ Backups older than 30 days are automatically cleaned up.
 Restore from backup:
 
 ```bash
-gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres-1 psql -U strait strait
+gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres psql -U strait strait
 ```
 
 ## API Reference

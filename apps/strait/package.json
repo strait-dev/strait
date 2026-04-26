@@ -4,7 +4,7 @@
   "scripts": {
     "build": "go build ./...",
     "test": "go test ./...",
-    "lint": "golangci-lint run --timeout=5m ./...",
+    "lint": "golangci-lint run --timeout=10m ./...",
     "typecheck": "go vet ./...",
     "dev": "go run ./cmd/strait",
     "deploy": "make deploy",
