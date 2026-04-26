@@ -169,8 +169,14 @@ func (w *WhatIfEngine) Replay(ctx context.Context, runID, targetModel, projectID
 	}
 
 	// Compute costs.
-	originalCost, _ := w.store.SumRunCostMicrousd(ctx, runID)
-	replayCost, _ := w.store.SumRunCostMicrousd(ctx, replayRun.ID)
+	originalCost, costErr := w.store.SumRunCostMicrousd(ctx, runID)
+	if costErr != nil {
+		return nil, fmt.Errorf("sum original run cost: %w", costErr)
+	}
+	replayCost, costErr2 := w.store.SumRunCostMicrousd(ctx, replayRun.ID)
+	if costErr2 != nil {
+		return nil, fmt.Errorf("sum replay run cost: %w", costErr2)
+	}
 
 	originalDuration := 0
 	if run.FinishedAt != nil && run.StartedAt != nil {

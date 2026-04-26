@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/agents"
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 // --- What-If Estimate (GET) ---
@@ -31,10 +32,21 @@ func (s *Server) handleWhatIfEstimate(ctx context.Context, input *WhatIfEstimate
 		return nil, huma.Error400BadRequest("project context is required")
 	}
 
+	run, runErr := s.store.GetRun(ctx, input.RunID)
+	if runErr != nil {
+		if errors.Is(runErr, store.ErrRunNotFound) {
+			return nil, huma.Error404NotFound("run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	engine := agents.NewWhatIfEngine(s.store, s.store, svc)
-	estimate, err := engine.EstimateCost(ctx, input.RunID, input.Model)
-	if err != nil {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("estimate failed: %s", err))
+	estimate, estErr := engine.EstimateCost(ctx, input.RunID, input.Model)
+	if estErr != nil {
+		return nil, huma.Error400BadRequest("estimate failed")
 	}
 
 	return &WhatIfEstimateOutput{Body: estimate}, nil
@@ -66,10 +78,21 @@ func (s *Server) handleWhatIfReplay(ctx context.Context, input *WhatIfReplayInpu
 		return nil, huma.Error400BadRequest("project context is required")
 	}
 
+	run, runErr := s.store.GetRun(ctx, input.RunID)
+	if runErr != nil {
+		if errors.Is(runErr, store.ErrRunNotFound) {
+			return nil, huma.Error404NotFound("run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("run not found")
+	}
+
 	engine := agents.NewWhatIfEngine(s.store, s.store, svc)
-	result, err := engine.Replay(ctx, input.RunID, input.Body.TargetModel, projectID, input.Body.AgentID, actorFromContext(ctx))
-	if err != nil {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("what-if replay failed: %s", err))
+	result, replayErr := engine.Replay(ctx, input.RunID, input.Body.TargetModel, projectID, input.Body.AgentID, actorFromContext(ctx))
+	if replayErr != nil {
+		return nil, huma.Error400BadRequest("what-if replay failed")
 	}
 
 	return &WhatIfReplayOutput{Body: result}, nil

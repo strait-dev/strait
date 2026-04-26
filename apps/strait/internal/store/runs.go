@@ -733,6 +733,8 @@ func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (in
 
 // LookupPricing returns the per-token cost in microusd for the given provider/model pair.
 func (q *Queries) LookupPricing(ctx context.Context, provider, model string) (inputCostMicrousd, outputCostMicrousd int64, err error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.LookupPricing")
+	defer span.End()
 	return q.lookupPricing(ctx, provider, model)
 }
 

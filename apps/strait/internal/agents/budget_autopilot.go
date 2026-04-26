@@ -44,7 +44,9 @@ func (b *BudgetAutopilot) CheckAndAdjust(ctx context.Context, agentID string, cu
 		var configMap map[string]json.RawMessage
 		if err := json.Unmarshal(agent.Config, &configMap); err == nil {
 			if raw, ok := configMap["autopilot"]; ok {
-				_ = json.Unmarshal(raw, &cfg)
+				if unmarshalErr := json.Unmarshal(raw, &cfg); unmarshalErr != nil {
+					return nil, fmt.Errorf("parse autopilot config: %w", unmarshalErr)
+				}
 			}
 		}
 	}
@@ -76,6 +78,8 @@ func (b *BudgetAutopilot) CheckAndAdjust(ctx context.Context, agentID string, cu
 	// Determine which tier to downgrade.
 	var targetTier RequestTier
 	switch {
+	case budgetPct >= 95:
+		targetTier = TierComplex
 	case budgetPct >= 90:
 		targetTier = TierStandard
 	case budgetPct >= 80:

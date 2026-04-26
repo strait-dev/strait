@@ -155,18 +155,48 @@ func TestBudgetAutopilot_90PctDowngradesStandard(t *testing.T) {
 	router := NewModelRouter(mrStore)
 	autopilot := NewBudgetAutopilot(store, router)
 
-	action, err := autopilot.CheckAndAdjust(context.Background(), "agent1", 950000) // 95%
+	action, err := autopilot.CheckAndAdjust(context.Background(), "agent1", 920000) // 92%
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if action == nil {
-		t.Fatal("expected downgrade action at 95%")
+		t.Fatal("expected downgrade action at 92%")
 	}
 	if action.Tier != "standard" {
 		t.Fatalf("expected tier standard, got %s", action.Tier)
 	}
 	if action.NewModel != "gpt-4o-mini" {
 		t.Fatalf("expected new model gpt-4o-mini, got %s", action.NewModel)
+	}
+}
+
+func TestBudgetAutopilot_95PctDowngradesComplex(t *testing.T) {
+	store := &mockAutopilotStore{
+		agent: makeAgentWithAutopilot("agent1", domain.AutopilotConfig{
+			Enabled:        true,
+			BudgetMicrousd: 1000000,
+			CheapestModel:  "gpt-4o-mini",
+		}),
+	}
+	mrStore := newMockAutopilotRoutingStore()
+	router := NewModelRouter(mrStore)
+	autopilot := NewBudgetAutopilot(store, router)
+
+	action, err := autopilot.CheckAndAdjust(context.Background(), "agent1", 960000) // 96%
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if action == nil {
+		t.Fatal("expected downgrade action at 96%")
+	}
+	if action.Tier != "complex" {
+		t.Fatalf("expected tier complex at 96%%, got %s", action.Tier)
+	}
+	if action.NewModel != "gpt-4o-mini" {
+		t.Fatalf("expected new model gpt-4o-mini, got %s", action.NewModel)
+	}
+	if action.Action != "downgrade" {
+		t.Fatalf("expected action downgrade, got %s", action.Action)
 	}
 }
 
@@ -253,8 +283,8 @@ func TestBudgetAutopilot_LowBudgetSkipsWindow(t *testing.T) {
 	if action == nil {
 		t.Fatal("expected action when remaining budget < 5%, even within observation window")
 	}
-	if action.Tier != "standard" {
-		t.Fatalf("expected tier standard at 96%%, got %s", action.Tier)
+	if action.Tier != "complex" {
+		t.Fatalf("expected tier complex at 96%%, got %s", action.Tier)
 	}
 }
 

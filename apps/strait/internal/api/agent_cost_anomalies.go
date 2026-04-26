@@ -32,6 +32,18 @@ func (s *Server) handleListCostAnomalies(ctx context.Context, input *ListCostAno
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.ListCostAnomalies")
 	defer span.End()
 
+	svc, svcErr := s.requireAgentService()
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+	if _, agentErr := svc.GetAgent(ctx, projectID, input.AgentID); agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
+
 	span.SetAttributes(attribute.String("agent_id", input.AgentID))
 
 	anomalies, err := s.store.ListCostAnomalies(ctx, input.AgentID, input.Limit)
@@ -64,6 +76,18 @@ type SnoozeCostAnomalyOutput struct {
 func (s *Server) handleSnoozeCostAnomaly(ctx context.Context, input *SnoozeCostAnomalyInput) (*SnoozeCostAnomalyOutput, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.SnoozeCostAnomaly")
 	defer span.End()
+
+	svc, svcErr := s.requireAgentService()
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required")
+	}
+	if _, agentErr := svc.GetAgent(ctx, projectID, input.AgentID); agentErr != nil {
+		return nil, mapAgentServiceError(agentErr)
+	}
 
 	span.SetAttributes(
 		attribute.String("agent_id", input.AgentID),

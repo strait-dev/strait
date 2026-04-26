@@ -72,6 +72,10 @@ func (d *AnomalyDetector) DetectAnomalies(ctx context.Context, dailyCosts []Agen
 			}
 		}
 
+		if len(baselineDays) < 3 {
+			continue
+		}
+
 		if len(baselineDays) == 0 || todayCost == 0 {
 			continue
 		}

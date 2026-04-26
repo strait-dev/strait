@@ -136,9 +136,9 @@ func TestMatchesExpected_NotContainsFail(t *testing.T) {
 
 func TestMatchesExpected_EqualsPass(t *testing.T) {
 	t.Parallel()
-	expected := json.RawMessage(`{"equals":"exact match"}`)
+	expected := json.RawMessage(`{"equals":"Exact Match"}`)
 	if !matchesExpected("exact match", expected) {
-		t.Fatal("expected pass")
+		t.Fatal("expected case-insensitive equals to pass")
 	}
 }
 
@@ -147,6 +147,20 @@ func TestMatchesExpected_EqualsFail(t *testing.T) {
 	expected := json.RawMessage(`{"equals":"exact match"}`)
 	if matchesExpected("not exact match", expected) {
 		t.Fatal("expected fail")
+	}
+}
+
+func TestMatchesExpected_EqualsCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	expected := json.RawMessage(`{"equals":"Hello"}`)
+	if !matchesExpected("hello", expected) {
+		t.Fatal("expected case-insensitive equals to match")
+	}
+	if !matchesExpected("HELLO", expected) {
+		t.Fatal("expected case-insensitive equals to match uppercase")
+	}
+	if matchesExpected("helloX", expected) {
+		t.Fatal("expected non-equal string to fail")
 	}
 }
 
@@ -306,5 +320,41 @@ func TestRunEval_RunAgentError(t *testing.T) {
 	}
 	if result.FailedCases != 1 {
 		t.Fatalf("expected 1 failed, got %d", result.FailedCases)
+	}
+}
+
+func TestRunEval_MaxCasesExceeded(t *testing.T) {
+	t.Parallel()
+
+	// Build a golden set with 101 cases programmatically.
+	type goldenCase struct {
+		ID             string          `json:"id"`
+		Input          json.RawMessage `json:"input"`
+		ExpectedOutput json.RawMessage `json:"expected_output"`
+	}
+	cases := make([]goldenCase, 101)
+	for i := range cases {
+		cases[i] = goldenCase{
+			ID:             fmt.Sprintf("c%d", i),
+			Input:          json.RawMessage(`{}`),
+			ExpectedOutput: json.RawMessage(`{"contains":["ok"]}`),
+		}
+	}
+	casesJSON, _ := json.Marshal(cases)
+
+	store := &mockEvalStore{
+		goldenSet: &domain.GoldenSet{
+			AgentID: "agent-1", Name: "default",
+			Cases: casesJSON,
+		},
+	}
+	svc := &sequencingMockService{}
+	runner := NewEvalRunner(store, svc)
+
+	_, err := runner.RunEval(context.Background(), RunEvalRequest{
+		ProjectID: "proj-1", AgentID: "agent-1", Actor: "test",
+	})
+	if err == nil {
+		t.Fatal("expected error for >100 golden set cases")
 	}
 }

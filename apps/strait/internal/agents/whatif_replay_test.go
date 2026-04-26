@@ -17,6 +17,7 @@ type mockWhatIfStore struct {
 	usages    map[string][]domain.RunUsage
 	toolCalls map[string][]domain.RunToolCall
 	costs     map[string]int64
+	costErr   error
 }
 
 func newMockWhatIfStore() *mockWhatIfStore {
@@ -45,6 +46,9 @@ func (m *mockWhatIfStore) ListRunToolCalls(_ context.Context, runID string, _ in
 }
 
 func (m *mockWhatIfStore) SumRunCostMicrousd(_ context.Context, runID string) (int64, error) {
+	if m.costErr != nil {
+		return 0, m.costErr
+	}
 	return m.costs[runID], nil
 }
 
@@ -289,4 +293,22 @@ func TestReplay_LoadsCachedToolCalls(t *testing.T) {
 	}
 
 	_ = fmt.Sprintf("tool calls loaded: %d", len(store.toolCalls["run-1"]))
+}
+
+
+func TestReplay_CostQueryError(t *testing.T) {
+	store := newMockWhatIfStore()
+	pricing := newMockPricingStore()
+
+	store.runs["run-1"] = terminalRun("run-1")
+	replayRun := terminalRun("replay-1")
+	store.runs["replay-1"] = replayRun
+	store.costErr = fmt.Errorf("clickhouse unavailable")
+
+	svc := &mockWhatIfService{replayResult: replayRun}
+	engine := NewWhatIfEngine(store, pricing, svc)
+	_, err := engine.Replay(context.Background(), "run-1", "gpt-4", "proj-1", "agent-1", "test-user")
+	if err == nil {
+		t.Fatal("expected error when SumRunCostMicrousd fails")
+	}
 }

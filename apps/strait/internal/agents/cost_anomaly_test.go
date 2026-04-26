@@ -193,3 +193,27 @@ func TestDetectAnomalies_TodayOnlyNoBaseline(t *testing.T) {
 		t.Errorf("expected 0 anomalies with no baseline, got %d", len(anomalies))
 	}
 }
+
+
+func TestDetectAnomalies_BaselineTooShortAfterSplit(t *testing.T) {
+	store := &mockAnomalyStore{}
+	d := NewAnomalyDetector(store, 2.0)
+
+	// 5 total entries but 4 are today, only 1 baseline day.
+	// After split: baselineDays has 1 entry (< 3 minimum), so should skip.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	costs := []AgentDailyCost{
+		{AgentID: "agent-1", Date: today, CostMicrousd: 100_000},
+		{AgentID: "agent-1", Date: today, CostMicrousd: 100_000},
+		{AgentID: "agent-1", Date: today, CostMicrousd: 100_000},
+		{AgentID: "agent-1", Date: today, CostMicrousd: 100_000},
+		{AgentID: "agent-1", Date: today.AddDate(0, 0, -1), CostMicrousd: 10_000},
+	}
+	anomalies, err := d.DetectAnomalies(context.Background(), costs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anomalies) != 0 {
+		t.Errorf("expected 0 anomalies when baseline too short after split, got %d", len(anomalies))
+	}
+}

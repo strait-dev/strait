@@ -48,7 +48,7 @@ func (q *Queries) ListGoldenSets(ctx context.Context, agentID string) ([]domain.
 	defer span.End()
 	rows, err := q.db.Query(ctx,
 		`SELECT id, agent_id, project_id, name, cases, created_at, updated_at
-		 FROM agent_golden_sets WHERE agent_id = $1 ORDER BY name`, agentID)
+		 FROM agent_golden_sets WHERE agent_id = $1 ORDER BY name LIMIT 100`, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list golden sets: %w", err)
 	}

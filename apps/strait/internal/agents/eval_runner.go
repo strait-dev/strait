@@ -75,6 +75,10 @@ func (r *EvalRunner) RunEval(ctx context.Context, req RunEvalRequest) (*RunEvalR
 	if len(cases) == 0 {
 		return nil, fmt.Errorf("golden set %q has no cases", req.GoldenSetName)
 	}
+	const maxGoldenSetCases = 100
+	if len(cases) > maxGoldenSetCases {
+		return nil, fmt.Errorf("golden set exceeds maximum of %d cases", maxGoldenSetCases)
+	}
 
 	start := time.Now()
 	results := make([]domain.EvalCaseResult, 0, len(cases))
@@ -102,7 +106,10 @@ func (r *EvalRunner) RunEval(ctx context.Context, req RunEvalRequest) (*RunEvalR
 	}
 
 	// Persist as EvalRun.
-	resultsJSON, _ := json.Marshal(results)
+	resultsJSON, marshalErr := json.Marshal(results)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshal eval results: %w", marshalErr)
+	}
 	evalRun := &domain.EvalRun{
 		AgentID:     req.AgentID,
 		ProjectID:   req.ProjectID,
@@ -204,7 +211,7 @@ func matchesExpected(actual string, expected json.RawMessage) bool {
 	lowerActual := strings.ToLower(actual)
 
 	if criteria.Equals != "" {
-		return actual == criteria.Equals
+		return strings.EqualFold(actual, criteria.Equals)
 	}
 
 	for _, kw := range criteria.Contains {

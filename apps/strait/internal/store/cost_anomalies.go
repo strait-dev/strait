@@ -95,7 +95,7 @@ func (q *Queries) UpdateCostAnomalyStatus(ctx context.Context, id, status string
 	case "snoozed":
 		query = `UPDATE agent_cost_anomalies SET status = $1, snoozed_until = NOW() + INTERVAL '24 hours' WHERE id = $2`
 	default:
-		query = `UPDATE agent_cost_anomalies SET status = $1 WHERE id = $2`
+		return fmt.Errorf("invalid cost anomaly status: %q (allowed: open, resolved, snoozed)", status)
 	}
 
 	tag, err := q.db.Exec(ctx, query, status, id)
