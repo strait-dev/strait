@@ -4,7 +4,7 @@
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge)](https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait)
 [![Go Report Card](https://goreportcard.com/badge/github.com/strait-dev/strait)](https://goreportcard.com/report/github.com/strait-dev/strait)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 **Production-grade job orchestration for engineering teams and AI agents — in a single binary.**
 
@@ -183,4 +183,4 @@ See [`AGENTS.md`](AGENTS.md) for the full contributor guide — tech stack, modu
 
 ## License
 
-[MIT License](LICENSE).
+[Apache License 2.0](LICENSE).
