@@ -824,6 +824,18 @@ type EvalCaseResult struct {
 	LatencyMs int    `json:"latency_ms,omitempty"`
 }
 
+// ModelRoute maps a request tier to a specific model for an agent.
+type ModelRoute struct {
+	ID            string    `json:"id"`
+	AgentID       string    `json:"agent_id"`
+	Tier          string    `json:"tier"`           // simple, standard, complex
+	Model         string    `json:"model"`
+	QualityScore  float64   `json:"quality_score,omitempty"`
+	PreviousModel string    `json:"previous_model,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	UpdatedBy     string    `json:"updated_by,omitempty"`
+}
+
 // AgentCanaryDeployment represents an active canary between two agent deployments.
 type AgentCanaryDeployment struct {
 	ID                 string     `json:"id"`

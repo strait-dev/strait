@@ -350,6 +350,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleDeleteGoldenSet)
 
 	RegisterTypedOp(api, OpMeta{
+		ID: "get-model-routing", Method: http.MethodGet, Path: "/v1/agents/{agentID}/model-routing",
+		Summary: "Get model routing", Description: "Returns all model routes for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleGetModelRouting)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "update-model-routing", Method: http.MethodPut, Path: "/v1/agents/{agentID}/model-routing",
+		Summary: "Update model routing", Description: "Creates or updates model routes for an agent.",
+		Tags: []string{"Agents"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
+	}, s.handleUpdateModelRouting)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "get-agent-run-timeline", Method: http.MethodGet, Path: "/v1/agents/analytics/run-timeline",
 		Summary: "Get agent run timeline", Description: "Returns bucketed run counts over time for an agent.",
 		Tags: []string{"Agents", "Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},

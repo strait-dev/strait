@@ -366,6 +366,8 @@ func (s *Server) routes() chi.Router {
 					r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetGoldenSet))
 					r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteGoldenSet))
 				})
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/model-routing", TypedHandler(s, http.StatusOK, s.handleGetModelRouting))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Put("/model-routing", TypedHandler(s, http.StatusOK, s.handleUpdateModelRouting))
 			})
 		})
 
