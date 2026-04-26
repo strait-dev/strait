@@ -322,5 +322,17 @@ func (s *Server) handleRunEval(ctx context.Context, input *RunEvalInput) (*RunEv
 		return nil, huma.Error500InternalServerError("failed to store eval results")
 	}
 
+	// Feed quality score to model router quality gate.
+	if mrStore, ok := s.store.(agents.ModelRoutingStore); ok {
+		qualityScore := float64(0)
+		if evalRun.TotalCases > 0 {
+			qualityScore = float64(evalRun.PassedCases) / float64(evalRun.TotalCases) * 100
+		}
+		router := agents.NewModelRouter(mrStore)
+		for _, tier := range []agents.RequestTier{agents.TierSimple, agents.TierStandard, agents.TierComplex} {
+			_ = router.CheckQualityGate(ctx, input.AgentID, tier, qualityScore)
+		}
+	}
+
 	return &RunEvalOutput{Body: evalRun}, nil
 }

@@ -197,3 +197,45 @@ func (s *AnalyticsStore) GetAgentTopAgents(ctx context.Context, projectID string
 	}
 	return result, nil
 }
+
+
+// AgentDailyCost represents a single day's cost for an agent.
+type AgentDailyCost struct {
+	AgentID      string    `json:"agent_id"`
+	AgentSlug    string    `json:"agent_slug"`
+	Date         time.Time `json:"date"`
+	CostMicrousd int64     `json:"cost_microusd"`
+}
+
+// QueryAgentDailyCosts returns per-agent daily cost totals for the given project and time window.
+func (s *AnalyticsStore) QueryAgentDailyCosts(ctx context.Context, projectID string, from, to time.Time) ([]AgentDailyCost, error) {
+	query := `
+		SELECT
+			agent_id,
+			agent_slug,
+			toDate(created_at) AS day,
+			sum(cost_microusd) AS daily_cost
+		FROM agent_run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY agent_id, agent_slug, day
+		ORDER BY agent_id, day`
+
+	rows, err := s.client.Query(ctx, query, projectID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("query agent daily costs: %w", err)
+	}
+	defer rows.Close()
+
+	var results []AgentDailyCost
+	for rows.Next() {
+		var r AgentDailyCost
+		if err := rows.Scan(&r.AgentID, &r.AgentSlug, &r.Date, &r.CostMicrousd); err != nil {
+			return nil, fmt.Errorf("scan agent daily cost: %w", err)
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("agent daily costs rows: %w", err)
+	}
+	return results, nil
+}

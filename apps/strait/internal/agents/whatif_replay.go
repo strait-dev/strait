@@ -79,8 +79,9 @@ func (w *WhatIfEngine) EstimateCost(ctx context.Context, runID, targetModel stri
 			originalModel = u.Model
 		}
 		// Estimate cost with new model pricing.
-		estimatedCost += int64(u.PromptTokens) * inputPrice / 1_000_000
-		estimatedCost += int64(u.CompletionTokens) * outputPrice / 1_000_000
+		// Multiply first to preserve precision, then divide with rounding.
+		estimatedCost += (int64(u.PromptTokens) * inputPrice + 500_000) / 1_000_000
+		estimatedCost += (int64(u.CompletionTokens) * outputPrice + 500_000) / 1_000_000
 	}
 
 	costDelta := estimatedCost - originalCost
@@ -131,7 +132,6 @@ func (w *WhatIfEngine) Replay(ctx context.Context, runID, targetModel, projectID
 			Output:   tc.Output,
 		})
 	}
-	_ = cached // used when envelope supports cached tool calls
 
 	// Trigger replay via ReplayAgentRun with model override.
 	replayRun, err := w.service.ReplayAgentRun(ctx, ReplayAgentRunRequest{
@@ -140,6 +140,7 @@ func (w *WhatIfEngine) Replay(ctx context.Context, runID, targetModel, projectID
 		OriginalRunID:   runID,
 		ConfigOverrides: map[string]any{"model": targetModel},
 		Actor:           "whatif:" + actor,
+		CachedToolCalls: cached,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("replay agent run: %w", err)

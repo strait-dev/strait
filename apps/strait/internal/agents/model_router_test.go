@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"strait/internal/domain"
@@ -197,5 +198,26 @@ func TestCheckQualityGate_BelowThreshold_NoPrevious(t *testing.T) {
 	}
 	if route.QualityScore != 70.0 {
 		t.Errorf("expected quality score 70.0, got %f", route.QualityScore)
+	}
+}
+
+
+func TestCountConfigTools_Empty(t *testing.T) {
+	if got := countConfigTools(nil); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+}
+
+func TestCountConfigTools_WithTools(t *testing.T) {
+	cfg := json.RawMessage(`{"tools":[{"name":"a"},{"name":"b"},{"name":"c"}]}`)
+	if got := countConfigTools(cfg); got != 3 {
+		t.Fatalf("expected 3, got %d", got)
+	}
+}
+
+func TestCountConfigTools_NoToolsKey(t *testing.T) {
+	cfg := json.RawMessage(`{"model":"gpt-4"}`)
+	if got := countConfigTools(cfg); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
 	}
 }

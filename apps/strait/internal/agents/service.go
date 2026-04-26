@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -60,6 +61,7 @@ type ReplayAgentRunRequest struct {
 	ConfigOverrides map[string]any
 	FromCheckpoint  int
 	Actor           string
+	CachedToolCalls []CachedToolCall
 }
 
 type Service interface {
@@ -204,6 +206,8 @@ type localService struct {
 	billingEnforcer   AgentBillingEnforcer
 	canaryRouter      *AgentCanaryRouter
 	webhookStore      WebhookDeliveryStore
+	modelRouter       *ModelRouter
+	cachedToolCallsMap sync.Map // map[runID string][]CachedToolCall
 }
 
 type Option func(*localService)
@@ -380,6 +384,14 @@ func WithBillingEnforcer(be AgentBillingEnforcer) Option {
 	return func(s *localService) {
 		if be != nil {
 			s.billingEnforcer = be
+		}
+	}
+}
+
+func WithModelRouter(r *ModelRouter) Option {
+	return func(s *localService) {
+		if r != nil {
+			s.modelRouter = r
 		}
 	}
 }
@@ -719,6 +731,27 @@ func (s *localService) RunAgent(ctx context.Context, req RunAgentRequest) (*doma
 	if !agent.Enabled {
 		return nil, ErrAgentDisabled
 	}
+	// Resolve model via tier-based routing if configured.
+	if s.modelRouter != nil {
+		// Estimate prompt tokens from payload size (rough: ~4 chars per token).
+		promptTokenEstimate := len(req.Payload) / 4
+		// Count tools from agent config.
+		toolCount := countConfigTools(agent.Config)
+		tier := ClassifyRequest(promptTokenEstimate, toolCount, false)
+		routed, routeErr := s.modelRouter.ResolveModel(ctx, agent.ID, agent.Model, tier)
+		if routeErr == nil && routed != agent.Model {
+			slog.Info("model router override",
+				"agent_id", agent.ID,
+				"tier", tier,
+				"original_model", agent.Model,
+				"routed_model", routed)
+			// Create a shallow copy so the DB record isn't mutated.
+			agentCopy := *agent
+			agentCopy.Model = routed
+			agent = &agentCopy
+		}
+	}
+
 	job, err := s.store.GetJob(ctx, agent.JobID)
 	if err != nil {
 		return nil, err
@@ -1068,6 +1101,10 @@ func (s *localService) ReplayAgentRun(ctx context.Context, req ReplayAgentRunReq
 		return nil, err
 	}
 
+	if len(req.CachedToolCalls) > 0 {
+		s.cachedToolCallsMap.Store(run.ID, req.CachedToolCalls)
+	}
+
 	_ = s.store.InsertEvent(ctx, &domain.RunEvent{
 		RunID:   run.ID,
 		Type:    domain.EventStateChange,
@@ -1348,6 +1385,11 @@ func (s *localService) buildRuntimeEnvelope(ctx context.Context, agent *domain.A
 		if envelope.Retry.LastCheckpoint == nil && envelope.Retry.CheckpointAt == "" && envelope.Retry.PreviousError == "" {
 			envelope.Retry = nil
 		}
+	}
+
+	// Inject cached tool calls for what-if replay runs.
+	if cached, ok := s.cachedToolCallsMap.LoadAndDelete(run.ID); ok {
+		envelope.CachedToolCalls = cached.([]CachedToolCall)
 	}
 
 	return envelope, token, nil
@@ -1711,4 +1753,24 @@ func isSafeWebhookURL(raw string) bool {
 		}
 	}
 	return true
+}
+
+// countConfigTools counts the number of tools defined in agent config JSON.
+func countConfigTools(config json.RawMessage) int {
+	if len(config) == 0 {
+		return 0
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(config, &cfg); err != nil {
+		return 0
+	}
+	raw, ok := cfg["tools"]
+	if !ok {
+		return 0
+	}
+	var tools []json.RawMessage
+	if err := json.Unmarshal(raw, &tools); err != nil {
+		return 0
+	}
+	return len(tools)
 }

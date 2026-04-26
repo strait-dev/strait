@@ -30,7 +30,8 @@ func ClassifyRequest(promptTokenEstimate int, toolCount int, hasStructuredOutput
 }
 
 // modelRoutingStore defines the store methods used by the model router.
-type modelRoutingStore interface {
+// ModelRoutingStore defines the store methods used by the model router.
+type ModelRoutingStore interface {
 	GetModelRouting(ctx context.Context, agentID string) ([]domain.ModelRoute, error)
 	GetModelRoutingByTier(ctx context.Context, agentID, tier string) (*domain.ModelRoute, error)
 	UpsertModelRouting(ctx context.Context, route *domain.ModelRoute) error
@@ -38,11 +39,11 @@ type modelRoutingStore interface {
 
 // ModelRouter resolves which model to use for a given request tier.
 type ModelRouter struct {
-	store modelRoutingStore
+	store ModelRoutingStore
 }
 
 // NewModelRouter creates a new model router.
-func NewModelRouter(store modelRoutingStore) *ModelRouter {
+func NewModelRouter(store ModelRoutingStore) *ModelRouter {
 	return &ModelRouter{store: store}
 }
 

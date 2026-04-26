@@ -280,6 +280,52 @@ export function serializeOutputLine(output: RuntimeOutputLine): string {
   return output.kind === "raw" ? output.line : JSON.stringify(output.event);
 }
 
+/**
+ * Returns a cached tool response if one matches by tool_name + input.
+ * Used during what-if replay to serve deterministic tool outputs.
+ */
+export function findCachedToolResponse(
+  cached: DispatchEnvelope["cached_tool_calls"],
+  toolName: string,
+  input: JsonValue
+): JsonValue | undefined {
+  if (!cached?.length) {
+    return undefined;
+  }
+  const inputStr = JSON.stringify(input);
+  for (const entry of cached) {
+    if (
+      entry.tool_name === toolName &&
+      JSON.stringify(entry.input) === inputStr
+    ) {
+      return entry.output;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Builds runtime output entries for cached tool calls (what-if replay).
+ */
+function buildCachedToolCallOutputs(
+  envelope: DispatchEnvelope
+): RuntimeOutputLine[] {
+  if (!envelope.cached_tool_calls?.length) {
+    return [];
+  }
+  return envelope.cached_tool_calls.map((entry) => ({
+    kind: "event" as const,
+    event: {
+      type: "tool_call" as const,
+      tool_name: entry.tool_name,
+      input: entry.input ?? {},
+      output: entry.output ?? {},
+      duration_ms: 0,
+      status: "cached",
+    },
+  }));
+}
+
 export function buildRuntimeOutput(
   envelope: DispatchEnvelope,
   deps: RuntimeDependencies = defaultDependencies
@@ -350,6 +396,9 @@ export function buildRuntimeOutput(
         },
       });
     }
+
+    // Serve cached tool responses for what-if replay runs.
+    outputs.push(...buildCachedToolCallOutputs(envelope));
 
     outputs.push(
       {
