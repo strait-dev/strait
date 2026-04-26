@@ -27,12 +27,16 @@ bun install
 # Install git hooks.
 lefthook install
 
-# Start the dev database and Redis.
+# Start Postgres, Redis, and Sequin (CDC).
+# Postgres maps to host port 15432, Redis to 16379 (avoids clashing
+# with Postgres/Redis already running on your machine).
 cd apps/strait && docker compose up -d
 
 # Set up environment (copy and fill in secrets).
 cp .env.example .env
-# Edit .env with your values (DATABASE_URL, REDIS_URL, INTERNAL_SECRET, JWT_SIGNING_KEY)
+# Edit .env — the defaults already point at the dev compose ports:
+#   DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+#   REDIS_URL=redis://localhost:16379
 ```
 
 ## Running Locally
