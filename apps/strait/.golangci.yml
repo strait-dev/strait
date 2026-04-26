@@ -17,6 +17,8 @@ formatters:
 
 linters:
   enable:
+  disable:
+    - errcheck         # covered by gosec and errorlint for critical cases; default-on in v2
     - asasalint        # checks for pass []any as any in variadic func(...any)
     - asciicheck       # checks that your code does not contain non-ASCII identifiers
     - bidichk          # checks for dangerous unicode character sequences
