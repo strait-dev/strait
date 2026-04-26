@@ -57,6 +57,7 @@ func (h *SentryHandler) Handle(ctx context.Context, r slog.Record) error {
 		scope.SetLevel(sentry.LevelError)
 
 		var captureErr error
+		extra := sentry.Context{}
 		r.Attrs(func(a slog.Attr) bool {
 			key := a.Key
 			val := fmt.Sprintf("%v", a.Value.Any())
@@ -75,10 +76,13 @@ func (h *SentryHandler) Handle(ctx context.Context, r slog.Record) error {
 			if sentryTagKeys[key] {
 				scope.SetTag(key, val)
 			} else {
-				scope.SetExtra(key, val)
+				extra[key] = val
 			}
 			return true
 		})
+		if len(extra) > 0 {
+			scope.SetContext("extra", extra)
+		}
 
 		if captureErr != nil {
 			sentry.CaptureException(captureErr)

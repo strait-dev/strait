@@ -621,8 +621,8 @@ func TestSentryHandler_NonTagKeys_SetAsExtra(t *testing.T) {
 		t.Fatalf("expected 1 sentry event, got %d", collector.len())
 	}
 	event := collector.get(0)
-	if event.Extra["custom_field"] != "custom_value" {
-		t.Errorf("expected extra custom_field=custom_value, got %v", event.Extra["custom_field"])
+	if event.Contexts["extra"]["custom_field"] != "custom_value" {
+		t.Errorf("expected extra custom_field=custom_value, got %v", event.Contexts["extra"]["custom_field"])
 	}
 	if _, isTag := event.Tags["custom_field"]; isTag {
 		t.Error("custom_field should not be a tag")
