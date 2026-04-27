@@ -28,7 +28,7 @@ Read first:
 
 ## 2. Tech stack
 
-- **Language**: Go 1.26 (toolchain 1.26.2), module `strait`, repo is a Bun + Turbo monorepo
+- **Language**: Go 1.26.2, module `strait`, repo is a Bun + Turbo monorepo
 - **HTTP**: `go-chi/chi/v5` + `danielgtaylor/huma/v2` (OpenAPI generation)
 - **Database**: PostgreSQL via `jackc/pgx/v5` — no ORM. Migrations are embedded SQL.
 - **Cache / pub-sub**: `redis/go-redis/v9`, `eko/gocache`, `maypok86/otter`
