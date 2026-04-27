@@ -44,6 +44,7 @@ type QueueMetrics struct {
 	NotifyDegradedDurationSeconds metric.Float64Histogram
 	EventChannelSaturationRatio   metric.Float64Gauge
 	SchedulerShutdownTimeouts     metric.Int64Counter
+	IndexDeadItems                metric.Int64Gauge
 }
 
 var (
@@ -335,6 +336,14 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	)
 	if err != nil {
 		return fmt.Errorf("notify degraded duration histogram: %w", err)
+	}
+	m.IndexDeadItems, err = meter.Int64Gauge(
+		"strait.queue.index_dead_items",
+		metric.WithDescription("Dead index entries in the dequeue covering index (from pgstatindex)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("index dead items gauge: %w", err)
 	}
 	return nil
 }
