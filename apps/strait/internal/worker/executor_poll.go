@@ -85,6 +85,10 @@ func (e *Executor) poll(ctx context.Context) {
 		case e.dequeueStrategy == "claim_table":
 			if cq, ok := e.queue.(claimTableDequeuer); ok {
 				runs, err = cq.DequeueNClaim(innerCtx, available)
+			} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
+				// Auto-fallback: claim table not available (pre-migration),
+				// use two-phase dequeue instead.
+				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
 			} else {
 				runs, err = e.queue.DequeueN(innerCtx, available)
 			}

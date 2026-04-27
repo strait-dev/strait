@@ -963,6 +963,13 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 
 	rows, err := tx.Query(ctx, claimSQL, n)
 	if err != nil {
+		// If the claim table doesn't exist (pre-migration), rollback and
+		// fall back to two-phase dequeue transparently.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
+			_ = tx.Rollback(ctx)
+			return q.DequeueNTwoPhase(ctx, n)
+		}
 		return nil, fmt.Errorf("dequeue claim: delete: %w", err)
 	}
 
