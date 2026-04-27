@@ -481,8 +481,15 @@ const dequeueColumns = `id, job_id, project_id, status, attempt, payload, result
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id`
 
-// concurrencyCTEs pre-computes active run counts per job and per concurrency key,
-// replacing correlated COUNT(*) subqueries that re-execute per candidate row.
+// concurrencyCTEs is the fallback concurrency-checking path used when
+// QUEUE_USE_DENORMALIZED_DEQUEUE is false. It scans all active runs
+// per dequeue call (O(active_runs)). The default denormalized path
+// uses job_active_counts for O(1) lookups instead.
+//
+// The supporting indexes (idx_job_runs_active_by_job and
+// idx_job_runs_concurrency_key_active) were dropped in migration
+// 000221. This CTE path still works -- Postgres will seq-scan the
+// partition -- but performance degrades with many in-flight runs.
 const concurrencyCTEs = `
 active_by_job AS (
     SELECT job_id, COUNT(*) as cnt

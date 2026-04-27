@@ -80,8 +80,9 @@ type Config struct {
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
 	// Toggle the denormalized dequeue path (uses job_active_counts
-	// lookup table instead of COUNT-over-active-rows CTE).
-	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
+	// lookup table instead of COUNT-over-active-rows CTE). Default: true.
+	// The CTE path remains available as fallback by setting to false.
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
