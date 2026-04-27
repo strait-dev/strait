@@ -78,7 +78,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},
 		{"DefaultJobTimeoutSecs", cfg.DefaultJobTimeoutSecs, 300},
 		{"WorkflowRetention", cfg.WorkflowRetention, 720 * time.Hour},
-		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 100},
+		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 5000},
 		{"StalledWorkflowThreshold", cfg.StalledWorkflowThreshold, 15 * time.Minute},
 		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
 		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
