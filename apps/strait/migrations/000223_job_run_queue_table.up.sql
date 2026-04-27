@@ -6,8 +6,8 @@
 -- one small dead tuple that aggressive vacuum reclaims in milliseconds.
 
 CREATE TABLE IF NOT EXISTS job_run_queue (
-    run_id                      UUID          NOT NULL,
-    job_id                      UUID          NOT NULL,
+    run_id                      TEXT          NOT NULL,
+    job_id                      TEXT          NOT NULL,
     project_id                  TEXT          NOT NULL,
     priority                    INT           NOT NULL DEFAULT 0,
     created_at                  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
