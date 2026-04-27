@@ -57,6 +57,8 @@ jobs:
 
     name: "vegeta / ${{ matrix.label }}"
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - uses: ./.github/actions/setup-go
 
       - name: Run ${{ matrix.label }} load tests
@@ -119,6 +121,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - uses: ./.github/actions/setup-go
 
       - name: Start Strait
@@ -179,6 +183,8 @@ jobs:
     timeout-minutes: 20
     name: "integration / Queue, Store, Rate Limit"
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - uses: ./.github/actions/setup-go
 
       - name: Run queue, store, and rate limit load tests
@@ -217,6 +223,8 @@ jobs:
     timeout-minutes: 20
     name: "integration / Pipeline, Worker, Webhook, Workflow"
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - uses: ./.github/actions/setup-go
 
       - name: Run pipeline, worker, webhook, and workflow load tests

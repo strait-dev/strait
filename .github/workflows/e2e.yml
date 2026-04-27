@@ -60,6 +60,8 @@ jobs:
       E2E_USER_PASSWORD: e2e-test-password-123
 
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - uses: ./.github/actions/setup-go
 
       - uses: ./.github/actions/setup-js
