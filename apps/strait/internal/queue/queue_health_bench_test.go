@@ -321,7 +321,8 @@ func TestQueueHealthBench(t *testing.T) {
 				case cfg.UseCursor:
 					batch, err = q.DequeueNWithCursor(ctx, cfg.BatchSize, cursor)
 				default:
-					batch, err = q.DequeueN(ctx, cfg.BatchSize)
+					// Auto-select: mirrors production executor behavior.
+					batch, err = q.DequeueNClaim(ctx, cfg.BatchSize)
 				}
 				elapsed := time.Since(start).Microseconds()
 				if err != nil {

@@ -878,6 +878,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:   slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithClaimReconciler(
+				scheduler.NewClaimReconciler(dbPool, 5*time.Minute),
+			),
 			scheduler.WithPartitionEnsurer(
 				scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
 					Interval:    24 * time.Hour,

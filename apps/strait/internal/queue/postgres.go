@@ -992,20 +992,24 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 		return nil, nil
 	}
 
-	// Phase 2: UPDATE job_runs status.
-	_, err = tx.Exec(ctx,
-		"/* action=dequeue */ "+fmt.Sprintf(`UPDATE job_runs SET status = '%s', started_at = NOW() WHERE id = ANY($1)`, domain.StatusDequeued),
-		ids,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue claim: update status: %w", err)
-	}
+	// Phase 2: UPDATE status and fetch full rows in a single CTE.
+	// Sets status directly to 'executing' (skipping the intermediate
+	// 'dequeued' state) because the claim table DELETE already
+	// represents "claimed by a worker". This eliminates one UPDATE
+	// per run lifecycle = 33% fewer dead tuples on job_runs.
+	updateFetchSQL := "/* action=dequeue */ " + fmt.Sprintf(`
+		WITH claimed_update AS (
+			UPDATE job_runs
+			SET status = '%s', started_at = NOW()
+			WHERE id = ANY($1)
+			RETURNING %s
+		)
+		SELECT %s FROM claimed_update ORDER BY created_at ASC`,
+		domain.StatusExecuting, dequeueColumns, dequeueColumns)
 
-	// Phase 3: fat fetch by PK.
-	fetchSQL := "/* action=dequeue */ " + fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
-	fetchRows, err := tx.Query(ctx, fetchSQL, ids)
+	fetchRows, err := tx.Query(ctx, updateFetchSQL, ids)
 	if err != nil {
-		return nil, fmt.Errorf("dequeue claim: fetch: %w", err)
+		return nil, fmt.Errorf("dequeue claim: update+fetch: %w", err)
 	}
 	defer fetchRows.Close()
 
