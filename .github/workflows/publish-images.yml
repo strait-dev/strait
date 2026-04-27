@@ -97,7 +97,7 @@ jobs:
   community-api:
     needs: check-ci
     name: Community API Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -235,7 +235,7 @@ jobs:
   cloud-api:
     needs: check-ci
     name: Cloud API Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -372,7 +372,7 @@ jobs:
   strait-app:
     needs: check-ci
     name: Strait App Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Node + QEMU arm64 cross-compilation is ~2x slower than Go. Cold
     # builds on first run take 15-20 min; warm builds complete in ~5.
     timeout-minutes: 45
