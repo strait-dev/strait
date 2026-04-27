@@ -75,6 +75,8 @@ type benchConfig struct {
 	SnapshotEvery   time.Duration
 	UseDenormalized bool
 	UseCursor       bool
+	UseTwoPhase     bool
+	UseClaimTable   bool
 }
 
 func defaultBenchConfig() benchConfig {
@@ -114,6 +116,12 @@ func benchConfigFromEnv() benchConfig {
 	}
 	if os.Getenv("BENCH_USE_CURSOR") == "true" {
 		cfg.UseCursor = true
+	}
+	if os.Getenv("BENCH_USE_TWO_PHASE") == "true" {
+		cfg.UseTwoPhase = true
+	}
+	if os.Getenv("BENCH_USE_CLAIM_TABLE") == "true" {
+		cfg.UseClaimTable = true
 	}
 	return cfg
 }
@@ -304,6 +312,10 @@ func TestQueueHealthBench(t *testing.T) {
 				var batch []domain.JobRun
 				var err error
 				switch {
+				case cfg.UseClaimTable:
+					batch, err = q.DequeueNClaim(ctx, cfg.BatchSize)
+				case cfg.UseTwoPhase:
+					batch, err = q.DequeueNTwoPhase(ctx, cfg.BatchSize)
 				case cfg.UseDenormalized:
 					batch, err = q.DequeueNDenormalized(ctx, cfg.BatchSize)
 				case cfg.UseCursor:
@@ -655,7 +667,6 @@ func writeResults(t *testing.T, filename string, data any) {
 	_ = enc.Encode(data)
 	t.Logf("Results written to %s", filename)
 }
-
 
 // TestQueueHealthBench_Compare loads two JSON result files and prints a
 // before/after diff table. Set BENCH_BEFORE and BENCH_AFTER env vars.
