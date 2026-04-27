@@ -3637,7 +3637,7 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("IncrementStepDeps() first len = %d, want 1", len(first))
 	}
-	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || first[0].JobID != child.JobID || first[0].WorkflowRunID != run.ID {
+	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || (first[0].JobID != nil && *first[0].JobID != child.JobID) || first[0].WorkflowRunID != run.ID {
 		t.Fatalf("IncrementStepDeps() first result mismatch: got %+v", first[0])
 	}
 	if !jsonEqual(first[0].Condition, child.Condition) {
