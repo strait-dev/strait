@@ -65,7 +65,8 @@
               "concepts/workflow-simulator",
               "concepts/workflow-test-suites",
               "concepts/workflow-debugger",
-              "concepts/job-chaining"
+              "concepts/job-chaining",
+              "concepts/dag-runtime"
             ]
           },
           {
@@ -86,7 +87,22 @@
               "guides/job-groups",
               "guides/idempotency",
               "guides/workflow-approvals",
-              "guides/event-triggers"
+              "guides/event-triggers",
+              "guides/audit-events"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": ["operations/alert-runbooks", "operations/dlq-recovery"]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/technology-choices",
+              "development/database-schema",
+              "development/contributing",
+              "development/testing",
+              "development/benchmarking"
             ]
           },
           {
@@ -134,7 +150,7 @@
         "groups": [
           {
             "group": "CLI Reference",
-            "pages": ["cli/overview"]
+            "pages": ["cli/overview", "cli/api-keys"]
           }
         ]
       },

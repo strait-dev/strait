@@ -1,0 +1,409 @@
+---
+title: "Testing"
+description: "Test categories, commands, helpers, and CI matrix for the Strait monorepo."
+icon: "flask-vial"
+---
+
+Strait uses four categories of tests: **unit**, **integration**, **end-to-end (E2E)**, and **load**. Each category has its own build tag, runtime requirements, and CI workflow.
+
+## Test categories
+
+| Category | Build tag | Requires Docker | Race detector | CI workflow |
+| --- | --- | --- | --- | --- |
+| Unit | _(none)_ | No | Yes | `test.yml` (unit job) |
+| Integration | `integration` | Yes (testcontainers) | Yes | `test.yml` (integration job) |
+| E2E | _(none, Playwright)_ | Yes (services) | No | `e2e.yml` |
+| Load | `loadtest` | Yes (services) | No | `loadtest.yml` |
+
+## Running tests
+
+### Unit tests
+
+Unit tests have no external dependencies. They run against all packages that do **not** use the `integration` or `loadtest` build tag.
+
+```bash
+# All unit tests
+cd apps/strait
+go test ./...
+
+# With race detector (CI default)
+go test -race -timeout=20m ./...
+
+# With coverage
+go test -race -cover -timeout=20m ./...
+```
+
+Or use the Makefile targets:
+
+```bash
+make test        # go test ./...
+make test-race   # go test -race -timeout=60s ./...
+```
+
+### Integration tests
+
+Integration tests use [testcontainers-go](https://golang.testcontainers.org/) to spin up ephemeral Postgres and Redis containers. Docker must be running on the host.
+
+```bash
+# All integration tests
+go test -race -tags=integration -timeout=20m ./...
+
+# Store integration tests only
+go test -race -tags=integration -timeout=20m ./internal/store/...
+
+# E2E integration tests (queue, pipeline, worker, webhook)
+go test -race -tags=integration -timeout=20m ./internal/e2e/...
+```
+
+Or use the Makefile target:
+
+```bash
+make test-integration
+```
+
+This runs integration tests for `internal/store`, `internal/queue`, `internal/pubsub`, and `internal/e2e`.
+
+<Warning>
+Integration tests require Docker. Testcontainers pulls `postgres:18-alpine` and `redis:8-alpine` images on first run, which may take a minute.
+</Warning>
+
+### End-to-end tests
+
+E2E tests use Playwright to exercise the full stack: Go backend, frontend app, Postgres, and Redis. They live in `apps/app/e2e/` and are configured via `apps/app/e2e/playwright.config.ts`.
+
+```bash
+# Install Playwright browsers
+cd apps/app
+bunx playwright install chromium --with-deps
+
+# Run all E2E tests
+bunx playwright test --config e2e/playwright.config.ts
+
+# Run a single shard (CI uses 4 shards)
+bunx playwright test --config e2e/playwright.config.ts --shard=1/4
+```
+
+E2E tests require the Go backend and frontend app to be running. The CI workflow builds both from source, starts them as background processes, and waits for health checks before running Playwright.
+
+### Load tests
+
+Load tests exercise throughput, concurrency, endurance, and chaos scenarios. They use the `loadtest` build tag and live in two locations:
+
+- `apps/strait/internal/loadtest/` -- capacity framework tests (throughput ceilings, endurance, chaos)
+- `apps/strait/test/loadtest/` -- Vegeta HTTP load tests (domain-specific request patterns)
+
+```bash
+# Start the load test server (separate terminal)
+make loadtest-server
+
+# Quick validation smoke test
+make loadtest-quick
+
+# Throughput ceiling test
+make loadtest-throughput
+
+# Concurrency ceiling test
+make loadtest-concurrency
+
+# 24-hour endurance run
+make loadtest-endurance
+
+# Chaos testing
+make loadtest-chaos
+
+# Error scenario tests
+make loadtest-errors
+
+# Run quick + throughput + concurrency
+make loadtest-all
+```
+
+<Info>
+Load tests require a running Strait server with Postgres and Redis. Use `make loadtest-server` to start one with pre-configured environment variables, or `make dev-up` to bring up the infrastructure first.
+</Info>
+
+### Kubernetes compute tests
+
+Tests for the Kubernetes compute runtime have dedicated Makefile targets:
+
+```bash
+make test-k8s-unit         # Unit tests for internal/compute
+make test-k8s-integration  # Integration tests (requires K8s context)
+make test-k8s-stress       # Stress tests (30min timeout)
+```
+
+### Frontend tests
+
+The frontend app (`apps/app`) uses Vitest:
+
+```bash
+cd apps/app
+bun test          # vitest run
+```
+
+TypeScript CI also runs Biome linting and typechecking across the monorepo:
+
+```bash
+bun run typecheck       # Turbo typecheck across all packages
+bunx biome check .      # Biome lint + format check
+bun run manypkg:check   # Monorepo dependency consistency
+```
+
+## Test helpers (`internal/testutil`)
+
+The `testutil` package provides shared helpers for integration tests. All files in this package use the `//go:build integration` tag except for `cmp.go` and `testcrypto.go`.
+
+### `TestDB` -- ephemeral Postgres via testcontainers
+
+`SetupTestDB` starts a Postgres container, runs all migrations, and creates a non-superuser role (`strait_app`) for RLS testing.
+
+```go
+func TestMain(m *testing.M) {
+    ctx := context.Background()
+    tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+    if err != nil {
+        log.Fatalf("setup: %v", err)
+    }
+    defer tdb.Cleanup(ctx)
+
+    // tdb.Pool is a *pgxpool.Pool connected to the container
+    // tdb.ConnStr is the connection string
+    os.Exit(m.Run())
+}
+```
+
+Between tests, call `tdb.CleanTables(ctx)` to `TRUNCATE` all application tables without restarting the container.
+
+### `TestRedis` -- ephemeral Redis via testcontainers
+
+```go
+tr, err := testutil.SetupTestRedis(ctx)
+defer tr.Cleanup(ctx)
+
+// tr.Client is a *redis.Client
+// tr.Addr is host:port
+tr.FlushAll(ctx)  // reset between tests
+```
+
+### `TestEnv` -- combined Postgres + Redis
+
+For tests that need both:
+
+```go
+env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+defer env.Cleanup(ctx)
+
+// env.DB.Pool, env.Redis.Client
+env.Clean(ctx)  // truncate tables + flush Redis
+```
+
+### Factory functions
+
+The `factory.go` file provides builders and must-create helpers for domain objects:
+
+| Function | Description |
+| --- | --- |
+| `BuildJob(opts)` | Build a `domain.Job` with defaults, override via `JobOpts` |
+| `MustCreateJob(t, ctx, s, opts)` | Build + persist a job via the store |
+| `BuildRun(job, opts)` | Build a `domain.JobRun` for a given job |
+| `MustCreateRun(t, ctx, s, job, opts)` | Build + persist a run via the store |
+| `MustEnqueueRun(t, ctx, q, job, opts)` | Build + enqueue a run via the queue |
+| `BuildWorkflow(opts)` | Build a `domain.Workflow` with defaults |
+| `MustCreateWorkflow(t, ctx, s, opts)` | Build + persist a workflow |
+| `BuildWorkflowStep(wfID, opts)` | Build a `domain.WorkflowStep` |
+
+All `Build*` functions generate unique IDs and names using an atomic sequence counter. Pass `nil` for opts to accept all defaults. The `Must*` variants call `t.Fatalf` on error.
+
+### Assertion helpers
+
+From `assert.go`:
+
+| Function | Description |
+| --- | --- |
+| `AssertRunStatus(t, ctx, s, runID, status)` | Assert a run has the expected status |
+| `AssertRunCompleted(t, ctx, s, runID)` | Assert a run completed |
+| `AssertRunFailed(t, ctx, s, runID)` | Assert a run failed |
+| `WaitForStatus(t, ctx, s, runID, status, timeout)` | Poll until a run reaches the target status |
+| `AssertEventExists(t, ctx, s, runID, eventType)` | Assert a run event of a given type exists |
+| `AssertHTTPStatus(t, w, expected)` | Assert HTTP response code |
+| `JSONEqual(t, a, b)` | Assert two JSON byte slices are semantically equal |
+
+From `cmp.go` (uses `go-cmp`):
+
+| Function | Description |
+| --- | --- |
+| `AssertEqual(t, got, want, ...opts)` | Deep equality with diff output |
+| `AssertJSONEqual(t, a, b)` | JSON equality via `cmp.Diff` |
+| `EquateEmpty()` | `cmpopts.EquateEmpty()` convenience wrapper |
+| `IgnoreFields(typ, names...)` | `cmpopts.IgnoreFields` convenience wrapper |
+
+### Cryptographic test helpers
+
+`testcrypto.go` generates realistic secrets for tests without hardcoding values (avoids gitleaks false positives):
+
+| Function | Description |
+| --- | --- |
+| `GenerateTestSecret(byteLen)` | Random hex-encoded secret |
+| `GenerateTestWebhookSecret()` | Secret with `whsec_` prefix |
+| `GenerateTestJWTKey()` | 32-byte HMAC-SHA256 signing key |
+| `GenerateTestAPIKey()` | Key with `strait_` prefix |
+| `GenerateTestEncryptionKey()` | 32-byte AES-256 key |
+| `GenerateTestRunToken(runID, key)` | Signed JWT run token |
+| `GenerateTestSSEToken(projectID, scopes, key)` | Signed JWT SSE token |
+
+### `pgxslow` -- latency injection tracer
+
+The `testutil/pgxslow` package provides a `pgx.QueryTracer` that injects configurable latency into matching SQL queries. Use it for load and chaos tests that simulate a degraded database:
+
+```go
+tracer := &pgxslow.Tracer{}
+tracer.SetRules([]pgxslow.Rule{
+    {Pattern: regexp.MustCompile(`SELECT.*FROM job_runs`), Delay: 200 * time.Millisecond},
+})
+// attach tracer to pgx config
+```
+
+Rules can be mutated at runtime via `SetRules`. The tracer honours context cancellation.
+
+## Build tags
+
+Strait uses Go build tags to gate test categories:
+
+- **No tag** -- Unit tests. Run by default with `go test ./...`.
+- **`integration`** -- Integration tests that need testcontainers (Postgres, Redis). Enabled with `-tags=integration`.
+- **`loadtest`** -- Load and capacity tests. Enabled with `-tags=loadtest`. Some load tests also require `integration` (`-tags="loadtest,integration"`).
+- **`cloud`** -- Cloud edition code. Used for build verification, not test gating.
+
+<Tip>
+When running integration tests, `go test -tags=integration ./...` runs **both** unit and integration tests. The build tag is additive -- it includes files tagged `integration` alongside untagged files.
+</Tip>
+
+## Race detector
+
+The race detector is enabled by default in CI for both unit and integration tests (`-race` flag). Dedicated race condition tests exist in:
+
+- `internal/e2e/race_condition_test.go` -- concurrent pause/resume, dispatch races
+- `internal/worker/` -- multiple adversarial and fuzz tests designed to surface races
+- `internal/api/audit_emit_race_test.go` -- async audit drain races
+
+Run locally with:
+
+```bash
+go test -race ./...
+go test -race -tags=integration ./...
+```
+
+## CI matrix
+
+### `test.yml` (on push to `apps/strait/**`)
+
+Three jobs run in sequence after a build gate:
+
+<Steps>
+  <Step title="build">
+    Compiles both community and cloud editions. Runs `go vet` on both.
+  </Step>
+  <Step title="unit">
+    Runs `go test -race -cover -timeout=20m ./...` with JSON output. Publishes per-package coverage summary to the GitHub step summary.
+  </Step>
+  <Step title="integration">
+    Runs `go test -race -cover -tags=integration -timeout=20m ./...`. Testcontainers handles Postgres/Redis lifecycle internally. Same coverage reporting as unit.
+  </Step>
+</Steps>
+
+### `e2e.yml` (manual dispatch)
+
+Runs Playwright E2E tests with a 4-shard matrix for parallelism. Each shard gets its own isolated database. Services (Postgres, Redis) run as GitHub Actions service containers.
+
+### `loadtest.yml` (manual dispatch)
+
+Three parallel job groups:
+
+<AccordionGroup>
+  <Accordion title="Vegeta HTTP load tests">
+    Six parallel matrix jobs testing domain-specific HTTP load patterns: jobs/triggers, runs/workflows, SDK/webhooks, RBAC/envs/secrets, events/groups, and mixed/edge cases. Uses `-tags="loadtest,integration"` against `test/loadtest/`.
+  </Accordion>
+  <Accordion title="Quick validation">
+    Smoke test of the capacity framework. Starts a real Strait server with service containers and runs `TestQuickValidation` against `internal/loadtest/`.
+  </Accordion>
+  <Accordion title="Integration load tests">
+    Two parallel jobs split by domain: queue/store/rate-limit and pipeline/worker/webhook/workflow. Uses `-tags=integration` against `internal/e2e/` load test functions.
+  </Accordion>
+</AccordionGroup>
+
+### `typescript.yml` (on push to TS paths)
+
+Runs Biome linting, monorepo consistency checks (`manypkg`), and TypeScript typechecking across all packages.
+
+## Writing new tests
+
+<Tabs>
+  <Tab title="Unit test">
+    Place the test alongside the code it tests. No build tag needed.
+
+    ```go
+    // internal/worker/backoff_test.go
+    package worker
+
+    func TestBackoff_ExponentialCap(t *testing.T) {
+        b := newBackoff(3, 60*time.Second)
+        got := b.next(5)
+        if got > 60*time.Second {
+            t.Fatalf("backoff exceeded cap: %v", got)
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Integration test">
+    Add `//go:build integration` at the top. Use `testutil.SetupTestDB` in `TestMain`.
+
+    ```go
+    //go:build integration
+
+    package store_test
+
+    import (
+        "testing"
+        "strait/internal/testutil"
+    )
+
+    var tdb *testutil.TestDB
+
+    func TestMain(m *testing.M) {
+        ctx := context.Background()
+        var err error
+        tdb, err = testutil.SetupTestDB(ctx, "../../migrations")
+        if err != nil {
+            log.Fatalf("setup: %v", err)
+        }
+        defer tdb.Cleanup(ctx)
+        os.Exit(m.Run())
+    }
+
+    func TestCreateJob_Duplicate(t *testing.T) {
+        ctx := context.Background()
+        s := store.New(tdb.Pool)
+        _ = tdb.CleanTables(ctx)
+
+        job := testutil.MustCreateJob(t, ctx, s, nil)
+        err := s.CreateJob(ctx, job)
+        if err == nil {
+            t.Fatal("expected duplicate error")
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Load test">
+    Add `//go:build loadtest` at the top. Load tests in `internal/loadtest/` run against a live server; those in `internal/e2e/` use testcontainers and may combine tags (`loadtest,integration`).
+
+    ```go
+    //go:build loadtest
+
+    package loadtest
+
+    func TestThroughput_Enqueue(t *testing.T) {
+        // ...
+    }
+    ```
+  </Tab>
+</Tabs>

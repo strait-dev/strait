@@ -1,0 +1,350 @@
+---
+title: "Audit Events"
+description: "Query, filter, verify, and export tamper-evident audit logs for compliance and forensic analysis."
+icon: "scroll"
+---
+
+Every mutation and administrative action in Strait produces a signed, chained audit event. This guide covers how to query, filter, verify, and export those events. For background on how audit logging works internally (signing, chaining, reliability, SIEM forwarding), see [Audit Logging](/concepts/audit-logging).
+
+## Querying Audit Events
+
+List audit events for the current project with `GET /v1/audit-events`. The endpoint requires the `rbac.manage` permission.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events?limit=25"
+```
+
+The response is a paginated list. Each event contains the fields documented in [Event Format](/concepts/audit-logging#event-format), including the HMAC signature and chain hash.
+
+### Pagination
+
+Results are cursor-based. The response includes a `next_cursor` field when more pages exist. Pass it back as the `cursor` query parameter to fetch the next page.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events?limit=25&cursor=2025-06-15T10:30:00.000000000Z"
+```
+
+The cursor value is the `created_at` timestamp of the last event in the previous page (RFC3339Nano format).
+
+### Ordering
+
+By default, events are returned in descending order (newest first). Set `order=asc` for chronological order:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events?order=asc"
+```
+
+## Filtering
+
+All filters are combined with AND logic. Every filter is optional.
+
+| Parameter       | Type     | Description                                                    |
+| :-------------- | :------- | :------------------------------------------------------------- |
+| `actor_id`      | `string` | Filter by the identity of the actor who performed the action.  |
+| `resource_type` | `string` | Filter by resource type (e.g., `job`, `run`, `api_key`).       |
+| `resource_id`   | `string` | Filter by a specific resource identifier.                      |
+| `from`          | `string` | Start of the time window (RFC3339). Defaults to 90 days ago.   |
+| `to`            | `string` | End of the time window (RFC3339). Defaults to now.             |
+
+<Warning>
+The maximum time window for both listing and exporting is 90 days. Requests exceeding this window are rejected with a 400 error. Use pagination with narrower windows for longer lookback periods.
+</Warning>
+
+### Filter by actor
+
+Find all actions performed by a specific user or service account:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events?actor_id=usr_abc123"
+```
+
+### Filter by resource type and date range
+
+Find all job mutations in a specific week:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events?resource_type=job&from=2025-06-01T00:00:00Z&to=2025-06-08T00:00:00Z"
+```
+
+### Filter by specific resource
+
+Track the full history of a single resource:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events?resource_type=run&resource_id=run_xyz789&order=asc"
+```
+
+## Reading a Single Event
+
+Retrieve a single audit event by ID with `GET /v1/audit-events/{id}`. The read itself is audited as an `audit.single_read` event.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events/evt_abc123"
+```
+
+<Info>
+Cross-tenant reads return 404 (not 403) to avoid leaking the existence of events in other projects.
+</Info>
+
+## Verifying the Audit Chain
+
+Every audit event is HMAC-SHA256 signed and chained to its predecessor via `previous_hash`. The verification endpoint walks the chain and validates every signature.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events/verify"
+```
+
+The response indicates whether the chain is intact:
+
+```json
+{
+  "project_id": "proj_abc",
+  "valid": true,
+  "events_checked": 14832,
+  "first_event_id": "evt_001",
+  "last_event_id": "evt_14832",
+  "chain_start": "a1b2c3...",
+  "incremental": false
+}
+```
+
+When the chain is broken, the response includes `broken_at_id` pointing to the first event where the signature or hash does not match, along with an `error` description.
+
+### Full vs. incremental verification
+
+A full verification scans every surviving event from the chain head. For large audit logs, use incremental mode, which re-checks only events added since the last stored checkpoint:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.example.com/v1/audit-events/verify?incremental=true"
+```
+
+The `incremental` field in the response confirms which mode was used. Use full verification periodically (e.g., weekly) and incremental checks more frequently.
+
+<Tip>
+The verify endpoint is rate-limited separately from other audit endpoints. Schedule verification in off-peak hours for large projects.
+</Tip>
+
+### Retention and chain continuity
+
+When the retention reaper deletes old events, it inserts a tombstone anchor event that preserves chain continuity. The `chain_start` field in the verification response records the `previous_hash` of the first surviving event, so you can prove continuity across retention windows.
+
+## Exporting Audit Logs
+
+Export audit events with `GET /v1/audit-events/export`. The response is streamed directly, so large exports do not require the entire result set to fit in memory.
+
+### Supported formats
+
+| Format   | Content-Type              | Description                        |
+| :------- | :------------------------ | :--------------------------------- |
+| `json`   | `application/json`        | JSON array (default).              |
+| `ndjson` | `application/x-ndjson`    | Newline-delimited JSON, one event per line. |
+| `csv`    | `text/csv`                | CSV with a header row.             |
+
+### Basic export
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  -o audit-events.json \
+  "https://api.example.com/v1/audit-events/export?from=2025-06-01T00:00:00Z&to=2025-06-30T00:00:00Z&format=json"
+```
+
+Both `from` and `to` are required. The maximum window is 90 days.
+
+### Filtered export
+
+The export endpoint supports `actor_id` and `resource_type` filters:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  -o api-key-audit.ndjson \
+  "https://api.example.com/v1/audit-events/export?from=2025-06-01T00:00:00Z&to=2025-06-30T00:00:00Z&format=ndjson&resource_type=api_key"
+```
+
+### Integrity verification
+
+When `INTERNAL_SECRET` is configured, the response includes an `X-Audit-Signature` HTTP trailer containing an HMAC-SHA256 hash of the entire streamed payload:
+
+```
+X-Audit-Signature: sha256=a1b2c3d4e5f6...
+```
+
+Verify this signature against the downloaded file to confirm nothing was modified in transit.
+
+### Row cap
+
+Exports are capped at a configurable maximum (default 1,000,000 rows). When the cap is reached, the stream terminates cleanly with a `_capped` marker in the output. Paginate with narrower `from`/`to` windows to export larger data sets.
+
+Per-project caps can be set by an admin via `PUT /v1/projects/{id}/quotas/audit-export-cap`.
+
+### Rate limiting
+
+Exports are limited to 10 per project per hour. This is a fail-closed rate limit: if the rate-limiting service (Redis) is unavailable, export requests are denied rather than allowed through.
+
+## Key Rotation
+
+Rotate the HMAC signing key for a project with `POST /v1/projects/{id}/audit/rotate-key`. This is an admin-only endpoint that requires the internal secret.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  "https://api.example.com/v1/projects/proj_abc/audit/rotate-key"
+```
+
+The response confirms the epoch transition:
+
+```json
+{
+  "previous_epoch": 3,
+  "new_epoch": 4
+}
+```
+
+<Steps>
+  <Step title="Rotation is atomic">
+    The store acquires an advisory lock, derives a new epoch key, stores it encrypted, and emits a tombstone anchor event (`audit.key_rotated`) signed with the new key -- all in a single transaction.
+  </Step>
+  <Step title="Chain verification spans key generations">
+    The tombstone event marks the boundary between key epochs. The chain verifier detects these boundaries and uses the correct key for each epoch, so verification works across rotations.
+  </Step>
+  <Step title="Schedule periodic rotation">
+    Rotate keys on a regular cadence (e.g., quarterly) or immediately if a key compromise is suspected. The old key is retained internally so existing signatures remain verifiable.
+  </Step>
+</Steps>
+
+## Retention and Cleanup
+
+Audit events are automatically pruned by a background reaper. The default retention window is 365 days, controlled by `AUDIT_RETENTION_DEFAULT_DAYS`.
+
+### Reading the current retention policy
+
+```bash
+curl -H "Authorization: Bearer $INTERNAL_SECRET" \
+  "https://api.example.com/v1/projects/proj_abc/audit/retention"
+```
+
+```json
+{
+  "project_id": "proj_abc",
+  "days": 365,
+  "inherited_from_default": true
+}
+```
+
+When `inherited_from_default` is `true`, no per-project override exists and the server default applies.
+
+### Setting a per-project override
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"days": 730}' \
+  "https://api.example.com/v1/projects/proj_abc/audit/retention"
+```
+
+| Value      | Behavior                                                      |
+| :--------- | :------------------------------------------------------------ |
+| `days > 0` | Override the default -- retain events for this many days.      |
+| `days = 0` | Disable retention trimming entirely (events are never deleted).|
+| `days < 0` | Rejected with 400.                                             |
+
+Both endpoints require admin access and emit an `audit.retention_updated` event recording the old and new values.
+
+### Tombstone anchors
+
+When the reaper deletes events, it inserts a tombstone anchor that records the count and time range of deleted events. This preserves chain continuity so that verification still passes after trimming.
+
+## SIEM Integration
+
+Strait can forward audit events to an external SIEM or log aggregator in real time. Configure forwarding with environment variables:
+
+| Variable                    | Default      | Description                                      |
+| :-------------------------- | :----------- | :----------------------------------------------- |
+| `AUDIT_SIEM_ENDPOINT`      | _(disabled)_ | HTTPS URL to POST batched events to.             |
+| `AUDIT_SIEM_BATCH_SIZE`    | `100`        | Number of events per batch.                       |
+| `AUDIT_SIEM_FLUSH_INTERVAL`| `5s`         | Maximum time between flushes.                     |
+
+Events are batched as newline-delimited JSON.
+
+### Resilience
+
+The SIEM forwarder uses a circuit breaker pattern. After consecutive delivery failures, it opens for a cooldown period before retrying. Events that cannot be delivered are held in a ring buffer. When the buffer is full, the oldest undelivered events are dropped and counted.
+
+On graceful shutdown (SIGTERM), the forwarder flushes its buffer before the process exits.
+
+### Splunk
+
+```bash
+AUDIT_SIEM_ENDPOINT=https://input-prd-p-abc123.cloud.splunk.com:8088/services/collector/raw
+```
+
+Set the `Authorization` header on the forwarder via your reverse proxy or load balancer, or configure Splunk's HEC to accept unauthenticated requests from your VPC.
+
+### Datadog
+
+```bash
+AUDIT_SIEM_ENDPOINT=https://http-intake.logs.datadoghq.com/api/v2/logs
+```
+
+Datadog accepts NDJSON natively. Route the forwarder output through a Datadog log pipeline for parsing and enrichment.
+
+### Elasticsearch / OpenSearch
+
+```bash
+AUDIT_SIEM_ENDPOINT=https://your-cluster:9200/strait-audit/_bulk
+```
+
+Use an ingest pipeline to parse the NDJSON payload and map fields to your index schema.
+
+## Dead Letter Queue
+
+Audit events that fail to persist after all retries land in a dead letter table. Administrators can inspect and replay them:
+
+| Endpoint                                    | Method   | Description                                    |
+| :------------------------------------------ | :------- | :--------------------------------------------- |
+| `GET /v1/audit/deadletter`                  | `GET`    | List dead-lettered events (paginated).          |
+| `POST /v1/audit/deadletter/{id}/replay`     | `POST`   | Replay an event back into the primary chain.    |
+| `DELETE /v1/audit/deadletter/{id}`           | `DELETE` | Permanently drop an event (data loss accepted). |
+
+All DLQ endpoints require the internal secret. A background reclamation job periodically replays dead-lettered events automatically. Dead-lettered events older than `AUDIT_DLQ_MAX_AGE_DAYS` (default 30) are cleaned up by a separate reaper.
+
+## Webhook Integration
+
+Audit events for webhook-related actions are recorded automatically. Strait logs the following webhook actions:
+
+- `webhook.tested` -- when a webhook endpoint is tested via `POST /v1/webhooks/test`.
+- `webhook.delivery_replayed` -- when a failed delivery is replayed.
+- `webhook_subscription.created` -- when a new webhook subscription is created.
+- `webhook_subscription.deleted` -- when a subscription is removed.
+
+To stream audit events to your own systems in real time, use the SIEM forwarding feature described above, or subscribe to audit-related webhook events through [webhook subscriptions](/guides/event-triggers).
+
+## Environment Variables Reference
+
+| Variable                        | Default      | Description                                           |
+| :------------------------------ | :----------- | :---------------------------------------------------- |
+| `SECRET_ENCRYPTION_KEY`         | _(required)_ | Base key for HKDF derivation of the audit signing key.|
+| `AUDIT_RETENTION_DEFAULT_DAYS`  | `365`        | Default retention window in days.                     |
+| `AUDIT_DLQ_MAX_AGE_DAYS`       | `30`         | Max age of dead-lettered events before cleanup.       |
+| `AUDIT_ASYNC_BUFFER_SIZE`      | `8192`       | Capacity of the async emit channel.                   |
+| `AUDIT_EXPORT_ROW_CAP_DEFAULT` | `1000000`    | Default max rows per export stream.                   |
+| `AUDIT_SIEM_ENDPOINT`          | _(disabled)_ | SIEM forwarding target URL.                           |
+| `AUDIT_SIEM_BATCH_SIZE`        | `100`        | Events per SIEM batch.                                |
+| `AUDIT_SIEM_FLUSH_INTERVAL`    | `5s`         | Max interval between SIEM flushes.                    |
+
+## Related
+
+- [Audit Logging](/concepts/audit-logging) -- conceptual overview of signing, chaining, and reliability.
+- [Authentication](/guides/authentication) -- how actor identity is established.
+- [RBAC](/guides/rbac) -- permission model for audit access.
+- [Security](/guides/security) -- broader security model.
+- [API Key Rotation](/guides/api-key-rotation) -- rotating API keys (separate from audit key rotation).

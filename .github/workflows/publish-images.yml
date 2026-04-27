@@ -97,7 +97,7 @@ jobs:
   community-api:
     needs: check-ci
     name: Community API Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -150,7 +150,7 @@ jobs:
             DATE=${{ github.event.head_commit.timestamp }}
 
       - name: Scan pushed image with Trivy (amd64)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/strait-dev/strait@${{ steps.build.outputs.digest }}
           format: table
@@ -162,7 +162,7 @@ jobs:
           trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/arm64
         with:
@@ -235,7 +235,7 @@ jobs:
   cloud-api:
     needs: check-ci
     name: Cloud API Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -291,7 +291,7 @@ jobs:
             BUILD_TAGS=cloud
 
       - name: Scan pushed image with Trivy (amd64)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/strait-dev/strait-cloud@${{ steps.build.outputs.digest }}
           format: table
@@ -303,7 +303,7 @@ jobs:
           trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/arm64
         with:
@@ -372,7 +372,7 @@ jobs:
   strait-app:
     needs: check-ci
     name: Strait App Image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # Node + QEMU arm64 cross-compilation is ~2x slower than Go. Cold
     # builds on first run take 15-20 min; warm builds complete in ~5.
     timeout-minutes: 45
@@ -432,7 +432,7 @@ jobs:
             DATE=${{ github.event.head_commit.timestamp }}
 
       - name: Scan pushed image with Trivy (amd64)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/strait-dev/strait-app@${{ steps.build.outputs.digest }}
           format: table
@@ -444,7 +444,7 @@ jobs:
           trivyignores: ./.trivyignore
 
       - name: Scan pushed image with Trivy (arm64)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/arm64
         with:
