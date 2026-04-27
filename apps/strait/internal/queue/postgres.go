@@ -310,6 +310,12 @@ func (q *PostgresQueue) insertPreparedRun(
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
+	// Dual-write: insert thin claim row for the dequeue hot path.
+	// Only for queued runs; delayed runs get a claim row when promoted.
+	if run.Status == domain.StatusQueued || run.Status == domain.StatusDelayed {
+		_ = q.InsertClaimRowFromEnqueue(ctx, db, run) // best-effort; claim table is an optimization
+	}
+
 	return nil
 }
 
@@ -463,6 +469,13 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	n, err := copier.CopyFrom(ctx, pgx.Identifier{"job_runs"}, copyFromColumns, pgx.CopyFromRows(rows))
 	if err != nil {
 		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
+	}
+
+	// Dual-write: batch-insert claim rows for the dequeue hot path.
+	for _, run := range runs {
+		if run.Status == domain.StatusQueued || run.Status == domain.StatusDelayed {
+			_ = q.InsertClaimRowFromEnqueue(ctx, q.db, run) // best-effort
+		}
 	}
 
 	// Wake workers via pg_notify.
@@ -840,4 +853,170 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
 		extraArgs: []any{projectID},
 	})
+}
+
+// Claim table support.
+
+const claimInsertSQL = `
+	INSERT INTO job_run_queue (
+		run_id, job_id, project_id, priority, created_at,
+		scheduled_at, next_retry_at, concurrency_key,
+		job_max_concurrency, job_max_concurrency_per_key,
+		job_enabled, job_paused
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	ON CONFLICT (run_id) DO NOTHING`
+
+// InsertClaimRow inserts a thin claim row into job_run_queue. Called by
+// Enqueue, EnqueueInTx, EnqueueBatch, retry re-enqueue, and delayed
+// promotion. Uses ON CONFLICT DO NOTHING for idempotency.
+func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
+	_, err := db.Exec(ctx, claimInsertSQL,
+		run.ID, run.JobID, run.ProjectID, run.Priority, run.CreatedAt,
+		run.ScheduledAt, run.NextRetryAt,
+		dbscan.NilIfEmptyString(run.ConcurrencyKey),
+		nil, nil, // job_max_concurrency filled by trigger or caller
+		true, false, // job_enabled, job_paused defaults
+	)
+	if err != nil {
+		return fmt.Errorf("insert claim row: %w", err)
+	}
+	return nil
+}
+
+// InsertClaimRowFromEnqueue inserts a claim row using the fields available
+// at enqueue time (before the row is committed to job_runs). The created_at
+// is NOW() since the job_runs INSERT hasn't returned it yet.
+func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
+	_, err := db.Exec(ctx, claimInsertSQL,
+		run.ID, run.JobID, run.ProjectID, run.Priority, time.Now(),
+		run.ScheduledAt, run.NextRetryAt,
+		dbscan.NilIfEmptyString(run.ConcurrencyKey),
+		nil, nil,
+		true, false,
+	)
+	if err != nil {
+		// Non-fatal: the claim table is an optimization. If the INSERT
+		// fails (e.g. table doesn't exist yet), log and continue.
+		slog.Debug("insert claim row from enqueue failed", "error", err, "run_id", run.ID)
+		return nil
+	}
+	return nil
+}
+
+// DequeueNClaim is the claim-table dequeue variant. It DELETEs from the
+// thin job_run_queue table (80 bytes/row), then UPDATEs job_runs status,
+// then SELECTs the full rows by PK.
+func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNClaim")
+	defer span.End()
+
+	if n <= 0 {
+		return nil, nil
+	}
+
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return q.DequeueNTwoPhase(ctx, n)
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue claim: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+			return nil, fmt.Errorf("dequeue claim: set statement timeout: %w", err)
+		}
+	}
+
+	// Phase 1: DELETE from thin claim table.
+	claimSQL := `
+		DELETE FROM job_run_queue
+		WHERE run_id IN (
+			SELECT q.run_id
+			FROM job_run_queue q
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = q.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = q.job_id
+			  AND jac_key.concurrency_key = COALESCE(q.concurrency_key, '')
+			WHERE COALESCE(q.job_enabled, true) = true
+			  AND COALESCE(q.job_paused, false) = false
+			  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+			  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+			  AND (q.job_max_concurrency IS NULL
+			       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
+			  AND (q.job_max_concurrency_per_key IS NULL
+			       OR q.concurrency_key IS NULL
+			       OR q.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
+			ORDER BY q.priority DESC, q.created_at ASC
+			FOR UPDATE OF q SKIP LOCKED
+			LIMIT $1
+		)
+		RETURNING run_id`
+
+	rows, err := tx.Query(ctx, claimSQL, n)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue claim: delete: %w", err)
+	}
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("dequeue claim: scan id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue claim: rows: %w", err)
+	}
+
+	if len(ids) == 0 {
+		_ = tx.Commit(ctx)
+		return nil, nil
+	}
+
+	// Phase 2: UPDATE job_runs status.
+	_, err = tx.Exec(ctx,
+		fmt.Sprintf(`UPDATE job_runs SET status = '%s', started_at = NOW() WHERE id = ANY($1)`, domain.StatusDequeued),
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue claim: update status: %w", err)
+	}
+
+	// Phase 3: fat fetch by PK.
+	fetchSQL := fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
+	fetchRows, err := tx.Query(ctx, fetchSQL, ids)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue claim: fetch: %w", err)
+	}
+	defer fetchRows.Close()
+
+	runs := make([]domain.JobRun, 0, len(ids))
+	for fetchRows.Next() {
+		run, err := dbscan.ScanRun(fetchRows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue claim: fetch scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := fetchRows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue claim: fetch rows: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("dequeue claim: commit: %w", err)
+	}
+
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
 }
