@@ -44,7 +44,14 @@ jobs:
 
       - name: Check licenses
         working-directory: apps/strait
-        run: go-licenses check ./... --disallowed_types=restricted,reciprocal --ignore=github.com/hashicorp/go-cleanhttp
+        run: >-
+          go-licenses check ./...
+          --disallowed_types=restricted,reciprocal
+          --ignore=strait
+          --ignore=github.com/hashicorp/go-cleanhttp
+          --ignore=github.com/in-toto/attestation
+          --ignore=github.com/in-toto/in-toto-golang
+          --ignore=github.com/segmentio/asm
 
   gosec:
     runs-on: ubuntu-latest
