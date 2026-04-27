@@ -1,14 +1,12 @@
 -- Maintain job_run_queue atomically from job_runs status transitions.
--- This replaces the application-level best-effort dual-write with a
--- database-level trigger that guarantees the claim table is always
--- consistent with job_runs, regardless of which code path modifies
--- the run (API, scheduler, reaper, replay, etc.).
+-- This supplements the application-level dual-write with a database-level
+-- trigger that guarantees claim rows are cleaned up when runs leave the
+-- queued/delayed state, regardless of which code path modifies the run.
 --
--- Rules:
---   INSERT with status IN ('queued','delayed') -> INSERT claim row
---   UPDATE to status IN ('queued','delayed')   -> UPSERT claim row
---   UPDATE away from ('queued','delayed')      -> DELETE claim row
---   DELETE                                      -> DELETE claim row
+-- Performance: the WHEN clause ensures the trigger body only executes when
+-- the status column actually changes to or from queued/delayed. Status
+-- transitions between other states (dequeued->executing->completed) are
+-- the hot path and must NOT fire this trigger.
 
 CREATE OR REPLACE FUNCTION trg_job_runs_sync_claim_queue()
 RETURNS trigger
@@ -41,8 +39,10 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- UPDATE: check if the row should be in the claim table.
+    -- UPDATE: only reached when the WHEN clause fires (status changed
+    -- to/from queued/delayed).
     IF NEW.status IN ('queued', 'delayed') THEN
+        -- Row entered queued/delayed: upsert claim row.
         INSERT INTO job_run_queue (
             run_id, job_id, project_id, priority, created_at,
             scheduled_at, next_retry_at, concurrency_key,
@@ -66,14 +66,32 @@ BEGIN
             job_enabled = EXCLUDED.job_enabled,
             job_paused = EXCLUDED.job_paused;
     ELSE
-        -- Row is leaving queued/delayed state; remove from claim table.
+        -- Row left queued/delayed: remove claim row.
         DELETE FROM job_run_queue WHERE run_id = NEW.id;
     END IF;
     RETURN NEW;
 END;
 $$;
 
+-- The WHEN clause restricts the trigger to fire ONLY when:
+-- 1. INSERT: always (need to seed claim rows for new queued/delayed runs)
+-- 2. DELETE: always (cleanup)
+-- 3. UPDATE: only when status changes to/from queued/delayed
+-- This ensures the hot path (dequeued->executing->completed) never fires
+-- the trigger, which is critical for performance.
 CREATE TRIGGER trg_job_runs_claim_queue_sync
-    AFTER INSERT OR UPDATE OR DELETE ON job_runs
+    AFTER INSERT OR DELETE ON job_runs
     FOR EACH ROW
+    EXECUTE FUNCTION trg_job_runs_sync_claim_queue();
+
+CREATE TRIGGER trg_job_runs_claim_queue_sync_update
+    AFTER UPDATE ON job_runs
+    FOR EACH ROW
+    WHEN (
+        OLD.status IS DISTINCT FROM NEW.status
+        AND (
+            OLD.status IN ('queued', 'delayed')
+            OR NEW.status IN ('queued', 'delayed')
+        )
+    )
     EXECUTE FUNCTION trg_job_runs_sync_claim_queue();
