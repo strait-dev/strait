@@ -22,7 +22,7 @@ var defaultReindexTargets = []string{
 	"idx_runs_queue_covering",
 	"idx_webhook_deliveries_pending",
 	"idx_job_runs_retry",
-	"idx_job_runs_stale_dequeued",
+	"idx_job_runs_inflight_started",
 	"idx_job_runs_queue_priority",
 	"idx_job_runs_job_id_created",
 }
