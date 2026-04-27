@@ -63,7 +63,7 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 
 	var query string
 	if withClause != "" {
-		query = fmt.Sprintf(`
+		query = "/* action=dequeue */ " + fmt.Sprintf(`
 			WITH %s
 			claimed AS (%s),
 			updated AS (
@@ -75,7 +75,7 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 			SELECT %s FROM updated ORDER BY created_at ASC`,
 			withClause, spec.candidatesSQL, domain.StatusDequeued, dequeueColumns, dequeueColumns)
 	} else {
-		query = fmt.Sprintf(`
+		query = "/* action=dequeue */ " + fmt.Sprintf(`
 			WITH claimed AS (%s),
 			updated AS (
 				UPDATE job_runs
@@ -137,7 +137,7 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 		defer tx.Rollback(ctx) //nolint:errcheck
 	}
 
-	query := fmt.Sprintf(`
+	query := "/* action=dequeue */ " + fmt.Sprintf(`
 		WITH %s,
 		candidates AS (%s),
 		claimed AS (
@@ -224,7 +224,7 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 	}
 
 	// Phase 1: thin claim -- UPDATE RETURNING id only.
-	claimSQL := fmt.Sprintf(`
+	claimSQL := "/* action=dequeue */ " + fmt.Sprintf(`
 		WITH claimed AS (%s)
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
@@ -261,7 +261,7 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 
 	// Phase 2: fat fetch by PK. The rows were just UPDATEd so they
 	// are hot in the buffer cache -- no disk I/O.
-	fetchSQL := fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
+	fetchSQL := "/* action=dequeue */ " + fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
 	fetchRows, err := tx.Query(ctx, fetchSQL, ids)
 	if err != nil {
 		return nil, fmt.Errorf("%s fetch: %w", spec.spanName, err)

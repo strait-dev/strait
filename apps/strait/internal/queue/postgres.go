@@ -558,7 +558,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		defer cleanup()
 	}
 
-	query := fmt.Sprintf(`
+	query := "/* action=dequeue */ " + fmt.Sprintf(`
 		WITH %s
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
@@ -932,7 +932,7 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 	}
 
 	// Phase 1: DELETE from thin claim table.
-	claimSQL := `
+	claimSQL := "/* action=dequeue */ " + `
 		DELETE FROM job_run_queue
 		WHERE run_id IN (
 			SELECT q.run_id
@@ -984,7 +984,7 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 
 	// Phase 2: UPDATE job_runs status.
 	_, err = tx.Exec(ctx,
-		fmt.Sprintf(`UPDATE job_runs SET status = '%s', started_at = NOW() WHERE id = ANY($1)`, domain.StatusDequeued),
+		"/* action=dequeue */ "+fmt.Sprintf(`UPDATE job_runs SET status = '%s', started_at = NOW() WHERE id = ANY($1)`, domain.StatusDequeued),
 		ids,
 	)
 	if err != nil {
@@ -992,7 +992,7 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 	}
 
 	// Phase 3: fat fetch by PK.
-	fetchSQL := fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
+	fetchSQL := "/* action=dequeue */ " + fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
 	fetchRows, err := tx.Query(ctx, fetchSQL, ids)
 	if err != nil {
 		return nil, fmt.Errorf("dequeue claim: fetch: %w", err)

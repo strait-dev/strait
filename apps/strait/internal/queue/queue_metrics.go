@@ -45,6 +45,8 @@ type QueueMetrics struct {
 	EventChannelSaturationRatio   metric.Float64Gauge
 	SchedulerShutdownTimeouts     metric.Int64Counter
 	IndexDeadItems                metric.Int64Gauge
+	ClaimTableDeadTuples          metric.Int64Gauge
+	ClaimTableLiveTuples          metric.Int64Gauge
 }
 
 var (
@@ -344,6 +346,20 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	)
 	if err != nil {
 		return fmt.Errorf("index dead items gauge: %w", err)
+	}
+	m.ClaimTableDeadTuples, err = meter.Int64Gauge(
+		"strait.queue.claim_table_dead_tuples",
+		metric.WithDescription("Dead tuple count in job_run_queue claim table"),
+	)
+	if err != nil {
+		return fmt.Errorf("claim table dead tuples gauge: %w", err)
+	}
+	m.ClaimTableLiveTuples, err = meter.Int64Gauge(
+		"strait.queue.claim_table_live_tuples",
+		metric.WithDescription("Live tuple count in job_run_queue claim table"),
+	)
+	if err != nil {
+		return fmt.Errorf("claim table live tuples gauge: %w", err)
 	}
 	return nil
 }

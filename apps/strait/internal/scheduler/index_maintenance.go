@@ -26,6 +26,7 @@ var defaultReindexTargets = []string{
 	"idx_job_runs_inflight_started",
 	"idx_job_runs_queue_priority",
 	"idx_job_runs_job_id_created",
+	"idx_job_run_queue_dequeue",
 }
 
 type IndexMaintenanceStore interface {
