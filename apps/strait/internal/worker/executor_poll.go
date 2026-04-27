@@ -30,6 +30,18 @@ type denormalizedDequeuer interface {
 	DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
+// twoPhaseDequeuer is the two-phase dequeue variant that claims IDs
+// first (thin scan), then fetches full rows by PK.
+type twoPhaseDequeuer interface {
+	DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error)
+}
+
+// claimTableDequeuer is the claim-table dequeue variant that DELETEs from
+// the thin job_run_queue table, then fetches full rows from job_runs.
+type claimTableDequeuer interface {
+	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
+}
+
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
 	if e.memoryPressureThreshold > 0 {
@@ -70,6 +82,18 @@ func (e *Executor) poll(ctx context.Context) {
 		switch {
 		case len(e.partitionCycle) > 0:
 			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
+		case e.dequeueStrategy == "claim_table":
+			if cq, ok := e.queue.(claimTableDequeuer); ok {
+				runs, err = cq.DequeueNClaim(innerCtx, available)
+			} else {
+				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
+		case e.dequeueStrategy == "two_phase":
+			if tp, ok := e.queue.(twoPhaseDequeuer); ok {
+				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
+			} else {
+				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
 		case e.dequeueStrategy == "fair_round_robin":
 			runs, err = e.queue.DequeueNFair(innerCtx, available)
 		case e.useDenormalizedDequeue:

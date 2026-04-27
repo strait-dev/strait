@@ -96,7 +96,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"MaxSnoozeCount", cfg.MaxSnoozeCount, 50},
 		{"DebouncePollerInterval", cfg.DebouncePollerInterval, time.Second},
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
-		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
+		{"DequeueStrategy", cfg.DequeueStrategy, "two_phase"},
 		{"ComputeRuntime", cfg.ComputeRuntime, "none"}, // community edition overrides k8s default to none
 		{"DefaultRegion", cfg.DefaultRegion, "iad"},
 		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},

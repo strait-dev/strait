@@ -638,6 +638,39 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 	})
 }
 
+// DequeueNTwoPhase is the two-phase variant that separates the B-tree scan
+// from the fat-row fetch. Phase 1 claims IDs with a thin RETURNING id;
+// phase 2 fetches the full 38-column rows by PK. This eliminates fat-row
+// deserialization during the SKIP LOCKED scan, which is the dominant cost
+// when dead tuples force repeated heap page reads.
+func (q *PostgresQueue) DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return executeDequeueTwoPhase(ctx, q, n, dequeueSpec{
+		spanName:            "queue.DequeueNTwoPhase",
+		skipConcurrencyCTEs: true,
+		candidatesSQL: fmt.Sprintf(`
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = '%s'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1`, domain.StatusQueued, q.dequeueOrderByClause()),
+	})
+}
+
 // DequeueNDenormalized is the denormalized variant that replaces the
 // COUNT-over-active-rows CTE with a lookup against the job_active_counts
 // table. The maintenance trigger guarantees the counter stays in sync with

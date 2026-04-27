@@ -213,7 +213,7 @@ type Config struct {
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
 	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
 	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DequeueStrategy            string        `env:"DEQUEUE_STRATEGY" default:"priority"`
+	DequeueStrategy            string        `env:"DEQUEUE_STRATEGY" default:"two_phase"`
 
 	// Managed execution (container runtime)
 	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`

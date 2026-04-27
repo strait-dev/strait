@@ -190,3 +190,107 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 	}
 	return runs, nil
 }
+
+// executeDequeueTwoPhase claims IDs in a thin scan (RETURNING id only),
+// then batch-fetches the full rows by PK in a second query. Both run
+// in the same transaction. The B-tree scan in phase 1 never deserializes
+// the 38-column fat rows; the PK fetch in phase 2 is a guaranteed buffer-
+// cache hit because the UPDATE just touched those pages.
+func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec dequeueSpec) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, spec.spanName)
+	defer span.End()
+
+	if n <= 0 {
+		return nil, nil
+	}
+
+	// Must use a transaction: both phases share the same snapshot.
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		// Fallback to single-phase if we can't begin a transaction.
+		return executeDequeue(ctx, q, n, spec)
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%s: begin tx: %w", spec.spanName, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+			return nil, fmt.Errorf("%s: set statement timeout: %w", spec.spanName, err)
+		}
+	}
+
+	// Phase 1: thin claim -- UPDATE RETURNING id only.
+	claimSQL := fmt.Sprintf(`
+		WITH claimed AS (%s)
+		UPDATE job_runs
+		SET status = '%s', started_at = NOW()
+		WHERE id IN (SELECT id FROM claimed)
+		RETURNING id`, spec.candidatesSQL, domain.StatusDequeued)
+
+	args := append([]any{n}, spec.extraArgs...)
+	rows, err := tx.Query(ctx, claimSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s claim: %w", spec.spanName, err)
+	}
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("%s claim scan: %w", spec.spanName, err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s claim rows: %w", spec.spanName, err)
+	}
+
+	if len(ids) == 0 {
+		_ = tx.Commit(ctx)
+		if spec.postScanFn != nil {
+			_ = spec.postScanFn(nil)
+		}
+		return nil, nil
+	}
+
+	// Phase 2: fat fetch by PK. The rows were just UPDATEd so they
+	// are hot in the buffer cache -- no disk I/O.
+	fetchSQL := fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
+	fetchRows, err := tx.Query(ctx, fetchSQL, ids)
+	if err != nil {
+		return nil, fmt.Errorf("%s fetch: %w", spec.spanName, err)
+	}
+	defer fetchRows.Close()
+
+	runs := make([]domain.JobRun, 0, len(ids))
+	for fetchRows.Next() {
+		run, err := dbscan.ScanRun(fetchRows)
+		if err != nil {
+			return nil, fmt.Errorf("%s fetch scan: %w", spec.spanName, err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := fetchRows.Err(); err != nil {
+		return nil, fmt.Errorf("%s fetch rows: %w", spec.spanName, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("%s commit: %w", spec.spanName, err)
+	}
+
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	if spec.postScanFn != nil {
+		if err := spec.postScanFn(runs); err != nil {
+			return runs, err
+		}
+	}
+	return runs, nil
+}
