@@ -188,7 +188,6 @@ WHERE status = 'queued'
 	h.metrics.OldestQueuedAge.Record(ctx, age)
 }
 
-
 func (h *HealthSampler) sampleIndexHealth(ctx context.Context) {
 	// pgstatindex requires the pgstattuple extension. When the extension
 	// is not installed (common on managed Postgres without explicit

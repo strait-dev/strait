@@ -34,18 +34,18 @@ type LongTxnSample struct {
 // logs for long-running transactions that could pin the MVCC horizon. It is
 // safe to stop via Run's context.
 type DBWatchdog struct {
-	pool                DBPool
-	interval            time.Duration
-	alertThreshold      time.Duration
-	logger              *slog.Logger
-	longestTxnGauge     metric.Float64Gauge
-	idleInTxnGauge      metric.Int64Gauge
-	oldestXminGauge     metric.Int64Gauge
-	staleSlotGauge      metric.Int64Gauge
-	oldestSlotLagGauge  metric.Int64Gauge
-	sampleCount         atomic.Int64
-	alertCount          atomic.Int64
-	lastSamples         atomic.Pointer[[]LongTxnSample]
+	pool               DBPool
+	interval           time.Duration
+	alertThreshold     time.Duration
+	logger             *slog.Logger
+	longestTxnGauge    metric.Float64Gauge
+	idleInTxnGauge     metric.Int64Gauge
+	oldestXminGauge    metric.Int64Gauge
+	staleSlotGauge     metric.Int64Gauge
+	oldestSlotLagGauge metric.Int64Gauge
+	sampleCount        atomic.Int64
+	alertCount         atomic.Int64
+	lastSamples        atomic.Pointer[[]LongTxnSample]
 }
 
 // NewDBWatchdog creates a watchdog with the given pool and thresholds. The
@@ -240,7 +240,6 @@ WHERE backend_type = 'client backend'
 	// reclaiming dead tuples indefinitely.
 	w.sampleReplicationSlots(ctx)
 }
-
 
 // sampleReplicationSlots queries pg_replication_slots for inactive or
 // lagging slots and records metrics. A stale slot is the most common
