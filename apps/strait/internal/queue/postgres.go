@@ -857,25 +857,32 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 
 // Claim table support.
 
-const claimInsertSQL = `
+// claimInsertFromJobSQL inserts a claim row with the job's current
+// enabled/paused/concurrency config. Uses a subquery against the jobs
+// table so the claim row reflects reality at INSERT time, not hardcoded
+// defaults that could be stale if the job was already paused/disabled.
+const claimInsertFromJobSQL = `
 	INSERT INTO job_run_queue (
 		run_id, job_id, project_id, priority, created_at,
 		scheduled_at, next_retry_at, concurrency_key,
 		job_max_concurrency, job_max_concurrency_per_key,
 		job_enabled, job_paused
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8,
+		j.max_concurrency, j.max_concurrency_per_key,
+		j.enabled, j.paused
+	FROM jobs j
+	WHERE j.id = $2
 	ON CONFLICT (run_id) DO NOTHING`
 
-// InsertClaimRow inserts a thin claim row into job_run_queue. Called by
-// Enqueue, EnqueueInTx, EnqueueBatch, retry re-enqueue, and delayed
-// promotion. Uses ON CONFLICT DO NOTHING for idempotency.
+// InsertClaimRow inserts a thin claim row into job_run_queue with the
+// job's current config. Called by Enqueue, EnqueueInTx, EnqueueBatch,
+// retry re-enqueue, and delayed promotion.
 func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
-	_, err := db.Exec(ctx, claimInsertSQL,
+	_, err := db.Exec(ctx, claimInsertFromJobSQL,
 		run.ID, run.JobID, run.ProjectID, run.Priority, run.CreatedAt,
 		run.ScheduledAt, run.NextRetryAt,
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
-		nil, nil, // job_max_concurrency filled by trigger or caller
-		true, false, // job_enabled, job_paused defaults
 	)
 	if err != nil {
 		return fmt.Errorf("insert claim row: %w", err)
@@ -887,17 +894,13 @@ func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *
 // at enqueue time (before the row is committed to job_runs). The created_at
 // is NOW() since the job_runs INSERT hasn't returned it yet.
 func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
-	_, err := db.Exec(ctx, claimInsertSQL,
+	_, err := db.Exec(ctx, claimInsertFromJobSQL,
 		run.ID, run.JobID, run.ProjectID, run.Priority, time.Now(),
 		run.ScheduledAt, run.NextRetryAt,
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
-		nil, nil,
-		true, false,
 	)
 	if err != nil {
-		// Non-fatal: the claim table is an optimization. If the INSERT
-		// fails (e.g. table doesn't exist yet), log and continue.
-		slog.Debug("insert claim row from enqueue failed", "error", err, "run_id", run.ID)
+		slog.Warn("insert claim row from enqueue failed", "error", err, "run_id", run.ID, "job_id", run.JobID)
 		return nil
 	}
 	return nil

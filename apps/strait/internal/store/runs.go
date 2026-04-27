@@ -1525,10 +1525,11 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 }
 
 // beginningOfMonth returns midnight on the first day of t's month in UTC.
-// Used by the reaper to exclude the current month's partition from DELETE
-// operations so the dequeue hot path does not accumulate dead tuples.
+// Converts t to UTC first so the calendar fields (Year, Month) are correct
+// regardless of the host's local timezone.
 func beginningOfMonth(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
 // DLQJobDepth represents the dead-letter queue depth for a single job.

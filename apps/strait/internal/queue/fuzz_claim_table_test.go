@@ -79,13 +79,13 @@ func FuzzClaimInsertSQL_NoInjection(f *testing.F) {
 	f.Add("")
 	f.Add("\x00")
 	f.Fuzz(func(t *testing.T, _ string) {
-		sql := claimInsertSQL
+		sql := claimInsertFromJobSQL
 
-		// Must have all 12 placeholders.
-		for i := 1; i <= 12; i++ {
+		// Must have all 8 positional placeholders (job config comes from subquery).
+		for i := 1; i <= 8; i++ {
 			placeholder := fmt.Sprintf("$%d", i)
 			if !strings.Contains(sql, placeholder) {
-				t.Errorf("claimInsertSQL missing placeholder %s", placeholder)
+				t.Errorf("claimInsertFromJobSQL missing placeholder %s", placeholder)
 			}
 		}
 
@@ -177,7 +177,7 @@ func TestProperty_ClaimInsertSQLHasCorrectParamCount(t *testing.T) {
 	t.Parallel()
 
 	re := regexp.MustCompile(`\$\d+`)
-	matches := re.FindAllString(claimInsertSQL, -1)
+	matches := re.FindAllString(claimInsertFromJobSQL, -1)
 
 	// Deduplicate in case a placeholder appears in both INSERT and ON CONFLICT.
 	seen := make(map[string]bool, len(matches))
@@ -185,17 +185,17 @@ func TestProperty_ClaimInsertSQLHasCorrectParamCount(t *testing.T) {
 		seen[m] = true
 	}
 
-	const expectedColumns = 12
-	if len(seen) != expectedColumns {
-		t.Errorf("claimInsertSQL has %d distinct placeholders, want %d: %v",
-			len(seen), expectedColumns, matches)
+	const expectedParams = 8 // run fields; job config comes from SELECT...FROM jobs
+	if len(seen) != expectedParams {
+		t.Errorf("claimInsertFromJobSQL has %d distinct placeholders, want %d: %v",
+			len(seen), expectedParams, matches)
 	}
 
-	// Verify contiguous $1..$12.
-	for i := 1; i <= expectedColumns; i++ {
+	// Verify contiguous $1..$8.
+	for i := 1; i <= expectedParams; i++ {
 		p := fmt.Sprintf("$%d", i)
 		if !seen[p] {
-			t.Errorf("claimInsertSQL missing placeholder %s", p)
+			t.Errorf("claimInsertFromJobSQL missing placeholder %s", p)
 		}
 	}
 
@@ -207,7 +207,7 @@ func TestProperty_ClaimInsertSQLHasCorrectParamCount(t *testing.T) {
 		"job_enabled", "job_paused",
 	}
 	for _, col := range requiredColumns {
-		if !strings.Contains(claimInsertSQL, col) {
+		if !strings.Contains(claimInsertFromJobSQL, col) {
 			t.Errorf("claimInsertSQL missing column %q", col)
 		}
 	}
