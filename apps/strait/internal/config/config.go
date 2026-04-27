@@ -79,16 +79,6 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
-	// Toggle the denormalized dequeue path (uses job_active_counts
-	// lookup table instead of COUNT-over-active-rows CTE). Default: true.
-	// The CTE path remains available as fallback by setting to false.
-	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
-
-	// ClaimCursorResetInterval controls how often the per-worker dequeue
-	// cursor resets so retried/backdated runs remain reachable. Lower
-	// values improve retry latency at the cost of more dead-tuple scanning.
-	ClaimCursorResetInterval time.Duration `env:"CLAIM_CURSOR_RESET_INTERVAL" default:"30s"`
-
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
 	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
@@ -213,8 +203,6 @@ type Config struct {
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
 	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
 	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DequeueStrategy            string        `env:"DEQUEUE_STRATEGY" default:"claim_table"`
-
 	// Managed execution (container runtime)
 	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
 	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`

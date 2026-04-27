@@ -15,21 +15,6 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-// cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
-// so the executor can thread a claim cursor through DequeueN without
-// expanding the base queue.Queue interface (and therefore without breaking
-// every mock in the repository).
-type cursorAwareQueue interface {
-	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
-}
-
-// denormalizedDequeuer is the optional interface for the
-// job_active_counts-backed dequeue path. Same pattern as cursorAwareQueue:
-// opt-in via type assertion to avoid expanding the base Queue interface.
-type denormalizedDequeuer interface {
-	DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
-}
-
 // twoPhaseDequeuer is the two-phase dequeue variant that claims IDs
 // first (thin scan), then fetches full rows by PK.
 type twoPhaseDequeuer interface {
@@ -82,33 +67,13 @@ func (e *Executor) poll(ctx context.Context) {
 		switch {
 		case len(e.partitionCycle) > 0:
 			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
-		case e.dequeueStrategy == "claim_table":
+		default:
+			// Auto-select the best available dequeue path:
+			// claim_table > two_phase > DequeueN.
 			if cq, ok := e.queue.(claimTableDequeuer); ok {
 				runs, err = cq.DequeueNClaim(innerCtx, available)
 			} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
-				// Auto-fallback: claim table not available (pre-migration),
-				// use two-phase dequeue instead.
 				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
-		case e.dequeueStrategy == "two_phase":
-			if tp, ok := e.queue.(twoPhaseDequeuer); ok {
-				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
-		case e.dequeueStrategy == "fair_round_robin":
-			runs, err = e.queue.DequeueNFair(innerCtx, available)
-		case e.useDenormalizedDequeue:
-			if dq, ok := e.queue.(denormalizedDequeuer); ok {
-				runs, err = dq.DequeueNDenormalized(innerCtx, available)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
-		default:
-			if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
-				runs, err = cq.DequeueNWithCursor(innerCtx, available, e.claimCursor)
 			} else {
 				runs, err = e.queue.DequeueN(innerCtx, available)
 			}

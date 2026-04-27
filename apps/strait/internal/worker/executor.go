@@ -114,7 +114,6 @@ type Executor struct {
 	jobCacheStore            *otterstore.OtterStore
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
-	dequeueStrategy          string
 	jwtSigningKey            string
 	containerRuntime         compute.ContainerRuntime
 	managedSemaphore         *semaphore.Weighted
@@ -132,10 +131,8 @@ type Executor struct {
 	callbackWG               sync.WaitGroup
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
-	claimCursor              *queue.ClaimCursor
 	degradedPollInterval     time.Duration
 	degraded                 queue.DegradedNotifier
-	useDenormalizedDequeue   bool
 	dbCircuit                *queue.DBCircuit
 	eventChannelSize         int
 	saturationWarnMu         sync.Mutex
@@ -183,7 +180,6 @@ type ExecutorConfig struct {
 	JobCacheTTL                time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
-	DequeueStrategy            string
 	ContainerRuntime           compute.ContainerRuntime
 	ExternalAPIURL             string
 	MaxConcurrentMachines      int
@@ -206,9 +202,6 @@ type ExecutorConfig struct {
 	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
 	// degraded-mode support.
 	Degraded queue.DegradedNotifier
-	// UseDenormalizedDequeue opts into the job_active_counts-backed
-	// dequeue path. Defaults to false so existing deployments are unaffected.
-	UseDenormalizedDequeue bool
 	// DBCircuitConfig configures the circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.
 	DBCircuitConfig queue.DBCircuitConfig
@@ -216,9 +209,6 @@ type ExecutorConfig struct {
 	// run-lifecycle event channel. Zero/negative values fall back to the
 	// default. Values below 16 are clamped to 16.
 	EventChannelSize int
-	// ClaimCursorResetInterval controls how often the per-worker dequeue
-	// cursor resets. Zero/negative falls back to 30s.
-	ClaimCursorResetInterval time.Duration
 }
 
 const (
@@ -325,7 +315,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
-		dequeueStrategy:          cfg.DequeueStrategy,
 		jwtSigningKey:            cfg.JWTSigningKey,
 		containerRuntime:         cfg.ContainerRuntime,
 		managedSemaphore:         managedSem,
@@ -339,10 +328,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
-		claimCursor:              queue.NewClaimCursor(cfg.ClaimCursorResetInterval),
 		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
 		degraded:                 cfg.Degraded,
-		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
 		queueMetrics:             resolveQueueMetrics(),
 	}
