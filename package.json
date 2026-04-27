@@ -52,7 +52,7 @@
     "@biomejs/biome": "2.4.13",
     "@changesets/cli": "^2.31.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260426.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260427.1",
     "knip": "^6.7.0",
     "lefthook": "^2.1.6",
     "openapi-typescript": "^7.13.0",
