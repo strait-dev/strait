@@ -714,6 +714,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		DefaultRegion:           cfg.DefaultRegion,
 		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
+		ClaimCursorResetInterval: cfg.ClaimCursorResetInterval,
 	}
 
 	// Only wire billing enforcement in the executor when explicitly enabled.

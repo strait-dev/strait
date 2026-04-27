@@ -84,6 +84,11 @@ type Config struct {
 	// The CTE path remains available as fallback by setting to false.
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
 
+	// ClaimCursorResetInterval controls how often the per-worker dequeue
+	// cursor resets so retried/backdated runs remain reachable. Lower
+	// values improve retry latency at the cost of more dead-tuple scanning.
+	ClaimCursorResetInterval time.Duration `env:"CLAIM_CURSOR_RESET_INTERVAL" default:"30s"`
+
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
 	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`

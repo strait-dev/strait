@@ -678,8 +678,9 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 // DequeueNWithCursor is the cursor-aware variant. When cursor is
 // non-nil and has a valid snapshot, its (created_at, id) pair is added to
 // the claim predicate so Postgres can skip past already-visited heap tuples
-// during B-tree descent. On empty result (no runs claimable beyond the
-// cursor) the cursor is reset so older rows remain reachable.
+// during B-tree descent. On empty or partial result (fewer runs returned
+// than requested) the cursor is reset so older rows -- retries, backdated
+// runs -- remain reachable.
 func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *ClaimCursor) ([]domain.JobRun, error) {
 	if n <= 0 {
 		return nil, nil
@@ -714,12 +715,14 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, cursorClause, orderBy),
 		extraArgs: extraArgs,
 		postScanFn: func(runs []domain.JobRun) error {
-			if len(runs) == 0 {
+			if len(runs) < n {
+				// Partial or empty result: reset cursor so retried runs,
+				// backdated created_at, and next_retry_at rows that fall
+				// behind the cursor position become reachable again.
 				cursor.Reset()
-			} else {
-				for i := range runs {
-					cursor.Advance(runs[i].CreatedAt, runs[i].ID)
-				}
+			}
+			for i := range runs {
+				cursor.Advance(runs[i].CreatedAt, runs[i].ID)
 			}
 			return nil
 		},

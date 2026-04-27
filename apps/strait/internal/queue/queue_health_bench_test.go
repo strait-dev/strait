@@ -655,3 +655,80 @@ func writeResults(t *testing.T, filename string, data any) {
 	_ = enc.Encode(data)
 	t.Logf("Results written to %s", filename)
 }
+
+
+// TestQueueHealthBench_Compare loads two JSON result files and prints a
+// before/after diff table. Set BENCH_BEFORE and BENCH_AFTER env vars.
+func TestQueueHealthBench_Compare(t *testing.T) {
+	beforeFile := os.Getenv("BENCH_BEFORE")
+	afterFile := os.Getenv("BENCH_AFTER")
+	if beforeFile == "" || afterFile == "" {
+		t.Skip("set BENCH_BEFORE and BENCH_AFTER to compare")
+	}
+
+	type result struct {
+		Snapshots []healthSnapshot `json:"snapshots"`
+	}
+
+	loadResult := func(path string) result {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		var r result
+		if err := json.Unmarshal(data, &r); err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		return r
+	}
+
+	before := loadResult(beforeFile)
+	after := loadResult(afterFile)
+
+	last := func(snaps []healthSnapshot) healthSnapshot {
+		if len(snaps) == 0 {
+			return healthSnapshot{}
+		}
+		return snaps[len(snaps)-1]
+	}
+
+	b := last(before.Snapshots)
+	a := last(after.Snapshots)
+
+	delta := func(label string, bv, av float64, unit string, lowerBetter bool) string {
+		if bv == 0 {
+			return fmt.Sprintf("  %-30s %10.1f -> %10.1f %s", label, bv, av, unit)
+		}
+		pctChange := (av - bv) / bv * 100
+		direction := "WORSE"
+		if (lowerBetter && pctChange < 0) || (!lowerBetter && pctChange > 0) {
+			direction = "BETTER"
+		}
+		if pctChange > -1 && pctChange < 1 {
+			direction = "~same"
+		}
+		return fmt.Sprintf("  %-30s %10.1f -> %10.1f %s (%+.1f%% %s)", label, bv, av, unit, pctChange, direction)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n")
+	sb.WriteString("====================================================================\n")
+	sb.WriteString("              BEFORE / AFTER COMPARISON\n")
+	sb.WriteString("====================================================================\n")
+	fmt.Fprintf(&sb, "  Before: %s\n", beforeFile)
+	fmt.Fprintf(&sb, "  After:  %s\n", afterFile)
+	sb.WriteString("\n")
+	sb.WriteString(delta("Dead tuple ratio", b.DeadTupleRatio*100, a.DeadTupleRatio*100, "%", true) + "\n")
+	sb.WriteString(delta("Dead tuples", float64(b.DeadTuples), float64(a.DeadTuples), "", true) + "\n")
+	sb.WriteString(delta("HOT update ratio", b.HotUpdateRatio*100, a.HotUpdateRatio*100, "%", false) + "\n")
+	sb.WriteString(delta("P50 dequeue (us)", float64(b.DequeueP50us), float64(a.DequeueP50us), "us", true) + "\n")
+	sb.WriteString(delta("P95 dequeue (us)", float64(b.DequeueP95us), float64(a.DequeueP95us), "us", true) + "\n")
+	sb.WriteString(delta("P99 dequeue (us)", float64(b.DequeueP99us), float64(a.DequeueP99us), "us", true) + "\n")
+	sb.WriteString(delta("Enqueue rate", b.EnqueueRate, a.EnqueueRate, "runs/s", false) + "\n")
+	sb.WriteString(delta("Dequeue rate", b.DequeueRate, a.DequeueRate, "runs/s", false) + "\n")
+	sb.WriteString(delta("Oldest queued", b.OldestQueuedAge, a.OldestQueuedAge, "s", true) + "\n")
+	sb.WriteString("====================================================================\n")
+
+	t.Log(sb.String())
+}

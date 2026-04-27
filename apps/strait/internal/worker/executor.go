@@ -216,6 +216,9 @@ type ExecutorConfig struct {
 	// run-lifecycle event channel. Zero/negative values fall back to the
 	// default. Values below 16 are clamped to 16.
 	EventChannelSize int
+	// ClaimCursorResetInterval controls how often the per-worker dequeue
+	// cursor resets. Zero/negative falls back to 30s.
+	ClaimCursorResetInterval time.Duration
 }
 
 const (
@@ -336,7 +339,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
-		claimCursor:              queue.NewClaimCursor(60 * time.Second),
+		claimCursor:              queue.NewClaimCursor(cfg.ClaimCursorResetInterval),
 		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
 		degraded:                 cfg.Degraded,
 		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
