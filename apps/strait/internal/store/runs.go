@@ -1496,10 +1496,16 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 	shortCutoff := time.Now().Add(-shortRetention)
 	longCutoff := time.Now().Add(-longRetention)
 
+	// Exclude the current month's partition to avoid creating dead tuples
+	// in the hot partition that the dequeue hot path scans. Runs in cold
+	// partitions (older months) do not affect dequeue performance.
+	hotBoundary := beginningOfMonth(time.Now())
+
 	query := `
 		WITH to_delete AS (
 			SELECT id FROM job_runs
 			WHERE finished_at IS NOT NULL
+			  AND created_at < $3
 			  AND (
 				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
 				OR
@@ -1510,12 +1516,19 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 		)
 		DELETE FROM job_runs WHERE id IN (SELECT id FROM to_delete)`
 
-	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff)
+	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, hotBoundary)
 	if err != nil {
 		return 0, fmt.Errorf("delete terminal runs past retention: %w", err)
 	}
 
 	return tag.RowsAffected(), nil
+}
+
+// beginningOfMonth returns midnight on the first day of t's month in UTC.
+// Used by the reaper to exclude the current month's partition from DELETE
+// operations so the dequeue hot path does not accumulate dead tuples.
+func beginningOfMonth(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
 // DLQJobDepth represents the dead-letter queue depth for a single job.
