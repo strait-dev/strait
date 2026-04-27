@@ -889,10 +889,11 @@ func TestConsumeBackpressure_NilBackpressure_ReturnsNil(t *testing.T) {
 // We test by making the run's ScheduledAt in the past (so status=queued) vs
 // setting status manually after prepareEnqueue.
 // Since prepareEnqueue always overrides status, we test indirectly: a run with
-// ScheduledAt in the future gets StatusDelayed and DOES get a claim row.
-// A run without ScheduledAt gets StatusQueued and DOES get a claim row.
-// The mutant flips the condition; we verify both paths produce claim Exec calls.
-func TestClaimRowInsert_ExecCalledForQueuedAndDelayed(t *testing.T) {
+// Verify that single Enqueue does NOT do application-level claim row INSERT
+// (claim rows are created by the trg_job_runs_claim_queue_sync trigger).
+// The only Exec calls should be for the job_runs INSERT (via QueryRow) and
+// idempotency advisory lock, NOT for claim row INSERT.
+func TestEnqueue_NoApplicationLevelClaimInsert(t *testing.T) {
 	t.Parallel()
 	var execCalls []string
 	db := &mockDBTX{
@@ -911,46 +912,27 @@ func TestClaimRowInsert_ExecCalledForQueuedAndDelayed(t *testing.T) {
 	}
 	q := NewPostgresQueue(db)
 
-	// Enqueue a run (no ScheduledAt → queued). Claim row INSERT should happen.
-	execCalls = nil
 	run := &domain.JobRun{JobID: "j1", ProjectID: "p1"}
 	if err := q.Enqueue(context.Background(), run); err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
-	if run.Status != domain.StatusQueued {
-		t.Fatalf("expected queued, got %s", run.Status)
-	}
-	if len(execCalls) == 0 {
-		t.Fatal("expected claim row INSERT Exec call for queued run")
-	}
-
-	// Enqueue a delayed run (ScheduledAt in future → delayed). Claim row INSERT should happen.
-	execCalls = nil
-	future := time.Now().Add(time.Hour)
-	run2 := &domain.JobRun{JobID: "j2", ProjectID: "p1", ScheduledAt: &future}
-	if err := q.Enqueue(context.Background(), run2); err != nil {
-		t.Fatalf("Enqueue delayed: %v", err)
-	}
-	if run2.Status != domain.StatusDelayed {
-		t.Fatalf("expected delayed, got %s", run2.Status)
-	}
-	if len(execCalls) == 0 {
-		t.Fatal("expected claim row INSERT Exec call for delayed run")
+	// No Exec calls for claim row INSERT -- trigger handles it.
+	for _, sql := range execCalls {
+		if strings.Contains(sql, "job_run_queue") {
+			t.Fatalf("unexpected application-level claim insert: %s", sql)
+		}
 	}
 }
 
-// Kill: postgres.go L476 CONDITIONALS_NEGATION.
-// EnqueueBatch claim rows only inserted for queued/delayed, not other statuses.
-// Since EnqueueBatch always sets status to queued (or delayed if future ScheduledAt),
-// all runs from EnqueueBatch will get claim rows. The mutant would flip the
-// condition to exclude queued/delayed. We verify Exec is called for claim rows.
-func TestEnqueueBatch_ClaimRowsForQueuedDelayed(t *testing.T) {
+// Verify that EnqueueBatch does NOT do per-row claim inserts.
+// The trigger on job_runs handles claim row creation atomically.
+func TestEnqueueBatch_NoApplicationLevelClaimInserts(t *testing.T) {
 	t.Parallel()
-	var execCalls int
+	var execCalls []string
 	db := &mockCopyFromDBTX{
 		mockDBTX: mockDBTX{
 			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-				execCalls++
+				execCalls = append(execCalls, sql)
 				return pgconn.NewCommandTag("INSERT 1"), nil
 			},
 		},
@@ -970,10 +952,11 @@ func TestEnqueueBatch_ClaimRowsForQueuedDelayed(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("expected 2 rows, got %d", n)
 	}
-	// Both runs are queued → 2 claim row Exec + 1 pg_notify Exec = 3.
-	// If the mutant flips L476, claim rows are skipped → only 1 Exec (pg_notify).
-	if execCalls < 3 {
-		t.Fatalf("expected >= 3 Exec calls (2 claim + 1 notify), got %d", execCalls)
+	// Only pg_notify Exec should happen, no claim row INSERTs.
+	for _, sql := range execCalls {
+		if strings.Contains(sql, "job_run_queue") {
+			t.Fatalf("unexpected application-level claim insert: %s", sql)
+		}
 	}
 }
 
