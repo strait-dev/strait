@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "apps/strait/**"
+      - ".github/workflows/security.yml"
   workflow_dispatch:
 
 permissions:

@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: publish-runtimes-${{ github.ref }}
@@ -29,6 +28,7 @@ jobs:
   resolve-tag:
     name: Resolve image tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.tag.outputs.value }}
       push: ${{ steps.tag.outputs.push }}
@@ -50,6 +50,10 @@ jobs:
   build:
     name: Build ${{ matrix.runtime }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
     needs: resolve-tag
     strategy:
       fail-fast: false
