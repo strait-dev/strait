@@ -24,15 +24,17 @@ BEGIN
                 job_paused = NEW.paused,
                 job_max_concurrency = NEW.max_concurrency,
                 job_max_concurrency_per_key = NEW.max_concurrency_per_key
-            WHERE run_id IN (
-                SELECT run_id FROM job_run_queue
-                WHERE job_id = NEW.id
-                  AND (job_enabled IS DISTINCT FROM NEW.enabled
-                       OR job_paused IS DISTINCT FROM NEW.paused
-                       OR job_max_concurrency IS DISTINCT FROM NEW.max_concurrency
-                       OR job_max_concurrency_per_key IS DISTINCT FROM NEW.max_concurrency_per_key)
-                LIMIT 1000
-            );
+			WHERE run_id IN (
+				SELECT run_id FROM job_run_queue
+				WHERE job_id = NEW.id
+				  AND (job_enabled IS DISTINCT FROM NEW.enabled
+				       OR job_paused IS DISTINCT FROM NEW.paused
+				       OR job_max_concurrency IS DISTINCT FROM NEW.max_concurrency
+				       OR job_max_concurrency_per_key IS DISTINCT FROM NEW.max_concurrency_per_key)
+				ORDER BY run_id
+				FOR UPDATE SKIP LOCKED
+				LIMIT 1000
+			);
             GET DIAGNOSTICS affected = ROW_COUNT;
             EXIT WHEN affected < 1000;
         END LOOP;

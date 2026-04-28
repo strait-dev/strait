@@ -882,8 +882,9 @@ var claimDeleteSQL = "/* action=dequeue */ " + `
 var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
 	WITH claimed_update AS (
 		UPDATE job_runs
-		SET status = '%s', started_at = NOW()
+		SET status = '%s', started_at = NOW(), heartbeat_at = NOW()
 		WHERE id = ANY($1)
+		  AND status IN ('queued', 'delayed')
 		RETURNING %s
 	)
 	SELECT %s FROM claimed_update ORDER BY created_at ASC`,

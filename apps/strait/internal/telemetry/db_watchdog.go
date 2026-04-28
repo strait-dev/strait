@@ -249,7 +249,7 @@ func (w *DBWatchdog) sampleReplicationSlots(ctx context.Context) {
 SELECT
   COALESCE(slot_name, ''),
   COALESCE(active, false),
-  COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn), 0)::bigint AS lag_bytes
+  COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), COALESCE(confirmed_flush_lsn, restart_lsn)), 0)::bigint AS lag_bytes
 FROM pg_replication_slots
 `
 	rows, err := w.pool.Query(ctx, q)

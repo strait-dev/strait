@@ -88,10 +88,15 @@ CREATE TRIGGER trg_job_runs_claim_queue_sync_update
     AFTER UPDATE ON job_runs
     FOR EACH ROW
     WHEN (
-        OLD.status IS DISTINCT FROM NEW.status
-        AND (
-            OLD.status IN ('queued', 'delayed')
-            OR NEW.status IN ('queued', 'delayed')
-        )
+        -- Status changed to/from queued/delayed.
+        (OLD.status IS DISTINCT FROM NEW.status
+         AND (OLD.status IN ('queued', 'delayed')
+              OR NEW.status IN ('queued', 'delayed')))
+        -- OR: queue-ordering fields changed while row stays queued/delayed.
+        OR (NEW.status IN ('queued', 'delayed')
+            AND (OLD.priority IS DISTINCT FROM NEW.priority
+                 OR OLD.scheduled_at IS DISTINCT FROM NEW.scheduled_at
+                 OR OLD.next_retry_at IS DISTINCT FROM NEW.next_retry_at
+                 OR OLD.concurrency_key IS DISTINCT FROM NEW.concurrency_key))
     )
     EXECUTE FUNCTION trg_job_runs_sync_claim_queue();
