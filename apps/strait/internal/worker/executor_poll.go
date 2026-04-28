@@ -115,7 +115,7 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority", run.Priority,
 		)
 
-		execCtx := context.WithoutCancel(ctx)
+		execCtx := withDispatchCache(context.WithoutCancel(ctx))
 		e.pool.Submit(execCtx, func() {
 			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())

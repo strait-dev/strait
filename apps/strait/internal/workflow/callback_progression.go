@@ -74,7 +74,10 @@ func (s *StepCallback) scheduleRunnableSteps(
 			runningByResourceClass[effectiveResourceClass(st.ResourceClass)]++
 		}
 	}
-
+	prefetchedOutputs, err := s.prefetchStepOutputs(ctx, wfRun.ID, runnableStepRuns, stepByRef)
+	if err != nil {
+		return err
+	}
 	for _, sr := range runnableStepRuns {
 		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
 			continue
@@ -115,12 +118,15 @@ func (s *StepCallback) scheduleRunnableSteps(
 		}
 
 		var parentOutputsPayload json.RawMessage
-		if len(stepDef.DependsOn) > 0 {
-			outputs, err := s.store.GetStepOutputs(ctx, sr.WorkflowRunID, stepDef.DependsOn)
-			if err != nil {
-				return fmt.Errorf("get step outputs for %s: %w", stepDef.StepRef, err)
+		if len(stepDef.DependsOn) > 0 && prefetchedOutputs != nil {
+			// Filter the prefetched outputs to just this step's dependencies.
+			stepOutputs := make(map[string]json.RawMessage, len(stepDef.DependsOn))
+			for _, dep := range stepDef.DependsOn {
+				if out, ok := prefetchedOutputs[dep]; ok {
+					stepOutputs[dep] = out
+				}
 			}
-			payload, err := json.Marshal(outputs)
+			payload, err := json.Marshal(stepOutputs)
 			if err != nil {
 				return fmt.Errorf("marshal parent outputs for %s: %w", stepDef.StepRef, err)
 			}
@@ -615,4 +621,38 @@ func hasResourceClassCapacity(running map[string]int, class string) bool {
 		resolved = "small"
 	}
 	return running[resolved] < limit
+}
+
+// prefetchStepOutputs collects all unique DependsOn refs across runnable
+// steps and fetches their outputs in a single batched query. Returns nil
+// map if no dependencies exist.
+func (s *StepCallback) prefetchStepOutputs(
+	ctx context.Context,
+	workflowRunID string,
+	runnableStepRuns []domain.WorkflowStepRun,
+	stepByRef map[string]domain.WorkflowStep,
+) (map[string]json.RawMessage, error) {
+	allDeps := make(map[string]struct{})
+	for _, sr := range runnableStepRuns {
+		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
+			continue
+		}
+		if stepDef, ok := stepByRef[sr.StepRef]; ok {
+			for _, dep := range stepDef.DependsOn {
+				allDeps[dep] = struct{}{}
+			}
+		}
+	}
+	if len(allDeps) == 0 {
+		return nil, nil
+	}
+	depRefs := make([]string, 0, len(allDeps))
+	for dep := range allDeps {
+		depRefs = append(depRefs, dep)
+	}
+	outputs, err := s.store.GetStepOutputs(ctx, workflowRunID, depRefs)
+	if err != nil {
+		return nil, fmt.Errorf("prefetch step outputs: %w", err)
+	}
+	return outputs, nil
 }

@@ -300,19 +300,24 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
 
-	err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now(),
-	})
-	if err != nil {
-		e.logger.Error(
-			"failed to transition to executing",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"error", err,
-		)
-		return
+	// Skip the dequeued→executing transition when the claim-table dequeue
+	// path already set status='executing'. This saves 2 DB round-trips per
+	// run (the UPDATE that matches 0 rows + the idempotency SELECT).
+	if run.Status != domain.StatusExecuting {
+		err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		})
+		if err != nil {
+			e.logger.Error(
+				"failed to transition to executing",
+				"run_id", run.ID,
+				"job_id", run.JobID,
+				"error", err,
+			)
+			return
+		}
+		run.Status = domain.StatusExecuting
 	}
-	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
 	e.heartbeat.Register(run.ID)
@@ -534,15 +539,17 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// 5. Transition: dequeued → executing.
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now(),
-	})
-	if err != nil {
-		e.logger.Error("failed to transition to executing", "run_id", run.ID, "error", err)
-		return
+	// 5. Transition: dequeued -> executing (skip if claim table already set it).
+	if run.Status != domain.StatusExecuting {
+		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		})
+		if err != nil {
+			e.logger.Error("failed to transition to executing", "run_id", run.ID, "error", err)
+			return
+		}
+		run.Status = domain.StatusExecuting
 	}
-	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
 	// 6. Register heartbeat.
