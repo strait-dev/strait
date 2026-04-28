@@ -24,9 +24,9 @@ func TestHotUpdateIndexes_AreUsable(t *testing.T) {
 	// table propagates them to every partition.
 	indexes := []string{
 		"idx_runs_project_created",
-		"idx_runs_project_executing",
 		"idx_runs_project_dead",
 		"idx_runs_project_delayed",
+		"idx_job_runs_inflight_started",
 	}
 	for _, idx := range indexes {
 		var found bool

@@ -129,7 +129,7 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 		t.Fatalf("CreateJob: %v", err)
 	}
 
-	past := time.Now().UTC().Add(-48 * time.Hour)
+	past := time.Now().UTC().Add(-45 * 24 * time.Hour) // must be in a prior month for cold-partition filter
 	for i := range 5 {
 		run := baseRun(job, "run-archive-batch-"+string(rune('a'+i)))
 		run.Status = domain.StatusCompleted
@@ -137,6 +137,15 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 		run.FinishedAt = &finished
 		if err := q.CreateRun(ctx, run); err != nil {
 			t.Fatalf("CreateRun %d: %v", i, err)
+		}
+	}
+	// Backdate created_at so runs are in cold partitions (reaper's
+	// hot-partition filter skips the current month).
+	for i := range 5 {
+		id := "run-archive-batch-" + string(rune('a'+i))
+		createdAt := past.Add(time.Duration(i) * time.Minute)
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $1 WHERE id = $2`, createdAt, id); err != nil {
+			t.Fatalf("backdate run %d: %v", i, err)
 		}
 	}
 
@@ -267,6 +276,9 @@ func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
 func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 	ctx := context.Background()
 	q := store.New(testDB.Pool)
+	if err := testDB.CleanTables(ctx); err != nil {
+		t.Fatalf("CleanTables: %v", err)
+	}
 
 	projectID := "proj-backfill-" + t.Name()
 	job := baseJob("job-backfill", projectID)

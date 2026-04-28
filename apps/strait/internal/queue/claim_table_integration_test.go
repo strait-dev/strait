@@ -58,8 +58,8 @@ func TestTwoPhaseDequeue_ReturnsCorrectRuns(t *testing.T) {
 		if r.ProjectID != job.ProjectID {
 			t.Errorf("ProjectID = %q, want %q", r.ProjectID, job.ProjectID)
 		}
-		if r.Status != domain.StatusDequeued {
-			t.Errorf("Status = %q, want dequeued", r.Status)
+		if r.Status != domain.StatusExecuting {
+			t.Errorf("Status = %q, want executing", r.Status)
 		}
 		if r.StartedAt == nil {
 			t.Error("StartedAt is nil, want non-nil for dequeued run")
@@ -176,8 +176,8 @@ func TestClaimTable_DequeueNClaim_ReturnsCorrectRuns(t *testing.T) {
 	dequeuedIDs := make([]string, len(batch))
 	for i, r := range batch {
 		dequeuedIDs[i] = r.ID
-		if r.Status != domain.StatusDequeued {
-			t.Errorf("run %s: status = %q, want dequeued", r.ID, r.Status)
+		if r.Status != domain.StatusExecuting {
+			t.Errorf("run %s: status = %q, want executing", r.ID, r.Status)
 		}
 		if r.JobID != job.ID {
 			t.Errorf("run %s: JobID = %q, want %q", r.ID, r.JobID, job.ID)
@@ -212,8 +212,8 @@ func TestClaimTable_DequeueNClaim_EmptyQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DequeueNClaim on empty queue: %v", err)
 	}
-	if batch != nil {
-		t.Errorf("expected nil, got %d runs", len(batch))
+	if len(batch) != 0 {
+		t.Errorf("expected empty result, got %d runs", len(batch))
 	}
 }
 
