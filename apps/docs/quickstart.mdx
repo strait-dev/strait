@@ -7,6 +7,12 @@ og:image: "/images/og.png"
 
 Follow these steps to set up Strait locally and run your first job. You'll have a working job orchestration service running in under 10 minutes.
 
+<Tip>
+**Just want to try Strait?** Run `git clone https://github.com/strait-dev/strait.git && cd strait && make selfhost` to bring up the full stack (API + dashboard + Postgres + Redis) in one command. Open http://localhost:3000 and start building. See [SELFHOST.md](https://github.com/strait-dev/strait/blob/master/SELFHOST.md) for the full guide.
+
+The steps below are for **contributors and developers** who want to build from source.
+</Tip>
+
 ## Prerequisites
 
 Before you begin, make sure you have:
@@ -26,7 +32,7 @@ Before you begin, make sure you have:
 ## Step 1: Clone and Start Infrastructure
 
 <Info>
-Docker Compose will start PostgreSQL 18, Redis 8, and Sequin in isolated containers. Ports exposed: PostgreSQL (5432), Redis (6379), Strait API (8080).
+Docker Compose will start PostgreSQL 18, Redis 8, and Sequin in isolated containers. Host ports: PostgreSQL (15432), Redis (16379), Sequin (7376).
 </Info>
 
 ```bash
@@ -44,11 +50,9 @@ docker compose -f apps/strait/docker-compose.yml ps
 Expected output:
 ```
 NAME              STATUS
-strait      Up
-postgres           Up
-redis             Up
-sequin            Up
-```
+strait-postgres   Up (healthy)
+strait-redis      Up (healthy)
+strait-sequin     Up (healthy)
 
 <Troubleshoot>
 **Problem**: `docker compose -f apps/strait/docker-compose.yml up -d` fails with port already in use.
@@ -72,10 +76,10 @@ Strait checks for required variables when it starts. If any are missing, it tell
 
 ```bash
 # Database connection - required
-export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
+export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
 
 # Redis connection - required
-export REDIS_URL=redis://localhost:6379
+export REDIS_URL=redis://localhost:16379
 
 # Internal API secret - required (minimum 32 characters)
 export INTERNAL_SECRET=your-secret-here-change-this-in-production
@@ -94,7 +98,7 @@ export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
 <Troubleshoot>
 **Problem**: `DATABASE_URL` connection refused.
 
-**Solution**: Verify PostgreSQL container is running with `docker compose -f apps/strait/docker-compose.yml ps postgres`. Check logs with `docker compose -f apps/strait/docker-compose.yml logs postgres`. Ensure port 5432 is not already in use.
+**Solution**: Verify PostgreSQL container is running with `docker compose -f apps/strait/docker-compose.yml ps postgres`. Check logs with `docker compose -f apps/strait/docker-compose.yml logs postgres`. The dev compose maps PostgreSQL to host port 15432.
 </Troubleshoot>
 
 <Troubleshoot>
@@ -293,7 +297,7 @@ curl -X POST http://localhost:8080/v1/workflows \
     <Details>
       **Symptoms**: `connection refused`, `no such host`, or timeout errors in Strait logs.
       **Checks**: `docker compose -f apps/strait/docker-compose.yml ps postgres`, `docker compose -f apps/strait/docker-compose.yml logs postgres`, verify `DATABASE_URL` matches container credentials.
-      **Fix**: Ensure PostgreSQL container is healthy, check network connectivity, verify port 5432 is not blocked by firewall.
+      **Fix**: Ensure PostgreSQL container is healthy, check network connectivity, verify host port 15432 is reachable.
     </Details>
   </Step>
   <Step title="Job Not Picked Up">

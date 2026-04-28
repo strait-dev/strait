@@ -1,7 +1,17 @@
+# Local development infrastructure for Strait.
+#
+# This starts only the dependencies (Postgres, Redis, Sequin).
+# Run the API separately: go run ./cmd/strait --mode all
+# Or use: make dev (starts these containers + runs the API).
+#
+# Ports use non-standard host mappings (15432, 16379) to avoid
+# clashing with Postgres/Redis already running on the host.
+
 services:
   postgres:
     container_name: strait-postgres
     image: postgres:18-alpine
+    restart: unless-stopped
     ports:
       - "15432:5432"
     environment:
@@ -10,8 +20,14 @@ services:
       POSTGRES_DB: strait
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ../../packages/configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_replication_slots=10
+      -c max_wal_senders=10
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U strait"]
+      test: ["CMD-SHELL", "pg_isready -U strait -d strait"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,6 +40,7 @@ services:
   redis:
     container_name: strait-redis
     image: redis:8-alpine
+    restart: unless-stopped
     ports:
       - "16379:6379"
     healthcheck:
@@ -39,7 +56,8 @@ services:
 
   sequin:
     container_name: strait-sequin
-    image: sequin/sequin:latest
+    image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
+    restart: unless-stopped
     ports:
       - "7376:7376"
     environment:
@@ -49,15 +67,20 @@ services:
       PG_PASSWORD: strait
       PG_DATABASE: strait
       REDIS_URL: redis://redis:6379
+      # Dev-only hardcoded secrets. Do NOT use in production.
+      # Self-host generates random values via selfhost-init.sh.
       SECRET_KEY_BASE: "tONJRnB3NMPNPSbvLsKzE/r6lklVO+04MfFNWPBzBtBt2G5H0rrn8bwdHcRXiSQ3"
       VAULT_KEY: "Gw1VfMPCshBaUeXrOvIPFTVtW/d5xlv93F7BPfVo7Ys="
+      CONFIG_FILE_PATH: /etc/sequin/config.yml
+    volumes:
+      - ../../packages/configs/sequin.yml:/etc/sequin/config.yml:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7376/health"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

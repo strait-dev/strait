@@ -28,7 +28,7 @@ Read first:
 
 ## 2. Tech stack
 
-- **Language**: Go 1.26 (toolchain 1.26.2), module `strait`, repo is a Bun + Turbo monorepo
+- **Language**: Go 1.26.2, module `strait`, repo is a Bun + Turbo monorepo
 - **HTTP**: `go-chi/chi/v5` + `danielgtaylor/huma/v2` (OpenAPI generation)
 - **Database**: PostgreSQL via `jackc/pgx/v5` — no ORM. Migrations are embedded SQL.
 - **Cache / pub-sub**: `redis/go-redis/v9`, `eko/gocache`, `maypok86/otter`
@@ -189,8 +189,8 @@ Edition is set at compile time via Go build tags. The `STRAIT_EDITION` env var i
 cd apps/strait && docker compose up -d
 
 # 2. Required env (see .env.example for the full list)
-export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
-export REDIS_URL=redis://localhost:6379
+export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:16379
 export INTERNAL_SECRET=<32+ chars>
 export JWT_SIGNING_KEY=<32+ chars>
 
@@ -221,7 +221,7 @@ cd apps/strait && go build ./...
 cd apps/strait && go build -tags cloud ./...
 cd apps/strait && go test ./...
 cd apps/strait && go test -race ./...
-cd apps/strait && golangci-lint run --timeout=5m ./...
+cd apps/strait && golangci-lint run --timeout=10m ./...
 ```
 
 When touching DB / queue / workflow / scheduler / pubsub:
@@ -275,7 +275,7 @@ Once the plan is approved, execute each phase in order. For every phase:
    cd apps/strait && go build ./...
    cd apps/strait && go test ./...
    cd apps/strait && go test -race ./...
-   cd apps/strait && golangci-lint run --timeout=5m ./...
+   cd apps/strait && golangci-lint run --timeout=10m ./...
    ```
    Add `cd apps/strait && go test -tags integration ./...` when DB / queue / workflow / scheduler / pubsub behavior is touched.
 3. If a check fails:
