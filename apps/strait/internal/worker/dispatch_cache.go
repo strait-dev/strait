@@ -11,8 +11,6 @@ type dispatchCacheKey struct{}
 // dispatchCache stores expensive query results that are reused
 // multiple times during a single run's dispatch cycle. Prevents
 // duplicate DB calls for secrets, checkpoints, and health stats.
-//
-//nolint:unused // wired but consumers not yet migrated
 type dispatchCache struct {
 	mu     sync.Mutex
 	values map[string]any
@@ -26,8 +24,6 @@ func withDispatchCache(ctx context.Context) context.Context {
 }
 
 // dispatchCacheGet retrieves a cached value. Returns nil, false on miss.
-//
-//nolint:unused // consumers not yet migrated
 func dispatchCacheGet[T any](ctx context.Context, key string) (T, bool) {
 	var zero T
 	c, ok := ctx.Value(dispatchCacheKey{}).(*dispatchCache)
@@ -48,8 +44,6 @@ func dispatchCacheGet[T any](ctx context.Context, key string) (T, bool) {
 }
 
 // dispatchCacheSet stores a value for later retrieval.
-//
-//nolint:unused // consumers not yet migrated
 func dispatchCacheSet(ctx context.Context, key string, value any) {
 	c, ok := ctx.Value(dispatchCacheKey{}).(*dispatchCache)
 	if !ok || c == nil {
