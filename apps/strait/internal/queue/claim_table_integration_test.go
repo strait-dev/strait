@@ -610,3 +610,71 @@ func TestSQLCommenter_DequeueTagPresent(t *testing.T) {
 	// verified by the successful dequeue calls above: if the comment were
 	// malformed, Postgres would reject the query.
 }
+
+
+// TestDequeueVariants_StatusContract verifies the post-dequeue status for
+// every dequeue variant. This is a regression test: a blanket sed replacement
+// once changed all assertions to StatusExecuting, but only DequeueNClaim
+// sets executing directly. All other variants set dequeued.
+func TestDequeueVariants_StatusContract(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-status-contract")
+	q := mustQueue(t)
+
+	tests := []struct {
+		name       string
+		dequeue    func() ([]domain.JobRun, error)
+		wantStatus domain.RunStatus
+	}{
+		{
+			name:       "DequeueN",
+			dequeue:    func() ([]domain.JobRun, error) { return q.DequeueN(ctx, 1) },
+			wantStatus: domain.StatusDequeued,
+		},
+		{
+			name:       "DequeueNTwoPhase",
+			dequeue:    func() ([]domain.JobRun, error) { return q.DequeueNTwoPhase(ctx, 1) },
+			wantStatus: domain.StatusDequeued,
+		},
+		{
+			name:       "DequeueNFair",
+			dequeue:    func() ([]domain.JobRun, error) { return q.DequeueNFair(ctx, 1) },
+			wantStatus: domain.StatusDequeued,
+		},
+		{
+			name:       "DequeueNClaim",
+			dequeue:    func() ([]domain.JobRun, error) { return q.DequeueNClaim(ctx, 1) },
+			wantStatus: domain.StatusExecuting,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Enqueue a fresh run for this variant.
+			run := mustEnqueueRun(t, ctx, q, job)
+
+			batch, err := tt.dequeue()
+			if err != nil {
+				t.Fatalf("%s: %v", tt.name, err)
+			}
+			if len(batch) == 0 {
+				t.Fatalf("%s: got 0 runs, want 1", tt.name)
+			}
+
+			got := batch[0].Status
+			if got != tt.wantStatus {
+				t.Errorf("%s: status = %q, want %q", tt.name, got, tt.wantStatus)
+			}
+
+			// Clean up: mark the run terminal so it doesn't interfere with
+			// subsequent variants.
+			_, _ = testDB.Pool.Exec(ctx,
+				`UPDATE job_runs SET status = 'completed', finished_at = NOW() WHERE id = $1`,
+				run.ID,
+			)
+		})
+	}
+}
