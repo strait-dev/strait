@@ -58,8 +58,8 @@ func TestTwoPhaseDequeue_ReturnsCorrectRuns(t *testing.T) {
 		if r.ProjectID != job.ProjectID {
 			t.Errorf("ProjectID = %q, want %q", r.ProjectID, job.ProjectID)
 		}
-		if r.Status != domain.StatusExecuting {
-			t.Errorf("Status = %q, want executing", r.Status)
+		if r.Status != domain.StatusDequeued {
+			t.Errorf("Status = %q, want dequeued", r.Status)
 		}
 		if r.StartedAt == nil {
 			t.Error("StartedAt is nil, want non-nil for dequeued run")
