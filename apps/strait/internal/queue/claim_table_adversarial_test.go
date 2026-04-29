@@ -224,74 +224,46 @@ func TestClaimTable_NegativePriority(t *testing.T) {
 	}
 }
 
-func TestClaimTable_MaxConcurrencyZero(t *testing.T) {
+func TestClaimTable_MaxConcurrencyZero_MeansUnlimited(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
 	st := mustStore(t)
 
-	// Create a job with max_concurrency = 0.
-	blockedJob := &domain.Job{
+	// max_concurrency = 0 means "no limit" (same as NULL).
+	job := &domain.Job{
 		ID:             newID(),
 		ProjectID:      "project-claim-maxconc0",
 		Name:           "job-" + newID(),
 		Slug:           "slug-" + newID(),
-		EndpointURL:    "https://example.com/blocked",
+		EndpointURL:    "https://example.com/unlimited",
 		MaxAttempts:    3,
 		TimeoutSecs:    300,
 		Enabled:        true,
-		MaxConcurrency: 0, // edge case: 0 < 0 is false
+		MaxConcurrency: 0,
 	}
-	if err := st.CreateJob(ctx, blockedJob); err != nil {
-		t.Fatalf("create blocked job: %v", err)
+	if err := st.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
 	}
-
-	// Create a normal job for comparison.
-	normalJob := mustCreateJob(t, ctx, st, "project-claim-maxconc0")
 
 	q := mustQueue(t)
 
-	// Enqueue one run for each job.
-	blockedRun := &domain.JobRun{
-		ID: newID(), JobID: blockedJob.ID, ProjectID: blockedJob.ProjectID, Priority: 1,
-	}
-	if err := q.Enqueue(ctx, blockedRun); err != nil {
-		t.Fatalf("enqueue blocked: %v", err)
-	}
-
-	// Manually set the claim row's job_max_concurrency to 0 (the trigger
-	// or caller would normally do this).
-	_, err := testDB.Pool.Exec(ctx,
-		`UPDATE job_run_queue SET job_max_concurrency = 0 WHERE run_id = $1`,
-		blockedRun.ID,
-	)
-	if err != nil {
-		t.Fatalf("update claim row concurrency: %v", err)
+	// Enqueue 3 runs. All should be dequeued since 0 = unlimited.
+	for i := 0; i < 3; i++ {
+		run := &domain.JobRun{
+			ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
+		}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
 	}
 
-	normalRun := mustEnqueueRun(t, ctx, q, normalJob)
-
-	// DequeueNClaim: the SQL predicate `COALESCE(jac_job.count, 0) < q.job_max_concurrency`
-	// evaluates to `0 < 0` = false → blocked run is skipped.
 	batch, err := q.DequeueNClaim(ctx, 10)
 	if err != nil {
 		t.Fatalf("DequeueNClaim: %v", err)
 	}
-
-	var gotNormal, gotBlocked bool
-	for _, r := range batch {
-		switch r.ID {
-		case normalRun.ID:
-			gotNormal = true
-		case blockedRun.ID:
-			gotBlocked = true
-		}
-	}
-	if !gotNormal {
-		t.Error("normal run was not dequeued")
-	}
-	if gotBlocked {
-		t.Error("blocked run (max_concurrency=0) should NOT be dequeued")
+	if len(batch) != 3 {
+		t.Errorf("dequeued %d runs, want 3 (max_concurrency=0 means unlimited)", len(batch))
 	}
 }
 

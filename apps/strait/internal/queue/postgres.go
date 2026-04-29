@@ -867,9 +867,9 @@ var claimDeleteSQL = "/* action=dequeue */ " + `
 		  AND COALESCE(q.job_paused, false) = false
 		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
 		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
-		  AND (q.job_max_concurrency IS NULL
+		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
 		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
-		  AND (q.job_max_concurrency_per_key IS NULL
+		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
 		       OR q.concurrency_key IS NULL
 		       OR q.concurrency_key = ''
 		       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
