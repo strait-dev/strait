@@ -133,7 +133,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		projects, organization_subscriptions, usage_records,
 		organization_addons, sent_usage_reports, processed_webhook_messages,
 		enterprise_contracts,
-		job_active_counts, dlq_counts, job_run_heartbeats,
+		job_active_counts, dlq_counts, job_run_heartbeats, job_run_queue,
 		job_retries, enqueue_outbox, project_rate_limits,
 		query_plan_baselines
 		CASCADE`)

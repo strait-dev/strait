@@ -201,6 +201,17 @@ func TestClaimTable_NegativePriority(t *testing.T) {
 	if err := q.Enqueue(ctx, highRun); err != nil {
 		t.Fatalf("enqueue high: %v", err)
 	}
+	// Verify both claim rows exist before dequeuing.
+	var claimCount int
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_run_queue WHERE run_id IN ($1, $2)`,
+		lowRun.ID, highRun.ID,
+	).Scan(&claimCount); err != nil {
+		t.Fatalf("count claim rows: %v", err)
+	}
+	if claimCount != 2 {
+		t.Fatalf("expected 2 claim rows, got %d (trigger may have failed)", claimCount)
+	}
 
 	// DequeueNClaim claims in priority DESC order via the DELETE, but the
 	// final SELECT orders by created_at ASC. Both runs have nearly identical
