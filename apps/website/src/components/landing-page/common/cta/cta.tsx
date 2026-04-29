@@ -114,7 +114,7 @@ const CTA = ({
                 size="default"
                 variant="default"
               >
-                Start Building Free
+                Start building free
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <Button
@@ -122,7 +122,7 @@ const CTA = ({
                 size="default"
                 variant="ghost"
               >
-                Read the Docs
+                Read the docs
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
             </div>

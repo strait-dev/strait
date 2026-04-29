@@ -37,7 +37,7 @@ const Hero = () => {
                 size="default"
                 variant="default"
               >
-                Run Your First Job
+                Run your first job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <Button

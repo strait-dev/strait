@@ -51,7 +51,7 @@ const PricingTeaser = () => (
             className="font-medium text-muted-foreground text-sm transition-colors hover:text-foreground"
             href="/pricing"
           >
-            See Full Pricing & Compare Plans →
+            {"See full pricing & compare plans \u2192"}
           </a>
         </div>
       </Reveal>
