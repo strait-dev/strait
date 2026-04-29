@@ -11,9 +11,22 @@ import (
 	"strait/internal/domain"
 
 	"github.com/samber/lo"
+	"go.opentelemetry.io/otel"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
+
+var stepQueueDuration otelmetric.Float64Histogram
+
+func init() {
+	meter := otel.Meter("strait/workflow")
+	stepQueueDuration, _ = meter.Float64Histogram(
+		"strait.workflow.step_queue_seconds",
+		otelmetric.WithDescription("Time between step run creation and scheduling"),
+		otelmetric.WithUnit("s"),
+		otelmetric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300),
+	)
+}
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) error {
 	lockID := advisoryXactLockIDForStepRun(stepRun.ID)
@@ -141,6 +154,7 @@ func (s *StepCallback) scheduleRunnableSteps(
 		stepStatuses[sr.StepRef] = srCopy.Status
 		if srCopy.Status == domain.StepRunning {
 			s.recordStepWaitDuration(ctx, wfRun, stepCopy, sr)
+			recordStepQueueDuration(ctx, stepDef.StepRef, sr.CreatedAt)
 			runningStepCount++
 			if stepCopy.ConcurrencyKey != "" {
 				runningByConcurrencyKey[stepCopy.ConcurrencyKey]++
@@ -655,4 +669,15 @@ func (s *StepCallback) prefetchStepOutputs(
 		return nil, fmt.Errorf("prefetch step outputs: %w", err)
 	}
 	return outputs, nil
+}
+
+func recordStepQueueDuration(ctx context.Context, stepRef string, createdAt time.Time) {
+	if stepQueueDuration == nil || createdAt.IsZero() {
+		return
+	}
+	if qd := time.Since(createdAt).Seconds(); qd > 0 {
+		stepQueueDuration.Record(ctx, qd, otelmetric.WithAttributes(
+			otelattr.String("step_ref", stepRef),
+		))
+	}
 }

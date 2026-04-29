@@ -88,6 +88,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		Type: EventCompleted, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
 		ExecTrace: execTrace, ExecDur: execDur, Attempt: run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
@@ -343,6 +344,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				Type: EventRetried, Run: run, Job: job,
 				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
 				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+				QueueWait: queueWait(run),
 			})
 		}
 		return
@@ -394,6 +396,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		Type: EventDeadLettered, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: targetStatus,
 		ExecTrace: execTrace, Attempt: run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
@@ -457,6 +460,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				Type: EventRetried, Run: run, Job: job,
 				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
 				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+				QueueWait: queueWait(run),
 			})
 		}
 		return
@@ -501,6 +505,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		Type: EventTimedOut, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusTimedOut,
 		ExecTrace: execTrace, Attempt: run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
@@ -574,7 +579,8 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventSystemFailed, Run: run,
 		FromStatus: fromStatus, ToStatus: domain.StatusSystemFailed,
-		Attempt: run.Attempt,
+		Attempt:   run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
@@ -600,4 +606,15 @@ func durationMillisecondsAtLeastOne(d time.Duration) int64 {
 		return 1
 	}
 	return ms
+}
+
+// queueWait returns the duration a run spent queued (created_at to started_at).
+func queueWait(run *domain.JobRun) time.Duration {
+	if run == nil || run.CreatedAt.IsZero() {
+		return 0
+	}
+	if run.StartedAt == nil {
+		return 0
+	}
+	return run.StartedAt.Sub(run.CreatedAt)
 }
