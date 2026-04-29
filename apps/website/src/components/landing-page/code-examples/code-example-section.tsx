@@ -10,6 +10,8 @@ import { SPRING_SNAPPY } from "@/lib/motion.ts";
 const TABS = [
   {
     label: "Define a job",
+    description:
+      "Define handlers with retries, exponential backoff, and timeouts. Strait tracks every run through 13 states.",
     filename: "jobs/process-order.ts",
     language: "typescript",
     code: `import { defineJob } from "@strait/sdk";
@@ -28,6 +30,8 @@ export default defineJob("process-order", {
   },
   {
     label: "Create a workflow",
+    description:
+      "Wire steps into dependency graphs with conditions, approval gates, and fan-out patterns.",
     filename: "workflows/checkout.ts",
     language: "typescript",
     code: `import { defineWorkflow } from "@strait/sdk";
@@ -44,6 +48,8 @@ export default defineWorkflow("checkout-flow", {
   },
   {
     label: "AI agent guardrails",
+    description:
+      "Set per-run cost budgets, require human approval, and track token usage across models.",
     filename: "jobs/ai-research.ts",
     language: "typescript",
     code: `import { defineJob } from "@strait/sdk";
@@ -65,6 +71,8 @@ export default defineJob("ai-research-agent", {
   },
   {
     label: "Stream with React",
+    description:
+      "Subscribe to run state in real time. Status, cost, and step progress stream to your frontend.",
     filename: "components/order-status.tsx",
     language: "tsx",
     code: `import { useRun } from "@strait/react";
@@ -160,13 +168,21 @@ const CopyButton = ({ text }: { text: string }) => {
 const CodeExampleSection = () => {
   const [activeTab, setActiveTab] = useState(0);
   const currentTab = TABS[activeTab] ?? TABS[0];
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  const focusTab = useCallback((index: number) => {
+    setActiveTab(index);
+    tabRefs.current[index]?.focus();
+  }, []);
+
+  // Desktop: vertical nav supports Up/Down + Home/End
+  // Mobile: horizontal nav supports Left/Right + Home/End
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       let next = activeTab;
-      if (e.key === "ArrowRight") {
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         next = (activeTab + 1) % TABS.length;
-      } else if (e.key === "ArrowLeft") {
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         next = (activeTab - 1 + TABS.length) % TABS.length;
       } else if (e.key === "Home") {
         next = 0;
@@ -176,14 +192,9 @@ const CodeExampleSection = () => {
         return;
       }
       e.preventDefault();
-      setActiveTab(next);
-      const btn =
-        e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[
-          next
-        ];
-      btn?.focus();
+      focusTab(next);
     },
-    [activeTab]
+    [activeTab, focusTab]
   );
 
   return (
@@ -201,64 +212,162 @@ const CodeExampleSection = () => {
           </div>
         </Reveal>
 
-        {/* Tab bar */}
-        <div
-          aria-label="Code examples"
-          className="-mx-1 mb-6 flex items-center gap-1.5 overflow-x-auto px-1 pb-2 sm:flex-wrap sm:gap-2 sm:overflow-visible sm:pb-0"
-          onKeyDown={handleTabKeyDown}
-          role="tablist"
-        >
-          {TABS.map((tab, i) => (
-            <button
-              aria-controls={`code-tabpanel-${String(i)}`}
-              aria-selected={activeTab === i}
-              className={`shrink-0 rounded-full px-3 py-1.5 font-medium text-xs transition-colors sm:px-4 sm:py-2 sm:text-sm ${
-                activeTab === i
-                  ? "bg-foreground text-background"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-              id={`code-tab-${String(i)}`}
-              key={tab.label}
-              onClick={() => setActiveTab(i)}
-              role="tab"
-              tabIndex={activeTab === i ? 0 : -1}
-              type="button"
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <Reveal delay={0.1} spring variant="scale">
-          <MockBrowserWindow
-            actions={<CopyButton text={currentTab.code} />}
-            url={currentTab.filename}
-          >
+        <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
+          {/* Left column: vertical tab nav (desktop) / horizontal pills (mobile) */}
+          <div className="lg:w-2/5 lg:shrink-0">
+            {/* Mobile: horizontal pill tabs */}
             <div
-              aria-labelledby={`code-tab-${String(activeTab)}`}
-              className="bg-[#282c34] p-5 sm:p-6"
-              id={`code-tabpanel-${String(activeTab)}`}
-              role="tabpanel"
+              aria-label="Code examples"
+              aria-orientation="horizontal"
+              className="flex items-center gap-1.5 overflow-x-auto pb-2 lg:hidden"
+              onKeyDown={handleTabKeyDown}
+              role="tablist"
             >
+              {TABS.map((tab, i) => (
+                <button
+                  aria-controls={`code-tabpanel-${String(i)}`}
+                  aria-selected={activeTab === i}
+                  className={`shrink-0 rounded-full px-3 py-1.5 font-medium text-xs transition-colors sm:px-4 sm:py-2 sm:text-sm ${
+                    activeTab === i
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground hover:text-foreground"
+                  }`}
+                  id={`code-tab-${String(i)}`}
+                  key={tab.label}
+                  onClick={() => setActiveTab(i)}
+                  ref={(el) => {
+                    tabRefs.current[i] = el;
+                  }}
+                  role="tab"
+                  tabIndex={activeTab === i ? 0 : -1}
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Mobile: active tab description */}
+            <div className="mt-3 lg:hidden">
               <AnimatePresence mode="wait">
-                <motion.div
+                <motion.p
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  initial={{ opacity: 0, y: 8 }}
-                  key={activeTab}
+                  className="text-muted-foreground text-sm leading-relaxed"
+                  exit={{ opacity: 0, y: -4 }}
+                  initial={{ opacity: 0, y: 4 }}
+                  key={`mobile-desc-${activeTab}`}
                   transition={SPRING_SNAPPY}
                 >
-                  <SyntaxHighlighter
-                    language={currentTab.language}
-                    style={customTheme}
-                  >
-                    {currentTab.code}
-                  </SyntaxHighlighter>
-                </motion.div>
+                  {currentTab.description}
+                </motion.p>
               </AnimatePresence>
             </div>
-          </MockBrowserWindow>
-        </Reveal>
+
+            {/* Desktop: vertical stacked tab nav */}
+            <Reveal className="hidden lg:block" variant="fade-left">
+              <div
+                aria-label="Code examples"
+                aria-orientation="vertical"
+                className="flex flex-col gap-1"
+                onKeyDown={handleTabKeyDown}
+                role="tablist"
+              >
+                {TABS.map((tab, i) => {
+                  const isActive = activeTab === i;
+                  return (
+                    <button
+                      aria-controls={`code-tabpanel-${String(i)}`}
+                      aria-selected={isActive}
+                      className={`group relative rounded-xl px-5 py-4 text-left transition-colors ${
+                        isActive
+                          ? "bg-foreground/[0.06]"
+                          : "hover:bg-foreground/[0.03]"
+                      }`}
+                      id={`code-tab-desktop-${String(i)}`}
+                      key={tab.label}
+                      onClick={() => setActiveTab(i)}
+                      ref={(el) => {
+                        tabRefs.current[i] = el;
+                      }}
+                      role="tab"
+                      tabIndex={isActive ? 0 : -1}
+                      type="button"
+                    >
+                      {/* Active indicator bar */}
+                      <motion.div
+                        animate={{
+                          opacity: isActive ? 1 : 0,
+                          scaleY: isActive ? 1 : 0.5,
+                        }}
+                        aria-hidden="true"
+                        className="absolute top-3 bottom-3 left-0 w-0.5 rounded-full bg-foreground"
+                        transition={SPRING_SNAPPY}
+                      />
+
+                      <span
+                        className={`block font-medium text-sm transition-colors ${
+                          isActive
+                            ? "text-foreground"
+                            : "text-muted-foreground group-hover:text-foreground"
+                        }`}
+                      >
+                        {tab.label}
+                      </span>
+
+                      <AnimatePresence initial={false}>
+                        {isActive && (
+                          <motion.p
+                            animate={{ opacity: 1, height: "auto" }}
+                            className="mt-2 overflow-hidden text-muted-foreground text-sm leading-relaxed"
+                            exit={{ opacity: 0, height: 0 }}
+                            initial={{ opacity: 0, height: 0 }}
+                            transition={SPRING_SNAPPY}
+                          >
+                            {tab.description}
+                          </motion.p>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  );
+                })}
+              </div>
+            </Reveal>
+          </div>
+
+          {/* Right column: code browser */}
+          <div className="min-w-0 lg:w-3/5">
+            <Reveal delay={0.1} spring variant="scale">
+              <MockBrowserWindow
+                actions={<CopyButton text={currentTab.code} />}
+                url={currentTab.filename}
+              >
+                <div
+                  aria-labelledby={`code-tab-${String(activeTab)}`}
+                  className="bg-[#282c34] p-5 sm:p-6"
+                  id={`code-tabpanel-${String(activeTab)}`}
+                  role="tabpanel"
+                >
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      initial={{ opacity: 0, y: 8 }}
+                      key={activeTab}
+                      transition={SPRING_SNAPPY}
+                    >
+                      <SyntaxHighlighter
+                        language={currentTab.language}
+                        style={customTheme}
+                      >
+                        {currentTab.code}
+                      </SyntaxHighlighter>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              </MockBrowserWindow>
+            </Reveal>
+          </div>
+        </div>
       </Shell>
     </section>
   );

@@ -184,7 +184,7 @@ const MobileNav = () => {
                 Sign in
               </a>
               <a
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm"
                 href={dashboardHref("/login")}
               >
                 Run your first job

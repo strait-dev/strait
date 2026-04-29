@@ -101,7 +101,7 @@ const FeatureBentoGrid = () => (
             delay={idx * 0.06}
             key={feature.id}
             spring
-            variant={idx % 2 === 0 ? "fade-up" : "scale"}
+            variant="fade-up"
           >
             {/* Animation area */}
             <div className="relative flex h-48 items-center justify-center overflow-hidden bg-muted/20 p-6">

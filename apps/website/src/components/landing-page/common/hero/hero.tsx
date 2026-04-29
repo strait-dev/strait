@@ -35,7 +35,7 @@ const Hero = () => {
               <Button
                 render={<a href={dashboardHref("/login")} />}
                 size="default"
-                variant="gradient"
+                variant="default"
               >
                 Run Your First Job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />

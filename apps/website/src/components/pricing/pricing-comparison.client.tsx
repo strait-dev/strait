@@ -149,6 +149,7 @@ function MobilePlanCard({
           className="w-full"
           // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
           render={<a href={plan.cta.href} />}
+          size="default"
           variant={plan.highlight ? "default" : "outline"}
         >
           {plan.cta.label}
@@ -338,6 +339,7 @@ const PricingComparisonClient = ({
                                   href={plan.cta.href}
                                 />
                               }
+                              size="default"
                               variant={plan.highlight ? "default" : "outline"}
                             >
                               {plan.cta.label}

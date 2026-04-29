@@ -120,8 +120,8 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
-            competitor: "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
+            competitor: "7 (Go, Java, PHP, Python, TypeScript, .NET, Ruby)",
           },
           {
             feature: "CLI and TUI tooling",
@@ -247,8 +247,8 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
-            competitor: "4 (TS, Py, Go, Kotlin/Java)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
+            competitor: "4 (TypeScript, Python, Go, Kotlin/Java)",
           },
           {
             feature: "Built-in CLI and TUI",
@@ -373,7 +373,7 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "1 (TypeScript)",
           },
           {
@@ -396,7 +396,7 @@ const comparisons: ComparisonPageData[] = [
           {
             feature: "Step conditions and branching",
             strait: "Declarative conditions",
-            competitor: "Implicit (JS control flow)",
+            competitor: "Implicit (JavaScript control flow)",
             tooltip:
               "Trigger.dev uses standard JavaScript if/else for branching within tasks",
           },
@@ -640,8 +640,8 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
-            competitor: "3 (Go, Py, TS)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
+            competitor: "3 (Go, Python, TypeScript)",
           },
           {
             feature: "CLI and TUI tooling",
@@ -760,7 +760,7 @@ const comparisons: ComparisonPageData[] = [
           },
           {
             feature: "Language support",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "Node.js primary, community Python/PHP/Elixir",
             tooltip:
               "BullMQ has official Node.js support with community implementations for Python, PHP, and Elixir",
@@ -1006,7 +1006,7 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor:
               "Python primary; protocol impls for Node, PHP, Go, Rust",
           },
@@ -1095,7 +1095,7 @@ const comparisons: ComparisonPageData[] = [
           },
           {
             feature: "Language support",
-            strait: "5 SDKs (TS, Py, Go, Rb, Rust)",
+            strait: "5 SDKs (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "Ruby only",
           },
           {
@@ -1339,7 +1339,7 @@ const comparisons: ComparisonPageData[] = [
           },
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "AWS SDKs (all major languages)",
           },
         ],

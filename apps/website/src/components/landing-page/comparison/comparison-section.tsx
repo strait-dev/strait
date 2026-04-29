@@ -10,10 +10,10 @@ const ROWS = [
   {
     feature: "Language SDKs",
     values: [
-      "5 (TS, Py, Go, Rb, Rust)",
+      "5 (TypeScript, Python, Go, Ruby, Rust)",
       "1 (TypeScript)",
-      "4 (TS, Py, Go, Kt)",
-      "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+      "4 (TypeScript, Python, Go, Kotlin)",
+      "7 (Go, Java, PHP, Python, TypeScript, .NET, Ruby)",
     ],
   },
   {

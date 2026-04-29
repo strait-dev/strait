@@ -19,29 +19,45 @@ const {
   aria-labelledby="cta-title"
   class="relative overflow-hidden border-border/40 border-y py-24 sm:py-32"
 >
-  <div class="orchestration-grid pointer-events-none absolute inset-0 -z-10 opacity-60" />
-  <div class="section-wash pointer-events-none absolute inset-0 -z-10" />
+  <div class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_center,oklch(0.55_0.15_var(--primary-hue)/0.08),transparent_70%)]" />
 
   <Shell className="relative z-10" variant="wide">
-    <div class="max-w-3xl">
+    <div class="mx-auto max-w-3xl text-center">
       <h2
-        class="text-balance text-2xl leading-[1.1] sm:text-3xl lg:text-4xl"
+        class="text-balance font-semibold text-3xl leading-[1.1] sm:text-4xl lg:text-5xl"
         id="cta-title"
       >
         {heading}
       </h2>
 
+      <p class="mt-4 text-base text-muted-foreground">
+        {description}
+      </p>
+
       {showInstallSnippet && (
         <div class="mt-8 inline-block overflow-hidden rounded-lg border border-border/40 bg-muted/30 px-6 py-3">
-          <pre class="font-mono text-foreground/80 text-sm">
-            <code>npm install @strait/ts{" "}<span class="text-muted-foreground/50"># or pip, go get, gem, cargo</span></code>
-          </pre>
+          <div class="flex items-center gap-3">
+            <pre class="font-mono text-foreground/80 text-sm">
+              <code>npm install @strait/ts{" "}<span class="text-muted-foreground/50"># or pip, go get, gem, cargo</span></code>
+            </pre>
+            <button
+              aria-label="Copy install command"
+              class="cta-copy-btn shrink-0 rounded-md p-1 text-muted-foreground/60 transition-colors hover:text-foreground"
+              data-copy="npm install @strait/ts"
+              type="button"
+            >
+              <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect height="13" rx="2" width="13" x="9" y="9" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
 
-      <div class="mt-10 flex flex-col gap-4 sm:flex-row">
+      <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
         <a
-          class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           href={dashboardHref("/login")}
         >
           Start Building Free
@@ -59,10 +75,25 @@ const {
           </svg>
         </a>
       </div>
-
-      <p class="mt-6 text-muted-foreground/60 text-sm">
-        {description}
-      </p>
     </div>
   </Shell>
 </section>
+
+<script>
+  document.querySelectorAll(".cta-copy-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const text = btn.getAttribute("data-copy");
+      if (!text) return;
+      await navigator.clipboard.writeText(text);
+      const svg = btn.querySelector("svg");
+      if (svg) {
+        const original = svg.innerHTML;
+        svg.innerHTML =
+          '<polyline points="20 6 9 17 4 12" stroke-linecap="round" stroke-linejoin="round" />';
+        setTimeout(() => {
+          svg.innerHTML = original;
+        }, 1500);
+      }
+    });
+  });
+</script>

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { motion, useInView, useReducedMotion } from "motion/react";
+import { useRef } from "react";
 import Shell from "@/components/layout/shell.tsx";
-import DottedMap from "@/components/magicui/dotted-map.tsx";
 
 const ARCHITECTURE = [
   "Postgres-backed job queue",
@@ -14,49 +14,30 @@ const ARCHITECTURE = [
 ];
 
 const ArchitectureList = () => {
-  const [visibleCount, setVisibleCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          observer.disconnect();
-          let count = 0;
-          const id = setInterval(() => {
-            count++;
-            setVisibleCount(count);
-            if (count >= ARCHITECTURE.length) {
-              clearInterval(id);
-            }
-          }, 120);
-        }
-      },
-      { threshold: 0.2 }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const isInView = useInView(containerRef, { once: true, margin: "-64px" });
+  const prefersReduced = useReducedMotion();
 
   return (
     <div className="flex flex-wrap gap-2" ref={containerRef}>
       {ARCHITECTURE.map((item, i) => (
-        <span
-          className={`rounded-full border border-border/60 bg-card px-3 py-1.5 text-sm transition-all duration-300 ${
-            i < visibleCount
-              ? "text-foreground opacity-100"
-              : "text-muted-foreground/30 opacity-0"
-          }`}
+        <motion.span
+          animate={
+            prefersReduced || isInView
+              ? { opacity: 1, y: 0 }
+              : { opacity: 0, y: 8 }
+          }
+          className="rounded-full border border-border/60 bg-card px-3 py-1.5 text-foreground text-sm"
+          initial={prefersReduced ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
           key={item}
+          transition={
+            prefersReduced
+              ? { duration: 0 }
+              : { duration: 0.3, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] }
+          }
         >
           {item}
-        </span>
+        </motion.span>
       ))}
     </div>
   );
@@ -101,7 +82,7 @@ const CredibilitySection = () => (
           </p>
           <div className="mt-4 flex items-center gap-4">
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs">
-              TS · Go · Python
+              TypeScript · Go · Python
             </span>
             <span className="text-muted-foreground/60 text-xs">
               Apache 2.0 License
@@ -114,17 +95,202 @@ const CredibilitySection = () => (
           <h3 className="mb-4 font-semibold text-foreground">
             Technical Foundation
           </h3>
-          <DottedMap
-            className="mb-4 rounded-lg"
-            dotColor="var(--muted-foreground)"
-            markerColor="var(--primary)"
-            markers={[
-              { lat: 39.0, lng: -77.5 },
-              { lat: 50.1, lng: 8.7 },
-              { lat: 1.3, lng: 103.8 },
-              { lat: 35.7, lng: 139.7 },
-            ]}
-          />
+          <svg
+            className="mb-4 w-full rounded-lg"
+            fill="none"
+            viewBox="0 0 320 120"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {/* App node */}
+            <rect
+              fill="var(--muted)"
+              height="36"
+              rx="6"
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              width="56"
+              x="8"
+              y="42"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="11"
+              fontWeight="500"
+              textAnchor="middle"
+              x="36"
+              y="64"
+            >
+              App
+            </text>
+
+            {/* Arrow: App -> Strait */}
+            <line
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              x1="64"
+              x2="96"
+              y1="60"
+              y2="60"
+            />
+            <polygon fill="var(--border)" points="93,56 100,60 93,64" />
+
+            {/* Strait group box */}
+            <rect
+              fill="var(--muted)"
+              height="104"
+              rx="8"
+              stroke="var(--primary)"
+              strokeDasharray="4 3"
+              strokeWidth="1.5"
+              width="132"
+              x="100"
+              y="8"
+            />
+            <text
+              fill="var(--primary)"
+              fontSize="10"
+              fontWeight="600"
+              textAnchor="middle"
+              x="166"
+              y="24"
+            >
+              Strait
+            </text>
+
+            {/* Queue */}
+            <rect
+              fill="var(--background, #fff)"
+              height="26"
+              rx="4"
+              stroke="var(--border)"
+              strokeWidth="1"
+              width="52"
+              x="112"
+              y="34"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="138"
+              y="51"
+            >
+              Queue
+            </text>
+
+            {/* Worker */}
+            <rect
+              fill="var(--background, #fff)"
+              height="26"
+              rx="4"
+              stroke="var(--border)"
+              strokeWidth="1"
+              width="52"
+              x="112"
+              y="68"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="138"
+              y="85"
+            >
+              Worker
+            </text>
+
+            {/* Scheduler */}
+            <rect
+              fill="var(--background, #fff)"
+              height="26"
+              rx="4"
+              stroke="var(--border)"
+              strokeWidth="1"
+              width="52"
+              x="172"
+              y="51"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="198"
+              y="68"
+            >
+              Scheduler
+            </text>
+
+            {/* Internal connections */}
+            <line
+              stroke="var(--border)"
+              strokeWidth="1"
+              x1="138"
+              x2="138"
+              y1="60"
+              y2="68"
+            />
+            <line
+              stroke="var(--border)"
+              strokeWidth="1"
+              x1="164"
+              x2="172"
+              y1="47"
+              y2="58"
+            />
+            <line
+              stroke="var(--border)"
+              strokeWidth="1"
+              x1="164"
+              x2="172"
+              y1="81"
+              y2="72"
+            />
+
+            {/* Arrow: Strait -> Postgres */}
+            <line
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              x1="232"
+              x2="260"
+              y1="60"
+              y2="60"
+            />
+            <polygon fill="var(--border)" points="257,56 264,60 257,64" />
+
+            {/* Postgres node */}
+            <rect
+              fill="var(--muted)"
+              height="36"
+              rx="6"
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              width="52"
+              x="264"
+              y="42"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="290"
+              y="58"
+            >
+              Postgres
+            </text>
+            <text
+              fill="var(--muted-foreground)"
+              fontSize="7"
+              textAnchor="middle"
+              x="290"
+              y="70"
+            >
+              (durable store)
+            </text>
+          </svg>
           <ArchitectureList />
         </div>
 
