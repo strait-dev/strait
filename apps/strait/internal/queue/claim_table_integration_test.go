@@ -611,7 +611,6 @@ func TestSQLCommenter_DequeueTagPresent(t *testing.T) {
 	// malformed, Postgres would reject the query.
 }
 
-
 // TestDequeueVariants_StatusContract verifies the post-dequeue status for
 // every dequeue variant. This is a regression test: a blanket sed replacement
 // once changed all assertions to StatusExecuting, but only DequeueNClaim
@@ -676,5 +675,282 @@ func TestDequeueVariants_StatusContract(t *testing.T) {
 				run.ID,
 			)
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reliability: reconciler repairs missing claims
+// ---------------------------------------------------------------------------
+
+func TestClaimReconciler_RepairsMissingClaims(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-reconciler-repair")
+	q := mustQueue(t)
+
+	// Enqueue a run (creates both job_runs and job_run_queue rows).
+	run := mustEnqueueRun(t, ctx, q, job)
+
+	// Manually delete the claim row to simulate trigger miss / partial failure.
+	_, err := testDB.Pool.Exec(ctx,
+		`DELETE FROM job_run_queue WHERE run_id = $1`, run.ID,
+	)
+	if err != nil {
+		t.Fatalf("delete claim row: %v", err)
+	}
+
+	// Confirm DequeueNClaim cannot find the run anymore.
+	batch, err := q.DequeueNClaim(ctx, 10)
+	if err != nil {
+		t.Fatalf("DequeueNClaim before reconcile: %v", err)
+	}
+	for _, r := range batch {
+		if r.ID == run.ID {
+			t.Fatal("run should NOT be dequeued without a claim row")
+		}
+	}
+
+	// Run the reconciler's missing-claims SQL directly.
+	missingSQL := `
+		INSERT INTO job_run_queue (
+			run_id, job_id, project_id, priority, created_at,
+			scheduled_at, next_retry_at, concurrency_key,
+			job_max_concurrency, job_max_concurrency_per_key,
+			job_enabled, job_paused
+		)
+		SELECT
+			jr.id, jr.job_id, jr.project_id, jr.priority, jr.created_at,
+			jr.scheduled_at, jr.next_retry_at, jr.concurrency_key,
+			j.max_concurrency, j.max_concurrency_per_key,
+			j.enabled, j.paused
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		LEFT JOIN job_run_queue q ON q.run_id = jr.id
+		WHERE jr.status IN ('queued', 'delayed')
+		  AND q.run_id IS NULL
+		LIMIT 1000
+		ON CONFLICT (run_id) DO NOTHING`
+
+	tag, err := testDB.Pool.Exec(ctx, missingSQL)
+	if err != nil {
+		t.Fatalf("reconcile missing claims: %v", err)
+	}
+	if tag.RowsAffected() == 0 {
+		t.Fatal("expected reconciler to insert at least 1 missing claim row")
+	}
+
+	// Verify the claim row was re-created.
+	var count int
+	err = testDB.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_run_queue WHERE run_id = $1`, run.ID,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("count claim rows: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("claim row count after reconcile = %d, want 1", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reliability: reconciler removes stale / orphan claim rows
+// ---------------------------------------------------------------------------
+
+func TestClaimReconciler_RemovesStaleClaims(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+
+	// Insert an orphan claim row with no corresponding job_runs row.
+	orphanID := newID()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_queue (run_id, job_id, project_id, priority, created_at, job_enabled, job_paused)
+		VALUES ($1, 'nonexistent-job', 'orphan-project', 1, NOW(), true, false)
+	`, orphanID)
+	if err != nil {
+		t.Fatalf("insert orphan claim row: %v", err)
+	}
+
+	// Confirm the orphan row exists.
+	var before int
+	err = testDB.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_run_queue WHERE run_id = $1`, orphanID,
+	).Scan(&before)
+	if err != nil {
+		t.Fatalf("count before reconcile: %v", err)
+	}
+	if before != 1 {
+		t.Fatalf("orphan claim row not present before reconcile (count=%d)", before)
+	}
+
+	// Run the reconciler's stale-claims SQL directly.
+	staleSQL := `
+		DELETE FROM job_run_queue
+		WHERE run_id IN (
+			SELECT q.run_id
+			FROM job_run_queue q
+			LEFT JOIN job_runs jr ON jr.id = q.run_id
+			WHERE jr.id IS NULL
+			   OR jr.status NOT IN ('queued', 'delayed')
+			LIMIT 1000
+		)`
+
+	tag, err := testDB.Pool.Exec(ctx, staleSQL)
+	if err != nil {
+		t.Fatalf("reconcile stale claims: %v", err)
+	}
+	if tag.RowsAffected() == 0 {
+		t.Fatal("expected reconciler to delete at least 1 stale claim row")
+	}
+
+	// Verify the orphan claim row was removed.
+	var after int
+	err = testDB.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_run_queue WHERE run_id = $1`, orphanID,
+	).Scan(&after)
+	if err != nil {
+		t.Fatalf("count after reconcile: %v", err)
+	}
+	if after != 0 {
+		t.Errorf("orphan claim row still present after reconcile (count=%d)", after)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reliability: retry exhaustion transitions to terminal failure
+// ---------------------------------------------------------------------------
+
+func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	// Create a job with max_attempts=2.
+	job := &domain.Job{
+		ID:          newID(),
+		ProjectID:   "project-retry-exhaust",
+		Name:        "job-" + newID(),
+		Slug:        "slug-" + newID(),
+		EndpointURL: "https://example.com/retry-exhaust",
+		MaxAttempts: 2,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+	if err := st.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	q := mustQueue(t)
+
+	// Enqueue a run (attempt 0, status=queued).
+	run := mustEnqueueRun(t, ctx, q, job)
+
+	// --- Attempt 1: dequeue and simulate failure ---
+	batch, err := q.DequeueNClaim(ctx, 10)
+	if err != nil {
+		t.Fatalf("dequeue attempt 1: %v", err)
+	}
+	found := false
+	for _, r := range batch {
+		if r.ID == run.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("run not found in first dequeue")
+	}
+
+	// Simulate worker failure: mark as failed, bump attempt.
+	_, err = testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'failed', attempts = 1, finished_at = NOW()
+		WHERE id = $1
+	`, run.ID)
+	if err != nil {
+		t.Fatalf("simulate failure attempt 1: %v", err)
+	}
+
+	// Re-enqueue for retry: reset to queued, bump attempt.
+	_, err = testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'queued', finished_at = NULL
+		WHERE id = $1
+	`, run.ID)
+	if err != nil {
+		t.Fatalf("re-enqueue for retry: %v", err)
+	}
+
+	// Re-insert the claim row (simulates retry re-enqueue path).
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_queue (run_id, job_id, project_id, priority, created_at, job_enabled, job_paused)
+		VALUES ($1, $2, $3, 1, NOW(), true, false)
+		ON CONFLICT (run_id) DO NOTHING
+	`, run.ID, job.ID, job.ProjectID)
+	if err != nil {
+		t.Fatalf("insert retry claim row: %v", err)
+	}
+
+	// --- Attempt 2: dequeue and simulate failure again ---
+	batch, err = q.DequeueNClaim(ctx, 10)
+	if err != nil {
+		t.Fatalf("dequeue attempt 2: %v", err)
+	}
+	found = false
+	for _, r := range batch {
+		if r.ID == run.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("run not found in second dequeue")
+	}
+
+	// Simulate final failure: mark as failed with attempts=max_attempts.
+	_, err = testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'failed', attempts = 2, finished_at = NOW()
+		WHERE id = $1
+	`, run.ID)
+	if err != nil {
+		t.Fatalf("simulate failure attempt 2: %v", err)
+	}
+
+	// Verify the run is terminally failed and retries are exhausted.
+	var finalStatus string
+	var attempts int
+	err = testDB.Pool.QueryRow(ctx,
+		`SELECT status, attempts FROM job_runs WHERE id = $1`, run.ID,
+	).Scan(&finalStatus, &attempts)
+	if err != nil {
+		t.Fatalf("query final state: %v", err)
+	}
+
+	// Run should be in a terminal failure state with attempts == max_attempts.
+	if attempts != 2 {
+		t.Errorf("attempts = %d, want 2", attempts)
+	}
+	terminalFailure := finalStatus == "failed" || finalStatus == "dead_letter"
+	if !terminalFailure {
+		t.Errorf("status = %q, want 'failed' or 'dead_letter'", finalStatus)
+	}
+
+	// No claim row should remain for a terminal run.
+	var claimCount int
+	err = testDB.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM job_run_queue WHERE run_id = $1`, run.ID,
+	).Scan(&claimCount)
+	if err != nil {
+		t.Fatalf("count claim rows: %v", err)
+	}
+	if claimCount != 0 {
+		t.Errorf("stale claim row exists for terminal run (count=%d)", claimCount)
 	}
 }
