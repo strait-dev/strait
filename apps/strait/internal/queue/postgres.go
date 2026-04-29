@@ -849,10 +849,9 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 	})
 }
 
-// Claim table support.
+// Claim table dequeue support.
 
-// Pre-computed SQL for DequeueNClaim. Built once at package init to
-// avoid fmt.Sprintf on every dequeue call.
+// Pre-computed SQL for DequeueNClaim; avoids fmt.Sprintf per call.
 var claimDeleteSQL = "/* action=dequeue */ " + `
 	DELETE FROM job_run_queue
 	WHERE run_id IN (
@@ -890,10 +889,8 @@ var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
 	SELECT %s FROM claimed_update ORDER BY created_at ASC`,
 	domain.StatusExecuting, dequeueColumns, dequeueColumns)
 
-// claimInsertFromJobSQL inserts a claim row with the job's current
-// enabled/paused/concurrency config. Uses a subquery against the jobs
-// table so the claim row reflects reality at INSERT time, not hardcoded
-// defaults that could be stale if the job was already paused/disabled.
+// claimInsertFromJobSQL inserts a claim row using a subquery against jobs
+// so enabled/paused/concurrency reflect the current job config.
 const claimInsertFromJobSQL = `
 	INSERT INTO job_run_queue (
 		run_id, job_id, project_id, priority, created_at,
@@ -908,9 +905,7 @@ const claimInsertFromJobSQL = `
 	WHERE j.id = $2
 	ON CONFLICT (run_id) DO NOTHING`
 
-// InsertClaimRow inserts a thin claim row into job_run_queue with the
-// job's current config. Called by Enqueue, EnqueueInTx, EnqueueBatch,
-// retry re-enqueue, and delayed promotion.
+// InsertClaimRow inserts a claim row into job_run_queue for the given run.
 func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
 	_, err := db.Exec(ctx, claimInsertFromJobSQL,
 		run.ID, run.JobID, run.ProjectID, run.Priority, run.CreatedAt,
@@ -923,9 +918,8 @@ func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *
 	return nil
 }
 
-// InsertClaimRowFromEnqueue inserts a claim row using the fields available
-// at enqueue time (before the row is committed to job_runs). The created_at
-// is NOW() since the job_runs INSERT hasn't returned it yet.
+// InsertClaimRowFromEnqueue inserts a claim row at enqueue time,
+// using NOW() for created_at since job_runs hasn't committed yet.
 func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
 	_, err := db.Exec(ctx, claimInsertFromJobSQL,
 		run.ID, run.JobID, run.ProjectID, run.Priority, time.Now(),
@@ -939,9 +933,8 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 	return nil
 }
 
-// DequeueNClaim is the claim-table dequeue variant. It DELETEs from the
-// thin job_run_queue table (80 bytes/row), then UPDATEs job_runs status,
-// then SELECTs the full rows by PK.
+// DequeueNClaim deletes from the thin job_run_queue table,
+// then updates+fetches the full job_runs rows in one CTE.
 func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNClaim")
 	defer span.End()
@@ -967,11 +960,9 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 		}
 	}
 
-	// Phase 1: DELETE from thin claim table.
 	rows, err := tx.Query(ctx, claimDeleteSQL, n)
 	if err != nil {
-		// If the claim table doesn't exist (pre-migration), rollback and
-		// fall back to two-phase dequeue transparently.
+		// Undefined table = pre-migration; fall back to two-phase.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
 			_ = tx.Rollback(ctx)
@@ -999,11 +990,8 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 		return nil, nil
 	}
 
-	// Phase 2: UPDATE status and fetch full rows in a single CTE.
-	// Sets status directly to 'executing' (skipping the intermediate
-	// 'dequeued' state) because the claim table DELETE already
-	// represents "claimed by a worker". This eliminates one UPDATE
-	// per run lifecycle = 33% fewer dead tuples on job_runs.
+	// Update status directly to 'executing' (skipping 'dequeued') since the
+	// claim DELETE already represents "claimed". Fewer dead tuples on job_runs.
 	fetchRows, err := tx.Query(ctx, claimUpdateFetchSQL, ids)
 	if err != nil {
 		return nil, fmt.Errorf("dequeue claim: update+fetch: %w", err)

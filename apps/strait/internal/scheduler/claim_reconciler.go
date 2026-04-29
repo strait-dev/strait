@@ -9,20 +9,15 @@ import (
 	"strait/internal/store"
 )
 
-// ClaimReconciler periodically compares job_run_queue against job_runs
-// to detect and fix drift caused by missed triggers, partial failures,
-// or direct SQL modifications.
-//
-// Drift types detected:
-//   - Missing claims: job_runs row is queued/delayed but has no claim row.
-//   - Stale claims: claim row exists but job_runs row is no longer queued/delayed.
+// ClaimReconciler periodically repairs drift between job_run_queue and
+// job_runs (missing claims for queued runs, stale claims for terminal runs).
 type ClaimReconciler struct {
 	db       store.DBTX
 	interval time.Duration
 	logger   *slog.Logger
 }
 
-// NewClaimReconciler creates a reconciler. Zero interval defaults to 5m.
+// NewClaimReconciler creates a reconciler; zero interval defaults to 5m.
 func NewClaimReconciler(db store.DBTX, interval time.Duration) *ClaimReconciler {
 	if interval <= 0 {
 		interval = 5 * time.Minute
@@ -34,7 +29,6 @@ func NewClaimReconciler(db store.DBTX, interval time.Duration) *ClaimReconciler 
 	}
 }
 
-// Run starts the periodic reconciliation loop.
 func (r *ClaimReconciler) Run(ctx context.Context) {
 	loop := NewMaintenanceLoop("claim-reconciler", r.interval, r.logger, func(loopCtx context.Context) {
 		if err := r.reconcileOnce(loopCtx); err != nil {
@@ -45,7 +39,6 @@ func (r *ClaimReconciler) Run(ctx context.Context) {
 }
 
 func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
-	// 1. Find missing claim rows: queued/delayed in job_runs but not in job_run_queue.
 	missingSQL := `
 		INSERT INTO job_run_queue (
 			run_id, job_id, project_id, priority, created_at,
@@ -74,7 +67,6 @@ func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
 		r.logger.Warn("claim reconciler: repaired missing claim rows", "count", inserted)
 	}
 
-	// 2. Find stale claim rows: in job_run_queue but job_runs is not queued/delayed.
 	staleSQL := `
 		DELETE FROM job_run_queue
 		WHERE run_id IN (

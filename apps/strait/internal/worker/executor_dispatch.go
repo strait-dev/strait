@@ -301,9 +301,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
 
-	// Skip the dequeued→executing transition when the claim-table dequeue
-	// path already set status='executing'. This saves 2 DB round-trips per
-	// run (the UPDATE that matches 0 rows + the idempotency SELECT).
+	// Claim-table dequeue already set status=executing; skip redundant transition.
 	if run.Status != domain.StatusExecuting {
 		err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 			"started_at": time.Now(),

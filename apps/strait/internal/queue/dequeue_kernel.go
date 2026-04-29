@@ -191,11 +191,8 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 	return runs, nil
 }
 
-// executeDequeueTwoPhase claims IDs in a thin scan (RETURNING id only),
-// then batch-fetches the full rows by PK in a second query. Both run
-// in the same transaction. The B-tree scan in phase 1 never deserializes
-// the 38-column fat rows; the PK fetch in phase 2 is a guaranteed buffer-
-// cache hit because the UPDATE just touched those pages.
+// executeDequeueTwoPhase claims IDs with a thin UPDATE RETURNING id,
+// then batch-fetches full rows by PK in a second query within the same tx.
 func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec dequeueSpec) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, spec.spanName)
 	defer span.End()
@@ -204,10 +201,9 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		return nil, nil
 	}
 
-	// Must use a transaction: both phases share the same snapshot.
+	// Both phases must share the same snapshot.
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
-		// Fallback to single-phase if we can't begin a transaction.
 		return executeDequeue(ctx, q, n, spec)
 	}
 	tx, err := beginner.Begin(ctx)
@@ -223,7 +219,6 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		}
 	}
 
-	// Phase 1: thin claim -- UPDATE RETURNING id only.
 	claimSQL := "/* action=dequeue */ " + fmt.Sprintf(`
 		WITH claimed AS (%s)
 		UPDATE job_runs
@@ -259,8 +254,7 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		return nil, nil
 	}
 
-	// Phase 2: fat fetch by PK. The rows were just UPDATEd so they
-	// are hot in the buffer cache -- no disk I/O.
+	// Fetch full rows by PK; these pages are hot from the UPDATE above.
 	fetchSQL := "/* action=dequeue */ " + fmt.Sprintf(`SELECT %s FROM job_runs WHERE id = ANY($1) ORDER BY created_at ASC`, dequeueColumns)
 	fetchRows, err := tx.Query(ctx, fetchSQL, ids)
 	if err != nil {

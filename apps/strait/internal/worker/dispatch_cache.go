@@ -5,25 +5,20 @@ import (
 	"sync"
 )
 
-// dispatchCacheKey is the context key for per-dispatch cached data.
 type dispatchCacheKey struct{}
 
-// dispatchCache stores expensive query results that are reused
-// multiple times during a single run's dispatch cycle. Prevents
-// duplicate DB calls for secrets, checkpoints, and health stats.
+// dispatchCache caches expensive query results within a single dispatch cycle.
 type dispatchCache struct {
 	mu     sync.Mutex
 	values map[string]any
 }
 
-// withDispatchCache creates a new dispatch cache in the context.
 func withDispatchCache(ctx context.Context) context.Context {
 	return context.WithValue(ctx, dispatchCacheKey{}, &dispatchCache{
 		values: make(map[string]any),
 	})
 }
 
-// dispatchCacheGet retrieves a cached value. Returns nil, false on miss.
 func dispatchCacheGet[T any](ctx context.Context, key string) (T, bool) {
 	var zero T
 	c, ok := ctx.Value(dispatchCacheKey{}).(*dispatchCache)
@@ -43,7 +38,6 @@ func dispatchCacheGet[T any](ctx context.Context, key string) (T, bool) {
 	return typed, true
 }
 
-// dispatchCacheSet stores a value for later retrieval.
 func dispatchCacheSet(ctx context.Context, key string, value any) {
 	c, ok := ctx.Value(dispatchCacheKey{}).(*dispatchCache)
 	if !ok || c == nil {

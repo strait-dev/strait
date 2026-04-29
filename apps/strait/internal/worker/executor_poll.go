@@ -15,14 +15,12 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-// twoPhaseDequeuer is the two-phase dequeue variant that claims IDs
-// first (thin scan), then fetches full rows by PK.
+// twoPhaseDequeuer claims IDs first, then fetches full rows by PK.
 type twoPhaseDequeuer interface {
 	DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
-// claimTableDequeuer is the claim-table dequeue variant that DELETEs from
-// the thin job_run_queue table, then fetches full rows from job_runs.
+// claimTableDequeuer deletes from job_run_queue, then fetches from job_runs.
 type claimTableDequeuer interface {
 	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
 }
@@ -68,8 +66,7 @@ func (e *Executor) poll(ctx context.Context) {
 		case len(e.partitionCycle) > 0:
 			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
 		default:
-			// Auto-select the best available dequeue path:
-			// claim_table > two_phase > DequeueN.
+			// Prefer claim_table > two_phase > DequeueN.
 			if cq, ok := e.queue.(claimTableDequeuer); ok {
 				runs, err = cq.DequeueNClaim(innerCtx, available)
 			} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
@@ -166,11 +163,8 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 		partStart := time.Now()
 		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
 		if qm != nil {
-			// We intentionally do NOT attach the partition/project_id as
-			// a label here: in fair-share mode the partition cycle holds
-			// project ids, which would explode Prometheus cardinality
-			// to O(projects). Aggregate across partitions instead; the
-			// per-tenant breakdown lives in ClickHouse analytics.
+			// Avoid attaching partition/project_id as a label here;
+			// in fair-share mode that would explode Prometheus cardinality.
 			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
 		}
 		if err != nil {

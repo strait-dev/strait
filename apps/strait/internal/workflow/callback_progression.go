@@ -637,9 +637,7 @@ func hasResourceClassCapacity(running map[string]int, class string) bool {
 	return running[resolved] < limit
 }
 
-// prefetchStepOutputs collects all unique DependsOn refs across runnable
-// steps and fetches their outputs in a single batched query. Returns nil
-// map if no dependencies exist.
+// prefetchStepOutputs batches all dependency output fetches into one query.
 func (s *StepCallback) prefetchStepOutputs(
 	ctx context.Context,
 	workflowRunID string,
