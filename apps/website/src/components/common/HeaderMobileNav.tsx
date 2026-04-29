@@ -177,19 +177,22 @@ const MobileNav = () => {
               })}
             </div>
             <div className="mt-3 flex flex-col gap-2 border-border/40 border-t pt-3">
-              <a
-                className="inline-flex h-8 items-center justify-center rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
-                href={dashboardHref("/login")}
+              <Button
+                // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+                render={<a href={dashboardHref("/login")} />}
+                size="default"
+                variant="ghost"
               >
                 Sign in
-              </a>
-              <a
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 font-medium text-primary-foreground text-sm"
-                href={dashboardHref("/login")}
+              </Button>
+              <Button
+                // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+                render={<a href={dashboardHref("/login")} />}
+                size="default"
               >
                 Run your first job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-              </a>
+              </Button>
             </div>
           </div>
         </div>

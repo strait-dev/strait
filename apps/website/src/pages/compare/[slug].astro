@@ -12,6 +12,7 @@ import {
 import LandingLayout from "@/layouts/LandingLayout.astro";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
+import LinkButton from "@/components/common/LinkButton.tsx";
 
 export function getStaticPaths() {
   return getAllComparisonSlugs().map((slug) => ({ params: { slug } }));
@@ -68,15 +69,12 @@ const breadcrumbs = getBreadcrumbSchema([
           {comparison.description}
         </p>
         <div class="mt-8">
-          <a
-            class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 font-medium text-primary-foreground text-sm"
-            href={dashboardHref("/login")}
-          >
-            Try Strait free
-            <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </a>
+					<LinkButton client:load href={dashboardHref("/login")}>
+  					Try Strait free
+						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</LinkButton>
         </div>
       </div>
     </Shell>

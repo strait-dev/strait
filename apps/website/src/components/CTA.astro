@@ -1,5 +1,6 @@
 ---
 import Shell from "@/components/layout/shell.tsx";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
 
 type Props = {
@@ -56,24 +57,18 @@ const {
       )}
 
       <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-        <a
-          class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          href={dashboardHref("/login")}
-        >
+        <LinkButton client:load href={dashboardHref("/login")}>
           Start building free
           <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-        </a>
-        <a
-          class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          href="/docs/quickstart"
-        >
+        </LinkButton>
+        <LinkButton client:load href="/docs/quickstart" variant="outline">
           Read the docs
           <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-        </a>
+        </LinkButton>
       </div>
     </div>
   </Shell>

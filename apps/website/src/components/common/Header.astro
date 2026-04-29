@@ -5,6 +5,7 @@ import { dashboardHref } from "@/lib/urls.ts";
 import HeaderDropdown from "./HeaderDropdown.tsx";
 import MobileNav from "./HeaderMobileNav.tsx";
 import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
+import LinkButton from "@/components/common/LinkButton.tsx";
 ---
 
 <header class="fixed inset-x-0 top-0 z-50 border-border/40 border-b bg-background/5 backdrop-blur-md">
@@ -40,21 +41,15 @@ import { isNavGroup, NAV_ITEMS } from "./nav-links.ts";
 				</div>
 
 				<div class="hidden items-center gap-3 lg:flex">
-					<a
-						class="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-						href={dashboardHref("/login")}
-					>
+					<LinkButton client:load href={dashboardHref("/login")} variant="outline">
 						Sign in
-					</a>
-					<a
-						class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 font-medium text-primary-foreground text-sm shadow-xs transition-shadow duration-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-						href={dashboardHref("/login")}
-					>
+					</LinkButton>
+					<LinkButton client:load href={dashboardHref("/login")}>
 						Run your first job
 						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
 						</svg>
-					</a>
+					</LinkButton>
 				</div>
 
 				<div class="lg:hidden">
