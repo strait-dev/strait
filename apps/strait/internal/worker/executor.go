@@ -492,7 +492,14 @@ func (e *Executor) recordEventChannelDrop(ctx context.Context, kind string) {
 func (e *Executor) runEventLoop() {
 	for env := range e.eventCh {
 		for _, sub := range e.subscribers {
-			sub(env.ctx, env.event)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						e.logger.Error("event subscriber panicked", "panic", r)
+					}
+				}()
+				sub(env.ctx, env.event)
+			}()
 		}
 	}
 }
@@ -622,6 +629,11 @@ func (e *Executor) Run(ctx context.Context) {
 }
 
 func (e *Executor) runPoolPruner(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error("pool pruner panicked", "panic", r)
+		}
+	}()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
