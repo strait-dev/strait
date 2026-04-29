@@ -41,6 +41,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	fields := map[string]any{
 		"finished_at": now,
 	}
+	run.FinishedAt = &now
 	if len(result) > 0 {
 		fields["result"] = result
 	}
@@ -356,6 +357,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"error":       errMsg,
 		"error_class": errClass,
 	}
+	run.FinishedAt = &now
 	if metadataModified {
 		fields["metadata"] = run.Metadata
 	}
@@ -472,6 +474,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"error":       "execution timed out",
 		"error_class": "transient",
 	}
+	run.FinishedAt = &now
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
 	}
@@ -566,6 +569,7 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		"error":       reason,
 		"error_class": "server",
 	})
+	run.FinishedAt = &now
 	if err != nil {
 		e.logger.Error(
 			"failed to mark system failure",
