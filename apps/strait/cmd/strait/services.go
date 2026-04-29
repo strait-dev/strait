@@ -1236,6 +1236,21 @@ func startQueueHealthSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
 	})
 }
 
+// startDBPoolSampler launches a goroutine that samples pgxpool connection
+// statistics every 15s and records them as OTel gauges.
+func startDBPoolSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
+	sampler, err := telemetry.NewPoolSampler(dbPool, 15*time.Second, slog.Default())
+	if err != nil {
+		slog.Warn("failed to create db pool sampler, skipping", "error", err)
+		return
+	}
+	g.Go(func(ctx context.Context) error {
+		slog.Info("db pool sampler started")
+		sampler.Run(ctx)
+		return nil
+	})
+}
+
 // startDBWatchdog launches the Phase 1 MVCC-horizon watchdog.
 func startDBWatchdog(g *pool.ContextPool, cfg *config.Config, dbPool *pgxpool.Pool) {
 	if !cfg.DBWatchdogEnabled {
