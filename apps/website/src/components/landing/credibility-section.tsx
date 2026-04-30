@@ -52,17 +52,17 @@ const CredibilitySection = () => (
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
           <span className="text-foreground">
-            Open source. Production-ready.
+            Built for production. Trusted by teams.
           </span>{" "}
           <span className="text-muted-foreground">
-            Read every line of code, review the architecture, and run it
-            yourself. Every design decision is public.
+            Every design decision is documented. The architecture, the
+            tradeoffs, and the source code are all public.
           </span>
         </h2>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3">
-        {/* Open Source */}
+        {/* Transparent by default */}
         <div className="p-6 sm:p-8">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
@@ -75,13 +75,17 @@ const CredibilitySection = () => (
               </svg>
             </div>
             <div>
-              <h3 className="font-semibold text-foreground">Open Source</h3>
-              <p className="text-muted-foreground text-sm">Apache 2.0</p>
+              <h3 className="font-semibold text-foreground">
+                Transparent by default
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                Apache 2.0 license
+              </p>
             </div>
           </div>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Full source on GitHub. Review the job queue, workflow engine, and
-            scheduler. Fork it, extend it, or contribute back.
+            Every component is open source. Review the job queue, workflow
+            engine, and scheduler. Extend it or contribute back.
           </p>
           <div className="mt-4 flex items-center gap-4">
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs">
@@ -297,44 +301,33 @@ const CredibilitySection = () => (
           <ArchitectureList />
         </div>
 
-        {/* Infrastructure Comparison */}
+        {/* Why teams switch */}
         <div className="border-border border-t p-6 sm:p-8 lg:border-t-0 lg:border-l">
           <h3 className="mb-4 font-semibold text-foreground">
-            Infrastructure Comparison
+            Why teams switch
           </h3>
-          <div className="space-y-3">
-            <div className="rounded-lg bg-muted/30 p-3">
-              <p className="mb-2 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                Typical Stack
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {["Redis", "Celery/BullMQ", "Airflow", "Custom Retry"].map(
-                  (item) => (
-                    <span
-                      className="rounded bg-destructive/10 px-2 py-0.5 text-destructive text-xs"
-                      key={item}
-                    >
-                      {item}
-                    </span>
-                  )
-                )}
-              </div>
-              <p className="mt-2 text-muted-foreground/60 text-xs">
-                4 services to maintain
-              </p>
-            </div>
-            <div className="rounded-lg bg-success/5 p-3">
-              <p className="mb-2 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                Strait
-              </p>
-              <span className="rounded bg-success/10 px-2 py-0.5 text-success text-xs">
-                Single runtime, one database
-              </span>
-              <p className="mt-2 text-muted-foreground/60 text-xs">
-                1 service to maintain
-              </p>
-            </div>
-          </div>
+          <ul className="space-y-3">
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Replace 4+ services with one platform
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Go from zero to running jobs in under 5 minutes
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Built-in retries, workflows, and cost tracking
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Full visibility into every job and workflow run
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              5 language SDKs, so every team can use it
+            </li>
+          </ul>
         </div>
       </div>
     </Shell>

@@ -15,8 +15,8 @@ const PricingTeaser = () => (
             Start free. Scale when you&apos;re ready.
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-            Every plan includes all core features. Pay only for scale and
-            governance.
+            Every plan includes all core features. Upgrade when you need more
+            runs, more compute, or team controls.
           </p>
         </div>
       </Reveal>

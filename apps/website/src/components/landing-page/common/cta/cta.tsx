@@ -59,7 +59,7 @@ const CopyButton = ({ text }: { text: string }) => {
 };
 
 const CTA = ({
-  heading = "Start running jobs in minutes",
+  heading = "Start building in 5 minutes",
   description = "Free forever on the starter plan. No credit card required.",
   showInstallSnippet = true,
 }: CTAProps) => {

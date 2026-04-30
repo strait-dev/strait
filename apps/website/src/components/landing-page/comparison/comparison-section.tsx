@@ -57,7 +57,7 @@ const ComparisonSection = () => (
             How Strait compares.
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-            More language SDKs, simpler self-hosting, and built-in AI cost
+            More language SDKs, managed execution, and built-in AI cost
             tracking.
           </p>
         </div>
