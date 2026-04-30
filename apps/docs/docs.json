@@ -111,10 +111,6 @@
             "pages": ["operations/alert-runbooks", "operations/dlq-recovery"]
           },
           {
-            "group": "AI Agents",
-            "pages": ["ai/index"]
-          },
-          {
             "group": "Integrations",
             "pages": ["integrations/index"]
           }
@@ -132,7 +128,8 @@
               "sdks/python",
               "sdks/go",
               "sdks/ruby",
-              "sdks/rust"
+              "sdks/rust",
+              "sdks/mcp"
             ]
           }
         ]

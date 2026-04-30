@@ -1,57 +1,16 @@
 ---
 title: "Runs"
-description: "The execution lifecycle of a job."
+description: "Track every execution from trigger to completion."
 icon: "play"
 ---
 
-A run is what you see when a job executes. Each run tracks everything about that execution: the input data, the result, how long it took, and whether it succeeded. Runs are created automatically (by cron schedules, workflows, or events) or manually through the API.
+A run is a single execution of a [job](/concepts/jobs). When you trigger a job — manually, on a schedule, from a workflow, or through an event — Strait creates a run and tracks it through its entire lifecycle. The run captures everything: the input payload, which attempt this is, how long the endpoint took to respond, and the final result.
 
-## JobRun Model
-
-A run includes the following fields:
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (UUIDv7). |
-| `job_id` | `string` | Reference to the parent Job. |
-| `project_id` | `string` | The project this run belongs to. |
-| `status` | `RunStatus` | Current lifecycle state (e.g., `queued`, `executing`, `completed`). See the state diagram below. |
-| `attempt` | `int` | Current retry attempt number (starts at 1). |
-| `payload` | `json` | The input data provided when the run was triggered. |
-| `result` | `json` | The output data returned by the job endpoint. |
-| `metadata` | `map[string]string` | Key-value annotations for the run. |
-| `error` | `string` | Error message if the run failed or timed out. |
-| `triggered_by` | `string` | Trigger source: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, `job_completion`. |
-| `scheduled_at` | `time.Time` | When the run is scheduled to be queued. |
-| `started_at` | `time.Time` | When the run transitioned to `executing`. |
-| `finished_at` | `time.Time` | When the run reached a terminal state. |
-| `heartbeat_at` | `time.Time` | Last recorded heartbeat from the executor. |
-| `next_retry_at` | `time.Time` | When the next retry attempt is scheduled. |
-| `expires_at` | `time.Time` | When the run will expire if not completed. |
-| `parent_run_id` | `string` | Reference to the parent run if spawned. |
-| `priority` | `int` | Scheduling priority (higher numbers are dequeued first). |
-| `idempotency_key` | `string` | Key used to prevent duplicate executions. |
-| `job_version` | `int` | The version of the job configuration used for this run. |
-| `job_version_id` | `string` | The specific version ID of the job configuration used. |
-| `batch_id` | `string` | Reference to the batch operation that created this run (if bulk triggered). |
-| `concurrency_key` | `string` | Key used for per-key concurrency limiting. Runs with the same key on the same job are limited by `max_concurrency_per_key`. |
-| `created_by` | `string` | Actor ID who created the run (user ID or `apikey:<id>`). |
-| `tags` | `map[string]string` | Key-value pairs for filtering and metadata on the run. |
-| `workflow_step_run_id` | `string` | Reference to the workflow step run if part of a workflow. |
-| `max_attempts_override` | `int` | Optional override for the job's `max_attempts`. |
-| `timeout_secs_override` | `int` | Optional override for the job's `timeout_secs`. |
-| `retry_backoff` | `string` | Optional override for the retry strategy. |
-| `retry_initial_delay_secs`| `int` | Optional override for initial retry delay. |
-| `retry_max_delay_secs` | `int` | Optional override for maximum retry delay. |
-| `execution_trace` | `json` | Detailed timing breakdown (time to first byte (TTFB), connect time, etc.). |
-| `debug_mode` | `bool` | Whether debug logging and bundle assembly are enabled. |
-| `continuation_of` | `string` | If this run continues a previous run (e.g., for long-running work split across multiple executions), this links back to the original. |
-| `lineage_depth` | `int` | How many continuations deep this run is. Useful for detecting runaway continuation loops. |
-| `created_at` | `time.Time` | When the run record was created. |
+Every run has a unique ID (UUIDv7), belongs to exactly one job, and records who or what triggered it.
 
 ## Run Lifecycle
 
-Each run moves through a defined set of states. The diagram below shows every possible transition.
+Each run moves through a defined set of states. Most runs follow a simple path: **queued**, **executing**, **completed**. When things go wrong, retries and the review queue keep you in control.
 
 ### Lifecycle Diagram
 
@@ -85,48 +44,237 @@ Each run moves through a defined set of states. The diagram below shows every po
    │  expired  <── (delayed, queued with expires_at) ┘
 ```
 
+### What Each State Means
+
+| State | What is happening |
+| :--- | :--- |
+| **delayed** | The run is created but scheduled for a future time. It waits until `scheduled_at` arrives, then moves to `queued`. |
+| **queued** | Your run is waiting for a worker to pick it up. Under normal load, this takes milliseconds. If workers are saturated or concurrency limits apply, the run stays here until capacity opens. |
+| **executing** | A worker is calling your endpoint right now. The run stays in this state until your endpoint responds, the timeout fires, or the worker crashes. |
+| **completed** | Your endpoint returned a success response (2xx). The run is finished — the response body is stored in `result`. |
+| **failed** | Your endpoint returned an error (non-2xx response or connection failure). If retry attempts remain, Strait re-queues the run automatically. If all attempts are exhausted, the run moves to the review queue. |
+| **timed_out** | Your endpoint did not respond within the configured `timeout_secs`. Like `failed`, this triggers a retry if attempts remain. |
+| **crashed** | The worker process terminated unexpectedly mid-execution. The run is retried if attempts remain. |
+| **waiting** | The run is paused — typically waiting for a child run, an external event, or an approval step in a workflow. No compute is held. |
+| **canceled** | You or an API call canceled this run. Cancellation can happen from any non-terminal state. |
+| **expired** | The run exceeded its `run_ttl_secs` before a worker picked it up. It never executed. |
+| **review_queue** | All retries exhausted. The run is held for inspection. You can view what went wrong and replay it when ready. |
+
+<Info>
+**Terminal states**: `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `expired`. Once a run reaches a terminal state, no further automatic transitions occur. The review queue is a special holding state where you can manually replay the run.
+</Info>
+
 ### Valid Transitions
 
-| From Status | Valid To Statuses |
+| From | Can transition to |
 | :--- | :--- |
 | `delayed` | `queued`, `canceled`, `expired` |
 | `queued` | `executing`, `canceled`, `expired` |
-| `executing` | `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `waiting`, `queued`, `dead_letter` |
+| `executing` | `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `waiting`, `queued`, `review_queue` |
 | `waiting` | `executing`, `completed`, `failed`, `canceled`, `timed_out` |
-| `dead_letter` | `queued` (via replay) |
-### Status Descriptions
+| `review_queue` | `queued` (via replay) |
 
-- **delayed**: Run is created but scheduled for a future time.
-- **queued**: Ready to be picked up by a worker.
-- **executing**: HTTP request has been dispatched to the job endpoint.
-- **waiting**: Paused, typically waiting for a child run or external signal.
-- **completed**: Finished successfully (2xx response).
-- **failed**: Finished with an error (non-2xx response) and no retries left.
-- **timed_out**: Execution exceeded the configured `timeout_secs`.
-- **crashed**: Worker process terminated unexpectedly while executing.
-- **canceled**: Manually terminated by a user or system.
-- **expired**: Run exceeded its `run_ttl_secs` before starting.
-- **dead_letter**: Moved to the review queue (a holding area where you can inspect and replay jobs that exhausted all retries).
+## Triggering Runs
 
-## Terminal vs Non-Terminal States
+There are several ways to create a run.
 
-A run is considered **terminal** when it reaches a state where no further automatic transitions occur (except for manual review queue replay).
+### API
 
-<Info>
-Terminal states: `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `expired`.
-</Info>
+Send a POST request to trigger a job:
 
-## Execution Trace
+```bash
+curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": { "user_id": "usr_123", "action": "sync" },
+    "metadata": { "source": "billing-service" }
+  }'
+```
 
-The `execution_trace` field captures granular timing:
-- `queue_wait_ms`: Time spent in `queued` state.
-- `dequeue_ms`: Time taken to claim the run.
-- `connect_ms`: TCP/TLS connection time to the endpoint.
-- `ttfb_ms`: Time to first byte — how long until the endpoint started responding.
-- `transfer_ms`: Time to download the response body.
-- `total_ms`: Total wall-clock time for the execution.
+### Bulk trigger
 
-## Debug Mode and Lineage
+Trigger many runs at once with a single request. Strait creates a [batch operation](/concepts/batch-operations) to track them:
 
-- **Debug Mode**: When you enable debug mode, Strait captures detailed event logs and assembles a debug bundle for troubleshooting.
-- **Continuation Lineage**: When one run triggers another as a continuation, Strait tracks the chain using `continuation_of` and `lineage_depth`, so you can trace the full history.
+```bash
+curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger-bulk \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      { "payload": { "user_id": "usr_123" } },
+      { "payload": { "user_id": "usr_456" } },
+      { "payload": { "user_id": "usr_789" } }
+    ]
+  }'
+```
+
+### Cron schedule
+
+Jobs with a cron expression trigger runs automatically on schedule. See [Scheduling](/concepts/scheduling) for details.
+
+### Workflows
+
+When a [workflow](/concepts/workflows) executes, each step creates its own run. Steps can depend on other steps, run in parallel, or trigger conditionally based on previous results.
+
+### Job chaining
+
+A job can trigger downstream runs when it completes. See [Job Chaining](/concepts/job-chaining) for how to set up completion-based triggers.
+
+### Event sources
+
+External events can trigger runs via [event sources](/concepts/event-sources). When an event matches a subscription filter, Strait enqueues a run with the event payload.
+
+Every run records what triggered it in the `triggered_by` field: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, or `job_completion`.
+
+## Watching Runs
+
+### Get run status
+
+Fetch the current state of any run:
+
+```bash
+curl https://your-strait-instance/v1/runs/{runID} \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+The response includes the run's current status, attempt number, payload, result (if completed), error (if failed), and all timing fields.
+
+### List runs for a job
+
+```bash
+curl "https://your-strait-instance/v1/jobs/{jobID}/runs?status=failed&limit=20" \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+### SSE streaming
+
+Subscribe to real-time run updates using server-sent events:
+
+```bash
+curl -N "https://your-strait-instance/v1/runs/{runID}/stream" \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+The stream emits events as the run transitions between states — useful for building live dashboards or waiting for completion in scripts.
+
+## Retries
+
+When a run fails, times out, or crashes, Strait checks if retry attempts remain. If `attempt < max_attempts`, the run is re-queued automatically after a backoff delay.
+
+The retry strategy controls how long Strait waits between attempts:
+
+| Strategy | Behavior |
+| :--- | :--- |
+| **Exponential** (default) | Delay doubles each attempt (with jitter) |
+| **Linear** | Delay increases by a fixed amount each attempt |
+| **Fixed** | Same delay every time |
+| **Custom** | You provide explicit delays for each attempt |
+
+Each retry creates a new execution of the same run, incrementing the `attempt` counter. The payload stays the same; only the attempt number changes.
+
+For full configuration details, see [Retry Strategies](/concepts/retry-strategies).
+
+## Review Queue
+
+When all retry attempts are exhausted and the run still has not succeeded, Strait moves it to the **review queue** (status: `review_queue`). The run stays there indefinitely until you take action.
+
+From the review queue, you can:
+
+- **Inspect** the failure — view the error message, response body, execution trace, and every previous attempt.
+- **Replay** the run — re-enqueue it for another execution. The run moves back to `queued` with a fresh attempt.
+- **Bulk replay** — replay multiple review queue runs at once via `POST /v1/runs/bulk-review-replay`.
+
+The review queue prevents failed work from being silently dropped. Nothing is lost — every failure is visible and actionable.
+
+For operational procedures around the review queue, see [Review Queue Recovery](/operations/dlq-recovery).
+
+## Run Data
+
+Each run carries several data fields. Here is what they contain and when to use them.
+
+### payload
+
+The input data provided when the run was triggered. This is the JSON body you send in the trigger request. It is passed to your endpoint as the request body on every attempt.
+
+### result
+
+The output data returned by your endpoint on a successful execution (2xx response). Only populated when the run reaches `completed`. Use this to pass data between workflow steps or to store the output of a job for later retrieval.
+
+### metadata
+
+Key-value string annotations you attach at trigger time. Metadata is not sent to your endpoint — it is for your own tracking. Use it for correlation IDs, source identifiers, or any context you want to find the run later.
+
+### tags
+
+Key-value pairs for filtering runs. Similar to metadata, but specifically designed for use in queries and list filters.
+
+### error
+
+The error message captured when a run fails or times out. Contains the response body (for HTTP errors) or the timeout/crash description.
+
+### execution_trace
+
+Granular timing breakdown for each execution attempt:
+
+| Field | What it measures |
+| :--- | :--- |
+| `queue_wait_ms` | Time spent waiting in `queued` state |
+| `dequeue_ms` | Time taken to claim the run from the queue |
+| `connect_ms` | TCP/TLS connection time to your endpoint |
+| `ttfb_ms` | Time to first byte — how long until your endpoint started responding |
+| `transfer_ms` | Time to download the full response body |
+| `total_ms` | Total wall-clock time for the execution |
+
+Use execution traces to identify whether slowness is in your endpoint, the network, or queue saturation.
+
+### Debug mode
+
+When you enable `debug_mode`, Strait captures detailed event logs and assembles a debug bundle for troubleshooting. Useful for diagnosing issues in development or investigating production incidents.
+
+### Continuation lineage
+
+When one run triggers another as a continuation (for long-running work split across multiple executions), Strait tracks the chain using `continuation_of` and `lineage_depth`. This lets you trace the full execution history back to the original run.
+
+## Run Fields Reference
+
+Full field reference for the run model.
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique identifier (UUIDv7). |
+| `job_id` | `string` | Reference to the parent job. |
+| `project_id` | `string` | The project this run belongs to. |
+| `status` | `string` | Current lifecycle state. See lifecycle diagram above. |
+| `attempt` | `int` | Current retry attempt number (starts at 1). |
+| `payload` | `json` | Input data provided when the run was triggered. |
+| `result` | `json` | Output data returned by the job endpoint on success. |
+| `metadata` | `map[string]string` | Key-value annotations for the run. |
+| `error` | `string` | Error message if the run failed or timed out. |
+| `triggered_by` | `string` | Trigger source: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, `job_completion`. |
+| `scheduled_at` | `time.Time` | When the run is scheduled to be queued. |
+| `started_at` | `time.Time` | When the run transitioned to `executing`. |
+| `finished_at` | `time.Time` | When the run reached a terminal state. |
+| `heartbeat_at` | `time.Time` | Last recorded heartbeat from the executor. |
+| `next_retry_at` | `time.Time` | When the next retry attempt is scheduled. |
+| `expires_at` | `time.Time` | When the run will expire if not completed. |
+| `parent_run_id` | `string` | Reference to the parent run if spawned. |
+| `priority` | `int` | Scheduling priority (higher numbers are dequeued first). |
+| `idempotency_key` | `string` | Key used to prevent duplicate executions. |
+| `job_version` | `int` | The version of the job configuration used for this run. |
+| `job_version_id` | `string` | The specific version ID of the job configuration. |
+| `batch_id` | `string` | Reference to the batch operation that created this run (if bulk triggered). |
+| `concurrency_key` | `string` | Key used for per-key concurrency limiting. |
+| `created_by` | `string` | Actor ID who created the run (user ID or `apikey:<id>`). |
+| `tags` | `map[string]string` | Key-value pairs for filtering and metadata. |
+| `workflow_step_run_id` | `string` | Reference to the workflow step run if part of a workflow. |
+| `max_attempts_override` | `int` | Override for the job's `max_attempts` on this run. |
+| `timeout_secs_override` | `int` | Override for the job's `timeout_secs` on this run. |
+| `retry_backoff` | `string` | Override for the retry strategy on this run. |
+| `retry_initial_delay_secs` | `int` | Override for initial retry delay. |
+| `retry_max_delay_secs` | `int` | Override for maximum retry delay. |
+| `execution_trace` | `json` | Detailed timing breakdown (TTFB, connect time, etc.). |
+| `debug_mode` | `bool` | Whether debug logging and bundle assembly are enabled. |
+| `continuation_of` | `string` | Links to the previous run if this is a continuation. |
+| `lineage_depth` | `int` | How many continuations deep this run is. |
+| `created_at` | `time.Time` | When the run record was created. |

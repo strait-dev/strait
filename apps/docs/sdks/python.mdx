@@ -1,15 +1,367 @@
 ---
-title: "Python SDK"
-description: "The Python SDK has moved to its own repository."
+title: "Python"
+description: "Python SDK with sync and async clients, 19 domain services, authoring DSL, composition helpers, and typed error handling."
 icon: "python"
 ---
 
-The Python SDK now lives in a dedicated repository:
+The Python SDK (`strait-python`) provides both synchronous and asynchronous clients with full API coverage, a code-first authoring DSL for jobs and workflows, composition helpers for production use, and typed exceptions.
 
-**[github.com/strait-dev/strait-python](https://github.com/strait-dev/strait-python)**
-
-Refer to the repository README for installation, usage, and API reference.
+## Installation
 
 ```bash
 pip install strait-python
 ```
+
+Requires Python 3.11 or later.
+
+## Quick Start
+
+### Synchronous client
+
+```python
+from strait import Client
+
+client = Client.from_env()
+
+job = client.jobs.create(
+    project_id="proj_1",
+    name="Sync inventory",
+    slug="sync-inventory",
+    endpoint_url="https://worker.example/jobs/sync",
+)
+
+run = client.runs.trigger(job_id=job.id, payload={"sku": "ABC-123"})
+print(run.id, run.status)
+```
+
+### Asynchronous client
+
+```python
+import asyncio
+from strait import AsyncClient
+
+async def main():
+    client = AsyncClient.from_env()
+
+    job = await client.jobs.create(
+        project_id="proj_1",
+        name="Sync inventory",
+        slug="sync-inventory",
+        endpoint_url="https://worker.example/jobs/sync",
+    )
+
+    run = await client.runs.trigger(job_id=job.id, payload={"sku": "ABC-123"})
+    print(run.id, run.status)
+
+asyncio.run(main())
+```
+
+## Configuration
+
+Three ways to configure the client, in order of precedence.
+
+### From environment variables (recommended)
+
+```python
+from strait import Client
+
+# Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
+client = Client.from_env()
+```
+
+### From a config file
+
+```python
+from strait import Client
+
+# Reads strait.json from the current directory or parents
+client = Client.from_file()
+
+# Or specify a path
+client = Client.from_file("/path/to/strait.json")
+```
+
+See [Configuration](/sdks/configuration) for the `strait.json` schema and options.
+
+### Inline
+
+```python
+from strait import Client
+
+client = Client(
+    base_url="https://api.strait.dev",
+    api_key="sk_live_...",
+    auth_type="bearer",
+    timeout_ms=30_000,
+)
+```
+
+## Domain Services
+
+The client exposes 19 domain services covering 186 operations. Each service is accessible as an attribute on the client.
+
+| Service | Description | Example |
+|---|---|---|
+| `client.jobs` | Create, list, update, delete jobs | `client.jobs.list(project_id="proj_1")` |
+| `client.runs` | Trigger, get, cancel, list runs | `client.runs.trigger(job_id="job_1", payload={})` |
+| `client.workflows` | Create and manage workflows | `client.workflows.create(...)` |
+| `client.workflow_runs` | Trigger and monitor workflow runs | `client.workflow_runs.trigger(workflow_id="wf_1")` |
+| `client.projects` | Manage projects | `client.projects.list()` |
+| `client.schedules` | Create and manage schedules | `client.schedules.create(job_id="job_1", cron="0 * * * *")` |
+| `client.events` | List and replay events | `client.events.list(project_id="proj_1")` |
+| `client.event_triggers` | Manage event-driven triggers | `client.event_triggers.create(...)` |
+| `client.api_keys` | Manage API keys | `client.api_keys.list()` |
+| `client.environments` | Manage environments | `client.environments.list()` |
+| `client.webhooks` | Register and manage webhooks | `client.webhooks.create(...)` |
+| `client.logs` | Query run and system logs | `client.logs.list(run_id="run_1")` |
+| `client.metrics` | Query run metrics | `client.metrics.get(job_id="job_1")` |
+| `client.approvals` | Approve or reject workflow steps | `client.approvals.approve(approval_id="apr_1")` |
+| `client.review_queue` | Inspect and retry failed runs | `client.review_queue.list(project_id="proj_1")` |
+| `client.secrets` | Manage encrypted secrets | `client.secrets.create(name="DB_URL", value="...")` |
+| `client.notifications` | Configure notification channels | `client.notifications.list()` |
+| `client.audit_log` | Query audit trail | `client.audit_log.list()` |
+| `client.health` | System health checks | `client.health.check()` |
+
+### Listing with filters
+
+```python
+runs = client.runs.list(
+    job_id="job_1",
+    status="completed",
+    limit=50,
+)
+
+for run in runs.data:
+    print(run.id, run.status, run.completed_at)
+```
+
+### Triggering a run and waiting
+
+```python
+run = client.runs.trigger(
+    job_id="job_1",
+    payload={"sku": "ABC-123"},
+)
+
+completed = client.runs.wait(run.id, timeout_ms=120_000)
+print(completed.output)
+```
+
+## Define Jobs and Workflows
+
+The authoring DSL lets you define jobs and workflows as Python objects, then register and trigger them through the client.
+
+### Defining a job
+
+```python
+from strait import define_job
+
+sync_inventory = define_job(
+    name="Sync Inventory",
+    slug="sync-inventory",
+    endpoint_url="https://worker.dev/jobs/sync",
+    project_id="proj_1",
+    max_concurrency=5,
+    max_attempts=5,
+    retry_strategy="exponential",
+    timeout_secs=300,
+)
+
+# Register with the API
+sync_inventory.register(client)
+
+# Trigger a run
+run = sync_inventory.trigger(client, payload={"sku": "ABC-123"})
+
+# Trigger and wait for completion
+completed = sync_inventory.trigger_and_wait(client, payload={"sku": "ABC-123"})
+print(completed.output)
+```
+
+### Defining a job with a handler
+
+```python
+from strait import define_job
+
+@define_job(
+    name="Process Order",
+    slug="process-order",
+    endpoint_url="https://worker.dev/jobs/process",
+    project_id="proj_1",
+)
+def process_order(payload, ctx):
+    ctx.logger.info("Processing order", order_id=payload["order_id"])
+    ctx.report_progress(0.5)
+
+    result = charge_customer(payload["order_id"])
+
+    return {"charged": True, "amount": result.amount}
+```
+
+### Defining a workflow
+
+```python
+from strait import define_workflow, step
+
+order_pipeline = define_workflow(
+    name="Order Pipeline",
+    slug="order-pipeline",
+    project_id="proj_1",
+    steps=[
+        step.job("validate", "job_validate"),
+        step.job("charge", "job_charge", depends_on=["validate"]),
+        step.approval("review", depends_on=["charge"], approval_timeout_secs=3600),
+        step.wait_for_event("shipping", "shipping.confirmed", depends_on=["review"]),
+        step.sleep("cooldown", 60, depends_on=["shipping"]),
+    ],
+)
+
+# DAG is validated at definition time
+order_pipeline.register(client)
+workflow_run = order_pipeline.trigger(client)
+```
+
+### Step types
+
+| Step | Description |
+|---|---|
+| `step.job(name, job_id)` | Execute a job |
+| `step.approval(name)` | Pause for human approval |
+| `step.wait_for_event(name, event_type)` | Wait for an external event |
+| `step.sleep(name, seconds)` | Pause for a fixed duration |
+| `step.condition(name, expression)` | Branch based on a condition |
+
+All step types accept `depends_on` to define DAG edges.
+
+## Composition Helpers
+
+Utilities for production use: retry, polling, pagination, cost budgets, and checkpoint resume.
+
+### Retry with backoff
+
+```python
+from strait import with_retry
+
+run = with_retry(
+    lambda: client.runs.trigger(job_id="job_1", payload={"sku": "A"}),
+    attempts=5,
+    delay_ms=250,
+    jitter="full",
+)
+```
+
+### Wait for run completion
+
+```python
+from strait import wait_for_run
+
+completed = wait_for_run(client, run_id=run.id, timeout_ms=120_000)
+```
+
+### Paginate through results
+
+```python
+from strait import paginate
+
+for run in paginate(lambda q: client.runs.list(**q)):
+    print(run.id, run.status)
+```
+
+Collect all pages into a list:
+
+```python
+from strait import paginate, collect_all
+
+all_runs = collect_all(paginate(lambda q: client.runs.list(**q)))
+```
+
+### Cost budget
+
+Cap total spend on a batch of runs:
+
+```python
+from strait import cost_budget
+
+with cost_budget(max_cost_cents=5000) as budget:
+    for sku in skus:
+        budget.check()
+        client.runs.trigger(job_id="job_1", payload={"sku": sku})
+```
+
+### Checkpoint resume
+
+Resume a long-running batch from where it left off:
+
+```python
+from strait import checkpoint
+
+ckpt = checkpoint("inventory-sync-batch")
+
+for sku in skus:
+    if ckpt.already_processed(sku):
+        continue
+    client.runs.trigger(job_id="job_1", payload={"sku": sku})
+    ckpt.mark(sku)
+```
+
+## Error Handling
+
+All API errors are typed exceptions. Catch specific errors or the base `StraitError`.
+
+```python
+from strait.errors import NotFoundError, RateLimitedError, StraitError
+
+try:
+    job = client.jobs.get(job_id="nonexistent")
+except NotFoundError as e:
+    print("Not found:", e.message)
+except RateLimitedError as e:
+    print("Rate limited, retry after:", e.retry_after_ms, "ms")
+except StraitError as e:
+    print("API error:", e.status, e.message)
+```
+
+### Exception hierarchy
+
+| Exception | HTTP Status | Description |
+|---|---|---|
+| `StraitError` | -- | Base class for all errors |
+| `TransportError` | -- | Network failure (connection refused, DNS) |
+| `DecodeError` | -- | Response body could not be decoded |
+| `ValidationError` | -- | Input validation failed before sending |
+| `UnauthorizedError` | 401, 403 | Authentication or authorization failure |
+| `NotFoundError` | 404 | Resource does not exist |
+| `ConflictError` | 409 | Duplicate resource or version conflict |
+| `RateLimitedError` | 429 | Rate limit exceeded; includes `retry_after_ms` |
+| `ApiError` | other | Any other HTTP error |
+| `TimeoutError` | -- | Polling timeout exceeded |
+| `DagValidationError` | -- | Invalid workflow DAG structure |
+
+## Middleware
+
+Add hooks to observe or transform requests and responses:
+
+```python
+from strait import Client
+
+def log_requests(request):
+    print(f"-> {request.method} {request.url}")
+
+def log_responses(response):
+    print(f"<- {response.status} ({response.duration_ms}ms)")
+
+def handle_errors(error):
+    print(f"Error: {error}")
+
+client = Client.from_env(
+    middleware=[
+        {
+            "on_request": log_requests,
+            "on_response": log_responses,
+            "on_error": handle_errors,
+        }
+    ],
+)
+```
+
+Middleware hooks run in order for requests and reverse order for responses, matching standard middleware semantics.
