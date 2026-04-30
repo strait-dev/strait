@@ -9,7 +9,7 @@ og:image: "/images/og.png"
 
 Strait is an open-source platform that runs your background jobs, orchestrates multi-step workflows, and manages AI agent pipelines. You define what needs to happen. Strait handles the retries, scheduling, dependencies, and monitoring.
 
-One Go binary. One PostgreSQL database. No Redis required. No RabbitMQ. No SQS. Just deploy and start running jobs.
+One Go binary. PostgreSQL for state and queuing. Redis for real-time updates. No RabbitMQ. No SQS. Just deploy and start running jobs.
 
 ## Why teams switch to Strait
 
@@ -68,7 +68,7 @@ Strait replaces that patchwork with one system:
                     │  /v1/workflows/* ── DAG CRUD       │
                     │  /v1/workflow-runs/* ── Run mgmt   │
                     │  /v1/jobs/{id}/trigger ── Enqueue  │
-                    │  /v1/runs/* ── Run mgmt + DLQ     │
+                    │  /v1/runs/* ── Run mgmt + Review  │
                     │  /v1/events/* ── Event triggers    │
                     │  /sdk/v1/* ── SDK (JWT auth)      │
                     │  /metrics ── Prometheus            │
@@ -88,8 +88,8 @@ Strait replaces that patchwork with one system:
                     │  environments ── endpoint config   │
                     │  project_quotas ── budget limits   │
                     │                                    │
-                    │  Queue: Row-level locking          │
-                    │         Concurrent workers         │
+                    │  Queue: Job claiming               │
+                    │         Parallel workers           │
                     └──────────┬───────────────────────┘
                                │ Dequeue
                                v
@@ -99,7 +99,7 @@ Strait replaces that patchwork with one system:
                     │  Poll ─> Dequeue available runs    │
                     │  Workflow Engine:                  │
                     │  - Graph Validation                │
-                    │  - Concurrent Completion Handling   │
+                    │  - Parallel Completion Handling    │
                     │  - Condition Evaluation             │
                     │  - Data Passing Between Steps       │
                     │  - Sub-workflow Nesting            │
@@ -110,7 +110,7 @@ Strait replaces that patchwork with one system:
                     │  - Execute ─> HTTP POST to endpt   │
                     │  - Retry ─> Smart strategy select  │
                     │  - Trace ─> Execution timing       │
-                    │  - DLQ ─> Dead letter on exhaust   │
+                    │  - Review ─> Review queue on exhaust│
                     └──────────┬───────────────────────┘
                                │ Webhook / PubSub
                                v
@@ -139,7 +139,7 @@ Strait runs in three modes:
 
 <Steps>
   <Step title="Zero External Dependencies">
-    No RabbitMQ. No SQS. No Kafka. PostgreSQL handles queuing with row-level locking—concurrent workers without operational overhead. Single binary includes everything—no runtime dependencies to install.
+    No RabbitMQ. No SQS. No Kafka. PostgreSQL handles queuing—parallel workers without operational overhead. Single binary includes everything—no runtime dependencies to install.
   </Step>
   <Step title="Parallel Job Execution">
     Strait runs jobs concurrently with bounded backpressure to prevent memory exhaustion during traffic spikes. Panic recovery and graceful shutdown are built in.
@@ -181,7 +181,7 @@ Strait fits these patterns:
     Get Strait running in minutes. Clone repository, start infrastructure with Docker Compose, and trigger your first job.
   </Card>
   <Card title="Architecture" icon="sitemap" href="/architecture">
-    Deep dive into internals. Learn about queue mechanics, run lifecycle, the workflow engine, and technology choices.
+    Understand how Strait works — the queue, run lifecycle, workflow engine, and deployment modes.
   </Card>
 </CardGroup>
 
@@ -231,7 +231,7 @@ Step-by-step guides for common tasks:
     Internal secret auth for API endpoints and JWT run token auth for SDK. API key management with system keychain storage.
   </Card>
   <Card title="Deployment" icon="cloud" href="/guides/deployment">
-    Docker deployment, Fly.io configuration, horizontal scaling strategies, and production readiness checklist.
+    Docker deployment, Kubernetes configuration, horizontal scaling strategies, and production readiness checklist.
   </Card>
   <Card title="Security" icon="shield" href="/guides/security">
     URL validation, rate limiting, encryption at rest, and secure webhook delivery.
@@ -241,27 +241,11 @@ Step-by-step guides for common tasks:
   </Card>
 </CardGroup>
 
-## Development
-
-Contributing to Strait or running it locally:
-
-<CardGroup cols={2}>
-  <Card title="Contributing" icon="users" href="/development/contributing">
-    Setup development environment, code style, commit conventions, and PR guidelines.
-  </Card>
-  <Card title="Testing" icon="check-circle" href="/development/testing">
-    Unit tests, integration tests with testcontainers, E2E tests, fuzz testing, and benchmarks.
-  </Card>
-  <Card title="Database Schema" icon="database" href="/development/database-schema">
-    Complete table definitions, indexes, and relationships for PostgreSQL schema.
-  </Card>
-</CardGroup>
 
 ## What's Next?
 
 Ready to dive deeper?
 
-- Learn about the [queue mechanics](/architecture#queue-mechanics) and how the job queue works
 - Understand the [workflow engine](/architecture#workflow-engine) and how dependency graphs execute
 - Explore [retry strategies](/concepts/retry-strategies) -- exponential, linear, fixed, and custom
 - Set up [webhooks](/concepts/webhooks) with HMAC signing for event delivery
@@ -277,7 +261,7 @@ Or jump straight into the [Quick Start Guide](/quickstart) and run your first jo
     Run your first job in under 10 minutes.
   </Card>
   <Card title="Architecture" icon="sitemap" href="/architecture">
-    Understand how Strait works under the hood.
+    Understand how Strait works.
   </Card>
   <Card title="SDKs" icon="code" href="/sdks/overview">
     Official client libraries for 5 languages.

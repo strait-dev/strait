@@ -224,8 +224,8 @@ Expected response:
 ```
 
 <Steps>
-  <Step title="Dequeued">
-    A worker claims the run and transitions it to `dequeued` state.
+  <Step title="Claimed">
+    A worker claims the run from the queue.
   </Step>
   <Step title="Executing">
     Worker sends HTTP POST to `https://httpbin.org/post` with the payload.
@@ -251,7 +251,7 @@ curl http://localhost:8080/v1/runs/run_xyz789 \
 ./strait runs watch run_xyz789
 ```
 
-A run moves through these states: `queued` -> `dequeued` -> `executing` -> `completed` or `failed`.
+A run moves through these states: `queued` -> `executing` -> `completed` or `failed`.
 
 <Info>
 **Real-time updates**: Subscribe to Server-Sent Events via the `/v1/runs/{runID}/stream` endpoint for live status updates without polling.
@@ -316,7 +316,7 @@ curl -X POST http://localhost:8080/v1/workflows \
   </Step>
   <Step title="Repeated Failures">
     <Details>
-      **Symptoms**: Job reaches `max_attempts` and moves to `failed` or `dead_letter` (a holding area for jobs that failed all retries).
+      **Symptoms**: Job reaches `max_attempts` and moves to `failed` or the review queue (a holding area where you can inspect and replay jobs that exhausted all retries).
       **Checks**: Review endpoint logs for errors, check payload format, verify authentication headers.
       **Fix**: Fix underlying issue in endpoint code, adjust `retry_delays_secs` for custom retry strategy, increase `max_attempts`.
     </Details>
@@ -352,7 +352,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 
 <CardGroup cols={2}>
   <Card title="Architecture" icon="sitemap" href="/architecture">
-    Learn how Strait's queue, workflow engine, and state machine work under the hood.
+    Learn how Strait's queue, workflow engine, and run lifecycle work.
   </Card>
   <Card title="Concepts" icon="book" href="/concepts/jobs">
     Understand jobs, runs, workflows, scheduling, retry strategies, and cost budgets in depth.
