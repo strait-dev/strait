@@ -1,55 +1,75 @@
 ---
 title: "Cost Budgets"
-description: "Tracking and limiting AI model usage costs."
+description: "Per-run and daily spending limits to prevent runaway costs on AI workloads."
 ---
 
-Cost budgets let you cap how much your jobs spend on AI model usage (e.g., OpenAI, Anthropic). Set per-run and daily project limits to prevent runaway costs.
+Cost budgets prevent runaway spending on AI workloads. Set per-run and daily limits to control how much your jobs can spend on API calls — LLM tokens, external services, or any usage your code reports.
 
-## Micro-USD Precision
+## When to Use It
 
-All costs are tracked in **micro-USD** (1/1,000,000 of a USD) using integer precision. This avoids floating-point rounding errors while providing the granularity needed for sub-cent token costs.
+You run a summarization job that calls GPT-4 on user-uploaded documents. Most documents cost $0.05 per run, but a 200-page PDF could cost $15. Without a per-run budget, one bad input burns your daily spend. Without a daily budget, a spike in traffic does the same at scale.
 
-- **Example**: $0.01 (1 cent) is represented as `10,000` micro-USD.
+## How It Works
 
-## Usage Tracking
+Your job code reports cost as it runs. Strait tracks cumulative cost per run and per project per day. When a limit is hit, Strait stops the work before more money is spent.
 
-Each usage event records:
+1. **Your code reports usage**: After each API call, report what it cost via the SDK or API.
+
+```typescript
+await ctx.reportUsage({
+  provider: "openai",
+  model: "gpt-4o",
+  prompt_tokens: 500,
+  completion_tokens: 200,
+  cost_microusd: 25000 // $0.025
+});
+```
+
+2. **Per-run check**: Each time usage is reported, Strait checks whether the run has exceeded its `max_cost_per_run_microusd` limit. If exceeded, the run is failed.
+
+3. **Daily check**: Before a new run is enqueued, Strait checks total cost for the current day (in the project's configured timezone). If the daily limit is reached, the trigger is rejected.
+
+All costs use **micro-USD** (1/1,000,000 of a dollar) with integer precision. This avoids floating-point rounding errors — $0.01 is `10000` micro-USD.
+
+## Setting Budgets
+
+Set budget limits on the project's quota:
+
+```bash
+curl -X PUT https://your-strait-instance/api/v1/projects/{projectId}/quota \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "max_cost_per_run_microusd": 5000000,
+    "max_daily_cost_microusd": 100000000,
+    "timezone": "America/New_York"
+  }'
+```
+
+This sets a $5 per-run limit and $100 daily limit. Runs that would exceed either limit are stopped before execution.
+
+## Monitoring
+
+At 80% of the daily budget, Strait emits a structured log and metric alert so you get advance notice before runs start being rejected.
+
+Query current usage through the API to track spending trends and adjust limits.
+
+## Configuration Reference
+
+### Quota Settings
+
+| Setting | Default | Description |
+| :--- | :--- | :--- |
+| `max_cost_per_run_microusd` | `0` (unlimited) | Maximum cost a single run can accumulate. |
+| `max_daily_cost_microusd` | `0` (unlimited) | Maximum total cost across all runs per day. |
+| `timezone` | `UTC` | Timezone for the daily budget window. |
+
+### Usage Event Fields
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier. |
-| `run_id` | `string` | Reference to the Job Run. |
 | `provider` | `string` | AI provider (e.g., `openai`, `anthropic`). |
 | `model` | `string` | Model name (e.g., `gpt-4o`). |
 | `prompt_tokens` | `int` | Number of input tokens. |
 | `completion_tokens` | `int` | Number of output tokens. |
 | `total_tokens` | `int` | Sum of prompt and completion tokens. |
-| `cost_microusd` | `int64` | Calculated cost in micro-USD. |
-
-## Budget Limits
-
-You can set budget limits at two levels:
-
-### 1. Per-Run Budget
-- **Field**: `max_cost_per_run_microusd`
-- **Enforcement**: Checked every time the SDK reports usage via the `/sdk/v1/runs/{runID}/usage` endpoint.
-- **Behavior**: If the reported usage would exceed the per-run limit, the request is rejected, and the run is optionally failed.
-
-### 2. Daily Project Budget
-- **Field**: `max_daily_cost_microusd`
-- **Enforcement**: Checked at **trigger time**.
-- **Behavior**: Before a new run is enqueued, the system aggregates the total cost of all runs for the current day (based on the project's configured timezone). If the limit is reached, the trigger request is rejected.
-
-## How Enforcement Works
-
-Strait checks budget limits **before** recording usage or enqueuing a run, so violating requests never inflate recorded costs.
-
-## Quota Settings
-
-Each project can configure these limits:
-
-| Setting | Default | Meaning |
-| :--- | :--- | :--- |
-| `max_cost_per_run_microusd` | `0` (unlimited) | Maximum cost a single run can accumulate. |
-| `max_daily_cost_microusd` | `0` (unlimited) | Maximum total cost across all runs per day. |
-| `timezone` | `UTC` | Timezone used to define the daily budget window. |
+| `cost_microusd` | `int64` | Cost in micro-USD. |

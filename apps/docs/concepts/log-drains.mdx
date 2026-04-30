@@ -1,53 +1,48 @@
 ---
 title: "Log Drains"
-description: "Stream run logs to external HTTP destinations."
+description: "Forward job execution logs to external platforms in real time."
 ---
 
-Log drains forward run log events from your jobs to external HTTP endpoints in near real-time. This allows you to integrate Strait's execution logs with external observability platforms, SIEM tools, or custom log aggregation services.
+Log drains forward your job execution logs to external platforms like Datadog, Splunk, or any HTTP endpoint in real time.
 
-## Configuration
+## Setting Up a Log Drain
 
-A log drain has the following settings:
+Create a log drain that sends error and warning logs to Datadog:
 
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (auto-generated). |
-| `project_id` | `string` | The project this log drain belongs to. |
-| `name` | `string` | Human-readable name of the log drain. |
-| `drain_type` | `string` | Format and protocol used for delivery (e.g., HTTP POST with JSON). |
-| `endpoint_url` | `string` | The URL where log events are sent. |
-| `auth_type` | `string` | Authentication method used when calling the endpoint. |
-| `auth_config` | `map[string]string` | Key-value pairs containing credentials for the chosen `auth_type`. |
-| `level_filter` | `[]string` | Optional list of log levels to forward. When empty, all levels are forwarded. |
-| `enabled` | `bool` | Whether the drain is actively delivering events. |
-| `created_at` | `time.Time` | Timestamp when the log drain was created. |
-| `updated_at` | `time.Time` | Timestamp of the last update. |
-
-## Drain Types
-
-The `drain_type` field specifies the format and protocol used when delivering log events to the endpoint. For example, an HTTP POST drain sends a JSON payload to the configured `endpoint_url` for each batch of log events.
-
-<Tip>
-Choose a drain type that matches your destination's ingestion API. Most observability platforms accept JSON over HTTP POST.
-</Tip>
+```bash
+curl -X POST "https://strait.example.com/v1/log-drains" \
+  -H "Authorization: Bearer strait_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_1",
+    "name": "datadog-errors",
+    "drain_type": "http",
+    "endpoint_url": "https://http-intake.logs.datadoghq.com/api/v2/logs",
+    "auth_type": "header",
+    "auth_config": {
+      "DD-API-KEY": "your-datadog-api-key"
+    },
+    "level_filter": ["error", "warn"]
+  }'
+```
 
 ## Authentication
 
-The `auth_type` field determines how Strait authenticates with the external endpoint. The `auth_config` map holds the credentials for the chosen method.
+The `auth_type` field determines how Strait authenticates with the external endpoint:
 
-| `auth_type` | Expected `auth_config` keys | Behavior |
+| `auth_type` | `auth_config` keys | Behavior |
 | :--- | :--- | :--- |
-| `bearer` | `token` | Sends an `Authorization: Bearer <token>` header. |
-| `basic` | `username`, `password` | Sends an `Authorization: Basic <base64>` header. |
+| `bearer` | `token` | Sends `Authorization: Bearer <token>`. |
+| `basic` | `username`, `password` | Sends `Authorization: Basic <base64>`. |
 | `header` | Any key-value pairs | Sends each entry as a custom HTTP header. |
 
 <Warning>
 The `auth_config` map contains sensitive credentials. Treat it with the same care as API keys or secrets.
 </Warning>
 
-## Level Filtering
+## Filtering
 
-The `level_filter` field accepts an array of log level strings. When set, only log events matching one of the specified levels are forwarded to the endpoint. When omitted or empty, all log levels are delivered.
+The `level_filter` field accepts an array of log level strings. Only matching log events are forwarded. When omitted, all levels are delivered.
 
 ```json
 {
@@ -55,29 +50,7 @@ The `level_filter` field accepts an array of log level strings. When set, only l
 }
 ```
 
-This is useful for high-volume environments where you only want critical events sent to an external destination.
-
-## CRUD Lifecycle
-
-Log drains are managed through the following API operations:
-
-| Operation | Method | Path |
-| :--- | :--- | :--- |
-| Create | `POST` | `/v1/log-drains` |
-| List | `GET` | `/v1/log-drains?project_id=...` |
-| Get | `GET` | `/v1/log-drains/{drainID}?project_id=...` |
-| Update | `PATCH` | `/v1/log-drains/{drainID}?project_id=...` |
-| Delete | `DELETE` | `/v1/log-drains/{drainID}?project_id=...` |
-
-Creating a log drain requires `project_id`, `name`, `drain_type`, `endpoint_url`, and `auth_type`. Updates are partial -- only the fields included in the PATCH body are modified.
-
-<Note>
-All operations are scoped to a `project_id`. List and single-resource endpoints require it as a query parameter.
-</Note>
-
 ## Configuration
-
-The log drain delivery worker runs on a configurable interval controlled by the `LOG_DRAIN_WORKER_INTERVAL` environment variable. It defaults to `60s`.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -85,5 +58,5 @@ The log drain delivery worker runs on a configurable interval controlled by the 
 
 ## Related Concepts
 
-- [Runs](/concepts/runs): The execution instances whose log events are forwarded by log drains.
-- [Jobs](/concepts/jobs): The job definitions that produce the runs generating log events.
+- [Runs](/concepts/runs) — the execution instances whose logs are forwarded.
+- [Jobs](/concepts/jobs) — the job definitions that produce runs.

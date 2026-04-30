@@ -1,21 +1,17 @@
 ---
 title: "Managed Execution"
-description: "Run jobs inside containers managed by Strait with warm starts, pause/resume, and cost tracking."
+description: "Run jobs inside containers that Strait provisions and manages."
 sidebarTitle: "Managed Execution"
 ---
 
-Managed execution lets you run jobs inside containers managed by Strait instead of dispatching HTTP requests to an external endpoint. Strait provisions a container, runs your code, and collects the result.
+Managed execution runs your jobs inside containers that Strait provisions and manages. Instead of calling an HTTP endpoint, Strait creates a Docker or Kubernetes container, runs your code, and collects the result.
 
-## Overview
-
-By default, Strait executes jobs by sending an HTTP POST to your endpoint. **Managed execution** replaces this with a container-based model: Strait provisions a container with your image, injects environment variables (including a run token), waits for the process to exit, and records the result.
-
-### When to Use Managed Execution
+## When to Use It
 
 | Use Case | Why Managed? |
 | :--- | :--- |
 | Long-running jobs (minutes to hours) | No HTTP timeout constraints; the container runs until the process exits. |
-| Custom runtimes | Bring any Docker image -- Python ML pipelines, Rust binaries, Node scripts. |
+| Custom runtimes | Bring any Docker image — Python ML pipelines, Rust binaries, Node scripts. |
 | Isolated execution | Each run gets its own ephemeral container with no shared state. |
 | Checkpoint / resume | Pause a running container and resume it later with preserved state. |
 
@@ -26,20 +22,18 @@ By default, Strait executes jobs by sending an HTTP POST to your endpoint. **Man
 | Dispatch mechanism | POST to `endpoint_url` | Provision and start container |
 | Result delivery | HTTP response body | SDK callback or exit code |
 | Timeout model | HTTP request timeout | Container process lifetime |
-| Cold start | None (endpoint already running) | 5-15s (cold) or 1-2s (warm pool) |
+| Cold start | None (endpoint already running) | 5–15s (cold) or 1–2s (warm pool) |
 | Infrastructure cost | You manage servers | Per-second compute billing by preset |
 | Pause / resume | Not supported | Supported (container stop / start) |
 
 ## Container Runtimes
 
-Strait supports two container runtimes for managed execution:
+Strait supports two container runtimes, set via the `COMPUTE_RUNTIME` environment variable:
 
 | Runtime | Value | Best For |
 | :--- | :--- | :--- |
 | Docker | `docker` | Single-server deployments and local development |
 | Kubernetes | `k8s` | Production workloads with orchestration and scaling |
-
-Set the runtime via the `COMPUTE_RUNTIME` environment variable. The default is `none` (managed execution disabled).
 
 ```bash
 # Local development
@@ -52,32 +46,12 @@ K8S_NAMESPACE=strait-jobs
 
 ## How It Works
 
-When Strait dequeues a run for a managed job, it follows this flow:
+When Strait dequeues a run for a managed job:
 
-1. **Dequeue run.** The executor picks up a `queued` run from the queue.
-2. **Concurrency gate.** The run must acquire a slot from the `MAX_CONCURRENT_MACHINES` limit. If no slot is available, the run is re-queued.
-3. **Budget check.** The daily compute cost limit for the project is verified. If the budget is exceeded, the run is rejected.
-4. **Transition to executing.** The run status moves from `dequeued` to `executing`, recording `started_at`.
-5. **Build environment variables.** The executor assembles the full set of env vars (see [Environment Variables Injected](#environment-variables-injected)).
-6. **Container resolution.** The executor resolves a container using a three-tier strategy:
-   - **Warm pool:** Acquire a stopped container from the pool, keyed by `image:region`. Start it with the new environment.
-   - **Paused container:** If the run has a preserved container from a previous pause, restart it with fresh env vars.
-   - **Cold create:** Provision a new container.
-7. **Wait for container exit.** The executor blocks until the container process exits.
-8. **Record compute usage.** Wall-clock duration and preset cost rate are recorded.
-9. **Handle result.** The executor checks for an SDK completion callback. If no SDK result, the exit code is interpreted: `0` = completed, non-zero = failed.
-
-## Execution Modes
-
-A job's `execution_mode` field determines how runs are dispatched.
-
-### `http` (default)
-
-The executor sends an HTTP POST to the job's `endpoint_url` with the run payload. The HTTP response status and body determine the run outcome.
-
-### `managed`
-
-The executor provisions (or reuses) a container, injects the run context as environment variables, and waits for the container to exit. The run outcome is determined by either the SDK completion callback or the container exit code.
+1. **Create container.** Strait provisions a new container with your image, or acquires one from the warm pool.
+2. **Inject environment variables.** Run context — payload, API URL, SDK token, project secrets — is injected as env vars.
+3. **Wait for exit.** The container runs until the process exits. Exit code `0` means success; non-zero triggers a retry.
+4. **Record result.** Wall-clock duration and the SDK completion callback (or exit code) are recorded.
 
 ```json
 {
@@ -89,9 +63,27 @@ The executor provisions (or reuses) a container, injects the run context as envi
 }
 ```
 
+## Warm Pool
+
+The warm pool reduces cold start latency from 5–15 seconds down to 1–2 seconds by reusing stopped containers.
+
+After a clean exit (exit code `0`), the container is returned to the pool instead of being destroyed. The pool is keyed by `image:region`, so containers are only reused for the same image. When a container is reused, Strait injects fresh environment variables — each reuse gets a clean run context.
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `WARM_POOL_ENABLED` | `true` | Enable or disable the warm pool. |
+| `WARM_POOL_MAX_PER_JOB` | `3` | Maximum stopped containers per `image:region` key. |
+| `WARM_POOL_TTL` | `5m` | How long idle containers are kept before cleanup. |
+
+## Pause and Resume
+
+Managed runs can be paused and resumed. Pausing stops the container gracefully and preserves its reference. Resuming restarts the same container with fresh environment variables. If the container has been cleaned up, Strait falls back to a new one.
+
+Workflows can also pause and resume containers across step boundaries.
+
 ## Compute Presets
 
-Compute presets define the CPU and memory allocation for managed runs. Set the preset on the job configuration via the `machine_preset` field.
+Compute presets define the CPU and memory allocation for managed runs. Set the preset on the job via the `machine_preset` field.
 
 | Preset | CPUs | Memory |
 | :--- | :--- | :--- |
@@ -101,169 +93,24 @@ Compute presets define the CPU and memory allocation for managed runs. Set the p
 | `large-1x` | 4 dedicated | 8192 MB |
 | `large-2x` | 8 dedicated | 16384 MB |
 
-## Warm Pool
-
-The warm pool reduces cold start latency from 5-15 seconds down to 1-2 seconds by reusing stopped containers.
-
-### How It Works
-
-After a clean exit (exit code `0` and SDK completion received), the stopped container is returned to the pool instead of being destroyed. The pool is keyed by `image:region`, so containers are only reused for runs with the same container image in the same region.
-
-When a container is reused, Strait injects fresh environment variables before starting it. Each reuse gets a clean run context.
-
-### Pool Configuration
-
-| Parameter | Default | Description |
-| :--- | :--- | :--- |
-| `WARM_POOL_ENABLED` | `true` | Enable or disable the warm pool. |
-| `WARM_POOL_MAX_PER_JOB` | `3` | Maximum stopped containers per `image:region` key. |
-| `WARM_POOL_TTL` | `5m` | How long idle containers are kept before cleanup. |
-
-When a pool key reaches its capacity, the oldest entry is evicted and destroyed. A background process runs every 5 minutes and removes containers that have been idle beyond the TTL.
-
-On executor shutdown, the pool is fully drained. All pooled containers are destroyed to prevent orphaned resources.
-
-## Pause and Resume
-
-Managed runs support pause and resume, allowing long-running jobs to be suspended and continued later on the same container.
-
-### Pause Flow
-
-1. The API receives a pause request and transitions the run from `executing` to `paused`.
-2. The container is stopped gracefully.
-3. The container reference is preserved on the run record.
-
-### Resume Flow
-
-1. The API receives a resume request and transitions the run from `paused` to `queued`.
-2. The container reference is kept, so the run retains its association with the stopped container.
-3. When Strait re-dispatches the run, it detects the preserved container and restarts it with fresh environment variables.
-4. If the container is gone (due to cleanup or manual deletion), Strait falls back to provisioning a new one.
-
-### Workflow Resume
-
-When paused runs are part of a workflow, Strait also preserves the container reference, so workflows can resume containers across step boundaries.
+If a container runs out of memory, Strait automatically upgrades the preset and retries, stepping up through the sizes above.
 
 ## Cost Tracking
 
-Managed execution is billed on a per-second, per-preset basis.
+Managed execution is billed per second based on the compute preset. Cost is calculated from when the container starts to when it exits.
 
-### Billing Model
+Projects can set a daily compute cost limit. A warning fires at 80% of the budget. Once exceeded, new runs are rejected until the next day.
 
-- **Wall-clock billing:** Cost is calculated from `started_at` to `finished_at`, covering the full duration the container was running.
-- **Storage:** Usage is recorded per run for billing and quota enforcement.
+## Configuration Reference
 
-### Daily Budget Enforcement
-
-Projects can set a daily compute cost limit. The budget is checked at dispatch time before a container is provisioned. If the project has exceeded its daily limit, the run is rejected.
-
-Budget enforcement uses a two-phase reservation model to prevent over-spend under concurrent dispatch:
-
-1. **Reserve**: Before provisioning a container, the executor reserves estimated cost against the project's daily budget.
-2. **Commit**: After the run completes, the reservation is replaced with the actual computed cost. Unused budget from over-estimates is released immediately.
-
-A warning fires at **80%** of the daily budget, emitting a webhook notification so you get advance notice before runs start being rejected.
-
-## Environment Variables Injected
-
-Strait injects the following environment variables into every managed container:
-
-| Variable | Description |
-| :--- | :--- |
-| `STRAIT_RUN_ID` | Unique identifier of the current run. |
-| `STRAIT_JOB_SLUG` | Slug of the job being executed. |
-| `STRAIT_ATTEMPT` | Current retry attempt number (starts at 1). |
-| `STRAIT_API_URL` | Base URL of the Strait API for SDK callbacks. |
-| `STRAIT_SDK_TOKEN` | Short-lived token scoped to this run for SDK authentication. |
-| `STRAIT_PAYLOAD` | The run payload, inline if the serialized size is 64 KB or less. |
-| `STRAIT_PAYLOAD_MODE` | Set to `fetch` when the payload exceeds 64 KB. The SDK must fetch it from the API. |
-| `STRAIT_SECRET_*` | One variable per project secret, prefixed with `STRAIT_SECRET_`. |
-| `STRAIT_MEMORY_LIMIT_MB` | Memory limit for the container in MB, derived from the compute preset. |
-| `STRAIT_CLEAN_START` | Set to `true` when a pooled or paused container is reused, signaling the SDK to clear scratch state. |
-| `STRAIT_LAST_CHECKPOINT` | Last checkpoint data saved by the SDK (retry only). |
-| `STRAIT_CHECKPOINT_AT` | Timestamp of the last checkpoint (retry only). |
-| `STRAIT_PREVIOUS_ERROR` | Error message from the previous attempt (retry only). |
-
-## Error Handling
-
-### Container Gone
-
-When a container has been deleted or is no longer available, Strait falls back to provisioning a new container (cold create).
-
-### Retryable Errors
-
-Transient infrastructure failures (rate limits, server errors, connection refused) cause the run to be re-queued with a backoff delay. The container is stopped first to prevent orphaned resources.
-
-### Fatal Errors
-
-Non-recoverable configuration errors cause the run to transition directly to `system_failed`.
-
-### Exit Code Classification
-
-Strait classifies container exit codes into categories for appropriate handling:
-
-| Exit Code | Signal | Classification | Action |
-| :--- | :--- | :--- | :--- |
-| `0` | -- | Success | Complete run, return container to pool |
-| `1`-`128` | -- | Application error | Retry (respects `max_attempts`) |
-| `137` | SIGKILL (OOM) | Out of memory | Trigger OOM preset auto-upgrade |
-| `139` | SIGSEGV | Segmentation fault | Fail run, capture logs |
-| `143` | SIGTERM | Graceful termination | Retry with backoff |
-
-On any non-zero exit, the executor captures container logs and attaches them to the run record for debugging.
-
-## OOM Handling and Preset Auto-Upgrade
-
-When a container exits with code `137` (OOM kill), the executor automatically upgrades the compute preset and retries:
-
-```text
-micro -> small-1x -> medium-1x -> large-1x -> large-2x
-```
-
-- The upgrade is recorded and decays after 24 hours.
-- If the run is already on the largest preset (`large-2x`), it moves to the review queue (a holding area for runs that cannot be processed further).
-- Historical OOM data influences future runs: if a job has hit memory limits within the last 24 hours, new runs start at the recommended preset instead of the configured default.
-
-## Disk Sanitization
-
-Containers reused from the warm pool or resumed from a paused state receive a clean filesystem via `STRAIT_CLEAN_START`:
-
-- When a pooled or paused container is started, `STRAIT_CLEAN_START=true` is injected into the environment.
-- The SDK (or user code) uses this signal to clear scratch directories, temp files, and cached state from previous runs.
-- This prevents data leakage between runs sharing the same container.
-
-## Configuration
-
-The following environment variables configure the managed execution subsystem:
-
-| Variable | Description | Default |
+| Variable | Default | Description |
 | :--- | :--- | :--- |
-| `COMPUTE_RUNTIME` | Compute backend: `none`, `docker`, or `k8s`. | `none` |
-| `K8S_NAMESPACE` | Kubernetes namespace for managed containers (required when using `k8s`). | -- |
-| `MAX_CONCURRENT_MACHINES` | Maximum containers running simultaneously. | `10` |
-| `DEFAULT_REGION` | Default region for container placement. | -- |
-| `REQUIRE_IMAGE_DIGEST` | Require image references to use digests instead of tags. | `false` |
-| `EXTERNAL_API_URL` | Public API URL passed to containers for SDK callbacks. | -- |
-| `WARM_POOL_ENABLED` | Enable the warm container pool. | `true` |
-| `WARM_POOL_MAX_PER_JOB` | Maximum pooled containers per `image:region` key. | `3` |
-| `WARM_POOL_TTL` | TTL for idle warm containers before cleanup. | `5m` |
-
-## Observability
-
-### Metrics
-
-| Metric | Type | Description |
-| :--- | :--- | :--- |
-| `strait_managed_dispatch_total` | Counter | Total managed dispatches, labeled by `status` (`pool`, `pause_reuse`, `cold_start`, `infra_retry`, `system_failed`). |
-| `strait_managed_dispatch_duration` | Histogram | End-to-end duration of managed dispatch (container resolution through exit). |
-| `strait_managed_machines_active` | Gauge | Number of containers currently running managed workloads. |
-
-### Structured Logging
-
-Key log entries for debugging managed dispatch:
-
-```text
-level=info msg="managed dispatch resolved container" run_id=<id> container_id=<id> source=pool
-level=info msg="managed dispatch resolved container" run_id=<id> container_id=<id> source=pause_reuse
-level=info msg="managed dispatch resolved container" run_id=<id> container_id=<id> source=cold_start
-```
+| `COMPUTE_RUNTIME` | `none` | Compute backend: `none`, `docker`, or `k8s`. |
+| `K8S_NAMESPACE` | — | Kubernetes namespace (required for `k8s`). |
+| `MAX_CONCURRENT_MACHINES` | `10` | Maximum containers running simultaneously. |
+| `DEFAULT_REGION` | — | Default region for container placement. |
+| `REQUIRE_IMAGE_DIGEST` | `false` | Require image digests instead of tags. |
+| `EXTERNAL_API_URL` | — | Public API URL passed to containers for SDK callbacks. |
+| `WARM_POOL_ENABLED` | `true` | Enable the warm container pool. |
+| `WARM_POOL_MAX_PER_JOB` | `3` | Maximum pooled containers per `image:region` key. |
+| `WARM_POOL_TTL` | `5m` | TTL for idle warm containers. |

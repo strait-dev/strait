@@ -1,41 +1,81 @@
 ---
 title: "Durable Workflows"
-description: "Long-running workflows that span days or weeks with expected completion tracking and stage notifications."
+description: "Long-running workflows that survive restarts, wait for events, and track expected completion."
 sidebarTitle: "Durable Workflows"
 ---
 
-Durable workflows handle processes that span days or weeks -- waiting for external events, human approvals, or scheduled pauses -- while surviving restarts and infrastructure changes. Use them when your workflow outlives a single request or process lifetime.
+Some workflows take hours or days -- an order that waits for payment confirmation, an approval that waits for a human, a pipeline that sleeps between stages. Durable workflows survive process restarts and keep running until every step is done.
 
-## Expected Completion Tracking
+## When to Use Durable Workflows
 
-Each workflow step can declare an `expected_duration_secs` estimate. When a run starts, Strait calculates the expected completion time by finding the critical path -- the longest chain of dependent steps -- through the workflow graph and summing their durations.
+You need a durable workflow when your process outlives a single request:
+
+- **Multi-day order fulfillment**: Create order, wait for payment, reserve inventory, wait for shipping label, send confirmation.
+- **Human-in-the-loop approvals**: Run automated checks, pause for a manager's approval, then deploy.
+- **Scheduled pipelines**: Process data, sleep 6 hours, check results, sleep until next business day.
+
+## How Durable Waits Work
+
+Three step types create waits that consume no compute resources. Each is backed by a database record, not an in-memory timer, so they survive process restarts.
+
+- **Sleep steps**: Strait creates a trigger with an expiration time. When the time arrives, the step completes automatically.
+- **Wait-for-event steps**: Strait creates a trigger keyed to a specific event. External systems call `POST /v1/events/{eventKey}/send` to resolve the trigger and continue the workflow.
+- **Approval steps**: Strait creates an approval record. The step waits until a human approves or rejects it via the API, or the approval timeout expires.
+
+## Example: E-Commerce Order Flow
 
 ```json
 {
   "steps": [
-    {"step_ref": "validate", "expected_duration_secs": 5},
-    {"step_ref": "charge", "depends_on": ["validate"], "expected_duration_secs": 10},
-    {"step_ref": "notify", "depends_on": ["charge"], "expected_duration_secs": 3}
+    { "step_ref": "create-order", "job_id": "order-create" },
+    {
+      "step_ref": "wait-for-payment",
+      "type": "wait_for_event",
+      "event_key": "payment.confirmed.{{create-order.order_id}}",
+      "timeout_secs": 86400,
+      "depends_on": ["create-order"]
+    },
+    {
+      "step_ref": "approve-high-value",
+      "type": "approval",
+      "timeout_secs": 3600,
+      "depends_on": ["wait-for-payment"]
+    },
+    {
+      "step_ref": "reserve-inventory",
+      "job_id": "inventory-reserve",
+      "depends_on": ["approve-high-value"]
+    },
+    {
+      "step_ref": "send-confirmation",
+      "job_id": "notifications-send",
+      "depends_on": ["reserve-inventory"]
+    }
   ]
 }
 ```
 
-This workflow has an expected duration of 18 seconds (5 + 10 + 3 along the critical path). The `expected_completion_at` field on the workflow run is set to `started_at + 18s`.
+This workflow creates an order, waits up to 24 hours for a payment event, pauses for manual approval on high-value orders, reserves inventory, and sends a confirmation. If the process restarts at any point, every step picks up where it left off.
 
-For parallel branches, only the longest branch contributes to the critical path:
+## Expected Completion Tracking
 
+Each step can declare an `expected_duration_secs` estimate. Strait calculates the expected completion time by finding the longest chain of dependent steps (the critical path) and summing their durations.
+
+```json
+{
+  "steps": [
+    { "step_ref": "validate", "expected_duration_secs": 5 },
+    { "step_ref": "charge", "depends_on": ["validate"], "expected_duration_secs": 10 },
+    { "step_ref": "notify", "depends_on": ["charge"], "expected_duration_secs": 3 }
+  ]
+}
 ```
-A(5s) -> B(10s)
-A(5s) -> C(20s)
-```
 
-Critical path: A + C = 25 seconds (not A + B + C).
-
-As steps complete, the expected completion is recalculated based on remaining steps and actual progress.
+Expected duration: 18 seconds (5 + 10 + 3 along the critical path). For parallel branches, only the longest branch counts. As steps complete, the estimate recalculates based on remaining work.
 
 ## Stage Notifications
 
-Each workflow step can configure notifications for specific state transitions:
+Steps can notify your team when they reach specific states:
 
 ```json
 {
@@ -48,16 +88,4 @@ Each workflow step can configure notifications for specific state transitions:
 }
 ```
 
-When the step transitions to a matching state, Strait enqueues notification deliveries to all enabled project notification channels (webhook, Slack, email, Discord).
-
-The notification payload includes: workflow_id, workflow_run_id, step_ref, step_run_id, status, and timestamp.
-
-## Durability Guarantees
-
-Sleep steps, wait-for-event steps, and approval steps all use database-scheduled triggers, not in-memory timers. This means they survive process restarts:
-
-- **Sleep steps**: Strait creates a trigger with an expiration time. When the trigger expires, the step completes automatically.
-- **Wait-for-event steps**: Strait creates a trigger keyed to a specific event. External systems POST events to resolve the trigger.
-- **Approval steps**: Strait creates both an approval record and a trigger for unified tracking.
-
-The stale run reaper distinguishes legitimately waiting workflows from stuck ones by checking whether active triggers exist with future expiration timestamps.
+When a step transitions to a matching state, Strait sends notifications to all enabled project channels (webhook, Slack, email, Discord). The payload includes the workflow ID, run ID, step ref, status, and timestamp.

@@ -4,11 +4,11 @@ description: "Project-level webhook subscriptions for run lifecycle events."
 sidebarTitle: "Webhook Subscriptions"
 ---
 
-Webhook subscriptions let you register URLs that receive notifications when runs complete, fail, or time out. Unlike per-job `webhook_url` configuration, subscriptions apply project-wide and support filtering by event type.
+Webhook subscriptions let you receive notifications for specific event types across your project, not just individual jobs. Instead of setting a `webhook_url` on each job, you register a subscription once and get notified for every matching event project-wide.
 
 ## How It Works
 
-You register subscriptions per project via the API. When a matching event occurs (e.g., a run completes or fails), Strait sends a signed HTTP POST to each active subscription URL.
+You register subscriptions per project via the API. When a matching event occurs — a run completes, fails, or times out — Strait sends a signed HTTP POST to each active subscription URL.
 
 Deliveries are persisted to the database before dispatch, so notifications survive worker restarts. Strait retries with exponential backoff and stores permanently failing deliveries in a review queue so you can investigate and replay them later.
 
@@ -16,23 +16,22 @@ Deliveries are persisted to the database before dispatch, so notifications survi
 
 | Event Type | Description |
 | :--- | :--- |
-| `run.completed` | Triggered when a job run finishes successfully. |
-| `run.failed` | Triggered when a job run fails with an error. |
-| `run.timed_out` | Triggered when a job run exceeds its timeout limit. |
-| `run.canceled` | Triggered when a job run is manually canceled. |
+| `run.completed` | A job run finishes successfully. |
+| `run.failed` | A job run fails with an error. |
+| `run.timed_out` | A job run exceeds its timeout limit. |
+| `run.canceled` | A job run is manually canceled. |
 | `workflow.completed` | A workflow finishes successfully. |
 | `workflow.failed` | A workflow fails. |
 
 ## Configuration
 
-
-Strait uses a circuit breaker (a pattern that temporarily stops calling a failing endpoint to let it recover) to protect subscription endpoints. If a target URL consistently returns errors, Strait temporarily disables delivery to that endpoint.
+Strait uses a circuit breaker to protect subscription endpoints. If a target URL consistently returns errors, Strait temporarily stops sending to that endpoint to let it recover.
 
 ## Security
 
 All deliveries are signed with HMAC-SHA256 using the subscription's secret, so your service can verify that the request came from Strait.
 
-The signature is included in the `X-Strait-Signature` header. Receivers should also validate the `X-Strait-Timestamp` to protect against replay attacks. See the webhooks concept doc for detailed signature verification steps and implementation examples.
+The signature is included in the `X-Strait-Signature` header. Receivers should also validate the `X-Strait-Timestamp` to protect against replay attacks. See [Webhooks](/concepts/webhooks) for signature verification steps and code examples.
 
 ## Related Concepts
 

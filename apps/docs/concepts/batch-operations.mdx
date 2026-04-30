@@ -1,58 +1,83 @@
 ---
 title: "Batch Operations"
-description: "Tracking the results of bulk job trigger requests."
+description: "Trigger thousands of jobs in a single API call, track progress, and handle failures individually."
 sidebarTitle: "Batch Operations"
 ---
 
-A `BatchOperation` tracks the outcome of a bulk trigger request against a [Job](/concepts/jobs). When you trigger a job with multiple items in a single request (via `POST /v1/jobs/{jobID}/trigger-bulk`), Strait creates a batch operation to record how many items were submitted and how many [Runs](/concepts/runs) were actually created.
+Batch operations let you trigger thousands of jobs in a single API call, track their progress as a group, and handle failures individually without losing the entire batch.
 
-## Fields
+## When to Use Batch Operations
 
-Each batch operation tracks:
+- **Bulk notifications**: Send a message to 10,000 users in one call.
+- **Data pipeline fan-out**: Process each row of an import file as a separate job run.
+- **Periodic sweeps**: Re-process all failed orders from the last hour.
 
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (auto-generated). |
-| `project_id` | `string` | The project this batch operation belongs to. |
-| `job_id` | `string` | The job that was bulk-triggered. |
-| `item_count` | `int` | Number of items submitted in the bulk trigger request. |
-| `created_count` | `int` | Number of runs actually created (may be less than `item_count`). |
-| `created_by` | `string` | Actor ID who initiated the bulk trigger (user ID or `apikey:<id>`). |
-| `created_at` | `time.Time` | Timestamp when the batch operation was created. |
-| `finished_at` | `*time.Time` | Set when all items have been processed. Null while in progress. |
+Any time you need to create many runs of the same job from a single trigger point.
 
-## How Batch Operations Work
+## Triggering a Batch
 
-Batch operations are **not** created directly through the API. They are created automatically when a bulk trigger request is made:
+Send an array of payloads to the bulk trigger endpoint:
 
-1. A client sends a `POST /v1/jobs/{jobID}/trigger-bulk` request containing multiple items.
-2. Strait creates a `BatchOperation` record with `item_count` set to the number of items in the request.
-3. For each item, Strait attempts to create a run. The resulting runs have their `batch_id` field set to the batch operation's `id`.
-4. `created_count` reflects the number of runs that were actually created. This may be lower than `item_count` if some items were deduplicated (see [dedup_window_secs](/concepts/jobs)).
-5. Once all items have been processed, `finished_at` is set.
+```
+POST /v1/jobs/{jobID}/trigger-bulk
+```
 
-<Note>
-The difference between `item_count` and `created_count` is a useful signal. A large gap typically indicates deduplication is filtering out duplicate payloads within the configured window.
-</Note>
+```json
+{
+  "items": [
+    { "payload": { "user_id": "usr_001", "message": "Your order shipped" } },
+    { "payload": { "user_id": "usr_002", "message": "Your order shipped" } },
+    { "payload": { "user_id": "usr_003", "message": "Your order shipped" } }
+  ]
+}
+```
 
-## Querying Batch Status
+Strait creates a `BatchOperation` to track the group and individual runs for each item. Each run's `batch_id` links back to the batch operation.
 
-Two read-only endpoints are available for inspecting batch operations:
+## Tracking Progress
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/v1/batch-operations?project_id=...` | List batch operations for a project (paginated with cursor). |
-| `GET` | `/v1/batch-operations/{batchID}?project_id=...` | Get a specific batch operation by ID. |
+Query the batch to see how many items have been processed:
 
-To find all runs that belong to a specific batch, query runs and filter by `batch_id`:
+```
+GET /v1/batch-operations/{batchID}?project_id=...
+```
+
+```json
+{
+  "id": "batch_abc",
+  "job_id": "job_456",
+  "item_count": 3,
+  "created_count": 3,
+  "finished_at": null
+}
+```
+
+- `item_count`: Number of items submitted.
+- `created_count`: Number of runs actually created (may be less due to deduplication).
+- `finished_at`: Set when all items have been processed. Null while in progress.
+
+To list all runs in a batch:
 
 ```
 GET /v1/jobs/{jobID}/runs?project_id=...&batch_id={batchID}
 ```
 
-A batch operation is considered complete when `finished_at` is non-null.
+## Idempotency
 
-## Related Concepts
+If your job has a [deduplication window](/concepts/jobs) configured, duplicate payloads within the same batch are filtered. The gap between `item_count` and `created_count` tells you how many items were deduplicated.
 
-- [Jobs](/concepts/jobs): The job definition that was bulk-triggered.
-- [Runs](/concepts/runs): Individual execution instances created by the batch. Each run's `batch_id` links back to its originating batch operation.
+## Error Handling
+
+Individual items can fail without failing the entire batch. Each item becomes its own run with independent retry and failure handling. A batch with 1,000 items where 3 fail gives you 997 successful runs and 3 failed runs to investigate -- not a single failed batch.
+
+## Configuration Reference
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique batch identifier (auto-generated). |
+| `job_id` | `string` | The job that was bulk-triggered. |
+| `item_count` | `int` | Number of items submitted in the request. |
+| `created_count` | `int` | Number of runs actually created. |
+| `created_by` | `string` | Actor who initiated the batch (user ID or `apikey:<id>`). |
+| `created_at` | `timestamp` | When the batch was created. |
+| `finished_at` | `timestamp` | When all items were processed. Null while in progress. |

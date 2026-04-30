@@ -1,24 +1,32 @@
 ---
 title: "Job Chaining"
-description: "Chain jobs with triggers, organize them with groups, and control execution order with dependencies."
+description: "Connect jobs into sequential pipelines where each job's output triggers the next."
 ---
 
-Job chaining lets you connect jobs into simple pipelines without building a full workflow DAG. When Job A completes (or fails), Strait automatically triggers Job B with mapped output as input.
+Job chaining lets the output of one job automatically trigger the next. Use it for simple sequential pipelines where each job depends on the result of the previous one.
 
-## Configuration
+## When to Use Chaining vs Workflows
 
-Jobs support four chaining fields:
+**Use chaining** for straightforward A → B → C sequences where each step depends on the previous result. Chaining is configured directly on the job — no separate definition needed.
 
-- `on_complete_trigger_job` -- slug of the job to trigger when this job completes successfully
-- `on_complete_trigger_workflow` -- slug of the workflow to trigger on completion (existing feature)
-- `on_failure_trigger_job` -- slug of the job to trigger on terminal failure (failed, timed_out, crashed, system_failed)
-- `on_failure_trigger_workflow` -- slug of the workflow to trigger on failure
+**Use [workflows](/concepts/workflows)** when you need parallel steps, conditional branches, approval gates, or complex dependency graphs. Workflows give you a full DAG with visual debugging and simulation.
 
-Both `on_complete` and `on_failure` support a `payload_mapping` field that extracts specific fields from the result using dot-notation paths.
+If your chain grows beyond 3-4 steps or needs branching logic, it's time to move to a workflow.
+
+## Setting Up a Chain
+
+Configure chaining fields on a job:
+
+- `on_complete_trigger_job` — job slug to trigger when this job completes
+- `on_complete_trigger_workflow` — workflow slug to trigger on completion
+- `on_failure_trigger_job` — job slug to trigger on terminal failure
+- `on_failure_trigger_workflow` — workflow slug to trigger on failure
+
+A job can have both success and failure triggers. Failure triggers fire on any terminal failure state: failed, timed out, crashed, or system failure.
 
 ## Payload Mapping
 
-The mapping is a JSON object where keys are output field names and values are dot-notation paths into the result:
+By default, the completed job's full result becomes the next job's payload. Use `on_complete_payload_mapping` to extract specific fields:
 
 ```json
 {
@@ -32,9 +40,9 @@ The mapping is a JSON object where keys are output field names and values are do
 
 If the result is `{"user": {"id": "u-123"}, "payment": {"amount": 49.99}}`, the downstream job receives `{"user_id": "u-123", "amount": 49.99}`.
 
-If mapping fails (invalid paths, non-object result), the full result is passed through as fallback.
+If mapping fails (invalid paths or non-object result), the full result is passed through as a fallback.
 
-## Failure Context
+## Failure Behavior
 
 When `on_failure_trigger_job` fires, the downstream job receives a structured failure payload:
 
@@ -46,146 +54,14 @@ When `on_failure_trigger_job` fires, the downstream job receives a structured fa
   "error_class": "connection",
   "status": "failed",
   "attempt": 3,
-  "original_input": { ... }
+  "original_input": { }
 }
 ```
 
-## Chain Depth Enforcement
+Use this to build error-handling jobs that log failures, send alerts, or attempt recovery.
 
-To prevent infinite loops (Job A triggers Job B triggers Job A), Strait enforces a maximum chain depth of 10. Each downstream run increments the `lineage_depth` counter. When the limit is reached, the trigger is logged and skipped.
+## Chain Depth
 
+Strait enforces a maximum chain depth of 10 to prevent infinite loops (e.g., Job A triggers Job B triggers Job A). Each downstream run increments a `lineage_depth` counter. When the limit is reached, the trigger is logged and skipped.
 
----
-
-## Job Dependencies
-
-Job dependencies control execution order between jobs -- one job only runs after another job reaches a specific state.
-
-A dependency consists of:
-
-- **Job ID** -- the job that is waiting
-- **Depends On Job ID** -- the job that must reach a certain state first
-- **Condition** -- the required state
-
-### Dependency Conditions
-
-- `completed` (default) -- the dependency job must finish successfully
-- `failed` -- the dependency job must fail
-- `any` -- the dependency job must reach any terminal state (completed, failed, canceled, etc.)
-
-### Use Cases
-
-- **Sequential processing** -- Job B ("Generate Invoice") only runs after Job A ("Process Payment") completes
-- **Error handling** -- Job C ("Notify Support") triggers only if Job A fails
-- **Cleanup** -- Job D ("Delete Temporary Files") runs regardless of outcome
-
-### Create a Dependency
-
-```bash
-curl -X POST https://strait.dev/v1/jobs/{jobB_ID}/dependencies \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "depends_on_job_id": "{jobA_ID}",
-    "condition": "completed"
-  }'
-```
-
-### List Dependencies
-
-```bash
-curl -H "Authorization: Bearer $API_KEY" \
-  https://strait.dev/v1/jobs/{jobID}/dependencies
-```
-
-### Delete a Dependency
-
-```bash
-curl -X DELETE https://strait.dev/v1/jobs/{jobID}/dependencies/{dependencyID} \
-  -H "Authorization: Bearer $API_KEY"
-```
-
-### Behavior
-
-When a job with dependencies is triggered:
-
-1. Strait checks if all dependencies are met.
-2. If not met, the job run enters a `waiting` state or is delayed until conditions are satisfied.
-3. Once all dependency conditions are met, the job moves to `queued` for execution.
-
-<Warning>
-  Circular dependencies (e.g., Job A depends on Job B, and Job B depends on Job A) are not allowed and will return a validation error.
-</Warning>
-
----
-
-## Job Groups
-
-Job groups organize jobs into logical sets. Use them when a project has many jobs serving different purposes or belonging to different services.
-
-### Create a Group
-
-```bash
-curl -X POST https://strait.dev/v1/job-groups \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project_id": "proj_123",
-    "name": "Email Notifications",
-    "slug": "email-notifications",
-    "description": "Jobs related to sending various email notifications."
-  }'
-```
-
-### List Groups
-
-```bash
-curl -H "Authorization: Bearer $API_KEY" \
-  https://strait.dev/v1/job-groups?project_id=proj_123
-```
-
-### Update a Group
-
-```bash
-curl -X PATCH https://strait.dev/v1/job-groups/{groupID} \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Updated Group Name"
-  }'
-```
-
-### Delete a Group
-
-```bash
-curl -X DELETE https://strait.dev/v1/job-groups/{groupID} \
-  -H "Authorization: Bearer $API_KEY"
-```
-
-### Assigning Jobs to Groups
-
-When creating or updating a job, provide the `group_id`:
-
-```bash
-curl -X POST https://strait.dev/v1/jobs \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project_id": "proj_123",
-    "group_id": "{groupID}",
-    "name": "Welcome Email",
-    "slug": "welcome-email",
-    "endpoint_url": "https://api.myapp.com/jobs/welcome-email"
-  }'
-```
-
-### Listing Jobs by Group
-
-```bash
-curl -H "Authorization: Bearer $API_KEY" \
-  https://strait.dev/v1/job-groups/{groupID}/jobs
-```
-
-<Tip>
-  Use job groups to organize by service (e.g., "Auth Service", "Billing Service") or by function (e.g., "Data Processing", "Webhooks").
-</Tip>
+The default limit of 10 is configurable per project.
