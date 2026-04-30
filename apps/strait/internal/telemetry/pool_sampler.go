@@ -70,11 +70,18 @@ func (s *PoolSampler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			stat := s.pool.Stat()
-			s.acquired.Record(ctx, int64(stat.AcquiredConns()))
-			s.idle.Record(ctx, int64(stat.IdleConns()))
-			s.total.Record(ctx, int64(stat.TotalConns()))
-			s.maxConns.Record(ctx, int64(stat.MaxConns()))
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						s.logger.Warn("pool sampler panic recovered", "panic", r)
+					}
+				}()
+				stat := s.pool.Stat()
+				s.acquired.Record(ctx, int64(stat.AcquiredConns()))
+				s.idle.Record(ctx, int64(stat.IdleConns()))
+				s.total.Record(ctx, int64(stat.TotalConns()))
+				s.maxConns.Record(ctx, int64(stat.MaxConns()))
+			}()
 		}
 	}
 }

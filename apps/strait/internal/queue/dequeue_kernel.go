@@ -201,7 +201,6 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		return nil, nil
 	}
 
-	// Both phases must share the same snapshot.
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
 		return executeDequeue(ctx, q, n, spec)

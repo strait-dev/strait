@@ -132,7 +132,6 @@ func (s *StepCallback) scheduleRunnableSteps(
 
 		var parentOutputsPayload json.RawMessage
 		if len(stepDef.DependsOn) > 0 && prefetchedOutputs != nil {
-			// Filter the prefetched outputs to just this step's dependencies.
 			stepOutputs := make(map[string]json.RawMessage, len(stepDef.DependsOn))
 			for _, dep := range stepDef.DependsOn {
 				if out, ok := prefetchedOutputs[dep]; ok {

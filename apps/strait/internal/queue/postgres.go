@@ -310,7 +310,7 @@ func (q *PostgresQueue) insertPreparedRun(
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Note: claim rows for the dequeue hot path are created by the
+	// Claim rows for the dequeue hot path are created by the
 	// trg_job_runs_claim_queue_sync trigger (migration 000224), which fires
 	// on the job_runs INSERT above. No application-level dual-write needed.
 
@@ -469,7 +469,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
 	}
 
-	// Note: claim rows for the dequeue hot path are created by the
+	// Claim rows for the dequeue hot path are created by the
 	// trg_job_runs_claim_queue_sync trigger (migration 000224), which fires
 	// on the COPY INSERT above. No application-level dual-write needed.
 	// Wake workers via pg_notify.

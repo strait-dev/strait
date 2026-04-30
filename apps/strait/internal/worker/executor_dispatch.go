@@ -30,7 +30,6 @@ import (
 // "latest", upgrades to the current version. For "minor", upgrades only if
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
-	// Check job cache first.
 	var current *domain.Job
 	if e.jobCache != nil {
 		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
@@ -49,7 +48,6 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		}
 	}
 
-	// If the run is already at the current version, no policy check needed.
 	if current.Version == run.JobVersion {
 		return current, nil
 	}
@@ -86,10 +84,8 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		// Fall through to load the enqueue-time version.
 
 	case domain.VersionPolicyPin, "":
-		// Pin: use the enqueue-time version. Fall through.
 	}
 
-	// Load the versioned snapshot.
 	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
 }
 
@@ -144,7 +140,6 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
 	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
 	if e.billingEnforcer != nil { //nolint:nestif // billing enforcement is inherently nested with multiple sequential checks
-		// Check if the project is suspended due to a plan downgrade.
 		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
 			e.logger.Warn("project suspended",
 				"run_id", run.ID, "project_id", job.ProjectID, "error", err)
@@ -189,21 +184,17 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		}
 	}
 
-	// Route based on execution mode.
 	switch job.ExecutionMode {
 	case domain.ExecutionModeManaged:
 		e.managedDispatch(ctx, run, job)
 		return
 	case domain.ExecutionModeHTTP, "":
-		// Fall through to HTTP dispatch.
 	default:
 		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
 		e.handleSystemFailureWithJob(ctx, run, job, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
 		return
 	}
 
-	// Environment endpoint override: if the job has an environment_id,
-	// resolve its variables and check for ENDPOINT_URL override.
 	if job.EnvironmentID != "" {
 		envVars, envErr := e.store.GetResolvedEnvironmentVariables(ctx, job.EnvironmentID)
 		if envErr != nil {
