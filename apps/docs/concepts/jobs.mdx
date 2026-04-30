@@ -41,7 +41,7 @@ A job includes the following fields:
 | `run_ttl_secs` | `int` | Time-to-live for runs before they are considered expired. |
 | `retry_strategy` | `string` | Strategy: `exponential`, `linear`, `fixed`, or `custom`. |
 | `retry_delays_secs` | `[]int` | Array of delays for the `custom` retry strategy. |
-| `poison_pill_threshold` | `*int` | If the same error repeats this many times in a row, Strait stops retrying and moves the run to the dead letter queue (a holding area for runs that need manual inspection). `null` or `0` disables this. See [Resilience](/concepts/resilience#poison-pill-detection). |
+| `poison_pill_threshold` | `*int` | If the same error repeats this many times in a row, Strait stops retrying and moves the run to the review queue (a holding area where you can inspect and replay jobs that exhausted all retries). `null` or `0` disables this. See [Resilience](/concepts/resilience#poison-pill-detection). |
 | `environment_id` | `string` | The environment (e.g., Staging, Production) this job is bound to. |
 | `version` | `int` | Auto-incrementing version number (starts at 1). |
 | `version_id` | `string` | Unique nanoid for this version (`ver_k8f2m9x1p3`). Changes on every update. |

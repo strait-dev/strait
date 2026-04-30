@@ -29,7 +29,7 @@ Runs can be scheduled to execute at a specific point in the future.
 Strait monitors for runs that have become stuck or unresponsive.
 
 - **Heartbeat Monitoring**: While a run is executing, it sends periodic heartbeats. If a run stops sending heartbeats past a configurable threshold, Strait marks it as stale.
-- **Stale Dequeued Runs**: If a worker claims a run but never starts executing it, Strait catches that too.
+- **Stale Claimed Runs**: If a worker claims a run but never starts executing it, Strait catches that too.
 - **Recovery**: Stale runs transition to `crashed` or `system_failed`. If retry attempts remain, Strait automatically retries them.
 
 ## Retention Policies
@@ -56,7 +56,7 @@ Jobs support a `cron_overlap_policy` field that controls what happens when a cro
 | Policy | Behavior |
 | :--- | :--- |
 | `allow` (default) | Always create a new queued run, regardless of active runs. |
-| `skip` | If any run is in an active state (queued, dequeued, executing, waiting, or delayed), skip the cron tick entirely. |
+| `skip` | If any run is in an active state (queued, claimed, executing, waiting, or delayed), skip the cron tick entirely. |
 | `cancel_running` | Cancel all active runs for the job, then create a new queued run. Managed containers are stopped and child runs are also canceled. |
 
 <CodeGroup>
