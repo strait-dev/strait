@@ -5,7 +5,7 @@ icon: "code"
 og:image: "/images/og.png"
 ---
 
-Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
+Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs cover the full Strait API with the same configuration model. Service organization varies slightly by language (see each SDK page for details).
 
 The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript SDK remains in this monorepo.
 
@@ -22,7 +22,7 @@ The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedic
 
 ## Feature Parity
 
-All five SDKs implement the same capabilities:
+All five SDKs implement the same capabilities:<sup>1</sup>
 
 | Feature | TypeScript | Python | Go | Ruby | Rust |
 |---|---|---|---|---|---|
@@ -85,7 +85,7 @@ Each SDK is organized into the same five layers:
 +-------------------------------------------+
 |  Composition Helpers                      |  retry, wait, paginate, deploy
 +-------------------------------------------+
-|  Domain Operations (19 services)          |  jobs, runs, workflows, ...
+|  Domain Operations (19 services)          |  jobs, runs, workflows, ...<sup>1</sup>
 +-------------------------------------------+
 |  HTTP Client + Middleware                 |  auth, headers, error mapping
 +-------------------------------------------+
@@ -126,7 +126,7 @@ All 186 API operations are organized into typed service classes:
     `strait.json` schema reference, environment variable overrides, and config file discovery.
   </Card>
   <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">
-    Effect-first SDK with generated operations, authoring DSL, and XState FSMs.
+    Full API coverage with authoring DSL, composition helpers, typed errors, and AI SDK integration.
   </Card>
 </CardGroup>
 
@@ -147,3 +147,5 @@ All 186 API operations are organized into typed service classes:
     Now in its own repository at github.com/strait-dev/strait-rust.
   </Card>
 </CardGroup>
+
+<small><sup>1</sup> Service counts reflect the Go SDK. Other languages may organize operations into more or fewer services.</small>

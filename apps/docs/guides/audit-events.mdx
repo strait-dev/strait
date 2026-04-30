@@ -311,9 +311,9 @@ Audit events that fail to persist after all retries land in a review queue (a ho
 
 | Endpoint                                    | Method   | Description                                    |
 | :------------------------------------------ | :------- | :--------------------------------------------- |
-| `GET /v1/audit/deadletter`                  | `GET`    | List events in the review queue (paginated).    |
-| `POST /v1/audit/deadletter/{id}/replay`     | `POST`   | Replay an event back into the primary chain.    |
-| `DELETE /v1/audit/deadletter/{id}`           | `DELETE` | Permanently drop an event (data loss accepted). |
+| `GET /v1/audit/deadletter` (review queue)                  | `GET`    | List events in the review queue (paginated).    |
+| `POST /v1/audit/deadletter/{id}/replay` (review queue)     | `POST`   | Replay an event back into the primary chain.    |
+| `DELETE /v1/audit/deadletter/{id}` (review queue)           | `DELETE` | Permanently drop an event (data loss accepted). |
 
 All review-queue endpoints require the internal secret. A background reclamation job periodically replays failed events automatically. Events in the review queue older than `AUDIT_REVIEW_QUEUE_MAX_AGE_DAYS` (default 30) are cleaned up by a separate reaper.
 

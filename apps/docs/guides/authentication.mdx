@@ -216,7 +216,7 @@ If none of these match, the request gets a 403.
 
 ### Permission Cache
 
-Strait caches user permissions for 30 seconds to reduce database lookups. The cache is automatically invalidated when you:
+Strait caches user permissions for up to 5 minutes (configurable via `PERMISSION_CACHE_TTL`). The cache is automatically invalidated when you:
 - Change a member's role (`POST /v1/members`)
 - Remove a member (`DELETE /v1/members/{userID}`)
 ---

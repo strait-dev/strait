@@ -98,29 +98,29 @@ client = Client(
 
 ## Domain Services
 
-The client exposes 19 domain services covering 186 operations. Each service is accessible as an attribute on the client.
+The client exposes domain services covering all API operations. Each service is accessible as an attribute on the client.
 
 | Service | Description | Example |
 |---|---|---|
-| `client.jobs` | Create, list, update, delete jobs | `client.jobs.list(project_id="proj_1")` |
-| `client.runs` | Trigger, get, cancel, list runs | `client.runs.trigger(job_id="job_1", payload={})` |
-| `client.workflows` | Create and manage workflows | `client.workflows.create(...)` |
-| `client.workflow_runs` | Trigger and monitor workflow runs | `client.workflow_runs.trigger(workflow_id="wf_1")` |
-| `client.projects` | Manage projects | `client.projects.list()` |
-| `client.schedules` | Create and manage schedules | `client.schedules.create(job_id="job_1", cron="0 * * * *")` |
-| `client.events` | List and replay events | `client.events.list(project_id="proj_1")` |
-| `client.event_triggers` | Manage event-driven triggers | `client.event_triggers.create(...)` |
-| `client.api_keys` | Manage API keys | `client.api_keys.list()` |
+| `client.jobs` | List, create, get, update, delete, trigger, bulk_trigger | `client.jobs.list(project_id="proj_1")` |
+| `client.runs` | List, get, delete, replay, bulk_cancel, get_dlq | `client.runs.trigger(job_id="job_1", payload={})` |
+| `client.workflows` | List, create, trigger, get_diff, get_policy | `client.workflows.create(...)` |
+| `client.workflow_runs` | List, pause, resume, approve_step, skip_step | `client.workflow_runs.list(workflow_id="wf_1")` |
+| `client.deployments` | List, create, finalize, promote, rollback | `client.deployments.list()` |
+| `client.sdk_runs` | Complete_run, heartbeat_run, checkpoint_run | `client.sdk_runs.complete_run(run_id="run_1")` |
+| `client.rbac` | List_roles, create_member, seed_roles | `client.rbac.list_roles()` |
 | `client.environments` | Manage environments | `client.environments.list()` |
-| `client.webhooks` | Register and manage webhooks | `client.webhooks.create(...)` |
-| `client.logs` | Query run and system logs | `client.logs.list(run_id="run_1")` |
-| `client.metrics` | Query run metrics | `client.metrics.get(job_id="job_1")` |
-| `client.approvals` | Approve or reject workflow steps | `client.approvals.approve(approval_id="apr_1")` |
-| `client.review_queue` | Inspect and retry failed runs | `client.review_queue.list(project_id="proj_1")` |
 | `client.secrets` | Manage encrypted secrets | `client.secrets.create(name="DB_URL", value="...")` |
-| `client.notifications` | Configure notification channels | `client.notifications.list()` |
-| `client.audit_log` | Query audit trail | `client.audit_log.list()` |
-| `client.health` | System health checks | `client.health.check()` |
+| `client.api_keys` | Manage API keys | `client.api_keys.list()` |
+| `client.webhooks` | Register and manage webhooks | `client.webhooks.create(...)` |
+| `client.event_triggers` | Manage event-driven triggers | `client.event_triggers.create(...)` |
+| `client.event_sources` | Manage event sources | `client.event_sources.list()` |
+| `client.batch_operations` | List and get batch operations | `client.batch_operations.list()` |
+| `client.stats` | Query stats | `client.stats.list()` |
+| `client.analytics` | Get performance analytics | `client.analytics.get_performance()` |
+| `client.log_drains` | Manage log drains | `client.log_drains.list()` |
+| `client.job_groups` | Manage job groups | `client.job_groups.list()` |
+| `client.health` | System health checks | `client.health.list()` |
 
 ### Listing with filters
 
