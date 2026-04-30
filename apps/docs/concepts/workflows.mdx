@@ -6,6 +6,96 @@ icon: "diagram-project"
 
 A workflow is a set of steps with dependencies between them. You define which steps run first, which wait for others to finish, and what happens when something fails. Strait runs the steps in the right order, passing data between them.
 
+## Create and Trigger a Workflow
+
+Before exploring the details, here is an end-to-end example: create a workflow with three steps, then trigger it.
+
+### Create the workflow
+
+This workflow runs `validate`, then `process` (which depends on `validate`), then `notify` (which depends on `process`).
+
+```bash
+curl -X POST https://api.strait.dev/v1/workflows \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Order Pipeline",
+    "slug": "order-pipeline",
+    "steps": [
+      {
+        "step_ref": "validate",
+        "step_type": "job",
+        "job_id": "job_validate_order",
+        "depends_on": []
+      },
+      {
+        "step_ref": "process",
+        "step_type": "job",
+        "job_id": "job_process_payment",
+        "depends_on": ["validate"]
+      },
+      {
+        "step_ref": "notify",
+        "step_type": "job",
+        "job_id": "job_send_confirmation",
+        "depends_on": ["process"]
+      }
+    ]
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "id": "wf_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
+  "slug": "order-pipeline",
+  "name": "Order Pipeline",
+  "version": 1,
+  "steps": [
+    { "step_ref": "validate", "step_type": "job", "job_id": "job_validate_order", "depends_on": [] },
+    { "step_ref": "process", "step_type": "job", "job_id": "job_process_payment", "depends_on": ["validate"] },
+    { "step_ref": "notify", "step_type": "job", "job_id": "job_send_confirmation", "depends_on": ["process"] }
+  ],
+  "created_at": "2025-01-15T10:00:00Z"
+}
+```
+
+### Trigger the workflow
+
+```bash
+curl -X POST https://api.strait.dev/v1/workflows/order-pipeline/trigger \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": {
+      "order_id": "ord_42",
+      "amount": 99.00,
+      "customer_email": "alice@example.com"
+    }
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "id": "wfr_01JQ3K8A2B3C4D5E6F7G8H9J0K",
+  "workflow_id": "wf_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
+  "status": "running",
+  "payload": {
+    "order_id": "ord_42",
+    "amount": 99.00,
+    "customer_email": "alice@example.com"
+  },
+  "created_at": "2025-01-15T10:30:00Z"
+}
+```
+
+Strait immediately begins executing root steps (those with no dependencies). Each step creates a [Run](/concepts/runs) you can monitor individually.
+
+---
+
 ## DAG Concepts
 
 A workflow is structured as a directed acyclic graph (DAG) — a dependency graph where steps can depend on other steps, but circular dependencies are not allowed:

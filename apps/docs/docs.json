@@ -31,7 +31,13 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": ["introduction", "quickstart", "architecture", "changelog"]
+            "pages": [
+              "introduction",
+              "choose-your-path",
+              "quickstart",
+              "architecture",
+              "changelog"
+            ]
           },
           {
             "group": "Core Concepts",

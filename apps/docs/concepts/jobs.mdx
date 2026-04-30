@@ -33,11 +33,14 @@ curl -X POST https://api.yourproject.strait.sh/v1/jobs \
 ```
 
 ```typescript SDK
-import Strait from "@anthropic/strait";
+import { createClient } from "@strait/ts";
 
-const strait = new Strait({ apiKey: "YOUR_API_KEY" });
+const client = createClient({
+  baseUrl: "https://api.strait.dev",
+  auth: { type: "bearer", token: "YOUR_API_KEY" },
+});
 
-const job = await strait.jobs.create({
+const job = await client.jobs.create({
   name: "Send Welcome Email",
   slug: "send-welcome-email",
   endpointUrl: "https://your-api.com/jobs/send-welcome-email",
@@ -52,6 +55,17 @@ curl -X POST https://api.yourproject.strait.sh/v1/jobs/send-welcome-email/trigge
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "payload": { "user_id": "usr_42", "email": "alice@example.com" } }'
+```
+
+The response includes the new run:
+
+```json
+{
+  "id": "run_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
+  "job_id": "job_abc123",
+  "status": "queued",
+  "created_at": "2025-01-15T10:30:00Z"
+}
 ```
 
 Strait calls your endpoint with the payload via HTTP POST. A [Run](/concepts/runs) is created immediately and tracks the execution.
@@ -74,6 +88,30 @@ When a job is triggered:
 | No response (timeout) | Timeout. Strait retries if attempts remain. |
 
 The default timeout is **300 seconds** (5 minutes). Set `timeout_secs` to change it.
+
+### What Your Endpoint Receives
+
+When Strait executes a job, it sends an HTTP POST to your endpoint with:
+
+**Headers:**
+- `Content-Type: application/json`
+- `X-Run-ID: run_abc123`
+- `X-Job-ID: job_xyz`
+- `X-Attempt: 1`
+- `X-SDK-Token: eyJ...` (JWT for SDK callbacks)
+
+**Body:**
+```json
+{
+  "payload": { ... },      // The payload from the trigger request
+  "metadata": { ... },     // Key-value annotations
+  "job_id": "job_xyz",
+  "run_id": "run_abc123",
+  "attempt": 1
+}
+```
+
+Return any 2xx status to mark the run as completed. Return non-2xx to trigger a retry.
 
 ---
 

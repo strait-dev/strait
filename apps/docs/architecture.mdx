@@ -1,11 +1,11 @@
 ---
 title: "Architecture"
-description: "How Strait works -- its components, data flow, and runtime behavior."
+description: "How Strait works and how to deploy it."
 icon: "sitemap"
 og:image: "/images/og.png"
 ---
 
-Strait runs as a distributed job orchestration service that uses PostgreSQL as both its state store and job queue.
+Strait is a single Go binary that runs your jobs and workflows. It needs PostgreSQL (for state and queuing) and Redis (for real-time updates). Everything else is optional.
 
 ## System Overview
 
@@ -85,70 +85,34 @@ Strait runs as a distributed job orchestration service that uses PostgreSQL as b
                     └──────────────────────────────────┘
 ```
 
-The system is distributed as a single Go binary that can run in three modes:
-- **api**: Handles HTTP requests, job management, and triggering.
-- **worker**: Runs executor, scheduler, and background maintenance tasks.
-- **all**: Runs both API and worker components in a single process.
+## What You Need
+
+| Component | Required | Purpose |
+|---|---|---|
+| PostgreSQL 16+ | Yes | Stores jobs, runs, workflows. Also serves as the job queue. |
+| Redis 7+ | Yes | Powers real-time updates (SSE) and pub/sub notifications. |
+| Sequin | Yes (self-host) | Streams database changes for real-time event processing. Included in Docker Compose. |
+| ClickHouse | No | Optional analytics backend for large-scale run metrics. See [ClickHouse Analytics](/concepts/clickhouse-analytics). |
+
+## Components
+
+Strait has three main components: an API server that handles HTTP requests, a worker that executes jobs, and a scheduler that runs background tasks (cron, retries, cleanup). You deploy all three in one binary or split them for horizontal scaling.
+
+## Deployment Modes
+
+Strait runs in three modes from the same binary:
+
+| Mode | What it runs | When to use |
+|---|---|---|
+| `--mode all` | API + Worker + Scheduler | Development, small deployments |
+| `--mode api` | API server only | Scale API capacity independently |
+| `--mode worker` | Worker + Scheduler only | Scale job processing independently |
+
+In production, run one or more `api` instances behind a load balancer and one or more `worker` instances. All instances share the same PostgreSQL and Redis.
 
 On shutdown, Strait waits for in-flight jobs to finish and releases all resources cleanly before the process exits.
 
-## Component Architecture
-
-The core logic lives in the `internal/` directory, organized into specialized packages.
-
-<CardGroup cols={2}>
-  <Card title="api" icon="server">
-    HTTP router, middleware chain, and authentication (Internal Secret + Run Token). Handles URL validation to block requests to private networks, health scoring, debug bundles, and review queue management.
-  </Card>
-  <Card title="worker" icon="gears">
-    Bounded worker pool with backpressure, HTTP dispatch, smart retries, and state transitions. Exposes metrics for pool observability.
-  </Card>
-  <Card title="workflow" icon="diagram-sankey">
-    Manages workflow graph execution, dependency validation (cycle detection), parallel step completion, step conditions, and sub-workflow nesting.
-  </Card>
-  <Card title="queue" icon="list-check">
-    Postgres-backed queue where each worker claims available jobs without blocking other workers. Supports batch dequeue.
-  </Card>
-  <Card title="store" icon="database">
-    Database access layer with instrumented tracing spans. Uses focused interfaces so each caller only depends on the methods it needs.
-  </Card>
-  <Card title="scheduler" icon="clock">
-    Background components for Cron, delayed polling, stale run reaping, retention, and cost budget enforcement.
-  </Card>
-  <Card title="compute" icon="microchip">
-    Container runtime abstraction for managed execution. Docker and Kubernetes backends, machine lifecycle management, and cost estimation.
-  </Card>
-  <Card title="clickhouse" icon="chart-bar">
-    Optional analytics backend. Async batch export of run events, analytics summaries, and compute usage to ClickHouse for time-series reporting.
-  </Card>
-  <Card title="webhook" icon="bell">
-    Async webhook delivery with retry policies, circuit breaker, HMAC-SHA256 signing, and failed delivery tracking.
-  </Card>
-  <Card title="cdc" icon="bolt">
-    Change data capture via Sequin. Polls database changes for real-time event streaming to external consumers.
-  </Card>
-</CardGroup>
-
-## Technology Stack
-
-| Component | Technology | Role |
-| :--- | :--- | :--- |
-| Runtime | Go 1.26 | Single binary, native concurrency, instant cold start |
-| Database | PostgreSQL 18 | State store + job queue |
-| Cache/PubSub | Redis 8 | Pub/sub for SSE streaming, CDC event distribution |
-| SQL Driver | pgx/v5 | Raw SQL with connection pooling and prepared statements |
-| HTTP Router | Chi/v5 | Composable middleware chain |
-| Concurrency | sourcegraph/conc | Panic-safe concurrent task groups with context-aware cancellation |
-| Worker Pool | alitto/pond/v2 | Bounded queue backpressure with Prometheus metrics |
-| CDC | Sequin | Postgres WAL streaming through Redis channels |
-| Observability | OpenTelemetry | Vendor-neutral tracing (Jaeger/Tempo) and Prometheus metrics |
-| Auth Tokens | golang-jwt/v5 | HS256 JWT for SDK run tokens (60s expiry) |
-| Scheduling | robfig/cron/v3 | 5-field cron expressions with timezone support |
-| Migrations | golang-migrate/v4 | Embedded SQL migrations via `go:embed` |
-| Utilities | samber/lo | Type-safe generic collection operations |
-| Testing | google/go-cmp, testcontainers-go | Structural diffs, real Postgres/Redis in integration tests |
-
-For detailed rationale behind each technology choice, see [Technology Choices](/development/technology-choices).
+For the full technology stack, see [Technology Choices](/development/technology-choices).
 
 ## How the Queue Works
 
@@ -400,38 +364,6 @@ Operators can recover or replay portions of a DAG without retriggering the entir
 
 These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation. See [DAG Runtime](/concepts/dag-runtime) for endpoint behavior details and [DAG Operations Playbook](/guides/dag-operations-playbook) for production runbooks.
 
-## Design Decisions
-
-### Single Binary, Three Modes
-
-Strait compiles to a single executable that can run in three modes:
-
-- **api**: HTTP server only, for scaling API endpoints independently
-- **worker**: Executor and scheduler only, for scaling job processing independently
-- **all**: Combined mode for development or small deployments
-
-This flexibility enables horizontal scaling without multiple deployment artifacts. Deploy the same binary in production with different mode flags.
-
-### In-flight Job Protection
-
-When Strait dispatches a job, the run continues to completion even if Strait receives a shutdown signal. The process waits for all in-flight jobs to finish before exiting, ensuring graceful shutdown without partial execution or data loss.
-
-### Review Queue as a Run State
-
-The review queue (for jobs that exhausted all retries) is modeled as a first-class run state rather than a separate table. This means:
-
-- You can include or exclude review queue runs in standard queries via a status filter
-- Replaying a review queue run uses the same transition mechanism as retries
-- All state transitions go through the same validation logic
-
-### Transactional Event Sends
-
-When an event resolves a workflow step trigger, the trigger update and step completion happen in a single database transaction. If either operation fails, both roll back. This prevents inconsistencies where a trigger is marked `received` but the step remains `waiting`. The same transactional pattern wraps workflow create/update/clone, SDK wait-for-event, and workflow run retry operations.
-
-### Micro-USD Cost Tracking
-
-AI costs are tracked in micro-USD (1/1,000,000 of a dollar) stored as integers. This avoids floating-point precision issues that accumulate with repeated additions, providing exact financial calculations down to $0.000001 resolution.
-
 ## Managed Execution
 
 Strait supports managed execution where your jobs run inside containers managed by Docker or Kubernetes. See [Managed Execution](/concepts/managed-execution) for details.
@@ -494,21 +426,6 @@ Structured JSON logging via `log/slog` captures events with consistent fields:
 - `duration_ms`: Operation timing
 
 Logs are human-readable in development and machine-parseable in production for log aggregation systems.
-
-## Concurrency Model
-
-Multiple worker processes can run concurrently, each polling the same PostgreSQL table. The database handles all coordination:
-
-1. **No distributed coordination needed**: Workers don't know about each other. Database coordination provides consistency.
-2. **Scalability**: Add worker processes to increase throughput. No leader election or worker registry required.
-3. **Safety**: Concurrent state transitions are safe -- only one worker can update a given run. Others retry on conflict.
-
-The worker pool provides:
-
-- **Bounded queue**: Buffer channel limits task submissions, preventing unbounded memory growth
-- **Backpressure**: When queue is full, task submission blocks, signaling workers are at capacity
-- **Graceful shutdown**: Pool waits for all in-flight tasks before returning
-- **Metrics**: Exposes pool metrics for capacity planning
 
 ## Scheduler Background Tasks
 

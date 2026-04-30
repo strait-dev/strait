@@ -8,9 +8,9 @@ og:image: "/images/og.png"
 Follow these steps to set up Strait locally and run your first job. You'll have a working job orchestration service running in under 10 minutes.
 
 <Tip>
-**Just want to try Strait?** Run `git clone https://github.com/strait-dev/strait.git && cd strait && make selfhost` to bring up the full stack (API + dashboard + Postgres + Redis) in one command. Open http://localhost:3000 and start building. See [SELFHOST.md](https://github.com/strait-dev/strait/blob/master/SELFHOST.md) for the full guide.
+**Using Strait Cloud?** Skip the infrastructure setup. Sign up at [app.strait.dev](https://app.strait.dev), get your API key from Settings > API Keys, and jump to [Step 4: Create a Project](#step-4-create-a-project). Use `https://api.strait.dev` as your base URL.
 
-The steps below are for **contributors and developers** who want to build from source.
+**Self-hosting?** Follow all steps below to run Strait on your machine.
 </Tip>
 
 ## Prerequisites
@@ -82,14 +82,18 @@ export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disa
 export REDIS_URL=redis://localhost:16379
 
 # Internal API secret - required (minimum 32 characters)
-export INTERNAL_SECRET=your-secret-here-change-this-in-production
+export INTERNAL_SECRET=my-dev-secret-change-in-production-min-32-chars
 
 # JWT signing key - required (minimum 32 characters)
-export JWT_SIGNING_KEY=your-jwt-key-must-be-at-least-32-chars-long
+export JWT_SIGNING_KEY=my-jwt-key-change-in-production-min-32-chars
 
 # Optional: Log level (debug, info, warn, error)
 # export LOG_LEVEL=info
 ```
+
+<Info>
+**Which secret is which?** `INTERNAL_SECRET` is your API password -- use it as the Bearer token in API requests. `JWT_SIGNING_KEY` is used internally for SDK run tokens. You only need `INTERNAL_SECRET` for API calls.
+</Info>
 
 <Warning>
 **Never commit secrets to version control.** Use environment variables, secret managers (AWS Secrets Manager, HashiCorp Vault), or `.env` files added to `.gitignore`.
@@ -147,18 +151,44 @@ Scheduler running
 **Solution**: Ensure Go 1.26+ is installed: `go version`. Run `cd apps/strait && go mod download` to fetch dependencies. Check for corporate proxy settings affecting module downloads.
 </Troubleshoot>
 
-## Step 4: Create a Job
+## Step 4: Create a Project
+
+Projects organize your jobs. Create one before creating jobs.
+
+```bash
+curl -X POST http://localhost:8080/v1/projects \
+  -H "Authorization: Bearer my-dev-secret-change-in-production-min-32-chars" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Project",
+    "slug": "my-project"
+  }'
+```
+
+Save the returned `id` -- you'll use it as `project_id` when creating jobs.
+
+Expected response:
+```json
+{
+  "id": "proj_abc123",
+  "name": "My Project",
+  "slug": "my-project",
+  "created_at": "2026-03-09T10:00:00Z"
+}
+```
+
+## Step 5: Create a Job
 
 Create a new job via the REST API or CLI. A job is a template that defines what endpoint to call, how long to wait, and how many times to retry.
 
 <CodeGroup>
   ```bash curl
-  # Create a job
+  # Create a job (replace proj_abc123 with the project ID from Step 4)
   curl -X POST http://localhost:8080/v1/jobs \
-    -H "Authorization: Bearer your-secret-here" \
+    -H "Authorization: Bearer my-dev-secret-change-in-production-min-32-chars" \
     -H "Content-Type: application/json" \
     -d '{
-      "project_id": "proj_123",
+      "project_id": "proj_abc123",
       "name": "Hello World",
       "slug": "hello-world",
       "endpoint_url": "https://httpbin.org/post",
@@ -182,7 +212,7 @@ Expected response:
 ```json
 {
   "id": "job_abc123",
-  "project_id": "proj_123",
+  "project_id": "proj_abc123",
   "name": "Hello World",
   "slug": "hello-world",
   "endpoint_url": "https://httpbin.org/post",
@@ -194,14 +224,14 @@ Expected response:
 **Use the CLI** for most operations. It handles authentication, pagination, and output formatting automatically. See [CLI Reference](/cli/overview) for all commands.
 </Tip>
 
-## Step 5: Trigger a Job
+## Step 6: Trigger a Job
 
 Trigger a run for the job you just created. Strait enqueues the run, and a worker dispatches it to your endpoint.
 
 ```bash
 # Trigger with a payload
 curl -X POST http://localhost:8080/v1/jobs/hello-world/trigger \
-  -H "Authorization: Bearer your-secret-here" \
+  -H "Authorization: Bearer my-dev-secret-change-in-production-min-32-chars" \
   -H "Content-Type: application/json" \
   -d '{
     "payload": {
@@ -218,7 +248,7 @@ Expected response:
   "status": "queued",
   "priority": 0,
   "created_at": "2026-03-09T10:05:00Z",
-  "scheduled_at": null
+  "scheduled_at": null,
   "next_retry_at": null
 }
 ```
@@ -238,14 +268,14 @@ Expected response:
   </Step>
 </Steps>
 
-## Step 6: Watch the Run
+## Step 7: Watch the Run
 
 Monitor your job run in real time.
 
 ```bash
 # Get run status
 curl http://localhost:8080/v1/runs/run_xyz789 \
-  -H "Authorization: Bearer your-secret-here"
+  -H "Authorization: Bearer my-dev-secret-change-in-production-min-32-chars"
 
 # Or use the CLI watch command
 ./strait runs watch run_xyz789
@@ -257,17 +287,17 @@ A run moves through these states: `queued` -> `executing` -> `completed` or `fai
 **Real-time updates**: Subscribe to Server-Sent Events via the `/v1/runs/{runID}/stream` endpoint for live status updates without polling.
 </Info>
 
-## Step 7: Create a Simple Workflow
+## Step 8: Create a Simple Workflow
 
 Workflows let you chain multiple jobs together as a dependency graph (DAG). Each step can depend on outputs from earlier steps.
 
 ```bash
-# Create a workflow with two sequential steps
+# Create a workflow with two sequential steps (replace proj_abc123 with your project ID)
 curl -X POST http://localhost:8080/v1/workflows \
-  -H "Authorization: Bearer your-secret-here" \
+  -H "Authorization: Bearer my-dev-secret-change-in-production-min-32-chars" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_123",
+    "project_id": "proj_abc123",
     "name": "Data Pipeline",
     "slug": "data-pipeline",
     "steps": [
@@ -289,6 +319,41 @@ curl -X POST http://localhost:8080/v1/workflows \
 <Info>
 **Workflow Execution**: When you trigger a workflow, Strait creates a `workflow_run`. Step `extract` runs first, then `transform` runs only after `extract` completes. If multiple steps depend on the same parent, Strait waits for that parent to finish before running any of them.
 </Info>
+
+```bash
+# Trigger the workflow
+curl -X POST http://localhost:8080/v1/workflows/data-pipeline/trigger \
+  -H "Authorization: Bearer my-dev-secret-change-in-production-min-32-chars" \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"source": "quickstart"}}'
+```
+
+## Step 9: Trigger from Your Code
+
+Install the TypeScript SDK and trigger a job from your application:
+
+```bash
+npm install @strait/ts
+```
+
+```typescript
+import { createClient } from "@strait/ts";
+
+const client = createClient({
+  baseUrl: "http://localhost:8080",
+  auth: { type: "bearer", token: "my-dev-secret-change-in-production-min-32-chars" },
+});
+
+// Trigger a job
+const run = await client.triggerJob({
+  pathParams: { jobID: "hello-world" },
+  body: { payload: { greeting: "Hello from TypeScript!" } },
+});
+
+console.log("Run started:", run.id, run.status);
+```
+
+See [SDKs](/sdks/overview) for Python, Go, Ruby, and Rust.
 
 ## Troubleshooting
 
@@ -352,7 +417,7 @@ curl -X POST http://localhost:8080/v1/workflows \
 
 <CardGroup cols={2}>
   <Card title="Architecture" icon="sitemap" href="/architecture">
-    Learn how Strait's queue, workflow engine, and run lifecycle work.
+    Learn how Strait's queue, workflow engine, and run lifecycle work together.
   </Card>
   <Card title="Concepts" icon="book" href="/concepts/jobs">
     Understand jobs, runs, workflows, scheduling, retry strategies, and cost budgets in depth.
@@ -367,4 +432,3 @@ curl -X POST http://localhost:8080/v1/workflows \
     REST API endpoints for job management, workflow orchestration, and SDK interactions.
   </Card>
 </CardGroup>
-

@@ -92,6 +92,21 @@ curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger \
   }'
 ```
 
+The response includes the new run's ID and initial status:
+
+```json
+{
+  "id": "run_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
+  "job_id": "job_abc123",
+  "status": "queued",
+  "attempt": 1,
+  "payload": { "user_id": "usr_123", "action": "sync" },
+  "metadata": { "source": "billing-service" },
+  "triggered_by": "manual",
+  "created_at": "2025-01-15T10:30:00Z"
+}
+```
+
 ### Bulk trigger
 
 Trigger many runs at once with a single request. Strait creates a [batch operation](/concepts/batch-operations) to track them:
@@ -139,6 +154,30 @@ curl https://your-strait-instance/v1/runs/{runID} \
 ```
 
 The response includes the run's current status, attempt number, payload, result (if completed), error (if failed), and all timing fields.
+
+```json
+{
+  "id": "run_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
+  "job_id": "job_abc123",
+  "status": "completed",
+  "attempt": 1,
+  "payload": { "user_id": "usr_123", "action": "sync" },
+  "result": { "synced": true, "records": 42 },
+  "metadata": { "source": "billing-service" },
+  "triggered_by": "manual",
+  "started_at": "2025-01-15T10:30:00.120Z",
+  "finished_at": "2025-01-15T10:30:01.450Z",
+  "execution_trace": {
+    "queue_wait_ms": 12,
+    "dequeue_ms": 3,
+    "connect_ms": 45,
+    "ttfb_ms": 890,
+    "transfer_ms": 15,
+    "total_ms": 1330
+  },
+  "created_at": "2025-01-15T10:30:00Z"
+}
+```
 
 ### List runs for a job
 

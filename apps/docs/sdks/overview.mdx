@@ -22,7 +22,7 @@ The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedic
 
 ## Feature Parity
 
-All five SDKs implement the same capabilities:<sup>1</sup>
+All five SDKs implement the same capabilities:
 
 | Feature | TypeScript | Python | Go | Ruby | Rust |
 |---|---|---|---|---|---|
@@ -39,7 +39,9 @@ All five SDKs implement the same capabilities:<sup>1</sup>
 
 ## Quick Start
 
-The fastest way to get started is with a `strait.json` config file and the `STRAIT_API_KEY` environment variable.
+<Info>
+These examples assume you have a Strait server running (cloud or self-hosted) and at least one job created. See [Quick Start](/quickstart) to set up your server and create your first job.
+</Info>
 
 **1. Set your API key:**
 
@@ -47,31 +49,39 @@ The fastest way to get started is with a `strait.json` config file and the `STRA
 export STRAIT_API_KEY="sk_live_..."
 ```
 
-**2. Create a client:**
+**2. Create a client and trigger a job:**
 
 <CodeGroup>
   ```ts TypeScript
-  import { createClientFromConfigFile } from "@strait/ts/node";
+  import { createClientFromEnv } from "@strait/ts/node";
 
-  const client = await createClientFromConfigFile();
-  const jobs = await client.jobs.list({ query: { project_id: "proj_1" } });
+  const client = createClientFromEnv();
+
+  // Trigger a job and wait for the result
+  const run = await client.triggerJob({
+    pathParams: { jobID: "my-job" },
+    body: { payload: { key: "value" } },
+  });
+
+  console.log(run.id, run.status); // run_abc123 queued
   ```
 
   ```python Python
   from strait import Client
 
-  client = Client.from_file()
-  jobs = client.jobs.list()
+  client = Client.from_env()
+
+  run = client.jobs.trigger("my-job", {"payload": {"key": "value"}})
+  print(run["id"], run["status"])  # run_abc123 queued
   ```
 
   ```go Go
-  import (
-      strait "github.com/strait-dev/strait-go"
-  )
+  client, _ := strait.NewClientFromEnv()
 
-  client, err := strait.NewClientFromFile(nil)
-  jobs := operations.NewJobsService(client)
-  result, err := jobs.List(ctx, nil)
+  run, _ := client.Jobs().Trigger(ctx, "my-job", strait.TriggerInput{
+      Payload: map[string]any{"key": "value"},
+  })
+  fmt.Println(run.ID, run.Status) // run_abc123 queued
   ```
 </CodeGroup>
 
@@ -85,7 +95,7 @@ Each SDK is organized into the same five layers:
 +-------------------------------------------+
 |  Composition Helpers                      |  retry, wait, paginate, deploy
 +-------------------------------------------+
-|  Domain Operations (19 services)          |  jobs, runs, workflows, ...<sup>1</sup>
+|  Domain Operations (19 services)          |  jobs, runs, workflows, ...
 +-------------------------------------------+
 |  HTTP Client + Middleware                 |  auth, headers, error mapping
 +-------------------------------------------+
@@ -148,4 +158,3 @@ All 186 API operations are organized into typed service classes:
   </Card>
 </CardGroup>
 
-<small><sup>1</sup> Service counts reflect the Go SDK. Other languages may organize operations into more or fewer services.</small>
