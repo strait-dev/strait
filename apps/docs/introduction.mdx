@@ -38,125 +38,15 @@ Strait replaces that patchwork with one system:
   <Card title="Cost Budgets" icon="money-bill">
     Track AI model usage with micro-USD precision. Enforce per-run and daily project limits to control costs.
   </Card>
-</CardGroup>
-
-<CardGroup cols={2}>
   <Card title="Event Triggers" icon="bell">
     Pause execution and wait for external events — approvals, webhooks, third-party callbacks — for days or weeks without holding resources. Durable, database-backed waits with timeout support.
   </Card>
   <Card title="Real-Time Updates" icon="zap">
     Your applications react instantly when jobs, workflows, or runs change — no polling required.
   </Card>
-  <Card title="SDK Endpoints" icon="code">
-    Specialized endpoints for job executors—logging, heartbeats, progress updates, checkpoints, continuation, and child job spawning.
-  </Card>
-  <Card title="Webhooks" icon="send">
-    HMAC-SHA256 signed webhooks with automatic retries. Failed deliveries go to a review queue so nothing is silently lost.
-  </Card>
-  <Card title="Health Scoring" icon="chart-line">
-    Aggregate metrics over configurable time windows. Success rate, timeout rate, crash rate, and latency stability—at-a-glance job reliability.
-  </Card>
 </CardGroup>
 
-## Architecture Overview
-
-```text
-                    ┌──────────────────────────────────┐
-                    │           API Server              │
-                    │                                    │
-                    │  /v1/jobs/* ── Job CRUD + Health   │
-                    │  /v1/workflows/* ── DAG CRUD       │
-                    │  /v1/workflow-runs/* ── Run mgmt   │
-                    │  /v1/jobs/{id}/trigger ── Enqueue  │
-                    │  /v1/runs/* ── Run mgmt + Review  │
-                    │  /v1/events/* ── Event triggers    │
-                    │  /sdk/v1/* ── SDK (JWT auth)      │
-                    │  /metrics ── Prometheus            │
-                    └──────────┬───────────────────────┘
-                               │ Enqueue (budget check)
-                               v
-                    ┌──────────────────────────────────┐
-                    │         PostgreSQL                 │
-                    │                                    │
-                    │  jobs ── job definitions           │
-                    │  job_runs ── run state + queue     │
-                    │  workflows ── DAG definitions      │
-                    │  workflow_runs ── workflow state   │
-                    │  event_triggers ── durable waits   │
-                    │  run_events ── log entries         │
-                    │  run_usage ── AI cost tracking     │
-                    │  environments ── endpoint config   │
-                    │  project_quotas ── budget limits   │
-                    │                                    │
-                    │  Queue: Job claiming               │
-                    │         Parallel workers           │
-                    └──────────┬───────────────────────┘
-                               │ Dequeue
-                               v
-                    ┌──────────────────────────────────┐
-                    │         Worker Executor            │
-                    │                                    │
-                    │  Poll ─> Dequeue available runs    │
-                    │  Workflow Engine:                  │
-                    │  - Graph Validation                │
-                    │  - Parallel Completion Handling    │
-                    │  - Condition Evaluation             │
-                    │  - Data Passing Between Steps       │
-                    │  - Sub-workflow Nesting            │
-                    │                                    │
-                    │  Job Execution:                    │
-                    │  - Resolve ─> Env override + URL   │
-                    │    validation                      │
-                    │  - Execute ─> HTTP POST to endpt   │
-                    │  - Retry ─> Smart strategy select  │
-                    │  - Trace ─> Execution timing       │
-                    │  - Review ─> Review queue on exhaust│
-                    └──────────┬───────────────────────┘
-                               │ Webhook / PubSub
-                               v
-                    ┌──────────────────────────────────┐
-                    │  Scheduler         │  Redis       │
-                    │  - Cron ticker     │  - PubSub    │
-                    │  - Delayed poller  │  - SSE       │
-                    │  - Stale reaper    │  streaming   │
-                    │  - Retention       │              │
-                    └──────────────────────────────────┘
-```
-
-Strait runs in three modes:
-
-<Info>
-**api**: Handles HTTP requests, job management, and triggering. Scale horizontally for API throughput.
-</Info>
-<Info>
-**worker**: Runs executor, scheduler, and background maintenance. Scale horizontally for job processing throughput.
-</Info>
-<Info>
-**all**: Combined mode for development or small deployments. Single binary, single process.
-</Info>
-
-## Why Strait?
-
-<Steps>
-  <Step title="Zero External Dependencies">
-    No RabbitMQ. No SQS. No Kafka. PostgreSQL handles queuing—parallel workers without operational overhead. Single binary includes everything—no runtime dependencies to install.
-  </Step>
-  <Step title="Parallel Job Execution">
-    Strait runs jobs concurrently with bounded backpressure to prevent memory exhaustion during traffic spikes. Panic recovery and graceful shutdown are built in.
-  </Step>
-  <Step title="Built for AI Workloads">
-    SDK endpoints designed for AI agents—logging, heartbeats, progress checkpoints, continuation for long-running workflows, and child job spawning. Cost budgets track token usage with micro-USD precision. Debug bundles aggregate execution data for troubleshooting.
-  </Step>
-  <Step title="Workflow Orchestration">
-    Define steps that run in parallel or sequentially, with conditions, data passing, and human approval gates. Strait safely handles the case where multiple parent steps complete at the same time. Sub-workflows let you nest pipelines to any depth.
-  </Step>
-  <Step title="Observability First">
-    OpenTelemetry tracing links job runs across API server, worker, and external endpoints. Prometheus metrics expose queue depth, throughput, and latency. Structured JSON logging supports log aggregation. Real-time streaming keeps your dashboards current.
-  </Step>
-  <Step title="Developer Experience">
-    Unified CLI with code-first deployment workflows, operational command groups, and shell completion for Bash, Zsh, Fish, and PowerShell.
-  </Step>
-</Steps>
+For how Strait works internally, see [Architecture](/architecture).
 
 ## Use Cases
 
@@ -175,6 +65,8 @@ Strait fits these patterns:
 **Cron Jobs**: Standard 5-field cron expressions with timezone support and execution windows.
 
 ## Getting Started
+
+Not sure whether to use cloud or self-host? See [Choose Your Path](/choose-your-path).
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="bolt" href="/quickstart">
@@ -197,76 +89,5 @@ Strait fits these patterns:
 <CardGroup cols={2}>
   <Card title="API Reference" icon="api" href="/api-reference/overview">
     REST API endpoints for job management, triggering, workflow orchestration, and SDK interactions.
-  </Card>
-</CardGroup>
-
-## Concepts
-
-Core domain concepts you'll encounter:
-
-<Tabs>
-  <Tab title="Jobs">
-    Jobs define the template for recurring tasks—endpoint URL, timeout, retry strategy, cron schedule, and cost budgets. Runs are execution instances of jobs.
-  </Tab>
-  <Tab title="Runs">
-    Runs represent a single execution of a job. Each run moves through a clear lifecycle — queued, dequeued, executing, completed, failed, timed out, or sent to the review queue — with events, logs, and usage data tracked along the way.
-  </Tab>
-  <Tab title="Workflows">
-    Workflows orchestrate multiple jobs as dependency graphs. Steps can depend on outputs from parent steps, run conditionally based on step status, include human approval gates, and wait for external events.
-  </Tab>
-  <Tab title="Event Triggers">
-    Event triggers pause workflow steps or job runs until an external event arrives via API. Waits are durable — stored in the database — and can last days or weeks. You can set timeouts, receive webhook notifications, chain events, and stream updates in real time.
-  </Tab>
-  <Tab title="Environments">
-    Environments provide per-project, named configurations with key-value variables. Jobs can link to environments, enabling endpoint URL overrides for staging vs. production routing.
-  </Tab>
-</Tabs>
-
-## Guides
-
-Step-by-step guides for common tasks:
-
-<CardGroup cols={2}>
-  <Card title="Authentication" icon="lock" href="/guides/authentication">
-    Internal secret auth for API endpoints and JWT run token auth for SDK. API key management with system keychain storage.
-  </Card>
-  <Card title="Deployment" icon="cloud" href="/guides/deployment">
-    Docker deployment, Kubernetes configuration, horizontal scaling strategies, and production readiness checklist.
-  </Card>
-  <Card title="Security" icon="shield" href="/guides/security">
-    URL validation, rate limiting, encryption at rest, and secure webhook delivery.
-  </Card>
-  <Card title="Cost Budgets" icon="money-bill" href="/concepts/cost-budgets">
-    Per-run and daily project limits. AI model usage tracking with micro-USD precision. Budget enforcement before execution.
-  </Card>
-</CardGroup>
-
-
-## What's Next?
-
-What to read next:
-
-- Understand the [workflow engine](/architecture#workflow-engine) and how dependency graphs execute
-- Explore [retry strategies](/concepts/retry-strategies) -- exponential, linear, fixed, and custom
-- Set up [webhooks](/concepts/webhooks) with HMAC signing for event delivery
-- Build durable workflows with [event triggers](/concepts/event-triggers) — wait for external events without holding resources
-- Configure [cost budgets](/concepts/cost-budgets) for AI workloads
-
-Or jump straight into the [Quick Start Guide](/quickstart) and run your first job in 5 minutes.
-
-## Explore the Docs
-
-<CardGroup cols={2}>
-  <Card title="Quick Start" icon="rocket" href="/quickstart">
-    Run your first job in under 10 minutes.
-  </Card>
-  <Card title="Architecture" icon="sitemap" href="/architecture">
-    Understand how Strait works.
-  </Card>
-  <Card title="SDKs" icon="code" href="/sdks/overview">
-    Official client libraries for 5 languages.
-  </Card>
-  <Card title="API Reference" icon="square-terminal" href="/api-reference/overview">
-    Complete REST API documentation.
   </Card>
 </CardGroup>

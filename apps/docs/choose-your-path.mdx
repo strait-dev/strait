@@ -38,6 +38,14 @@ Strait runs as a managed cloud service or self-hosted on your infrastructure. Bo
         token: "sk_live_...",
       },
     });
+
+    // Trigger a job
+    const run = await client.triggerJob({
+      pathParams: { jobID: "my-first-job" },
+      body: { payload: { message: "Hello from Strait!" } },
+    });
+
+    console.log(run.id, run.status); // run_abc123 queued
     ```
   </Step>
 </Steps>
@@ -51,7 +59,7 @@ Strait runs as a managed cloud service or self-hosted on your infrastructure. Bo
     cd strait
     make selfhost
     ```
-    This starts Strait with PostgreSQL and Redis via Docker Compose, and creates a default project automatically.
+    This starts Strait with PostgreSQL and Redis via Docker Compose.
   </Step>
   <Step title="Open the dashboard">
     Go to [http://localhost:3000](http://localhost:3000) to access the Strait dashboard.

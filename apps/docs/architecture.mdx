@@ -120,85 +120,9 @@ Strait uses PostgreSQL as its job queue. Workers claim available jobs from the q
 
 ## Run Lifecycle
 
-Every job run moves through a set of states from creation to completion (or failure).
+Every run moves through a set of states: **queued** -> **executing** -> **completed** (or **failed** / **timed_out**). Failed runs retry up to the configured max attempts, then move to the review queue for manual inspection.
 
-```text
-                         ┌─────────┐
-                         │ delayed │
-                         └────┬────┘
-                              │ scheduled_at <= NOW
-                              v
-                         ┌─────────┐
-              ┌──────────│ queued  │──────────┐
-              │          └────┬────┘          │
-              │               │ claimed       │
-              │               v               │
-              │         ┌───────────┐         │
-              │  retry  │ executing │         │
-              │  ┌─────>│           │         │
-              │  │      └─────┬─────┘         │
-              │  │  ┌─────────┼─────────┐     │
-              │  │  v         v         v     │
-              │  │ completed failed timed_out  │
-              │  │               │             │
-              │  │               v             │
-              │  │  (attempt < max_attempts)   │
-              │  └────── back to queued ───────┘
-              │               │
-              │    (all retries exhausted)
-              │               v
-              │      ┌──────────────┐
-              │      │ review queue │
-              │      └──────────────┘
-              │
-              └── canceled (any non-terminal)
-                  expired  (delayed/queued with TTL)
-```
-
-### Main Flow
-
-1. Jobs start as **queued** (or **delayed** if scheduled for the future).
-2. A worker claims the job and it moves to **executing**.
-3. The job completes successfully (**completed**), fails (**failed**), or exceeds its timeout (**timed_out**).
-
-### Retries
-
-When a job fails and has remaining retry attempts (`attempt < max_attempts`), it returns to **queued** with a backoff delay. The retry strategy (exponential, linear, fixed, or custom) determines the wait time before the next attempt.
-
-### Review Queue
-
-Jobs that exhaust all retry attempts move to the review queue (for jobs that exhausted all retries) instead of staying in **failed**. You can inspect and replay these jobs via the review queue management endpoint, which resets the attempt counter and re-queues the job.
-
-### Cancellation and Expiration
-
-Any non-terminal run can be **canceled** at any time. Delayed or queued runs with a TTL (`expires_at`) are automatically **expired** when the TTL elapses.
-
-### Valid Transitions
-
-<Steps>
-  <Step title="delayed -> queued, canceled, expired">
-    Delayed jobs move to queued when scheduled time arrives. Can be canceled or expired before execution.
-  </Step>
-  <Step title="queued -> executing, canceled, expired">
-    A worker claims the run, or you cancel it manually, or it expires if its TTL elapses.
-  </Step>
-  <Step title="executing -> completed, failed, timed_out, canceled">
-    Terminal states indicate job outcome. The run can also be canceled while executing.
-  </Step>
-  <Step title="failed -> queued (retry)">
-    If attempt count is below max_attempts, the job returns to queued with a backoff delay.
-  </Step>
-  <Step title="failed -> review queue">
-    If all retries are exhausted, the job moves to the review queue for manual inspection.
-  </Step>
-  <Step title="review queue -> queued">
-    Replay via the review queue management endpoint resets attempt counter and status.
-  </Step>
-</Steps>
-
-### Safe Concurrent Transitions
-
-When multiple workers try to transition the same run, only one succeeds. Each transition checks the run's current status before updating it -- if the status has already changed, the update affects zero rows and the worker retries. This prevents race conditions without distributed locks or version numbers.
+For the full lifecycle diagram and state transition details, see [Runs](/concepts/runs#run-lifecycle).
 
 ## Authentication
 
