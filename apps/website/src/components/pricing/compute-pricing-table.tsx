@@ -106,7 +106,7 @@ export function ComputePricingTable() {
           </table>
         </div>
 
-        <p className="mt-4 text-muted-foreground/70 text-xs">
+        <p className="mt-4 text-muted-foreground text-xs">
           Free tier includes the micro preset with a 10-second max timeout. Paid
           plans include compute credits equal to the subscription price.
         </p>

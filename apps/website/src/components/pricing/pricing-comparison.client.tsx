@@ -224,7 +224,7 @@ const PricingComparisonClient = ({
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
           <span className="kicker">{header.badge}</span>
           <h2
-            className="text-balance font-semibold text-2xl text-foreground sm:text-3xl lg:text-4xl"
+            className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl"
             id={headingId}
           >
             {header.title}

@@ -62,7 +62,7 @@ const PostNavigation = async ({ currentSlug }: PostNavigationProps) => {
             icon={ArrowLeft01Icon}
           />
           <div className="min-w-0">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">
+            <p className="text-muted-foreground text-xs uppercase tracking-wider">
               Previous
             </p>
             <p className="truncate font-medium text-foreground">
@@ -80,7 +80,7 @@ const PostNavigation = async ({ currentSlug }: PostNavigationProps) => {
           href={`/blog/${nextPost._slug}`}
         >
           <div className="min-w-0">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">
+            <p className="text-muted-foreground text-xs uppercase tracking-wider">
               Next
             </p>
             <p className="truncate font-medium text-foreground">
