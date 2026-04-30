@@ -46,24 +46,24 @@ is rising and SSE consumers may observe stale state.
 **Escalation.** If depth keeps climbing after scaling, page the queue
 on-call. Prolonged saturation risks downstream SLA breach.
 
-## StraitDLQGrowing
+## StraitReviewQueueGrowing
 
-**Symptom.** `max(deriv(strait_dlq_depth[15m])) > 0` for 15 minutes —
-the dead-letter depth gauge has a positive linear slope over the
+**Symptom.** `max(deriv(strait_review_queue_depth[15m])) > 0` for 15 minutes --
+the review-queue depth gauge has a positive linear slope over the
 window.
 
-**Impact.** A systematic failure is pushing runs to the dead-letter
-queue faster than operators are triaging. Eventual customer-visible
+**Impact.** A systematic failure is pushing runs to the review queue
+faster than operators are triaging. Eventual customer-visible
 failure-count spike.
 
 **Diagnosis.**
 
 - Top offending jobs:
   ```
-  topk(10, strait_dlq_depth) by (job_id)
+  topk(10, strait_review_queue_depth) by (job_id)
   ```
-- Inspect the most recent DLQ entries via `GET /v1/admin/dlq` and the
-  DLQ recovery runbook (`operations/dlq-recovery`).
+- Inspect the most recent review-queue entries via `GET /v1/admin/review-queue` and the
+  review-queue recovery runbook (`operations/dlq-recovery`).
 - Correlate with `strait_webhook_deliveries_total` failures or external
   dependency errors.
 
@@ -72,24 +72,24 @@ failure-count spike.
 1. Identify the failure class (user code bug, dependency outage,
    misconfiguration).
 2. Replay recoverable runs via
-   `POST /v1/admin/dlq/{run_id}/replay`.
+   `POST /v1/admin/review-queue/{run_id}/replay`.
 3. Purge non-recoverable runs with an audit trail.
 
 **Escalation.** Page the domain owner for the offending job if the
 cause is business-logic. Otherwise, treat as a platform incident.
 
-## StraitDLQOldestUnmaskedAged
+## StraitReviewQueueOldestUnmaskedAged
 
-**Symptom.** `strait_queue_dlq_oldest_unmasked_age_seconds > 86400`.
+**Symptom.** `strait_queue_review_queue_oldest_unmasked_age_seconds > 86400`.
 
-**Impact.** A dead-letter row has been waiting for triage for more
+**Impact.** A review-queue entry has been waiting for triage for more
 than 24 hours. Indicates operator inattention, not a spike.
 
 **Diagnosis.**
 
-- Pull the oldest visible DLQ rows:
+- Pull the oldest visible review-queue rows:
   ```
-  GET /v1/admin/dlq?order=oldest&limit=20
+  GET /v1/admin/review-queue?order=oldest&limit=20
   ```
 - Cross-reference with ticketing — is triage blocked on someone?
 
@@ -267,7 +267,7 @@ affect a high-priority event integration.
 **Symptom.** `max(strait_queue_counter_drift) > 10` for 15 minutes.
 
 **Impact.** Trigger-maintained counters (`job_active_counts`,
-`dlq_counts`) disagree with ground truth. Admission control and
+`review_queue_counts`) disagree with ground truth. Admission control and
 quota checks are operating on stale numbers; users may see spurious
 throttling or over-admission.
 

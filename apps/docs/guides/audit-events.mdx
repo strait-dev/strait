@@ -210,7 +210,7 @@ The response confirms the epoch transition:
 
 <Steps>
   <Step title="Rotation is atomic">
-    The store acquires an advisory lock, derives a new epoch key, stores it encrypted, and emits a tombstone anchor event (`audit.key_rotated`) signed with the new key -- all in a single transaction.
+    The store acquires a database lock, derives a new epoch key, stores it encrypted, and emits a tombstone anchor event (`audit.key_rotated`) signed with the new key -- all in a single transaction.
   </Step>
   <Step title="Chain verification spans key generations">
     The tombstone event marks the boundary between key epochs. The chain verifier detects these boundaries and uses the correct key for each epoch, so verification works across rotations.
@@ -305,17 +305,17 @@ AUDIT_SIEM_ENDPOINT=https://your-cluster:9200/strait-audit/_bulk
 
 Use an ingest pipeline to parse the NDJSON payload and map fields to your index schema.
 
-## Dead Letter Queue
+## Review Queue
 
-Audit events that fail to persist after all retries land in a dead letter table. Administrators can inspect and replay them:
+Audit events that fail to persist after all retries land in a review queue (a holding area for failed events). Administrators can inspect and replay them:
 
 | Endpoint                                    | Method   | Description                                    |
 | :------------------------------------------ | :------- | :--------------------------------------------- |
-| `GET /v1/audit/deadletter`                  | `GET`    | List dead-lettered events (paginated).          |
+| `GET /v1/audit/deadletter`                  | `GET`    | List events in the review queue (paginated).    |
 | `POST /v1/audit/deadletter/{id}/replay`     | `POST`   | Replay an event back into the primary chain.    |
 | `DELETE /v1/audit/deadletter/{id}`           | `DELETE` | Permanently drop an event (data loss accepted). |
 
-All DLQ endpoints require the internal secret. A background reclamation job periodically replays dead-lettered events automatically. Dead-lettered events older than `AUDIT_DLQ_MAX_AGE_DAYS` (default 30) are cleaned up by a separate reaper.
+All review-queue endpoints require the internal secret. A background reclamation job periodically replays failed events automatically. Events in the review queue older than `AUDIT_REVIEW_QUEUE_MAX_AGE_DAYS` (default 30) are cleaned up by a separate reaper.
 
 ## Webhook Integration
 
@@ -334,7 +334,7 @@ To stream audit events to your own systems in real time, use the SIEM forwarding
 | :------------------------------ | :----------- | :---------------------------------------------------- |
 | `SECRET_ENCRYPTION_KEY`         | _(required)_ | Base key for HKDF derivation of the audit signing key.|
 | `AUDIT_RETENTION_DEFAULT_DAYS`  | `365`        | Default retention window in days.                     |
-| `AUDIT_DLQ_MAX_AGE_DAYS`       | `30`         | Max age of dead-lettered events before cleanup.       |
+| `AUDIT_REVIEW_QUEUE_MAX_AGE_DAYS` | `30`         | Max age of events in the review queue before cleanup. |
 | `AUDIT_ASYNC_BUFFER_SIZE`      | `8192`       | Capacity of the async emit channel.                   |
 | `AUDIT_EXPORT_ROW_CAP_DEFAULT` | `1000000`    | Default max rows per export stream.                   |
 | `AUDIT_SIEM_ENDPOINT`          | _(disabled)_ | SIEM forwarding target URL.                           |

@@ -180,19 +180,17 @@ This page documents all environment variables available for configuring Strait.
 
 
 
-## Managed Execution (Fly Machines)
+## Managed Execution
 
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `COMPUTE_RUNTIME` | String | `none` | Container runtime for managed execution: `none`, `fly`, or `docker`. |
-| `FLY_API_TOKEN` | String | - | Fly Machines API token. Required when `COMPUTE_RUNTIME=fly`. |
-| `FLY_APP_NAME` | String | - | Fly app name for machine provisioning. Required when `COMPUTE_RUNTIME=fly`. |
-| `FLY_REGION` | String | `iad` | Default Fly region for new machines. Overridden by job-level or run-level region hints. |
+| `COMPUTE_RUNTIME` | String | `none` | Container runtime for managed execution: `none`, `docker`, or `k8s`. |
+| `K8S_NAMESPACE` | String | `default` | Kubernetes namespace for managed containers. Required when `COMPUTE_RUNTIME=k8s`. |
 | `EXTERNAL_API_URL` | String | - | Public API URL injected into containers as `STRAIT_API_URL` for SDK callbacks. |
 | `MAX_CONCURRENT_MACHINES` | Integer | `10` | Maximum number of parallel managed containers across all jobs. |
-| `WARM_POOL_ENABLED` | Boolean | `false` | Enable warm machine pool for faster cold starts. |
-| `WARM_POOL_MAX_PER_JOB` | Integer | `3` | Maximum warm machines per job/region combination. |
-| `WARM_POOL_TTL` | Duration | `5m` | TTL for idle warm machines before they are destroyed. |
+| `WARM_POOL_ENABLED` | Boolean | `false` | Enable warm container pool for faster cold starts. |
+| `WARM_POOL_MAX_PER_JOB` | Integer | `3` | Maximum warm containers per job. |
+| `WARM_POOL_TTL` | Duration | `5m` | TTL for idle warm containers before they are destroyed. |
 
 ## Shutdown
 

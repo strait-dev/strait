@@ -10,7 +10,7 @@ Strait integrates with your existing infrastructure without requiring additional
 
 <CardGroup cols={2}>
   <Card title="PostgreSQL" icon="database">
-    The only required dependency. Strait uses advisory locks for queue semantics, LISTEN/NOTIFY for real-time updates, and stores all state in Postgres.
+    The only required dependency. Strait uses database locks for queue semantics, LISTEN/NOTIFY for real-time updates, and stores all state in Postgres.
   </Card>
   <Card title="Redis" icon="bolt">
     Optional. Used for rate limiting, caching, and distributed locking when running multiple Strait instances.

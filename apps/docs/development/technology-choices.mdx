@@ -44,7 +44,7 @@ The `huma_bridge.go` file provides a `TypedHandler` that extracts path/query par
 | | |
 |---|---|
 | **Packages** | `jackc/pgx/v5` v5.9.2, `georgysavva/scany/v2` v2.1.4, `golang-migrate/migrate/v4` v4.19.1 |
-| **Why** | Direct Postgres access via pgx gives us full control over SQL, connection pooling, LISTEN/NOTIFY, and advisory locks. No ORM abstraction hiding query behavior. |
+| **Why** | Direct Postgres access via pgx gives us full control over SQL, connection pooling, LISTEN/NOTIFY, and database-level coordination. No ORM abstraction hiding query behavior. |
 | **Considered** | sqlx (simpler but less capable pool), GORM (hides SQL, unpredictable queries, hard to optimize), ent (schema-first codegen adds build complexity). |
 
 Every query is hand-written SQL. The store layer defines a `DBTX` interface that accepts either a pool connection or a transaction:
@@ -63,26 +63,18 @@ scany handles struct scanning from rows. Migrations are managed by `golang-migra
 We intentionally avoid ORMs. When a query is slow, you read the SQL, not a chain of method calls. When Postgres adds a feature, you use it immediately -- no waiting for ORM support.
 </Warning>
 
-## Queue: Postgres SKIP LOCKED
+## Queue: PostgreSQL
 
 | | |
 |---|---|
 | **Package** | None (raw SQL via pgx) |
-| **Why** | `SELECT ... FOR UPDATE SKIP LOCKED` turns Postgres into a reliable, transactional job queue with zero additional infrastructure. Jobs are enqueued and dequeued in the same database that stores their metadata. |
+| **Why** | PostgreSQL row-claiming turns Postgres into a reliable, transactional job queue with zero additional infrastructure. Jobs are enqueued and dequeued in the same database that stores their metadata. |
 | **Considered** | RabbitMQ (extra infra, separate failure domain), Redis queues (no transactional guarantees with job state), SQS (vendor lock-in, at-least-once only). |
 
-The `queue.PostgresQueue` uses `FOR UPDATE SKIP LOCKED` to let multiple worker replicas dequeue concurrently without contention. Because the queue lives in the same Postgres transaction as the job state update, enqueue-and-update-status is atomic -- no two-phase commit, no distributed saga.
+The `queue.PostgresQueue` uses concurrent row claiming to let multiple worker replicas dequeue concurrently without contention. Because the queue lives in the same Postgres transaction as the job state update, enqueue-and-update-status is atomic -- no two-phase commit, no distributed saga.
 
-```sql
-SELECT jr.id, jr.job_id, jr.status, ...
-FROM job_runs jr
-WHERE jr.status = 'queued'
-ORDER BY jr.priority DESC, jr.created_at ASC
-FOR UPDATE OF jr SKIP LOCKED
-LIMIT 1
-```
 
-Backpressure is handled via a token bucket controller attached to the queue. An outbox pattern with `SKIP LOCKED` is used for webhook deliveries and event fan-out.
+Backpressure is handled via a token bucket controller attached to the queue. An outbox pattern with database-level job claiming is used for webhook deliveries and event fan-out.
 
 ## Cache: Redis + otter + gocache
 

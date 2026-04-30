@@ -1,6 +1,6 @@
 ---
 title: "TypeScript SDK"
-description: "Effect-first TypeScript SDK with generated operations, authoring DSL, and XState FSMs."
+description: "Effect-first TypeScript SDK with generated operations, authoring DSL, and XState lifecycle machines."
 icon: "js"
 ---
 
@@ -159,7 +159,7 @@ for await (const r of paginate((q) => client.listRuns({ query: q }))) {
 const all = await collectAll(paginate((q) => client.listRuns({ query: q })));
 ```
 
-## FSM State Machines
+## Run Lifecycle
 
 XState v5 machines for run lifecycle validation and UI state management:
 

@@ -4,25 +4,25 @@ description: "Guide for deploying and scaling Strait in production."
 icon: "cloud-arrow-up"
 ---
 
-Strait ships as a single Go binary. You can deploy it anywhere from Docker Compose locally to Fly.io or Kubernetes in production.
+Strait ships as a single Go binary. You can deploy it anywhere from Docker Compose locally to Docker or Kubernetes in production.
 
 ## Architecture Overview
 
 Production deployment consists of the following services:
 
-| Service | Platform | Region(s) | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Strait** (Go backend) | Fly.io (`strait`) | `iad`, `lhr`, `gru` | API server + worker |
-| **Sequin** (CDC) | Fly.io (`strait-sequin`) | `iad` | Postgres WAL → Redis pub/sub |
-| **PostgreSQL** | PlanetScale | `us-east-1` | Primary data store |
-| **Redis** | Upstash | — | Pub/sub, SSE streaming, CDC events |
-| **Frontend** | — | — | `apps/app` (Vite/React) |
+| Service | Platform | Purpose |
+| :--- | :--- | :--- |
+| **Strait** (Go backend) | Docker / Kubernetes | API server + worker |
+| **Sequin** (CDC) | Docker / Kubernetes | Postgres WAL to Redis pub/sub |
+| **PostgreSQL** | Managed (e.g., PlanetScale, RDS) | Primary data store |
+| **Redis** | Managed (e.g., Upstash, ElastiCache) | Pub/sub, SSE streaming, CDC events |
+| **Frontend** | -- | `apps/app` (Vite/React) |
 
 ### Region Strategy
 
-- **Primary region**: `iad` (Ashburn, Virginia) — co-located with the database for lowest latency.
-- **Edge regions**: `lhr` (London), `gru` (São Paulo) — for faster API responses globally.
-- **Sequin**: Single instance in `iad` only. CDC requires a persistent WAL connection and must run next to the database. Multiple instances would cause duplicate event processing.
+- **Primary region**: Co-locate Strait with your database for lowest latency.
+- **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
+- **Sequin**: Single instance, co-located with the database. CDC requires a persistent WAL connection and must run next to the database. Multiple instances would cause duplicate event processing.
 
 ## Secrets Management
 
@@ -48,9 +48,9 @@ doppler run -- bun run dev
 doppler secrets download --no-file --format env > .env
 ```
 
-### Fly.io Integration
+### Platform Integration
 
-Secrets are synced from Doppler to Fly.io via the Doppler-Fly integration. When you update a secret in Doppler, it automatically propagates to Fly machines.
+Secrets are synced from Doppler to your deployment platform via Doppler integrations. When you update a secret in Doppler, it automatically propagates to your containers.
 
 ## Operation Modes
 
@@ -74,23 +74,18 @@ For local development, use `apps/strait/docker-compose.yml`:
 docker compose -f apps/strait/docker-compose.yml up -d
 ```
 
-## Fly.io Deployment
+## Container Deployment
 
 ### Project Structure
 
 ```
 apps/strait/
 ├── Dockerfile      # Multi-stage Go build
-├── fly.toml        # Fly config for the main app
 ├── Makefile        # Build, test, and deploy commands
 └── .dockerignore
-
-packages/deploy/
-└── sequin/
-    └── fly.toml    # Fly config for Sequin CDC
 ```
 
-### Deploying the Main App
+### Building and Deploying
 
 The Dockerfile uses a multi-stage build: Go compile on Alpine, then copy the binary to a minimal runtime image (~16 MB).
 
@@ -102,21 +97,18 @@ make deploy
 bun run deploy
 ```
 
-The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing to Fly. If any check fails, the deploy is aborted.
+The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing. If any check fails, the deploy is aborted.
 
 ### Deploying Sequin
 
-Sequin uses the official `sequin/sequin:latest` Docker image — no build step needed.
+Sequin uses the official `sequin/sequin:latest` Docker image -- no build step needed.
 
 ```bash
 # From repo root
 bun run deploy:sequin
-
-# Or directly
-cd packages/deploy/sequin && fly deploy -a strait-sequin
 ```
 
-Sequin requires the following secrets set on Fly (managed via `fly secrets set`):
+Sequin requires the following secrets configured in your deployment platform:
 
 | Secret | Description |
 | :--- | :--- |
@@ -132,16 +124,11 @@ Sequin requires the following secrets set on Fly (managed via `fly secrets set`)
 
 ### CI/CD
 
-The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deploys to Fly when:
+The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deploys when:
 
 1. Code is pushed to `master`
 2. Changes are in `apps/strait/**`
 3. All required workflows pass (`Test`, `Lint`, `Security`)
-
-Required GitHub secret: `FLY_API_TOKEN` — generate a deploy token scoped to the app:
-```bash
-fly tokens create deploy -a strait
-```
 
 ## Production Configuration
 
@@ -167,10 +154,10 @@ To handle higher traffic, separate the API and worker processes:
 
 Strait shuts down gracefully in both modes:
 - **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
-- **Worker**: Stops dequeuing new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
+- **Worker**: Stops claiming new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
 
 <Tip>
-  Always use a process manager or orchestrator (like Kubernetes or Fly.io) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
+  Always use a process manager or orchestrator (like Kubernetes or Docker Compose) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
 </Tip>
 
 ## Quick Reference
@@ -182,14 +169,6 @@ bun run deploy                     # from repo root
 
 # Deploy Sequin
 bun run deploy:sequin              # from repo root
-
-# Check status
-fly status -a strait
-fly status -a strait-sequin
-
-# View logs
-fly logs -a strait
-fly logs -a strait-sequin
 
 # Manage secrets (via Doppler)
 doppler secrets -p strait -c prd   # list production secrets

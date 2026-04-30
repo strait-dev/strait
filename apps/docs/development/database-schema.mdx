@@ -1,6 +1,6 @@
 ---
 title: "Database Schema"
-description: "Conceptual overview of the Postgres schema — tables, relationships, state machines, CDC integration, and migration conventions."
+description: "Conceptual overview of the Postgres schema — tables, relationships, run states, CDC integration, and migration conventions."
 icon: "database"
 ---
 
@@ -60,7 +60,7 @@ Every triggered execution of a job produces a run. This is the highest-write-vol
 | `id` | `TEXT PK` | NanoID |
 | `job_id` | `TEXT NOT NULL` | FK to `jobs` |
 | `project_id` | `TEXT NOT NULL` | Denormalized for fast filtered queries |
-| `status` | `TEXT NOT NULL` | Current FSM state (see [Run State Machine](#run-state-machine)) |
+| `status` | `TEXT NOT NULL` | Current lifecycle state (see [Run State Machine](#run-state-machine)) |
 | `attempt` | `INT` | Current attempt number (1-based) |
 | `payload` | `JSONB` | Input data |
 | `result` | `JSONB` | Output data (set on completion) |
@@ -89,9 +89,9 @@ Every triggered execution of a job produces a run. This is the highest-write-vol
 | `idx_runs_heartbeat` | `WHERE status = 'executing'` | Stale heartbeat detection |
 | `idx_runs_expires` | `WHERE expires_at IS NOT NULL AND status IN ('delayed', 'queued')` | TTL reaper |
 
-## Run State Machine
+## Run States
 
-Runs follow a 15-state finite state machine enforced in application code (`domain/fsm.go`). The FSM is the single source of truth for which transitions are legal — the database stores the current state as a plain `TEXT` column, and every state change passes through `domain.ValidateTransition`.
+Runs follow a 15-state lifecycle enforced in application code (`domain/fsm.go`). The state lifecycle is the single source of truth for which transitions are legal — the database stores the current state as a plain `TEXT` column, and every state change passes through `domain.ValidateTransition`.
 
 ```mermaid
 stateDiagram-v2
@@ -189,10 +189,10 @@ Additional columns added by later migrations support event-driven steps: `event_
 | `id` | `TEXT PK` | |
 | `workflow_id` | `TEXT` | FK to `workflows` |
 | `project_id` | `TEXT` | Denormalized |
-| `status` | `TEXT` | Workflow FSM state |
+| `status` | `TEXT` | Workflow state |
 | `triggered_by` | `TEXT` | |
 
-**Workflow Run FSM** (10 states):
+**Workflow Run States** (10 states):
 
 | State | Transitions to |
 |---|---|
@@ -220,9 +220,9 @@ Tracks each step's execution within a workflow run.
 | `job_run_id` | `TEXT` | FK to the `job_runs` row this step spawned |
 | `deps_completed` | `INT` | Counter: how many dependencies have finished |
 | `deps_required` | `INT` | Total dependency count |
-| `status` | `TEXT` | Step FSM state |
+| `status` | `TEXT` | Step state |
 
-**Step Run FSM** (7 states): `pending` -> `waiting` -> `running` -> `completed` | `failed` | `skipped` | `canceled`.
+**Step Run States** (7 states): `pending` -> `waiting` -> `running` -> `completed` | `failed` | `skipped` | `canceled`.
 
 The link back to `job_runs` is bidirectional: `workflow_step_runs.job_run_id` points to the run, and `job_runs.workflow_step_run_id` points back to the step run. This lets the engine update the step when a run finishes and lets the API display workflow context on any run.
 
@@ -298,7 +298,7 @@ Structured log of events within a run (log entries, state changes, errors, progr
 
 ### enqueue_outbox
 
-Transactional outbox for reliable run enqueue. When a caller needs to atomically commit a database transaction and enqueue a run, the intent is written to this table inside the same transaction. A background flusher promotes rows into `job_runs` using `FOR UPDATE SKIP LOCKED`.
+Transactional outbox for reliable run enqueue. When a caller needs to atomically commit a database transaction and enqueue a run, the intent is written to this table inside the same transaction. A background flusher promotes rows into `job_runs` using database-level row claiming.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -310,7 +310,7 @@ Transactional outbox for reliable run enqueue. When a caller needs to atomically
 | `consumed_at` | `TIMESTAMPTZ` | Set when flushed into `job_runs` |
 
 <Tip>
-  The outbox pattern eliminates the reliability gap between committing a user-facing transaction and calling `queue.Enqueue`. Multiple flushers are safe by construction via `FOR UPDATE SKIP LOCKED`.
+  The outbox pattern eliminates the reliability gap between committing a user-facing transaction and calling `queue.Enqueue`. Multiple flushers are safe by construction via database-level row claiming.
 </Tip>
 
 ## CDC Integration (Sequin)
@@ -355,7 +355,7 @@ Each table has a `tenant_isolation` policy that filters rows by `project_id`, en
   </Accordion>
 
   <Accordion title="Status as TEXT, not ENUM">
-    Run status is stored as `TEXT` rather than a Postgres `ENUM`. This avoids migration pain when adding new states (Postgres enums cannot have values removed, and adding values requires careful transaction handling). The FSM is enforced in Go code with the `domain.ValidateTransition` function.
+    Run status is stored as `TEXT` rather than a Postgres `ENUM`. This avoids migration pain when adding new states (Postgres enums cannot have values removed, and adding values requires careful transaction handling). Transitions are enforced in Go code with the `domain.ValidateTransition` function.
   </Accordion>
 
   <Accordion title="Partial indexes for queue performance">

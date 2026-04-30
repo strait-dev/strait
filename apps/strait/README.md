@@ -43,7 +43,7 @@ POST /v1/jobs/{id}/runs -> enqueue -> worker/executor
 ```
 POST /v1/workflows/{id}/trigger -> WorkflowEngine
     -> step execution (worker) -> StepCallback -> next step
-    -> saga compensation on failure
+    -> rollback workflows on failure
 ```
 **Code deployment path:**
 ```
@@ -107,13 +107,13 @@ See `internal/config/config.go` for every supported env var and its default valu
 | `api` | HTTP API layer (Huma v2 + chi). Handlers, middleware, routing. |
 | `store` | All database access via `pgx/v5`. Typed methods per table, custom error types. |
 | `domain` | Core types, enums, and status transitions shared across all packages. Zero external dependencies. |
-| `worker` | Dequeues and executes job runs. Manages concurrency, retries, and graceful drain. |
+| `worker` | Claims and executes job runs. Manages concurrency, retries, and graceful drain. |
 | `workflow` | Durable multi-step workflow engine. Sequential, conditional, loop, and compensation steps. |
 | `compute` | Container execution abstraction. Docker, Kubernetes, and HTTP backends. |
 | `build` | Code deployment pipeline: source tarball to Docker image to registry. |
 | `registry` | Container registry abstraction. ECR and generic Docker Registry v2. |
 | `pubsub` | In-process event broadcasting (run status, workflow steps, build logs for SSE). |
-| `webhook` | Durable webhook delivery with retries and dead-lettering. |
+| `webhook` | Durable webhook delivery with retries. Failed deliveries are sent to a review queue for inspection. |
 | `billing` | Usage-based quota enforcement and Stripe integration (cloud edition only). |
 | `clickhouse` | Optional analytics backend. Batched event export with Postgres fallback. |
 | `telemetry` | Initializes traces, metrics, profiling, and error reporting. |
@@ -179,7 +179,7 @@ Mocks are generated via `moq` — run `go generate ./...` after interface change
 ### Code conventions
 
 - Raw SQL with `pgx/v5` — no ORM, no query builders
-- Structured concurrency with `sourcegraph/conc` and `alitto/pond`
+- Structured concurrency with `sourcegraph/conc` (safe goroutine lifecycle) and `alitto/pond` (bounded worker pools)
 - Wrap errors with `%w` and enough context to trace the call site
 - No global state — everything wired through constructors and functional options (`WithLogger`, `WithMetrics`, `WithStore`, etc.)
 - No emojis in code, comments, logs, or commit messages
