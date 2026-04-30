@@ -870,7 +870,7 @@ func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 	// Simulate worker failure: mark as failed, bump attempt.
 	_, err = testDB.Pool.Exec(ctx, `
 		UPDATE job_runs
-		SET status = 'failed', attempts = 1, finished_at = NOW()
+		SET status = 'failed', attempt = 1, finished_at = NOW()
 		WHERE id = $1
 	`, run.ID)
 	if err != nil {
@@ -916,7 +916,7 @@ func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 	// Simulate final failure: mark as failed with attempts=max_attempts.
 	_, err = testDB.Pool.Exec(ctx, `
 		UPDATE job_runs
-		SET status = 'failed', attempts = 2, finished_at = NOW()
+		SET status = 'failed', attempt = 2, finished_at = NOW()
 		WHERE id = $1
 	`, run.ID)
 	if err != nil {
@@ -927,7 +927,7 @@ func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 	var finalStatus string
 	var attempts int
 	err = testDB.Pool.QueryRow(ctx,
-		`SELECT status, attempts FROM job_runs WHERE id = $1`, run.ID,
+		`SELECT status, attempt FROM job_runs WHERE id = $1`, run.ID,
 	).Scan(&finalStatus, &attempts)
 	if err != nil {
 		t.Fatalf("query final state: %v", err)
