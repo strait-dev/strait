@@ -97,7 +97,7 @@ const PostContent = (props: PostContentProps) => {
             </h1>
 
             {description ? (
-              <p className="mb-6 text-balance text-base text-muted-foreground/70 leading-relaxed sm:text-lg">
+              <p className="mb-6 text-balance text-base text-muted-foreground leading-relaxed sm:text-lg">
                 {description}
               </p>
             ) : null}

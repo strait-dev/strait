@@ -280,15 +280,6 @@
     transparent 55%
   );
 }
-
-.gradient-warm {
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklch, var(--primary) 90%, white 10%),
-    var(--primary)
-  );
-}
-
 .gradient-border {
   position: relative;
   background:

@@ -1,5 +1,6 @@
 ---
 import CTA from "@/components/CTA.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import ComparisonHighlights from "@/components/compare/ComparisonHighlights.astro";
 import ComparisonTable from "@/components/compare/comparison-table.tsx";
 import JsonLd from "@/components/JsonLd.astro";
@@ -64,19 +65,16 @@ const breadcrumbs = getBreadcrumbSchema([
           <span class="text-foreground">Strait vs {comparison.competitor}.</span>{" "}
           <span class="text-muted-foreground">{comparison.tagline}</span>
         </h1>
-        <p class="mt-6 max-w-2xl text-muted-foreground/70 text-sm leading-relaxed sm:text-base">
+        <p class="mt-6 max-w-2xl text-muted-foreground text-sm leading-relaxed sm:text-base">
           {comparison.description}
         </p>
         <div class="mt-8">
-          <a
-            class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm"
-            href={dashboardHref("/login")}
-          >
-            Try Strait free
-            <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </a>
+					<LinkButton client:load href={dashboardHref("/login")}>
+  					Try Strait free
+						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</LinkButton>
         </div>
       </div>
     </Shell>
@@ -93,12 +91,12 @@ const breadcrumbs = getBreadcrumbSchema([
               <h3 class="font-semibold text-foreground">{diff.title}</h3>
               <div class="mt-4 space-y-3">
                 <div>
-                  <p class="text-muted-foreground text-xs uppercase tracking-wide">Strait</p>
+                  <p class="text-muted-foreground text-xs uppercase tracking-wider">Strait</p>
                   <p class="mt-1 text-foreground text-sm leading-relaxed">{diff.strait}</p>
                 </div>
                 <div>
-                  <p class="text-muted-foreground text-xs uppercase tracking-wide">{comparison.competitor}</p>
-                  <p class="mt-1 text-muted-foreground/70 text-sm leading-relaxed">{diff.competitor}</p>
+                  <p class="text-muted-foreground text-xs uppercase tracking-wider">{comparison.competitor}</p>
+                  <p class="mt-1 text-muted-foreground text-sm leading-relaxed">{diff.competitor}</p>
                 </div>
               </div>
             </div>

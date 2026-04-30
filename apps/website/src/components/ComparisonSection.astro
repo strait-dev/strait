@@ -7,10 +7,10 @@ const ROWS = [
   {
     feature: "Language SDKs",
     values: [
-      "5 (TS, Py, Go, Rb, Rust)",
+      "5 (TypeScript, Python, Go, Ruby, Rust)",
       "1 (TypeScript)",
-      "4 (TS, Py, Go, Kt)",
-      "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+      "4 (TypeScript, Python, Go, Kotlin)",
+      "7 (Go, Java, PHP, Python, TypeScript, .NET, Ruby)",
     ],
   },
   {
@@ -46,15 +46,14 @@ const ROWS = [
 ] as const;
 ---
 
-<section class="infinity-border-y overflow-hidden py-16 sm:py-20">
+<section id="comparison" class="infinity-border-y overflow-hidden py-20 sm:py-28">
   <Shell variant="wide">
     <div class="mb-14 max-w-3xl">
       <h2 class="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
         How Strait compares.
       </h2>
       <p class="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-        More SDKs, simpler self-hosting, and AI cost tracking that
-        competitors don't offer.
+        More language SDKs, managed execution, and built-in AI cost tracking.
       </p>
     </div>
 
@@ -62,6 +61,7 @@ const ROWS = [
     <div class="hidden md:block">
       <div class="overflow-hidden rounded-2xl border border-border/40">
         <table class="w-full text-sm">
+          <caption class="sr-only">Feature comparison between Strait and competitors</caption>
           <thead>
             <tr class="border-border/40 border-b bg-muted/30">
               <th

@@ -13,7 +13,7 @@ export function PricingSection() {
               <h2 className="text-balance font-semibold text-2xl text-foreground sm:text-3xl lg:text-4xl">
                 Choose the plan that fits your needs
               </h2>
-              <p className="text-muted-foreground text-sm leading-relaxed sm:text-base">
+              <p className="text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
                 All plans include AI-powered writing assistance, style analysis,
                 document management, and multi-format export. Save 20% with
                 yearly billing.

@@ -32,9 +32,9 @@ const comparisons: ComparisonPageData[] = [
   {
     slug: "temporal",
     competitor: "Temporal",
-    tagline: "Simpler ops -- just Postgres, no cluster",
+    tagline: "Simpler ops. Just Postgres, no cluster",
     description:
-      "Temporal is a powerful durable execution platform with 7 language SDKs and flexible persistence backends. Strait delivers similar durability guarantees with just Postgres -- no cluster to provision, scale, or monitor.",
+      "Temporal is a powerful durable execution platform with 7 language SDKs and flexible persistence backends. Strait delivers similar durability guarantees with just Postgres. No cluster to provision, scale, or monitor.",
     differentiators: [
       {
         title: "Infrastructure footprint",
@@ -45,7 +45,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Operational complexity",
         strait:
-          "Zero-config queue backed by your existing database -- no cluster management",
+          "Zero-config queue backed by your existing database. No cluster management",
         competitor:
           "Cluster requires operational expertise for upgrades, schema migrations, and scaling",
       },
@@ -120,8 +120,8 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
-            competitor: "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
+            competitor: "7 (Go, Java, PHP, Python, TypeScript, .NET, Ruby)",
           },
           {
             feature: "CLI and TUI tooling",
@@ -165,7 +165,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "First-class approval gates",
         description:
-          "Built-in human-in-the-loop approval steps with timeout and escalation -- no custom Signal handlers or Activity implementations needed.",
+          "Built-in human-in-the-loop approval steps with timeout and escalation. No custom Signal handlers or Activity implementations needed.",
       },
       {
         title: "Single Postgres simplicity",
@@ -180,7 +180,7 @@ const comparisons: ComparisonPageData[] = [
     ],
     switchingSteps: [
       "Export your Temporal workflow definitions and map them to Strait DAG steps with conditions and approval gates.",
-      "Point Strait at your existing Postgres database -- no Cassandra, Elasticsearch, or cluster provisioning needed.",
+      "Point Strait at your existing Postgres database. No Cassandra, Elasticsearch, or cluster provisioning needed.",
       "Deploy workers using the Strait SDK and validate runs through the built-in observability dashboard.",
       "Decommission your Temporal cluster and reclaim infrastructure spend.",
     ],
@@ -194,14 +194,14 @@ const comparisons: ComparisonPageData[] = [
     differentiators: [
       {
         title: "License",
-        strait: "Apache 2.0 -- fully permissive open source",
+        strait: "Apache 2.0, fully permissive open source",
         competitor:
           "SSPL for server (restrictive for SaaS), Apache 2.0 for SDKs only",
       },
       {
         title: "Data ownership",
         strait:
-          "All data lives in your Postgres -- full control, no external dependencies",
+          "All data lives in your Postgres. Full control, no external dependencies",
         competitor:
           "Self-hosting available, but cloud is the primary deployment model",
       },
@@ -247,8 +247,8 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
-            competitor: "4 (TS, Py, Go, Kotlin/Java)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
+            competitor: "4 (TypeScript, Python, Go, Kotlin/Java)",
           },
           {
             feature: "Built-in CLI and TUI",
@@ -348,9 +348,9 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Language support",
         strait:
-          "5 SDKs: TypeScript, Python, Go, Ruby, Rust -- build in the language your team knows",
+          "5 SDKs: TypeScript, Python, Go, Ruby, Rust. Build in the language your team knows",
         competitor:
-          "TypeScript only -- teams using other languages need a different solution",
+          "TypeScript only. Teams using other languages need a different solution",
       },
       {
         title: "Workflow orchestration",
@@ -361,8 +361,7 @@ const comparisons: ComparisonPageData[] = [
       },
       {
         title: "Backend architecture",
-        strait:
-          "Postgres-only -- no external dependencies beyond your database",
+        strait: "Postgres-only. No external dependencies beyond your database",
         competitor:
           "Self-hosting requires Postgres + Redis + object storage (Docker Compose or Helm/K8s)",
       },
@@ -373,7 +372,7 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "1 (TypeScript)",
           },
           {
@@ -396,7 +395,7 @@ const comparisons: ComparisonPageData[] = [
           {
             feature: "Step conditions and branching",
             strait: "Declarative conditions",
-            competitor: "Implicit (JS control flow)",
+            competitor: "Implicit (JavaScript control flow)",
             tooltip:
               "Trigger.dev uses standard JavaScript if/else for branching within tasks",
           },
@@ -508,7 +507,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "5 language SDKs",
         description:
-          "Build workflows in TypeScript, Python, Go, Ruby, or Rust -- not just TypeScript.",
+          "Build workflows in TypeScript, Python, Go, Ruby, or Rust. Not just TypeScript.",
       },
       {
         title: "DAG orchestration",
@@ -543,8 +542,8 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Language ecosystem",
         strait:
-          "5 SDKs: TypeScript, Python, Go, Ruby, Rust -- broader language coverage",
-        competitor: "3 SDKs: Go, Python, TypeScript -- no Ruby or Rust support",
+          "5 SDKs: TypeScript, Python, Go, Ruby, Rust. Broader language coverage",
+        competitor: "3 SDKs: Go, Python, TypeScript. No Ruby or Rust support",
       },
       {
         title: "Approval workflows",
@@ -581,7 +580,7 @@ const comparisons: ComparisonPageData[] = [
             strait: "Apache 2.0",
             competitor: "MIT",
             tooltip:
-              "MIT is more permissive than Apache 2.0 -- fewer requirements for attribution and patent grants",
+              "MIT is more permissive than Apache 2.0, with fewer requirements for attribution and patent grants",
           },
           {
             feature: "No optional message broker",
@@ -640,8 +639,8 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
-            competitor: "3 (Go, Py, TS)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
+            competitor: "3 (Go, Python, TypeScript)",
           },
           {
             feature: "CLI and TUI tooling",
@@ -692,7 +691,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "5 language SDKs",
         description:
-          "Build workflows in TypeScript, Python, Go, Ruby, or Rust -- not limited to 3 languages.",
+          "Build workflows in TypeScript, Python, Go, Ruby, or Rust. Not limited to 3 languages.",
       },
       {
         title: "First-class approval gates",
@@ -712,7 +711,7 @@ const comparisons: ComparisonPageData[] = [
     ],
     switchingSteps: [
       "Map Hatchet tasks and DAG definitions to Strait workflow steps with conditions and retry policies.",
-      "Connect Strait to your existing Postgres database -- no RabbitMQ dependency needed.",
+      "Connect Strait to your existing Postgres database. No RabbitMQ dependency needed.",
       "Convert durable event patterns to Strait's first-class approval gates with timeout and escalation.",
       "Deploy workers using the Strait SDK and validate runs through the built-in CLI/TUI and dashboard.",
     ],
@@ -726,7 +725,7 @@ const comparisons: ComparisonPageData[] = [
     differentiators: [
       {
         title: "Queue backend",
-        strait: "Postgres-backed -- no Redis to provision or maintain",
+        strait: "Postgres-backed. No Redis to provision or maintain",
         competitor:
           "Requires a dedicated Redis instance with persistence configured",
       },
@@ -760,7 +759,7 @@ const comparisons: ComparisonPageData[] = [
           },
           {
             feature: "Language support",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "Node.js primary, community Python/PHP/Elixir",
             tooltip:
               "BullMQ has official Node.js support with community implementations for Python, PHP, and Elixir",
@@ -866,7 +865,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Built-in dashboard",
         description:
-          "Observability dashboard included out of the box -- no need for community tools like Bull Board.",
+          "Observability dashboard included out of the box. No need for community tools like Bull Board.",
       },
       {
         title: "Approval gates",
@@ -885,7 +884,7 @@ const comparisons: ComparisonPageData[] = [
     competitor: "Celery",
     tagline: "Modern, type-safe, built-in observability",
     description:
-      "Celery has served the Python ecosystem well with Canvas workflow primitives (chord, chain, group, map) and extensive broker/backend support. Strait offers a modern runtime with built-in dashboards, type-safe SDKs, and full lifecycle tracking -- no Flower or external monitoring needed.",
+      "Celery has served the Python ecosystem well with Canvas workflow primitives (chord, chain, group, map) and extensive broker/backend support. Strait offers a modern runtime with built-in dashboards, type-safe SDKs, and full lifecycle tracking. No Flower or external monitoring needed.",
     differentiators: [
       {
         title: "Observability",
@@ -903,7 +902,7 @@ const comparisons: ComparisonPageData[] = [
       },
       {
         title: "Broker simplicity",
-        strait: "Postgres-only -- no message broker to manage",
+        strait: "Postgres-only. No message broker to manage",
         competitor: "Requires RabbitMQ, Redis, SQS, or another message broker",
       },
     ],
@@ -1006,7 +1005,7 @@ const comparisons: ComparisonPageData[] = [
         features: [
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor:
               "Python primary; protocol impls for Node, PHP, Go, Rust",
           },
@@ -1057,7 +1056,7 @@ const comparisons: ComparisonPageData[] = [
     competitor: "Sidekiq",
     tagline: "Multi-language, no Redis, workflow orchestration",
     description:
-      "Sidekiq is the go-to for Ruby background jobs with a built-in Web UI, scheduled jobs, and paid tiers for batches and rate limiting. Strait brings workflow orchestration with Postgres-backed queues, DAG support, and approval gates -- no Redis or per-seat licensing required.",
+      "Sidekiq is the go-to for Ruby background jobs with a built-in Web UI, scheduled jobs, and paid tiers for batches and rate limiting. Strait brings workflow orchestration with Postgres-backed queues, DAG support, and approval gates. No Redis or per-seat licensing required.",
     differentiators: [
       {
         title: "Runtime ecosystem",
@@ -1068,7 +1067,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Queue backend",
         strait:
-          "Postgres-backed -- no Redis memory limits or persistence concerns",
+          "Postgres-backed. No Redis memory limits or persistence concerns",
         competitor: "Redis 7.0+ / Valkey / Dragonfly required for all queuing",
       },
       {
@@ -1095,7 +1094,7 @@ const comparisons: ComparisonPageData[] = [
           },
           {
             feature: "Language support",
-            strait: "5 SDKs (TS, Py, Go, Rb, Rust)",
+            strait: "5 SDKs (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "Ruby only",
           },
           {
@@ -1196,7 +1195,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "Multi-language SDKs",
         description:
-          "Build workflows in TypeScript, Python, Go, Ruby, or Rust -- not locked to Ruby.",
+          "Build workflows in TypeScript, Python, Go, Ruby, or Rust. Not locked to Ruby.",
       },
       {
         title: "No Redis dependency",
@@ -1206,7 +1205,7 @@ const comparisons: ComparisonPageData[] = [
       {
         title: "DAG orchestration included free",
         description:
-          "Full workflow orchestration with conditions and fan-out/fan-in included in the open-source core -- no paid tier required.",
+          "Full workflow orchestration with conditions and fan-out/fan-in included in the open-source core. No paid tier required.",
       },
       {
         title: "Cost budgets",
@@ -1225,12 +1224,12 @@ const comparisons: ComparisonPageData[] = [
     competitor: "AWS Step Functions",
     tagline: "No cloud lock-in, cost transparency",
     description:
-      "AWS Step Functions offer deep AWS integration with 200+ service connectors, visual debugging, and both Standard and Express execution modes. Strait runs anywhere, gives you full cost visibility, and stores everything in Postgres -- no cloud vendor dependency.",
+      "AWS Step Functions offer deep AWS integration with 200+ service connectors, visual debugging, and both Standard and Express execution modes. Strait runs anywhere, gives you full cost visibility, and stores everything in Postgres. No cloud vendor dependency.",
     differentiators: [
       {
         title: "Cloud portability",
         strait:
-          "Run on any infrastructure -- AWS, GCP, Azure, bare metal, or local development",
+          "Run on any infrastructure: AWS, GCP, Azure, bare metal, or local development",
         competitor:
           "Deep AWS integration with 200+ services, but locked to the AWS ecosystem",
       },
@@ -1339,7 +1338,7 @@ const comparisons: ComparisonPageData[] = [
           },
           {
             feature: "Language SDKs",
-            strait: "5 (TS, Py, Go, Rb, Rust)",
+            strait: "5 (TypeScript, Python, Go, Ruby, Rust)",
             competitor: "AWS SDKs (all major languages)",
           },
         ],

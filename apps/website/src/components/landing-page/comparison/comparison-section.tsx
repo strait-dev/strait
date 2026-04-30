@@ -10,10 +10,10 @@ const ROWS = [
   {
     feature: "Language SDKs",
     values: [
-      "5 (TS, Py, Go, Rb, Rust)",
+      "5 (TypeScript, Python, Go, Ruby, Rust)",
       "1 (TypeScript)",
-      "4 (TS, Py, Go, Kt)",
-      "7 (Go, Java, PHP, Py, TS, .NET, Rb)",
+      "4 (TypeScript, Python, Go, Kotlin)",
+      "7 (Go, Java, PHP, Python, TypeScript, .NET, Ruby)",
     ],
   },
   {
@@ -49,7 +49,7 @@ const ROWS = [
 ] as const;
 
 const ComparisonSection = () => (
-  <section className="border-border/40 border-y py-16 sm:py-20">
+  <section className="border-border/40 border-y py-20 sm:py-28">
     <Shell variant="wide">
       <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">
@@ -57,8 +57,8 @@ const ComparisonSection = () => (
             How Strait compares.
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-            More SDKs, simpler self-hosting, and AI cost tracking that
-            competitors don&apos;t offer.
+            More language SDKs, managed execution, and built-in AI cost
+            tracking.
           </p>
         </div>
       </Reveal>

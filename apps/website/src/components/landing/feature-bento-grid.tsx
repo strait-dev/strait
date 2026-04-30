@@ -23,25 +23,25 @@ const FEATURES: FeatureCard[] = [
   {
     id: "job-orchestration",
     title: "Job Orchestration",
-    subtitle: "Never lose a job again",
+    subtitle: "Every job finishes or explains why",
     description:
-      "Every run tracks through 13 states from queued to completed. Failed jobs retry with exponential backoff, dead runs route to DLQ for review, and stale jobs clean up on their own.",
+      "Every job runs to completion or tells you why it didn't. Failed jobs retry automatically, unrecoverable failures surface for review, and abandoned jobs clean up on their own.",
     span: "sm:col-span-1 lg:col-span-4",
     Animation: QueueAnimation,
   },
   {
     id: "workflow-dags",
     title: "Workflow DAGs",
-    subtitle: "Complex pipelines, simple code",
+    subtitle: "Multi-step pipelines in a few lines",
     description:
-      "Wire steps into dependency graphs with conditions, approval gates, and fan-out/fan-in. Stop coordinating jobs with shell scripts and cron hacks.",
+      "Chain jobs into multi-step workflows with dependencies, conditions, approval gates, and parallel execution. Define complex pipelines in a few lines of code.",
     span: "sm:col-span-1 lg:col-span-8",
     Animation: HeroDag,
   },
   {
     id: "managed-execution",
     title: "Managed Execution",
-    subtitle: "Zero infrastructure to manage",
+    subtitle: "Your code runs, you don't manage servers",
     description:
       "Your code runs in containers with warm pools, multi-region deployment, and automatic scaling. Ship without provisioning servers.",
     span: "sm:col-span-1 lg:col-span-6",
@@ -50,7 +50,7 @@ const FEATURES: FeatureCard[] = [
   {
     id: "ai-agent-platform",
     title: "AI Agent Platform",
-    subtitle: "Run agents without runaway costs",
+    subtitle: "AI agents that stay on budget",
     description:
       "Set per-run cost budgets, require human approval before expensive operations, and track token usage across every model call. Stay in control as agents scale.",
     span: "sm:col-span-1 lg:col-span-6",
@@ -59,9 +59,9 @@ const FEATURES: FeatureCard[] = [
   {
     id: "language-sdks",
     title: "5 Language SDKs",
-    subtitle: "Use the language you already know",
+    subtitle: "Works with your existing stack",
     description:
-      "TypeScript, Python, Go, Ruby, and Rust. Full coverage with logging, heartbeats, checkpoints, and continuation built into every SDK.",
+      "TypeScript, Python, Go, Ruby, and Rust. Every SDK includes logging, progress reporting, checkpoints, and long-running job support.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: SdkAnimation,
   },
@@ -70,7 +70,7 @@ const FEATURES: FeatureCard[] = [
     title: "Built-in Observability",
     subtitle: "Debug in seconds, not hours",
     description:
-      "When a job fails, see exactly why. Health scores combine queue depth, throughput, and latency into a single number. OpenTelemetry and structured logs included.",
+      "When a job fails, see exactly what went wrong. Health scores give you a single number for system health. OpenTelemetry tracing and structured logs included.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: HealthAnimation,
   },
@@ -89,8 +89,8 @@ const FeatureBentoGrid = () => (
           <span className="text-primary">failures don&apos;t exist</span>.
         </h2>
         <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-          Strait handles retries, state, scaling, and observability so you can
-          focus on your product.
+          Focus on what your code does. Strait handles everything that happens
+          after you hit run.
         </p>
       </div>
 
@@ -101,7 +101,7 @@ const FeatureBentoGrid = () => (
             delay={idx * 0.06}
             key={feature.id}
             spring
-            variant={idx % 2 === 0 ? "fade-up" : "scale"}
+            variant="fade-up"
           >
             {/* Animation area */}
             <div className="relative flex h-48 items-center justify-center overflow-hidden bg-muted/20 p-6">

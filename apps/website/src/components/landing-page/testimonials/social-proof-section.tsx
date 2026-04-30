@@ -47,7 +47,7 @@ const SocialProofSection = () => (
                 &ldquo;{testimonial.quote}&rdquo;
               </blockquote>
               <p className="mt-6 text-muted-foreground text-sm">
-                -- {testimonial.role}
+                {testimonial.role}
               </p>
             </div>
           </StaggerItem>

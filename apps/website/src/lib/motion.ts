@@ -11,13 +11,6 @@ export const SPRING_SMOOTH: Transition = {
   stiffness: 100,
   damping: 20,
 };
-
-export const SPRING_BOUNCY: Transition = {
-  type: "spring",
-  stiffness: 400,
-  damping: 15,
-};
-
 export const SPRING_GENTLE: Transition = {
   type: "spring",
   stiffness: 60,

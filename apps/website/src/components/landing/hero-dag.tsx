@@ -1,3 +1,4 @@
+import { useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 type NodeStatus = "queued" | "executing" | "completed" | "failed" | "approval";
@@ -111,6 +112,7 @@ const HeroDag = () => {
   const rafRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const isVisibleRef = useRef(true);
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -239,7 +241,7 @@ const HeroDag = () => {
                 }}
               />
               {/* Flow dot on active edges */}
-              {isActive && (
+              {isActive && !prefersReducedMotion && (
                 <circle fill="var(--success)" opacity="0.8" r="3">
                   <animateMotion dur="1.5s" path={d} repeatCount="indefinite" />
                 </circle>

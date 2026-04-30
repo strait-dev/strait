@@ -1,5 +1,6 @@
 ---
 import CTA from "@/components/CTA.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import LoadingCarousel from "@/components/cultui/loading-carousel.tsx";
 import JsonLd from "@/components/JsonLd.astro";
 import Shell from "@/components/layout/shell.tsx";
@@ -69,14 +70,12 @@ const breadcrumbs = getBreadcrumbSchema([
         </div>
 
         <div class="mt-8">
-          <a
-            class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm"
-            href={dashboardHref("/login")}
-          >
-            Get started
-            <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+					<LinkButton client:load href={dashboardHref("/login")}>
+						Get started
+						<svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</LinkButton>
           </a>
         </div>
       </div>

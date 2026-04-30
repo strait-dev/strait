@@ -27,20 +27,36 @@ const TerminalAnimation = ({
       setIsComplete(true);
       return;
     }
-    let i = 0;
     setDisplayedCode("");
     setIsComplete(false);
 
-    const interval = setInterval(() => {
-      i++;
-      setDisplayedCode(code.slice(0, i));
-      if (i >= code.length) {
-        clearInterval(interval);
-        setIsComplete(true);
-      }
-    }, typingSpeed);
+    const msPerChar = typingSpeed;
+    let rafId: number;
+    let startTime: number | null = null;
+    let lastCharCount = 0;
 
-    return () => clearInterval(interval);
+    const tick = (timestamp: number) => {
+      if (startTime === null) {
+        startTime = timestamp;
+      }
+      const elapsed = timestamp - startTime;
+      const charCount = Math.min(Math.floor(elapsed / msPerChar), code.length);
+
+      if (charCount !== lastCharCount) {
+        lastCharCount = charCount;
+        setDisplayedCode(code.slice(0, charCount));
+        if (charCount >= code.length) {
+          setIsComplete(true);
+          return;
+        }
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(rafId);
   }, [code, typingSpeed, prefersReducedMotion]);
 
   useEffect(() => {
