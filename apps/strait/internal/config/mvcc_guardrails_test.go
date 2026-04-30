@@ -24,7 +24,7 @@ func TestLoad_MVCCGuardrailDefaults(t *testing.T) {
 	}{
 		{"DBIdleInTransactionTimeout", cfg.DBIdleInTransactionTimeout, 30 * time.Second},
 		{"DBLockTimeout", cfg.DBLockTimeout, 5 * time.Second},
-		{"DBTransactionTimeout", cfg.DBTransactionTimeout, time.Duration(0)},
+		{"DBTransactionTimeout", cfg.DBTransactionTimeout, 60 * time.Second},
 		{"DBLongTxnAlertThreshold", cfg.DBLongTxnAlertThreshold, 60 * time.Second},
 		{"DBWatchdogInterval", cfg.DBWatchdogInterval, 15 * time.Second},
 		{"DBWatchdogEnabled", cfg.DBWatchdogEnabled, true},

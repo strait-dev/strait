@@ -114,7 +114,6 @@ type Executor struct {
 	jobCacheStore            *otterstore.OtterStore
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
-	dequeueStrategy          string
 	jwtSigningKey            string
 	containerRuntime         compute.ContainerRuntime
 	managedSemaphore         *semaphore.Weighted
@@ -132,10 +131,8 @@ type Executor struct {
 	callbackWG               sync.WaitGroup
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
-	claimCursor              *queue.ClaimCursor
 	degradedPollInterval     time.Duration
 	degraded                 queue.DegradedNotifier
-	useDenormalizedDequeue   bool
 	dbCircuit                *queue.DBCircuit
 	eventChannelSize         int
 	saturationWarnMu         sync.Mutex
@@ -183,7 +180,6 @@ type ExecutorConfig struct {
 	JobCacheTTL                time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
-	DequeueStrategy            string
 	ContainerRuntime           compute.ContainerRuntime
 	ExternalAPIURL             string
 	MaxConcurrentMachines      int
@@ -206,9 +202,6 @@ type ExecutorConfig struct {
 	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
 	// degraded-mode support.
 	Degraded queue.DegradedNotifier
-	// UseDenormalizedDequeue opts into the job_active_counts-backed
-	// dequeue path. Defaults to false so existing deployments are unaffected.
-	UseDenormalizedDequeue bool
 	// DBCircuitConfig configures the circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.
 	DBCircuitConfig queue.DBCircuitConfig
@@ -322,7 +315,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
-		dequeueStrategy:          cfg.DequeueStrategy,
 		jwtSigningKey:            cfg.JWTSigningKey,
 		containerRuntime:         cfg.ContainerRuntime,
 		managedSemaphore:         managedSem,
@@ -336,10 +328,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
-		claimCursor:              queue.NewClaimCursor(60 * time.Second),
 		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
 		degraded:                 cfg.Degraded,
-		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
 		queueMetrics:             resolveQueueMetrics(),
 	}
@@ -502,7 +492,14 @@ func (e *Executor) recordEventChannelDrop(ctx context.Context, kind string) {
 func (e *Executor) runEventLoop() {
 	for env := range e.eventCh {
 		for _, sub := range e.subscribers {
-			sub(env.ctx, env.event)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						e.logger.Error("event subscriber panicked", "panic", r)
+					}
+				}()
+				sub(env.ctx, env.event)
+			}()
 		}
 	}
 }
@@ -632,6 +629,11 @@ func (e *Executor) Run(ctx context.Context) {
 }
 
 func (e *Executor) runPoolPruner(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error("pool pruner panicked", "panic", r)
+		}
+	}()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {

@@ -272,11 +272,18 @@ func TestEnqueueBatch_PgNotifyCalledAfterInsert(t *testing.T) {
 	}
 
 	calls := db.getExecCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 exec call for pg_notify, got %d", len(calls))
+	// Expect claim-row inserts (one per run) + pg_notify.
+	var notifyCalls []struct {
+		sql  string
+		args []any
 	}
-	if calls[0].sql != "SELECT pg_notify($1, $2)" {
-		t.Fatalf("expected pg_notify SQL, got %q", calls[0].sql)
+	for _, c := range calls {
+		if c.sql == "SELECT pg_notify($1, $2)" {
+			notifyCalls = append(notifyCalls, c)
+		}
+	}
+	if len(notifyCalls) != 1 {
+		t.Fatalf("expected 1 pg_notify call, got %d (total exec calls: %d)", len(notifyCalls), len(calls))
 	}
 }
 

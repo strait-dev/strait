@@ -63,6 +63,16 @@ func recordTerminalMetrics(ctx context.Context, m *telemetry.Metrics, event RunL
 		}
 	}
 
+	// End-to-end latency: created_at to finished_at.
+	if run.FinishedAt != nil && !run.CreatedAt.IsZero() {
+		e2e := run.FinishedAt.Sub(run.CreatedAt).Seconds()
+		if e2e > 0 {
+			m.RunEndToEnd.Record(ctx, e2e, metric.WithAttributes(
+				attribute.String("status", string(event.ToStatus)),
+			))
+		}
+	}
+
 	// Per-tenant queue lag: time the run waited before execution began.
 	if event.QueueWait > 0 && run.ProjectID != "" {
 		m.QueueLag.Record(ctx, event.QueueWait.Seconds(), metric.WithAttributes(
