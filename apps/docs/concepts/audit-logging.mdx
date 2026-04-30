@@ -52,8 +52,8 @@ Each audit event contains a consistent set of fields:
 
 Every audit event is signed with HMAC-SHA256 and chained to the previous event in the same project. This creates a tamper-evident log where any insertion, deletion, or modification breaks the cryptographic chain.
 
-- **Signing**: The signing key is derived from `SECRET_ENCRYPTION_KEY` via HKDF. Each event's signature covers all fields (including forensic columns for schema version 2).
-- **Chaining**: `previous_hash` links each event to its predecessor. An advisory lock per project ensures serial insertion order.
+- **Signing**: The signing key is derived from `SECRET_ENCRYPTION_KEY` using a key derivation function. Each event's signature covers all fields (including forensic columns for schema version 2).
+- **Chaining**: `previous_hash` links each event to its predecessor. Database-level coordination ensures serial insertion order per project.
 - **Verification**: `GET /v1/audit-events/verify` walks the chain and validates every signature. Supports both full and incremental modes (via `?incremental=true`).
 - **Key rotation**: `POST /v1/audit-events/rotate-key` rotates the signing key. A tombstone event marks the boundary so verification can span key generations.
 
@@ -75,8 +75,8 @@ Audit events are written asynchronously by default to avoid adding latency to AP
 - **Async emit**: A buffered channel feeds a dedicated writer. The buffer size is configurable via `AUDIT_ASYNC_BUFFER_SIZE` (default 8192).
 - **Backpressure**: When the buffer exceeds 75% capacity, new events fall back to a synchronous write to prevent data loss. Both the fallback trigger and its outcome (success/failure) are metered.
 - **Retry**: Failed writes are retried up to 3 times with exponential backoff (50ms, 200ms, 1s). Each retry attempt is metered by attempt number and outcome.
-- **Dead letter queue**: Events that exhaust all retries are saved to a dead letter table with the last error and retry count preserved. A dead letter queue (DLQ) stores messages that could not be delivered after all retries, so you can investigate and replay them later.
-- **Reclamation**: A background job periodically replays dead-lettered events back into the primary chain.
+- **Review queue**: Events that exhaust all retries are saved to a review queue table with the last error and retry count preserved, so you can investigate and replay them later.
+- **Reclamation**: A background job periodically replays queued events back into the primary chain.
 - **Graceful shutdown**: On SIGTERM, the drainer fully drains the channel, the SIEM forwarder flushes its buffer, and in-flight retries complete within a 5-second budget.
 
 ## SIEM Forwarding
@@ -133,9 +133,9 @@ Audit events can be exported via `GET /v1/audit-events/export` in JSON, NDJSON, 
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `SECRET_ENCRYPTION_KEY` | _(required)_ | Base key for HKDF derivation of the audit signing key. |
+| `SECRET_ENCRYPTION_KEY` | _(required)_ | Base key used to derive the audit signing key. |
 | `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default retention window in days. |
-| `AUDIT_DLQ_MAX_AGE_DAYS` | `30` | Max age of deadlettered events before the DLQ reaper drops them. |
+| `AUDIT_DLQ_MAX_AGE_DAYS` | `30` | Max age of events in the review queue before they are dropped. |
 | `AUDIT_ASYNC_BUFFER_SIZE` | `8192` | Capacity of the async emit channel. |
 | `AUDIT_EXPORT_ROW_CAP_DEFAULT` | `1000000` | Default max rows per export stream. |
 | `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | SIEM forwarding target URL. |

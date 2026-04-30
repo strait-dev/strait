@@ -10,7 +10,7 @@ Webhook subscriptions let you register URLs that receive notifications when runs
 
 You register subscriptions per project via the API. When a matching event occurs (e.g., a run completes or fails), Strait sends a signed HTTP POST to each active subscription URL.
 
-Deliveries are persisted to the database before dispatch, so notifications survive worker restarts. Strait retries with exponential backoff and stores permanently failing deliveries in a dead letter queue (a holding area for undeliverable messages you can investigate later).
+Deliveries are persisted to the database before dispatch, so notifications survive worker restarts. Strait retries with exponential backoff and stores permanently failing deliveries in a review queue so you can investigate and replay them later.
 
 ## Event Types
 

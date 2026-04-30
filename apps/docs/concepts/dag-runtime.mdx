@@ -1,43 +1,10 @@
 ---
 title: "DAG Runtime"
-description: "How the workflow scheduler executes, monitors, and recovers DAG-structured workflow runs."
+description: "How the workflow engine executes, monitors, and recovers DAG-structured workflow runs."
 icon: "microchip"
 ---
 
 This page covers the runtime behavior of the workflow engine: how it schedules steps, enforces policies, handles failures, and exposes introspection and recovery APIs. For workflow modeling (step types, conditions, data flow), see [Workflows](/concepts/workflows).
-
-## Scheduler Loop
-
-When a workflow is triggered, the engine:
-
-1. **Loads the workflow definition** and its versioned steps.
-2. **Applies step overrides** (if provided at trigger time) to filter or disable specific steps.
-3. **Validates the DAG** using Kahn's algorithm -- checking for cycles, duplicate refs, dangling dependencies, self-references, and ensuring at least one root step exists.
-4. **Creates an immutable snapshot** of the workflow definition so in-flight runs are never affected by live edits.
-5. **Enforces concurrency limits** -- if `max_concurrent_runs` is set and the limit is reached, the trigger is rejected.
-6. **Creates the workflow run and all step runs** atomically (via a bootstrap transaction when available).
-7. **Starts root steps** -- steps with no dependencies move to `pending` and are started immediately, subject to `max_parallel_steps` and `concurrency_key` constraints.
-
-After the initial trigger, the scheduler is event-driven. Each time a step completes (or fails, or is skipped), the engine calls `fanInAndStartReadyChildren`, which:
-
-- Acquires an advisory transaction lock on the step run (preventing double-processing from concurrent callbacks).
-- Increments the `deps_completed` counter on all downstream steps.
-- Re-reads the workflow run status under the lock to detect concurrent pause or cancellation.
-- Calls `scheduleRunnableSteps` to evaluate which steps can start next.
-
-### Readiness Checks
-
-A step is considered runnable when `deps_completed == deps_required` and its status is not terminal or already running. Before starting a runnable step, the scheduler checks (in order):
-
-| Check | Behavior if blocked |
-| :--- | :--- |
-| `max_parallel_steps` | Step stays in `waiting`. Decision recorded as `scheduler/wait`. |
-| `concurrency_key` | Step stays in `waiting` if another step with the same key is running. Decision recorded as `concurrency/wait`. |
-| `resource_class` quota | Step stays in `waiting` if the per-class limit is reached (`small`: 50, `medium`: 20, `large`: 5). Decision recorded as `resource/wait`. |
-| Step condition | Condition is evaluated against current step statuses. If false, the step is marked `skipped`. Decision recorded as `condition/skip`. |
-| Cost gate | If `cost_gate_threshold_microusd` is set and the job's historical average cost exceeds it, the step pauses and creates an approval request. |
-
-Every scheduling decision is persisted as a `WorkflowStepDecision` record (decision type, outcome, explanation, and optional condition details), making the scheduler fully explainable after the fact.
 
 ## Parallel Execution
 
@@ -78,87 +45,6 @@ If a condition evaluates to `false`, the step is immediately marked `skipped` an
 }
 ```
 
-## Compensation / Saga Flow
-
-When a workflow run reaches `failed` or `timed_out`, you can trigger compensation to roll back completed work. The compensation system:
-
-1. **Validates eligibility** -- only `failed` or `timed_out` runs can be compensated. Runs already in `compensating`, `compensated`, or `compensation_failed` are rejected.
-2. **Builds a compensation plan** -- collects all steps that completed successfully and have a `compensation_job_id` configured.
-3. **Orders in reverse topological order** -- steps that ran later are compensated first (last-in, first-out), matching saga rollback semantics.
-4. **Executes compensation jobs** -- each compensation step receives the original step's output as its payload, with an optional per-step `compensation_timeout_secs`.
-
-The workflow run transitions through these states during compensation:
-
-```text
-failed/timed_out -> compensating -> compensated
-                                 -> compensation_failed
-```
-
-<Warning>
-Compensation jobs must be idempotent. If a compensation job fails, the run moves to `compensation_failed` and manual intervention is required.
-</Warning>
-
-## Step State Machine
-
-Every step run follows a strict FSM with validated transitions:
-
-```text
-                    pending
-                   /   |   \
-                  v    v    v
-             waiting  skipped  canceled
-              / |  \
-             v  v   v
-         running  skipped  canceled
-          /    \
-         v      v
-    completed  failed
-```
-
-Valid transitions:
-
-| From | Allowed transitions |
-| :--- | :--- |
-| `pending` | `waiting`, `running`, `skipped`, `canceled`, `completed` |
-| `waiting` | `running`, `skipped`, `canceled`, `completed` |
-| `running` | `completed`, `failed`, `canceled` |
-| `completed` | _(terminal)_ |
-| `failed` | _(terminal)_ |
-| `skipped` | _(terminal)_ |
-| `canceled` | _(terminal)_ |
-
-Any transition not in this table is rejected by `ValidateStepTransition`.
-
-## Workflow Run State Machine
-
-```text
-pending -> running -> paused -> running (resume)
-                   -> completed
-                   -> failed -> compensating -> compensated
-                                             -> compensation_failed
-                   -> timed_out -> compensating
-                   -> canceled
-```
-
-| From | Allowed transitions |
-| :--- | :--- |
-| `pending` | `running`, `canceled` |
-| `running` | `paused`, `completed`, `failed`, `timed_out`, `canceled` |
-| `paused` | `running`, `completed`, `failed`, `timed_out`, `canceled` |
-| `failed` | `compensating` |
-| `timed_out` | `compensating` |
-| `compensating` | `compensated`, `compensation_failed`, `canceled` |
-| `completed`, `canceled`, `compensated`, `compensation_failed` | _(terminal)_ |
-
-### Workflow Completion Detection
-
-After each step transition, the engine checks whether all step runs are terminal. If so:
-
-- If any step has `failed` status and its failure policy is not `continue`, the workflow run moves to `failed`.
-- Otherwise, the workflow run moves to `completed`.
-
-For sub-workflows, the terminal status propagates back to the parent step run that spawned it.
-
 ## Durable Waits and Checkpoints
 
 Three step types create durable waits that consume no compute resources:
@@ -181,19 +67,25 @@ All durable waits follow the same safety pattern: the trigger row is created **b
 
 Job steps with `cost_gate_threshold_microusd` configured are automatically paused before execution if the job's historical average cost exceeds the threshold. This creates an approval request, effectively gating expensive operations behind human confirmation.
 
-## Critical Path Estimation
+## Compensation / Saga Flow
 
-The engine computes expected completion time using the critical path method:
+When a workflow run reaches `failed` or `timed_out`, you can trigger compensation to roll back completed work. The compensation system:
 
-1. Steps can define `expected_duration_secs` as an estimate of their execution time.
-2. The engine computes the longest path through the DAG using dynamic programming in topological order (`dist[step] = max(dist[parent] + parent_duration)` for all parents).
-3. The maximum distance across all leaf steps gives the estimated total duration.
+1. **Validates eligibility** -- only `failed` or `timed_out` runs can be compensated. Runs already in `compensating`, `compensated`, or `compensation_failed` are rejected.
+2. **Builds a compensation plan** -- collects all steps that completed successfully and have a `compensation_job_id` configured.
+3. **Orders in reverse topological order** -- steps that ran later are compensated first (last-in, first-out), matching saga rollback semantics.
+4. **Executes compensation jobs** -- each compensation step receives the original step's output as its payload, with an optional per-step `compensation_timeout_secs`.
 
-As the run progresses, `RecalculateExpectedCompletion` re-computes the estimate based only on remaining (non-completed) steps, using the current time as the new start.
+The workflow run transitions through these states during compensation:
 
-<Tip>
-The critical path estimate is available in the execution graph API response and in simulation results. Use it to set appropriate workflow-level timeouts.
-</Tip>
+```text
+failed/timed_out -> compensating -> compensated
+                                 -> compensation_failed
+```
+
+<Warning>
+Compensation jobs must be idempotent. If a compensation job fails, the run moves to `compensation_failed` and manual intervention is required.
+</Warning>
 
 ## Policy Enforcement
 
@@ -227,6 +119,121 @@ Managed via `GET/PUT /v1/workflow-policies/{projectID}`:
 - `require_approval_for_deploy` -- mandates an approval step before deploy steps.
 
 Policies are enforced at workflow create, update, and trigger time.
+
+## How the Scheduler Works
+
+When a workflow is triggered, the engine:
+
+1. **Loads the workflow definition** and its versioned steps.
+2. **Applies step overrides** (if provided at trigger time) to filter or disable specific steps.
+3. **Validates the DAG** -- checks for cycles, duplicate refs, dangling dependencies, self-references, and ensures at least one root step exists.
+4. **Snapshots the workflow definition** so in-flight runs are never affected by later edits to the workflow.
+5. **Enforces concurrency limits** -- if `max_concurrent_runs` is set and the limit is reached, the trigger is rejected.
+6. **Creates the workflow run and all step runs** atomically.
+7. **Starts root steps** -- steps with no dependencies move to `pending` and are started immediately, subject to `max_parallel_steps` and `concurrency_key` constraints.
+
+After the initial trigger, the scheduler is event-driven. Each time a step completes (or fails, or is skipped), the engine evaluates which downstream steps are now ready. It increments the dependency counter on each downstream step and, once all of a step's dependencies are satisfied, moves that step into the scheduling pipeline.
+
+### Readiness Checks
+
+A step is considered runnable when all its dependencies are satisfied and its status is not terminal or already running. Before starting a runnable step, the scheduler checks (in order):
+
+| Check | Behavior if blocked |
+| :--- | :--- |
+| `max_parallel_steps` | Step stays in `waiting`. Decision recorded as `scheduler/wait`. |
+| `concurrency_key` | Step stays in `waiting` if another step with the same key is running. Decision recorded as `concurrency/wait`. |
+| `resource_class` quota | Step stays in `waiting` if the per-class limit is reached (`small`: 50, `medium`: 20, `large`: 5). Decision recorded as `resource/wait`. |
+| Step condition | Condition is evaluated against current step statuses. If false, the step is marked `skipped`. Decision recorded as `condition/skip`. |
+| Cost gate | If `cost_gate_threshold_microusd` is set and the job's historical average cost exceeds it, the step pauses and creates an approval request. |
+
+Every scheduling decision is persisted as a `WorkflowStepDecision` record (decision type, outcome, explanation, and optional condition details), making the scheduler fully explainable after the fact.
+
+## Step Lifecycle
+
+Every step run follows a strict lifecycle with validated transitions:
+
+```text
+                    pending
+                   /   |   \
+                  v    v    v
+             waiting  skipped  canceled
+              / |  \
+             v  v   v
+         running  skipped  canceled
+          /    \
+         v      v
+    completed  failed
+```
+
+Valid transitions:
+
+| From | Allowed transitions |
+| :--- | :--- |
+| `pending` | `waiting`, `running`, `skipped`, `canceled`, `completed` |
+| `waiting` | `running`, `skipped`, `canceled`, `completed` |
+| `running` | `completed`, `failed`, `canceled` |
+| `completed` | _(terminal)_ |
+| `failed` | _(terminal)_ |
+| `skipped` | _(terminal)_ |
+| `canceled` | _(terminal)_ |
+
+Any transition not listed above is rejected by the engine.
+
+## Workflow Run Lifecycle
+
+```text
+pending -> running -> paused -> running (resume)
+                   -> completed
+                   -> failed -> compensating -> compensated
+                                             -> compensation_failed
+                   -> timed_out -> compensating
+                   -> canceled
+```
+
+| From | Allowed transitions |
+| :--- | :--- |
+| `pending` | `running`, `canceled` |
+| `running` | `paused`, `completed`, `failed`, `timed_out`, `canceled` |
+| `paused` | `running`, `completed`, `failed`, `timed_out`, `canceled` |
+| `failed` | `compensating` |
+| `timed_out` | `compensating` |
+| `compensating` | `compensated`, `compensation_failed`, `canceled` |
+| `completed`, `canceled`, `compensated`, `compensation_failed` | _(terminal)_ |
+
+### Workflow Completion Detection
+
+After each step transition, the engine checks whether all step runs are terminal. If so:
+
+- If any step has `failed` status and its failure policy is not `continue`, the workflow run moves to `failed`.
+- Otherwise, the workflow run moves to `completed`.
+
+For sub-workflows, the terminal status propagates back to the parent step run that spawned it.
+
+## Workflow Snapshots
+
+Every workflow run is pinned to a snapshot of the workflow definition captured at trigger time. The snapshot contains the full metadata and step configuration. This means:
+
+- Editing a live workflow never affects in-flight runs.
+- Retries replay against the **original version's** step definitions, not the current version.
+- The `workflow_snapshot_id` on each run links back to the exact definition used.
+
+For version analysis, see:
+- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}` -- structural diff between versions.
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact` -- impact analysis on active runs.
+
+## Critical Path Estimation
+
+The engine computes expected completion time using the critical path method:
+
+1. Steps can define `expected_duration_secs` as an estimate of their execution time.
+2. The engine computes the longest path through the DAG using dynamic programming in topological order (`dist[step] = max(dist[parent] + parent_duration)` for all parents).
+3. The maximum distance across all leaf steps gives the estimated total duration.
+
+As the run progresses, `RecalculateExpectedCompletion` re-computes the estimate based only on remaining (non-completed) steps, using the current time as the new start.
+
+<Tip>
+The critical path estimate is available in the execution graph API response and in simulation results. Use it to set appropriate workflow-level timeouts.
+</Tip>
 
 ## Explainability APIs
 
@@ -284,10 +291,10 @@ The debug view assembles a complete timeline of a workflow run: per-step inputs,
     - Records `triggered_by: retry` and links back via `retry_of_run_id`.
   </Step>
   <Step title="Skip a step">
-    Marks a pending or waiting step as `skipped` and triggers fan-in to unblock dependents. Useful for bypassing a step that is no longer relevant.
+    Marks a pending or waiting step as `skipped` and notifies downstream steps to unblock dependents. Useful for bypassing a step that is no longer relevant.
   </Step>
   <Step title="Force-complete a step">
-    Marks a pending or waiting step as `completed` with an optional output payload, then triggers fan-in. Use when a step's external side effect succeeded but the callback was lost.
+    Marks a pending or waiting step as `completed` with an optional output payload, then notifies downstream steps. Use when a step's external side effect succeeded but the callback was lost.
   </Step>
   <Step title="Pause and resume">
     `PATCH` a running workflow to `paused` status. All running steps continue to completion, but no new steps are started. On resume, paused job runs are requeued and the scheduler re-evaluates all runnable steps.
@@ -321,15 +328,3 @@ The simulation response includes:
 - Condition evaluation results
 - Failure paths (steps that would fail under injection)
 - Compensation metadata (which steps have compensation jobs)
-
-## Immutable Snapshots
-
-Every workflow run is pinned to an immutable snapshot of the workflow definition at trigger time. The snapshot contains the full metadata and step configuration. This means:
-
-- Editing a live workflow never affects in-flight runs.
-- Retries replay against the **original version's** step definitions, not the current version.
-- The `workflow_snapshot_id` on each run links back to the exact definition used.
-
-For version analysis, see:
-- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}` -- structural diff between versions.
-- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact` -- impact analysis on active runs.

@@ -24,7 +24,7 @@ Event trigger webhooks (configured via `notify_url` on wait-for-event steps) use
 3. **Signing**: If you configured a `webhook_secret`, Strait signs the payload with HMAC-SHA256 and includes a timestamp for replay protection.
 4. **Dispatch**: Strait sends an HTTP POST to the `webhook_url`.
 5. **Retry**: If delivery fails, Strait retries based on the response status code.
-6. **Dead letter**: After exhausting retries, Strait marks the delivery as `dead` (event trigger) or silently drops it (job run). Dead-lettered deliveries -- ones that failed all retry attempts -- stay in the database so you can inspect and replay them.
+6. **Failed delivery**: After exhausting retries, Strait marks the delivery as `failed` (event trigger) or silently drops it (job run). Failed deliveries stay in the database so you can inspect and replay them.
 
 ## Webhook Payload
 
@@ -96,7 +96,7 @@ Event trigger webhooks (configured via `notify_url` on wait-for-event) use a per
 - **Delivery worker**: Polls the database every 5 seconds for pending deliveries
 
 ### Retry Rules
-- **Client errors (4xx)**: Strait treats these as permanent failures and dead-letters the delivery immediately -- no retries.
+- **Client errors (4xx)**: Strait treats these as permanent failures and marks the delivery as failed immediately -- no retries.
 - **Server errors (5xx) / Timeouts**: Strait retries up to the maximum attempt limit.
 - **Context cancellation**: If the system is shutting down, Strait may abort delivery with a "context canceled" error.
 
@@ -112,7 +112,7 @@ Event trigger webhooks are configured per trigger:
 - `notify_url`: Set when creating a wait-for-event step or SDK call.
 - Strait tracks delivery status in the `webhook_deliveries` table using the `event_trigger_id`.
 
-### Dead Letter Queue (DLQ) Management
+### Failed Delivery Review
 
 Strait stores failed webhook deliveries in the database. You can inspect and retry them:
 

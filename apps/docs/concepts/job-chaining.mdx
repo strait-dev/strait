@@ -11,7 +11,7 @@ Jobs support four chaining fields:
 
 - `on_complete_trigger_job` -- slug of the job to trigger when this job completes successfully
 - `on_complete_trigger_workflow` -- slug of the workflow to trigger on completion (existing feature)
-- `on_failure_trigger_job` -- slug of the job to trigger on terminal failure (dead_letter, timed_out, crashed, system_failed)
+- `on_failure_trigger_job` -- slug of the job to trigger on terminal failure (failed, timed_out, crashed, system_failed)
 - `on_failure_trigger_workflow` -- slug of the workflow to trigger on failure
 
 Both `on_complete` and `on_failure` support a `payload_mapping` field that extracts specific fields from the result using dot-notation paths.
@@ -44,7 +44,7 @@ When `on_failure_trigger_job` fires, the downstream job receives a structured fa
   "source_run_id": "run-456",
   "error": "connection refused",
   "error_class": "connection",
-  "status": "dead_letter",
+  "status": "failed",
   "attempt": 3,
   "original_input": { ... }
 }
