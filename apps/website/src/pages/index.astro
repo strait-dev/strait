@@ -1,12 +1,12 @@
 ---
 import ComparisonSection from "@/components/ComparisonSection.astro";
 import CTA from "@/components/CTA.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import JsonLd from "@/components/JsonLd.astro";
 import CredibilitySection from "@/components/landing/credibility-section.tsx";
 import FeatureBentoGrid from "@/components/landing/feature-bento-grid.tsx";
 import CodeExampleSection from "@/components/landing-page/code-examples/code-example-section.tsx";
 import Shell from "@/components/layout/shell.tsx";
-import LinkButton from "@/components/common/LinkButton.tsx";
 import PricingTeaser from "@/components/PricingTeaser.astro";
 import ProblemSection from "@/components/ProblemSection.astro";
 import PricingComparison from "@/components/pricing/pricing-comparison.tsx";
@@ -25,17 +25,17 @@ const HOW_TO_STEPS = [
   {
     title: "Install the SDK and define a job",
     description:
-			"Pick your language: TypeScript, Python, Go, Ruby, or Rust. Define what each job does, how many times to retry, and when to time out.",
+      "Pick your language: TypeScript, Python, Go, Ruby, or Rust. Define what each job does, how many times to retry, and when to time out.",
   },
   {
     title: "Create workflows and trigger runs",
     description:
-			"Connect jobs into multi-step workflows with dependencies, conditions, and approval gates. Start runs from your API, SDK, or on a schedule.",
+      "Connect jobs into multi-step workflows with dependencies, conditions, and approval gates. Start runs from your API, SDK, or on a schedule.",
   },
   {
-		title: "Monitor, debug, and scale",
+    title: "Monitor, debug, and scale",
     description:
-			"See the status of every run in real time. Track costs, spot failures instantly, and scale with managed containers across regions.",
+      "See the status of every run in real time. Track costs, spot failures instantly, and scale with managed containers across regions.",
   },
 ];
 

@@ -1,5 +1,6 @@
 ---
 import CTA from "@/components/CTA.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import JsonLd from "@/components/JsonLd.astro";
 import Shell from "@/components/layout/shell.tsx";
 import SEO from "@/components/SEO.astro";
@@ -11,7 +12,6 @@ import {
 import LandingLayout from "@/layouts/LandingLayout.astro";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import LinkButton from "@/components/common/LinkButton.tsx";
 
 export function getStaticPaths() {
   return getAllFeatureSlugs().map((slug) => ({ params: { slug } }));

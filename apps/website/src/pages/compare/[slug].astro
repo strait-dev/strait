@@ -1,5 +1,6 @@
 ---
 import CTA from "@/components/CTA.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import ComparisonHighlights from "@/components/compare/ComparisonHighlights.astro";
 import ComparisonTable from "@/components/compare/comparison-table.tsx";
 import JsonLd from "@/components/JsonLd.astro";
@@ -12,7 +13,6 @@ import {
 import LandingLayout from "@/layouts/LandingLayout.astro";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import LinkButton from "@/components/common/LinkButton.tsx";
 
 export function getStaticPaths() {
   return getAllComparisonSlugs().map((slug) => ({ params: { slug } }));

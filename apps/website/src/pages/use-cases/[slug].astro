@@ -1,5 +1,6 @@
 ---
 import CTA from "@/components/CTA.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import LoadingCarousel from "@/components/cultui/loading-carousel.tsx";
 import JsonLd from "@/components/JsonLd.astro";
 import Shell from "@/components/layout/shell.tsx";
@@ -8,7 +9,6 @@ import { getAllUseCaseSlugs, getUseCaseBySlug } from "@/data/use-cases.ts";
 import LandingLayout from "@/layouts/LandingLayout.astro";
 import { getBreadcrumbSchema } from "@/lib/structured-data.tsx";
 import { dashboardHref } from "@/lib/urls.ts";
-import LinkButton from "@/components/common/LinkButton.tsx";
 
 export function getStaticPaths() {
   return getAllUseCaseSlugs().map((slug) => ({ params: { slug } }));
