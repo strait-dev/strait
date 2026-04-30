@@ -11,7 +11,7 @@ const TABS = [
   {
     label: "Define a job",
     description:
-      "Define handlers with retries, exponential backoff, and timeouts. Strait tracks every run through 13 states.",
+      "Define what your job does, how it retries on failure, and when it should time out. Strait tracks every run from start to finish.",
     filename: "jobs/process-order.ts",
     language: "typescript",
     code: `import { defineJob } from "@strait/sdk";
@@ -31,7 +31,7 @@ export default defineJob("process-order", {
   {
     label: "Create a workflow",
     description:
-      "Wire steps into dependency graphs with conditions, approval gates, and fan-out patterns.",
+      "Connect jobs into multi-step workflows. Set the order, add conditions, require approvals, and run steps in parallel.",
     filename: "workflows/checkout.ts",
     language: "typescript",
     code: `import { defineWorkflow } from "@strait/sdk";
@@ -49,7 +49,7 @@ export default defineWorkflow("checkout-flow", {
   {
     label: "AI agent guardrails",
     description:
-      "Set per-run cost budgets, require human approval, and track token usage across models.",
+      "Set a spending limit per run, require human approval before expensive operations, and track costs across AI models.",
     filename: "jobs/ai-research.ts",
     language: "typescript",
     code: `import { defineJob } from "@strait/sdk";
@@ -72,7 +72,7 @@ export default defineJob("ai-research-agent", {
   {
     label: "Stream with React",
     description:
-      "Subscribe to run state in real time. Status, cost, and step progress stream to your frontend.",
+      "Show live job status in your React app. Progress, cost, and step-by-step updates stream automatically.",
     filename: "components/order-status.tsx",
     language: "tsx",
     code: `import { useRun } from "@strait/react";
@@ -206,8 +206,8 @@ const CodeExampleSection = () => {
               From idea to production in minutes.
             </h2>
             <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-              Define a job, wire it into a workflow, set cost guardrails for AI
-              agents, and stream status to your frontend.
+              Define a job, connect it to a workflow, set cost limits for AI
+              agents, and show live status in your app.
             </p>
           </div>
         </Reveal>

@@ -26,17 +26,17 @@ const HOW_TO_STEPS = [
   {
     title: "Install the SDK and define a job",
     description:
-      "Install the Strait SDK in TypeScript, Python, Go, Ruby, or Rust. Define job handlers with retries, backoff, and cost budgets.",
+			"Pick your language: TypeScript, Python, Go, Ruby, or Rust. Define what each job does, how many times to retry, and when to time out.",
   },
   {
     title: "Create workflows and trigger runs",
     description:
-      "Build workflow DAGs with step dependencies, conditions, and approval gates. Trigger runs via API, SDK, or schedule.",
+			"Connect jobs into multi-step workflows with dependencies, conditions, and approval gates. Start runs from your API, SDK, or on a schedule.",
   },
   {
-    title: "Monitor, observe, and scale",
+		title: "Monitor, debug, and scale",
     description:
-      "Track run state, costs, and health scores in real time. Scale with managed container execution across regions.",
+			"See the status of every run in real time. Track costs, spot failures instantly, and scale with managed containers across regions.",
   },
 ];
 
@@ -82,8 +82,8 @@ const howToSchema = getHowToSchema(HOW_TO_STEPS);
 					<span class="text-primary">AI agents</span> that never lose state.
 				</h1>
 				<p class="mx-auto mt-4 max-w-2xl text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-					One platform to queue, orchestrate, and observe every async
-					workload. Open-source, self-hostable, written in Go.
+					One platform to run, orchestrate, and monitor every background
+					workload. Open source and self-hostable.
 				</p>
 
 				<div class="mt-10 flex flex-col items-center gap-4 sm:flex-row">

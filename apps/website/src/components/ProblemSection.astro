@@ -3,16 +3,16 @@ import Shell from "@/components/layout/shell.tsx";
 
 const PAIN_POINTS = [
   {
-    before: "4 queue systems that disagree on retries",
-    after: "One queue with built-in retry strategies",
+    before: "Retry logic scattered across four different systems",
+    after: "One platform with built-in retry strategies",
   },
   {
     before: "Shell scripts coordinating job dependencies",
-    after: "Workflow DAGs with conditions and fan-out",
+    after: "Workflow DAGs with conditions and parallel steps",
   },
   {
-    before: "30 minutes joining logs across 3 services",
-    after: "Per-run event timeline with debug bundles",
+    before: "30 minutes digging through logs to find a failure",
+    after: "Per-run timeline showing exactly what happened",
   },
   {
     before: "Every team reinventing job infrastructure",
@@ -28,11 +28,11 @@ const PAIN_POINTS = [
   <Shell variant="wide">
     <div class="mb-14 max-w-3xl">
       <h2 class="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
-        Stop duct-taping your job infrastructure.
+        Stop rebuilding the same job infrastructure.
       </h2>
       <p class="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-        Every team builds the same glue code: retries, queues, monitoring.
-        Strait replaces all of it.
+        Every team writes the same retry logic, the same queue wrappers, the same monitoring dashboards.
+        Strait handles all of it.
       </p>
     </div>
 

@@ -3,11 +3,11 @@ import { useRef } from "react";
 import Shell from "@/components/layout/shell.tsx";
 
 const ARCHITECTURE = [
-  "Postgres-backed job queue",
-  "Full lifecycle tracking",
+  "Reliable job queue",
+  "Full run lifecycle tracking",
   "DAG workflow orchestration",
-  "Exponential backoff + jitter retries",
-  "Dead letter queue with replay",
+  "Automatic retries with backoff",
+  "Failed job recovery and replay",
   "Secure signed webhooks",
   "TypeScript, Go, and Python SDKs",
   "Per-run and daily cost budgets",
@@ -52,11 +52,11 @@ const CredibilitySection = () => (
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
           <span className="text-foreground">
-            Open source. Battle-tested patterns.
+            Open source. Production-ready.
           </span>{" "}
           <span className="text-muted-foreground">
-            Read the source, audit the FSM, run the benchmarks. Every technical
-            decision is public.
+            Read every line of code, review the architecture, and run it
+            yourself. Every design decision is public.
           </span>
         </h2>
       </div>
@@ -80,8 +80,8 @@ const CredibilitySection = () => (
             </div>
           </div>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Full source on GitHub. Read every line of the queue, the FSM, and
-            the scheduler. Fork it, extend it, or contribute back.
+            Full source on GitHub. Review the job queue, workflow engine, and
+            scheduler. Fork it, extend it, or contribute back.
           </p>
           <div className="mt-4 flex items-center gap-4">
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs">
@@ -328,7 +328,7 @@ const CredibilitySection = () => (
                 Strait
               </p>
               <span className="rounded bg-success/10 px-2 py-0.5 text-success text-xs">
-                Single lightweight runtime + Postgres
+                Single runtime, one database
               </span>
               <p className="mt-2 text-muted-foreground/60 text-xs">
                 1 service to maintain

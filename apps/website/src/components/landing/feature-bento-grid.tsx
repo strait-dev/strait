@@ -25,7 +25,7 @@ const FEATURES: FeatureCard[] = [
     title: "Job Orchestration",
     subtitle: "Never lose a job again",
     description:
-      "Every run tracks through 13 states from queued to completed. Failed jobs retry with exponential backoff, dead runs route to DLQ for review, and stale jobs clean up on their own.",
+      "Every job runs to completion or tells you why it didn't. Failed jobs retry automatically, unrecoverable failures surface for review, and abandoned jobs clean up on their own.",
     span: "sm:col-span-1 lg:col-span-4",
     Animation: QueueAnimation,
   },
@@ -34,7 +34,7 @@ const FEATURES: FeatureCard[] = [
     title: "Workflow DAGs",
     subtitle: "Complex pipelines, simple code",
     description:
-      "Wire steps into dependency graphs with conditions, approval gates, and fan-out/fan-in. Stop coordinating jobs with shell scripts and cron hacks.",
+      "Chain jobs into multi-step workflows with dependencies, conditions, approval gates, and parallel execution. Define complex pipelines in a few lines of code.",
     span: "sm:col-span-1 lg:col-span-8",
     Animation: HeroDag,
   },
@@ -61,7 +61,7 @@ const FEATURES: FeatureCard[] = [
     title: "5 Language SDKs",
     subtitle: "Use the language you already know",
     description:
-      "TypeScript, Python, Go, Ruby, and Rust. Full coverage with logging, heartbeats, checkpoints, and continuation built into every SDK.",
+      "TypeScript, Python, Go, Ruby, and Rust. Every SDK includes logging, progress reporting, checkpoints, and long-running job support.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: SdkAnimation,
   },
@@ -70,7 +70,7 @@ const FEATURES: FeatureCard[] = [
     title: "Built-in Observability",
     subtitle: "Debug in seconds, not hours",
     description:
-      "When a job fails, see exactly why. Health scores combine queue depth, throughput, and latency into a single number. OpenTelemetry and structured logs included.",
+      "When a job fails, see exactly what went wrong. Health scores give you a single number for system health. OpenTelemetry tracing and structured logs included.",
     span: "sm:col-span-1 lg:col-span-6",
     Animation: HealthAnimation,
   },
@@ -89,8 +89,8 @@ const FeatureBentoGrid = () => (
           <span className="text-primary">failures don&apos;t exist</span>.
         </h2>
         <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-          Strait handles retries, state, scaling, and observability so you can
-          focus on your product.
+          Strait handles retries, recovery, scaling, and monitoring so you ship
+          features, not infrastructure.
         </p>
       </div>
 
