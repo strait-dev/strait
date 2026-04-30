@@ -45,28 +45,43 @@
             ]
           },
           {
-            "group": "Features",
+            "group": "Workflows",
             "pages": [
-              "concepts/resilience",
-              "concepts/webhooks",
-              "concepts/webhook-subscriptions",
-              "concepts/environments",
-              "concepts/versioning",
-              "concepts/cost-budgets",
-              "concepts/adaptive-concurrency",
-              "concepts/audit-logging",
-              "concepts/managed-execution",
-              "concepts/log-drains",
-              "concepts/event-sources",
-              "concepts/batch-operations",
+              "concepts/dag-runtime",
               "concepts/durable-workflows",
               "concepts/compensating-transactions",
-              "concepts/canary-deployments",
               "concepts/workflow-simulator",
               "concepts/workflow-test-suites",
-              "concepts/workflow-debugger",
+              "concepts/workflow-debugger"
+            ]
+          },
+          {
+            "group": "Reliability",
+            "pages": [
+              "concepts/resilience",
+              "concepts/adaptive-concurrency",
+              "concepts/canary-deployments",
+              "concepts/cost-budgets"
+            ]
+          },
+          {
+            "group": "Execution",
+            "pages": [
+              "concepts/managed-execution",
+              "concepts/batch-operations",
               "concepts/job-chaining",
-              "concepts/dag-runtime"
+              "concepts/versioning",
+              "concepts/environments"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "concepts/audit-logging",
+              "concepts/log-drains",
+              "concepts/webhooks",
+              "concepts/webhook-subscriptions",
+              "concepts/event-sources"
             ]
           },
           {
@@ -94,16 +109,6 @@
           {
             "group": "Operations",
             "pages": ["operations/alert-runbooks", "operations/dlq-recovery"]
-          },
-          {
-            "group": "Development",
-            "pages": [
-              "development/technology-choices",
-              "development/database-schema",
-              "development/contributing",
-              "development/testing",
-              "development/benchmarking"
-            ]
           },
           {
             "group": "AI Agents",
