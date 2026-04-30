@@ -10,7 +10,7 @@ type Props = {
 };
 
 const {
-  heading = "Start building in 5 minutes",
+  heading = "Create your first job in 5 minutes",
   description = "Free forever on the starter plan. No credit card required.",
   showInstallSnippet = true,
 } = Astro.props;
@@ -59,13 +59,13 @@ const {
 
       <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
         <LinkButton client:load href={dashboardHref("/login")}>
-          Start building free
+          Create your first job
           <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </LinkButton>
         <LinkButton client:load href="/docs/quickstart" variant="outline">
-          Read the docs
+          See how it works
           <svg class="size-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
           </svg>

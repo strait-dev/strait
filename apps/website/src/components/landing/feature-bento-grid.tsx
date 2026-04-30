@@ -23,7 +23,7 @@ const FEATURES: FeatureCard[] = [
   {
     id: "job-orchestration",
     title: "Job Orchestration",
-    subtitle: "Never lose a job again",
+    subtitle: "Every job finishes or explains why",
     description:
       "Every job runs to completion or tells you why it didn't. Failed jobs retry automatically, unrecoverable failures surface for review, and abandoned jobs clean up on their own.",
     span: "sm:col-span-1 lg:col-span-4",
@@ -32,7 +32,7 @@ const FEATURES: FeatureCard[] = [
   {
     id: "workflow-dags",
     title: "Workflow DAGs",
-    subtitle: "Complex pipelines, simple code",
+    subtitle: "Multi-step pipelines in a few lines",
     description:
       "Chain jobs into multi-step workflows with dependencies, conditions, approval gates, and parallel execution. Define complex pipelines in a few lines of code.",
     span: "sm:col-span-1 lg:col-span-8",
@@ -41,7 +41,7 @@ const FEATURES: FeatureCard[] = [
   {
     id: "managed-execution",
     title: "Managed Execution",
-    subtitle: "Zero infrastructure to manage",
+    subtitle: "Your code runs, you don't manage servers",
     description:
       "Your code runs in containers with warm pools, multi-region deployment, and automatic scaling. Ship without provisioning servers.",
     span: "sm:col-span-1 lg:col-span-6",
@@ -50,7 +50,7 @@ const FEATURES: FeatureCard[] = [
   {
     id: "ai-agent-platform",
     title: "AI Agent Platform",
-    subtitle: "Run agents without runaway costs",
+    subtitle: "AI agents that stay on budget",
     description:
       "Set per-run cost budgets, require human approval before expensive operations, and track token usage across every model call. Stay in control as agents scale.",
     span: "sm:col-span-1 lg:col-span-6",
@@ -59,7 +59,7 @@ const FEATURES: FeatureCard[] = [
   {
     id: "language-sdks",
     title: "5 Language SDKs",
-    subtitle: "Use the language you already know",
+    subtitle: "Works with your existing stack",
     description:
       "TypeScript, Python, Go, Ruby, and Rust. Every SDK includes logging, progress reporting, checkpoints, and long-running job support.",
     span: "sm:col-span-1 lg:col-span-6",
@@ -89,8 +89,8 @@ const FeatureBentoGrid = () => (
           <span className="text-primary">failures don&apos;t exist</span>.
         </h2>
         <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-          Strait handles retries, recovery, scaling, and monitoring so you ship
-          features, not infrastructure.
+          Focus on what your code does. Strait handles everything that happens
+          after you hit run.
         </p>
       </div>
 

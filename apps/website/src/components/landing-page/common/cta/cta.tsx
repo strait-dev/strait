@@ -59,7 +59,7 @@ const CopyButton = ({ text }: { text: string }) => {
 };
 
 const CTA = ({
-  heading = "Start building in 5 minutes",
+  heading = "Create your first job in 5 minutes",
   description = "Free forever on the starter plan. No credit card required.",
   showInstallSnippet = true,
 }: CTAProps) => {
@@ -114,7 +114,7 @@ const CTA = ({
                 size="default"
                 variant="default"
               >
-                Start building free
+                Create your first job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
               <Button
@@ -122,7 +122,7 @@ const CTA = ({
                 size="default"
                 variant="ghost"
               >
-                Read the docs
+                See how it works
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
               </Button>
             </div>
