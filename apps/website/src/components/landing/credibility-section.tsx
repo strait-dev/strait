@@ -9,7 +9,7 @@ const ARCHITECTURE = [
   "Exponential backoff + jitter retries",
   "Dead letter queue with replay",
   "Secure signed webhooks",
-  "TypeScript, Go & Python SDKs",
+  "TypeScript, Go, and Python SDKs",
   "Per-run and daily cost budgets",
 ];
 
@@ -44,7 +44,10 @@ const ArchitectureList = () => {
 };
 
 const CredibilitySection = () => (
-  <section className="infinity-border-y overflow-hidden py-20 sm:py-28">
+  <section
+    className="infinity-border-y overflow-hidden py-20 sm:py-28"
+    id="credibility"
+  >
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">

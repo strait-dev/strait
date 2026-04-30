@@ -12,6 +12,8 @@ interface Props {
 <BaseLayout>
 	<slot name="head" slot="head" />
 	<Header />
-	<slot />
+	<main id="main">
+		<slot />
+	</main>
 	<Footer />
 </BaseLayout>

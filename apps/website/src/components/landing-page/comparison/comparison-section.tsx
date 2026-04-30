@@ -49,7 +49,7 @@ const ROWS = [
 ] as const;
 
 const ComparisonSection = () => (
-  <section className="border-border/40 border-y py-16 sm:py-20">
+  <section className="border-border/40 border-y py-20 sm:py-28">
     <Shell variant="wide">
       <Reveal variant="blur">
         <div className="mb-14 max-w-3xl">

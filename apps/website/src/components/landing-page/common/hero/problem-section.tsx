@@ -36,7 +36,7 @@ const ProblemSection = () => (
             Stop duct-taping your job infrastructure.
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground text-sm leading-relaxed sm:text-base">
-            Every team builds the same glue code -- retries, queues, monitoring.
+            Every team builds the same glue code: retries, queues, monitoring.
             Strait replaces all of it.
           </p>
         </div>

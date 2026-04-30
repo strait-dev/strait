@@ -24,7 +24,7 @@ const PricingTeaser = () => (
       <StaggerGroup className="mb-8 flex flex-wrap items-center gap-2.5">
         <StaggerItem>
           <span className="rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-sm">
-            No credit card for Free
+            No credit card required
           </span>
         </StaggerItem>
         <StaggerItem>
@@ -51,7 +51,7 @@ const PricingTeaser = () => (
             className="font-medium text-muted-foreground text-sm transition-colors hover:text-foreground"
             href="/pricing"
           >
-            {"See full pricing & compare plans \u2192"}
+            {"See full pricing and compare plans \u2192"}
           </a>
         </div>
       </Reveal>
