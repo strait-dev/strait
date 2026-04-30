@@ -81,7 +81,9 @@
               "concepts/log-drains",
               "concepts/webhooks",
               "concepts/webhook-subscriptions",
-              "concepts/event-sources"
+              "concepts/event-sources",
+              "concepts/clickhouse-analytics",
+              "concepts/cdc"
             ]
           },
           {
@@ -95,15 +97,12 @@
               "guides/deployment",
               "guides/security",
               "guides/sdk-integration",
-              "guides/oidc",
               "guides/rbac",
-              "guides/api-key-rotation",
-              "guides/job-dependencies",
-              "guides/job-groups",
               "guides/idempotency",
               "guides/workflow-approvals",
               "guides/event-triggers",
-              "guides/audit-events"
+              "guides/audit-events",
+              "guides/dag-operations-playbook"
             ]
           },
           {

@@ -79,7 +79,7 @@ Inside `apps/strait/`:
 | `store/` | Raw `pgx/v5` data access, one file per table area |
 | `domain/` | Types, FSM states, edition gating |
 | `clickhouse/` | Optional analytics export, schema, exporter |
-| `webhook/` | HMAC delivery, retry, circuit breaker, dead-letter queue |
+| `webhook/` | HMAC delivery, retry, circuit breaker, review queue |
 | `cdc/` | Sequin-backed change data capture |
 | `pubsub/` | Redis (prod) / in-memory (test) pub/sub for SSE |
 | `logdrain/` | Datadog / Splunk / HTTP log forwarding |
@@ -110,7 +110,7 @@ Inside `apps/strait/`:
 Map of platform capabilities. Each links to the doc that explains it in depth — read these instead of guessing.
 
 **Execution and runs**
-- Jobs and 13-state run FSM — `apps/docs/concepts/jobs.mdx`, `apps/docs/concepts/runs.mdx`
+- Jobs and run lifecycle — `apps/docs/concepts/jobs.mdx`, `apps/docs/concepts/runs.mdx`
 - Managed execution (K8s/Docker/HTTP runtimes, warm pool) — `apps/docs/concepts/managed-execution.mdx`
 - Versioning and policies — `apps/docs/concepts/versioning.mdx`
 - Job chaining — `apps/docs/concepts/job-chaining.mdx`
@@ -141,22 +141,19 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 - ClickHouse analytics — `apps/docs/concepts/clickhouse-analytics.mdx`
 - Audit logging — `apps/docs/concepts/audit-logging.mdx`
 - Log drains — `apps/docs/concepts/log-drains.mdx`
-- Monitoring and alerts — `apps/docs/operations/monitoring-and-alerts.mdx`
+- Alert runbooks — `apps/docs/operations/alert-runbooks.mdx`
 
 **Security and operational guides**
-- Authentication — `apps/docs/guides/authentication.mdx`
+- Authentication (incl. OIDC, API key rotation) — `apps/docs/guides/authentication.mdx`
 - RBAC — `apps/docs/guides/rbac.mdx`
-- OIDC — `apps/docs/guides/oidc.mdx`
-- API keys and rotation — `apps/docs/guides/api-key-rotation.mdx`
 - Security model — `apps/docs/guides/security.mdx`
 - Workflow approvals — `apps/docs/guides/workflow-approvals.mdx`
 - Idempotency — `apps/docs/guides/idempotency.mdx`
 - SDK integration — `apps/docs/guides/sdk-integration.mdx`
-- Performance tuning — `apps/docs/guides/performance-tuning.mdx`
-- Capacity planning — `apps/docs/guides/capacity-planning.mdx`
 - Deployment — `apps/docs/guides/deployment.mdx`
 - DAG operations playbook — `apps/docs/guides/dag-operations-playbook.mdx`
-- Debug bundles — `apps/docs/guides/debug-bundles.mdx`
+- Audit events — `apps/docs/guides/audit-events.mdx`
+- Event triggers guide — `apps/docs/guides/event-triggers.mdx`
 
 **Reference**
 - API: `apps/docs/api-reference/` + `apps/strait/schemas/strait.json`

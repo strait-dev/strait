@@ -7,7 +7,7 @@ icon: "key"
 Strait supports multiple authentication methods: API key scopes control machine access, and role-based access control (RBAC) controls user access.
 
 <Info>
-  See also: [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [API Key Rotation](/guides/api-key-rotation), [Audit Events](/guides/audit-events), [Security](/guides/security).
+  See also: [RBAC & Policy Authorization](/guides/rbac), [Audit Events](/guides/audit-events), [Security](/guides/security).
 </Info>
 
 ## Authentication Schemes
@@ -272,3 +272,80 @@ curl -X POST https://strait.dev/v1/api-keys/key_abc/rotate \
 ```
 
 Rotation issues a new key and marks the previous key as replaced. The old key can remain valid until `grace_expires_at` to support zero-downtime credential rollouts.
+
+
+---
+
+## OIDC Authentication
+
+Strait can validate non-`strait_` bearer tokens using OpenID Connect when enabled. Use OIDC when user requests should be authenticated directly with tokens from your IdP, while service-to-service traffic continues using `X-Internal-Secret`.
+
+### Token Resolution
+
+Strait resolves bearer tokens in this order:
+
+- Token starts with `strait_` -- API key auth path
+- Other bearer token -- OIDC verifier path (if configured)
+- Internal secret header/bearer -- internal secret auth path
+
+### Configuration
+
+Enable OIDC verifier settings in your server config:
+
+- **Issuer** -- your IdP's issuer URL
+- **Audience** -- expected audience claim
+- **Public key** -- verification key settings
+
+### Context Mapping
+
+On successful verification, Strait maps token claims into:
+
+- **Actor identity** -- the authenticated user
+- **Project context** -- when provided by claim or header mapping
+
+Authorization still flows through RBAC policies and permission checks.
+
+<Tip>
+  Run OIDC and internal-secret user identity in parallel during migration, then phase out internal headers for user traffic when your app is fully token-based.
+</Tip>
+
+---
+
+## API Key Rotation
+
+Rotate API keys with grace windows for zero-downtime credential rollovers.
+
+### Endpoint
+
+`POST /v1/api-keys/{keyID}/rotate`
+
+### Request Body
+
+```json
+{
+  "name": "ci-key-2026-03",
+  "grace_period_seconds": 3600
+}
+```
+
+### Behavior
+
+- New key is created and returned (shown only once).
+- Previous key is marked with `replaced_by_key_id` and `grace_expires_at`.
+- Old key remains valid until `grace_expires_at`.
+- After grace expiry, old key authentication fails.
+
+### Recommended Flow
+
+1. Rotate the key with a grace window.
+2. Deploy the new key to all clients.
+3. Verify traffic uses the new key.
+4. Let the grace period expire (or revoke the old key explicitly).
+
+### Security Notes
+
+- Store the raw key in your secret manager immediately -- it is shown only once.
+- Never log raw keys.
+- Keep grace windows short.
+
+See [CLI API Keys](/cli/api-keys) for CLI rotation commands.
