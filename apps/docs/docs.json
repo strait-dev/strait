@@ -75,7 +75,8 @@
               "concepts/resilience",
               "concepts/adaptive-concurrency",
               "concepts/canary-deployments",
-              "concepts/cost-budgets"
+              "concepts/cost-budgets",
+              "concepts/slos"
             ]
           },
           {
@@ -85,7 +86,8 @@
               "concepts/batch-operations",
               "concepts/job-chaining",
               "concepts/versioning",
-              "concepts/environments"
+              "concepts/environments",
+              "concepts/code-deployments"
             ]
           },
           {
@@ -97,7 +99,9 @@
               "concepts/webhook-subscriptions",
               "concepts/event-sources",
               "concepts/clickhouse-analytics",
-              "concepts/cdc"
+              "concepts/cdc",
+              "concepts/notifications",
+              "concepts/debug-bundles"
             ]
           },
           {

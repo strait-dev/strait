@@ -256,6 +256,31 @@ For more granular control, `rate_limit_keys` lets you define multiple named rate
 
 ---
 
+### Debouncing
+
+Debouncing collapses rapid-fire triggers into one run. Set `debounce_window_secs` on the job. When a trigger arrives, Strait waits for the window to pass with no new triggers. If another trigger arrives during the window, the timer resets. When the window expires, one run fires with the last trigger's payload.
+
+```json
+{
+  "debounce_window_secs": 5
+}
+```
+
+You can also pass a `debounce_key` on the trigger to debounce per-key (e.g., per user ID). Triggers with different keys debounce independently.
+
+### Request Batching
+
+Batching aggregates multiple triggers into one run. Set `batch_window_secs` and `batch_max_size` on the job. Strait collects triggers until the window expires or the batch is full, then fires one run with all payloads.
+
+```json
+{
+  "batch_window_secs": 10,
+  "batch_max_size": 50
+}
+```
+
+The run receives an array of payloads in `batch_items`. Pass a `batch_key` on the trigger to batch per-key.
+
 ## Environments
 
 Jobs can be bound to an [environment](/concepts/environments) using `environment_id`. When an environment defines an `ENDPOINT_URL` variable, Strait routes the job to that URL instead of the default `endpoint_url` — without editing the job definition.

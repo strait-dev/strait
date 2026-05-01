@@ -135,6 +135,39 @@ Steps can define a `condition` (JSON) that must evaluate to true before the step
 
 If a condition is false, the step is marked as `skipped`.
 
+### Cost Gates
+
+A cost gate pauses a workflow step if the projected cost exceeds a threshold. Set `cost_gate_threshold_microusd` on a step:
+
+```json
+{
+  "step_ref": "expensive-analysis",
+  "job_id": "job_analysis",
+  "cost_gate_threshold_microusd": 10000000,
+  "cost_gate_timeout_secs": 3600,
+  "cost_gate_default_action": "reject"
+}
+```
+
+If the estimated cost exceeds $10 (10,000,000 micro-USD), the step pauses for manual approval. If no one approves within `cost_gate_timeout_secs`, the `cost_gate_default_action` applies (approve or reject).
+
+### Stage Notifications
+
+Configure per-step notifications for lifecycle events:
+
+```json
+{
+  "step_ref": "critical-step",
+  "stage_notifications": {
+    "on_complete": true,
+    "on_failure": true,
+    "on_skipped": false
+  }
+}
+```
+
+When enabled, Strait sends notifications through your configured [notification channels](/concepts/notifications) when the step completes, fails, or is skipped.
+
 ## Data Flow and Templates
 
 Workflows support dynamic data flow between steps using template variables.

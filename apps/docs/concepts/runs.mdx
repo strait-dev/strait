@@ -317,3 +317,48 @@ Full field reference for the run model.
 | `continuation_of` | `string` | Links to the previous run if this is a continuation. |
 | `lineage_depth` | `int` | How many continuations deep this run is. |
 | `created_at` | `time.Time` | When the run record was created. |
+
+
+## Per-run Overrides
+
+Override job defaults on a per-trigger basis:
+
+```bash
+curl -X POST https://api.strait.dev/v1/jobs/my-job/trigger \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "payload": {"user_id": "usr_123"},
+    "max_attempts_override": 10,
+    "timeout_secs_override": 600
+  }'
+```
+
+Overrides apply only to this run. The job definition is unchanged.
+
+## Run State
+
+Store key-value data scoped to a single run. Useful for passing state between checkpoints or across continuation runs.
+
+SDK endpoints:
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/sdk/v1/runs/{runID}/state` | Set a key |
+| `GET` | `/sdk/v1/runs/{runID}/state/{key}` | Get a key |
+| `GET` | `/sdk/v1/runs/{runID}/state` | List all keys |
+| `DELETE` | `/sdk/v1/runs/{runID}/state/{key}` | Delete a key |
+
+## Job Memory
+
+Store key-value data scoped to a job (persisted across runs). Useful for caching API tokens, tracking cursor positions, or any state that should survive between runs.
+
+SDK endpoints:
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/sdk/v1/jobs/{jobID}/memory` | Set a key (max 1MB value, 100 keys per job) |
+| `GET` | `/sdk/v1/jobs/{jobID}/memory/{key}` | Get a key |
+| `GET` | `/sdk/v1/jobs/{jobID}/memory` | List all keys |
+| `DELETE` | `/sdk/v1/jobs/{jobID}/memory/{key}` | Delete a key |
+
+Memory entries have an optional `ttl_secs` for automatic expiration.
