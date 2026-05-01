@@ -16,7 +16,7 @@
   "metadata": {
     "og:site_name": "Strait Docs",
     "og:image": "/images/og.png",
-    "og:description": "Documentation for Strait, the open-source job orchestration platform for background jobs, workflows, and AI agents.",
+    "og:description": "Documentation for Strait, the open-source job orchestration platform for background jobs and workflows.",
     "og:type": "website",
     "og:locale": "en_US",
     "twitter:card": "summary_large_image",
@@ -55,7 +55,8 @@
               "concepts/workflows",
               "concepts/retry-strategies",
               "concepts/event-triggers",
-              "concepts/scheduling"
+              "concepts/scheduling",
+              "concepts/projects"
             ]
           },
           {
@@ -82,6 +83,7 @@
           {
             "group": "Execution",
             "pages": [
+              "concepts/execution-modes",
               "concepts/managed-execution",
               "concepts/batch-operations",
               "concepts/job-chaining",
@@ -93,6 +95,7 @@
           {
             "group": "Observability",
             "pages": [
+              "concepts/real-time",
               "concepts/audit-logging",
               "concepts/log-drains",
               "concepts/webhooks",

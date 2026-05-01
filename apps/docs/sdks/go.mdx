@@ -224,7 +224,7 @@ pipeline := authoring.DefineWorkflow(authoring.WorkflowConfig{
 **Step types:**
 - `JobStep` -- runs an existing job definition
 - `ApprovalStep` -- pauses for human or programmatic approval
-- `AIStep` -- executes an AI model call as a workflow step
+- `AIStep` -- executes any step with cost tracking. Not limited to AI models — use it for any step where you need to track spend.
 
 ## Composition Helpers
 

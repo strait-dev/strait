@@ -96,7 +96,7 @@ Strait is a single Go binary that runs your jobs and workflows. It needs Postgre
 
 ## Components
 
-Strait has three main components: an API server that handles HTTP requests, a worker that executes jobs, and a scheduler that runs background tasks (cron, retries, cleanup). You deploy all three in one binary or split them for horizontal scaling.
+Strait organizes all jobs and workflows under [projects](/concepts/projects), the top-level grouping for access control, cost budgets, and environment configuration. Within a project, Strait has three main components: an API server that handles HTTP requests, a worker that executes jobs, and a scheduler that runs background tasks (cron, retries, cleanup). You deploy all three in one binary or split them for horizontal scaling.
 
 ## Deployment Modes
 
@@ -171,119 +171,11 @@ Strait uses two authentication schemes:
 
 ## Workflow Engine
 
-The workflow engine executes dependency graphs (DAGs) where each node represents a job execution, human approval, or nested sub-workflow.
+The workflow engine executes DAGs where each step is a job, approval gate, event wait, sleep, or nested workflow. Steps run in parallel when they have no dependencies on each other. When all of a step's parents complete, the step starts.
 
-### Dependency Validation
+Workflows support conditional branching, data flow between steps via template variables, and governance policies to limit fan-out and depth.
 
-Before execution, Strait validates there are no circular dependencies. The validation:
-
-1. Identifies all steps with no dependencies (roots).
-2. Removes roots from the graph and identifies newly exposed roots.
-3. Repeats until all steps are processed.
-
-If a cycle exists, Strait rejects the workflow before creating any runs. This prevents infinite execution loops that would exhaust resources.
-
-### Parallel Step Completion
-
-When multiple parent steps complete concurrently, their child step must start only after all dependencies are satisfied. The engine tracks a completion counter on each step run. As each parent completes, the counter increments -- and only the final parent to complete triggers the child. This guarantees exactly-once child activation, even under concurrent completions.
-
-Step-level concurrency groups (`concurrency_key`) are enforced during scheduling. Steps that share the same key are serialized even when dependency completion says they are ready.
-
-### Payload Merging
-
-Step payloads are constructed by merging three layers:
-
-1. **Trigger payload**: Initial payload provided when workflow is triggered.
-2. **Step payload**: Static payload defined on the step in workflow definition.
-3. **Parent outputs**: Outputs from all direct dependency steps, keyed by `step_ref`.
-
-Template variables `{{parent_outputs.stepRef.field}}` allow accessing nested fields. The engine preserves native JSON types -- arrays, objects, strings -- so no manual serialization is needed.
-
-### Template Rendering
-
-The template engine renders `{{variable}}` placeholders using dot notation. Example: `{{parent_outputs.extractData.id}}` accesses the `id` field of the `extractData` object from a parent step's output. Templates resolve to native JSON types — no manual serialization.
-
-### Output Transform
-
-Steps can define an `output_transform` using JSONPath expressions. Before persisting a step's output, the engine extracts the matching subset of the job result. This reduces storage overhead and simplifies downstream steps that only need specific fields. Example: `$.data.items[*].id` extracts all IDs from an array.
-
-### Step Types
-
-<Tabs>
-  <Tab title="job">
-    Executes a regular job. The workflow creates a new `job_run` and waits for it to reach a terminal state before marking the step as completed.
-  </Tab>
-  <Tab title="approval">
-    Human-in-the-loop gate. Creates `workflow_step_approvals` record with `pending` status. Also creates a parallel event trigger for API-based resolution. Workflow pauses until approval via API or CLI command. Timeout specified in `approval_timeout_secs`.
-  </Tab>
-  <Tab title="wait_for_event">
-    Durable external event wait. Creates an `event_triggers` record with `waiting` status and a globally unique `event_key`. No thread or process is held -- the wait is a database row. External systems send events via `POST /v1/events/{eventKey}/send`. Supports template-rendered event keys and configurable timeouts.
-  </Tab>
-  <Tab title="sleep">
-    Durable sleep. Creates a sleep-type event trigger with an expiry time. The reaper completes the trigger when the duration expires, marking the step as completed and triggering downstream steps. Supports Go duration strings (e.g., `30s`, `5m`, `24h`).
-  </Tab>
-  <Tab title="sub_workflow">
-    Triggers a nested workflow run. The parent workflow waits for the child to complete and aggregates its outputs. Nesting depth limited to `max_nesting_depth` to prevent infinite recursion.
-  </Tab>
-</Tabs>
-
-### Workflow Lifecycle
-
-The workflow engine manages two sets of states -- one for workflow runs, one for step runs.
-
-**Workflow Run States**: pending -> running -> paused -> (completed | failed | timed_out | canceled)
-
-**Step Run States**: pending -> (waiting | skipped | canceled) -> running -> (completed | failed)
-
-When any job run reaches a terminal state, the engine determines the next workflow actions: starting ready child steps, applying failure policies, and propagating sub-workflow outputs. Separate callbacks handle event trigger resolution, sleep completion, and timeout/cancellation failures. When a step with an `event_emit_key` completes, the engine automatically resolves any triggers waiting for that event.
-
-### Policy Enforcement and Governance
-
-You can set per-project governance policies via `GET|PUT /v1/workflow-policies/{projectID}`.
-
-Policy checks run at workflow lifecycle boundaries:
-- **Create** (`POST /v1/workflows`)
-- **Update** (`PATCH /v1/workflows/{workflowID}`)
-- **Trigger** (`POST /v1/workflows/{workflowID}/trigger`)
-
-Available policy controls:
-- `max_fan_out`: maximum number of direct dependents any single step can have
-- `max_depth`: maximum depth of the dependency chain
-- `forbidden_step_types`: step types you want to block for this project
-- `require_approval_for_deploy`: requires at least one approval step for deploy/release workflows
-
-Violations are rejected at the API boundary, preventing invalid workflows from reaching runtime.
-
-### Scheduling Decisions and Explainability
-
-The progression scheduler records key routing decisions for post-mortem and operator visibility. Decisions include:
-- `scheduler`: blocked by workflow `max_parallel_steps`
-- `concurrency`: blocked by `concurrency_key` serialization
-- `resource`: blocked by `resource_class` quota
-- `condition`: skipped because condition evaluated to false
-
-These records are exposed via `GET /v1/workflow-runs/{workflowRunID}/explain` with optional `step_ref` and `decision_type` filters.
-
-### Runtime Graph and Critical Path Estimation
-
-`GET /v1/workflow-runs/{workflowRunID}/graph` exposes the live DAG execution graph for a run, including:
-- node execution state (`pending|waiting|running|completed|failed|...`)
-- dependency edges and roots
-- runnable set (deps satisfied but not running)
-- critical-path estimate fields:
-  - `critical_path`
-  - `critical_path_estimate_ms`
-  - `critical_path_remaining_ms`
-
-Critical-path timing uses observed terminal durations when available, active elapsed time for running steps, and timeout overrides as a fallback estimate.
-
-### Runtime Recovery Controls
-
-Operators can recover or replay portions of a DAG without retriggering the entire workflow:
-- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` resets a terminal step to `pending` and resumes progression.
-- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` resets the selected step and all descendants to `pending`, then resumes progression.
-
-These controls are useful for branch-local retries after transient failures and for deterministic replay during incident mitigation. See [DAG Runtime](/concepts/dag-runtime) for endpoint behavior details and [DAG Operations Playbook](/guides/dag-operations-playbook) for production runbooks.
+For step types, conditions, data flow, and recovery controls, see [Workflows](/concepts/workflows). For scheduler behavior and explainability, see [DAG Runtime](/concepts/dag-runtime).
 
 ## Managed Execution
 
@@ -405,35 +297,9 @@ For detailed resilience patterns, see [Resilience](/concepts/resilience).
 
 ## ClickHouse Analytics
 
-Strait supports an optional ClickHouse backend for high-performance analytics over run metrics, cost data, and event timelines.
+Strait supports an optional ClickHouse backend for analytics over run metrics and cost data. PostgreSQL remains the source of truth; ClickHouse receives copies via an async pipeline.
 
-### Architecture
-
-PostgreSQL remains the source of truth for all state. ClickHouse receives denormalized event data via an async batch pipeline. This separation keeps the hot path (queue, state transitions) on Postgres while offloading analytical queries to a column-oriented store optimized for aggregation.
-
-### Tables
-
-| Table | Purpose | Engine | TTL | Partition |
-| :--- | :--- | :--- | :--- | :--- |
-| `run_events` | Run lifecycle events with timing | MergeTree | 365 days | Monthly |
-| `run_analytics` | Denormalized run summaries | MergeTree | 365 days | Monthly |
-| `compute_usage` | Managed execution cost records | MergeTree | 90 days | Monthly |
-
-### Data Pipeline
-
-The `clickhouse.Engine` maintains an in-memory buffer that flushes to ClickHouse on two triggers: batch size threshold (default 100) or flush interval (default 10 seconds). Backpressure is handled by capping the buffer at 10x batch size and dropping oldest entries. Graceful shutdown flushes remaining entries.
-
-### Configuration
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `CLICKHOUSE_ENABLED` | `false` | Enable ClickHouse export |
-| `CLICKHOUSE_URL` | -- | ClickHouse connection string |
-| `CLICKHOUSE_DATABASE` | `strait` | Target database |
-| `CLICKHOUSE_BATCH_SIZE` | `100` | Flush threshold |
-| `CLICKHOUSE_FLUSH_INTERVAL` | `10s` | Max time between flushes |
-
-For the full ClickHouse reference, see [ClickHouse Analytics](/concepts/clickhouse-analytics).
+See [ClickHouse Analytics](/concepts/clickhouse-analytics) for tables, configuration, and setup.
 
 ## Related Documentation
 

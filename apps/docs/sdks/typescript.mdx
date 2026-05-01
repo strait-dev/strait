@@ -196,6 +196,9 @@ All step types accept `dependsOn` to declare edges in the DAG. Steps with no dep
 
 `defineAgent` creates a long-running, durable AI agent with built-in cost tracking, tool calling, and checkpoint persistence. The agent survives restarts — it resumes from its last checkpoint automatically.
 
+> `defineAgent` is a convenience wrapper around `defineJob` with built-in cost tracking, tool calling, and checkpoint persistence. You can achieve the same behavior with `defineJob`.
+
+
 ```ts
 import { defineAgent } from "@strait/ts";
 

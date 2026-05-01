@@ -1,19 +1,19 @@
 ---
 title: "Introduction"
-description: "Open-source job orchestration for background jobs, workflows, and AI agents. One binary, one database, zero message brokers."
+description: "Open-source job orchestration for background jobs and workflows. One binary, one database, zero message brokers."
 icon: "book-open"
 og:image: "/images/og.png"
 ---
 
 ## What is Strait?
 
-Strait is an open-source platform that runs your background jobs, orchestrates multi-step workflows, and manages AI agent pipelines. You define what needs to happen. Strait handles the retries, scheduling, dependencies, and monitoring.
+Strait is an open-source platform that runs your background jobs and orchestrates multi-step workflows. You define what needs to happen. Strait handles the retries, scheduling, dependencies, and monitoring.
 
 One Go binary. PostgreSQL for state and queuing. Redis for real-time updates. No RabbitMQ. No SQS. Just deploy and start running jobs.
 
 ## Why teams switch to Strait
 
-Most teams start with a simple queue and a retry loop. Then they need scheduling. Then workflow dependencies. Then approval gates. Then cost tracking for AI agents. Before long, they're maintaining five different systems that don't talk to each other.
+Most teams start with a simple queue and a retry loop. Then they need scheduling. Then workflow dependencies. Then approval gates. Then cost tracking for expensive API calls. Before long, they're maintaining five different systems that don't talk to each other.
 
 Strait replaces that patchwork with one system:
 
@@ -36,13 +36,13 @@ Strait replaces that patchwork with one system:
     Exponential, linear, fixed, or custom per-attempt delays with jitter to prevent all jobs retrying at the same time. Retries transient failures automatically.
   </Card>
   <Card title="Cost Budgets" icon="money-bill">
-    Track AI model usage with micro-USD precision. Enforce per-run and daily project limits to control costs.
+    Track costs with micro-USD precision. Enforce per-run and daily project limits to control spend on any job that calls paid APIs.
   </Card>
   <Card title="Event Triggers" icon="bell">
     Pause execution and wait for external events — approvals, webhooks, third-party callbacks — for days or weeks without holding resources. Durable, database-backed waits with timeout support.
   </Card>
   <Card title="Real-Time Updates" icon="zap">
-    Your applications react instantly when jobs, workflows, or runs change — no polling required.
+    Your applications react instantly when jobs, workflows, or runs change — no polling required. See [Real-Time Streaming](/concepts/real-time).
   </Card>
 </CardGroup>
 
@@ -56,7 +56,7 @@ Strait fits these patterns:
 
 **Webhook Consumers**: Process events from external services with retries and delivery guarantees. Failed deliveries go to a review queue so nothing is silently lost.
 
-**AI Agent Workflows**: Multi-step AI pipelines with human approval gates, conditional execution, and sub-workflow nesting. Cost tracking per run and per project.
+**Cost-Tracked Pipelines**: Multi-step pipelines with human approval gates, conditional execution, cost tracking per run and per project, and sub-workflow nesting. Use for any workload where you need to control spend.
 
 **Batch Processing**: Bulk job triggering with configurable batch sizes, priority ordering, and idempotency deduplication.
 
