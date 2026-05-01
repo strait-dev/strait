@@ -156,12 +156,12 @@ To handle higher traffic, separate the API and worker processes:
 
 ## Graceful Shutdown
 
-Strait shuts down gracefully in both modes:
+Strait handles shutdown cleanly in both modes:
 - **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
 - **Worker**: Stops claiming new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
 
 <Tip>
-  Always use a process manager or orchestrator (like Kubernetes or Docker Compose) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
+  Always use a process manager or orchestrator (like Kubernetes or Docker Compose) that respects SIGTERM signals so in-flight jobs finish before the process exits.
 </Tip>
 
 ## CI/CD

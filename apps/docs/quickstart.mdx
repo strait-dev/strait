@@ -148,7 +148,7 @@ Scheduler running
 <Troubleshoot>
 **Problem**: Build fails with import errors.
 
-**Solution**: Ensure Go 1.26+ is installed: `go version`. Run `cd apps/strait && go mod download` to fetch dependencies. Check for corporate proxy settings affecting module downloads.
+**Solution**: Check that Go 1.26+ is installed: `go version`. Run `cd apps/strait && go mod download` to fetch dependencies. Check for corporate proxy settings affecting module downloads.
 </Troubleshoot>
 
 ## Step 4: Create a Project
@@ -374,7 +374,7 @@ See [SDKs](/sdks/overview) for Python, Go, Ruby, and Rust.
     <Details>
       **Symptoms**: `connection refused`, `no such host`, or timeout errors in Strait logs.
       **Checks**: `docker compose -f apps/strait/docker-compose.yml ps postgres`, `docker compose -f apps/strait/docker-compose.yml logs postgres`, verify `DATABASE_URL` matches container credentials.
-      **Fix**: Ensure PostgreSQL container is healthy, check network connectivity, verify host port 15432 is reachable.
+      **Fix**: Check that the PostgreSQL container is healthy, check network connectivity, verify host port 15432 is reachable.
     </Details>
   </Step>
   <Step title="Job Not Picked Up">

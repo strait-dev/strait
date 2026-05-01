@@ -201,7 +201,7 @@ Template variables `{{parent_outputs.stepRef.field}}` allow accessing nested fie
 
 ### Template Rendering
 
-The template engine renders `{{variable}}` placeholders using dot notation. Example: `{{parent_outputs.extractData.id}}` accesses the `id` field of the `extractData` object from a parent step's output. This provides flexible data flow while maintaining type safety.
+The template engine renders `{{variable}}` placeholders using dot notation. Example: `{{parent_outputs.extractData.id}}` accesses the `id` field of the `extractData` object from a parent step's output. Templates resolve to native JSON types — no manual serialization.
 
 ### Output Transform
 
@@ -357,7 +357,7 @@ The scheduler runs several background processes:
     Every second, checks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Supports cron expressions, timezones, and execution windows.
   </Tab>
   <Tab title="Delayed Poller">
-    Polls every 5 seconds for delayed runs whose `scheduled_at` time has arrived and transitions them to `queued`. This enables delayed job execution without cron.
+    Polls every 5 seconds for delayed runs whose `scheduled_at` time has arrived and transitions them to `queued`. Use this for one-off delayed runs instead of cron schedules.
   </Tab>
   <Tab title="Stale Reaper">
     Polls on the configured reaper interval and performs multiple stale-recovery passes:

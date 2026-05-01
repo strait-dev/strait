@@ -170,7 +170,7 @@ Steps can auto-emit events on completion using `event_emit_key`. When the step c
 ]
 ```
 
-This enables cross-workflow coordination — one workflow's step completion can resume another workflow's waiting step.
+One workflow's step completion can resume another workflow's waiting step.
 
 ## SDK: Wait for Event
 
@@ -418,7 +418,7 @@ A background reconciliation reaper runs every 30 seconds to catch edge cases:
 
 ### Distributed Reaper
 
-In multi-instance deployments, the reaper uses database-level locking to ensure exactly one instance runs the reaper cycle at a time. Other instances skip gracefully and try again on the next interval.
+In multi-instance deployments, the reaper uses database-level locking so only one instance runs the reaper cycle. Other instances skip the cycle and try again on the next interval.
 
 This requires no external coordination service — the database itself provides leader election. If the active instance crashes, another instance acquires the lock on the next tick.
 

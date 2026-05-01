@@ -17,7 +17,7 @@ Most teams start with a simple queue and a retry loop. Then they need scheduling
 
 Strait replaces that patchwork with one system:
 
-- **Jobs fail gracefully.** Every run follows a clear lifecycle from queued to completed (or failed). Retries use exponential backoff, fixed delays, or custom sequences. Exhausted runs go to a review queue so you can inspect and replay them.
+- **Jobs fail predictably.** Every run follows a clear lifecycle from queued to completed (or failed). Retries use exponential backoff, fixed delays, or custom sequences. Exhausted runs go to a review queue so you can inspect and replay them.
 - **Workflows handle complex dependencies.** Define step dependencies, approval gates, sub-workflows, event waits, and sleep delays. Strait validates the graph before running it.
 - **Everything is observable.** You see exactly where every run is, why it failed, how long it took, and what it cost. Real-time streaming, not polling.
 - **Five SDKs, same architecture.** TypeScript, Python, Go, Ruby, and Rust. Pick your language, define your jobs, run them anywhere.
@@ -33,7 +33,7 @@ Strait replaces that patchwork with one system:
     Define steps that run in parallel or sequentially, with conditions, data passing between steps, human approval gates, and durable event waits.
   </Card>
   <Card title="Smart Retry" icon="rotate">
-    Exponential, linear, fixed, or custom per-attempt delays with jitter to prevent all jobs retrying at the same time. Handles transient failures gracefully.
+    Exponential, linear, fixed, or custom per-attempt delays with jitter to prevent all jobs retrying at the same time. Retries transient failures automatically.
   </Card>
   <Card title="Cost Budgets" icon="money-bill">
     Track AI model usage with micro-USD precision. Enforce per-run and daily project limits to control costs.

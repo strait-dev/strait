@@ -235,7 +235,7 @@ Setting `max_concurrency_per_key: 1` creates a serial queue per key — only one
 }
 ```
 
-This allows at most 100 runs per 60-second window. Excess runs wait.
+At most 100 runs per 60-second window. Excess runs stay queued until the window resets.
 
 ### Named Rate Limit Keys
 

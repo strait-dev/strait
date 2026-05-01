@@ -77,7 +77,7 @@ After a clean exit (exit code `0`), the container is returned to the pool instea
 
 ## Pause and Resume
 
-Managed runs can be paused and resumed. Pausing stops the container gracefully and preserves its reference. Resuming restarts the same container with fresh environment variables. If the container has been cleaned up, Strait falls back to a new one.
+Managed runs can be paused and resumed. Pausing stops the container and preserves its reference. Resuming restarts the same container with fresh environment variables. If the container has been cleaned up, Strait falls back to a new one.
 
 Workflows can also pause and resume containers across step boundaries.
 

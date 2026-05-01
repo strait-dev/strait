@@ -64,7 +64,7 @@ The maximum allowed request body size prevents denial-of-service attacks via lar
 - **Default**: 1MB (`MAX_REQUEST_BODY_SIZE`)
 
 ### Validation
-All incoming JSON requests are validated to ensure required fields are present and data formats (like UUIDs or email addresses) are correct before processing.
+All incoming JSON requests are validated against the expected schema. Missing or malformed fields are rejected with a 422 error.
 
 ## CORS Configuration
 
@@ -107,5 +107,5 @@ These are stored as `created_by` and `updated_by` columns on jobs, workflows, an
 API key requests **never** honor `X-Actor-Id` headers. This prevents an API key holder from setting `X-Actor-Id: admin_user` to gain that user's RBAC permissions. Actor headers are only trusted on internal secret authentication (service-to-service).
 
 <Note>
-  Security is a shared responsibility. While Strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
+  Security is a shared responsibility. While Strait provides these protections, apply authentication and input validation to your job endpoints too.
 </Note>
