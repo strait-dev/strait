@@ -111,9 +111,6 @@ Strait runs in three modes from the same binary:
 In production, run one or more `api` instances behind a load balancer and one or more `worker` instances. All instances share the same PostgreSQL and Redis.
 
 On shutdown, Strait waits for in-flight jobs to finish and releases all resources cleanly before the process exits.
-
-For the full technology stack, see [Technology Choices](/development/technology-choices).
-
 ## How the Queue Works
 
 Strait uses PostgreSQL as its job queue. Workers claim available jobs from the queue, process them, and record results back to the database. Jobs are dequeued in priority order (higher priority first), with FIFO ordering within the same priority level. Delayed jobs wait until their scheduled time arrives, and retrying jobs wait until their backoff period expires. If a worker crashes after claiming a job but before completing it, a background reaper detects the stalled run and returns it to the queue for reprocessing.

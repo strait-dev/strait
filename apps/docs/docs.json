@@ -244,10 +244,6 @@
       "destination": "/operations/:slug"
     },
     {
-      "source": "/docs/development/:slug",
-      "destination": "/development/:slug"
-    },
-    {
       "source": "/configuration/:slug",
       "destination": "/configuration/:slug"
     }

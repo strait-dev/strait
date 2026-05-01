@@ -21,7 +21,6 @@ Read first:
 - `apps/docs/introduction.mdx` — feature overview
 - `apps/docs/quickstart.mdx` — 10-minute setup
 - `apps/docs/architecture.mdx` — internals and design rationale
-- `apps/docs/development/technology-choices.mdx` — why each library
 - `SELFHOST.md` — self-hosted deployment
 
 ---
@@ -158,11 +157,6 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 **Reference**
 - API: `apps/docs/api-reference/` + `apps/strait/schemas/strait.json`
 - Configuration / env vars: `apps/docs/configuration/environment-variables.mdx` + `.env.example`
-- Database schema: `apps/docs/development/database-schema.mdx`
-- Architecture deep dive: `apps/docs/architecture.mdx`
-- Tech choices rationale: `apps/docs/development/technology-choices.mdx`
-- Contributing: `apps/docs/development/contributing.mdx`
-- Testing: `apps/docs/development/testing.mdx`
 
 If you have unresolved questions about scope, schema, API contracts, or user-facing semantics after reading the relevant docs, **ask the user before implementing.** Do not assume.
 
