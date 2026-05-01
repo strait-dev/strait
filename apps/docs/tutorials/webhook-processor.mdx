@@ -1,0 +1,206 @@
+---
+title: "Build a Webhook Processor"
+description: "Receive external webhooks, verify signatures, process them with retries, and get notified on failure."
+icon: "webhook"
+---
+
+## What You'll Build
+
+A webhook processor that receives Stripe payment events, verifies their signature, and hands them off to Strait for processing with automatic retries. When processing completes or fails, Strait sends a signed webhook back to your app so you can react accordingly.
+
+## Prerequisites
+
+- Strait running (cloud or self-hosted) with a project and API key
+- Node.js 18+ and TypeScript installed
+- A Stripe account with webhook signing secret
+
+## Step 1: Create the Job
+
+Define a job that processes incoming Stripe webhook events. Five attempts with exponential backoff gives transient failures time to resolve without losing payment events.
+
+```typescript
+import { createClient, defineJob } from "@strait/ts";
+
+const client = createClient({
+  baseUrl: "https://api.strait.dev",
+  auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
+});
+
+const processStripeWebhook = defineJob({
+  name: "Process Stripe Webhook",
+  slug: "process-stripe-webhook",
+  endpointUrl: "https://your-api.com/jobs/process-stripe-webhook",
+  projectId: process.env.STRAIT_PROJECT_ID!,
+  maxAttempts: 5,
+  retryStrategy: "exponential",
+  timeoutSecs: 30,
+});
+
+await processStripeWebhook.register(client, {
+  projectId: process.env.STRAIT_PROJECT_ID!,
+});
+```
+
+Or register via curl:
+
+```bash
+curl -X POST https://api.strait.dev/v1/jobs \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_1",
+    "slug": "process-stripe-webhook",
+    "name": "Process Stripe Webhook",
+    "endpoint_url": "https://your-api.com/jobs/process-stripe-webhook",
+    "max_attempts": 5,
+    "retry_strategy": "exponential",
+    "timeout_secs": 30,
+    "webhook_url": "https://your-api.com/webhooks/strait-complete"
+  }'
+```
+
+## Step 2: Write the Handler
+
+This endpoint receives the callback from Strait when it dispatches the job. The payload contains the original Stripe event you passed in when triggering.
+
+```typescript
+import express from "express";
+
+const app = express();
+app.use(express.json());
+
+const STRAIT_URL = process.env.STRAIT_URL ?? "https://api.strait.dev";
+
+app.post("/jobs/process-stripe-webhook", async (req, res) => {
+  const { payload, run_id, attempt } = req.body;
+  const token = req.headers["x-sdk-token"] as string;
+
+  await fetch(`${STRAIT_URL}/sdk/v1/runs/${run_id}/log`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      level: "info",
+      message: `Processing ${payload.type} (attempt ${attempt})`,
+    }),
+  });
+
+  switch (payload.type) {
+    case "payment_intent.succeeded":
+      await activateSubscription(payload.data.object.customer);
+      break;
+    case "payment_intent.failed":
+      await notifyPaymentFailure(payload.data.object.customer);
+      break;
+    default:
+      console.log(`Unhandled event type: ${payload.type}`);
+  }
+
+  res.json({ processed: true, event_type: payload.type });
+});
+```
+
+If your handler throws or returns a non-200 status, Strait retries automatically up to `maxAttempts` with exponential backoff.
+
+## Step 3: Set Up Your Webhook Receiver
+
+Create an endpoint that Stripe sends events to. It verifies the Stripe signature, then triggers Strait to process the event. Return 200 immediately -- Strait owns the retries from here.
+
+```typescript
+import Stripe from "stripe";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
+
+app.post(
+  "/webhooks/stripe",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        req.headers["stripe-signature"] as string,
+        STRIPE_WEBHOOK_SECRET,
+      );
+    } catch (err) {
+      console.error("Stripe signature verification failed:", err);
+      return res.status(400).send("Invalid signature");
+    }
+
+    const run = await client.triggerJob({
+      pathParams: { jobID: "process-stripe-webhook" },
+      body: { payload: event },
+    });
+
+    res.json({ run_id: run.id });
+  },
+);
+```
+
+## Step 4: Verify Strait's Completion Webhook
+
+When the job completes or exhausts all retries, Strait sends a signed webhook to the `webhook_url` you configured. Verify the HMAC-SHA256 signature before trusting the payload.
+
+```typescript
+import crypto from "node:crypto";
+
+const WEBHOOK_SECRET = process.env.STRAIT_WEBHOOK_SECRET!;
+
+app.post("/webhooks/strait-complete", express.json(), (req, res) => {
+  const signature = req.headers["x-strait-signature"] as string;
+  const timestamp = req.headers["x-strait-timestamp"] as string;
+
+  const expected =
+    "v1=" +
+    crypto
+      .createHmac("sha256", WEBHOOK_SECRET)
+      .update(timestamp + "." + JSON.stringify(req.body))
+      .digest("hex");
+
+  if (signature !== expected) {
+    return res.status(401).send("Invalid signature");
+  }
+
+  const { run_id, status, job_id } = req.body;
+
+  if (status === "failed") {
+    console.error(`Webhook processing failed: run=${run_id} job=${job_id}`);
+    // Alert your team, check the review queue, etc.
+  }
+
+  res.sendStatus(200);
+});
+```
+
+## Step 5: Add Idempotency
+
+Stripe can deliver the same event more than once. Pass the Stripe event ID as an idempotency key so Strait deduplicates duplicate triggers instead of processing them twice.
+
+```typescript
+const run = await client.triggerJob({
+  pathParams: { jobID: "process-stripe-webhook" },
+  body: { payload: event },
+  headers: { "X-Idempotency-Key": event.id },
+});
+```
+
+If Strait receives a second trigger with the same idempotency key, it returns the existing run instead of creating a new one.
+
+## What You Get
+
+With this setup, every Stripe webhook is:
+
+- **Retried automatically** -- transient failures (database down, rate limits) resolve without manual intervention across up to 5 attempts with exponential backoff.
+- **Tracked end-to-end** -- every run has logs, attempt history, and a terminal status visible in the Strait dashboard.
+- **Idempotent** -- duplicate deliveries from Stripe are collapsed into a single run.
+- **Observable** -- completion and failure webhooks let your app react to outcomes without polling.
+
+## Next Steps
+
+- [Retry strategies](/concepts/retry-strategies) -- tune backoff timing and jitter for your workload
+- [Webhooks](/concepts/webhooks) -- configure additional webhook events and delivery settings
+- [Idempotency](/concepts/idempotency) -- understand deduplication windows and key scoping
+- [Review queue](/concepts/review-queue) -- triage runs that exhaust all retries

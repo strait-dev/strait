@@ -40,6 +40,14 @@
             ]
           },
           {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/webhook-processor",
+              "tutorials/data-pipeline",
+              "tutorials/ai-agent"
+            ]
+          },
+          {
             "group": "Core Concepts",
             "pages": [
               "concepts/jobs",
