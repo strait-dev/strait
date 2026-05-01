@@ -1,63 +1,67 @@
 ---
 title: "Idempotency"
-description: "Preventing duplicate job executions using idempotency keys and payload hashing."
+description: "Prevent duplicate job executions with idempotency keys and payload-based deduplication."
 ---
 
-Strait prevents duplicate job executions so that non-idempotent operations like processing payments or sending notifications only happen once.
+A user double-clicks "Place Order." Without idempotency, they get charged twice. Strait's idempotency prevents this -- every trigger with the same key returns the original run instead of creating a duplicate.
 
 ## Idempotency Keys
 
-The primary way to ensure idempotency is by providing an `X-Idempotency-Key` (or `Idempotency-Key`) header when triggering a job.
+Pass an `X-Idempotency-Key` header when triggering a job. Strait checks whether a run with the same `job_id` and key already exists. If it does, Strait returns the existing run. If not, it creates a new one.
 
-### How it Works
-1. When a trigger request includes an idempotency key, Strait checks if a run with the same `job_id` and `idempotency_key` already exists.
-2. If a match is found, Strait returns the details of the **existing run** instead of creating a new one.
-3. If no match is found, a new run is created and associated with that key.
-
-### Example
 ```bash
 curl -X POST https://strait.dev/v1/jobs/{jobID}/trigger \
   -H "Authorization: Bearer $API_KEY" \
-  -H "X-Idempotency-Key: unique-request-id-123" \
+  -H "X-Idempotency-Key: order_123_charge" \
   -H "Content-Type: application/json" \
   -d '{
-    "payload": { "order_id": "order_abc" }
+    "payload": { "order_id": "order_123" }
   }'
 ```
 
+```typescript
+const run = await client.triggerJob({
+  pathParams: { jobID: "charge-card" },
+  body: { payload: { orderId: "order_123" } },
+  headers: { "X-Idempotency-Key": "order_123_charge" },
+});
+```
+
+The key is enforced at the database level with a unique constraint on `(job_id, idempotency_key)`, so duplicates are impossible even under concurrent requests.
+
+<Note>
+If you trigger with the same idempotency key but a different payload, Strait returns the original run. The new payload is ignored.
+</Note>
+
 ## Payload-Based Deduplication
 
-In addition to explicit keys, Strait can automatically deduplicate runs based on their payload content.
+For cases where you cannot control the caller (retry loops, webhook retries), configure automatic deduplication on the job itself with `dedup_window_secs`. Strait normalizes the JSON payload (sorting keys, stripping whitespace), hashes it, and checks for a matching run within the configured window.
 
-### Dedup Window
-This is configured per-job via the `dedup_window_secs` field. If set, Strait will look for any recent run (within the window) that has the exact same payload hash.
+```json
+{
+  "name": "charge-card",
+  "dedup_window_secs": 60
+}
+```
 
-### How it Works
-1. Strait normalizes the JSON payload (sorting keys, stripping whitespace differences) and generates a hash.
-2. It checks for a run of the same job with the same payload hash within the configured `dedup_window_secs`.
-3. If found, it returns the existing run.
+Any trigger with an identical payload within the window returns the existing run.
 
-## How Deduplication is Enforced
+## When to Use Each
 
-- **Idempotency keys** are enforced at the database level with a unique constraint on `(job_id, idempotency_key)`, so duplicates are impossible even under concurrent requests.
-- **Payload dedup** normalizes payloads before hashing so that whitespace or key-order differences don't create false misses.
-
-## Summary of Deduplication Logic
-
-| Feature | Triggered By | Scope | Window |
+| Method | Set by | Scope | Window |
 | --- | --- | --- | --- |
-| **Idempotency Key** | `X-Idempotency-Key` header | Per Job | Infinite (until run is deleted) |
-| **Payload Dedup** | `dedup_window_secs` config | Per Job | Configurable (e.g., 60s) |
+| **Idempotency Key** | `X-Idempotency-Key` header | Per job | Permanent (until run deleted) |
+| **Payload Dedup** | `dedup_window_secs` on the job | Per job | Configurable (e.g. 60s) |
 
 <Tip>
-  Always use `X-Idempotency-Key` for critical operations. Use `dedup_window_secs` as a safety net to prevent accidental double-clicks or retry loops from client SDKs.
+Use `X-Idempotency-Key` for critical operations where you control the caller. Use `dedup_window_secs` as a safety net against accidental double-submits or client retry loops.
 </Tip>
 
 ## Webhook Delivery Headers
 
-Outbound webhook deliveries ship two identity headers:
+Outbound webhook deliveries include two identity headers:
 
-- `X-Strait-Idempotency-Key`: formatted as `<delivery_id>:<attempt>` and changes on every retry. Useful for tracing an individual attempt.
-- `X-Strait-Replay-Key`: stable across every retry of the same delivery row. Dedup replays on this header — if your handler sees the same replay key twice, it is safe to treat the second invocation as a no-op. Derivation depends on the delivery path:
-  - **Subscription deliveries** (event triggers with a configured `webhook_subscription`) use an HMAC-bound form `"rk_" + hex(hmac_sha256(subscription_secret, delivery_id))[:32]`. A subscriber that holds the subscription secret can re-derive the key from the `X-Strait-Delivery-ID` header and verify it matches, proving the key was produced by Strait rather than replayed by a third party.
-  - **Run-terminal deliveries** (the per-job `webhook_url` fired on terminal run states) have no subscription secret and use the deterministic unsigned form `"rk_" + run_id`. Treat this form as an opaque replay discriminator, not a proof of origin — authenticate these deliveries via the `X-Strait-Signature` payload HMAC instead.
+- `X-Strait-Idempotency-Key`: formatted as `<delivery_id>:<attempt>`, changes on every retry. Useful for tracing an individual attempt.
+- `X-Strait-Replay-Key`: stable across every retry of the same delivery. Dedup on this header -- if your handler sees the same replay key twice, treat the second call as a no-op.
+  - **Subscription deliveries** (event triggers with a `webhook_subscription`) use `"rk_" + hex(hmac_sha256(subscription_secret, delivery_id))[:32]`. A subscriber holding the secret can re-derive the key from `X-Strait-Delivery-ID` and verify it matches.
+  - **Run-terminal deliveries** (the per-job `webhook_url` fired on terminal states) use `"rk_" + run_id`. Treat this as an opaque discriminator -- authenticate these deliveries via the `X-Strait-Signature` payload HMAC instead.

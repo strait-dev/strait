@@ -13,7 +13,7 @@ Strait connects to PostgreSQL, Redis, and optional observability backends.
     The only required dependency. Strait uses database locks for queue semantics, LISTEN/NOTIFY for real-time updates, and stores all state in Postgres.
   </Card>
   <Card title="Redis" icon="bolt">
-    Optional. Used for rate limiting, caching, and distributed locking when running multiple Strait instances.
+    Required. Powers real-time updates (SSE streaming), pub/sub notifications, and CDC event distribution.
   </Card>
 </CardGroup>
 
@@ -39,3 +39,14 @@ Strait connects to PostgreSQL, Redis, and optional observability backends.
 <Card title="Sequin CDC" icon="stream" href="/concepts/cdc">
   Stream job and workflow state changes in real-time via PostgreSQL WAL. React instantly when runs complete, fail, or transition states.
 </Card>
+
+## Log Forwarding
+
+<CardGroup cols={2}>
+  <Card title="Datadog" icon="chart-area" href="/concepts/log-drains">
+    Forward job execution logs to Datadog in real time via log drains.
+  </Card>
+  <Card title="Splunk" icon="magnifying-glass" href="/concepts/log-drains">
+    Stream structured logs to Splunk for centralized analysis.
+  </Card>
+</CardGroup>
