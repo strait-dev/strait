@@ -4,7 +4,7 @@ description: "Run AI workloads with per-run cost tracking, daily budgets, and au
 icon: "brain"
 ---
 
-## What You'll Build
+## What you'll build
 
 An AI document summarization agent that:
 
@@ -67,7 +67,6 @@ interface SummarizeResult {
 const summarizer = defineJob({
   name: "Document Summarizer",
   slug: "summarize-doc",
-  endpointUrl: "https://my-api.com/jobs/summarize",
   projectId: "proj_1",
   maxAttempts: 2,
   timeoutSecs: 600,
@@ -109,6 +108,10 @@ const summarizer = defineJob({
 });
 ```
 
+<Info>
+The `run` function is your job's handler. When Strait dispatches this job, the SDK routes the callback to your `run` function. You don't need to write a separate HTTP endpoint.
+</Info>
+
 The `reportUsage` call is what connects your LLM spend to Strait's budget enforcement. Without it, Strait has no visibility into what a run actually cost.
 
 ## Step 3: Calculate Costs
@@ -147,13 +150,12 @@ async function main() {
   do {
     await new Promise((r) => setTimeout(r, 2000));
     result = await client.getRun({ pathParams: { runID: run.id } });
-  } while (result.status === "queued" || result.status === "running");
-
-  console.log("Status:", result.status);
-  console.log("Cost:", result.usage?.cost_microusd, "micro-USD");
+  } while (result.status === "queued" || result.status === "executing");
 
   if (result.status === "completed") {
     console.log("Summary:", result.result?.summary);
+    console.log("Tokens:", result.result?.token_count);
+    console.log("Cost:", result.result?.cost_microusd, "micro-USD");
   } else {
     console.error("Failed:", result.error);
   }
@@ -171,7 +173,7 @@ async function fetchDocument(id: string): Promise<{ text: string }> {
 }
 ```
 
-## What Happens at the Limit
+## What happens at the limit
 
 **Per-run limit ($5):** If a single run's cumulative `reportUsage` calls exceed 5,000,000 micro-USD, Strait fails the run immediately with a `budget_exceeded` error. The partial result is discarded. This prevents a runaway document (e.g., a 200-page PDF) from burning your entire daily budget in one shot.
 
@@ -179,8 +181,8 @@ async function fetchDocument(id: string): Promise<{ text: string }> {
 
 **80% warning ($80):** When daily spend crosses 80,000,000 micro-USD, Strait emits a warning event and increments a metric. Wire this to your alerting system so you can pause non-critical work or raise the limit before the hard cutoff hits.
 
-## Next Steps
+## Next steps
 
 - [Cost Budgets](/concepts/cost-budgets) — configure alerts, per-job limits, and monthly roll-ups
 - [Managed Execution](/concepts/managed-execution) — run GPU workloads with the same cost tracking
-- [Workflows](/tutorials/workflow) — chain multiple AI steps into a pipeline with approval gates
+- [Workflows](/tutorials/data-pipeline) — chain multiple AI steps into a pipeline with approval gates

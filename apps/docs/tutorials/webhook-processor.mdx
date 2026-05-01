@@ -4,9 +4,9 @@ description: "Receive external webhooks, verify signatures, process them with re
 icon: "webhook"
 ---
 
-## What You'll Build
+## What you'll build
 
-A webhook processor that receives Stripe payment events, verifies their signature, and hands them off to Strait for processing with automatic retries. When processing completes or fails, Strait sends a signed webhook back to your app so you can react accordingly.
+Receive Stripe payment events, verify their signature, and process them through Strait with automatic retries and failure notifications.
 
 ## Prerequisites
 
@@ -16,28 +16,28 @@ A webhook processor that receives Stripe payment events, verifies their signatur
 
 ## Step 1: Create the Job
 
-Define a job that processes incoming Stripe webhook events. Five attempts with exponential backoff gives transient failures time to resolve without losing payment events.
+Register a job that processes incoming Stripe webhook events. Five attempts with exponential backoff gives transient failures time to resolve without losing payment events.
 
 ```typescript
-import { createClient, defineJob } from "@strait/ts";
+import { createClient } from "@strait/ts";
 
 const client = createClient({
   baseUrl: "https://api.strait.dev",
   auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
 });
 
-const processStripeWebhook = defineJob({
-  name: "Process Stripe Webhook",
-  slug: "process-stripe-webhook",
-  endpointUrl: "https://your-api.com/jobs/process-stripe-webhook",
-  projectId: process.env.STRAIT_PROJECT_ID!,
-  maxAttempts: 5,
-  retryStrategy: "exponential",
-  timeoutSecs: 30,
-});
-
-await processStripeWebhook.register(client, {
-  projectId: process.env.STRAIT_PROJECT_ID!,
+// Register the job (config only — your Express handler does the work)
+await client.jobs.create({
+  body: {
+    project_id: process.env.STRAIT_PROJECT_ID!,
+    name: "Process Stripe Webhook",
+    slug: "process-stripe-webhook",
+    endpoint_url: "https://your-api.com/jobs/process-stripe-webhook",
+    webhook_url: "https://your-api.com/webhooks/strait-complete",
+    max_attempts: 5,
+    retry_strategy: "exponential",
+    timeout_secs: 30,
+  },
 });
 ```
 
@@ -175,7 +175,7 @@ app.post("/webhooks/strait-complete", express.json(), (req, res) => {
 });
 ```
 
-## Step 5: Add Idempotency
+## Step 5: Add idempotency
 
 Stripe can deliver the same event more than once. Pass the Stripe event ID as an idempotency key so Strait deduplicates duplicate triggers instead of processing them twice.
 
@@ -189,18 +189,18 @@ const run = await client.triggerJob({
 
 If Strait receives a second trigger with the same idempotency key, it returns the existing run instead of creating a new one.
 
-## What You Get
+## What you get
 
 With this setup, every Stripe webhook is:
 
-- **Retried automatically** -- transient failures (database down, rate limits) resolve without manual intervention across up to 5 attempts with exponential backoff.
+- **Retried automatically** -- transient failures like database downtime or rate limits resolve on their own across 5 retry attempts.
 - **Tracked end-to-end** -- every run has logs, attempt history, and a terminal status visible in the Strait dashboard.
 - **Idempotent** -- duplicate deliveries from Stripe are collapsed into a single run.
 - **Observable** -- completion and failure webhooks let your app react to outcomes without polling.
 
-## Next Steps
+## Next steps
 
 - [Retry strategies](/concepts/retry-strategies) -- tune backoff timing and jitter for your workload
 - [Webhooks](/concepts/webhooks) -- configure additional webhook events and delivery settings
 - [Idempotency](/concepts/idempotency) -- understand deduplication windows and key scoping
-- [Review queue](/concepts/review-queue) -- triage runs that exhaust all retries
+- [Dead letter recovery](/operations/dlq-recovery) -- triage runs that exhaust all retries

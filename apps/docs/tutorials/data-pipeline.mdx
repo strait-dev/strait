@@ -40,7 +40,6 @@ const client = createClient({
 const extractJob = defineJob({
   name: "Extract Data",
   slug: "extract-data",
-  endpointUrl: "https://your-api.com/jobs/extract",
   projectId: "proj_1",
   maxAttempts: 3,
   retryStrategy: "exponential",
@@ -56,13 +55,16 @@ const extractJob = defineJob({
 });
 ```
 
-Define the remaining jobs with the same structure. Each needs a slug, endpoint, timeout, and retry configuration:
+<Info>
+The `run` function is your job's handler. When Strait dispatches this job, the SDK routes the HTTP callback to your `run` function automatically. You don't need to write a separate Express endpoint.
+</Info>
+
+Define the remaining jobs with the same structure. Each needs a slug, timeout, and retry configuration:
 
 ```typescript
 const transformJob = defineJob({
   name: "Transform Data",
   slug: "transform-data",
-  endpointUrl: "https://your-api.com/jobs/transform",
   projectId: "proj_1",
   maxAttempts: 3,
   retryStrategy: "exponential",
@@ -76,7 +78,6 @@ const transformJob = defineJob({
 const loadJob = defineJob({
   name: "Load Data",
   slug: "load-data",
-  endpointUrl: "https://your-api.com/jobs/load",
   projectId: "proj_1",
   maxAttempts: 3,
   retryStrategy: "exponential",
@@ -90,7 +91,6 @@ const loadJob = defineJob({
 const summaryJob = defineJob({
   name: "Send Summary",
   slug: "send-summary",
-  endpointUrl: "https://your-api.com/jobs/notify",
   projectId: "proj_1",
   maxAttempts: 2,
   retryStrategy: "fixed",
@@ -160,7 +160,6 @@ If `load` fails after exhausting all 3 retry attempts, the compensation job runs
 const cleanupJob = defineJob({
   name: "Cleanup Partial Load",
   slug: "cleanup-partial-load",
-  endpointUrl: "https://your-api.com/jobs/cleanup",
   projectId: "proj_1",
   maxAttempts: 3,
   retryStrategy: "exponential",
@@ -173,7 +172,7 @@ const cleanupJob = defineJob({
 });
 ```
 
-The compensation job receives the same payload context as the failed step. It runs exactly once per failure (with its own retry policy). This is the saga pattern — each step that mutates state can define an undo operation. See [Compensating Transactions](/concepts/compensating-transactions) for the full pattern.
+The compensation job receives the same payload context as the failed step. It runs exactly once per failure (with its own retry policy). Each step that changes data can define an undo operation that runs if the step fails permanently. See [Compensating Transactions](/concepts/compensating-transactions) for the full pattern.
 
 ## Step 5: Register, trigger, and monitor
 
