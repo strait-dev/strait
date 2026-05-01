@@ -67,6 +67,72 @@ Rate limits are applied per IP address:
 - `project_id`: Required for most list endpoints to scope results to a specific project.
 - `status`: Used on run and workflow-run listings to filter by current state.
 
+
+## Endpoint Categories
+
+|Category|Base Path|Description|
+|---|---|---|
+|Jobs|`/v1/jobs`|Create, update, trigger, and manage job definitions|
+|Runs|`/v1/runs`|Track, cancel, retry, and inspect job runs|
+|Workflows|`/v1/workflows`|Define and manage workflow DAGs|
+|Workflow Runs|`/v1/workflow-runs`|Monitor and control workflow executions|
+|Events|`/v1/events`|Send events to triggers and dispatch to sources|
+|Event Sources|`/v1/event-sources`|Manage inbound event channels and subscriptions|
+|Projects|`/v1/projects`|Create and manage projects and quotas|
+|Environments|`/v1/environments`|Configure per-environment variable overrides|
+|API Keys|`/v1/api-keys`|Create, rotate, and revoke API keys|
+|Webhook Subscriptions|`/v1/webhook-subscriptions`|Manage project-wide webhook subscriptions|
+|Audit|`/v1/audit`|Query audit events and review queue|
+|RBAC|`/v1/roles`, `/v1/members`|Manage roles, members, and policies|
+
+All endpoints accept and return JSON. Use the interactive API explorer below for full request/response schemas.
+
+## Response Patterns
+
+### Single Resource
+```json
+{
+  "id": "job_abc123",
+  "name": "Send Welcome Email",
+  "slug": "send-welcome-email",
+  "created_at": "2026-03-15T10:00:00Z"
+}
+```
+
+### List with Pagination
+```json
+{
+  "data": [
+    { "id": "run_001", "status": "completed" },
+    { "id": "run_002", "status": "failed" }
+  ],
+  "next_cursor": "run_002",
+  "has_more": true
+}
+```
+
+### Created (201)
+```json
+{
+  "id": "job_new123",
+  "name": "New Job",
+  "created_at": "2026-03-15T10:05:00Z"
+}
+```
+
+## Error Codes
+
+|Code|HTTP Status|Description|
+|---|---|---|
+|`not_found`|404|The requested resource does not exist.|
+|`validation_error`|422|Request body failed validation. Check the `error` field for details.|
+|`rate_limited`|429|Too many requests. Wait and retry.|
+|`unauthorized`|401|Missing or invalid authentication.|
+|`forbidden`|403|Authenticated but insufficient permissions.|
+|`conflict`|409|Idempotency key conflict — a run with this key already exists.|
+|`budget_exceeded`|402|Run or daily cost budget exceeded.|
+|`quota_exceeded`|402|Project quota (runs per day, concurrent runs) exceeded.|
+|`ssrf_blocked`|400|Endpoint URL points to a private or blocked network.|
 ## DAG and Dependency Runtime Endpoints
 
 ### Planning and Diagnostics

@@ -177,9 +177,17 @@ Expected response:
 }
 ```
 
+<Warning>
+The `id` above is an example. Your project will have a different ID (like `proj_01JA...`). Copy the actual ID from your response — you need it in the next steps.
+</Warning>
+
 ## Step 5: Create a Job
 
 Create a new job via the REST API or CLI. A job is a template that defines what endpoint to call, how long to wait, and how many times to retry.
+
+<Info>
+Replace `proj_abc123` in the command below with the project ID returned in Step 4.
+</Info>
 
 <CodeGroup>
   ```bash curl
@@ -290,6 +298,10 @@ A run moves through these states: `queued` -> `executing` -> `completed` or `fai
 ## Step 8: Create a Simple Workflow
 
 Workflows let you chain multiple jobs together as a dependency graph (DAG). Each step can depend on outputs from earlier steps.
+
+<Info>
+Replace `job_abc123` with the job ID returned in Step 5.
+</Info>
 
 ```bash
 # Create a workflow with two sequential steps (replace proj_abc123 with your project ID)

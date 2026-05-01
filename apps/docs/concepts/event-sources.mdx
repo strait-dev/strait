@@ -35,6 +35,29 @@ The optional `filter_expr` field on a subscription controls whether a dispatched
 Use filter expressions to route different event shapes through a single source. For example, a `webhooks` source could route `"action": "created"` events to one job and `"action": "deleted"` events to another.
 </Tip>
 
+### Examples
+
+Match a specific action:
+```json
+{
+  "filter_expr": "payload.action == 'created'"
+}
+```
+
+Match a numeric threshold:
+```json
+{
+  "filter_expr": "payload.amount > 100"
+}
+```
+
+Combine conditions:
+```json
+{
+  "filter_expr": "payload.event_type == 'order.completed' && payload.total > 0"
+}
+```
+
 ## Event Dispatch
 
 Send events into the system via `POST /v1/events/dispatch`:

@@ -26,6 +26,43 @@ curl -X POST "https://strait.example.com/v1/log-drains" \
   }'
 ```
 
+### Splunk HEC
+
+```bash
+curl -X POST "https://your-strait/v1/log-drains" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_1",
+    "name": "splunk-errors",
+    "drain_type": "http",
+    "endpoint_url": "https://your-splunk:8088/services/collector/event",
+    "auth_type": "header",
+    "auth_config": {
+      "Authorization": "Splunk your-hec-token"
+    },
+    "level_filter": ["error", "warn"]
+  }'
+```
+
+### Generic HTTP Endpoint
+
+```bash
+curl -X POST "https://your-strait/v1/log-drains" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_1",
+    "name": "custom-logs",
+    "drain_type": "http",
+    "endpoint_url": "https://your-service.com/logs",
+    "auth_type": "bearer",
+    "auth_config": {
+      "token": "your-bearer-token"
+    }
+  }'
+```
+
 ## Authentication
 
 The `auth_type` field determines how Strait authenticates with the external endpoint:
@@ -50,11 +87,33 @@ The `level_filter` field accepts an array of log level strings. Only matching lo
 }
 ```
 
+## Log Event Format
+
+Each log event delivered to your drain endpoint is a JSON object:
+
+```json
+{
+  "timestamp": "2026-03-15T10:05:23.456Z",
+  "level": "error",
+  "message": "HTTP POST to endpoint failed: connection refused",
+  "run_id": "run_abc123",
+  "job_id": "job_xyz",
+  "project_id": "proj_1",
+  "attempt": 2
+}
+```
+
+Fields: timestamp (ISO 8601), level (debug/info/warn/error), message, run_id, job_id, project_id, attempt number.
+
 ## Configuration
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `LOG_DRAIN_WORKER_INTERVAL` | `60s` | Interval at which the delivery worker polls for pending log events. |
+
+<Info>
+Log drains use at-least-once delivery. Events are buffered and flushed on the configured interval. If delivery fails, events are retried. Your endpoint may receive duplicate events during retries — use the `run_id` + `timestamp` combination for deduplication.
+</Info>
 
 ## Related Concepts
 

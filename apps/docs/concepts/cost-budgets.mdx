@@ -15,15 +15,27 @@ Your job code reports cost as it runs. Strait tracks cumulative cost per run and
 
 1. **Your code reports usage**: After each API call, report what it cost via the SDK or API.
 
-```typescript
+<CodeGroup>
+```typescript TypeScript
 await ctx.reportUsage({
   provider: "openai",
   model: "gpt-4o",
   prompt_tokens: 500,
   completion_tokens: 200,
-  cost_microusd: 25000 // $0.025
+  cost_microusd: 25000, // $0.025
 });
 ```
+
+```python Python
+await ctx.report_usage(
+    provider="openai",
+    model="gpt-4o",
+    prompt_tokens=500,
+    completion_tokens=200,
+    cost_microusd=25000,  # $0.025
+)
+```
+</CodeGroup>
 
 2. **Per-run check**: Each time usage is reported, Strait checks whether the run has exceeded its `max_cost_per_run_microusd` limit. If exceeded, the run is failed.
 

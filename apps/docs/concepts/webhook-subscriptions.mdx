@@ -12,6 +12,32 @@ You register subscriptions per project via the API. When a matching event occurs
 
 Deliveries are persisted to the database before dispatch, so notifications survive worker restarts. Strait retries with exponential backoff and stores permanently failing deliveries in a review queue so you can investigate and replay them later.
 
+## Creating a Subscription
+
+```bash
+curl -X POST https://your-strait/v1/webhook-subscriptions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_abc",
+    "url": "https://your-service.com/webhooks/strait",
+    "secret": "whsec_your_signing_secret",
+    "event_types": ["run.completed", "run.failed", "workflow.completed"]
+  }'
+```
+
+Response:
+```json
+{
+  "id": "wsub_123",
+  "project_id": "proj_abc",
+  "url": "https://your-service.com/webhooks/strait",
+  "event_types": ["run.completed", "run.failed", "workflow.completed"],
+  "enabled": true,
+  "created_at": "2026-03-15T10:00:00Z"
+}
+```
+
 ## Event Types
 
 | Event Type | Description |
@@ -23,9 +49,11 @@ Deliveries are persisted to the database before dispatch, so notifications survi
 | `workflow.completed` | A workflow finishes successfully. |
 | `workflow.failed` | A workflow fails. |
 
-## Configuration
+## Circuit Breaker
 
-Strait uses a circuit breaker to protect subscription endpoints. If a target URL consistently returns errors, Strait temporarily stops sending to that endpoint to let it recover.
+If your endpoint returns 5xx errors on 5 consecutive deliveries, Strait opens the circuit and stops sending for 60 seconds. After the cooldown, Strait retries one delivery. If it succeeds, normal delivery resumes. If it fails again, the circuit stays open for another cooldown period.
+
+This prevents Strait from overwhelming a failing endpoint with retries.
 
 ## Security
 

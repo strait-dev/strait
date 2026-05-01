@@ -11,8 +11,8 @@ Strait ships as a single Go binary. Deploy it with Docker, Kubernetes, or any pl
 | Service | Required | Purpose |
 | :--- | :--- | :--- |
 | **PostgreSQL** | Yes | Primary data store and job queue |
-| **Redis** | Yes | Pub/sub, SSE streaming, CDC event distribution |
-| **Sequin** | Yes (for CDC) | Streams database changes from the PostgreSQL WAL to Redis |
+| **Redis** | Yes | Pub/sub, SSE streaming, real-time event distribution |
+| **Sequin** | Yes | Streams database changes for real-time updates and webhooks |
 
 See [Architecture](/concepts/architecture) for how these services interact.
 
@@ -120,7 +120,7 @@ stringData:
 
 ## Sequin Deployment
 
-Sequin uses the official `sequin/sequin:latest` Docker image -- no build step needed.
+Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, using the official `sequin/sequin:latest` image -- no build step needed.
 
 ```bash
 # From repo root
@@ -145,7 +145,7 @@ Sequin requires the following secrets configured in your deployment platform:
 
 - **Primary region**: Co-locate Strait with your database for lowest latency.
 - **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
-- **Sequin**: Single instance, co-located with the database. CDC requires a persistent WAL connection and must run next to the database. Multiple instances would cause duplicate event processing.
+- **Sequin**: Single instance, co-located with the database. Sequin maintains a persistent connection to the database to detect changes, so it must run in the same region. Multiple instances would cause duplicate event processing.
 
 ## Scaling
 
