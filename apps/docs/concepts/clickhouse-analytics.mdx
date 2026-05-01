@@ -1,0 +1,85 @@
+---
+title: "ClickHouse Analytics"
+description: "Optional analytics backend for run metrics, cost data, and event timelines."
+icon: "chart-bar"
+---
+
+ClickHouse is an optional analytics backend. PostgreSQL remains the source of truth for all state -- jobs, runs, workflows, and configuration. ClickHouse receives copies of run events for fast analytical queries over large time windows.
+
+You do not need ClickHouse to run Strait. It exists for deployments where aggregate reporting, cost breakdowns, or time-series dashboards matter at scale.
+
+## When to Use It
+
+Enable ClickHouse when:
+
+- You have millions of runs and need aggregate analytics (success rates, p99 durations, cost trends).
+- You want pre-aggregated daily stats without loading your primary database.
+- You need time-series dashboards (Grafana, Metabase) backed by a columnar store.
+- You track AI model usage costs across jobs and want token-level breakdowns.
+
+For smaller deployments, PostgreSQL handles reporting queries fine. ClickHouse adds operational overhead -- only enable it when the query patterns justify it.
+
+## How It Works
+
+Strait uses an async batch pipeline to export data to ClickHouse:
+
+1. **Buffer**: When a run completes, fails, or emits an event, the exporter enqueues a record in memory.
+2. **Flush**: Records are flushed to ClickHouse when the batch reaches `CLICKHOUSE_BATCH_SIZE` (default 1000) or `CLICKHOUSE_FLUSH_INTERVAL` elapses (default 5s), whichever comes first.
+3. **Backpressure**: The buffer is capped at 10x the batch size. If ClickHouse is unreachable and the buffer fills, the oldest records are dropped and a warning is logged.
+4. **Retry**: Failed flushes are retried up to 2 times. After that, the batch is dropped to prevent unbounded memory growth.
+
+The exporter runs in a background goroutine. If it crashes, it recovers via panic recovery and logs the error. No run execution is blocked by ClickHouse availability -- exports are best-effort.
+
+## Tables
+
+All tables use ClickHouse's `MergeTree` engine family with date-based partitioning.
+
+### Core Tables
+
+| Table | Purpose | TTL |
+| :--- | :--- | :--- |
+| `run_events` | Lifecycle event timeline (created, started, completed, failed) per run. | 90 days |
+| `run_analytics` | Per-run summary: status, duration, queue wait, cost, attempt count. | 365 days |
+| `compute_usage` | Machine-level cost records: preset, duration, cost per run. | 365 days |
+| `run_usage_events` | AI model usage: provider, model, token counts, cost per invocation. | 365 days |
+
+### Workflow Tables
+
+| Table | Purpose | TTL |
+| :--- | :--- | :--- |
+| `workflow_run_analytics` | Per-workflow-run summary: status, step count, duration. | 365 days |
+| `workflow_step_analytics` | Per-step summary: status, duration, attempt count, errors. | 365 days |
+| `workflow_approval_events` | Approval gate lifecycle: requested, approved, timed out. | 365 days |
+
+### Supporting Tables
+
+| Table | Purpose | TTL |
+| :--- | :--- | :--- |
+| `webhook_delivery_events` | Webhook delivery tracking: status, attempts, response codes. | 365 days |
+| `event_trigger_events` | Event trigger lifecycle: wait duration, resolution status. | 365 days |
+| `job_metadata` | Job ID to slug mapping for human-readable queries. | None (ReplacingMergeTree) |
+| `billing_events` | Plan changes, spending limit hits, gate rejections. | 90 days |
+
+### Materialized Views
+
+Two materialized views pre-aggregate data for dashboard queries:
+
+- **`run_stats_daily`**: Daily rollup of run counts (total, completed, failed, timed out), average duration, and total cost per job.
+- **`cost_daily`**: Daily rollup of AI costs, compute costs, token usage, and run counts per project.
+
+These views are backed by `SummingMergeTree` and update automatically as new records arrive.
+
+## Configuration
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `CLICKHOUSE_ENABLED` | Boolean | `false` | Enable the ClickHouse client and create tables on startup. |
+| `CLICKHOUSE_URL` | String | -- | Native protocol URL (e.g., `clickhouse://localhost:9000`). Required when enabled. |
+| `CLICKHOUSE_DATABASE` | String | `strait` | Target database name. |
+| `CLICKHOUSE_BATCH_SIZE` | Integer | `1000` | Maximum records per batch insert. |
+| `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between flushes. |
+| `CLICKHOUSE_EXPORT_ENABLED` | Boolean | `false` | Enable the async exporter that sends analytics on run completion. |
+
+<Warning>
+Both `CLICKHOUSE_ENABLED` and `CLICKHOUSE_EXPORT_ENABLED` must be `true` for analytics data to flow. The first creates the schema; the second starts the exporter.
+</Warning>

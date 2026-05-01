@@ -1,0 +1,124 @@
+---
+title: "Notifications"
+description: "Get alerted on Slack, Discord, email, or webhooks when runs complete, approvals are needed, or budgets are hit."
+icon: "bell"
+---
+
+Notifications deliver alerts to your team when something needs attention — a deployment waiting for approval, daily spend crossing a threshold, or a critical job failing. You configure channels (where to send) and subscribe them to event types (what to send).
+
+## When to Use It
+
+You want your team notified when a deployment approval is waiting, when daily spend hits 80%, or when a critical job fails at 3am. Instead of polling the API or watching dashboards, set up a Slack channel for approvals and a webhook for cost alerts.
+
+## Channel Types
+
+Each channel type has its own configuration:
+
+| Type | Config Fields | Description |
+| :--- | :--- | :--- |
+| `slack` | `webhook_url` | Posts formatted messages to a Slack channel via incoming webhook. |
+| `discord` | `webhook_url` | Posts formatted messages to a Discord channel via webhook. |
+| `webhook` | `url`, `secret` | Sends JSON payloads to any HTTP endpoint. Signs requests with HMAC-SHA256 using the `secret`. |
+| `email` | `to` | Sends email notifications via Resend. Requires `RESEND_API_KEY` on the server. |
+
+## Event Types
+
+Subscribe a channel to one or more of these events:
+
+| Event | Fires When |
+| :--- | :--- |
+| `approval.requested` | A run reaches a step that requires human approval. |
+| `approval.reminder` | A pending approval has not been acted on. |
+| `approval.expired` | An approval window closed without a decision. |
+| `approval.completed` | An approval was granted or denied. |
+| `budget.threshold_reached` | Daily spend crosses the configured warning threshold (default 80%). |
+| `cost.anomaly_detected` | Anomaly detection flags unusual spending patterns. |
+| `spending.limit_warning` | A run or daily budget is approaching its limit. |
+| `spending.limit_reached` | A budget limit was hit and runs are being rejected. |
+
+Runs that reach terminal states (completed, failed, timed out, crashed) also trigger notifications through CDC — any channel subscribed to the relevant project receives delivery updates.
+
+## Setting Up Slack Notifications
+
+Create a channel, specify its type and config, and list the events it should receive:
+
+```bash
+curl -X POST https://your-strait-instance/api/v1/notification-channels \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "name": "ops-approvals",
+    "type": "slack",
+    "config": {
+      "webhook_url": "https://hooks.slack.com/services/T00/B00/xxxx"
+    },
+    "events": ["approval.requested", "approval.reminder"]
+  }'
+```
+
+Update, retrieve, or delete channels with the standard REST verbs:
+
+```bash
+# List all channels
+curl https://your-strait-instance/api/v1/notification-channels \
+  -H "Authorization: Bearer $API_KEY"
+
+# Update a channel
+curl -X PATCH https://your-strait-instance/api/v1/notification-channels/{channelId} \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{ "events": ["approval.requested", "approval.expired"] }'
+
+# Delete a channel
+curl -X DELETE https://your-strait-instance/api/v1/notification-channels/{channelId} \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+## Setting Up Webhook Notifications
+
+Webhook channels include an HMAC secret so your endpoint can verify payloads:
+
+```bash
+curl -X POST https://your-strait-instance/api/v1/notification-channels \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "name": "cost-alerts",
+    "type": "webhook",
+    "config": {
+      "url": "https://your-api.example.com/strait-events",
+      "secret": "whsec_your_signing_secret"
+    },
+    "events": ["budget.threshold_reached", "spending.limit_reached"]
+  }'
+```
+
+Each delivery includes an `X-Strait-Signature` header containing the HMAC-SHA256 digest of the request body, computed with the channel's `secret`.
+
+## Delivery Tracking
+
+Every notification sent is recorded as a delivery. Query deliveries to see what was sent, when, and whether it succeeded:
+
+```bash
+curl https://your-strait-instance/api/v1/notification-deliveries \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+Each delivery record includes the channel, event type, HTTP status code, and number of attempts.
+
+## Retry Behavior
+
+Failed deliveries are retried up to 5 times with exponential backoff:
+
+| Attempt | Delay |
+| :--- | :--- |
+| 1 | Immediate |
+| 2 | 30 seconds |
+| 3 | 2 minutes |
+| 4 | 8 minutes |
+| 5 | ~32 minutes |
+
+The notification worker polls every 30 seconds. After 5 failed attempts, the delivery is marked as permanently failed and visible in the deliveries API.
+
+## Configuration
+
+| Environment Variable | Required For | Description |
+| :--- | :--- | :--- |
+| `RESEND_API_KEY` | Email channels | API key for the Resend email service. Without this, email channel creation is rejected. |

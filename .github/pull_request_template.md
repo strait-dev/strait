@@ -1,30 +1,38 @@
 ## Summary
 
-<!-- What does this PR do? Keep it to 1-3 bullet points. -->
+<!-- What does this PR do? Be specific. -->
 
--
+## Why
 
-## Linear issue
+<!-- Context and motivation. Link the Linear issue if applicable. -->
 
-<!-- Link to the Linear ticket, e.g. STR-123 -->
+## What changed
 
-## Changes
+<!-- Group changes by area. Example:
+- **api/**: Added GET /v1/jobs/{id}/health endpoint
+- **worker/**: Fixed retry delay calculation for custom strategies
+- **store/**: New index on job_runs for heartbeat queries
+-->
 
-<!-- List the key files or areas changed. Briefly explain non-obvious decisions. -->
+## How to test
 
-## Test plan
-
-<!-- How was this tested? Check all that apply. -->
-
-- [ ] Unit tests added/updated
-- [ ] Integration tests added/updated
-- [ ] Manual testing (describe below)
-- [ ] No tests needed (explain why)
+<!-- Exact commands or steps to verify this works. -->
 
 ## Checklist
 
+- [ ] `go build ./...` passes (both editions if applicable)
 - [ ] `go test ./...` passes
 - [ ] `golangci-lint run` passes
-- [ ] Migrations are backwards-compatible (if applicable)
-- [ ] OpenAPI spec updated (if API surface changed)
-- [ ] No secrets or credentials in the diff
+- [ ] Tests added or updated for new behavior
+- [ ] Docs updated (if behavior, API, or config changed)
+- [ ] OpenAPI spec updated (if endpoints changed)
+- [ ] Migration includes both up and down files (if schema changed)
+- [ ] No breaking changes (or noted below)
+
+## Breaking changes
+
+<!-- List any breaking changes. If none, delete this section. -->
+
+## Risks and follow-ups
+
+<!-- Anything reviewers should watch for. Optional. -->

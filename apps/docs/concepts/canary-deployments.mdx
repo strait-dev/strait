@@ -1,58 +1,74 @@
 ---
 title: "Canary Deployments"
-description: "Gradual traffic ramping between workflow versions with automatic health-based promotion and rollback."
+description: "Roll out new job versions to a percentage of traffic before promoting to 100%."
 sidebarTitle: "Canary Deploys"
 ---
 
-Canary deployments let you gradually shift new workflow runs from version N to version N+1, with automatic rollback if failure rates spike.
+Canary deployments let you roll out a new job version to a small percentage of traffic before promoting it to 100%. If the new version has problems, you catch them before they affect all your users.
 
-## Traffic Routing
+## When to Use It
 
-When a canary deployment is active, new workflow runs are routed to the source or target version using weighted random selection. In-flight runs always complete on the version they started with (guaranteed by workflow snapshots).
+You've updated your order-processing job to use a new API. Instead of switching all traffic at once and hoping it works, you send 10% of new runs to the updated version. If error rates stay low, you promote to 25%, then 50%, then 100%. If errors spike at any step, Strait rolls back automatically.
 
-| Traffic % | Behavior |
-|-----------|----------|
-| 0% | All runs use source version |
-| 10% | ~10% of new runs use target version |
-| 50% | Even split between versions |
-| 100% | All runs use target version |
+## How It Works
 
-## Auto-Promote Configuration
+When a canary deployment is active, Strait routes each new run to either the baseline or canary version based on the traffic split. Runs that are already in progress always finish on the version they started with.
 
-```json
-{
-  "target_version": 2,
-  "traffic_percentage": 10,
-  "auto_promote": {
-    "enabled": true,
-    "steps": [10, 25, 50, 100],
-    "interval": "15m",
-    "failure_rate_threshold": 5.0,
-    "latency_p99_threshold": "10s"
-  }
-}
+At each check interval, Strait evaluates the canary version's health:
+
+- **Promote**: Error rate and P99 latency are both below thresholds → advance to the next traffic step.
+- **Rollback**: Either metric exceeds its threshold → revert to 0% canary traffic.
+- **Hold**: Fewer than 5 runs on the canary version → wait for more data before deciding.
+
+## Creating a Canary
+
+```bash
+curl -X POST https://your-strait-instance/api/v1/jobs/{jobId}/canary \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "target_version": 2,
+    "traffic_percentage": 10,
+    "auto_promote": {
+      "enabled": true,
+      "steps": [10, 25, 50, 100],
+      "interval": "15m",
+      "failure_rate_threshold": 5.0,
+      "latency_p99_threshold": "10s"
+    }
+  }'
 ```
 
-At each interval, the health monitor compares the target version's metrics against thresholds:
+This creates a canary that starts at 10% traffic. Every 15 minutes, Strait checks health and promotes to the next step if the canary version has <5% failure rate and P99 latency under 10 seconds.
 
-- **Promote**: If failure rate and P99 latency (the worst-case response time for 99% of runs) are both below thresholds, advance to the next traffic step
-- **Rollback**: If either metric exceeds its threshold, roll back to 0% target traffic
-- **Hold**: If fewer than 5 runs exist for the target version, wait for more data
+## Promoting Manually
 
-## Health Evaluation
+If `auto_promote` is disabled, promote the canary by updating the traffic percentage:
 
-At each interval, the health monitor makes a three-way decision:
+```bash
+curl -X PATCH https://your-strait-instance/api/v1/jobs/{jobId}/canary \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{ "traffic_percentage": 100 }'
+```
 
-1. **Insufficient data** (fewer than 5 target runs) -- hold, wait for more data
-2. **Failure rate or P99 latency exceeds threshold** -- roll back
-3. **All checks pass** -- promote to next traffic step
+Setting traffic to 100% completes the canary and makes the target version the new default.
 
-## Canary States
+## Rolling Back
 
-| State | Meaning |
-|-------|---------|
-| `active` | Traffic is split between versions |
-| `promoting` | Advancing to the next traffic step |
-| `rolling_back` | Reverting to the source version |
-| `completed` | Target version at 100%, canary finished |
-| `rolled_back` | Fully reverted to source version |
+If the canary version is causing problems, roll back:
+
+```bash
+curl -X PATCH https://your-strait-instance/api/v1/jobs/{jobId}/canary \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{ "traffic_percentage": 0 }'
+```
+
+All new runs go back to the baseline version. In-flight canary runs finish on their version.
+
+## Health Thresholds
+
+| Setting | What it controls |
+| :--- | :--- |
+| `failure_rate_threshold` | Maximum error rate (%) before rollback triggers. |
+| `latency_p99_threshold` | Maximum P99 latency (the worst-case response time for 99% of runs) before rollback. |
+| `interval` | How often Strait checks canary health and decides to promote, hold, or rollback. |
+| `steps` | Traffic percentages to walk through during auto-promotion. |

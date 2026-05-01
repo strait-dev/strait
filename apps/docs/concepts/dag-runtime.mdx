@@ -1,335 +1,126 @@
 ---
 title: "DAG Runtime"
-description: "How the workflow scheduler executes, monitors, and recovers DAG-structured workflow runs."
+description: "How workflows execute: parallel steps, conditional branching, concurrency controls, and recovery."
 icon: "microchip"
 ---
 
-This page covers the runtime behavior of the workflow engine: how it schedules steps, enforces policies, handles failures, and exposes introspection and recovery APIs. For workflow modeling (step types, conditions, data flow), see [Workflows](/concepts/workflows).
-
-## Scheduler Loop
-
-When a workflow is triggered, the engine:
-
-1. **Loads the workflow definition** and its versioned steps.
-2. **Applies step overrides** (if provided at trigger time) to filter or disable specific steps.
-3. **Validates the DAG** using Kahn's algorithm -- checking for cycles, duplicate refs, dangling dependencies, self-references, and ensuring at least one root step exists.
-4. **Creates an immutable snapshot** of the workflow definition so in-flight runs are never affected by live edits.
-5. **Enforces concurrency limits** -- if `max_concurrent_runs` is set and the limit is reached, the trigger is rejected.
-6. **Creates the workflow run and all step runs** atomically (via a bootstrap transaction when available).
-7. **Starts root steps** -- steps with no dependencies move to `pending` and are started immediately, subject to `max_parallel_steps` and `concurrency_key` constraints.
-
-After the initial trigger, the scheduler is event-driven. Each time a step completes (or fails, or is skipped), the engine calls `fanInAndStartReadyChildren`, which:
-
-- Acquires an advisory transaction lock on the step run (preventing double-processing from concurrent callbacks).
-- Increments the `deps_completed` counter on all downstream steps.
-- Re-reads the workflow run status under the lock to detect concurrent pause or cancellation.
-- Calls `scheduleRunnableSteps` to evaluate which steps can start next.
-
-### Readiness Checks
-
-A step is considered runnable when `deps_completed == deps_required` and its status is not terminal or already running. Before starting a runnable step, the scheduler checks (in order):
-
-| Check | Behavior if blocked |
-| :--- | :--- |
-| `max_parallel_steps` | Step stays in `waiting`. Decision recorded as `scheduler/wait`. |
-| `concurrency_key` | Step stays in `waiting` if another step with the same key is running. Decision recorded as `concurrency/wait`. |
-| `resource_class` quota | Step stays in `waiting` if the per-class limit is reached (`small`: 50, `medium`: 20, `large`: 5). Decision recorded as `resource/wait`. |
-| Step condition | Condition is evaluated against current step statuses. If false, the step is marked `skipped`. Decision recorded as `condition/skip`. |
-| Cost gate | If `cost_gate_threshold_microusd` is set and the job's historical average cost exceeds it, the step pauses and creates an approval request. |
-
-Every scheduling decision is persisted as a `WorkflowStepDecision` record (decision type, outcome, explanation, and optional condition details), making the scheduler fully explainable after the fact.
+The DAG runtime handles execution of complex workflows -- parallel steps, conditional branching, durable waits, and recovery from failures. For workflow modeling (step types, conditions, data flow), see [Workflows](/concepts/workflows).
 
 ## Parallel Execution
 
-Independent branches of the DAG execute in parallel by default. The engine assigns steps to parallel groups based on their depth in the dependency graph -- steps at the same depth that share no dependency edges can run concurrently.
-
-Concurrency is bounded by three mechanisms:
-
-- **`max_parallel_steps`** (workflow-level): Caps the total number of simultaneously running steps within a single workflow run.
-- **`concurrency_key`** (step-level): Serializes steps that share the same key, even if they are otherwise ready. Useful for steps that access the same external resource.
-- **`resource_class`** (step-level): Assigns steps to capacity buckets (`small`, `medium`, `large`) with per-class limits. Steps default to `small` if no class is specified.
-
-## Conditional Branching
-
-Steps can define a `condition` (JSON) that is evaluated against the current status map of all steps in the run. The condition engine supports:
-
-| Operator | Description |
-| :--- | :--- |
-| `step_status` | Check if a specific step has a given status. |
-| `step_status_in` | Check if a step's status is in a set of values. |
-| `not` | Invert a nested condition. |
-| `all_of` | All sub-conditions must be true (logical AND). |
-| `any_of` | Any sub-condition must be true (logical OR). |
-| `eq`, `ne`, `gt`, `gte`, `lt`, `lte` | Binary comparisons (numeric for gt/gte/lt/lte). |
-| `contains` | String containment check. |
-| `in` | Check if left operand is in a right-operand array. |
-| `regex` | Regex match (pattern length capped at 1000 chars, input at 10000). |
-| `exists` | Check that a resolved operand is non-empty. |
-
-If a condition evaluates to `false`, the step is immediately marked `skipped` and its dependents are notified (which may in turn make them runnable with the skipped parent's status visible to their own conditions).
+Steps with no dependencies on each other run in parallel automatically. The engine groups steps by depth in the dependency graph -- steps at the same depth with no shared edges run concurrently.
 
 ```json
 {
-  "type": "all_of",
-  "conditions": [
-    { "type": "step_status", "step_ref": "lint", "status": "completed" },
-    { "type": "not", "condition": { "type": "step_status", "step_ref": "canary", "status": "failed" } }
+  "steps": [
+    { "step_ref": "validate", "job_id": "validate-input" },
+    { "step_ref": "check-inventory", "job_id": "inventory-check" },
+    { "step_ref": "check-fraud", "job_id": "fraud-check" },
+    { "step_ref": "charge", "job_id": "payment-charge", "depends_on": ["validate", "check-inventory", "check-fraud"] }
   ]
 }
 ```
 
-## Compensation / Saga Flow
+Here `validate`, `check-inventory`, and `check-fraud` run in parallel. `charge` starts only after all three complete.
 
-When a workflow run reaches `failed` or `timed_out`, you can trigger compensation to roll back completed work. The compensation system:
+## Conditional Branching
 
-1. **Validates eligibility** -- only `failed` or `timed_out` runs can be compensated. Runs already in `compensating`, `compensated`, or `compensation_failed` are rejected.
-2. **Builds a compensation plan** -- collects all steps that completed successfully and have a `compensation_job_id` configured.
-3. **Orders in reverse topological order** -- steps that ran later are compensated first (last-in, first-out), matching saga rollback semantics.
-4. **Executes compensation jobs** -- each compensation step receives the original step's output as its payload, with an optional per-step `compensation_timeout_secs`.
+Steps can define a `condition` that is evaluated against the current status of other steps. If the condition is false, the step is immediately marked `skipped` and its dependents are notified.
 
-The workflow run transitions through these states during compensation:
-
-```text
-failed/timed_out -> compensating -> compensated
-                                 -> compensation_failed
+```json
+{
+  "step_ref": "deploy-canary",
+  "depends_on": ["build"],
+  "condition": {
+    "type": "all_of",
+    "conditions": [
+      { "type": "step_status", "step_ref": "lint", "status": "completed" },
+      { "type": "not", "condition": { "type": "step_status", "step_ref": "canary", "status": "failed" } }
+    ]
+  }
+}
 ```
 
-<Warning>
-Compensation jobs must be idempotent. If a compensation job fails, the run moves to `compensation_failed` and manual intervention is required.
-</Warning>
+Supported condition operators: `step_status`, `step_status_in`, `not`, `all_of`, `any_of`, `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `contains`, `in`, `regex`, `exists`.
 
-## Step State Machine
+## Concurrency Controls
 
-Every step run follows a strict FSM with validated transitions:
+Three mechanisms bound concurrent execution:
 
-```text
-                    pending
-                   /   |   \
-                  v    v    v
-             waiting  skipped  canceled
-              / |  \
-             v  v   v
-         running  skipped  canceled
-          /    \
-         v      v
-    completed  failed
+| Control | Scope | Effect |
+| :--- | :--- | :--- |
+| `max_parallel_steps` | Workflow | Caps total simultaneously running steps within one run. |
+| `concurrency_key` | Step | Serializes steps sharing the same key, even if they are otherwise ready. Use for steps accessing the same external resource. |
+| `resource_class` | Step | Assigns steps to capacity buckets: `small` (50 concurrent), `medium` (20), `large` (5). Defaults to `small`. |
+
+## Durable Waits
+
+Three step types create durable waits that consume no compute:
+
+- **`sleep`**: Waits for a specified duration. The step completes automatically when the time expires.
+- **`wait_for_event`**: Waits for an external event. Call `POST /v1/events/{eventKey}/send` to resolve.
+- **`approval`**: Waits for a human to approve or reject via the API.
+
+All durable waits are backed by database records, not in-memory timers. They survive process restarts. See [Durable Workflows](/concepts/durable-workflows) for details.
+
+## Recovery
+
+When a step or workflow fails, you have several recovery options:
+
+**Retry a single step**
 ```
-
-Valid transitions:
-
-| From | Allowed transitions |
-| :--- | :--- |
-| `pending` | `waiting`, `running`, `skipped`, `canceled`, `completed` |
-| `waiting` | `running`, `skipped`, `canceled`, `completed` |
-| `running` | `completed`, `failed`, `canceled` |
-| `completed` | _(terminal)_ |
-| `failed` | _(terminal)_ |
-| `skipped` | _(terminal)_ |
-| `canceled` | _(terminal)_ |
-
-Any transition not in this table is rejected by `ValidateStepTransition`.
-
-## Workflow Run State Machine
-
-```text
-pending -> running -> paused -> running (resume)
-                   -> completed
-                   -> failed -> compensating -> compensated
-                                             -> compensation_failed
-                   -> timed_out -> compensating
-                   -> canceled
+POST /v1/workflow-runs/{runID}/steps/{stepRef}/retry
 ```
+Retries a failed step in place. The attempt counter increments and the step re-enters the execution pipeline.
 
-| From | Allowed transitions |
-| :--- | :--- |
-| `pending` | `running`, `canceled` |
-| `running` | `paused`, `completed`, `failed`, `timed_out`, `canceled` |
-| `paused` | `running`, `completed`, `failed`, `timed_out`, `canceled` |
-| `failed` | `compensating` |
-| `timed_out` | `compensating` |
-| `compensating` | `compensated`, `compensation_failed`, `canceled` |
-| `completed`, `canceled`, `compensated`, `compensation_failed` | _(terminal)_ |
+**Replay a subtree**
+```
+POST /v1/workflow-runs/{runID}/steps/{stepRef}/replay-subtree
+```
+Re-executes a branch of the DAG from the specified step. All downstream steps re-run; steps outside the branch are untouched.
 
-### Workflow Completion Detection
+**Retry an entire run**
 
-After each step transition, the engine checks whether all step runs are terminal. If so:
+Creates a new workflow run that copies completed steps (with their original outputs) and re-executes from the first failed step onward. The new run records `triggered_by: retry` and links back via `retry_of_run_id`.
 
-- If any step has `failed` status and its failure policy is not `continue`, the workflow run moves to `failed`.
-- Otherwise, the workflow run moves to `completed`.
+**Skip or force-complete a step**
 
-For sub-workflows, the terminal status propagates back to the parent step run that spawned it.
+Mark a stuck step as `skipped` to unblock dependents, or `completed` with an optional output payload when the external side effect succeeded but the callback was lost.
 
-## Durable Waits and Checkpoints
+**Pause and resume**
 
-Three step types create durable waits that consume no compute resources:
+Patch a running workflow to `paused`. Running steps finish, but no new steps start. On resume, the scheduler re-evaluates all runnable steps.
 
-<AccordionGroup>
-  <Accordion title="wait_for_event">
-    Creates an `EventTrigger` row with a rendered `event_key` and timeout. The step moves to `waiting` and holds no goroutine. When `POST /v1/events/{eventKey}/send` is called, the trigger resolves and the step completes with the event payload. If the timeout expires, a reaper process marks the trigger (and the step) as timed out.
-  </Accordion>
-  <Accordion title="sleep">
-    Creates a sleep-type `EventTrigger` with the specified duration. The reaper auto-completes the step when the expiry time is reached. No goroutine or timer is held in-process.
-  </Accordion>
-  <Accordion title="approval">
-    Creates a `WorkflowStepApproval` record and an associated event trigger. The step waits in `waiting` until a human approves or rejects it via the API, or the approval timeout expires.
-  </Accordion>
-</AccordionGroup>
-
-All durable waits follow the same safety pattern: the trigger row is created **before** the step status is updated. If trigger creation fails, the step stays in its previous status rather than being stuck in `waiting` with no trigger.
-
-### Cost Gates
-
-Job steps with `cost_gate_threshold_microusd` configured are automatically paused before execution if the job's historical average cost exceeds the threshold. This creates an approval request, effectively gating expensive operations behind human confirmation.
-
-## Critical Path Estimation
-
-The engine computes expected completion time using the critical path method:
-
-1. Steps can define `expected_duration_secs` as an estimate of their execution time.
-2. The engine computes the longest path through the DAG using dynamic programming in topological order (`dist[step] = max(dist[parent] + parent_duration)` for all parents).
-3. The maximum distance across all leaf steps gives the estimated total duration.
-
-As the run progresses, `RecalculateExpectedCompletion` re-computes the estimate based only on remaining (non-completed) steps, using the current time as the new start.
-
-<Tip>
-The critical path estimate is available in the execution graph API response and in simulation results. Use it to set appropriate workflow-level timeouts.
-</Tip>
+<Info>
+Recovery operations create a clean audit trail -- the original run's data is never mutated.
+</Info>
 
 ## Policy Enforcement
 
-### Per-Step Policies
+Policies constrain execution at three levels:
+
+**Step-level**
 
 | Policy | Field | Effect |
 | :--- | :--- | :--- |
 | Timeout | `timeout_secs_override` | Overrides the job's default timeout for this step. |
-| Retries | `retry_max_attempts`, `retry_backoff` | Step-level retry with configurable backoff. Transient failures retry without restarting the workflow. |
-| Failure behavior | `on_failure` | `fail_workflow` (default), `skip_dependents`, or `continue`. |
-| Concurrency | `concurrency_key` | Serializes steps sharing the same key. |
-| Resource class | `resource_class` | `small` (50 concurrent), `medium` (20), `large` (5). |
+| Retries | `retry_max_attempts`, `retry_backoff` | Step-level retry with configurable backoff. |
+| Failure | `on_failure` | `fail_workflow` (default), `skip_dependents`, `continue`, or `compensate`. |
 | Cost gate | `cost_gate_threshold_microusd` | Pauses step for approval if estimated cost exceeds threshold. |
 
-### Workflow-Level Policies
+**Workflow-level**
 
 | Policy | Effect |
 | :--- | :--- |
 | `max_concurrent_runs` | Rejects triggers when the limit is reached. |
 | `max_parallel_steps` | Caps simultaneously running steps in a single run. |
-| `timeout_secs` | Sets an `expires_at` on the workflow run. |
-| Sub-workflow `max_nesting_depth` | Default 10. Prevents infinite recursion. Depth is computed by walking the parent chain. |
+| `timeout_secs` | Sets an expiration on the workflow run. |
 
-### Project-Level Policies
+**Project-level** (via `GET/PUT /v1/workflow-policies/{projectID}`)
 
-Managed via `GET/PUT /v1/workflow-policies/{projectID}`:
-
-- `max_fan_out` -- maximum steps a single step can trigger.
-- `max_depth` -- maximum sequential dependency chain length.
-- `forbidden_step_types` -- disallowed step types.
-- `require_approval_for_deploy` -- mandates an approval step before deploy steps.
-
-Policies are enforced at workflow create, update, and trigger time.
-
-## Explainability APIs
-
-The scheduler records every decision it makes as a `WorkflowStepDecision` with:
-- `decision_type`: `scheduler`, `concurrency`, `resource`, `condition`
-- `decision`: `wait`, `skip`, `start`
-- `explanation`: Human-readable reason (e.g., "blocked by max_parallel_steps", "condition evaluated to false")
-- `details`: Optional JSON (e.g., the condition that was evaluated)
-
-### Querying Decisions
-
-```
-GET /v1/workflow-runs/{workflowRunID}/explain
-```
-
-Returns a paginated log of scheduler and condition decisions for every step in the run. Use this to understand why a step is in a given state -- whether it was blocked by a concurrency key, skipped due to a condition, or waiting for resource class capacity.
-
-### Execution Graph
-
-```
-GET /v1/workflow-runs/{workflowRunID}/graph
-```
-
-Returns the full execution graph including:
-- Current status of every step with timing data
-- The runnable set (steps ready to start)
-- Critical path estimate
-- Data flow edges (which steps pass data to which, with payload sizes)
-
-### Debug View
-
-The debug view assembles a complete timeline of a workflow run: per-step inputs, outputs, errors, durations, cost attribution, and data flow edges. It also supports run-to-run comparison (`CompareRuns`) that diffs step statuses, durations, and identifies steps that exist in only one of the two runs.
-
-## Recovery Controls
-
-<Steps>
-  <Step title="Retry a single step">
-    ```
-    POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry
-    ```
-    Retries a terminal step in-place. The step's `attempt` counter increments and it re-enters the execution pipeline.
-  </Step>
-  <Step title="Replay a subtree">
-    ```
-    POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree
-    ```
-    Replays a branch of the DAG starting from the specified step. All downstream steps are re-executed while steps outside the branch are untouched.
-  </Step>
-  <Step title="Retry an entire workflow run">
-    The `RetryWorkflowRun` operation creates a **new** workflow run that:
-    - Copies completed steps as pre-completed (with their original outputs).
-    - Re-executes from the first failed step onward.
-    - Copies run state KV from completed job runs so downstream steps retain context.
-    - Respects the same `max_parallel_steps` limit as the original.
-    - Records `triggered_by: retry` and links back via `retry_of_run_id`.
-  </Step>
-  <Step title="Skip a step">
-    Marks a pending or waiting step as `skipped` and triggers fan-in to unblock dependents. Useful for bypassing a step that is no longer relevant.
-  </Step>
-  <Step title="Force-complete a step">
-    Marks a pending or waiting step as `completed` with an optional output payload, then triggers fan-in. Use when a step's external side effect succeeded but the callback was lost.
-  </Step>
-  <Step title="Pause and resume">
-    `PATCH` a running workflow to `paused` status. All running steps continue to completion, but no new steps are started. On resume, paused job runs are requeued and the scheduler re-evaluates all runnable steps.
-  </Step>
-</Steps>
-
-<Info>
-Recovery operations are designed for incident response. Retry and replay create a clean audit trail -- the original run's data is never mutated.
-</Info>
-
-## Simulation
-
-Before triggering a workflow, you can simulate its execution:
-
-```
-POST /v1/workflows/{workflowID}/simulate
-```
-
-Three simulation modes are available:
-
-| Mode | Behavior |
+| Policy | Effect |
 | :--- | :--- |
-| `dry_run` | Computes the execution plan, parallel groups, estimated duration, and estimated cost without executing anything. Conditions are assumed to pass. |
-| `sandbox` | Isolated execution in a sandboxed environment. |
-| `failure_injection` | Injects failures at specified steps to test compensation paths and failure policies. |
-
-The simulation response includes:
-- Topologically ordered execution plan with parallel group assignments
-- DAG structure for visualization (nodes and edges)
-- Estimated total duration (via critical path) and cost
-- Condition evaluation results
-- Failure paths (steps that would fail under injection)
-- Compensation metadata (which steps have compensation jobs)
-
-## Immutable Snapshots
-
-Every workflow run is pinned to an immutable snapshot of the workflow definition at trigger time. The snapshot contains the full metadata and step configuration. This means:
-
-- Editing a live workflow never affects in-flight runs.
-- Retries replay against the **original version's** step definitions, not the current version.
-- The `workflow_snapshot_id` on each run links back to the exact definition used.
-
-For version analysis, see:
-- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}` -- structural diff between versions.
-- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact` -- impact analysis on active runs.
+| `max_fan_out` | Maximum steps a single step can trigger. |
+| `max_depth` | Maximum sequential dependency chain length. |
+| `forbidden_step_types` | Step types that cannot be used. |
+| `require_approval_for_deploy` | Mandates an approval step before deploy steps. |

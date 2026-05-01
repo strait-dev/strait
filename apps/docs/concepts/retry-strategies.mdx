@@ -68,8 +68,8 @@ Retries can be configured at multiple levels:
 - **Workflow Step Level**: Steps can override the job's strategy using `retry_backoff`, `retry_initial_delay_secs`, and `retry_max_delay_secs`.
 - **Run Override**: Individual runs can be triggered with overrides for `max_attempts`, `retry_backoff`, etc.
 
-## Dead Letter Queue (DLQ)
+## Review Queue
 
-The dead letter queue is a holding area for runs that have failed all their retry attempts. Instead of marking these runs as permanently `failed`, Strait moves them to `dead_letter` status so you can inspect the failure and manually replay the run once you've fixed the underlying issue.
+The review queue is a holding area where you can inspect and replay jobs that exhausted all retries. Instead of marking these runs as permanently `failed`, Strait moves them to a review status so you can inspect the failure and manually replay the run once you've fixed the underlying issue.
 
-Strait can also fast-track runs to the dead letter queue using **poison pill detection**: if you set `poison_pill_threshold` on a job and the same error repeats that many times in a row, Strait stops retrying early instead of burning through all attempts. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.
+Strait can also fast-track runs to the review queue using **poison pill detection**: if you set `poison_pill_threshold` on a job and the same error repeats that many times in a row, Strait stops retrying early instead of burning through all attempts. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.

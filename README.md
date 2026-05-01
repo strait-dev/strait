@@ -10,7 +10,7 @@
 
 Strait handles job queuing, scheduling, state tracking, and execution in one Go service backed by Postgres and Redis. No RabbitMQ, no SQS, no Kafka.
 
-- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and dead-letter, with a real-time dashboard to match
+- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and review queue, with a real-time dashboard to match
 - **Workflow engine** — branching, parallel steps, sub-workflows, approval gates, and compensating transactions
 - **Smart retries** — configurable retry strategies with jitter and per-endpoint circuit breakers
 - **Durable workflows** — multi-day sleeps, checkpoints, expected completion tracking, and stage notifications
@@ -92,7 +92,7 @@ Important rules:
 
 | | Self-host (community) | Cloud ([strait.dev](https://strait.dev)) |
 |---|---|---|
-| Job orchestration with retries, workflows, and dead-letter queue | ✓ | ✓ |
+| Job orchestration with retries, workflows, and review queue | ✓ | ✓ |
 | Workflow engine with branching, rollback, and approval gates | ✓ | ✓ |
 | Real-time streaming and live updates | ✓ | ✓ |
 | All SDKs (TS, Python, Go, Ruby, Rust) | ✓ | ✓ |

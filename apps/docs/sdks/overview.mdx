@@ -5,7 +5,7 @@ icon: "code"
 og:image: "/images/og.png"
 ---
 
-Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs share the same feature set, configuration model, and API coverage.
+Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs cover the full Strait API with the same configuration model. Service organization varies slightly by language (see each SDK page for details).
 
 The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript SDK remains in this monorepo.
 
@@ -39,7 +39,9 @@ All five SDKs implement the same capabilities:
 
 ## Quick Start
 
-The fastest way to get started is with a `strait.json` config file and the `STRAIT_API_KEY` environment variable.
+<Info>
+These examples assume you have a Strait server running (cloud or self-hosted) and at least one job created. See [Quick Start](/quickstart) to set up your server and create your first job.
+</Info>
 
 **1. Set your API key:**
 
@@ -47,31 +49,39 @@ The fastest way to get started is with a `strait.json` config file and the `STRA
 export STRAIT_API_KEY="sk_live_..."
 ```
 
-**2. Create a client:**
+**2. Create a client and trigger a job:**
 
 <CodeGroup>
   ```ts TypeScript
-  import { createClientFromConfigFile } from "@strait/ts/node";
+  import { createClientFromEnv } from "@strait/ts/node";
 
-  const client = await createClientFromConfigFile();
-  const jobs = await client.jobs.list({ query: { project_id: "proj_1" } });
+  const client = createClientFromEnv();
+
+  // Trigger a job and wait for the result
+  const run = await client.triggerJob({
+    pathParams: { jobID: "my-job" },
+    body: { payload: { key: "value" } },
+  });
+
+  console.log(run.id, run.status); // run_abc123 queued
   ```
 
   ```python Python
   from strait import Client
 
-  client = Client.from_file()
-  jobs = client.jobs.list()
+  client = Client.from_env()
+
+  run = client.jobs.trigger("my-job", {"payload": {"key": "value"}})
+  print(run["id"], run["status"])  # run_abc123 queued
   ```
 
   ```go Go
-  import (
-      strait "github.com/strait-dev/strait-go"
-  )
+  client, _ := strait.NewClientFromEnv()
 
-  client, err := strait.NewClientFromFile(nil)
-  jobs := operations.NewJobsService(client)
-  result, err := jobs.List(ctx, nil)
+  run, _ := client.Jobs().Trigger(ctx, "my-job", strait.TriggerInput{
+      Payload: map[string]any{"key": "value"},
+  })
+  fmt.Println(run.ID, run.Status) // run_abc123 queued
   ```
 </CodeGroup>
 
@@ -126,7 +136,7 @@ All 186 API operations are organized into typed service classes:
     `strait.json` schema reference, environment variable overrides, and config file discovery.
   </Card>
   <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">
-    Effect-first SDK with generated operations, authoring DSL, and XState FSMs.
+    Full API coverage with authoring DSL, composition helpers, typed errors, and AI SDK integration.
   </Card>
 </CardGroup>
 
@@ -147,3 +157,4 @@ All 186 API operations are organized into typed service classes:
     Now in its own repository at github.com/strait-dev/strait-rust.
   </Card>
 </CardGroup>
+

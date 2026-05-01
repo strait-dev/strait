@@ -1,61 +1,200 @@
 ---
-title: "RBAC & Policy Authorization"
-description: "Roles, inheritance, resource policies, and tag policies in Strait."
+title: "RBAC"
+description: "Control what users can do with roles, permissions, and policies."
+icon: "users"
 ---
 
-Strait gives you four layers of authorization for user actors:
+RBAC controls what users can do in your Strait project. Assign built-in roles for common access patterns, create custom roles for specific needs, and use policies for fine-grained per-resource control.
 
-1. **Role permissions** (project roles)
-2. **Role inheritance** (parent role chains -- a role inherits all permissions from its parent)
-3. **Resource policies** (grant a user direct access to a specific resource)
-4. **Tag policies** (grant access to any resource matching a tag)
+## Built-in Roles
 
-API keys continue to use scope-based authorization.
+Strait ships with four roles that cover the most common access patterns.
 
-## Core Endpoints
+| Role | What they can do |
+| --- | --- |
+| `admin` | Full access. Create and delete jobs, manage workflows, configure settings, manage team members. |
+| `operator` | Run and monitor. Trigger jobs, view runs, approve workflow steps, replay from the review queue. Cannot delete jobs or manage settings. |
+| `viewer` | Read-only. View jobs, runs, and workflows. Cannot trigger, modify, or delete anything. |
+| `triggerer` | Trigger only. Can trigger existing jobs and view their runs. Cannot create, modify, or delete jobs. |
 
-### Roles
-- `POST /v1/roles`
-- `GET /v1/roles`
-- `GET /v1/roles/{roleID}`
-- `PATCH /v1/roles/{roleID}`
-- `DELETE /v1/roles/{roleID}`
-- `POST /v1/seed-roles`
+<Note>
+Run `POST /v1/seed-roles` to create all four built-in roles in your project.
+</Note>
 
-### Members
-- `POST /v1/members`
-- `POST /v1/members/bulk`
-- `GET /v1/members`
-- `DELETE /v1/members/{userID}`
+## Assigning a Role
 
-### Role Lineage Introspection
-- `GET /v1/roles/{roleID}?include_lineage=true`
+Add a user to a project with a specific role using the members endpoint.
 
-### Resource Policies
-- `POST /v1/resource-policies`
-- `GET /v1/resource-policies` (cursor pagination)
-- `DELETE /v1/resource-policies/{policyID}`
+```bash
+curl -X POST https://your-strait/v1/members \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_abc",
+    "user_id": "user_123",
+    "role_id": "role_operator"
+  }'
+```
 
-### Tag Policies
-- `POST /v1/tag-policies`
-- `GET /v1/tag-policies` (cursor pagination)
-- `DELETE /v1/tag-policies/{policyID}`
+```json Response
+{
+  "id": "member_xyz",
+  "project_id": "proj_abc",
+  "user_id": "user_123",
+  "role_id": "role_operator",
+  "created_at": "2026-03-15T10:00:00Z"
+}
+```
 
-## Permission Resolution Order
+## Creating a Custom Role
 
-For user actors, Strait resolves access in this order:
+When built-in roles don't fit, create a custom role with exactly the permissions you need. This example creates a `deployer` role that can trigger jobs and view runs but cannot delete anything.
 
-1. Role/inherited role permissions
-2. Resource policy permissions for `(resource_type, resource_id, user_id)`
-3. Tag policy permissions for matching resource tags
+```bash
+curl -X POST https://your-strait/v1/roles \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_abc",
+    "name": "deployer",
+    "permissions": ["jobs:read", "jobs:trigger", "runs:read", "workflows:read", "workflows:trigger"]
+  }'
+```
 
-## Notes
+```json Response
+{
+  "id": "role_deployer",
+  "project_id": "proj_abc",
+  "name": "deployer",
+  "permissions": [
+    "jobs:read",
+    "jobs:trigger",
+    "runs:read",
+    "workflows:read",
+    "workflows:trigger"
+  ],
+  "created_at": "2026-03-15T10:05:00Z"
+}
+```
 
-- Strait rate-limits RBAC mutation endpoints with stricter control-plane limits.
-- The permission cache is automatically invalidated when you change memberships or policies.
-- Audit events are emitted for RBAC mutations.
+## Role Inheritance
 
-See also:
-- [Authentication & Authorization](/guides/authentication)
+A role can inherit all permissions from a parent role, then add its own on top. This avoids duplicating permission lists across related roles.
+
+```bash
+curl -X POST https://your-strait/v1/roles \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_abc",
+    "name": "senior-operator",
+    "parent_role_id": "role_operator",
+    "permissions": ["secrets:read", "environments:write"]
+  }'
+```
+
+```json Response
+{
+  "id": "role_senior_operator",
+  "project_id": "proj_abc",
+  "name": "senior-operator",
+  "parent_role_id": "role_operator",
+  "permissions": ["secrets:read", "environments:write"],
+  "created_at": "2026-03-15T10:10:00Z"
+}
+```
+
+The `senior-operator` role inherits everything from `operator` (trigger jobs, view runs, approve workflow steps) and adds `secrets:read` and `environments:write`. Check the full permission chain with `GET /v1/roles/{roleID}?include_lineage=true`.
+
+## Resource Policies
+
+Grant a specific user access to a specific resource, regardless of their role. Use this when one person needs elevated access to a single job or workflow.
+
+```bash
+curl -X POST https://your-strait/v1/resource-policies \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_abc",
+    "user_id": "user_456",
+    "resource_type": "job",
+    "resource_id": "job_critical",
+    "permissions": ["jobs:trigger", "runs:read"]
+  }'
+```
+
+```json Response
+{
+  "id": "rpol_abc",
+  "project_id": "proj_abc",
+  "user_id": "user_456",
+  "resource_type": "job",
+  "resource_id": "job_critical",
+  "permissions": ["jobs:trigger", "runs:read"],
+  "created_at": "2026-03-15T10:15:00Z"
+}
+```
+
+## Tag Policies
+
+Grant access to any resource matching a tag. When new resources are created with that tag, the policy applies automatically.
+
+```bash
+curl -X POST https://your-strait/v1/tag-policies \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_abc",
+    "user_id": "user_456",
+    "tag_key": "team",
+    "tag_value": "billing",
+    "permissions": ["jobs:read", "jobs:trigger", "runs:read"]
+  }'
+```
+
+```json Response
+{
+  "id": "tpol_abc",
+  "project_id": "proj_abc",
+  "user_id": "user_456",
+  "tag_key": "team",
+  "tag_value": "billing",
+  "permissions": ["jobs:read", "jobs:trigger", "runs:read"],
+  "created_at": "2026-03-15T10:20:00Z"
+}
+```
+
+After this, `user_456` can read and trigger any job tagged `team:billing`.
+
+## How Permissions Resolve
+
+Strait checks access in three layers, in order: role permissions (including inherited permissions from parent roles), then resource policies for the specific resource, then tag policies matching the resource's tags. If any layer grants the required permission, access is allowed.
+
+API keys are separate and continue to use scope-based authorization.
+
+## API Reference
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/v1/roles` | Create a role |
+| `GET` | `/v1/roles` | List roles |
+| `GET` | `/v1/roles/{roleID}` | Get a role (add `?include_lineage=true` for full inheritance chain) |
+| `PATCH` | `/v1/roles/{roleID}` | Update a role |
+| `DELETE` | `/v1/roles/{roleID}` | Delete a role |
+| `POST` | `/v1/seed-roles` | Create built-in roles |
+| `POST` | `/v1/members` | Add a member to a project |
+| `POST` | `/v1/members/bulk` | Add multiple members |
+| `GET` | `/v1/members` | List members |
+| `DELETE` | `/v1/members/{userID}` | Remove a member |
+| `POST` | `/v1/resource-policies` | Create a resource policy |
+| `GET` | `/v1/resource-policies` | List resource policies (cursor pagination) |
+| `DELETE` | `/v1/resource-policies/{policyID}` | Delete a resource policy |
+| `POST` | `/v1/tag-policies` | Create a tag policy |
+| `GET` | `/v1/tag-policies` | List tag policies (cursor pagination) |
+| `DELETE` | `/v1/tag-policies/{policyID}` | Delete a tag policy |
+
+## Related
+
+- [Authentication](/guides/authentication)
 - [Security](/guides/security)
 - [Audit Events](/guides/audit-events)

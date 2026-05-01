@@ -1,0 +1,112 @@
+---
+title: "Execution Modes"
+description: "Choose how Strait runs your jobs: call your API endpoint or run code in a managed container."
+icon: "play"
+---
+
+Strait supports two execution modes that control where and how your job code runs. The mode is set on the job definition via the `execution_mode` field.
+
+## Comparison
+
+| | HTTP (default) | Managed |
+| :--- | :--- | :--- |
+| How it works | Strait POSTs to your endpoint | Strait runs code in a container |
+| Your code runs on | Your servers | Strait-managed Docker or Kubernetes |
+| Setup | Point a job at an endpoint URL | Provide a container image or upload source code |
+| Scaling | You scale your endpoint | Strait scales containers |
+| Cold start | None (your server is already running) | 1-2s warm, 5-15s cold |
+| Best for | Existing APIs, microservices, serverless | Isolated execution, GPU workloads, custom runtimes |
+
+---
+
+## HTTP Mode
+
+HTTP is the default execution mode. Strait sends an HTTP POST to your job's `endpoint_url` with the run payload, headers (`X-Run-ID`, `X-Job-ID`, `X-Attempt`), and an SDK token. Your server processes the request and returns an HTTP response.
+
+- **2xx** — run succeeds.
+- **408, 429, 5xx** — transient failure, Strait retries.
+- **Other 4xx** — permanent failure, no retry.
+
+### When to use HTTP
+
+- You already have an API or microservice that does the work.
+- Your infrastructure handles scaling, and you want Strait only for orchestration, retries, and scheduling.
+- You run on serverless platforms (Lambda, Cloud Run, Vercel) where the platform manages compute.
+
+### Example
+
+```json
+{
+  "name": "Send Welcome Email",
+  "slug": "send-welcome-email",
+  "endpoint_url": "https://your-api.com/jobs/send-welcome-email"
+}
+```
+
+No `execution_mode` field is needed — HTTP is the default. See [Jobs](/concepts/jobs) for the full configuration reference.
+
+---
+
+## Managed Mode
+
+In managed mode, Strait provisions a container, runs your code inside it, and collects the result. Each run gets its own ephemeral container with no shared state.
+
+When Strait dequeues a managed run:
+
+1. **Provision container.** Strait creates a new container from your image, or acquires one from the warm pool (reducing cold start from ~15s to ~2s).
+2. **Inject context.** Run payload, API URL, SDK token, and project secrets are passed as environment variables.
+3. **Wait for exit.** The container runs until the process exits. Exit code `0` means success; non-zero triggers a retry.
+4. **Record result.** Duration and the completion result are recorded on the run.
+
+### When to use managed mode
+
+- Jobs need isolated execution with no shared state between runs.
+- You need custom runtimes — Python ML pipelines, Rust binaries, or anything that runs in Docker.
+- Jobs require specific compute resources (CPU, memory, GPU).
+- You want Strait to handle infrastructure scaling.
+
+### Example
+
+```json
+{
+  "name": "Train Model",
+  "slug": "train-model",
+  "execution_mode": "managed",
+  "machine_preset": "medium-1x",
+  "image": "my-registry.example.com/trainer:latest"
+}
+```
+
+The `machine_preset` field controls CPU and memory allocation. See [Managed Execution](/concepts/managed-execution) for compute presets, warm pool configuration, pause/resume, and the full configuration reference.
+
+---
+
+## Code Deployments
+
+If you don't want to build container images yourself, use code deployments. Upload your source code as a tarball, and Strait builds the image with BuildKit, pushes it to your registry, and runs it — the same as managed mode, but Strait owns the build step too.
+
+```bash
+curl -X POST https://api.yourproject.strait.sh/v1/deployments \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@./my-job.tar.gz" \
+  -F "runtime=python" \
+  -F "job_slug=train-model"
+```
+
+See [Code Deployments](/concepts/code-deployments) for supported runtimes, build configuration, and deployment workflows.
+
+---
+
+## Choosing a Mode
+
+```
+Do you already have an API endpoint that does the work?
+├── Yes → Use HTTP mode.
+└── No
+    ├── Do you have a container image ready?
+    │   └── Yes → Use managed mode with your image.
+    └── No
+        └── Use code deployments. Upload source code, Strait builds and runs it.
+```
+
+**Start with HTTP** if you have existing infrastructure. It requires no changes to your deployment — just point a job at your endpoint. Switch to managed mode when you need isolation, custom runtimes, or want Strait to handle compute scaling.
