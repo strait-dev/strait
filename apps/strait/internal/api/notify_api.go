@@ -947,6 +947,12 @@ func (s *Server) handleUpsertNotifySubscriber(ctx context.Context, input *Upsert
 		return nil, huma.Error500InternalServerError("failed to upsert subscriber")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionNotifySubscriberUpserted, "notify_subscriber", sub.ID, map[string]any{
+		"subscriber_id": sub.ID,
+		"external_id":   sub.ExternalID,
+		"tenant_id":     sub.TenantID,
+	})
+
 	return &UpsertNotifySubscriberOutput{Body: sub}, nil
 }
 
@@ -1088,6 +1094,12 @@ func (s *Server) handleUpdateNotifySubscriber(ctx context.Context, input *Update
 		return nil, huma.Error500InternalServerError("failed to update subscriber")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionNotifySubscriberUpdated, "notify_subscriber", existing.ID, map[string]any{
+		"subscriber_id": existing.ID,
+		"external_id":   existing.ExternalID,
+		"tenant_id":     existing.TenantID,
+	})
+
 	return &UpdateNotifySubscriberOutput{Body: existing}, nil
 }
 
@@ -1115,6 +1127,10 @@ func (s *Server) handleDeleteNotifySubscriber(ctx context.Context, input *Delete
 			}
 			return nil, huma.Error500InternalServerError("failed to purge subscriber")
 		}
+		s.emitAuditEvent(ctx, domain.AuditActionNotifySubscriberDeleted, "notify_subscriber", input.SubscriberID, map[string]any{
+			"subscriber_id": input.SubscriberID,
+			"purge":         true,
+		})
 		return nil, nil
 	}
 
@@ -1124,6 +1140,11 @@ func (s *Server) handleDeleteNotifySubscriber(ctx context.Context, input *Delete
 		}
 		return nil, huma.Error500InternalServerError("failed to delete subscriber")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionNotifySubscriberDeleted, "notify_subscriber", input.SubscriberID, map[string]any{
+		"subscriber_id": input.SubscriberID,
+		"purge":         false,
+	})
 
 	return nil, nil
 }

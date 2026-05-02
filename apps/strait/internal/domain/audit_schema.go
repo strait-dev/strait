@@ -507,6 +507,85 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Notification channel deleted.",
 	},
 
+	// Notify subscribers.
+	AuditActionNotifySubscriberUpserted: {
+		Required:    []string{"subscriber_id"},
+		Forbidden:   []string{"email", "phone", "attributes"},
+		Description: "Notify subscriber upserted.",
+	},
+	AuditActionNotifySubscriberUpdated: {
+		Required:    []string{"subscriber_id"},
+		Forbidden:   []string{"email", "phone", "attributes"},
+		Description: "Notify subscriber updated.",
+	},
+	AuditActionNotifySubscriberDeleted: {
+		Required:    []string{"subscriber_id", "purge"},
+		Description: "Notify subscriber soft-deleted or purged.",
+	},
+
+	// Notify topics.
+	AuditActionNotifyTopicCreated: {
+		Required:    []string{"topic_id", "topic_key"},
+		Description: "Notify topic created.",
+	},
+	AuditActionNotifyTopicSubscriberRemoved: {
+		Required:    []string{"topic_id", "subscriber_id"},
+		Description: "Subscriber removed from notify topic.",
+	},
+
+	// Notification templates.
+	AuditActionNotificationTemplateCreated: {
+		Required:    []string{"template_id", "template_key"},
+		Description: "Notification template created.",
+	},
+	AuditActionNotificationTemplateUpdated: {
+		Required:    []string{"template_id", "template_key", "version"},
+		Description: "Notification template updated (creates a new version).",
+	},
+
+	// Notification categories.
+	AuditActionNotificationCategoryCreated: {
+		Required:    []string{"category_id", "category_key"},
+		Description: "Notification category created.",
+	},
+
+	// Notify policy overrides.
+	AuditActionNotifyPolicyOverrideCreated: {
+		Required:    []string{"policy_id", "scope_type", "scope_key"},
+		Description: "Notify policy override created.",
+	},
+	AuditActionNotifyPolicyOverrideUpdated: {
+		Required:    []string{"policy_id"},
+		Description: "Notify policy override updated.",
+	},
+	AuditActionNotifyPolicyOverrideDeleted: {
+		Required:    []string{"policy_id"},
+		Description: "Notify policy override deleted.",
+	},
+
+	// Notification providers.
+	AuditActionNotificationProviderUpdated: {
+		Required:    []string{"provider_id", "channel"},
+		Forbidden:   []string{"config", "config_enc"},
+		Description: "Notification provider updated.",
+	},
+	AuditActionNotificationProviderDeleted: {
+		Required:    []string{"provider_id"},
+		Description: "Notification provider deleted.",
+	},
+
+	// Notify subscriber tokens.
+	AuditActionNotifySubscriberTokenCreated: {
+		Required:    []string{"subscriber_id", "expires_in_seconds"},
+		Description: "Notify subscriber session token issued.",
+	},
+
+	// Notify unsuppress.
+	AuditActionNotifyUnsuppressCreated: {
+		Required:    []string{"subscriber_id", "channel", "scope"},
+		Description: "Notify channel suppression manually lifted for a subscriber.",
+	},
+
 	// Event sources + subscriptions + triggers.
 	AuditActionEventSourceCreated: {
 		Required:    []string{"name"},

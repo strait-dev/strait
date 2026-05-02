@@ -165,6 +165,37 @@ const (
 	AuditActionNotificationChannelUpdated = "notification_channel.updated"
 	AuditActionNotificationChannelDeleted = "notification_channel.deleted"
 
+	// Notify subscribers.
+	AuditActionNotifySubscriberUpserted = "notify_subscriber.upserted"
+	AuditActionNotifySubscriberUpdated  = "notify_subscriber.updated"
+	AuditActionNotifySubscriberDeleted  = "notify_subscriber.deleted"
+
+	// Notify topics.
+	AuditActionNotifyTopicCreated           = "notify_topic.created"
+	AuditActionNotifyTopicSubscriberRemoved = "notify_topic.subscriber_removed"
+
+	// Notification templates.
+	AuditActionNotificationTemplateCreated = "notification_template.created"
+	AuditActionNotificationTemplateUpdated = "notification_template.updated"
+
+	// Notification categories.
+	AuditActionNotificationCategoryCreated = "notification_category.created"
+
+	// Notify policy overrides.
+	AuditActionNotifyPolicyOverrideCreated = "notify_policy_override.created"
+	AuditActionNotifyPolicyOverrideUpdated = "notify_policy_override.updated"
+	AuditActionNotifyPolicyOverrideDeleted = "notify_policy_override.deleted"
+
+	// Notification providers.
+	AuditActionNotificationProviderUpdated = "notification_provider.updated"
+	AuditActionNotificationProviderDeleted = "notification_provider.deleted"
+
+	// Notify subscriber tokens.
+	AuditActionNotifySubscriberTokenCreated = "notify_subscriber_token.created"
+
+	// Notify unsuppress.
+	AuditActionNotifyUnsuppressCreated = "notify_unsuppress.created"
+
 	// Event sources + subscriptions + triggers.
 	AuditActionEventSourceCreated       = "event_source.created"
 	AuditActionEventSourceUpdated       = "event_source.updated"
@@ -308,6 +339,21 @@ var allAuditActions = map[string]struct{}{
 	AuditActionNotificationChannelCreated:      {},
 	AuditActionNotificationChannelUpdated:      {},
 	AuditActionNotificationChannelDeleted:      {},
+	AuditActionNotifySubscriberUpserted:        {},
+	AuditActionNotifySubscriberUpdated:         {},
+	AuditActionNotifySubscriberDeleted:         {},
+	AuditActionNotifyTopicCreated:              {},
+	AuditActionNotifyTopicSubscriberRemoved:    {},
+	AuditActionNotificationTemplateCreated:     {},
+	AuditActionNotificationTemplateUpdated:     {},
+	AuditActionNotificationCategoryCreated:     {},
+	AuditActionNotifyPolicyOverrideCreated:     {},
+	AuditActionNotifyPolicyOverrideUpdated:     {},
+	AuditActionNotifyPolicyOverrideDeleted:     {},
+	AuditActionNotificationProviderUpdated:     {},
+	AuditActionNotificationProviderDeleted:     {},
+	AuditActionNotifySubscriberTokenCreated:    {},
+	AuditActionNotifyUnsuppressCreated:         {},
 	AuditActionEventSourceCreated:              {},
 	AuditActionEventSourceUpdated:              {},
 	AuditActionEventSourceDeleted:              {},

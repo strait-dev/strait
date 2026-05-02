@@ -50,6 +50,14 @@ var auditCoverageExemptHandlers = map[string]string{
 	"handleSDKWorkflowStepFail":  "sdk run-token, self-report only",
 	"handleSDKWorkflowStepSleep": "sdk run-token, self-report only",
 
+	// Notify recipient self-actions: these endpoints are authed by the
+	// recipient's own session token and only mutate state belonging to the
+	// recipient (inbox item read/archive, own notification preferences).
+	// Treated like the SDK self-report path.
+	"handleUpdateInboxItem":              "notify recipient self-action via subscriber session, not admin mutation",
+	"handleUpdateNotifyPreferences":      "notify recipient self-action via subscriber session, not admin mutation",
+	"handleUpdateNotifyPreferencesScope": "notify recipient self-action via subscriber session, not admin mutation",
+
 	// Rotation handler — the store's RotateAuditSigningKey atomically emits
 	// an is_anchor=TRUE audit.key_rotated event signed under the new epoch
 	// key. Emitting an additional event from the handler would either

@@ -54,6 +54,11 @@ func (s *Server) handleCreateNotifyTopic(ctx context.Context, input *CreateNotif
 	if err := ns.CreateNotifyTopic(ctx, topic); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create topic")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotifyTopicCreated, "notify_topic", topic.ID, map[string]any{
+		"topic_id":  topic.ID,
+		"topic_key": topic.TopicKey,
+		"name":      topic.Name,
+	})
 	return &CreateNotifyTopicOutput{Body: topic}, nil
 }
 
@@ -180,6 +185,11 @@ func (s *Server) handleRemoveNotifyTopicSubscriber(ctx context.Context, input *R
 	if err := ns.RemoveNotifyTopicSubscriber(ctx, topic.ID, input.SubscriberID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to remove topic member")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotifyTopicSubscriberRemoved, "notify_topic", topic.ID, map[string]any{
+		"topic_id":      topic.ID,
+		"topic_key":     topic.TopicKey,
+		"subscriber_id": input.SubscriberID,
+	})
 	return nil, nil
 }
 
@@ -231,6 +241,11 @@ func (s *Server) handleCreateNotificationTemplate(ctx context.Context, input *Cr
 	if err := ns.CreateNotificationTemplate(ctx, tmpl); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create template")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationTemplateCreated, "notification_template", tmpl.ID, map[string]any{
+		"template_id":  tmpl.ID,
+		"template_key": tmpl.TemplateKey,
+		"name":         tmpl.Name,
+	})
 	return &CreateNotificationTemplateOutput{Body: tmpl}, nil
 }
 
@@ -344,6 +359,11 @@ func (s *Server) handleUpdateNotificationTemplate(ctx context.Context, input *Up
 	if err := ns.CreateNotificationTemplate(ctx, next); err != nil {
 		return nil, huma.Error500InternalServerError("failed to update template")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationTemplateUpdated, "notification_template", next.ID, map[string]any{
+		"template_id":  next.ID,
+		"template_key": next.TemplateKey,
+		"version":      next.Version,
+	})
 	return &UpdateNotificationTemplateOutput{Body: next}, nil
 }
 
@@ -480,6 +500,11 @@ func (s *Server) handleCreateNotificationCategory(ctx context.Context, input *Cr
 	if err := ns.CreateNotificationCategory(ctx, cat); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create category")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationCategoryCreated, "notification_category", cat.ID, map[string]any{
+		"category_id":  cat.ID,
+		"category_key": cat.CategoryKey,
+		"name":         cat.Name,
+	})
 	return &CreateNotificationCategoryOutput{Body: cat}, nil
 }
 
@@ -565,6 +590,12 @@ func (s *Server) handleCreateNotifyPolicyOverride(ctx context.Context, input *Cr
 		return nil, huma.Error500InternalServerError("failed to create notify policy override")
 	}
 
+	s.emitAuditEvent(ctx, domain.AuditActionNotifyPolicyOverrideCreated, "notify_policy_override", policy.ID, map[string]any{
+		"policy_id":  policy.ID,
+		"scope_type": policy.ScopeType,
+		"scope_key":  policy.ScopeKey,
+	})
+
 	return &CreateNotifyPolicyOverrideOutput{Body: policy}, nil
 }
 
@@ -636,6 +667,10 @@ func (s *Server) handleUpdateNotifyPolicyOverride(ctx context.Context, input *Up
 	if err := ns.UpsertNotifyPolicyOverride(ctx, policy); err != nil {
 		return nil, huma.Error500InternalServerError("failed to update notify policy override")
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionNotifyPolicyOverrideUpdated, "notify_policy_override", policy.ID, map[string]any{
+		"policy_id": policy.ID,
+	})
 
 	return &UpdateNotifyPolicyOverrideOutput{Body: policy}, nil
 }
@@ -727,6 +762,9 @@ func (s *Server) handleDeleteNotifyPolicyOverride(ctx context.Context, input *De
 		}
 		return nil, huma.Error500InternalServerError("failed to delete notify policy override")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotifyPolicyOverrideDeleted, "notify_policy_override", input.PolicyID, map[string]any{
+		"policy_id": input.PolicyID,
+	})
 	return nil, nil
 }
 
@@ -844,6 +882,12 @@ func (s *Server) handleUpdateNotificationProvider(ctx context.Context, input *Up
 		}
 		return nil, huma.Error500InternalServerError("failed to update provider")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationProviderUpdated, "notification_provider", provider.ID, map[string]any{
+		"provider_id": provider.ID,
+		"channel":     provider.Channel,
+		"provider":    provider.Provider,
+		"name":        provider.Name,
+	})
 	return &UpdateNotificationProviderOutput{Body: provider}, nil
 }
 
@@ -866,6 +910,9 @@ func (s *Server) handleDeleteNotificationProvider(ctx context.Context, input *De
 		}
 		return nil, huma.Error500InternalServerError("failed to delete provider")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotificationProviderDeleted, "notification_provider", input.ProviderID, map[string]any{
+		"provider_id": input.ProviderID,
+	})
 	return nil, nil
 }
 
@@ -1114,6 +1161,11 @@ func (s *Server) handleCreateNotifySubscriberToken(ctx context.Context, input *C
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to create subscriber token")
 	}
+	s.emitAuditEvent(ctx, domain.AuditActionNotifySubscriberTokenCreated, "notify_subscriber_token", sub.ID, map[string]any{
+		"subscriber_id":      sub.ID,
+		"tenant_id":          tenantID,
+		"expires_in_seconds": int64(expires.Seconds()),
+	})
 	return &CreateNotifySubscriberTokenOutput{Body: map[string]any{"token": tok}}, nil
 }
 
@@ -1193,6 +1245,14 @@ func (s *Server) handleCreateNotifyUnsuppress(ctx context.Context, input *Create
 			return nil, huma.Error500InternalServerError("failed to record unsuppression event")
 		}
 	}
+
+	s.emitAuditEvent(ctx, domain.AuditActionNotifyUnsuppressCreated, "notify_subscriber", sub.ID, map[string]any{
+		"subscriber_id": sub.ID,
+		"channel":       channel,
+		"scope":         scope,
+		"reason":        reason,
+		"force":         input.Body.Force,
+	})
 
 	return &CreateNotifyUnsuppressOutput{Body: map[string]any{
 		"status":        "ok",

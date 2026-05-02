@@ -1562,6 +1562,33 @@
         "bearer"
       ]
     },
+    "notification_category.created": {
+      "type": "object",
+      "description": "Notification category created.",
+      "properties": {
+        "category_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "category_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["category_id", "category_key"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "notification_channel.created": {
       "type": "object",
       "description": "Notification channel created.",
@@ -1626,6 +1653,384 @@
         "config",
         "webhook_url",
         "bot_token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_provider.deleted": {
+      "type": "object",
+      "description": "Notification provider deleted.",
+      "properties": {
+        "provider_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["provider_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_provider.updated": {
+      "type": "object",
+      "description": "Notification provider updated.",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "description": "required"
+        },
+        "provider_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["provider_id", "channel"],
+      "x-forbidden-keys": [
+        "config",
+        "config_enc",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_template.created": {
+      "type": "object",
+      "description": "Notification template created.",
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "template_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["template_id", "template_key"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notification_template.updated": {
+      "type": "object",
+      "description": "Notification template updated (creates a new version).",
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "template_key": {
+          "type": "string",
+          "description": "required"
+        },
+        "version": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["template_id", "template_key", "version"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_policy_override.created": {
+      "type": "object",
+      "description": "Notify policy override created.",
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "scope_key": {
+          "type": "string",
+          "description": "required"
+        },
+        "scope_type": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["policy_id", "scope_type", "scope_key"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_policy_override.deleted": {
+      "type": "object",
+      "description": "Notify policy override deleted.",
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["policy_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_policy_override.updated": {
+      "type": "object",
+      "description": "Notify policy override updated.",
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["policy_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_subscriber.deleted": {
+      "type": "object",
+      "description": "Notify subscriber soft-deleted or purged.",
+      "properties": {
+        "purge": {
+          "type": "string",
+          "description": "required"
+        },
+        "subscriber_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscriber_id", "purge"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_subscriber.updated": {
+      "type": "object",
+      "description": "Notify subscriber updated.",
+      "properties": {
+        "subscriber_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscriber_id"],
+      "x-forbidden-keys": [
+        "email",
+        "phone",
+        "attributes",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_subscriber.upserted": {
+      "type": "object",
+      "description": "Notify subscriber upserted.",
+      "properties": {
+        "subscriber_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscriber_id"],
+      "x-forbidden-keys": [
+        "email",
+        "phone",
+        "attributes",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_subscriber_token.created": {
+      "type": "object",
+      "description": "Notify subscriber session token issued.",
+      "properties": {
+        "expires_in_seconds": {
+          "type": "string",
+          "description": "required"
+        },
+        "subscriber_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscriber_id", "expires_in_seconds"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_topic.created": {
+      "type": "object",
+      "description": "Notify topic created.",
+      "properties": {
+        "topic_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "topic_key": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["topic_id", "topic_key"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_topic.subscriber_removed": {
+      "type": "object",
+      "description": "Subscriber removed from notify topic.",
+      "properties": {
+        "subscriber_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "topic_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["topic_id", "subscriber_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "notify_unsuppress.created": {
+      "type": "object",
+      "description": "Notify channel suppression manually lifted for a subscriber.",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "description": "required"
+        },
+        "scope": {
+          "type": "string",
+          "description": "required"
+        },
+        "subscriber_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["subscriber_id", "channel", "scope"],
+      "x-forbidden-keys": [
         "secret",
         "value",
         "password",
