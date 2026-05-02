@@ -53,12 +53,12 @@ function isRetryableStatus(status: number): boolean {
 
 async function parseResponseBody(response: Response): Promise<unknown> {
   if (response.status === 204) {
-    return undefined;
+    return;
   }
 
   const bodyText = await response.text();
   if (bodyText.length === 0) {
-    return undefined;
+    return;
   }
 
   const contentType = response.headers.get("content-type") ?? "";

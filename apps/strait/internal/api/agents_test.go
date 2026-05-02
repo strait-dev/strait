@@ -69,7 +69,6 @@ func (s *stubAgentService) ReplayAgentRun(_ context.Context, _ agentsvc.ReplayAg
 	return nil, nil
 }
 
-
 func (s *stubAgentService) KillAgent(_ context.Context, _, _, _ string) (int, error) {
 	return 0, nil
 }

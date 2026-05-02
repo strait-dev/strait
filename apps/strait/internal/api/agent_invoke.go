@@ -17,9 +17,9 @@ import (
 const maxInvokeTimeoutMs = 300_000 // 5 minutes. Capped to prevent goroutine exhaustion.
 
 type InvokeAgentRequest struct {
-	AgentSlug  string          `json:"agent_slug" validate:"required"`
-	Payload    json.RawMessage `json:"payload,omitempty"`
-	TimeoutMs  int             `json:"timeout_ms,omitempty"`
+	AgentSlug string          `json:"agent_slug" validate:"required"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+	TimeoutMs int             `json:"timeout_ms,omitempty"`
 }
 
 type InvokeAgentInput struct {

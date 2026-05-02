@@ -22,9 +22,9 @@ type RuntimeDispatchEnvelope struct {
 	// NULL). Empty for legacy agents without an environment binding.
 	// Provider API keys (OpenAI/Anthropic/etc.) stay on RuntimeDispatchAgent
 	// — those are credentials for the agent itself, not environment config.
-	Secrets         map[string]string  `json:"secrets,omitempty"`
-	AvailableAgents  []AvailableAgent   `json:"available_agents,omitempty"`
-	CachedToolCalls  []CachedToolCall   `json:"cached_tool_calls,omitempty"`
+	Secrets         map[string]string `json:"secrets,omitempty"`
+	AvailableAgents []AvailableAgent  `json:"available_agents,omitempty"`
+	CachedToolCalls []CachedToolCall  `json:"cached_tool_calls,omitempty"`
 }
 
 // AvailableAgent describes a peer agent that can be invoked via the

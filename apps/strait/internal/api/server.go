@@ -753,8 +753,8 @@ type UsageService interface {
 type ServerDeps struct {
 	Config               *config.Config
 	Store                APIStore
-	AgentService         agents.Service                // Optional: enables /v1/agents endpoints.
-	AnalyticsStore       AnalyticsStore               // Optional: ClickHouse-backed analytics queries.
+	AgentService         agents.Service // Optional: enables /v1/agents endpoints.
+	AnalyticsStore       AnalyticsStore // Optional: ClickHouse-backed analytics queries.
 	Queue                queue.Queue
 	PubSub               pubsub.Publisher
 	MetricsHandler       http.Handler
@@ -763,24 +763,24 @@ type ServerDeps struct {
 	WorkflowCallback     WorkflowCallback
 	WorkflowEngine       WorkflowTrigger
 	Metrics              *telemetry.Metrics
-	TxPool               store.TxBeginner             // Optional: enables transactional event trigger sends.
+	TxPool               store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer          ActorSyncer
-	PoolStatter          PoolStatter                  // Optional: enables DB pool backpressure middleware.
-	RedisClient          *redis.Client                // Optional: enables per-project/key rate limiting.
-	Encryptor            Encryptor                    // Optional: enables event source signature encryption.
-	ContainerRuntime     compute.ContainerRuntime     // Optional: enables managed container stop on cancel.
-	StripeWebhook        http.Handler                 // Optional: Stripe billing webhook handler.
-	BillingEnforcer      BillingEnforcer              // Optional: enables billing limit checks on project create.
-	UsageService         UsageService                 // Optional: enables usage endpoint.
-	CHExporter           *clickhouse.Exporter         // Optional: enables ClickHouse analytics export from API handlers.
+	PoolStatter          PoolStatter                   // Optional: enables DB pool backpressure middleware.
+	RedisClient          *redis.Client                 // Optional: enables per-project/key rate limiting.
+	Encryptor            Encryptor                     // Optional: enables event source signature encryption.
+	ContainerRuntime     compute.ContainerRuntime      // Optional: enables managed container stop on cancel.
+	StripeWebhook        http.Handler                  // Optional: Stripe billing webhook handler.
+	BillingEnforcer      BillingEnforcer               // Optional: enables billing limit checks on project create.
+	UsageService         UsageService                  // Optional: enables usage endpoint.
+	CHExporter           *clickhouse.Exporter          // Optional: enables ClickHouse analytics export from API handlers.
 	AgentBilling         *billing.AgentBillingReporter // Optional: enables agent run billing to Stripe.
-	DOMemoryClient       *agents.DOMemoryClient       // Optional: enables Durable Objects memory backend.
-	Edition              domain.Edition               // Edition controls feature gating (community vs cloud).
-	Version              string                       // Build version (injected via ldflags).
-	CDCWebhookReceiver   http.Handler                 // Optional: enables CDC webhook push endpoint.
-	ObjectStore          objectstore.ObjectStore      // Optional: enables code-first deployments (tarball storage).
-	AuditAsyncBufferSize int                          // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
-	SIEMDrain            *logdrain.AuditSIEMDrain     // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
+	DOMemoryClient       *agents.DOMemoryClient        // Optional: enables Durable Objects memory backend.
+	Edition              domain.Edition                // Edition controls feature gating (community vs cloud).
+	Version              string                        // Build version (injected via ldflags).
+	CDCWebhookReceiver   http.Handler                  // Optional: enables CDC webhook push endpoint.
+	ObjectStore          objectstore.ObjectStore       // Optional: enables code-first deployments (tarball storage).
+	AuditAsyncBufferSize int                           // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
+	SIEMDrain            *logdrain.AuditSIEMDrain      // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
 
 // PoolStatter provides connection pool statistics for backpressure.

@@ -178,21 +178,21 @@ type CostAnomaly struct {
 }
 
 type Agent struct {
-	ID                       string          `json:"id"`
-	ProjectID                string          `json:"project_id"`
-	JobID                    string          `json:"job_id"`
-	Name                     string          `json:"name"`
-	Slug                     string          `json:"slug"`
-	Description              string          `json:"description,omitempty"`
-	Model                    string          `json:"model"`
-	ModelFallbacks           []string        `json:"model_fallbacks,omitempty"`
-	Config                   json.RawMessage `json:"config,omitempty"`
-	ProviderSecretsEncrypted string          `json:"-"` // AES-256-GCM encrypted, never serialized to API.
-	CreatedBy                string          `json:"created_by,omitempty"`
-	UpdatedBy                string          `json:"updated_by,omitempty"`
-	CreatedAt                time.Time       `json:"created_at"`
-	UpdatedAt                time.Time                `json:"updated_at"`
-	Enabled                  bool                     `json:"enabled"`
+	ID                       string                    `json:"id"`
+	ProjectID                string                    `json:"project_id"`
+	JobID                    string                    `json:"job_id"`
+	Name                     string                    `json:"name"`
+	Slug                     string                    `json:"slug"`
+	Description              string                    `json:"description,omitempty"`
+	Model                    string                    `json:"model"`
+	ModelFallbacks           []string                  `json:"model_fallbacks,omitempty"`
+	Config                   json.RawMessage           `json:"config,omitempty"`
+	ProviderSecretsEncrypted string                    `json:"-"` // AES-256-GCM encrypted, never serialized to API.
+	CreatedBy                string                    `json:"created_by,omitempty"`
+	UpdatedBy                string                    `json:"updated_by,omitempty"`
+	CreatedAt                time.Time                 `json:"created_at"`
+	UpdatedAt                time.Time                 `json:"updated_at"`
+	Enabled                  bool                      `json:"enabled"`
 	DismissedRecommendations []DismissedRecommendation `json:"dismissed_recommendations,omitempty"`
 }
 
@@ -843,7 +843,7 @@ type EvalCaseResult struct {
 type ModelRoute struct {
 	ID            string    `json:"id"`
 	AgentID       string    `json:"agent_id"`
-	Tier          string    `json:"tier"`           // simple, standard, complex
+	Tier          string    `json:"tier"` // simple, standard, complex
 	Model         string    `json:"model"`
 	QualityScore  float64   `json:"quality_score,omitempty"`
 	PreviousModel string    `json:"previous_model,omitempty"`
@@ -1798,7 +1798,6 @@ type AutopilotConfig struct {
 	QualityThreshold float64 `json:"quality_threshold"` // default 85
 	ObservationMins  int     `json:"observation_mins"`  // default 10
 }
-
 
 // WhatIfReplayResult contains the comparison between original and replayed runs.
 type WhatIfReplayResult struct {

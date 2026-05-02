@@ -51,7 +51,7 @@ func (p *BudgetAutopilotPoller) Run(ctx context.Context) {
 	}
 }
 
-func (p *BudgetAutopilotPoller) check(ctx context.Context) {
+func (p *BudgetAutopilotPoller) check(_ context.Context) {
 	// Placeholder: ListAgentsWithAutopilot is not yet implemented on the store.
 	// In production this would query agents where config->'autopilot'->>'enabled' = 'true'
 	// and for each, compute current spend and call CheckAndAdjust.

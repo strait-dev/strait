@@ -17,7 +17,7 @@ type CostAnomalyStore interface {
 	SnoozeAnomaly(ctx context.Context, id string, until time.Time) error
 }
 
-// -- List anomalies --
+// -- List anomalies --.
 
 type ListCostAnomaliesInput struct {
 	AgentID string `path:"agentID" doc:"Agent ID"`
@@ -56,7 +56,7 @@ func (s *Server) handleListCostAnomalies(ctx context.Context, input *ListCostAno
 	return &ListCostAnomaliesOutput{Body: anomalies}, nil
 }
 
-// -- Snooze anomaly --
+// -- Snooze anomaly --.
 
 type SnoozeCostAnomalyInput struct {
 	AgentID   string `path:"agentID" doc:"Agent ID"`

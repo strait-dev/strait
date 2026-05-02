@@ -45,7 +45,7 @@ func (m *mockModelRoutingStore) UpsertModelRouting(ctx context.Context, route *d
 	return nil
 }
 
-// --- ClassifyRequest tests ---
+// --- ClassifyRequest tests ---.
 
 func TestClassifyRequest_Simple(t *testing.T) {
 	tier := ClassifyRequest(100, 0, false)
@@ -89,7 +89,7 @@ func TestClassifyRequest_Complex_StructuredOutput(t *testing.T) {
 	}
 }
 
-// --- ResolveModel tests ---
+// --- ResolveModel tests ---.
 
 func TestResolveModel_WithRouting(t *testing.T) {
 	store := newMockModelRoutingStore()
@@ -122,7 +122,7 @@ func TestResolveModel_NoRouting(t *testing.T) {
 	}
 }
 
-// --- CheckQualityGate tests ---
+// --- CheckQualityGate tests ---.
 
 func TestCheckQualityGate_AboveThreshold(t *testing.T) {
 	store := newMockModelRoutingStore()
@@ -200,7 +200,6 @@ func TestCheckQualityGate_BelowThreshold_NoPrevious(t *testing.T) {
 		t.Errorf("expected quality score 70.0, got %f", route.QualityScore)
 	}
 }
-
 
 func TestCountConfigTools_Empty(t *testing.T) {
 	if got := countConfigTools(nil); got != 0 {

@@ -218,12 +218,14 @@ export async function runEvalSuite<TInput, TResult>(
 }
 
 function getPathValue(value: unknown, path: string): unknown {
-  return path.split(".").reduce<unknown>((current, segment) => {
+  let current: unknown = value;
+  for (const segment of path.split(".")) {
     if (current == null || typeof current !== "object") {
-      return undefined;
+      return;
     }
-    return (current as Record<string, unknown>)[segment];
-  }, value);
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
 }
 
 export function expectPathEquals<TResult>(
@@ -234,11 +236,8 @@ export function expectPathEquals<TResult>(
   return {
     name,
     message: `expected ${path} to equal ${JSON.stringify(expected)}`,
-    assert: (result) => {
-      return (
-        JSON.stringify(getPathValue(result, path)) === JSON.stringify(expected)
-      );
-    },
+    assert: (result) =>
+      JSON.stringify(getPathValue(result, path)) === JSON.stringify(expected),
   };
 }
 

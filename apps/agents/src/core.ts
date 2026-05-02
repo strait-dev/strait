@@ -97,7 +97,7 @@ function assertStringArray(
   field: string
 ): string[] | undefined {
   if (value == null) {
-    return undefined;
+    return;
   }
   if (!Array.isArray(value)) {
     throw new Error(`${field} must be an array`);
@@ -290,7 +290,7 @@ export function findCachedToolResponse(
   input: JsonValue
 ): JsonValue | undefined {
   if (!cached?.length) {
-    return undefined;
+    return;
   }
   const inputStr = JSON.stringify(input);
   for (const entry of cached) {
@@ -301,7 +301,7 @@ export function findCachedToolResponse(
       return entry.output;
     }
   }
-  return undefined;
+  return;
 }
 
 /**

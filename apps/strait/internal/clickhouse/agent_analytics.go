@@ -198,7 +198,6 @@ func (s *AnalyticsStore) GetAgentTopAgents(ctx context.Context, projectID string
 	return result, nil
 }
 
-
 // AgentDailyCost represents a single day's cost for an agent.
 type AgentDailyCost struct {
 	AgentID      string    `json:"agent_id"`

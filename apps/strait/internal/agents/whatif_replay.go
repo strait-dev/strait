@@ -80,8 +80,8 @@ func (w *WhatIfEngine) EstimateCost(ctx context.Context, runID, targetModel stri
 		}
 		// Estimate cost with new model pricing.
 		// Multiply first to preserve precision, then divide with rounding.
-		estimatedCost += (int64(u.PromptTokens) * inputPrice + 500_000) / 1_000_000
-		estimatedCost += (int64(u.CompletionTokens) * outputPrice + 500_000) / 1_000_000
+		estimatedCost += (int64(u.PromptTokens)*inputPrice + 500_000) / 1_000_000
+		estimatedCost += (int64(u.CompletionTokens)*outputPrice + 500_000) / 1_000_000
 	}
 
 	costDelta := estimatedCost - originalCost

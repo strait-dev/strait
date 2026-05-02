@@ -190,23 +190,23 @@ type WebhookDeliveryStore interface {
 }
 
 type localService struct {
-	store             agentStore
-	txb               store.TxBeginner
-	p                 Provider
-	runtime           RuntimeRunner
-	callbacks         RuntimeCallbackClient
-	dispatchHTTP      *http.Client
-	internalSecret    string
-	now               func() time.Time
-	apiBaseURL        string
-	jwtSigningKey     string
-	dispatchPool      pond.Pool
-	maxConcurrentRuns int
-	quotaChecker      QuotaChecker
-	billingEnforcer   AgentBillingEnforcer
-	canaryRouter      *AgentCanaryRouter
-	webhookStore      WebhookDeliveryStore
-	modelRouter       *ModelRouter
+	store              agentStore
+	txb                store.TxBeginner
+	p                  Provider
+	runtime            RuntimeRunner
+	callbacks          RuntimeCallbackClient
+	dispatchHTTP       *http.Client
+	internalSecret     string
+	now                func() time.Time
+	apiBaseURL         string
+	jwtSigningKey      string
+	dispatchPool       pond.Pool
+	maxConcurrentRuns  int
+	quotaChecker       QuotaChecker
+	billingEnforcer    AgentBillingEnforcer
+	canaryRouter       *AgentCanaryRouter
+	webhookStore       WebhookDeliveryStore
+	modelRouter        *ModelRouter
 	cachedToolCallsMap sync.Map // map[runID string][]CachedToolCall
 }
 
@@ -612,7 +612,7 @@ func (s *localService) KillAgent(ctx context.Context, projectID, agentID, actor 
 	return len(cancelled), nil
 }
 
-func (s *localService) EnableAgent(ctx context.Context, projectID, agentID, actor string) error {
+func (s *localService) EnableAgent(ctx context.Context, projectID, agentID, _ string) error {
 	if _, err := s.GetAgent(ctx, projectID, agentID); err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,9 +31,9 @@ func (m *mockAutopilotStore) CreateAutopilotAction(_ context.Context, action *do
 }
 
 func (m *mockAutopilotStore) GetLatestAutopilotAction(_ context.Context, agentID string) (*domain.AutopilotAction, error) {
-	for i := len(m.actions) - 1; i >= 0; i-- {
-		if m.actions[i].AgentID == agentID {
-			return m.actions[i], nil
+	for _, v := range slices.Backward(m.actions) {
+		if v.AgentID == agentID {
+			return v, nil
 		}
 	}
 	return nil, nil
@@ -86,8 +87,8 @@ func makeAgentWithAutopilot(id string, cfg domain.AutopilotConfig) *domain.Agent
 	configMap := map[string]json.RawMessage{"autopilot": autopilotJSON}
 	fullConfig, _ := json.Marshal(configMap)
 	return &domain.Agent{
-		ID:    id,
-		Model: "gpt-4o",
+		ID:     id,
+		Model:  "gpt-4o",
 		Config: fullConfig,
 	}
 }

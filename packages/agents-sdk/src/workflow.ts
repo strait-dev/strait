@@ -204,7 +204,7 @@ function optionalNonEmpty(
   field: string
 ): string | undefined {
   if (value == null) {
-    return undefined;
+    return;
   }
   return requireNonEmpty(value, field);
 }
@@ -214,7 +214,7 @@ function assertNonNegativeInt(
   field: string
 ): number | undefined {
   if (value == null) {
-    return undefined;
+    return;
   }
   if (!Number.isInteger(value) || value < 0) {
     throw new StraitSDKError(`${field} must be a non-negative integer`);
@@ -226,7 +226,7 @@ function normalizeDependsOn(
   dependsOn: string[] | undefined
 ): string[] | undefined {
   if (dependsOn == null || dependsOn.length === 0) {
-    return undefined;
+    return;
   }
 
   return dependsOn.map((stepRef, index) =>

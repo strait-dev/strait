@@ -19,7 +19,7 @@ type goldenSetStore interface {
 	DeleteGoldenSet(ctx context.Context, agentID, name string) error
 }
 
-// -- Golden Set CRUD types --
+// -- Golden Set CRUD types --.
 
 type CreateGoldenSetRequest struct {
 	Name  string          `json:"name" validate:"required"`
@@ -53,7 +53,7 @@ type DeleteGoldenSetInput struct {
 	Name    string `path:"name"`
 }
 
-// -- Eval Run types --
+// -- Eval Run types --.
 
 type RunEvalRequest struct {
 	GoldenSetName string `json:"golden_set_name,omitempty"`
@@ -70,7 +70,7 @@ type RunEvalOutput struct {
 	Body *domain.EvalRun
 }
 
-// -- Handlers --
+// -- Handlers --.
 
 func (s *Server) handleCreateGoldenSet(ctx context.Context, input *CreateGoldenSetInput) (*GoldenSetOutput, error) {
 	svc, err := s.requireAgentService()

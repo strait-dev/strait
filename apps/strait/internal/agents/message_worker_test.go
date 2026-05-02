@@ -108,7 +108,7 @@ func (m *mockMWAgentService) KillAgent(_ context.Context, _, _, _ string) (int, 
 	return 0, nil
 }
 func (m *mockMWAgentService) EnableAgent(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockMWAgentService) Close() {}
+func (m *mockMWAgentService) Close()                                              {}
 
 // -- Lifecycle tests.
 

@@ -18,7 +18,7 @@ type autopilotActionStore interface {
 	GetLatestAutopilotAction(ctx context.Context, agentID string) (*domain.AutopilotAction, error)
 }
 
-// -- Autopilot types --
+// -- Autopilot types --.
 
 type GetAutopilotConfigInput struct {
 	AgentID string `path:"agentID"`
@@ -46,7 +46,7 @@ type ListAutopilotHistoryOutput struct {
 	Body []domain.AutopilotAction
 }
 
-// -- Handlers --
+// -- Handlers --.
 
 func (s *Server) handleGetAutopilotConfig(ctx context.Context, input *GetAutopilotConfigInput) (*GetAutopilotConfigOutput, error) {
 	svc, err := s.requireAgentService()

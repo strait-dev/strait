@@ -69,7 +69,7 @@ export function normalizeBudgetInput(
   input?: BudgetInput
 ): AgentBudget | undefined {
   if (input == null) {
-    return undefined;
+    return;
   }
 
   if (typeof input === "string") {

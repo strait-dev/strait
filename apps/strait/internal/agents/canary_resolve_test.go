@@ -14,8 +14,8 @@ import (
 // panic if invoked — the tests below don't hit them.
 type resolveCanaryTargetMockStore struct {
 	agentStore
-	getCanaryWithTargetFn func(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, *domain.AgentDeployment, error)
-	getDeploymentByIDFn   func(ctx context.Context, id string) (*domain.AgentDeployment, error)
+	getCanaryWithTargetFn  func(ctx context.Context, agentID string) (*domain.AgentCanaryDeployment, *domain.AgentDeployment, error)
+	getDeploymentByIDFn    func(ctx context.Context, id string) (*domain.AgentDeployment, error)
 	getDeploymentByIDCalls int
 }
 

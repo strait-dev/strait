@@ -10,7 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-// --- mock stores ---
+// --- mock stores ---.
 
 type mockWhatIfStore struct {
 	runs      map[string]*domain.JobRun
@@ -118,20 +118,20 @@ func (m *mockWhatIfService) KillAgent(context.Context, string, string, string) (
 func (m *mockWhatIfService) EnableAgent(context.Context, string, string, string) error { return nil }
 func (m *mockWhatIfService) Close()                                                    {}
 
-// --- helper ---
+// --- helper ---.
 
 func terminalRun(id string) *domain.JobRun {
 	now := time.Now()
 	started := now.Add(-10 * time.Second)
 	return &domain.JobRun{
-		ID:        id,
-		Status:    domain.StatusCompleted,
-		StartedAt: &started,
+		ID:         id,
+		Status:     domain.StatusCompleted,
+		StartedAt:  &started,
 		FinishedAt: &now,
 	}
 }
 
-// --- tests ---
+// --- tests ---.
 
 func TestEstimateCost_CheaperModel(t *testing.T) {
 	store := newMockWhatIfStore()
@@ -294,7 +294,6 @@ func TestReplay_LoadsCachedToolCalls(t *testing.T) {
 
 	_ = fmt.Sprintf("tool calls loaded: %d", len(store.toolCalls["run-1"]))
 }
-
 
 func TestReplay_CostQueryError(t *testing.T) {
 	store := newMockWhatIfStore()

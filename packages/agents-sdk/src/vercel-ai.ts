@@ -348,7 +348,7 @@ export function autoBudget(
   return (input: any) => {
     const { model, steps } = input;
     if (limit.maxCostMicrousd == null || limit.maxCostMicrousd <= 0) {
-      return undefined;
+      return;
     }
 
     const totals = (steps as any[]).reduce(
@@ -371,7 +371,7 @@ export function autoBudget(
     );
 
     if (totals.costMicrousd < limit.maxCostMicrousd * threshold) {
-      return undefined;
+      return;
     }
 
     return {

@@ -86,7 +86,7 @@ function assertNonNegativeInt(
   field: string
 ): number | undefined {
   if (value == null) {
-    return undefined;
+    return;
   }
   if (!Number.isInteger(value) || value < 0) {
     throw new StraitSDKError(`${field} must be a non-negative integer`);

@@ -591,11 +591,7 @@ func validateLoaded(cfg *Config) error {
 		}
 	}
 
-	if err := validateCloudflareConfig(cfg); err != nil {
-		return err
-	}
-
-	return nil
+	return validateCloudflareConfig(cfg)
 }
 
 // Redacted returns a map of config field names to values with secrets masked.

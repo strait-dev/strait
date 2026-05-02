@@ -15,7 +15,7 @@ type modelRoutingStore interface {
 	UpsertModelRouting(ctx context.Context, route *domain.ModelRoute) error
 }
 
-// -- Model Routing types --
+// -- Model Routing types --.
 
 type ModelRouteEntry struct {
 	Tier  string `json:"tier" validate:"required"`
@@ -49,7 +49,7 @@ var validTiers = map[string]bool{
 	"complex":  true,
 }
 
-// -- Handlers --
+// -- Handlers --.
 
 func (s *Server) handleGetModelRouting(ctx context.Context, input *GetModelRoutingInput) (*GetModelRoutingOutput, error) {
 	svc, err := s.requireAgentService()

@@ -344,7 +344,7 @@ func (e *Exporter) flush(ctx context.Context) {
 
 // insertBatch writes a batch of records to ClickHouse, grouping by record type.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocyclo,cyclop,funlen
 func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	if len(batch) == 0 || e.client == nil {
 		return nil

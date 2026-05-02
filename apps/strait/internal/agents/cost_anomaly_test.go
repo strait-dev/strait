@@ -194,7 +194,6 @@ func TestDetectAnomalies_TodayOnlyNoBaseline(t *testing.T) {
 	}
 }
 
-
 func TestDetectAnomalies_BaselineTooShortAfterSplit(t *testing.T) {
 	store := &mockAnomalyStore{}
 	d := NewAnomalyDetector(store, 2.0)

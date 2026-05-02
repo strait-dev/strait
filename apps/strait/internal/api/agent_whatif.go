@@ -11,7 +11,7 @@ import (
 	"strait/internal/store"
 )
 
-// --- What-If Estimate (GET) ---
+// --- What-If Estimate (GET) ---.
 
 type WhatIfEstimateInput struct {
 	RunID string `path:"runID"`
@@ -52,7 +52,7 @@ func (s *Server) handleWhatIfEstimate(ctx context.Context, input *WhatIfEstimate
 	return &WhatIfEstimateOutput{Body: estimate}, nil
 }
 
-// --- What-If Replay (POST) ---
+// --- What-If Replay (POST) ---.
 
 type WhatIfReplayRequestBody struct {
 	TargetModel string `json:"target_model" required:"true" doc:"Model to replay the run with"`

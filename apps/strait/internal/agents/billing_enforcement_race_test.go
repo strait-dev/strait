@@ -374,7 +374,7 @@ func TestBillingEnforcer_NilEnforcerSkipsChecks(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Phase E5.3: loadAgentEnforcement (introduced in Phase E1.4) snapshot tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // TestLoadAgentEnforcement_CallsEachEnforcerMethodOnce verifies that
 // the Phase E1 loadAgentEnforcement helper hits the billing enforcer
