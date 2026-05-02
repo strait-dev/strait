@@ -467,27 +467,35 @@ const (
 	maxPageLimit     = 100
 )
 
-// ErrorResponse is the standard error response returned by all API endpoints.
+// ErrorResponse is the canonical error envelope returned by every API
+// endpoint. The OpenAPI spec is generated from this exact shape -- see
+// huma_error.go for the Huma override that wires it in.
 type ErrorResponse struct {
-	Error     any    `json:"error"`
-	RequestID string `json:"request_id,omitempty"`
+	Error     *APIError `json:"error" doc:"Structured error payload"`
+	RequestID string    `json:"request_id,omitempty" doc:"Server-assigned request identifier; useful for support and log correlation"`
 }
 
+// APIError describes a single error with a machine-readable code, a
+// human-readable message, and optional supplemental detail strings.
 type APIError struct {
-	Code    string   `json:"code"`
-	Message string   `json:"message"`
-	Details []string `json:"details,omitempty"`
+	Code    string   `json:"code" enum:"bad_request,authentication_required,forbidden,not_found,conflict,validation_failed,rate_limited,enqueue_throttled,internal_error,service_unavailable" doc:"Canonical Strait error code"`
+	Message string   `json:"message" doc:"Human-readable error message"`
+	Details []string `json:"details,omitempty" doc:"Optional supplemental error details (e.g. per-field validation messages)"`
 }
 
+// Canonical error codes. Each maps 1:1 to a default HTTP status via
+// defaultErrorCode -- see also the OpenAPI enum on APIError.Code.
 const (
-	ErrorCodeValidationError  = "validation_error"
-	ErrorCodeNotFound         = "not_found"
-	ErrorCodeConflict         = "conflict"
-	ErrorCodeRateLimited      = "rate_limited"
-	ErrorCodeEnqueueThrottled = "enqueue_throttled"
-	ErrorCodeInternalError    = "internal_error"
-	ErrorCodeUnauthorized     = "unauthorized"
-	ErrorCodeForbidden        = "forbidden"
+	ErrorCodeBadRequest             = "bad_request"
+	ErrorCodeAuthenticationRequired = "authentication_required"
+	ErrorCodeForbidden              = "forbidden"
+	ErrorCodeNotFound               = "not_found"
+	ErrorCodeConflict               = "conflict"
+	ErrorCodeValidationFailed       = "validation_failed"
+	ErrorCodeRateLimited            = "rate_limited"
+	ErrorCodeEnqueueThrottled       = "enqueue_throttled"
+	ErrorCodeInternalError          = "internal_error"
+	ErrorCodeServiceUnavailable     = "service_unavailable"
 )
 
 // AnalyticsStore is the subset of analytics query methods that can be backed
@@ -970,14 +978,16 @@ func respondError(w http.ResponseWriter, r *http.Request, status int, errInput a
 		requestID = chimw.GetReqID(r.Context())
 	}
 
-	errorBody := normalizeAPIError(status, errInput)
 	respondJSON(w, status, ErrorResponse{
-		Error:     errorBody,
+		Error:     normalizeAPIError(status, errInput),
 		RequestID: requestID,
 	})
 }
 
-func normalizeAPIError(status int, errInput any) any {
+// normalizeAPIError coerces any caller-supplied error input into the canonical
+// *APIError shape. Bare strings/errors are wrapped using the default code for
+// the response status so the wire format is identical for every endpoint.
+func normalizeAPIError(status int, errInput any) *APIError {
 	switch v := errInput.(type) {
 	case APIError:
 		if v.Code == "" {
@@ -986,10 +996,10 @@ func normalizeAPIError(status int, errInput any) any {
 		if v.Message == "" {
 			v.Message = http.StatusText(status)
 		}
-		return v
+		return &v
 	case *APIError:
 		if v == nil {
-			return http.StatusText(status)
+			return &APIError{Code: defaultErrorCode(status), Message: http.StatusText(status)}
 		}
 		apiErr := *v
 		if apiErr.Code == "" {
@@ -998,36 +1008,40 @@ func normalizeAPIError(status int, errInput any) any {
 		if apiErr.Message == "" {
 			apiErr.Message = http.StatusText(status)
 		}
-		return apiErr
+		return &apiErr
 	case error:
 		if v == nil {
-			return http.StatusText(status)
+			return &APIError{Code: defaultErrorCode(status), Message: http.StatusText(status)}
 		}
-		return v.Error()
+		return &APIError{Code: defaultErrorCode(status), Message: v.Error()}
 	case string:
 		if v == "" {
-			return http.StatusText(status)
+			return &APIError{Code: defaultErrorCode(status), Message: http.StatusText(status)}
 		}
-		return v
+		return &APIError{Code: defaultErrorCode(status), Message: v}
 	default:
-		return http.StatusText(status)
+		return &APIError{Code: defaultErrorCode(status), Message: http.StatusText(status)}
 	}
 }
 
 func defaultErrorCode(status int) string {
 	switch status {
 	case http.StatusBadRequest:
-		return ErrorCodeValidationError
+		return ErrorCodeBadRequest
 	case http.StatusUnauthorized:
-		return ErrorCodeUnauthorized
+		return ErrorCodeAuthenticationRequired
 	case http.StatusForbidden:
 		return ErrorCodeForbidden
 	case http.StatusNotFound:
 		return ErrorCodeNotFound
 	case http.StatusConflict:
 		return ErrorCodeConflict
+	case http.StatusUnprocessableEntity:
+		return ErrorCodeValidationFailed
 	case http.StatusTooManyRequests:
 		return ErrorCodeRateLimited
+	case http.StatusServiceUnavailable:
+		return ErrorCodeServiceUnavailable
 	default:
 		return ErrorCodeInternalError
 	}

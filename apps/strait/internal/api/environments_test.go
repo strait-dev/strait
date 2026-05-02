@@ -23,8 +23,8 @@ func TestHandleCreateEnvironment_MissingName(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/environments/", body, "proj-1"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing name, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing name, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -36,8 +36,8 @@ func TestHandleCreateEnvironment_MissingSlug(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/environments/", body, "proj-1"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing slug, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing slug, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

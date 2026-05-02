@@ -130,8 +130,8 @@ func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
 	body := `{"project_id":"","name":"Job","slug":"job","endpoint_url":"https://example.com"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -143,8 +143,8 @@ func TestHandleCreateJob_InvalidURL(t *testing.T) {
 	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"not-a-url"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -1934,8 +1934,8 @@ func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":11}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), "Priority") || !strings.Contains(w.Body.String(), "max") {
 		t.Errorf("body = %s, want priority error message", w.Body.String())
@@ -1953,8 +1953,8 @@ func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":-1}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", w.Code)
 	}
 }
 
@@ -1965,12 +1965,12 @@ func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
 		priority   int
 		wantStatus int
 	}{
-		{"negative_one", -1, http.StatusBadRequest},
+		{"negative_one", -1, http.StatusUnprocessableEntity},
 		{"zero", 0, http.StatusCreated},
 		{"ten", 10, http.StatusCreated},
-		{"eleven", 11, http.StatusBadRequest},
-		{"large_negative", -100, http.StatusBadRequest},
-		{"large_positive", 999, http.StatusBadRequest},
+		{"eleven", 11, http.StatusUnprocessableEntity},
+		{"large_negative", -100, http.StatusUnprocessableEntity},
+		{"large_positive", 999, http.StatusUnprocessableEntity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2165,8 +2165,8 @@ func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
 		"retry_strategy": "banana"
 	}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "RetryStrategy") || !strings.Contains(w.Body.String(), "oneof") {
 		t.Fatalf("expected error about retry_strategy, got: %s", w.Body.String())
@@ -2237,8 +2237,8 @@ func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_strategy": "banana"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid retry_strategy on update, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for invalid retry_strategy on update, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

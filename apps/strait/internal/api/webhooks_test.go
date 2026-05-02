@@ -61,8 +61,8 @@ func TestHandleTestWebhook_InvalidURL(t *testing.T) {
 
 	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -76,8 +76,8 @@ func TestHandleTestWebhook_MissingURL(t *testing.T) {
 
 	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing url, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing url, got %d", w.Code)
 	}
 }
 

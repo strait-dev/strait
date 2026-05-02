@@ -165,8 +165,8 @@ func TestHandlerRollbackDeploymentVersion_MissingProjectID(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing project_id, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing project_id, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -178,8 +178,8 @@ func TestHandlerRollbackDeploymentVersion_MissingEnvironment(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing environment, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing environment, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -728,8 +728,8 @@ func TestHandlerBulkReplayWorkflowRuns_EmptyIDs(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty IDs, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty IDs, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -804,8 +804,8 @@ func TestHandlerBulkReplayWorkflowRuns_MissingField(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing workflow_run_ids, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing workflow_run_ids, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

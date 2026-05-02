@@ -555,9 +555,9 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 	hasProjectID := req.ProjectID != ""
 	if hasRunIDs == hasProjectID {
 		return nil, &typedAPIError{
-			status: http.StatusBadRequest,
+			status: http.StatusUnprocessableEntity,
 			apiError: APIError{
-				Code:    ErrorCodeValidationError,
+				Code:    ErrorCodeValidationFailed,
 				Message: "provide either run_ids or project_id",
 			},
 		}
@@ -574,9 +574,9 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 	if hasRunIDs {
 		if len(req.RunIDs) > 500 {
 			return nil, &typedAPIError{
-				status: http.StatusBadRequest,
+				status: http.StatusUnprocessableEntity,
 				apiError: APIError{
-					Code:    ErrorCodeValidationError,
+					Code:    ErrorCodeValidationFailed,
 					Message: "too many run_ids (max 500)",
 				},
 			}
@@ -599,9 +599,9 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		}
 		if req.Limit > 500 {
 			return nil, &typedAPIError{
-				status: http.StatusBadRequest,
+				status: http.StatusUnprocessableEntity,
 				apiError: APIError{
-					Code:    ErrorCodeValidationError,
+					Code:    ErrorCodeValidationFailed,
 					Message: "limit must be <= 500",
 				},
 			}
@@ -620,8 +620,8 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		switch {
 		case strings.Contains(errMsg, "at least one") || strings.Contains(errMsg, "provide either"):
 			return nil, &typedAPIError{
-				status:   http.StatusBadRequest,
-				apiError: APIError{Code: ErrorCodeValidationError, Message: errMsg},
+				status:   http.StatusUnprocessableEntity,
+				apiError: APIError{Code: ErrorCodeValidationFailed, Message: errMsg},
 			}
 		case strings.Contains(errMsg, "no dead_letter"):
 			return nil, &typedAPIError{

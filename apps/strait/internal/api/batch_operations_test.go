@@ -200,8 +200,8 @@ func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
 	req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel", `{"workflow_run_ids":[]}`, "proj-1")
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

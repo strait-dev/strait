@@ -313,8 +313,10 @@ func (e *rawStatusError) GetStatus() int {
 	return e.status
 }
 
-// newValidationError creates a typedAPIError for struct validation failures,
-// preserving the same response shape as the old s.validateRequest helper.
+// newValidationError creates a typedAPIError for struct validation failures.
+// Field-level validation failures are surfaced as 422 Unprocessable Entity
+// with the canonical validation_failed code; non-validation errors fall back
+// to 400 bad_request.
 func newValidationError(err error) error {
 	var ve validator.ValidationErrors
 	if errors.As(err, &ve) {
@@ -323,9 +325,9 @@ func newValidationError(err error) error {
 			messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
 		}
 		return &typedAPIError{
-			status: http.StatusBadRequest,
+			status: http.StatusUnprocessableEntity,
 			apiError: APIError{
-				Code:    ErrorCodeValidationError,
+				Code:    ErrorCodeValidationFailed,
 				Message: "validation failed",
 				Details: messages,
 			},
@@ -334,7 +336,7 @@ func newValidationError(err error) error {
 	return &typedAPIError{
 		status: http.StatusBadRequest,
 		apiError: APIError{
-			Code:    ErrorCodeValidationError,
+			Code:    ErrorCodeBadRequest,
 			Message: "invalid request",
 		},
 	}

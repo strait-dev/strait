@@ -89,8 +89,8 @@ func TestHandleSDKSetState_MissingKey(t *testing.T) {
 		`{"value":"hello"}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetState)(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing key, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing key, got %d", w.Code)
 	}
 }
 

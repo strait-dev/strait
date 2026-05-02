@@ -161,8 +161,8 @@ func TestHandleCreateNotificationChannel_RejectsUnsupportedChannelType(t *testin
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"email","name":"alerts","config":{"address":"test@example.com"}}`
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", body, "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
