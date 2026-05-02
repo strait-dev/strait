@@ -60,13 +60,13 @@
     "./vercel-ai": "./src/vercel-ai.ts"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
-    "@types/node": "^25.5.2",
-    "@typescript/native-preview": "^7.0.0-dev.20260409.1",
-    "ai": "^6.0.146",
-    "fast-check": "^4.6.0",
-    "openai": "^6.33.0",
-    "vitest": "^4.1.4"
+    "@anthropic-ai/sdk": "^0.92.0",
+    "@types/node": "^25.6.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260502.1",
+    "ai": "^6.0.174",
+    "fast-check": "^4.7.0",
+    "openai": "^6.35.0",
+    "vitest": "^4.1.5"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": ">=0.80.0",
@@ -85,6 +85,6 @@
     }
   },
   "dependencies": {
-    "effect": "3.21.0"
+    "effect": "3.21.2"
   }
 }
