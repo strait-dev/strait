@@ -170,19 +170,9 @@ For Ruby and Rust SDK configuration examples, see their dedicated repositories:
 
 ## Migrating from `strait.config.ts`
 
-If you're using the deprecated `strait.config.ts`, run:
-
-```bash
-strait init
-```
-
-This creates a `strait.json` file. You can then delete your `strait.config.ts`. The SDKs and CLI will automatically prefer `strait.json` when both files exist.
-
-When a `.ts` config file is loaded, the SDK and CLI emit a deprecation warning:
-
-```
-strait.config.ts is deprecated. Run 'strait init' to migrate to strait.json.
-```
+<Warning>
+The `strait.config.ts` format is deprecated. Run `strait init` to generate a `strait.json` file. The SDKs and CLI prefer `strait.json` when both files exist.
+</Warning>
 
 ## `strait init` Command
 

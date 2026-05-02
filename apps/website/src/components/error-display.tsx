@@ -9,7 +9,7 @@ type ErrorDisplayProps = {
     label: string;
     href?: string;
     onClick?: () => void;
-    variant?: "default" | "outline" | "ghost" | "gradient";
+    variant?: "default" | "outline" | "ghost";
   }>;
 };
 

@@ -207,19 +207,17 @@ This page documents all environment variables available for configuring Strait.
 
 
 
-## Managed Execution (Fly Machines)
+## Managed Execution
 
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `COMPUTE_RUNTIME` | String | `none` | Container runtime for managed execution: `none`, `fly`, or `docker`. |
-| `FLY_API_TOKEN` | String | - | Fly Machines API token. Required when `COMPUTE_RUNTIME=fly`. |
-| `FLY_APP_NAME` | String | - | Fly app name for machine provisioning. Required when `COMPUTE_RUNTIME=fly`. |
-| `FLY_REGION` | String | `iad` | Default Fly region for new machines. Overridden by job-level or run-level region hints. |
+| `COMPUTE_RUNTIME` | String | `none` | Container runtime for managed execution: `none`, `docker`, or `k8s`. |
+| `K8S_NAMESPACE` | String | `default` | Kubernetes namespace for managed containers. Required when `COMPUTE_RUNTIME=k8s`. |
 | `EXTERNAL_API_URL` | String | - | Public API URL injected into containers as `STRAIT_API_URL` for SDK callbacks. |
 | `MAX_CONCURRENT_MACHINES` | Integer | `10` | Maximum number of parallel managed containers across all jobs. |
-| `WARM_POOL_ENABLED` | Boolean | `false` | Enable warm machine pool for faster cold starts. |
-| `WARM_POOL_MAX_PER_JOB` | Integer | `3` | Maximum warm machines per job/region combination. |
-| `WARM_POOL_TTL` | Duration | `5m` | TTL for idle warm machines before they are destroyed. |
+| `WARM_POOL_ENABLED` | Boolean | `false` | Enable warm container pool for faster cold starts. |
+| `WARM_POOL_MAX_PER_JOB` | Integer | `3` | Maximum warm containers per job. |
+| `WARM_POOL_TTL` | Duration | `5m` | TTL for idle warm containers before they are destroyed. |
 
 ## Shutdown
 
@@ -252,3 +250,52 @@ This page documents all environment variables available for configuring Strait.
 | `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between exporter flushes. |
 | `CLICKHOUSE_EXPORT_ENABLED` | Boolean | `false` | Enable the async exporter that sends run analytics to ClickHouse on run completion. |
 
+
+## Database Tuning
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DB_HEALTH_CHECK_PERIOD` | Duration | `30s` | How often to check database connectivity. |
+| `DB_STATEMENT_TIMEOUT` | Duration | `30s` | Maximum time for a single SQL statement. |
+| `DB_LOCK_TIMEOUT` | Duration | `10s` | Maximum time to wait for a database lock. |
+
+## Worker Tuning
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `MAX_DEQUEUE_BATCH_SIZE` | Integer | `10` | Number of runs to claim per dequeue cycle. |
+| `DEFAULT_JOB_MAX_CONCURRENCY` | Integer | `0` (unlimited) | Default max concurrency when not set on the job. |
+| `DEFAULT_RUN_TTL_SECS` | Integer | `0` (no expiry) | Default TTL for runs when not set on the job. |
+
+## SSE and Real-Time
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `SSE_MAX_CONNS` | Integer | `1000` | Maximum total SSE connections. |
+| `SSE_MAX_CONNS_PER_PROJECT` | Integer | `100` | Maximum SSE connections per project. |
+| `SSE_MAX_CONN_DURATION` | Duration | `30m` | Maximum duration for a single SSE connection. |
+
+## Notifications
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `RESEND_API_KEY` | String | - | API key for email notifications via Resend. |
+| `RESEND_FROM_EMAIL` | String | `noreply@strait.dev` | From address for email notifications. |
+
+## Webhooks
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `WEBHOOK_REQUIRE_TLS` | Boolean | `false` | Require HTTPS for all webhook endpoints. |
+| `ALLOW_PRIVATE_ENDPOINTS` | Boolean | `false` | Allow webhook delivery to private IP ranges (not recommended for production). |
+
+## Code Deployments
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `BUILDKIT_ADDRESS` | String | - | BuildKit daemon address for building container images. |
+| `OBJECT_STORE_TYPE` | String | - | Object store type (`s3`). |
+| `OBJECT_STORE_BUCKET` | String | - | S3 bucket for code bundles. |
+| `OBJECT_STORE_REGION` | String | - | S3 region. |
+| `CONTAINER_REGISTRY_TYPE` | String | - | Registry type (`ecr` or `generic`). |
+| `CONTAINER_REGISTRY_URL` | String | - | Registry URL for pushing built images. |

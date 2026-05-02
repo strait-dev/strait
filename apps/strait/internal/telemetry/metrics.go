@@ -113,6 +113,7 @@ type Metrics struct {
 
 	// Run lifecycle metrics.
 	RunDuration metric.Float64Histogram
+	RunEndToEnd metric.Float64Histogram
 
 	// Per-tenant run metrics (project_id label). Used for per-tenant capacity
 	// governance, cost attribution, and the Grafana multi-tenant dashboard panels.
@@ -799,6 +800,13 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
 	)
+	runEndToEnd, _ := meter.Float64Histogram(
+		"strait.run.end_to_end_seconds",
+		metric.WithDescription("End-to-end run latency from created_at to finished_at"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300, 900, 3600),
+	)
+
 	// Per-tenant metrics. Coarser buckets than RunDuration to control cardinality.
 	jobDuration, _ := meter.Float64Histogram(
 		"strait.job.duration",
@@ -1109,6 +1117,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		WebhookBacklogDepth:          webhookBacklogDepth,
 		ClickHouseExporterPending:    clickhouseExporterPending,
 		RunDuration:                  runDuration,
+		RunEndToEnd:                  runEndToEnd,
 		JobDuration:                  jobDuration,
 		QueueLag:                     queueLag,
 		CronDrift:                    cronDrift,

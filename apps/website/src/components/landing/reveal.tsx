@@ -5,7 +5,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 import { type ReactNode, useRef } from "react";
-import { EASE_OUT, SPRING_BOUNCY, SPRING_SMOOTH } from "@/lib/motion.ts";
+import { EASE_OUT, SPRING_SMOOTH, SPRING_SNAPPY } from "@/lib/motion.ts";
 
 type RevealVariant = "fade-up" | "fade-left" | "fade-right" | "scale" | "blur";
 
@@ -72,7 +72,7 @@ function getTransition(variant: RevealVariant, spring: boolean, delay: number) {
     return { ...SPRING_SMOOTH, delay };
   }
   if (spring) {
-    return { ...SPRING_BOUNCY, delay };
+    return { ...SPRING_SNAPPY, delay };
   }
   return {
     duration: 0.6,

@@ -1,6 +1,7 @@
 ---
 import Footer from "@/components/common/Footer.astro";
 import Header from "@/components/common/Header.astro";
+import LinkButton from "@/components/common/LinkButton.tsx";
 import SEO from "@/components/SEO.astro";
 import BaseLayout from "@/layouts/BaseLayout.astro";
 ---
@@ -24,18 +25,8 @@ import BaseLayout from "@/layouts/BaseLayout.astro";
 				persists, reach out to our team.
 			</p>
 			<div class="mt-8 flex items-center gap-3">
-				<a
-					class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm"
-					href="/"
-				>
-					Go home
-				</a>
-				<a
-					class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 font-medium text-sm shadow-xs"
-					href="mailto:leo@strait.dev"
-				>
-					Contact support
-				</a>
+				<LinkButton client:load href="/">Go home</LinkButton>
+				<LinkButton client:load href="mailto:leo@strait.dev" variant="outline">Contact support</LinkButton>
 			</div>
 		</div>
 	</main>

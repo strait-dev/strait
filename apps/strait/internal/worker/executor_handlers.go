@@ -41,6 +41,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	fields := map[string]any{
 		"finished_at": now,
 	}
+	run.FinishedAt = &now
 	if len(result) > 0 {
 		fields["result"] = result
 	}
@@ -59,8 +60,10 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
-		e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
+	if e.txPool == nil && job.EndpointURL != "" {
+		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
+		}
 	}
 
 	var execDur time.Duration
@@ -88,6 +91,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		Type: EventCompleted, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
 		ExecTrace: execTrace, ExecDur: execDur, Attempt: run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
@@ -343,6 +347,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				Type: EventRetried, Run: run, Job: job,
 				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
 				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+				QueueWait: queueWait(run),
 			})
 		}
 		return
@@ -354,6 +359,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"error":       errMsg,
 		"error_class": errClass,
 	}
+	run.FinishedAt = &now
 	if metadataModified {
 		fields["metadata"] = run.Metadata
 	}
@@ -394,6 +400,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		Type: EventDeadLettered, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: targetStatus,
 		ExecTrace: execTrace, Attempt: run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
@@ -457,6 +464,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 				Type: EventRetried, Run: run, Job: job,
 				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
 				ExecTrace: execTrace, Attempt: run.Attempt + 1,
+				QueueWait: queueWait(run),
 			})
 		}
 		return
@@ -468,6 +476,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"error":       "execution timed out",
 		"error_class": "transient",
 	}
+	run.FinishedAt = &now
 	if execTrace != nil {
 		fields["execution_trace"] = execTrace
 	}
@@ -501,6 +510,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		Type: EventTimedOut, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusTimedOut,
 		ExecTrace: execTrace, Attempt: run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 
@@ -520,6 +530,11 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
 				return err
+			}
+			if to == domain.StatusCompleted && job.EndpointURL != "" {
+				if err := q.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+					return err
+				}
 			}
 			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
 			return err
@@ -561,6 +576,7 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		"error":       reason,
 		"error_class": "server",
 	})
+	run.FinishedAt = &now
 	if err != nil {
 		e.logger.Error(
 			"failed to mark system failure",
@@ -574,7 +590,8 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventSystemFailed, Run: run,
 		FromStatus: fromStatus, ToStatus: domain.StatusSystemFailed,
-		Attempt: run.Attempt,
+		Attempt:   run.Attempt,
+		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
@@ -600,4 +617,15 @@ func durationMillisecondsAtLeastOne(d time.Duration) int64 {
 		return 1
 	}
 	return ms
+}
+
+// queueWait returns the duration a run spent queued (created_at to started_at).
+func queueWait(run *domain.JobRun) time.Duration {
+	if run == nil || run.CreatedAt.IsZero() {
+		return 0
+	}
+	if run.StartedAt == nil {
+		return 0
+	}
+	return run.StartedAt.Sub(run.CreatedAt)
 }

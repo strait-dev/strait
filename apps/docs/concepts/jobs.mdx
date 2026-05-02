@@ -1,123 +1,424 @@
 ---
 title: "Jobs"
-description: "The fundamental unit of work in Strait."
+description: "A job is a template for work Strait runs on your behalf — what to call, how to retry, and when to run it."
 icon: "briefcase"
 ---
 
-A job defines a task you want Strait to execute — an HTTP endpoint to call, how often to call it, and what to do when things go wrong. Every time a job runs, Strait creates a [Run](/concepts/runs) to track that execution.
+## What is a Job?
 
-## Job Model
+A job tells Strait three things:
 
-A job includes the following fields:
+1. **What endpoint to call** — an HTTP URL that receives the work.
+2. **How to handle failure** — retry strategy, max attempts, timeouts.
+3. **When to run** — on demand, on a cron schedule, or triggered by a workflow.
 
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Auto-generated unique identifier. |
-| `project_id` | `string` | Project this job belongs to. |
-| `group_id` | `string` | Optional ID of the `JobGroup` for logical organization. |
-| `name` | `string` | Display name shown in the dashboard. |
-| `slug` | `string` | URL-friendly identifier, unique within a project. Used in API paths like `/v1/jobs/{slug}`. |
-| `description` | `string` | Optional detailed description. |
-| `cron` | `string` | Cron expression for automatic scheduling (five fields: minute, hour, day-of-month, month, day-of-week). |
-| `cron_overlap_policy` | `string` | Behavior when a cron tick fires with active runs: `allow` (default), `skip`, or `cancel_running`. See [Scheduling](/concepts/scheduling). |
-| `payload_schema` | `json` | JSON Schema to validate incoming trigger payloads. |
-| `tags` | `map[string]string` | Key-value pairs for filtering and metadata. |
-| `endpoint_url` | `string` | The primary HTTP URL where the job payload is sent. |
-| `fallback_endpoint_url` | `string` | Optional URL used if the primary endpoint fails. |
-| `max_attempts` | `int` | Maximum number of retry attempts (default: 3). |
-| `timeout_secs` | `int` | Maximum execution time in seconds (default: 300). |
-| `max_concurrency` | `int` | Per-job limit on simultaneous executing runs. |
-| `execution_window_cron` | `string` | Cron-like expression defining when the job is allowed to run. |
-| `timezone` | `string` | Timezone for cron scheduling (e.g., "UTC", "America/New_York"). |
-| `rate_limit_max` | `int` | Maximum number of runs allowed in the rate limit window. |
-| `rate_limit_window_secs` | `int` | The window size for rate limiting in seconds. |
-| `max_concurrency_per_key` | `int` | Per-key concurrency limit. When set with a run's `concurrency_key`, limits concurrent active runs sharing the same key. |
-| `rate_limit_keys` | `[]RateLimitKey` | Named rate limit configurations. Each entry has `name`, `max`, and `window_secs`. |
-| `default_run_metadata` | `map[string]string` | Default metadata key-value pairs applied to every run created for this job. |
-| `dedup_window_secs` | `int` | Window for deduplicating identical trigger requests. |
-| `enabled` | `bool` | Whether the job is active and can be triggered. |
-| `webhook_url` | `string` | URL to notify when a run reaches a terminal state. |
-| `webhook_secret` | `string` | Secret used to sign webhook payloads (HMAC-SHA256). |
-| `run_ttl_secs` | `int` | Time-to-live for runs before they are considered expired. |
-| `retry_strategy` | `string` | Strategy: `exponential`, `linear`, `fixed`, or `custom`. |
-| `retry_delays_secs` | `[]int` | Array of delays for the `custom` retry strategy. |
-| `poison_pill_threshold` | `*int` | If the same error repeats this many times in a row, Strait stops retrying and moves the run to the dead letter queue (a holding area for runs that need manual inspection). `null` or `0` disables this. See [Resilience](/concepts/resilience#poison-pill-detection). |
-| `environment_id` | `string` | The environment (e.g., Staging, Production) this job is bound to. |
-| `version` | `int` | Auto-incrementing version number (starts at 1). |
-| `version_id` | `string` | Unique nanoid for this version (`ver_k8f2m9x1p3`). Changes on every update. |
-| `version_policy` | `string` | How queued runs interact with updates: `pin` (default), `latest`, or `minor`. See [Versioning](/concepts/versioning). |
-| `backwards_compatible` | `bool` | Whether the current version is backwards compatible with the previous version. |
-| `created_by` | `string` | Actor ID who created the job (user ID or `apikey:<id>`). |
-| `updated_by` | `string` | Actor ID who last updated the job. |
-| `on_complete_trigger_workflow` | `string` | Optional workflow slug to auto-trigger when a run completes successfully. |
-| `on_complete_payload_mapping` | `json` | Optional JSON mapping to extract fields from the run result as the triggered workflow's payload. Uses dot-notation paths (e.g., `{"user_id": "result.user.id"}`). |
-| `created_at` | `time.Time` | Timestamp when the job was created. |
-| `updated_at` | `time.Time` | Timestamp of the last update. |
+Every time you trigger a job, Strait creates a [Run](/concepts/runs) to track that execution from start to finish. The job is the template; the run is a single execution of that template.
 
-## Slugs and Project Scoping
+---
 
-Jobs are scoped to a `project_id`. The `slug` must be unique within that project. This allows for clean URLs and API access patterns like `/v1/jobs/{jobID}`.
+## Creating Your First Job
 
-## Scheduling and Execution
+At minimum, a job needs a `name`, a `slug`, and an `endpoint_url`.
 
 <CodeGroup>
-```json Cron Scheduling
+```bash curl
+curl -X POST https://api.yourproject.strait.sh/v1/jobs \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Send Welcome Email",
+    "slug": "send-welcome-email",
+    "endpoint_url": "https://your-api.com/jobs/send-welcome-email"
+  }'
+```
+
+```typescript SDK
+import { createClient } from "@strait/ts";
+
+const client = createClient({
+  baseUrl: "https://api.strait.dev",
+  auth: { type: "bearer", token: "YOUR_API_KEY" },
+});
+
+const job = await client.jobs.create({
+  name: "Send Welcome Email",
+  slug: "send-welcome-email",
+  endpointUrl: "https://your-api.com/jobs/send-welcome-email",
+});
+```
+</CodeGroup>
+
+Once created, trigger it:
+
+```bash
+curl -X POST https://api.yourproject.strait.sh/v1/jobs/send-welcome-email/trigger \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "payload": { "user_id": "usr_42", "email": "alice@example.com" } }'
+```
+
+The response includes the new run:
+
+```json
+{
+  "id": "run_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
+  "job_id": "job_abc123",
+  "status": "queued",
+  "created_at": "2025-01-15T10:30:00Z"
+}
+```
+
+Strait calls your endpoint with the payload via HTTP POST. A [Run](/concepts/runs) is created immediately and tracks the execution.
+
+---
+
+## How Jobs Execute
+
+When a job is triggered:
+
+1. Strait creates a **run** and enqueues it.
+2. Strait sends an HTTP POST to the job's `endpoint_url` with the payload in the request body.
+3. Your endpoint processes the work and returns a response.
+
+| Your endpoint returns | Strait records |
+| :--- | :--- |
+| `2xx` | Success. The run is marked complete. |
+| `4xx` (not 408 or 429) | Permanent failure. The run is marked failed with no retry. |
+| `408`, `429`, `5xx` | Transient failure. Strait retries based on your retry configuration. |
+| No response (timeout) | Timeout. Strait retries if attempts remain. |
+
+The default timeout is **300 seconds** (5 minutes). Set `timeout_secs` to change it.
+
+### What Your Endpoint Receives
+
+When Strait executes a job, it sends an HTTP POST to your endpoint with:
+
+**Headers:**
+- `Content-Type: application/json`
+- `X-Run-ID: run_abc123`
+- `X-Job-ID: job_xyz`
+- `X-Attempt: 1`
+- `X-SDK-Token: eyJ...` (JWT for SDK callbacks)
+
+**Body:**
+```json
+{
+  "payload": { ... },      // The payload from the trigger request
+  "metadata": { ... },     // Key-value annotations
+  "job_id": "job_xyz",
+  "run_id": "run_abc123",
+  "attempt": 1
+}
+```
+
+Return any 2xx status to mark the run as completed. Return non-2xx to trigger a retry.
+
+---
+
+## Retry Strategies
+
+When your endpoint fails with a retryable error, Strait retries automatically. The default is **3 attempts** with **exponential backoff**.
+
+```json
+{
+  "max_attempts": 5,
+  "retry_strategy": "exponential"
+}
+```
+
+Strait supports four retry strategies:
+
+| Strategy | Behavior |
+| :--- | :--- |
+| `exponential` | Delays increase exponentially (1s, 2s, 4s, 8s...). Default. |
+| `linear` | Delays increase by a fixed amount each attempt. |
+| `fixed` | Same delay between every attempt. |
+| `custom` | You specify exact delays with `retry_delays_secs`. |
+
+Custom example — retry after 10s, then 30s, then 120s:
+
+```json
+{
+  "max_attempts": 4,
+  "retry_strategy": "custom",
+  "retry_delays_secs": [10, 30, 120]
+}
+```
+
+If a job hits the same error repeatedly, **poison pill detection** stops retries early and moves the run to the review queue so you can inspect and replay it. Set the threshold with `poison_pill_threshold`. See [Resilience](/concepts/resilience#poison-pill-detection) for details.
+
+For a full breakdown of each strategy, see [Retry Strategies](/concepts/retry-strategies).
+
+---
+
+## Scheduling Jobs
+
+Add a `cron` field to run a job on a recurring schedule. Strait uses standard five-field cron syntax: `minute hour day-of-month month day-of-week`.
+
+<CodeGroup>
+```json Every Hour
 {
   "cron": "0 * * * *",
   "timezone": "UTC"
 }
 ```
-```json Execution Window
+
+```json Every Day at 9am Eastern
 {
-  "execution_window_cron": "0 9-17 * * 1-5"
+  "cron": "0 9 * * *",
+  "timezone": "America/New_York"
+}
+```
+
+```json Weekdays Only at 8:30am
+{
+  "cron": "30 8 * * 1-5",
+  "timezone": "America/New_York"
 }
 ```
 </CodeGroup>
 
-- **Cron**: Standard five-field cron syntax (minute, hour, day-of-month, month, day-of-week).
-- **Execution Windows**: Restricts job execution to specific times (e.g., business hours).
+### Overlap Policy
+
+If a cron tick fires while a previous run is still active, `cron_overlap_policy` controls what happens:
+
+| Policy | Behavior |
+| :--- | :--- |
+| `allow` | Start a new run regardless. This is the default. |
+| `skip` | Skip this tick — do not start a new run. |
+| `cancel_running` | Cancel the active run and start a fresh one. |
+
+### Execution Windows
+
+Restrict a job to specific hours with `execution_window_cron`. For example, only allow execution during business hours:
+
+```json
+{
+  "execution_window_cron": "0 9-17 * * 1-5"
+}
+```
+
+Runs triggered outside the window are held until the next window opens.
+
+For more scheduling patterns, see [Scheduling](/concepts/scheduling).
+
+---
 
 ## Concurrency and Rate Limiting
 
-- **Max Concurrency**: Limits the number of parallel executions for a single job definition.
-- **Rate Limiting**: Prevents all runs from firing at the same time by capping the number of runs over a sliding window.
-- **Deduplication**: Uses `dedup_window_secs` and an idempotency key to ignore duplicate trigger requests within a short timeframe.
+If your endpoint cannot handle unlimited parallel requests, use concurrency and rate limits to protect it.
+
+### Max Concurrency
+
+`max_concurrency` caps how many runs of this job can execute at the same time. Excess runs are queued until a slot opens.
+
+```json
+{
+  "max_concurrency": 10
+}
+```
 
 ### Per-Key Concurrency
 
-When `max_concurrency_per_key` is set on a job, each run must provide a `concurrency_key`. Runs sharing the same key are limited to `max_concurrency_per_key` concurrent active executions. This is useful for per-tenant or per-resource throttling.
+When `max_concurrency_per_key` is set, each run must provide a `concurrency_key`. Runs sharing the same key are limited independently. This is useful for per-tenant or per-resource throttling.
 
-For example, setting `max_concurrency_per_key: 1` ensures only one run per key executes at a time, creating a per-key serial queue.
+Setting `max_concurrency_per_key: 1` creates a serial queue per key — only one run per key executes at a time.
+
+### Rate Limiting
+
+`rate_limit_max` and `rate_limit_window_secs` cap the number of runs that can start within a sliding window.
+
+```json
+{
+  "rate_limit_max": 100,
+  "rate_limit_window_secs": 60
+}
+```
+
+At most 100 runs per 60-second window. Excess runs stay queued until the window resets.
 
 ### Named Rate Limit Keys
 
-The `rate_limit_keys` field allows defining multiple named rate limits on a single job. Each entry specifies:
-- `name`: identifier for the rate limit
-- `max`: maximum runs in the window
-- `window_secs`: window duration in seconds
+For more granular control, `rate_limit_keys` lets you define multiple named rate limits on a single job:
 
-This extends the flat `rate_limit_max`/`rate_limit_window_secs` to support more granular control.
+```json
+{
+  "rate_limit_keys": [
+    { "name": "per-tenant", "max": 10, "window_secs": 60 },
+    { "name": "global", "max": 500, "window_secs": 3600 }
+  ]
+}
+```
 
-## Job Versioning
+### Deduplication
 
-Every time a job's configuration is updated, the `version` field is automatically incremented. This ensures that:
-1. In-flight runs continue using the configuration they were triggered with.
-2. Historical data remains accurate to the job's state at the time of execution.
+`dedup_window_secs` prevents duplicate triggers. If the same payload is triggered twice within the window, the second request is ignored.
 
-## Webhook Configuration
+---
 
-Jobs can be configured with a `webhook_url` and `webhook_secret`. When a run completes, fails, or times out, a signed POST request is sent to this URL.
+### Debouncing
+
+Debouncing collapses rapid-fire triggers into one run. Set `debounce_window_secs` on the job. When a trigger arrives, Strait waits for the window to pass with no new triggers. If another trigger arrives during the window, the timer resets. When the window expires, one run fires with the last trigger's payload.
+
+```json
+{
+  "debounce_window_secs": 5
+}
+```
+
+You can also pass a `debounce_key` on the trigger to debounce per-key (e.g., per user ID). Triggers with different keys debounce independently.
+
+### Request Batching
+
+Batching aggregates multiple triggers into one run. Set `batch_window_secs` and `batch_max_size` on the job. Strait collects triggers until the window expires or the batch is full, then fires one run with all payloads.
+
+```json
+{
+  "batch_window_secs": 10,
+  "batch_max_size": 50
+}
+```
+
+The run receives an array of payloads in `batch_items`. Pass a `batch_key` on the trigger to batch per-key.
+
+## Environments
+
+Jobs can be bound to an [environment](/concepts/environments) using `environment_id`. When an environment defines an `ENDPOINT_URL` variable, Strait routes the job to that URL instead of the default `endpoint_url` — without editing the job definition.
+
+This lets you point the same job at different backends for staging and production.
+
+---
+
+## Webhooks
+
+Get notified when a run reaches a terminal state (completed, failed, or timed out) by setting `webhook_url`:
+
+```json
+{
+  "webhook_url": "https://your-api.com/webhooks/strait",
+  "webhook_secret": "whsec_your_secret_here"
+}
+```
 
 <Tip>
-Always use the `webhook_secret` to verify webhook authenticity via `X-Strait-Signature` + `X-Strait-Timestamp` (and optionally compatibility `X-Webhook-Signature`).
+Always set a `webhook_secret`. Strait signs every webhook payload with HMAC-SHA256. Verify the signature using the `X-Strait-Signature` and `X-Strait-Timestamp` headers.
 </Tip>
 
-## Environment Binding
+---
 
-Jobs can be linked to an `environment_id`. This allows Strait to apply environment-specific overrides, such as changing the `endpoint_url` when running in a "Staging" vs "Production" environment.
+## Versioning
+
+Every time you update a job's configuration, the `version` field increments automatically. This guarantees:
+
+1. In-flight runs continue using the configuration they were triggered with.
+2. Historical data stays accurate to the job's state at execution time.
+
+The `version_policy` field controls how queued runs interact with configuration updates. See [Versioning](/concepts/versioning) for details.
+
+---
+
+## Job Configuration Reference
+
+All fields available on a job, organized by category.
+
+### Basic
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Auto-generated unique identifier. |
+| `project_id` | `string` | Project this job belongs to. |
+| `group_id` | `string` | Optional. Groups related jobs for organization in the dashboard. |
+| `name` | `string` | Display name shown in the dashboard. |
+| `slug` | `string` | URL-friendly identifier, unique within a project. Used in API paths like `/v1/jobs/{slug}`. |
+| `description` | `string` | Optional detailed description. |
+| `endpoint_url` | `string` | The HTTP URL Strait calls when the job runs. |
+| `fallback_endpoint_url` | `string` | Backup URL used if the primary endpoint fails. |
+| `enabled` | `bool` | Whether the job can be triggered. Defaults to `true`. |
+| `tags` | `map[string]string` | Key-value pairs for filtering and metadata. |
+| `payload_schema` | `json` | JSON Schema to validate trigger payloads before execution. |
+
+### Retry
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `max_attempts` | `int` | Maximum retry attempts. Default: `3`. |
+| `timeout_secs` | `int` | Max execution time per attempt in seconds. Default: `300`. |
+| `retry_strategy` | `string` | One of `exponential`, `linear`, `fixed`, or `custom`. Default: `exponential`. |
+| `retry_delays_secs` | `[]int` | Explicit delay sequence for the `custom` strategy. |
+| `poison_pill_threshold` | `*int` | Consecutive identical errors before Strait stops retrying and sends the run to the [review queue](/concepts/resilience#poison-pill-detection). `null` or `0` disables. |
+
+### Scheduling
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `cron` | `string` | Five-field cron expression for recurring execution. |
+| `cron_overlap_policy` | `string` | Behavior when a tick fires with active runs: `allow`, `skip`, or `cancel_running`. |
+| `execution_window_cron` | `string` | Restricts execution to specific time windows. |
+| `timezone` | `string` | Timezone for cron fields. Example: `"America/New_York"`. |
+
+### Concurrency and Rate Limiting
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `max_concurrency` | `int` | Maximum simultaneous runs for this job. |
+| `max_concurrency_per_key` | `int` | Per-key concurrency limit. Runs must include a `concurrency_key`. |
+| `rate_limit_max` | `int` | Maximum runs allowed in the rate limit window. |
+| `rate_limit_window_secs` | `int` | Sliding window size in seconds. |
+| `rate_limit_keys` | `[]RateLimitKey` | Named rate limit configurations, each with `name`, `max`, and `window_secs`. |
+| `dedup_window_secs` | `int` | Window for deduplicating identical trigger requests. |
+
+### Webhooks
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `webhook_url` | `string` | URL notified when a run reaches a terminal state. |
+| `webhook_secret` | `string` | Secret for HMAC-SHA256 webhook signature verification. |
+
+### Environments
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `environment_id` | `string` | Binds the job to a specific [environment](/concepts/environments). |
+
+### Runs
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `default_run_metadata` | `map[string]string` | Default metadata applied to every run created for this job. |
+| `run_ttl_secs` | `int` | Time-to-live for runs before they are considered expired. |
+
+### Versioning
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `version` | `int` | Auto-incrementing version number. Starts at `1`. |
+| `version_id` | `string` | Unique identifier for this version. Changes on every update. |
+| `version_policy` | `string` | How queued runs interact with updates: `pin`, `latest`, or `minor`. See [Versioning](/concepts/versioning). |
+| `backwards_compatible` | `bool` | Whether this version is backwards compatible with the previous one. |
+
+### Workflow Integration
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `on_complete_trigger_workflow` | `string` | Workflow slug to auto-trigger when a run completes successfully. |
+| `on_complete_payload_mapping` | `json` | JSON mapping to extract fields from the run result as the triggered workflow's payload. Uses dot-notation (e.g., `{"user_id": "result.user.id"}`). |
+
+### Metadata
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `created_by` | `string` | Actor who created the job. |
+| `updated_by` | `string` | Actor who last updated the job. |
+| `created_at` | `time.Time` | Timestamp when the job was created. |
+| `updated_at` | `time.Time` | Timestamp of the last update. |
+
+---
 
 ## Related Concepts
 
-- [Runs](/concepts/runs): The execution instances of a job.
-- [Workflows](/concepts/workflows): Dependency graphs (DAGs) that coordinate multiple jobs.
-- **Job Groups**: Logical containers for related jobs within a project.
+- [Runs](/concepts/runs) — The execution instances of a job.
+- [Workflows](/concepts/workflows) — Dependency graphs that coordinate multiple jobs.
+- [Retry Strategies](/concepts/retry-strategies) — Full breakdown of retry behavior.
+- [Scheduling](/concepts/scheduling) — Advanced scheduling patterns.
+- [Environments](/concepts/environments) — Route jobs to different endpoints per environment.
+- [Resilience](/concepts/resilience) — Poison pill detection and the review queue.

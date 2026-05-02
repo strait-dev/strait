@@ -1,15 +1,301 @@
 ---
-title: "Ruby SDK"
-description: "The Ruby SDK has moved to its own repository."
+title: "Ruby"
+description: "Official Ruby SDK with full API coverage, authoring DSL, composition helpers, and lifecycle state machines."
 icon: "gem"
 ---
 
-The Ruby SDK now lives in a dedicated repository:
+The Ruby SDK (`strait`) is a Faraday-based client covering the full Strait API surface, a code-first authoring DSL for defining workflows as directed acyclic graphs, composition helpers for retry and polling patterns, and lifecycle state machines that mirror server-side run states.
 
-**[github.com/strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby)**
+## Installation
 
-Refer to the repository README for installation, usage, and API reference.
+Add the gem to your Gemfile:
+
+```ruby
+gem "strait", "~> 0.1.0"
+```
+
+Then run:
+
+```bash
+bundle install
+```
+
+Or install directly:
 
 ```bash
 gem install strait
 ```
+
+**Requirements:** Ruby 3.3 or later, `faraday` (~> 2.0), `json` (>= 2.0).
+
+## Quick Start
+
+```ruby
+require "strait"
+
+# Create a client
+client = Strait::Client.new(
+  base_url: "https://api.strait.dev",
+  api_key: "sk_live_..."
+)
+
+# Trigger a job
+run = client.jobs.trigger("job_abc123", { branch: "main", commit: "a1b2c3d" })
+puts "Run started: #{run["id"]} (status: #{run["status"]})"
+
+# Poll until the run reaches a terminal state
+completed = Strait::Composition.wait_for_run(
+  run["id"],
+  get_run: ->(id) { client.runs.get(id) },
+  get_status: ->(r) { r["status"] }
+)
+puts "Run finished: #{completed["status"]}"
+```
+
+## Configuration
+
+The client accepts configuration through three methods. When multiple sources are present, precedence is: inline arguments > environment variables > config file.
+
+### Inline arguments
+
+Pass values directly to the constructor:
+
+```ruby
+client = Strait::Client.new(
+  base_url: "https://api.strait.dev",
+  api_key: "sk_live_..."
+)
+```
+
+### Environment variables
+
+Set `STRAIT_BASE_URL` and `STRAIT_API_KEY`, then call:
+
+```ruby
+client = Strait::Client.from_env
+```
+
+### Configuration file
+
+Place a `strait.json` in your working directory:
+
+```json
+{
+  "base_url": "https://api.strait.dev",
+  "api_key": "sk_live_..."
+}
+```
+
+Then load it:
+
+```ruby
+client = Strait::Client.from_file
+```
+
+See [Configuration](/sdks/configuration) for the full `strait.json` schema.
+
+## Domain Services
+
+The client exposes 22 service objects as methods. Each service maps to a Strait API resource.
+
+| Service               | Accessor                       | Methods |
+| --------------------- | ------------------------------ | ------: |
+| Health                | `client.health`                |       3 |
+| Jobs                  | `client.jobs`                  |      17 |
+| Runs                  | `client.runs`                  |      29 |
+| Workflows             | `client.workflows`             |      23 |
+| Workflow Runs         | `client.workflow_runs`         |      18 |
+| Deployments           | `client.deployments`           |       5 |
+| Environments          | `client.environments`          |       6 |
+| Secrets               | `client.secrets`               |       3 |
+| API Keys              | `client.api_keys`              |       4 |
+| Webhooks              | `client.webhooks`              |       8 |
+| Event Triggers        | `client.event_triggers`        |       9 |
+| Event Sources         | `client.event_sources`         |       9 |
+| Batch Operations      | `client.batch_operations`      |       2 |
+| Stats                 | `client.stats`                 |       1 |
+| Analytics             | `client.analytics`             |       7 |
+| Log Drains            | `client.log_drains`            |       5 |
+| SDK Runs              | `client.sdk_runs`              |      26 |
+| RBAC                  | `client.rbac`                  |      18 |
+| Job Groups            | `client.job_groups`            |       9 |
+| Regions               | `client.regions`               |       1 |
+| Projects              | `client.projects`              |       2 |
+| Notification Channels | `client.notification_channels` |       6 |
+| **Total**             |                                | **198** |
+
+All service methods return parsed JSON as Ruby hashes and arrays. List endpoints return paginated results.
+
+## Authoring DSL
+
+Define workflow DAGs using the authoring module. Each step declares its dependencies via `depends_on`, forming a directed acyclic graph that the platform executes in topological order.
+
+```ruby
+workflow = Strait::Authoring.define_workflow(
+  name: "Deploy Pipeline",
+  slug: "deploy-pipeline",
+  steps: [
+    Strait::Authoring.job_step(ref: "build", job_id: "job_build"),
+    Strait::Authoring.approval_step(
+      ref: "approve",
+      depends_on: ["build"],
+      approvers: ["eng-lead"]
+    ),
+    Strait::Authoring.ai_step(
+      ref: "release-notes",
+      job_id: "job_release_notes",
+      depends_on: ["approve"]
+    ),
+    Strait::Authoring.job_step(
+      ref: "deploy",
+      job_id: "job_deploy",
+      depends_on: ["release-notes"]
+    ),
+  ]
+)
+
+# Submit to the API
+client.workflows.create(workflow)
+```
+
+The resulting execution graph:
+
+```
+build -> approve -> release-notes -> deploy
+```
+
+Available step types:
+
+| Method                            | Purpose                        |
+| --------------------------------- | ------------------------------ |
+| `Strait::Authoring.job_step`      | Execute a job                  |
+| `Strait::Authoring.approval_step` | Wait for human approval        |
+| `Strait::Authoring.ai_step`       | Execute an AI-powered job step |
+
+## Composition Helpers
+
+The `Strait::Composition` module provides standalone functions for common orchestration patterns.
+
+### Retry with exponential backoff
+
+```ruby
+result = Strait::Composition.with_retry(attempts: 5, delay_ms: 500) do
+  client.jobs.trigger(job_id, payload)
+end
+```
+
+### Wait for a run to complete
+
+Poll a run until it reaches a terminal state:
+
+```ruby
+run = Strait::Composition.wait_for_run(
+  run_id,
+  get_run: ->(id) { client.runs.get(id) },
+  get_status: ->(r) { r["status"] }
+)
+```
+
+### Paginate through results
+
+```ruby
+Strait::Composition.paginate(method(:list_fn)).each do |item|
+  process(item)
+end
+```
+
+### Cost budget enforcement
+
+Track and cap spending across multiple API calls:
+
+```ruby
+tracker = Strait::Composition.create_cost_tracker(budget_microusd: 10_000_000)
+
+result = Strait::Composition.with_cost_budget(tracker: tracker) do |budget|
+  budget.record(cost_microusd: 500_000)
+  call_expensive_api
+end
+```
+
+### Checkpoint resume
+
+Resume long-running workflows from a saved checkpoint:
+
+```ruby
+result = Strait::Composition.with_checkpoint_resume(
+  run_id: "run_123",
+  client: client
+) do |ctx|
+  step_one(ctx)
+  ctx.checkpoint.call(step: 1)
+  step_two(ctx)
+end
+```
+
+## Error Handling
+
+All API errors are raised as subclasses of `Strait::Error`. Each error carries the HTTP status code, response body, and a human-readable message.
+
+```ruby
+begin
+  client.jobs.get(job_id)
+rescue Strait::NotFoundError => e
+  puts "Job not found: #{e.body}"
+rescue Strait::RateLimitedError
+  sleep 1 and retry
+rescue Strait::UnauthorizedError => e
+  puts "Invalid API key: #{e.message}"
+rescue Strait::Error => e
+  puts "API error (#{e.status}): #{e.message}"
+end
+```
+
+**Exception hierarchy:**
+
+| Class                             | Condition     |
+| --------------------------------- | ------------- |
+| `Strait::Error`                   | Base class    |
+| `Strait::TransportError`          | Network-level failure |
+| `Strait::DecodeError`             | Response parsing failure |
+| `Strait::ValidationError`         | Client-side validation |
+| `Strait::UnauthorizedError`       | 401, 403      |
+| `Strait::NotFoundError`           | 404           |
+| `Strait::ConflictError`           | 409           |
+| `Strait::RateLimitedError`        | 429           |
+| `Strait::ApiError`                | Other HTTP errors |
+| `Strait::TimeoutError`            | Request timeout |
+| `Strait::CostBudgetExceededError` | Budget cap reached |
+| `Strait::DagValidationError`      | Invalid workflow graph |
+
+## Middleware
+
+Inject custom logic into the request/response lifecycle. Middleware receives a context object with the HTTP method, URL, headers, status code, and timing information.
+
+```ruby
+logger = Strait::Middleware.new(
+  on_request: ->(ctx) { puts "-> #{ctx.method} #{ctx.url}" },
+  on_response: ->(ctx) { puts "<- #{ctx.status} in #{ctx.duration_ms}ms" }
+)
+
+client = Strait::Client.new(
+  base_url: "https://api.strait.dev",
+  api_key: "sk_live_...",
+  middleware: [logger]
+)
+```
+
+Multiple middleware instances execute in the order they are provided.
+
+## Thread Safety
+
+`Strait::Client` instances are safe to share across threads. The underlying Faraday connection is thread-safe, and service accessors use memoization that is safe under MRI's Global Interpreter Lock. Each request creates its own headers hash and response objects with no shared mutable state.
+
+## Modules
+
+| Module                | Purpose                                                   |
+| --------------------- | --------------------------------------------------------- |
+| `Strait`              | Client, configuration, HTTP transport, errors, middleware |
+| `Strait::Operations`  | 22 domain service classes (198 methods)                   |
+| `Strait::Authoring`   | Workflow and step DSL with test harness                   |
+| `Strait::Composition` | Retry, pagination, wait, cost budget, checkpoint helpers  |
+| `Strait::FSM`         | Run, workflow, and step lifecycle validators               |

@@ -5,7 +5,29 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
+
+var (
+	heartbeatFlushDuration metric.Float64Histogram
+	heartbeatFlushErrors   metric.Int64Counter
+)
+
+func init() {
+	meter := otel.Meter("strait/worker")
+	heartbeatFlushDuration, _ = meter.Float64Histogram(
+		"strait.worker.heartbeat_flush_duration_seconds",
+		metric.WithDescription("Duration of heartbeat batch flush to database"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
+	)
+	heartbeatFlushErrors, _ = meter.Int64Counter(
+		"strait.worker.heartbeat_flush_errors_total",
+		metric.WithDescription("Heartbeat batch flush failures"),
+	)
+}
 
 type HeartbeatStore interface {
 	UpdateHeartbeat(ctx context.Context, id string) error
@@ -34,10 +56,11 @@ func (a heartbeatStoreAdapter) BatchUpdateHeartbeat(ctx context.Context, ids []s
 }
 
 type HeartbeatManager struct {
-	store    HeartbeatStore
-	interval time.Duration
-	active   sync.Map
-	now      func() time.Time
+	store               HeartbeatStore
+	interval            time.Duration
+	active              sync.Map
+	now                 func() time.Time
+	consecutiveFailures int
 }
 
 func NewHeartbeatManager(s HeartbeatStore, interval time.Duration) *HeartbeatManager {
@@ -98,24 +121,46 @@ func (h *HeartbeatManager) Run(ctx context.Context, runIDs ...string) {
 }
 
 func (h *HeartbeatManager) flush(ctx context.Context) {
-	ids := make([]string, 0, h.ActiveCount())
-	h.active.Range(func(key, _ any) bool {
-		runID, ok := key.(string)
-		if ok {
-			ids = append(ids, runID)
-		}
-		return true
-	})
-
+	ids := h.collectActiveIDs()
 	if len(ids) == 0 {
 		return
 	}
 
-	if err := h.store.BatchUpdateHeartbeat(ctx, ids); err != nil {
-		slog.Warn("heartbeat batch update failed",
-			"run_count", len(ids),
-			"at", h.now(),
-			"error", err,
-		)
+	flushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err := h.store.BatchUpdateHeartbeat(flushCtx, ids)
+	elapsed := time.Since(start).Seconds()
+
+	if heartbeatFlushDuration != nil {
+		heartbeatFlushDuration.Record(ctx, elapsed)
 	}
+
+	if err != nil {
+		h.consecutiveFailures++
+		if heartbeatFlushErrors != nil {
+			heartbeatFlushErrors.Add(ctx, 1)
+		}
+		if h.consecutiveFailures >= 3 {
+			slog.Warn("heartbeat flush failing repeatedly",
+				"consecutive_failures", h.consecutiveFailures,
+				"run_count", len(ids),
+				"error", err,
+			)
+		}
+		return
+	}
+	h.consecutiveFailures = 0
+}
+
+func (h *HeartbeatManager) collectActiveIDs() []string {
+	ids := make([]string, 0, 16)
+	h.active.Range(func(key, _ any) bool {
+		if runID, ok := key.(string); ok {
+			ids = append(ids, runID)
+		}
+		return true
+	})
+	return ids
 }

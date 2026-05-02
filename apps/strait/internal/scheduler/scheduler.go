@@ -55,6 +55,7 @@ type Scheduler struct {
 	notifyCleanup            *NotifyCleanup
 	priorityPromoter         *PriorityPromoter
 	counterReconciler        *CounterReconciler
+	claimReconciler          *ClaimReconciler
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
 	partitionReclaimer       *PartitionReclaimer
@@ -201,6 +202,13 @@ func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
 func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 	return func(s *Scheduler) {
 		s.counterReconciler = r
+	}
+}
+
+// WithClaimReconciler enables periodic claim table drift reconciliation.
+func WithClaimReconciler(r *ClaimReconciler) SchedulerOption {
+	return func(s *Scheduler) {
+		s.claimReconciler = r
 	}
 }
 
@@ -366,6 +374,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.counterReconciler != nil {
 		s.tracker.track(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
+	}
+	if s.claimReconciler != nil {
+		s.tracker.track(&s.wg, "claim_reconciler", func() { s.claimReconciler.Run(ctx) })
 	}
 	if s.partitionEnsurer != nil {
 		s.tracker.track(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })

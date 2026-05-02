@@ -80,14 +80,10 @@ type Config struct {
 	// from pinning pg_xmin and blocking autovacuum on hot queue tables.
 	DBIdleInTransactionTimeout time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
 	DBLockTimeout              time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
-	DBTransactionTimeout       time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"0"`
+	DBTransactionTimeout       time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"60s"`
 	DBLongTxnAlertThreshold    time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
-
-	// Toggle the denormalized dequeue path (uses job_active_counts
-	// lookup table instead of COUNT-over-active-rows CTE).
-	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
@@ -171,14 +167,14 @@ type Config struct {
 	DefaultJobTimeoutSecs    int `env:"DEFAULT_JOB_TIMEOUT_SECS" default:"300"`
 	DefaultJobMaxConcurrency int `env:"DEFAULT_JOB_MAX_CONCURRENCY" default:"0"`
 	WorkerQueueSize          int `env:"WORKER_QUEUE_SIZE" default:"0"`
-	MaxDequeueBatchSize      int `env:"MAX_DEQUEUE_BATCH_SIZE" default:"0"`
+	MaxDequeueBatchSize      int `env:"MAX_DEQUEUE_BATCH_SIZE" default:"50"`
 
 	// Scheduler settings
 	WorkflowRetention                         time.Duration `env:"WORKFLOW_RETENTION" default:"720h"`
 	EventTriggerRetention                     time.Duration `env:"EVENT_TRIGGER_RETENTION"`
 	IndexMaintenanceInterval                  time.Duration `env:"INDEX_MAINTENANCE_INTERVAL" default:"24h"`
-	ReaperDeleteBatchSize                     int           `env:"REAPER_DELETE_BATCH_SIZE" default:"100"`
-	TerminalArchiveEnabled                    bool          `env:"TERMINAL_ARCHIVE_ENABLED" default:"false"`
+	ReaperDeleteBatchSize                     int           `env:"REAPER_DELETE_BATCH_SIZE" default:"5000"`
+	TerminalArchiveEnabled                    bool          `env:"TERMINAL_ARCHIVE_ENABLED" default:"true"`
 	PartitionReclaimEnabled                   bool          `env:"PARTITION_RECLAIM_ENABLED" default:"false"`
 	PartitionReclaimInterval                  time.Duration `env:"PARTITION_RECLAIM_INTERVAL" default:"24h"`
 	PartitionReclaimSafety                    int           `env:"PARTITION_RECLAIM_SAFETY_MONTHS" default:"2"`
@@ -228,8 +224,6 @@ type Config struct {
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
 	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
 	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DequeueStrategy            string        `env:"DEQUEUE_STRATEGY" default:"priority"`
-
 	// Managed execution (container runtime)
 	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
 	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`

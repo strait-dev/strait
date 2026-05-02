@@ -123,7 +123,7 @@ const HeaderDropdown = ({ group }: HeaderDropdownProps) => {
                   {section.links.map((link) => (
                     <li key={link.href}>
                       <a
-                        className="block rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50"
+                        className="block rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         href={link.href}
                         onClick={closeImmediately}
                         role="menuitem"
@@ -147,7 +147,7 @@ const HeaderDropdown = ({ group }: HeaderDropdownProps) => {
           {group.featured && (
             <div className="mt-3 border-border/40 border-t pt-3">
               <a
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-foreground text-sm transition-colors hover:text-primary"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-foreground text-sm transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 href={group.featured.href}
                 onClick={closeImmediately}
               >

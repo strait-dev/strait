@@ -53,13 +53,14 @@ func NewPool(concurrency int, opts ...PoolOption) *Pool {
 	}
 }
 
-// Submit schedules work on the pool. It blocks if all slots are occupied
-// (and the queue is full when backpressure is configured).
-// If ctx is canceled while waiting for a slot, the work is dropped.
+// Submit schedules work on the pool. With the default unbounded queue,
+// this returns immediately. With WithQueueSize, it blocks if the queue
+// is full. The ctx check before Submit is a best-effort guard; once
+// Submit is called, the task is queued regardless of later cancellation.
 func (p *Pool) Submit(ctx context.Context, fn func()) {
 	select {
 	case <-ctx.Done():
-		slog.Warn("pool: work dropped, context canceled")
+		slog.Warn("pool: work dropped, context canceled before submit")
 		return
 	default:
 	}

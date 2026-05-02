@@ -1,38 +1,37 @@
 ---
-title: "Visual Workflow Debugger"
-description: "Inspect workflow execution history with step-level detail, data flow tracking, and cross-run comparison."
+title: "Workflow Debugger"
+description: "Inspect what happened during a workflow run — step timing, data flow, errors, and cross-run comparison."
 sidebarTitle: "Debugger"
 ---
 
-The visual workflow debugger provides a complete execution history for any workflow run: data flow between steps, inputs/outputs, timing, cost, and the ability to compare runs.
+The workflow debugger shows you exactly what happened during a workflow run — which steps ran, how long each took, what data flowed between them, and where things went wrong.
 
-## Debug View
+## What You See
 
-The debug view assembles a timeline of all steps with:
+The debug view assembles a timeline of every step in a run:
 
-- **Status**: completed, failed, pending, waiting, running, skipped, canceled
-- **Timing**: started_at, finished_at, duration in milliseconds
-- **Cost**: per-step cost attribution in microUSD and total workflow cost
-- **Input/Output**: full JSON payloads for each step (collapsible for large payloads)
-- **Error details**: error message for failed steps
-- **Attempt count**: which retry attempt this represents
-- **Data flow edges**: arrows showing what data passed between dependent steps with byte sizes
+- **Status** — completed, failed, pending, waiting, running, skipped, or canceled
+- **Timing** — when each step started, finished, and how long it took
+- **Input/Output** — full JSON payloads passed into and returned from each step
+- **Error details** — error message and classification for failed steps
+- **Attempt count** — which retry attempt this execution represents
+- **Data flow edges** — arrows showing what data passed between dependent steps, with byte sizes
 
-The debug view works for both completed and in-progress workflows. For running workflows, pending and waiting steps are included with their current status.
+The debug view works for both completed and in-progress runs. Running workflows show pending and waiting steps with their current status.
 
 ## Run Comparison
 
-Compare any two runs of the same workflow to identify differences:
+Compare any two runs of the same workflow to find what changed:
 
-- **Status diff**: highlights when runs reached different terminal states
-- **Duration diff**: shows timing differences per step (useful for detecting performance regressions)
-- **Missing steps**: identifies steps present in only one run (common with dynamic DAGs or conditional branches)
+- **Status diff** — highlights steps that reached different terminal states
+- **Duration diff** — timing differences per step, useful for spotting performance regressions
+- **Missing steps** — steps present in only one run, common with conditional branches
 
-Steps with identical status and timing are omitted from the diff to focus on what changed.
+Steps with identical status and timing are omitted from the diff to focus on what actually changed.
 
 ## Data Flow Tracking
 
-Data flow edges track which step's output feeds into which dependent step's input:
+Data flow edges show which step's output feeds into which step's input:
 
 ```json
 {
@@ -43,4 +42,4 @@ Data flow edges track which step's output feeds into which dependent step's inpu
 }
 ```
 
-The data size is calculated from the parent step's output JSON length.
+Use this to trace how data transforms as it moves through the workflow, and to identify steps producing unexpectedly large payloads.

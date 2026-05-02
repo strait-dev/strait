@@ -69,7 +69,7 @@ const LOGOS = [
 const LogoWall = () => (
   <section className="border-border/40 border-y bg-muted/5 py-10 sm:py-12">
     <div className="mx-auto max-w-screen-2xl overflow-hidden">
-      <p className="mb-8 text-center text-muted-foreground/50 text-xs uppercase tracking-widest">
+      <p className="mb-8 text-center text-muted-foreground/50 text-xs uppercase tracking-wider">
         Built with
       </p>
 

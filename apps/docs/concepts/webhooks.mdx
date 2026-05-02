@@ -1,59 +1,52 @@
 ---
 title: "Webhooks"
-description: "Real-time notifications for job run terminal states and event triggers."
+description: "Real-time notifications when jobs complete, runs fail, or events trigger."
 ---
 
-When a [Job Run](/concepts/runs) reaches a terminal state (`completed`, `failed`, `timed_out`) or an [Event Trigger](/concepts/event-triggers) resolves, Strait can notify your external services automatically via webhook.
+Webhooks notify your services when something happens in Strait — a job completes, a run fails, or an event triggers. Strait signs every webhook so you can verify it came from us.
 
-## Delivery Models
+## Two Types of Webhooks
 
-Strait has two webhook delivery models:
+Strait has two webhook models with different delivery guarantees:
 
-### Job Run Webhooks
+**Job webhooks** are configured on the job itself (`webhook_url`). When a run reaches a terminal state (`completed`, `failed`, `timed_out`), Strait sends a signed POST to that URL. Delivery is retried in-memory up to 3 times.
 
-When a run reaches a terminal state, the executor checks whether the parent Job has a `webhook_url` configured and sends a signed HTTP POST. Strait retries delivery in-memory with blocking backoff (up to 3 attempts). If the worker process crashes during delivery, in-flight retries are lost.
+**Event trigger webhooks** are configured on wait-for-event steps (`notify_url`). These use durable delivery — Strait persists the delivery to the database before dispatch, so notifications survive process restarts.
 
-### Event Trigger Webhooks
+## Setting Up a Job Webhook
 
-Event trigger webhooks (configured via `notify_url` on wait-for-event steps) use a **durable delivery** model. Strait persists deliveries to the `webhook_deliveries` table and a background worker processes them. This survives process restarts -- Strait picks up pending deliveries on the next poll cycle.
+Set `webhook_url` and optionally `webhook_secret` on the job:
 
-## Delivery Lifecycle
+```json
+{
+  "name": "process-order",
+  "slug": "process-order",
+  "webhook_url": "https://api.example.com/webhooks/strait",
+  "webhook_secret": "whsec_your_secret_here"
+}
+```
 
-1. **Terminal state reached**: When a run finishes, the executor checks whether the parent Job has a `webhook_url`.
-2. **Payload construction**: Strait assembles a `WebhookPayload` containing the run's final state, result, and error (if any).
-3. **Signing**: If you configured a `webhook_secret`, Strait signs the payload with HMAC-SHA256 and includes a timestamp for replay protection.
-4. **Dispatch**: Strait sends an HTTP POST to the `webhook_url`.
-5. **Retry**: If delivery fails, Strait retries based on the response status code.
-6. **Dead letter**: After exhausting retries, Strait marks the delivery as `dead` (event trigger) or silently drops it (job run). Dead-lettered deliveries -- ones that failed all retry attempts -- stay in the database so you can inspect and replay them.
-
-## Webhook Payload
-
-The payload Strait sends to your endpoint includes:
+When a run finishes, Strait sends a POST with this payload:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `run_id` | `string` | Identifies which run triggered this webhook. |
-| `job_id` | `string` | The job definition this run belongs to. |
+| `run_id` | `string` | Which run triggered this webhook. |
+| `job_id` | `string` | The job this run belongs to. |
 | `project_id` | `string` | The project that owns the job. |
-| `status` | `string` | The terminal status (`completed`, `failed`, `timed_out`, etc.). |
-| `attempt` | `int` | How many attempts the run made before finishing. |
-| `result` | `json` | The output data from a successful run (null on failure). |
-| `error` | `string` | The error message from a failed run (null on success). |
-| `timestamp` | `time.Time` | When Strait generated the webhook. |
+| `status` | `string` | Terminal status: `completed`, `failed`, `timed_out`. |
+| `attempt` | `int` | How many attempts the run made. |
+| `result` | `json` | Output data from a successful run (null on failure). |
+| `error` | `string` | Error message from a failed run (null on success). |
+| `timestamp` | `time` | When Strait generated the webhook. |
 
-## HMAC-SHA256 Signing
+## Verifying Signatures
 
-Webhook signing lets you verify that a delivery actually came from Strait and hasn't been tampered with. Signed deliveries include:
+If you set a `webhook_secret`, Strait signs the payload with HMAC-SHA256. The signature covers a timestamp and the raw JSON body, so you can reject replays older than 5 minutes.
 
-- `X-Strait-Timestamp`: Unix timestamp used in signature generation
-- `X-Strait-Signature`: `sha256=<signature>`
-- `X-Webhook-Signature`: compatibility header for existing consumers
-- `X-Strait-Delivery-ID`: unique id for this delivery row (event-trigger path)
-- `X-Strait-Attempt`: `current/max` attempt counter for this delivery
-- `X-Strait-Idempotency-Key`: `<delivery_id>:<attempt>` — changes on every retry
-- `X-Strait-Replay-Key`: stable across every retry of the same delivery. Use this header to dedup replays in your subscriber without tracking per-attempt state. For subscription deliveries the key is HMAC-bound: `"rk_" + hex(hmac_sha256(subscription_secret, delivery_id))[:32]`, so a subscriber that holds the secret can re-derive and verify it. Run-terminal deliveries emitted from the job worker do not carry a subscription secret and use a deterministic unsigned form `"rk_" + run_id`; treat the unsigned form as an opaque replay discriminator, not a proof of origin.
+Headers included on signed deliveries:
 
-Strait signs the payload with HMAC-SHA256 using your `webhook_secret` as the key and `{timestamp}.{raw-json-body}` as the message. The timestamp is included so you can reject deliveries older than 5 minutes, preventing replay attacks.
+- `X-Strait-Timestamp` — Unix timestamp used in signing
+- `X-Strait-Signature` — `sha256=<hex signature>`
 
 **Signed payload format:**
 ```
@@ -61,7 +54,7 @@ signed_payload = "{unix_timestamp}.{raw_json_body}"
 signature      = HMAC-SHA256(webhook_secret, signed_payload)
 ```
 
-### Verifying Signatures (Go Example)
+### Verification Example (Go)
 
 ```go
 func verifySignature(payload []byte, timestamp string, signatureHeader string, secret string) bool {
@@ -79,55 +72,35 @@ func verifySignature(payload []byte, timestamp string, signatureHeader string, s
 }
 ```
 
-## Retry Strategy
+## Retry Behavior
 
-### Job Run Webhooks
+**Job webhooks** retry up to 3 times with short backoff (immediate, 1s, 5s). Retries are in-memory — if the process restarts, in-flight retries are lost.
 
-Strait attempts to deliver job run webhooks up to **3 times** with exponential backoff:
-- **Attempt 1**: Immediate
-- **Attempt 2**: 1 second delay
-- **Attempt 3**: 5 seconds delay
+**Event trigger webhooks** retry up to 5 times with exponential backoff (5s, 25s, 125s, 625s, capped at 30 minutes). Retries are durable — they survive process restarts.
 
-### Event Trigger Webhooks
+For both types, 4xx responses are treated as permanent failures (no retries). 5xx responses and timeouts are retried.
 
-Event trigger webhooks (configured via `notify_url` on wait-for-event) use a persistent delivery queue that survives process restarts:
-- **Max attempts**: 5
-- **Backoff**: Exponential — 5s, 25s, 125s, 625s (capped at 30 minutes)
-- **Delivery worker**: Polls the database every 5 seconds for pending deliveries
+## Failed Deliveries
 
-### Retry Rules
-- **Client errors (4xx)**: Strait treats these as permanent failures and dead-letters the delivery immediately -- no retries.
-- **Server errors (5xx) / Timeouts**: Strait retries up to the maximum attempt limit.
-- **Context cancellation**: If the system is shutting down, Strait may abort delivery with a "context canceled" error.
-
-## Configuration
-
-### Job Webhooks
-Webhooks are configured per job:
-- `webhook_url`: The destination for the POST request.
-- `webhook_secret`: (Optional) The key used for HMAC signing.
-
-### Event Trigger Webhooks
-Event trigger webhooks are configured per trigger:
-- `notify_url`: Set when creating a wait-for-event step or SDK call.
-- Strait tracks delivery status in the `webhook_deliveries` table using the `event_trigger_id`.
-
-### Dead Letter Queue (DLQ) Management
-
-Strait stores failed webhook deliveries in the database. You can inspect and retry them:
+Failed event trigger deliveries are stored in the database. You can inspect and replay them:
 
 ```bash
-# List all failed deliveries for a project
-curl "https://strait.dev/v1/webhook-deliveries?project_id=proj_1&status=failed" \
+# List failed deliveries
+curl "https://strait.example.com/v1/webhook-deliveries?project_id=proj_1&status=failed" \
   -H "Authorization: Bearer strait_..."
 
-# Retry a specific failed delivery
-curl -X POST https://strait.dev/v1/webhook-deliveries/{deliveryID}/retry \
+# Retry a specific delivery
+curl -X POST "https://strait.example.com/v1/webhook-deliveries/{deliveryID}/retry" \
   -H "Authorization: Bearer strait_..."
 ```
 
-The retry endpoint resets the delivery to `pending` status with zero attempts and immediate next retry time. You can only retry deliveries in `failed` status -- retrying a `pending` or `delivered` delivery returns `409 Conflict`.
+For more on handling failed deliveries, see [Recovery](/concepts/dlq-recovery).
 
 <Warning>
 Always use HTTPS for your webhook URLs to protect the payload and signature in transit.
 </Warning>
+
+## Related Concepts
+
+- [Webhook Subscriptions](/concepts/webhook-subscriptions) — project-wide notifications by event type.
+- [Event Triggers](/concepts/event-triggers) — durable waits for events within workflow steps.

@@ -78,7 +78,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},
 		{"DefaultJobTimeoutSecs", cfg.DefaultJobTimeoutSecs, 300},
 		{"WorkflowRetention", cfg.WorkflowRetention, 720 * time.Hour},
-		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 100},
+		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 5000},
 		{"StalledWorkflowThreshold", cfg.StalledWorkflowThreshold, 15 * time.Minute},
 		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
 		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
@@ -96,7 +96,6 @@ func TestLoad_Defaults(t *testing.T) {
 		{"MaxSnoozeCount", cfg.MaxSnoozeCount, 50},
 		{"DebouncePollerInterval", cfg.DebouncePollerInterval, time.Second},
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
-		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
 		{"ComputeRuntime", cfg.ComputeRuntime, "none"}, // community edition overrides k8s default to none
 		{"DefaultRegion", cfg.DefaultRegion, "iad"},
 		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
@@ -1053,7 +1052,6 @@ func TestLoad_StringOverrides(t *testing.T) {
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
 	skipIfCommunity(t)
 	t.Setenv("STRAIT_EDITION", "cloud")
-	t.Setenv("DEQUEUE_STRATEGY", "round_robin")
 	t.Setenv("WORKER_PARTITION_WEIGHTS", "critical:3,default:1")
 
 	cfg, err := Load()
@@ -1075,9 +1073,6 @@ func TestLoad_StringOverrides(t *testing.T) {
 	}
 	if cfg.Edition != "cloud" {
 		t.Fatalf("Edition = %q, want cloud", cfg.Edition)
-	}
-	if cfg.DequeueStrategy != "round_robin" {
-		t.Fatalf("DequeueStrategy = %q, want round_robin", cfg.DequeueStrategy)
 	}
 	if cfg.WorkerPartitionWeights != "critical:3,default:1" {
 		t.Fatalf("WorkerPartitionWeights = %q, want critical:3,default:1", cfg.WorkerPartitionWeights)

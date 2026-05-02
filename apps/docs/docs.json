@@ -16,7 +16,7 @@
   "metadata": {
     "og:site_name": "Strait Docs",
     "og:image": "/images/og.png",
-    "og:description": "Documentation for Strait, the open-source job orchestration platform for background jobs, workflows, and AI agents.",
+    "og:description": "Documentation for Strait, the open-source job orchestration platform for background jobs and workflows.",
     "og:type": "website",
     "og:locale": "en_US",
     "twitter:card": "summary_large_image",
@@ -31,7 +31,21 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": ["introduction", "quickstart", "architecture", "changelog"]
+            "pages": [
+              "introduction",
+              "choose-your-path",
+              "quickstart",
+              "architecture",
+              "changelog"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/webhook-processor",
+              "tutorials/data-pipeline",
+              "tutorials/ai-agent"
+            ]
           },
           {
             "group": "Core Concepts",
@@ -41,31 +55,56 @@
               "concepts/workflows",
               "concepts/retry-strategies",
               "concepts/event-triggers",
-              "concepts/scheduling"
+              "concepts/scheduling",
+              "concepts/projects"
             ]
           },
           {
-            "group": "Features",
+            "group": "Workflows",
             "pages": [
-              "concepts/resilience",
-              "concepts/webhooks",
-              "concepts/webhook-subscriptions",
-              "concepts/environments",
-              "concepts/versioning",
-              "concepts/cost-budgets",
-              "concepts/adaptive-concurrency",
-              "concepts/audit-logging",
-              "concepts/managed-execution",
-              "concepts/log-drains",
-              "concepts/event-sources",
-              "concepts/batch-operations",
+              "concepts/dag-runtime",
               "concepts/durable-workflows",
               "concepts/compensating-transactions",
-              "concepts/canary-deployments",
               "concepts/workflow-simulator",
               "concepts/workflow-test-suites",
-              "concepts/workflow-debugger",
-              "concepts/job-chaining"
+              "concepts/workflow-debugger"
+            ]
+          },
+          {
+            "group": "Reliability",
+            "pages": [
+              "concepts/resilience",
+              "concepts/adaptive-concurrency",
+              "concepts/canary-deployments",
+              "concepts/cost-budgets",
+              "concepts/slos"
+            ]
+          },
+          {
+            "group": "Execution",
+            "pages": [
+              "concepts/execution-modes",
+              "concepts/managed-execution",
+              "concepts/batch-operations",
+              "concepts/job-chaining",
+              "concepts/versioning",
+              "concepts/environments",
+              "concepts/code-deployments"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "concepts/real-time",
+              "concepts/audit-logging",
+              "concepts/log-drains",
+              "concepts/webhooks",
+              "concepts/webhook-subscriptions",
+              "concepts/event-sources",
+              "concepts/clickhouse-analytics",
+              "concepts/cdc",
+              "concepts/notifications",
+              "concepts/debug-bundles"
             ]
           },
           {
@@ -79,19 +118,17 @@
               "guides/deployment",
               "guides/security",
               "guides/sdk-integration",
-              "guides/oidc",
               "guides/rbac",
-              "guides/api-key-rotation",
-              "guides/job-dependencies",
-              "guides/job-groups",
               "guides/idempotency",
               "guides/workflow-approvals",
-              "guides/event-triggers"
+              "guides/event-triggers",
+              "guides/audit-events",
+              "guides/dag-operations-playbook"
             ]
           },
           {
-            "group": "AI Agents",
-            "pages": ["ai/index"]
+            "group": "Operations",
+            "pages": ["operations/alert-runbooks", "operations/dlq-recovery"]
           },
           {
             "group": "Integrations",
@@ -132,7 +169,8 @@
               "sdks/python",
               "sdks/go",
               "sdks/ruby",
-              "sdks/rust"
+              "sdks/rust",
+              "sdks/mcp"
             ]
           }
         ]
@@ -155,7 +193,7 @@
         "groups": [
           {
             "group": "CLI Reference",
-            "pages": ["cli/overview"]
+            "pages": ["cli/overview", "cli/api-keys"]
           }
         ]
       },
@@ -240,10 +278,6 @@
     {
       "source": "/docs/operations/:slug",
       "destination": "/operations/:slug"
-    },
-    {
-      "source": "/docs/development/:slug",
-      "destination": "/development/:slug"
     },
     {
       "source": "/configuration/:slug",
