@@ -216,24 +216,26 @@ function NotifySubscribersPage() {
   );
   const nextCursor = resolveNotifyNextCursor(pageItems, notifyCursorPageLimit);
 
-  const filtered = useMemo(() => {
-    return pageItems.filter((subscriber) => {
-      if (
-        selectedStatuses.length > 0 &&
-        !selectedStatuses.includes(subscriber.status)
-      ) {
-        return false;
-      }
-      if (!search.query) {
-        return true;
-      }
-      const q = search.query.toLowerCase();
-      return (
-        subscriber.external_id.toLowerCase().includes(q) ||
-        (subscriber.email || "").toLowerCase().includes(q)
-      );
-    });
-  }, [search.query, selectedStatuses, pageItems]);
+  const filtered = useMemo(
+    () =>
+      pageItems.filter((subscriber) => {
+        if (
+          selectedStatuses.length > 0 &&
+          !selectedStatuses.includes(subscriber.status)
+        ) {
+          return false;
+        }
+        if (!search.query) {
+          return true;
+        }
+        const q = search.query.toLowerCase();
+        return (
+          subscriber.external_id.toLowerCase().includes(q) ||
+          (subscriber.email || "").toLowerCase().includes(q)
+        );
+      }),
+    [search.query, selectedStatuses, pageItems]
+  );
 
   const table = useReactTable({
     data: filtered,

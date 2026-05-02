@@ -10,16 +10,14 @@ type Props = {
 const NotifyErrorBoundary = ({
   children,
   message = "Failed to load notify data",
-}: Props) => {
-  return (
-    <QueryErrorBoundary
-      fallback={({ resetErrorBoundary }) => (
-        <InlineError message={message} onRetry={resetErrorBoundary} />
-      )}
-    >
-      {children}
-    </QueryErrorBoundary>
-  );
-};
+}: Props) => (
+  <QueryErrorBoundary
+    fallback={({ resetErrorBoundary }) => (
+      <InlineError message={message} onRetry={resetErrorBoundary} />
+    )}
+  >
+    {children}
+  </QueryErrorBoundary>
+);
 
 export default NotifyErrorBoundary;

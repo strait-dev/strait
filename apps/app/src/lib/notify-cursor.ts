@@ -9,7 +9,7 @@ export const resolveNotifyNextCursor = <T extends NotifyCursorItem>(
   limit = notifyCursorPageLimit
 ) => {
   if (items.length < limit) {
-    return undefined;
+    return;
   }
 
   return items.at(-1)?.created_at;

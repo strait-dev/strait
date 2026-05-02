@@ -148,7 +148,7 @@
       "name": "@strait/inbox",
       "version": "0.1.0",
       "dependencies": {
-        "effect": "^3.21.0",
+        "effect": "^3.21.2",
       },
     },
     "packages/transactional": {

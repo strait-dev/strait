@@ -197,58 +197,62 @@ const callNotifySubscriberEndpoint = async <T>(
 export const fetchNotifyDeliveries = createServerFn({ method: "GET" })
   .inputValidator((data: NotifyDeliveriesSearch) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationMessage[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationMessage[]>("/v1/notify/deliveries", {
-        params: {
-          status: data.status,
-          channel: data.channel,
-          category_key: data.category_key,
-          from: data.from,
-          to: data.to,
-          limit: data.limit,
-          cursor: data.cursor,
-        },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationMessage[]> =>
+      await runWithSentryReport(
+        apiEffect<NotificationMessage[]>("/v1/notify/deliveries", {
+          params: {
+            status: data.status,
+            channel: data.channel,
+            category_key: data.category_key,
+            from: data.from,
+            to: data.to,
+            limit: data.limit,
+            cursor: data.cursor,
+          },
+        })
+      )
+  );
 
 export const fetchNotifySubscribers = createServerFn({ method: "GET" })
   .inputValidator((data: NotifySubscribersSearch) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifySubscriber[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotifySubscriber[]>("/v1/subscribers", {
-        params: {
-          status: data.status,
-          tenant_id: data.tenant_id,
-          limit: data.limit,
-          cursor: data.cursor,
-        },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifySubscriber[]> =>
+      await runWithSentryReport(
+        apiEffect<NotifySubscriber[]>("/v1/subscribers", {
+          params: {
+            status: data.status,
+            tenant_id: data.tenant_id,
+            limit: data.limit,
+            cursor: data.cursor,
+          },
+        })
+      )
+  );
 
 export const fetchNotifySubscriber = createServerFn({ method: "GET" })
   .inputValidator((data: { subscriberId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifySubscriber> => {
-    return await runWithSentryReport(
-      apiEffect<NotifySubscriber>(`/v1/subscribers/${data.subscriberId}`)
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifySubscriber> =>
+      await runWithSentryReport(
+        apiEffect<NotifySubscriber>(`/v1/subscribers/${data.subscriberId}`)
+      )
+  );
 
 export const createNotifySubscriberFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpsertNotifySubscriberInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifySubscriber> => {
-    return await runWithSentryReport(
-      apiEffect<NotifySubscriber>("/v1/subscribers", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifySubscriber> =>
+      await runWithSentryReport(
+        apiEffect<NotifySubscriber>("/v1/subscribers", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const updateNotifySubscriberFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -268,14 +272,15 @@ export const updateNotifySubscriberFn = createServerFn({ method: "POST" })
 export const deleteNotifySubscriberFn = createServerFn({ method: "POST" })
   .inputValidator((data: { subscriberId: string; purge?: boolean }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/subscribers/${data.subscriberId}`, {
-        method: "DELETE",
-        params: { purge: data.purge },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/subscribers/${data.subscriberId}`, {
+          method: "DELETE",
+          params: { purge: data.purge },
+        })
+      )
+  );
 
 export const createNotifySubscriberTokenFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -296,31 +301,33 @@ export const createNotifySubscriberTokenFn = createServerFn({ method: "POST" })
 export const listNotifySuppressionEventsFn = createServerFn({ method: "GET" })
   .inputValidator((data: { subscriberId: string } & ListParams) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifySuppressionEvent[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotifySuppressionEvent[]>(
-        `/v1/subscribers/${data.subscriberId}/suppressions`,
-        {
-          params: {
-            limit: data.limit,
-            cursor: data.cursor,
-          },
-        }
+  .handler(
+    async ({ data }): Promise<NotifySuppressionEvent[]> =>
+      await runWithSentryReport(
+        apiEffect<NotifySuppressionEvent[]>(
+          `/v1/subscribers/${data.subscriberId}/suppressions`,
+          {
+            params: {
+              limit: data.limit,
+              cursor: data.cursor,
+            },
+          }
+        )
       )
-    );
-  });
+  );
 
 export const fetchNotifySubscriberPreferences = createServerFn({
   method: "GET",
 })
   .inputValidator((data: { subscriberId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyPreference[]> => {
-    return await callNotifySubscriberEndpoint<NotifyPreference[]>(
-      data.subscriberId,
-      "/v1/preferences"
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyPreference[]> =>
+      await callNotifySubscriberEndpoint<NotifyPreference[]>(
+        data.subscriberId,
+        "/v1/preferences"
+      )
+  );
 
 export const updateNotifySubscriberPreferenceFn = createServerFn({
   method: "POST",
@@ -367,97 +374,108 @@ export const createNotifyUnsuppressFn = createServerFn({ method: "POST" })
 
 export const fetchNotifyTopics = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<NotifyTopic[]> => {
-    return await runWithSentryReport(apiEffect<NotifyTopic[]>("/v1/topics"));
-  });
+  .handler(
+    async (): Promise<NotifyTopic[]> =>
+      await runWithSentryReport(apiEffect<NotifyTopic[]>("/v1/topics"))
+  );
 
 export const fetchNotifyTopicSubscribers = createServerFn({ method: "GET" })
   .inputValidator((data: NotifyTopicSubscribersSearch) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifySubscriber[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotifySubscriber[]>(`/v1/topics/${data.topicKey}/subscribers`, {
-        params: {
-          tenant_id: data.tenant_id,
-          limit: data.limit,
-        },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifySubscriber[]> =>
+      await runWithSentryReport(
+        apiEffect<NotifySubscriber[]>(
+          `/v1/topics/${data.topicKey}/subscribers`,
+          {
+            params: {
+              tenant_id: data.tenant_id,
+              limit: data.limit,
+            },
+          }
+        )
+      )
+  );
 
 export const createNotifyTopicFn = createServerFn({ method: "POST" })
   .inputValidator((data: CreateNotifyTopicInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyTopic> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyTopic>("/v1/topics", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyTopic> =>
+      await runWithSentryReport(
+        apiEffect<NotifyTopic>("/v1/topics", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const addNotifyTopicSubscriberFn = createServerFn({ method: "POST" })
   .inputValidator((data: { topicKey: string; subscriber_id: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/topics/${data.topicKey}/subscribers`, {
-        method: "POST",
-        body: { subscriber_id: data.subscriber_id },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/topics/${data.topicKey}/subscribers`, {
+          method: "POST",
+          body: { subscriber_id: data.subscriber_id },
+        })
+      )
+  );
 
 export const removeNotifyTopicSubscriberFn = createServerFn({ method: "POST" })
   .inputValidator((data: { topicKey: string; subscriberId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(
-        `/v1/topics/${data.topicKey}/subscribers/${data.subscriberId}`,
-        {
-          method: "DELETE",
-        }
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(
+          `/v1/topics/${data.topicKey}/subscribers/${data.subscriberId}`,
+          {
+            method: "DELETE",
+          }
+        )
       )
-    );
-  });
+  );
 
 export const fetchNotificationTemplates = createServerFn({ method: "GET" })
   .inputValidator((data: NotifyTemplatesSearch) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationTemplate[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationTemplate[]>("/v1/templates", {
-        params: {
-          status: data.status,
-          limit: data.limit,
-          cursor: data.cursor,
-        },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationTemplate[]> =>
+      await runWithSentryReport(
+        apiEffect<NotificationTemplate[]>("/v1/templates", {
+          params: {
+            status: data.status,
+            limit: data.limit,
+            cursor: data.cursor,
+          },
+        })
+      )
+  );
 
 export const fetchNotificationTemplate = createServerFn({ method: "GET" })
   .inputValidator((data: { templateKey: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationTemplate> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationTemplate>(`/v1/templates/${data.templateKey}`)
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationTemplate> =>
+      await runWithSentryReport(
+        apiEffect<NotificationTemplate>(`/v1/templates/${data.templateKey}`)
+      )
+  );
 
 export const createNotificationTemplateFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpsertNotifyTemplateInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationTemplate> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationTemplate>("/v1/templates", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationTemplate> =>
+      await runWithSentryReport(
+        apiEffect<NotificationTemplate>("/v1/templates", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const updateNotificationTemplateFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -476,46 +494,50 @@ export const updateNotificationTemplateFn = createServerFn({ method: "POST" })
 
 export const fetchNotificationCategories = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<NotificationCategory[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationCategory[]>("/v1/categories")
-    );
-  });
+  .handler(
+    async (): Promise<NotificationCategory[]> =>
+      await runWithSentryReport(
+        apiEffect<NotificationCategory[]>("/v1/categories")
+      )
+  );
 
 export const createNotificationCategoryFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpsertNotifyCategoryInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationCategory> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationCategory>("/v1/categories", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationCategory> =>
+      await runWithSentryReport(
+        apiEffect<NotificationCategory>("/v1/categories", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const fetchNotificationProviders = createServerFn({ method: "GET" })
   .inputValidator((data: { channel?: NotifyDeliveryChannel }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationProvider[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationProvider[]>("/v1/providers", {
-        params: { channel: data.channel },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationProvider[]> =>
+      await runWithSentryReport(
+        apiEffect<NotificationProvider[]>("/v1/providers", {
+          params: { channel: data.channel },
+        })
+      )
+  );
 
 export const createNotificationProviderFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpsertNotifyProviderInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotificationProvider> => {
-    return await runWithSentryReport(
-      apiEffect<NotificationProvider>("/v1/providers", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotificationProvider> =>
+      await runWithSentryReport(
+        apiEffect<NotificationProvider>("/v1/providers", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const updateNotificationProviderFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -535,43 +557,49 @@ export const updateNotificationProviderFn = createServerFn({ method: "POST" })
 export const deleteNotificationProviderFn = createServerFn({ method: "POST" })
   .inputValidator((data: { providerId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/providers/${data.providerId}`, { method: "DELETE" })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/providers/${data.providerId}`, {
+          method: "DELETE",
+        })
+      )
+  );
 
 export const fetchNotifyPolicyOverrides = createServerFn({ method: "GET" })
   .inputValidator((data: { scope_type?: NotifyPolicyScopeType }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyPolicyOverride[]> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyPolicyOverride[]>("/v1/notify/policies", {
-        params: { scope_type: data.scope_type },
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyPolicyOverride[]> =>
+      await runWithSentryReport(
+        apiEffect<NotifyPolicyOverride[]>("/v1/notify/policies", {
+          params: { scope_type: data.scope_type },
+        })
+      )
+  );
 
 export const fetchNotifyPolicyOverride = createServerFn({ method: "GET" })
   .inputValidator((data: { policyId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyPolicyOverride> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyPolicyOverride>(`/v1/notify/policies/${data.policyId}`)
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyPolicyOverride> =>
+      await runWithSentryReport(
+        apiEffect<NotifyPolicyOverride>(`/v1/notify/policies/${data.policyId}`)
+      )
+  );
 
 export const createNotifyPolicyOverrideFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpsertNotifyPolicyInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyPolicyOverride> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyPolicyOverride>("/v1/notify/policies", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyPolicyOverride> =>
+      await runWithSentryReport(
+        apiEffect<NotifyPolicyOverride>("/v1/notify/policies", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const updateNotifyPolicyOverrideFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -591,13 +619,14 @@ export const updateNotifyPolicyOverrideFn = createServerFn({ method: "POST" })
 export const deleteNotifyPolicyOverrideFn = createServerFn({ method: "POST" })
   .inputValidator((data: { policyId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<void> => {
-    return await runWithSentryReport(
-      apiEffect<void>(`/v1/notify/policies/${data.policyId}`, {
-        method: "DELETE",
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<void> =>
+      await runWithSentryReport(
+        apiEffect<void>(`/v1/notify/policies/${data.policyId}`, {
+          method: "DELETE",
+        })
+      )
+  );
 
 export const notifyPreviewFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -612,80 +641,86 @@ export const notifyPreviewFn = createServerFn({ method: "POST" })
     }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<Record<string, object>> => {
-    return await runWithSentryReport(
-      apiEffect<Record<string, object>>("/v1/notify/preview", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<Record<string, object>> =>
+      await runWithSentryReport(
+        apiEffect<Record<string, object>>("/v1/notify/preview", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const notifyTriggerFn = createServerFn({ method: "POST" })
   .inputValidator((data: NotifyTriggerInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyTriggerResponse> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyTriggerResponse>("/v1/notify", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyTriggerResponse> =>
+      await runWithSentryReport(
+        apiEffect<NotifyTriggerResponse>("/v1/notify", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const notifyTestFn = createServerFn({ method: "POST" })
   .inputValidator((data: NotifyTriggerInput) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyTriggerResponse> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyTriggerResponse>("/v1/notify/test", {
-        method: "POST",
-        body: data,
-      })
-    );
-  });
+  .handler(
+    async ({ data }): Promise<NotifyTriggerResponse> =>
+      await runWithSentryReport(
+        apiEffect<NotifyTriggerResponse>("/v1/notify/test", {
+          method: "POST",
+          body: data,
+        })
+      )
+  );
 
 export const fetchNotifyEscalationByStepRun = createServerFn({ method: "GET" })
   .inputValidator((data: { stepRunId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<NotifyEscalationState> => {
-    return await runWithSentryReport(
-      apiEffect<NotifyEscalationState>(
-        `/v1/notify/escalations/step-runs/${data.stepRunId}`
+  .handler(
+    async ({ data }): Promise<NotifyEscalationState> =>
+      await runWithSentryReport(
+        apiEffect<NotifyEscalationState>(
+          `/v1/notify/escalations/step-runs/${data.stepRunId}`
+        )
       )
-    );
-  });
+  );
 
 export const acknowledgeNotifyEscalationFn = createServerFn({ method: "POST" })
   .inputValidator((data: { stepRunId: string }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<Record<string, object>> => {
-    return await runWithSentryReport(
-      apiEffect<Record<string, object>>(
-        `/v1/notify/escalations/step-runs/${data.stepRunId}/acknowledge`,
-        {
-          method: "POST",
-        }
+  .handler(
+    async ({ data }): Promise<Record<string, object>> =>
+      await runWithSentryReport(
+        apiEffect<Record<string, object>>(
+          `/v1/notify/escalations/step-runs/${data.stepRunId}/acknowledge`,
+          {
+            method: "POST",
+          }
+        )
       )
-    );
-  });
+  );
 
 export const completeNotifyEscalationFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { stepRunId: string; status?: "completed" | "failed" }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<Record<string, object>> => {
-    return await runWithSentryReport(
-      apiEffect<Record<string, object>>(
-        `/v1/notify/escalations/step-runs/${data.stepRunId}/complete`,
-        {
-          method: "POST",
-          body: { status: data.status },
-        }
+  .handler(
+    async ({ data }): Promise<Record<string, object>> =>
+      await runWithSentryReport(
+        apiEffect<Record<string, object>>(
+          `/v1/notify/escalations/step-runs/${data.stepRunId}/complete`,
+          {
+            method: "POST",
+            body: { status: data.status },
+          }
+        )
       )
-    );
-  });
+  );
 
 export const notifyDeliveriesQueryOptions = (search?: NotifyDeliveriesSearch) =>
   queryOptions({

@@ -127,7 +127,7 @@ function NotifyProvidersPage() {
 
   const parseRateLimit = () => {
     if (!rateLimit.trim()) {
-      return undefined;
+      return;
     }
 
     const parsed = Number(rateLimit);

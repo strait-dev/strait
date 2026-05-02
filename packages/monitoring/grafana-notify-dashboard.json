@@ -7,85 +7,105 @@
     {
       "title": "Scheduled Backlog",
       "type": "timeseries",
-      "targets": [
-        {"expr": "max(strait_notify_scheduled_backlog)"}
-      ]
+      "targets": [{ "expr": "max(strait_notify_scheduled_backlog)" }]
     },
     {
       "title": "Digest Requeues (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_digest_requeues_total[5m])) by (reason)"}
+        {
+          "expr": "sum(rate(strait_notify_digest_requeues_total[5m])) by (reason)"
+        }
       ]
     },
     {
       "title": "Digest Failures (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_digest_failures_total[5m])) by (reason)"}
+        {
+          "expr": "sum(rate(strait_notify_digest_failures_total[5m])) by (reason)"
+        }
       ]
     },
     {
       "title": "Escalation Transitions (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_escalation_transitions_total[5m])) by (status)"}
+        {
+          "expr": "sum(rate(strait_notify_escalation_transitions_total[5m])) by (status)"
+        }
       ]
     },
     {
       "title": "Escalation Stuck States (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_escalation_stuck_total[5m])) by (reason)"}
+        {
+          "expr": "sum(rate(strait_notify_escalation_stuck_total[5m])) by (reason)"
+        }
       ]
     },
     {
       "title": "SES Feedback Callbacks (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (event_type, outcome)"}
+        {
+          "expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (event_type, outcome)"
+        }
       ]
     },
     {
       "title": "SES Callback Outcomes (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (outcome)"}
+        {
+          "expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (outcome)"
+        }
       ]
     },
     {
       "title": "SES Callback Event Types (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (event_type)"}
+        {
+          "expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])) by (event_type)"
+        }
       ]
     },
     {
       "title": "SES Suppression Reasons (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",suppression_reason!=\"none\",outcome=~\"status_updated|status_skipped\"}[5m])) by (suppression_reason)"}
+        {
+          "expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",suppression_reason!=\"none\",outcome=~\"status_updated|status_skipped\"}[5m])) by (suppression_reason)"
+        }
       ]
     },
     {
       "title": "SES Feedback Processing Errors (5m rate)",
       "type": "timeseries",
       "targets": [
-        {"expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=~\".*_error|malformed\"}[5m])) by (outcome)"}
+        {
+          "expr": "sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=~\".*_error|malformed\"}[5m])) by (outcome)"
+        }
       ]
     },
     {
       "title": "SES Duplicate Callback Ratio (%)",
       "type": "timeseries",
       "targets": [
-        {"expr": "100 * sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=\"duplicate\"}[5m])) / clamp_min(sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])), 0.0001)"}
+        {
+          "expr": "100 * sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=\"duplicate\"}[5m])) / clamp_min(sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\"}[5m])), 0.0001)"
+        }
       ]
     },
     {
       "title": "SES Bounce/Complaint Ratio (%)",
       "type": "timeseries",
       "targets": [
-        {"expr": "100 * sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",suppression_reason=~\"provider_callback:ses.bounce|provider_callback:ses.complaint\",outcome=~\"status_updated|status_skipped\"}[5m])) / clamp_min(sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=~\"status_updated|status_skipped\"}[5m])), 0.0001)"}
+        {
+          "expr": "100 * sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",suppression_reason=~\"provider_callback:ses.bounce|provider_callback:ses.complaint\",outcome=~\"status_updated|status_skipped\"}[5m])) / clamp_min(sum(rate(strait_notify_provider_callbacks_total{provider=\"ses\",outcome=~\"status_updated|status_skipped\"}[5m])), 0.0001)"
+        }
       ]
     }
   ]

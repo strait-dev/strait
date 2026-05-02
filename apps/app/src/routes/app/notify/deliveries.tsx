@@ -239,25 +239,27 @@ function NotifyDeliveriesPage() {
     .sort((a, b) => a.localeCompare(b));
   const nextCursor = resolveNotifyNextCursor(pageItems, notifyCursorPageLimit);
 
-  const filtered = useMemo(() => {
-    return pageItems.filter((item) => {
-      if (
-        selectedStatuses.length > 0 &&
-        !selectedStatuses.includes(item.status)
-      ) {
-        return false;
-      }
-      if (!search.query) {
-        return true;
-      }
-      const q = search.query.toLowerCase();
-      return (
-        item.id.toLowerCase().includes(q) ||
-        item.recipient_id.toLowerCase().includes(q) ||
-        item.channel.toLowerCase().includes(q)
-      );
-    });
-  }, [pageItems, search.query, selectedStatuses]);
+  const filtered = useMemo(
+    () =>
+      pageItems.filter((item) => {
+        if (
+          selectedStatuses.length > 0 &&
+          !selectedStatuses.includes(item.status)
+        ) {
+          return false;
+        }
+        if (!search.query) {
+          return true;
+        }
+        const q = search.query.toLowerCase();
+        return (
+          item.id.toLowerCase().includes(q) ||
+          item.recipient_id.toLowerCase().includes(q) ||
+          item.channel.toLowerCase().includes(q)
+        );
+      }),
+    [pageItems, search.query, selectedStatuses]
+  );
 
   const table = useReactTable({
     data: filtered,

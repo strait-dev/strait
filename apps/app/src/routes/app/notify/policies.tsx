@@ -123,7 +123,7 @@ function NotifyPoliciesPage() {
 
   const toNumber = (value: string) => {
     if (!value.trim()) {
-      return undefined;
+      return;
     }
     const parsed = Number(value);
     if (Number.isNaN(parsed) || parsed < 0) {
