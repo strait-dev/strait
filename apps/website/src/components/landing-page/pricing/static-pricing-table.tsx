@@ -38,7 +38,7 @@ export function StaticPricingTable() {
         <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card p-1">
           <button
             className={cn(
-              "min-h-11 rounded-full px-5 py-2.5 font-medium transition-colors",
+              "h-8 rounded-full px-4 py-1.5 font-medium text-sm transition-colors",
               interval === "monthly"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -50,7 +50,7 @@ export function StaticPricingTable() {
           </button>
           <button
             className={cn(
-              "min-h-11 rounded-full px-5 py-2.5 font-medium transition-colors",
+              "h-8 rounded-full px-4 py-1.5 font-medium text-sm transition-colors",
               interval === "yearly"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -60,7 +60,7 @@ export function StaticPricingTable() {
           >
             Yearly
           </button>
-          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground">
+          <span className="mr-2 ml-1 rounded-full bg-muted px-3 py-1 font-medium text-foreground text-sm">
             Save ~{savingsPercent}%
           </span>
         </div>
@@ -104,7 +104,7 @@ export function StaticPricingTable() {
                         <Badge variant="outline">{plan.badge}</Badge>
                       )}
                   </div>
-                  <p className="mt-1.5 whitespace-pre-line text-muted-foreground leading-relaxed">
+                  <p className="mt-1.5 whitespace-pre-line text-muted-foreground text-sm leading-relaxed">
                     {plan.description}
                   </p>
                 </div>
@@ -134,7 +134,7 @@ export function StaticPricingTable() {
                   </div>
 
                   {plan.trial && (
-                    <p className="mb-4 text-muted-foreground">
+                    <p className="mb-4 text-muted-foreground text-sm">
                       14-day free trial included
                     </p>
                   )}
@@ -142,7 +142,7 @@ export function StaticPricingTable() {
                   <div className="mb-5 border-border/40 border-t" />
 
                   {plan.computeCredit !== "100 runs/mo (micro, 10s)" && (
-                    <p className="mb-3 font-medium text-foreground">
+                    <p className="mb-3 font-medium text-foreground text-sm">
                       {plan.computeCredit} compute credit
                     </p>
                   )}
@@ -157,7 +157,7 @@ export function StaticPricingTable() {
                           className="mt-0.5 size-4 shrink-0 text-foreground"
                           icon={CheckmarkCircle02Icon}
                         />
-                        <span className="text-pretty text-muted-foreground">
+                        <span className="text-pretty text-muted-foreground text-sm">
                           {feature}
                         </span>
                       </li>
@@ -167,6 +167,7 @@ export function StaticPricingTable() {
                   <Button
                     className="w-full transition-shadow duration-150"
                     render={<a href={href} />}
+                    size="default"
                     variant={plan.highlighted ? "default" : "outline"}
                   >
                     {plan.cta.label}

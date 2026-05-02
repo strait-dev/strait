@@ -170,7 +170,7 @@ Steps can auto-emit events on completion using `event_emit_key`. When the step c
 ]
 ```
 
-This enables cross-workflow coordination — one workflow's step completion can resume another workflow's waiting step.
+One workflow's step completion can resume another workflow's waiting step.
 
 ## SDK: Wait for Event
 
@@ -248,10 +248,10 @@ When a trigger is created with a `notify_url`, the system sends a webhook when t
 
 - **Max attempts**: 5
 - **Backoff**: Exponential — 5s, 25s, 125s, 625s (capped at 30 minutes)
-- **4xx errors**: Dead-lettered immediately (not retryable)
+- **4xx errors**: Moved to failed immediately (not retryable)
 - **5xx / network errors**: Retried up to max attempts
 
-### Webhook DLQ Management
+### Failed Webhook Management
 
 Failed webhook deliveries can be inspected and retried via the API:
 
@@ -418,7 +418,7 @@ A background reconciliation reaper runs every 30 seconds to catch edge cases:
 
 ### Distributed Reaper
 
-In multi-instance deployments, the reaper uses database-level locking to ensure exactly one instance runs the reaper cycle at a time. Other instances skip gracefully and try again on the next interval.
+In multi-instance deployments, the reaper uses database-level locking so only one instance runs the reaper cycle. Other instances skip the cycle and try again on the next interval.
 
 This requires no external coordination service — the database itself provides leader election. If the active instance crashes, another instance acquires the lock on the next tick.
 

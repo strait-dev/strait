@@ -1,19 +1,19 @@
 ---
 title: "SDK Integration"
-description: "Integrating your job code with Strait using official SDK client libraries."
+description: "How to write job handlers that run inside Strait: receiving payloads, reporting progress, and returning results."
 ---
 
-Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust** — all with full feature parity. This guide covers how to use the SDKs to interact with the Strait API and integrate SDK endpoints into your job code.
+This guide shows how to write jobs that run inside Strait using the official SDKs. Your job code receives payloads, reports progress, and returns results.
 
 <Info>
-For detailed per-language documentation, see the [SDK Reference](/sdks/overview).
+  For per-language API documentation, see the [SDK Reference](/sdks/overview).
 </Info>
 
 <Info>
 Managed agents use a separate runtime package, [`@strait/agents`](/docs/sdks/agents), for run-token callbacks, workflow state, and provider adapters.
 </Info>
 
-## Installing an SDK
+## Install and Configure
 
 <CodeGroup>
   ```bash TypeScript
@@ -27,115 +27,137 @@ Managed agents use a separate runtime package, [`@strait/agents`](/docs/sdks/age
   ```bash Go
   go get github.com/strait-dev/strait-go
   ```
-
-
 </CodeGroup>
 
-Ruby and Rust SDKs are available in their dedicated repositories:
-- [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby)
-- [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust)
+Create a `strait.json` at your project root with `strait init`, then set `STRAIT_API_KEY` in your environment. See [SDK Configuration](/sdks/configuration) for full details.
 
-## Configuration
+---
 
-The recommended approach is a `strait.json` file at your project root plus the `STRAIT_API_KEY` environment variable:
+## Writing a Job Handler
 
-```bash
-# Create config file
-strait init
+When Strait triggers a job, it calls your HTTP endpoint with the run payload and an SDK token. Here is what happens inside your handler:
 
-# Set API key
-export STRAIT_API_KEY="sk_live_..."
-```
+```typescript
+// Your Express/Fastify/Hono endpoint that Strait calls
+app.post('/jobs/send-email', async (req, res) => {
+  const { payload, run_id, attempt } = req.body;
+  const token = req.headers['x-sdk-token'];
 
-Then create a client from the config file:
-
-<CodeGroup>
-  ```ts TypeScript
-  import { createClientFromConfigFile } from "@strait/ts/node";
-  const client = await createClientFromConfigFile();
-  ```
-
-  ```python Python
-  from strait import Client
-  client = Client.from_file()
-  ```
-
-  ```go Go
-  client, err := strait.NewClientFromFile(nil)
-  ```
-
-
-</CodeGroup>
-
-See [SDK Configuration](/sdks/configuration) for full details on `strait.json`, environment variable overrides, and alternative configuration methods.
-
-## SDK Run Endpoints
-
-Strait provides specialized endpoints under `/sdk/v1/runs/{runID}/` for job executors to communicate progress, logs, and state back to the system.
-
-### Authentication
-
-SDK run endpoints require a **JWT Run Token**:
-
-- **Header**: `Authorization: Bearer <run_token>`
-- **Token Source**: Provided in the response when a job is triggered
-
-### Available Endpoints
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/log` | POST | Send structured logs (`message`, `level`, `type`, `data`) |
-| `/progress` | POST | Report completion percentage (`percent`, `message`, `step`) |
-| `/annotate` | POST | Add metadata annotations (max 50 per run) |
-| `/heartbeat` | POST | Signal the job is alive (prevents timeout) |
-| `/checkpoint` | POST | Save resumable state (`state` JSON) |
-| `/usage` | POST | Report AI model usage (`provider`, `model`, `tokens`, `cost_microusd`) |
-| `/tool-call` | POST | Record external tool invocation |
-| `/output` | POST | Store structured results/artifacts |
-| `/complete` | POST | Mark run as successfully completed |
-| `/fail` | POST | Mark run as failed |
-| `/wait-for-event` | POST | Pause run until external event arrives |
-| `/spawn` | POST | Create a child job run |
-| `/continue` | POST | Create a continuation run |
-
-### Using SDK Run Endpoints
-
-<CodeGroup>
-  ```ts TypeScript
-  import { createClient } from "@strait/ts";
-
-  // Create a client with the run token
-  const runClient = createClient({
-    baseUrl: "https://api.strait.dev",
-    auth: { type: "runToken", token: process.env.RUN_TOKEN! },
-  });
-
-  // Log progress
-  await runClient.logRun({
-    pathParams: { runID: "run-123" },
-    body: { message: "Processing batch 3/10", level: "info" },
-  });
+  // Create SDK client for this run
+  const ctx = createRunContext({ token });
 
   // Report progress
-  await runClient.reportProgress({
-    pathParams: { runID: "run-123" },
-    body: { percent: 30, message: "Processing..." },
+  await ctx.log('Sending email to ' + payload.to);
+  await ctx.heartbeat();
+
+  // Do the work
+  const result = await sendEmail(payload);
+
+  // Return result
+  res.json({ sent: true, messageId: result.id });
+});
+```
+
+Strait delivers the request with:
+
+- **`req.body.payload`** -- the data you passed when triggering the job.
+- **`req.body.run_id`** -- unique identifier for this run.
+- **`req.body.attempt`** -- which attempt this is (starts at 1, increments on retry).
+- **`x-sdk-token` header** -- a short-lived JWT for calling SDK endpoints during execution.
+
+---
+
+## SDK Run Context
+
+The run context gives your job handler methods to communicate state back to Strait:
+
+| Method | Purpose |
+|---|---|
+| `log(message, level?)` | Send structured logs visible in the dashboard |
+| `heartbeat()` | Signal the job is alive (call every 30s in long-running jobs) |
+| `checkpoint(state)` | Save resumable state; on retry, your handler receives this state |
+| `reportUsage(provider, model, tokens, cost)` | Track AI model usage and costs |
+| `spawnChild(jobName, payload)` | Create a child job run |
+| `progress(percent, message?)` | Report completion percentage |
+| `annotate(key, value)` | Attach metadata (max 50 annotations per run) |
+| `output(data)` | Store structured results or artifacts |
+| `waitForEvent(eventKey, timeoutSecs)` | Pause until an external event arrives |
+
+### Example: Long-Running Job with Checkpoints
+
+```typescript
+app.post('/jobs/process-csv', async (req, res) => {
+  const { payload, run_id } = req.body;
+  const ctx = createRunContext({ token: req.headers['x-sdk-token'] });
+
+  const rows = await fetchRows(payload.fileUrl);
+  let processed = payload.checkpoint?.processed ?? 0;
+
+  for (let i = processed; i < rows.length; i++) {
+    await processRow(rows[i]);
+    processed = i + 1;
+
+    // Checkpoint every 100 rows so retries resume here
+    if (processed % 100 === 0) {
+      await ctx.checkpoint({ processed });
+      await ctx.progress(Math.round((processed / rows.length) * 100));
+      await ctx.heartbeat();
+    }
+  }
+
+  res.json({ totalProcessed: processed });
+});
+```
+
+---
+
+## Authoring DSL
+
+For TypeScript, the SDK provides `defineJob` and `defineWorkflow` helpers that declare jobs with typed payloads, retry policies, and timeout configuration:
+
+```typescript
+import { defineJob } from '@strait/ts';
+
+export const sendEmail = defineJob({
+  name: 'send-email',
+  retry: { maxAttempts: 3, backoff: 'exponential' },
+  timeout: '30s',
+  handler: async (ctx, payload: { to: string; subject: string }) => {
+    await ctx.log(`Sending to ${payload.to}`);
+    return await mailer.send(payload);
+  },
+});
+```
+
+See [TypeScript SDK](/sdks/typescript) and [Python SDK](/sdks/python) for language-specific DSL documentation.
+
+---
+
+## Testing
+
+Use `createTestContext` to unit test job handlers without connecting to Strait:
+
+```typescript
+import { createTestContext } from '@strait/ts/testing';
+
+test('send-email handler', async () => {
+  const ctx = createTestContext();
+
+  const result = await sendEmail.handler(ctx, {
+    to: 'alice@example.com',
+    subject: 'Hello',
   });
 
-  // Complete the run
-  await runClient.completeRun({
-    pathParams: { runID: "run-123" },
-    body: { result: { processed: 100 } },
-  });
-  ```
+  expect(result.messageId).toBeDefined();
+  expect(ctx.logs).toContainEqual(
+    expect.objectContaining({ message: expect.stringContaining('alice') })
+  );
+});
+```
 
-  ```python Python
-  from strait import Client
+The test context captures logs, checkpoints, and heartbeats so you can assert on them without running the full system.
 
-  run_client = Client(
-      base_url="https://api.strait.dev",
-      run_token=os.environ["RUN_TOKEN"],
-  )
+---
 
   # Log progress
   run_client.sdk_runs.log_run("run-123", {
@@ -252,13 +274,13 @@ await ctx.complete({ status: "ok" });
 
 For the full runtime contract, see [Agents SDK](/docs/sdks/agents) and [Local Agent Development](/docs/guides/local-agent-development).
 
-## What's Next?
+## Next Steps
 
 <CardGroup cols={2}>
   <Card title="SDK Reference" icon="code" href="/sdks/overview">
-    Full SDK documentation — feature parity table, architecture, and per-language guides.
+    Full SDK documentation with per-language guides and feature parity table.
   </Card>
   <Card title="Configuration" icon="gear" href="/sdks/configuration">
-    `strait.json` schema reference, environment variable overrides, and migration guide.
+    strait.json schema, environment variables, and advanced configuration.
   </Card>
 </CardGroup>

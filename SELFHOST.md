@@ -7,7 +7,7 @@ Strait offers two self-hosting paths. Pick whichever matches how you want to run
 | Setup | One click | `make selfhost` |
 | Dashboard runs on | Your own Cloudflare account | Your own hardware |
 | API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
-| Postgres | Neon / Supabase / Fly PG / self-hosted | Bundled `postgres:18-alpine` |
+| Postgres | Neon / Supabase / any managed or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
 | Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
 
 Both options run the community edition with all open-source features.
@@ -127,7 +127,7 @@ The self-hosted version runs the **community edition** which includes:
 - SSE real-time streaming
 - API key management and RBAC
 - Run lifecycle management (cancel, replay, pause, resume)
-- Dead letter queue
+- Review queue for failed deliveries
 
 Cloud-only features (managed container execution, advanced analytics, multi-region) are available on [strait.dev](https://strait.dev).
 
@@ -193,7 +193,7 @@ Backups older than 30 days are automatically cleaned up.
 Restore from backup:
 
 ```bash
-gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres-1 psql -U strait strait
+gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres psql -U strait strait
 ```
 
 ## API Reference
@@ -207,7 +207,7 @@ The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
 
 ## Audit tamper-evidence hardening
 
-Strait's audit log is HMAC-signed, so any tampering is forensically detectable out of the box. For additional defense-in-depth, you can restrict the application database role to insert-only access on the `audit_events` table. This prevents a compromised process from modifying or deleting audit history.
+Strait's audit log is HMAC-signed (each entry includes a keyed hash that proves it has not been altered), so any tampering is forensically detectable out of the box. For additional defense-in-depth, you can restrict the application database role to insert-only access on the `audit_events` table. This prevents a compromised process from modifying or deleting audit history.
 
 See migration `000187_audit_events_dml_restrictions` for the exact setup, or check the [Mintlify docs](https://docs.strait.dev) for a step-by-step walkthrough. The `/health/ready` endpoint reports `audit_dml_guard: ok` once enforced.
 

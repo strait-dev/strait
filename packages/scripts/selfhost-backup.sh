@@ -2,7 +2,7 @@
 set -e
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
-CONTAINER="${CONTAINER:-strait-postgres-1}"
+CONTAINER="${CONTAINER:-strait-postgres}"
 
 mkdir -p "$BACKUP_DIR"
 

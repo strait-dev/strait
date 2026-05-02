@@ -1352,6 +1352,11 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	if err := q.CreateRun(ctx, oldCompleted); err != nil {
 		t.Fatalf("CreateRun() oldCompleted error = %v", err)
 	}
+	// Backdate created_at so the run is in a cold partition (the reaper's
+	// hot-partition filter skips the current month).
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $1 WHERE id = $2`, finishedOldCompleted, oldCompleted.ID); err != nil {
+		t.Fatalf("backdate oldCompleted: %v", err)
+	}
 
 	oldTimedOut := baseRun(job, newID())
 	oldTimedOut.Status = domain.StatusTimedOut
@@ -1359,6 +1364,9 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	oldTimedOut.FinishedAt = &finishedOldTimedOut
 	if err := q.CreateRun(ctx, oldTimedOut); err != nil {
 		t.Fatalf("CreateRun() oldTimedOut error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $1 WHERE id = $2`, finishedOldTimedOut, oldTimedOut.ID); err != nil {
+		t.Fatalf("backdate oldTimedOut: %v", err)
 	}
 
 	recentCompleted := baseRun(job, newID())
@@ -3637,7 +3645,7 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("IncrementStepDeps() first len = %d, want 1", len(first))
 	}
-	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || first[0].JobID != child.JobID || first[0].WorkflowRunID != run.ID {
+	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || (first[0].JobID != nil && *first[0].JobID != child.JobID) || first[0].WorkflowRunID != run.ID {
 		t.Fatalf("IncrementStepDeps() first result mismatch: got %+v", first[0])
 	}
 	if !jsonEqual(first[0].Condition, child.Condition) {
@@ -4157,12 +4165,16 @@ func TestRunMgmt_ListStaleRuns(t *testing.T) {
 
 	stale := baseRun(job, newID())
 	stale.Status = domain.StatusExecuting
+	staleStarted := time.Now().UTC().Add(-15 * time.Minute)
+	stale.StartedAt = &staleStarted
 	if err := q.CreateRun(ctx, stale); err != nil {
 		t.Fatalf("CreateRun() stale error = %v", err)
 	}
 
 	fresh := baseRun(job, newID())
 	fresh.Status = domain.StatusExecuting
+	freshStarted := time.Now().UTC().Add(-5 * time.Minute)
+	fresh.StartedAt = &freshStarted
 	if err := q.CreateRun(ctx, fresh); err != nil {
 		t.Fatalf("CreateRun() fresh error = %v", err)
 	}

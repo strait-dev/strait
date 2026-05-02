@@ -762,12 +762,10 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 		JWTSigningKey:           cfg.JWTSigningKey,
-		DequeueStrategy:         cfg.DequeueStrategy,
 		ContainerRuntime:        containerRuntime,
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
 		DefaultRegion:           cfg.DefaultRegion,
-		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
 
@@ -934,6 +932,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Interval: time.Hour,
 					Logger:   slog.Default(),
 				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithClaimReconciler(
+				scheduler.NewClaimReconciler(dbPool, 5*time.Minute),
 			),
 			scheduler.WithPartitionEnsurer(
 				scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
@@ -1285,6 +1286,21 @@ func startQueueHealthSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
 	}
 	g.Go(func(ctx context.Context) error {
 		slog.Info("queue health sampler started")
+		sampler.Run(ctx)
+		return nil
+	})
+}
+
+// startDBPoolSampler launches a goroutine that samples pgxpool connection
+// statistics every 15s and records them as OTel gauges.
+func startDBPoolSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
+	sampler, err := telemetry.NewPoolSampler(dbPool, 15*time.Second, slog.Default())
+	if err != nil {
+		slog.Warn("failed to create db pool sampler, skipping", "error", err)
+		return
+	}
+	g.Go(func(ctx context.Context) error {
+		slog.Info("db pool sampler started")
 		sampler.Run(ctx)
 		return nil
 	})

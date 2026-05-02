@@ -224,6 +224,7 @@ func hotSettingsSQL(partition string) string {
         autovacuum_vacuum_scale_factor = 0.01,
         autovacuum_analyze_scale_factor = 0.005,
         autovacuum_vacuum_cost_delay = 2,
+        autovacuum_vacuum_cost_limit = 1000,
         autovacuum_vacuum_insert_scale_factor = 0.01
     )`, quoted)
 }
@@ -237,6 +238,7 @@ func resetSettingsSQL(partition string) string {
         autovacuum_vacuum_scale_factor,
         autovacuum_analyze_scale_factor,
         autovacuum_vacuum_cost_delay,
+        autovacuum_vacuum_cost_limit,
         autovacuum_vacuum_insert_scale_factor
     )`, quoted)
 }

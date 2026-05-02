@@ -1,16 +1,22 @@
 ---
 title: "Workflow Simulator"
-description: "Preview workflow execution with sample payloads before deploying to production."
+description: "Test a workflow without executing real jobs. Validate structure, test conditions, and preview execution paths before deploying."
 sidebarTitle: "Simulator"
 ---
 
-The workflow simulator lets you test how a workflow will execute with sample data without touching production. It supports three modes: dry run, sandbox, and failure injection.
+The workflow simulator lets you test a workflow without executing real jobs. Validate your DAG structure, test conditions, and preview execution paths before deploying.
+
+## When to Use
+
+- Before deploying a workflow with complex step dependencies
+- After refactoring step ordering or adding conditional branches
+- When you want to verify fallback and compensation paths without triggering real side effects
 
 ## Simulation Modes
 
 ### Dry Run
 
-Walks through the DAG, evaluates conditions, resolves step dependencies, and returns the execution plan without calling any endpoints.
+Walks through the DAG, evaluates conditions, resolves step dependencies, and returns the planned execution order. No endpoints are called.
 
 ```
 POST /v1/workflows/{id}/simulate
@@ -20,13 +26,17 @@ POST /v1/workflows/{id}/simulate
 }
 ```
 
+Dry run assumes all conditions pass. Use it to verify step ordering and parallelism.
+
 ### Sandbox
 
-Executes against real endpoints but with a sandbox flag. Results are not persisted to production run history.
+Executes against real endpoints but marks all calls with a sandbox flag. Results are not persisted to production run history.
+
+Use sandbox mode when you need to verify actual endpoint responses but don't want runs to appear in production history.
 
 ### Failure Injection
 
-Injects failures at specified steps to test fallback paths and compensation behavior:
+Injects failures at specific steps to test fallback paths and compensation behavior:
 
 ```json
 {
@@ -38,18 +48,17 @@ Injects failures at specified steps to test fallback paths and compensation beha
 }
 ```
 
-## Simulation Result
+The response shows which steps would trigger compensation and which fallback branches activate.
+
+## Simulation Response
 
 The response includes:
 
-- **Execution plan**: Ordered list of steps with parallel groups, estimated durations, and cost estimates
-- **DAG visualization**: Nodes and edges for rendering the execution graph
-- **Estimated duration**: Critical path calculation (same algorithm as `expected_completion_at`)
-- **Estimated cost**: Sum of per-step job cost estimates from historical data
-- **Condition results**: Which conditional branches were taken (dry run assumes conditions pass)
-- **Failure paths**: Steps where failures were injected, with compensation indicators
-- **Compensation indicators**: Steps marked `would_compensate: true` if they have `compensation_job_id`
+- **Execution plan** — ordered list of steps with parallel groups and estimated durations
+- **Condition results** — which conditional branches were taken
+- **Estimated duration** — critical path calculation
+- **Failure paths** — steps where failures were injected, with compensation indicators
 
 ## Simulation History
 
-Past simulations are saved per user so you can re-run them and compare against actual executions.
+Past simulations are saved per user. You can re-run a previous simulation or compare it against actual workflow executions to verify your assumptions held up in production.

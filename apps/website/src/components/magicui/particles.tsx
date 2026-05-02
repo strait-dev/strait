@@ -173,7 +173,11 @@ const Particles = ({
     initCanvas();
     rafRef.current = requestAnimationFrame(animate);
 
-    const resizeObserver = new ResizeObserver(() => {
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
       initCanvas();
     });
     resizeObserver.observe(canvasContainerRef.current);

@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: publish-runtimes-${{ github.ref }}
@@ -29,6 +28,7 @@ jobs:
   resolve-tag:
     name: Resolve image tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.tag.outputs.value }}
       push: ${{ steps.tag.outputs.push }}
@@ -50,6 +50,10 @@ jobs:
   build:
     name: Build ${{ matrix.runtime }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
     needs: resolve-tag
     strategy:
       fail-fast: false
@@ -117,7 +121,7 @@ jobs:
 
       - name: Scan ${{ matrix.runtime }} for vulnerabilities
         if: needs.resolve-tag.outputs.push == 'true'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/runtime-${{ matrix.runtime }}:${{ needs.resolve-tag.outputs.tag }}
           format: table

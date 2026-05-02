@@ -380,22 +380,22 @@ export const CostAnimation = () => {
 /* -- 4. Language SDKs: Language badges -- */
 export const SdkAnimation = () => {
   const langs = [
-    { label: "TS", active: true },
-    { label: "Py", active: false },
+    { label: "TypeScript", active: true },
+    { label: "Python", active: false },
     { label: "Go", active: false },
-    { label: "Rb", active: false },
-    { label: "Rs", active: false },
+    { label: "Ruby", active: false },
+    { label: "Rust", active: false },
   ];
 
   return (
     <svg
-      className="w-full max-w-[240px]"
+      className="w-full max-w-[520px]"
       fill="none"
-      viewBox="0 0 240 52"
+      viewBox="0 0 520 52"
       xmlns="http://www.w3.org/2000/svg"
     >
       {langs.map((lang, i) => {
-        const x = i * 46 + 7;
+        const x = i * 100 + 7;
         return (
           <g key={lang.label}>
             <rect
@@ -408,7 +408,7 @@ export const SdkAnimation = () => {
               rx="8"
               stroke={lang.active ? "var(--primary)" : "var(--border)"}
               strokeWidth={lang.active ? 1.5 : 1}
-              width="36"
+              width="88"
               x={x}
               y="8"
             />
@@ -418,7 +418,7 @@ export const SdkAnimation = () => {
               fontSize="12"
               fontWeight={lang.active ? 600 : 400}
               textAnchor="middle"
-              x={x + 18}
+              x={x + 44}
               y="26"
             >
               {lang.label}

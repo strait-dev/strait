@@ -310,6 +310,10 @@ func (q *PostgresQueue) insertPreparedRun(
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
+	// Claim rows for the dequeue hot path are created by the
+	// trg_job_runs_claim_queue_sync trigger (migration 000224), which fires
+	// on the job_runs INSERT above. No application-level dual-write needed.
+
 	return nil
 }
 
@@ -465,6 +469,9 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
 	}
 
+	// Claim rows for the dequeue hot path are created by the
+	// trg_job_runs_claim_queue_sync trigger (migration 000224), which fires
+	// on the COPY INSERT above. No application-level dual-write needed.
 	// Wake workers via pg_notify.
 	if n > 0 {
 		if _, notifyErr := q.db.Exec(ctx, "SELECT pg_notify($1, $2)", QueueWakeChannel, fmt.Sprintf("%d", n)); notifyErr != nil {
@@ -481,8 +488,15 @@ const dequeueColumns = `id, job_id, project_id, status, attempt, payload, result
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id`
 
-// concurrencyCTEs pre-computes active run counts per job and per concurrency key,
-// replacing correlated COUNT(*) subqueries that re-execute per candidate row.
+// concurrencyCTEs is the fallback concurrency-checking path used when
+// QUEUE_USE_DENORMALIZED_DEQUEUE is false. It scans all active runs
+// per dequeue call (O(active_runs)). The default denormalized path
+// uses job_active_counts for O(1) lookups instead.
+//
+// The supporting indexes (idx_job_runs_active_by_job and
+// idx_job_runs_concurrency_key_active) were dropped in migration
+// 000221. This CTE path still works -- Postgres will seq-scan the
+// partition -- but performance degrades with many in-flight runs.
 const concurrencyCTEs = `
 active_by_job AS (
     SELECT job_id, COUNT(*) as cnt
@@ -538,7 +552,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		defer cleanup()
 	}
 
-	query := fmt.Sprintf(`
+	query := "/* action=dequeue */ " + fmt.Sprintf(`
 		WITH %s
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
@@ -631,6 +645,39 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 	})
 }
 
+// DequeueNTwoPhase is the two-phase variant that separates the B-tree scan
+// from the fat-row fetch. Phase 1 claims IDs with a thin RETURNING id;
+// phase 2 fetches the full 38-column rows by PK. This eliminates fat-row
+// deserialization during the SKIP LOCKED scan, which is the dominant cost
+// when dead tuples force repeated heap page reads.
+func (q *PostgresQueue) DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return executeDequeueTwoPhase(ctx, q, n, dequeueSpec{
+		spanName:            "queue.DequeueNTwoPhase",
+		skipConcurrencyCTEs: true,
+		candidatesSQL: fmt.Sprintf(`
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = '%s'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1`, domain.StatusQueued, q.dequeueOrderByClause()),
+	})
+}
+
 // DequeueNDenormalized is the denormalized variant that replaces the
 // COUNT-over-active-rows CTE with a lookup against the job_active_counts
 // table. The maintenance trigger guarantees the counter stays in sync with
@@ -671,8 +718,9 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 // DequeueNWithCursor is the cursor-aware variant. When cursor is
 // non-nil and has a valid snapshot, its (created_at, id) pair is added to
 // the claim predicate so Postgres can skip past already-visited heap tuples
-// during B-tree descent. On empty result (no runs claimable beyond the
-// cursor) the cursor is reset so older rows remain reachable.
+// during B-tree descent. On empty or partial result (fewer runs returned
+// than requested) the cursor is reset so older rows -- retries, backdated
+// runs -- remain reachable.
 func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *ClaimCursor) ([]domain.JobRun, error) {
 	if n <= 0 {
 		return nil, nil
@@ -707,12 +755,14 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, cursorClause, orderBy),
 		extraArgs: extraArgs,
 		postScanFn: func(runs []domain.JobRun) error {
-			if len(runs) == 0 {
+			if len(runs) < n {
+				// Partial or empty result: reset cursor so retried runs,
+				// backdated created_at, and next_retry_at rows that fall
+				// behind the cursor position become reachable again.
 				cursor.Reset()
-			} else {
-				for i := range runs {
-					cursor.Advance(runs[i].CreatedAt, runs[i].ID)
-				}
+			}
+			for i := range runs {
+				cursor.Advance(runs[i].CreatedAt, runs[i].ID)
 			}
 			return nil
 		},
@@ -797,4 +847,175 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			LIMIT $1`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
 		extraArgs: []any{projectID},
 	})
+}
+
+// Claim table dequeue support.
+
+// Pre-computed SQL for DequeueNClaim; avoids fmt.Sprintf per call.
+var claimDeleteSQL = "/* action=dequeue */ " + `
+	DELETE FROM job_run_queue
+	WHERE run_id IN (
+		SELECT q.run_id
+		FROM job_run_queue q
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = q.job_id AND jac_job.concurrency_key = ''
+		LEFT JOIN job_active_counts jac_key
+		  ON jac_key.job_id = q.job_id
+		  AND jac_key.concurrency_key = COALESCE(q.concurrency_key, '')
+		WHERE COALESCE(q.job_enabled, true) = true
+		  AND COALESCE(q.job_paused, false) = false
+		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
+		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
+		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
+		       OR q.concurrency_key IS NULL
+		       OR q.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
+		ORDER BY q.priority DESC, q.created_at ASC
+		FOR UPDATE OF q SKIP LOCKED
+		LIMIT $1
+	)
+	RETURNING run_id`
+
+var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
+	WITH claimed_update AS (
+		UPDATE job_runs
+		SET status = '%s', started_at = NOW(), heartbeat_at = NOW()
+		WHERE id = ANY($1)
+		  AND status IN ('queued', 'delayed')
+		RETURNING %s
+	)
+	SELECT %s FROM claimed_update ORDER BY created_at ASC`,
+	domain.StatusExecuting, dequeueColumns, dequeueColumns)
+
+// claimInsertFromJobSQL inserts a claim row using a subquery against jobs
+// so enabled/paused/concurrency reflect the current job config.
+const claimInsertFromJobSQL = `
+	INSERT INTO job_run_queue (
+		run_id, job_id, project_id, priority, created_at,
+		scheduled_at, next_retry_at, concurrency_key,
+		job_max_concurrency, job_max_concurrency_per_key,
+		job_enabled, job_paused
+	)
+	SELECT $1, $2, $3, $4, $5, $6, $7, $8,
+		j.max_concurrency, j.max_concurrency_per_key,
+		j.enabled, j.paused
+	FROM jobs j
+	WHERE j.id = $2
+	ON CONFLICT (run_id) DO NOTHING`
+
+// InsertClaimRow inserts a claim row into job_run_queue for the given run.
+func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
+	_, err := db.Exec(ctx, claimInsertFromJobSQL,
+		run.ID, run.JobID, run.ProjectID, run.Priority, run.CreatedAt,
+		run.ScheduledAt, run.NextRetryAt,
+		dbscan.NilIfEmptyString(run.ConcurrencyKey),
+	)
+	if err != nil {
+		return fmt.Errorf("insert claim row: %w", err)
+	}
+	return nil
+}
+
+// InsertClaimRowFromEnqueue inserts a claim row at enqueue time,
+// using NOW() for created_at since job_runs hasn't committed yet.
+func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
+	_, err := db.Exec(ctx, claimInsertFromJobSQL,
+		run.ID, run.JobID, run.ProjectID, run.Priority, time.Now(),
+		run.ScheduledAt, run.NextRetryAt,
+		dbscan.NilIfEmptyString(run.ConcurrencyKey),
+	)
+	if err != nil {
+		slog.Warn("insert claim row from enqueue failed", "error", err, "run_id", run.ID, "job_id", run.JobID)
+		return nil
+	}
+	return nil
+}
+
+// DequeueNClaim deletes from the thin job_run_queue table,
+// then updates+fetches the full job_runs rows in one CTE.
+func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNClaim")
+	defer span.End()
+
+	if n <= 0 {
+		return nil, nil
+	}
+
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return q.DequeueNTwoPhase(ctx, n)
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue claim: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+			return nil, fmt.Errorf("dequeue claim: set statement timeout: %w", err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, claimDeleteSQL, n)
+	if err != nil {
+		// Undefined table = pre-migration; fall back to two-phase.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
+			_ = tx.Rollback(ctx)
+			return q.DequeueNTwoPhase(ctx, n)
+		}
+		return nil, fmt.Errorf("dequeue claim: delete: %w", err)
+	}
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("dequeue claim: scan id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue claim: rows: %w", err)
+	}
+
+	if len(ids) == 0 {
+		_ = tx.Commit(ctx)
+		return nil, nil
+	}
+
+	// Update status directly to 'executing' (skipping 'dequeued') since the
+	// claim DELETE already represents "claimed". Fewer dead tuples on job_runs.
+	fetchRows, err := tx.Query(ctx, claimUpdateFetchSQL, ids)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue claim: update+fetch: %w", err)
+	}
+	defer fetchRows.Close()
+
+	runs := make([]domain.JobRun, 0, len(ids))
+	for fetchRows.Next() {
+		run, err := dbscan.ScanRun(fetchRows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue claim: fetch scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := fetchRows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue claim: fetch rows: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("dequeue claim: commit: %w", err)
+	}
+
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
 }

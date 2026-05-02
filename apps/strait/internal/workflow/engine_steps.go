@@ -175,7 +175,13 @@ func (e *WorkflowEngine) startStep(
 		"started_at": now,
 		"job_run_id": jobRun.ID,
 	}); err != nil {
-		return fmt.Errorf("set step run running: %w", err)
+		e.logger.Error("step run status update failed after job enqueued",
+			"step_run_id", stepRun.ID,
+			"job_run_id", jobRun.ID,
+			"step_ref", step.StepRef,
+			"error", err,
+		)
+		return fmt.Errorf("set step run running (job %s already enqueued): %w", jobRun.ID, err)
 	}
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now

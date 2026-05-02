@@ -98,10 +98,19 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 	shortCutoff := time.Now().Add(-shortRetention)
 	longCutoff := time.Now().Add(-longRetention)
 
+	// Exclude the current month's partition to avoid creating dead tuples
+	// in the hot partition that the dequeue hot path scans. The DELETE
+	// + INSERT INTO history CTE is particularly expensive: it creates
+	// dead tuples on both the source table and generates WAL for the
+	// history insert. By skipping the hot partition, we let pg_partman
+	// handle cleanup when the entire partition ages out.
+	hotBoundary := beginningOfMonth(time.Now())
+
 	query := `
 		WITH to_archive AS (
 			SELECT id, created_at FROM job_runs
 			WHERE finished_at IS NOT NULL
+			  AND created_at < $4
 			  AND (
 				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
 				OR
@@ -121,7 +130,7 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 		)
 		DELETE FROM job_runs WHERE id IN (SELECT id FROM archived)`
 
-	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, batchSize)
+	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, batchSize, hotBoundary)
 	if err != nil {
 		return 0, fmt.Errorf("archive terminal runs: %w", err)
 	}

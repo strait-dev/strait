@@ -15,19 +15,14 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-// cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
-// so the executor can thread a claim cursor through DequeueN without
-// expanding the base queue.Queue interface (and therefore without breaking
-// every mock in the repository).
-type cursorAwareQueue interface {
-	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
+// twoPhaseDequeuer claims IDs first, then fetches full rows by PK.
+type twoPhaseDequeuer interface {
+	DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
-// denormalizedDequeuer is the optional interface for the
-// job_active_counts-backed dequeue path. Same pattern as cursorAwareQueue:
-// opt-in via type assertion to avoid expanding the base Queue interface.
-type denormalizedDequeuer interface {
-	DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
+// claimTableDequeuer deletes from job_run_queue, then fetches from job_runs.
+type claimTableDequeuer interface {
+	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
 func (e *Executor) poll(ctx context.Context) {
@@ -70,17 +65,12 @@ func (e *Executor) poll(ctx context.Context) {
 		switch {
 		case len(e.partitionCycle) > 0:
 			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
-		case e.dequeueStrategy == "fair_round_robin":
-			runs, err = e.queue.DequeueNFair(innerCtx, available)
-		case e.useDenormalizedDequeue:
-			if dq, ok := e.queue.(denormalizedDequeuer); ok {
-				runs, err = dq.DequeueNDenormalized(innerCtx, available)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
 		default:
-			if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
-				runs, err = cq.DequeueNWithCursor(innerCtx, available, e.claimCursor)
+			// Prefer claim_table > two_phase > DequeueN.
+			if cq, ok := e.queue.(claimTableDequeuer); ok {
+				runs, err = cq.DequeueNClaim(innerCtx, available)
+			} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
+				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
 			} else {
 				runs, err = e.queue.DequeueN(innerCtx, available)
 			}
@@ -122,7 +112,7 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority", run.Priority,
 		)
 
-		execCtx := context.WithoutCancel(ctx)
+		execCtx := withDispatchCache(context.WithoutCancel(ctx))
 		e.pool.Submit(execCtx, func() {
 			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
@@ -173,11 +163,8 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 		partStart := time.Now()
 		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
 		if qm != nil {
-			// We intentionally do NOT attach the partition/project_id as
-			// a label here: in fair-share mode the partition cycle holds
-			// project ids, which would explode Prometheus cardinality
-			// to O(projects). Aggregate across partitions instead; the
-			// per-tenant breakdown lives in ClickHouse analytics.
+			// Avoid attaching partition/project_id as a label here;
+			// in fair-share mode that would explode Prometheus cardinality.
 			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
 		}
 		if err != nil {

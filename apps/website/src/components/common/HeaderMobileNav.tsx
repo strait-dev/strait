@@ -24,7 +24,7 @@ const MobileNavGroup = ({
     <div>
       <button
         aria-expanded={expanded}
-        className="flex w-full items-center justify-between rounded-md px-3 py-2 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
+        className="flex w-full items-center justify-between rounded-md px-3 py-2 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={toggleExpanded}
         type="button"
       >
@@ -50,7 +50,7 @@ const MobileNavGroup = ({
               <div className="flex flex-col gap-0.5">
                 {section.links.map((link) => (
                   <a
-                    className="rounded-md px-3 py-1.5 text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
+                    className="rounded-md px-3 py-1.5 text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     href={link.href}
                     key={link.href}
                     onClick={onNavigate}
@@ -64,7 +64,7 @@ const MobileNavGroup = ({
 
           {group.featured && (
             <a
-              className="inline-flex items-center gap-1 px-3 py-1.5 font-medium text-primary text-sm"
+              className="inline-flex items-center gap-1 px-3 py-1.5 font-medium text-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               href={group.featured.href}
               onClick={onNavigate}
             >
@@ -146,7 +146,7 @@ const MobileNav = () => {
       </Button>
 
       {isOpen && (
-        <div className="absolute top-full right-0 left-0 mt-2 px-4">
+        <div className="absolute top-full right-0 left-0 z-50 mt-2 px-4">
           <div
             className="rounded-xl border border-border/40 bg-background/95 p-4 shadow-lg backdrop-blur-md"
             id="mobile-nav-panel"
@@ -166,7 +166,7 @@ const MobileNav = () => {
 
                 return (
                   <a
-                    className="inline-flex h-9 items-center rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
+                    className="inline-flex h-9 items-center rounded-md px-3 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     href={item.href}
                     key={item.label}
                     onClick={close}
@@ -177,19 +177,22 @@ const MobileNav = () => {
               })}
             </div>
             <div className="mt-3 flex flex-col gap-2 border-border/40 border-t pt-3">
-              <a
-                className="inline-flex h-9 items-center justify-center rounded-md px-4 font-medium text-foreground/80 text-sm transition-colors hover:bg-muted/50 hover:text-foreground"
-                href={dashboardHref("/login")}
+              <Button
+                // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+                render={<a href={dashboardHref("/login")} />}
+                size="default"
+                variant="ghost"
               >
                 Sign in
-              </a>
-              <a
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-primary/80 px-4 font-medium text-primary-foreground text-sm"
-                href={dashboardHref("/login")}
+              </Button>
+              <Button
+                // biome-ignore lint/a11y/useAnchorContent: content provided by Button children
+                render={<a href={dashboardHref("/login")} />}
+                size="default"
               >
                 Run your first job
                 <HugeiconsIcon className="size-4" icon={ArrowRight02Icon} />
-              </a>
+              </Button>
             </div>
           </div>
         </div>

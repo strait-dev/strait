@@ -1,84 +1,68 @@
-import { useEffect, useRef, useState } from "react";
+import { motion, useInView, useReducedMotion } from "motion/react";
+import { useRef } from "react";
 import Shell from "@/components/layout/shell.tsx";
-import DottedMap from "@/components/magicui/dotted-map.tsx";
 
 const ARCHITECTURE = [
-  "Postgres-backed job queue",
-  "Full lifecycle tracking",
+  "Reliable job queue",
+  "Full run lifecycle tracking",
   "DAG workflow orchestration",
-  "Exponential backoff + jitter retries",
-  "Dead letter queue with replay",
+  "Automatic retries with backoff",
+  "Failed job recovery and replay",
   "Secure signed webhooks",
-  "TypeScript, Go & Python SDKs",
+  "TypeScript, Go, and Python SDKs",
   "Per-run and daily cost budgets",
 ];
 
 const ArchitectureList = () => {
-  const [visibleCount, setVisibleCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          observer.disconnect();
-          let count = 0;
-          const id = setInterval(() => {
-            count++;
-            setVisibleCount(count);
-            if (count >= ARCHITECTURE.length) {
-              clearInterval(id);
-            }
-          }, 120);
-        }
-      },
-      { threshold: 0.2 }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const isInView = useInView(containerRef, { once: true, margin: "-64px" });
+  const prefersReduced = useReducedMotion();
 
   return (
     <div className="flex flex-wrap gap-2" ref={containerRef}>
       {ARCHITECTURE.map((item, i) => (
-        <span
-          className={`rounded-full border border-border/60 bg-card px-3 py-1.5 text-sm transition-all duration-300 ${
-            i < visibleCount
-              ? "text-foreground opacity-100"
-              : "text-muted-foreground/30 opacity-0"
-          }`}
+        <motion.span
+          animate={
+            prefersReduced || isInView
+              ? { opacity: 1, y: 0 }
+              : { opacity: 0, y: 8 }
+          }
+          className="rounded-full border border-border/60 bg-card px-3 py-1.5 text-foreground text-sm"
+          initial={prefersReduced ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
           key={item}
+          transition={
+            prefersReduced
+              ? { duration: 0 }
+              : { duration: 0.3, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] }
+          }
         >
           {item}
-        </span>
+        </motion.span>
       ))}
     </div>
   );
 };
 
 const CredibilitySection = () => (
-  <section className="infinity-border-y overflow-hidden py-20 sm:py-28">
+  <section
+    className="infinity-border-y overflow-hidden py-20 sm:py-28"
+    id="credibility"
+  >
     <Shell variant="wide">
       <div className="mb-14 max-w-3xl">
         <h2 className="text-balance text-2xl leading-[1.2] sm:text-3xl lg:text-4xl">
           <span className="text-foreground">
-            Open source. Battle-tested patterns.
+            Built for production. Trusted by teams.
           </span>{" "}
           <span className="text-muted-foreground">
-            Read the source, audit the FSM, run the benchmarks. Every technical
-            decision is public.
+            Every design decision is documented. The architecture, the
+            tradeoffs, and the source code are all public.
           </span>
         </h2>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3">
-        {/* Open Source */}
+        {/* Transparent by default */}
         <div className="p-6 sm:p-8">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
@@ -91,17 +75,21 @@ const CredibilitySection = () => (
               </svg>
             </div>
             <div>
-              <h3 className="font-semibold text-foreground">Open Source</h3>
-              <p className="text-muted-foreground text-sm">Apache 2.0</p>
+              <h3 className="font-semibold text-foreground">
+                Transparent by default
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                Apache 2.0 license
+              </p>
             </div>
           </div>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Full source on GitHub. Read every line of the queue, the FSM, and
-            the scheduler. Fork it, extend it, or contribute back.
+            Every component is open source. Review the job queue, workflow
+            engine, and scheduler. Extend it or contribute back.
           </p>
           <div className="mt-4 flex items-center gap-4">
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs">
-              TS · Go · Python
+              TypeScript · Go · Python
             </span>
             <span className="text-muted-foreground/60 text-xs">
               Apache 2.0 License
@@ -114,58 +102,232 @@ const CredibilitySection = () => (
           <h3 className="mb-4 font-semibold text-foreground">
             Technical Foundation
           </h3>
-          <DottedMap
-            className="mb-4 rounded-lg"
-            dotColor="var(--muted-foreground)"
-            markerColor="var(--primary)"
-            markers={[
-              { lat: 39.0, lng: -77.5 },
-              { lat: 50.1, lng: 8.7 },
-              { lat: 1.3, lng: 103.8 },
-              { lat: 35.7, lng: 139.7 },
-            ]}
-          />
+          <svg
+            className="mb-4 w-full rounded-lg"
+            fill="none"
+            viewBox="0 0 320 120"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {/* App node */}
+            <rect
+              fill="var(--muted)"
+              height="36"
+              rx="6"
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              width="56"
+              x="8"
+              y="42"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="11"
+              fontWeight="500"
+              textAnchor="middle"
+              x="36"
+              y="64"
+            >
+              App
+            </text>
+
+            {/* Arrow: App -> Strait */}
+            <line
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              x1="64"
+              x2="96"
+              y1="60"
+              y2="60"
+            />
+            <polygon fill="var(--border)" points="93,56 100,60 93,64" />
+
+            {/* Strait group box */}
+            <rect
+              fill="var(--muted)"
+              height="104"
+              rx="8"
+              stroke="var(--primary)"
+              strokeDasharray="4 3"
+              strokeWidth="1.5"
+              width="132"
+              x="100"
+              y="8"
+            />
+            <text
+              fill="var(--primary)"
+              fontSize="10"
+              fontWeight="600"
+              textAnchor="middle"
+              x="166"
+              y="24"
+            >
+              Strait
+            </text>
+
+            {/* Queue */}
+            <rect
+              fill="var(--background, #fff)"
+              height="26"
+              rx="4"
+              stroke="var(--border)"
+              strokeWidth="1"
+              width="52"
+              x="112"
+              y="34"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="138"
+              y="51"
+            >
+              Queue
+            </text>
+
+            {/* Worker */}
+            <rect
+              fill="var(--background, #fff)"
+              height="26"
+              rx="4"
+              stroke="var(--border)"
+              strokeWidth="1"
+              width="52"
+              x="112"
+              y="68"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="138"
+              y="85"
+            >
+              Worker
+            </text>
+
+            {/* Scheduler */}
+            <rect
+              fill="var(--background, #fff)"
+              height="26"
+              rx="4"
+              stroke="var(--border)"
+              strokeWidth="1"
+              width="52"
+              x="172"
+              y="51"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="198"
+              y="68"
+            >
+              Scheduler
+            </text>
+
+            {/* Internal connections */}
+            <line
+              stroke="var(--border)"
+              strokeWidth="1"
+              x1="138"
+              x2="138"
+              y1="60"
+              y2="68"
+            />
+            <line
+              stroke="var(--border)"
+              strokeWidth="1"
+              x1="164"
+              x2="172"
+              y1="47"
+              y2="58"
+            />
+            <line
+              stroke="var(--border)"
+              strokeWidth="1"
+              x1="164"
+              x2="172"
+              y1="81"
+              y2="72"
+            />
+
+            {/* Arrow: Strait -> Postgres */}
+            <line
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              x1="232"
+              x2="260"
+              y1="60"
+              y2="60"
+            />
+            <polygon fill="var(--border)" points="257,56 264,60 257,64" />
+
+            {/* Postgres node */}
+            <rect
+              fill="var(--muted)"
+              height="36"
+              rx="6"
+              stroke="var(--border)"
+              strokeWidth="1.5"
+              width="52"
+              x="264"
+              y="42"
+            />
+            <text
+              fill="var(--foreground)"
+              fontSize="9"
+              fontWeight="500"
+              textAnchor="middle"
+              x="290"
+              y="58"
+            >
+              Postgres
+            </text>
+            <text
+              fill="var(--muted-foreground)"
+              fontSize="7"
+              textAnchor="middle"
+              x="290"
+              y="70"
+            >
+              (durable store)
+            </text>
+          </svg>
           <ArchitectureList />
         </div>
 
-        {/* Infrastructure Comparison */}
+        {/* Why teams switch */}
         <div className="border-border border-t p-6 sm:p-8 lg:border-t-0 lg:border-l">
           <h3 className="mb-4 font-semibold text-foreground">
-            Infrastructure Comparison
+            Why teams switch
           </h3>
-          <div className="space-y-3">
-            <div className="rounded-lg bg-muted/30 p-3">
-              <p className="mb-2 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                Typical Stack
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {["Redis", "Celery/BullMQ", "Airflow", "Custom Retry"].map(
-                  (item) => (
-                    <span
-                      className="rounded bg-destructive/10 px-2 py-0.5 text-destructive text-xs"
-                      key={item}
-                    >
-                      {item}
-                    </span>
-                  )
-                )}
-              </div>
-              <p className="mt-2 text-muted-foreground/60 text-xs">
-                4 services to maintain
-              </p>
-            </div>
-            <div className="rounded-lg bg-success/5 p-3">
-              <p className="mb-2 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                Strait
-              </p>
-              <span className="rounded bg-success/10 px-2 py-0.5 text-success text-xs">
-                Single lightweight runtime + Postgres
-              </span>
-              <p className="mt-2 text-muted-foreground/60 text-xs">
-                1 service to maintain
-              </p>
-            </div>
-          </div>
+          <ul className="space-y-3">
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Replace 4+ services with one platform
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Go from zero to running jobs in under 5 minutes
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Built-in retries, workflows, and cost tracking
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              Full visibility into every job and workflow run
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground text-sm leading-relaxed">
+              <span className="mt-1 inline-block size-1.5 shrink-0 rounded-full bg-primary" />
+              5 language SDKs, so every team can use it
+            </li>
+          </ul>
         </div>
       </div>
     </Shell>

@@ -81,6 +81,8 @@ func (h *HealthSampler) SampleOnce(ctx context.Context) {
 	h.sampleHistoryLiveTuples(ctx)
 	h.sampleQueueDepthByStatus(ctx)
 	h.sampleStrandedTerminal(ctx)
+	h.sampleIndexHealth(ctx)
+	h.sampleClaimTableHealth(ctx)
 }
 
 func (h *HealthSampler) samplePartitions(ctx context.Context) {
@@ -185,4 +187,30 @@ WHERE status = 'queued'
 		return
 	}
 	h.metrics.OldestQueuedAge.Record(ctx, age)
+}
+
+func (h *HealthSampler) sampleIndexHealth(ctx context.Context) {
+	// pgstatindex requires the pgstattuple extension. When the extension
+	// is not installed (common on managed Postgres without explicit
+	// CREATE EXTENSION), the query fails gracefully and we skip the
+	// metric.
+	const q = `SELECT COALESCE(dead_items, 0) FROM pgstatindex('idx_runs_queue_covering')`
+	var deadItems int64
+	if err := h.db.QueryRow(ctx, q).Scan(&deadItems); err != nil {
+		// Expected on instances without pgstattuple; debug-level only.
+		h.logger.Debug("queue health sample: pgstatindex not available", "error", err)
+		return
+	}
+	h.metrics.IndexDeadItems.Record(ctx, deadItems)
+}
+
+func (h *HealthSampler) sampleClaimTableHealth(ctx context.Context) {
+	const q = `SELECT COALESCE(n_live_tup, 0), COALESCE(n_dead_tup, 0) FROM pg_stat_user_tables WHERE relname = 'job_run_queue'`
+	var live, dead int64
+	if err := h.db.QueryRow(ctx, q).Scan(&live, &dead); err != nil {
+		h.logger.Debug("queue health sample: claim table stats failed", "error", err)
+		return
+	}
+	h.metrics.ClaimTableLiveTuples.Record(ctx, live)
+	h.metrics.ClaimTableDeadTuples.Record(ctx, dead)
 }

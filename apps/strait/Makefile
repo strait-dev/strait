@@ -18,7 +18,7 @@ test-integration:
 	go test -race -tags=integration -timeout=20m ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e
 
 lint:
-	golangci-lint run --timeout=5m ./...
+	golangci-lint run --timeout=10m ./...
 
 vet:
 	go vet ./...
@@ -53,8 +53,8 @@ deploy: preflight ## Deploy (see strait-dev/infra repo for K8s manifests)
 #   make dev-down     Stop everything (Postgres, Redis, Sequin, kind)
 
 DEV_ENV = \
-	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
-	REDIS_URL="redis://localhost:6379" \
+	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
+	REDIS_URL="redis://localhost:16379" \
 	INTERNAL_SECRET="local-dev-internal-secret-change-me" \
 	JWT_SIGNING_KEY="local-dev-jwt-signing-key-change-me-32chars" \
 	ALLOW_PRIVATE_ENDPOINTS=true \
@@ -83,8 +83,8 @@ dev-up:
 	)
 	@echo ""
 	@echo "Infrastructure ready:"
-	@echo "  Postgres:    localhost:5432 (strait/strait)"
-	@echo "  Redis:       localhost:6379"
+	@echo "  Postgres:    localhost:15432 (strait/strait)"
+	@echo "  Redis:       localhost:16379"
 	@echo "  Sequin:      localhost:7376"
 	@echo "  Kubernetes:  kind-strait (kubectl --context kind-strait)"
 	@echo ""
@@ -149,8 +149,8 @@ test-k8s-stress:
 LOADTEST_PORT ?= 7676
 
 LOADTEST_ENV = \
-	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
-	REDIS_URL="redis://localhost:6379" \
+	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
+	REDIS_URL="redis://localhost:16379" \
 	INTERNAL_SECRET="loadtest-secret-that-is-long-enough" \
 	JWT_SIGNING_KEY="loadtest-jwt-signing-key-at-least-32-chars" \
 	ALLOW_PRIVATE_ENDPOINTS=true \
@@ -161,8 +161,8 @@ LOADTEST_ENV = \
 LOADTEST_RUN = \
 	LOADTEST_STRAIT_URL=http://localhost:$(LOADTEST_PORT) \
 	INTERNAL_SECRET="loadtest-secret-that-is-long-enough" \
-	DATABASE_URL="postgres://strait:strait@localhost:5432/strait?sslmode=disable" \
-	REDIS_URL="redis://localhost:6379"
+	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
+	REDIS_URL="redis://localhost:16379"
 
 loadtest-server:
 	$(LOADTEST_ENV) go run ./cmd/strait

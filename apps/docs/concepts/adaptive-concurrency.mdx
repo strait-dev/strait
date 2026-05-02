@@ -1,39 +1,71 @@
 ---
 title: "Adaptive Concurrency"
-description: "Dynamic worker pool sizing based on system load and throughput."
+description: "Automatic worker pool scaling based on system load, throughput, and error rates."
 sidebarTitle: "Adaptive Concurrency"
 ---
 
-Adaptive concurrency automatically adjusts the number of workers between configurable min/max bounds based on observed throughput and error rates. Use it when your workload fluctuates and you want Strait to scale execution capacity without manual tuning.
+Adaptive concurrency automatically scales the number of workers between a min and max bound based on observed throughput and error rates. Instead of picking a fixed worker count, Strait adjusts execution capacity in real time so you don't have to.
 
-## Overview
+## When to Use It
 
-Instead of a fixed worker count, Strait monitors job completion rates, error rates, and queue depth, then adjusts concurrency in real time. This prevents a burst of traffic from overwhelming downstream services while still processing as fast as conditions allow.
+Your API handles 100 requests/second normally but spikes to 500 during peak hours. With a fixed worker pool sized for the peak, you waste resources 90% of the time. Sized for the average, you drop work during spikes.
+
+Adaptive concurrency scales the pool up during the spike and back down after, so you get both efficiency and capacity.
+
+Use it when:
+
+- **Load is unpredictable**: Traffic patterns vary by time of day, events, or upstream triggers.
+- **Downstream services have limits**: Strait backs off when error rates increase, protecting APIs you call from being overwhelmed.
+- **You want efficiency without tuning**: Only the workers needed for current demand are active.
 
 ## How It Works
 
-The system monitors job completion rates, error rates, and queue depth to determine the ideal concurrency level for the current environment.
+Strait uses AIMD (Additive Increase, Multiplicative Decrease) — the same algorithm TCP uses for congestion control.
 
-- **Scaling Up**: When throughput is high and error rates remain low, the system gradually increases the number of concurrent workers to maximize processing speed.
-- **Scaling Down**: When errors spike or throughput drops significantly, the system aggressively reduces concurrency to alleviate pressure on the system.
-- **Algorithm**: Uses AIMD (Additive Increase, Multiplicative Decrease) -- the same approach TCP uses for congestion control. Concurrency rises gradually when things are healthy and drops sharply when errors spike, converging on a stable operating point.
+### Scaling Up
+
+When throughput is high and errors stay low, Strait increases the worker count by 1 each monitoring interval. Gradual increases avoid overshooting — the pool climbs steadily until it hits the ceiling or errors appear.
+
+### Scaling Down
+
+When errors spike or throughput drops, Strait cuts concurrency by 50%. Aggressive reduction stops a bad situation from getting worse. If your downstream API starts returning 429s at 40 concurrent workers, Strait drops to 20 and climbs back gradually.
+
+### Convergence
+
+The combination of slow increase and fast decrease converges on a stable operating point: the highest throughput your system can sustain without errors. The pool oscillates slightly around this point, which is expected and healthy.
 
 ## Configuration
 
+Set these environment variables on your Strait instance:
+
 | Variable | Default | What it controls |
 | :--- | :--- | :--- |
-| `ADAPTIVE_CONCURRENCY_MIN` | 1 | Floor for the worker count. Strait never scales below this. |
-| `ADAPTIVE_CONCURRENCY_MAX` | `WORKER_CONCURRENCY` | Ceiling for the worker count. Strait never scales above this. |
+| `ADAPTIVE_CONCURRENCY_MIN` | `1` | Floor for the worker count. Strait never scales below this, even during error spikes. Set this to your minimum acceptable throughput. |
+| `ADAPTIVE_CONCURRENCY_MAX` | `WORKER_CONCURRENCY` | Ceiling for the worker count. Strait never scales above this, even during traffic bursts. Defaults to your configured worker concurrency. |
 
-## When to Use
+### Example
 
-Adaptive concurrency is best suited for workloads with variable load patterns or those that interact with external APIs that have rate limits.
+For a system that needs at least 5 workers to keep up with baseline load and can handle up to 50 before saturating downstream services:
 
-- **Variable Load**: Automatically scales down during quiet periods to save resources and scales up during spikes.
-- **Downstream Protection**: Prevents overloading downstream services or databases by backing off when error rates increase.
-- **Resource Efficiency**: Allows for more efficient resource usage by only running the necessary number of workers for the current demand.
+```bash
+ADAPTIVE_CONCURRENCY_MIN=5
+ADAPTIVE_CONCURRENCY_MAX=50
+```
 
-## Related Concepts
+During normal load, the pool might settle at 15 workers. During a spike, it climbs toward 50. If errors start appearing at 40, AIMD cuts back to 20 and gradually climbs again.
 
-- [Circuit Breaker](/concepts/resilience)
+### Choosing Values
+
+- **Min**: Set this to the worker count that handles your quietest period. Too low and you'll see queuing during normal operation. Too high and you waste resources during off-hours.
+- **Max**: Set this to the highest concurrency your downstream services can handle. Check your API provider's rate limits, database connection pool size, or external service SLAs.
+
+If you're unsure, start with `MIN=1` and `MAX` at your current `WORKER_CONCURRENCY`. Monitor queue depth and error rates, then adjust.
+
+## Interaction with Per-Job Limits
+
+Adaptive concurrency controls the total worker pool size. Per-job limits (`max_concurrency`, `rate_limit_max`) still apply on top of it. If adaptive concurrency scales the pool to 50 workers but a specific job has `max_concurrency: 5`, that job still only runs 5 at a time — other workers pick up different jobs.
+
+## Related
+
+- [Resilience](/concepts/resilience) — Circuit breakers, rate limiting, and concurrency caps
 - [Environment Variables](/configuration/environment-variables)

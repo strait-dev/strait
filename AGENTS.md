@@ -21,14 +21,13 @@ Read first:
 - `apps/docs/introduction.mdx` — feature overview
 - `apps/docs/quickstart.mdx` — 10-minute setup
 - `apps/docs/architecture.mdx` — internals and design rationale
-- `apps/docs/development/technology-choices.mdx` — why each library
 - `SELFHOST.md` — self-hosted deployment
 
 ---
 
 ## 2. Tech stack
 
-- **Language**: Go 1.26 (toolchain 1.26.2), module `strait`, repo is a Bun + Turbo monorepo
+- **Language**: Go 1.26.2, module `strait`, repo is a Bun + Turbo monorepo
 - **HTTP**: `go-chi/chi/v5` + `danielgtaylor/huma/v2` (OpenAPI generation)
 - **Database**: PostgreSQL via `jackc/pgx/v5` — no ORM. Migrations are embedded SQL.
 - **Cache / pub-sub**: `redis/go-redis/v9`, `eko/gocache`, `maypok86/otter`
@@ -79,7 +78,7 @@ Inside `apps/strait/`:
 | `store/` | Raw `pgx/v5` data access, one file per table area |
 | `domain/` | Types, FSM states, edition gating |
 | `clickhouse/` | Optional analytics export, schema, exporter |
-| `webhook/` | HMAC delivery, retry, circuit breaker, dead-letter queue |
+| `webhook/` | HMAC delivery, retry, circuit breaker, review queue |
 | `cdc/` | Sequin-backed change data capture |
 | `pubsub/` | Redis (prod) / in-memory (test) pub/sub for SSE |
 | `logdrain/` | Datadog / Splunk / HTTP log forwarding |
@@ -110,7 +109,7 @@ Inside `apps/strait/`:
 Map of platform capabilities. Each links to the doc that explains it in depth — read these instead of guessing.
 
 **Execution and runs**
-- Jobs and 13-state run FSM — `apps/docs/concepts/jobs.mdx`, `apps/docs/concepts/runs.mdx`
+- Jobs and run lifecycle — `apps/docs/concepts/jobs.mdx`, `apps/docs/concepts/runs.mdx`
 - Managed execution (K8s/Docker/HTTP runtimes, warm pool) — `apps/docs/concepts/managed-execution.mdx`
 - Versioning and policies — `apps/docs/concepts/versioning.mdx`
 - Job chaining — `apps/docs/concepts/job-chaining.mdx`
@@ -141,31 +140,23 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 - ClickHouse analytics — `apps/docs/concepts/clickhouse-analytics.mdx`
 - Audit logging — `apps/docs/concepts/audit-logging.mdx`
 - Log drains — `apps/docs/concepts/log-drains.mdx`
-- Monitoring and alerts — `apps/docs/operations/monitoring-and-alerts.mdx`
+- Alert runbooks — `apps/docs/operations/alert-runbooks.mdx`
 
 **Security and operational guides**
-- Authentication — `apps/docs/guides/authentication.mdx`
+- Authentication (incl. OIDC, API key rotation) — `apps/docs/guides/authentication.mdx`
 - RBAC — `apps/docs/guides/rbac.mdx`
-- OIDC — `apps/docs/guides/oidc.mdx`
-- API keys and rotation — `apps/docs/guides/api-key-rotation.mdx`
 - Security model — `apps/docs/guides/security.mdx`
 - Workflow approvals — `apps/docs/guides/workflow-approvals.mdx`
 - Idempotency — `apps/docs/guides/idempotency.mdx`
 - SDK integration — `apps/docs/guides/sdk-integration.mdx`
-- Performance tuning — `apps/docs/guides/performance-tuning.mdx`
-- Capacity planning — `apps/docs/guides/capacity-planning.mdx`
 - Deployment — `apps/docs/guides/deployment.mdx`
 - DAG operations playbook — `apps/docs/guides/dag-operations-playbook.mdx`
-- Debug bundles — `apps/docs/guides/debug-bundles.mdx`
+- Audit events — `apps/docs/guides/audit-events.mdx`
+- Event triggers guide — `apps/docs/guides/event-triggers.mdx`
 
 **Reference**
 - API: `apps/docs/api-reference/` + `apps/strait/schemas/strait.json`
 - Configuration / env vars: `apps/docs/configuration/environment-variables.mdx` + `.env.example`
-- Database schema: `apps/docs/development/database-schema.mdx`
-- Architecture deep dive: `apps/docs/architecture.mdx`
-- Tech choices rationale: `apps/docs/development/technology-choices.mdx`
-- Contributing: `apps/docs/development/contributing.mdx`
-- Testing: `apps/docs/development/testing.mdx`
 
 If you have unresolved questions about scope, schema, API contracts, or user-facing semantics after reading the relevant docs, **ask the user before implementing.** Do not assume.
 
@@ -189,8 +180,8 @@ Edition is set at compile time via Go build tags. The `STRAIT_EDITION` env var i
 cd apps/strait && docker compose up -d
 
 # 2. Required env (see .env.example for the full list)
-export DATABASE_URL=postgres://strait:strait@localhost:5432/strait?sslmode=disable
-export REDIS_URL=redis://localhost:6379
+export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:16379
 export INTERNAL_SECRET=<32+ chars>
 export JWT_SIGNING_KEY=<32+ chars>
 
@@ -221,7 +212,7 @@ cd apps/strait && go build ./...
 cd apps/strait && go build -tags cloud ./...
 cd apps/strait && go test ./...
 cd apps/strait && go test -race ./...
-cd apps/strait && golangci-lint run --timeout=5m ./...
+cd apps/strait && golangci-lint run --timeout=10m ./...
 ```
 
 When touching DB / queue / workflow / scheduler / pubsub:
@@ -275,7 +266,7 @@ Once the plan is approved, execute each phase in order. For every phase:
    cd apps/strait && go build ./...
    cd apps/strait && go test ./...
    cd apps/strait && go test -race ./...
-   cd apps/strait && golangci-lint run --timeout=5m ./...
+   cd apps/strait && golangci-lint run --timeout=10m ./...
    ```
    Add `cd apps/strait && go test -tags integration ./...` when DB / queue / workflow / scheduler / pubsub behavior is touched.
 3. If a check fails:

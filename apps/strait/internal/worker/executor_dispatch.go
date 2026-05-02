@@ -30,7 +30,6 @@ import (
 // "latest", upgrades to the current version. For "minor", upgrades only if
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
-	// Check job cache first.
 	var current *domain.Job
 	if e.jobCache != nil {
 		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
@@ -49,7 +48,6 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		}
 	}
 
-	// If the run is already at the current version, no policy check needed.
 	if current.Version == run.JobVersion {
 		return current, nil
 	}
@@ -86,14 +84,13 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		// Fall through to load the enqueue-time version.
 
 	case domain.VersionPolicyPin, "":
-		// Pin: use the enqueue-time version. Fall through.
 	}
 
-	// Load the versioned snapshot.
 	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
+	ctx = withDispatchCache(ctx)
 	ec := &ExecutionContext{
 		Run:   run,
 		Start: time.Now(),
@@ -143,7 +140,6 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
 	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
 	if e.billingEnforcer != nil { //nolint:nestif // billing enforcement is inherently nested with multiple sequential checks
-		// Check if the project is suspended due to a plan downgrade.
 		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
 			e.logger.Warn("project suspended",
 				"run_id", run.ID, "project_id", job.ProjectID, "error", err)
@@ -188,21 +184,17 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		}
 	}
 
-	// Route based on execution mode.
 	switch job.ExecutionMode {
 	case domain.ExecutionModeManaged:
 		e.managedDispatch(ctx, run, job)
 		return
 	case domain.ExecutionModeHTTP, "":
-		// Fall through to HTTP dispatch.
 	default:
 		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
 		e.handleSystemFailureWithJob(ctx, run, job, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
 		return
 	}
 
-	// Environment endpoint override: if the job has an environment_id,
-	// resolve its variables and check for ENDPOINT_URL override.
 	if job.EnvironmentID != "" {
 		envVars, envErr := e.store.GetResolvedEnvironmentVariables(ctx, job.EnvironmentID)
 		if envErr != nil {
@@ -300,19 +292,22 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
 
-	err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now(),
-	})
-	if err != nil {
-		e.logger.Error(
-			"failed to transition to executing",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"error", err,
-		)
-		return
+	// Claim-table dequeue already set status=executing; skip redundant transition.
+	if run.Status != domain.StatusExecuting {
+		err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		})
+		if err != nil {
+			e.logger.Error(
+				"failed to transition to executing",
+				"run_id", run.ID,
+				"job_id", run.JobID,
+				"error", err,
+			)
+			return
+		}
+		run.Status = domain.StatusExecuting
 	}
-	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
 	e.heartbeat.Register(run.ID)
@@ -534,15 +529,17 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		}
 	}
 
-	// 5. Transition: dequeued → executing.
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now(),
-	})
-	if err != nil {
-		e.logger.Error("failed to transition to executing", "run_id", run.ID, "error", err)
-		return
+	// 5. Transition: dequeued -> executing (skip if claim table already set it).
+	if run.Status != domain.StatusExecuting {
+		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		})
+		if err != nil {
+			e.logger.Error("failed to transition to executing", "run_id", run.ID, "error", err)
+			return
+		}
+		run.Status = domain.StatusExecuting
 	}
-	run.Status = domain.StatusExecuting
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 
 	// 6. Register heartbeat.
@@ -590,12 +587,20 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 
 	// Secrets injection. Reads from project_secrets scoped to the job's
-	// own environment_id — Phase D fixes the pre-existing bug where this
-	// path hardcoded the text "production" regardless of which env the
-	// job belonged to.
-	secrets, secretsErr := e.store.ListProjectSecretsForJob(ctx, job.ProjectID, job.ID, job.EnvironmentID)
-	if secretsErr != nil {
-		e.logger.Warn("failed to load secrets for managed run", "run_id", run.ID, "error", secretsErr)
+	// own environment_id — fixes the pre-existing bug where this path
+	// hardcoded "production" regardless of which env the job belonged to.
+	var secrets []domain.ProjectSecret
+	var secretsErr error
+	secretsCacheKey := "secrets:" + job.ID + ":" + job.EnvironmentID
+	if cached, ok := dispatchCacheGet[[]domain.ProjectSecret](ctx, secretsCacheKey); ok {
+		secrets = cached
+	} else {
+		secrets, secretsErr = e.store.ListProjectSecretsForJob(ctx, job.ProjectID, job.ID, job.EnvironmentID)
+		if secretsErr != nil {
+			e.logger.Warn("failed to load secrets for managed run", "run_id", run.ID, "error", secretsErr)
+		} else {
+			dispatchCacheSet(ctx, secretsCacheKey, secrets)
+		}
 	}
 	for _, secret := range secrets {
 		key := "STRAIT_SECRET_" + strings.ToUpper(secret.SecretKey)
@@ -604,8 +609,18 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 
 	// Checkpoint injection for retried runs.
 	if run.Attempt > 1 {
-		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
-		if cpErr == nil && cp != nil {
+		checkpointCacheKey := "checkpoint:" + run.ID
+		var cp *domain.RunCheckpoint
+		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
+			cp = cached
+		} else {
+			var cpErr error
+			cp, cpErr = e.store.GetLatestCheckpoint(ctx, run.ID)
+			if cpErr == nil {
+				dispatchCacheSet(ctx, checkpointCacheKey, cp)
+			}
+		}
+		if cp != nil {
 			data, _ := json.Marshal(cp.State)
 			if len(data) <= maxInlinePayload {
 				env["STRAIT_LAST_CHECKPOINT"] = string(data)
@@ -833,8 +848,8 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	// The SDK /complete endpoint may still be committing when the container exits.
 	// Poll briefly to avoid a race between container exit and SDK commit.
 	const (
-		sdkGracePeriod  = 5 * time.Second
-		sdkPollInterval = 500 * time.Millisecond
+		sdkGracePeriod  = 3 * time.Second
+		sdkPollInterval = 1 * time.Second
 	)
 	sdkDeadline := time.Now().Add(sdkGracePeriod)
 
@@ -914,8 +929,15 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 	// Include last checkpoint time if available.
 	if run.Attempt > 1 {
-		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
-		if cpErr == nil && cp != nil {
+		checkpointCacheKey := "checkpoint:" + run.ID
+		var cp *domain.RunCheckpoint
+		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
+			cp = cached
+		} else {
+			cp, _ = e.store.GetLatestCheckpoint(ctx, run.ID)
+			dispatchCacheSet(ctx, checkpointCacheKey, cp)
+		}
+		if cp != nil {
 			crashData["last_checkpoint_at"] = cp.CreatedAt.Format(time.RFC3339)
 		}
 	}
@@ -1141,24 +1163,40 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
-	// Fetch secrets and checkpoint in parallel. Secrets read from
-	// project_secrets scoped to the job's environment_id (Phase D).
+	// Fetch secrets and checkpoint in parallel (with dispatch cache). Secrets
+	// read from project_secrets scoped to the job's environment_id.
 	var (
 		secrets    []domain.ProjectSecret
 		secretsErr error
 		cp         *domain.RunCheckpoint
 	)
 
-	var dispatchWG conc.WaitGroup
-	dispatchWG.Go(func() {
-		secrets, secretsErr = e.store.ListProjectSecretsForJob(tracedCtx, job.ProjectID, job.ID, job.EnvironmentID)
-	})
-	if run.Attempt > 1 {
+	secretsCacheKey := "secrets:" + job.ID + ":" + job.EnvironmentID
+	if cached, ok := dispatchCacheGet[[]domain.ProjectSecret](ctx, secretsCacheKey); ok {
+		secrets = cached
+	} else {
+		var dispatchWG conc.WaitGroup
 		dispatchWG.Go(func() {
-			cp, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+			secrets, secretsErr = e.store.ListProjectSecretsForJob(tracedCtx, job.ProjectID, job.ID, job.EnvironmentID)
 		})
+		if run.Attempt > 1 {
+			checkpointCacheKey := "checkpoint:" + run.ID
+			if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
+				cp = cached
+			} else {
+				dispatchWG.Go(func() {
+					cp, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+				})
+			}
+		}
+		dispatchWG.Wait()
+		if secretsErr == nil {
+			dispatchCacheSet(ctx, secretsCacheKey, secrets)
+		}
+		if run.Attempt > 1 && cp != nil {
+			dispatchCacheSet(ctx, "checkpoint:"+run.ID, cp)
+		}
 	}
-	dispatchWG.Wait()
 
 	if secretsErr != nil {
 		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, secretsErr)
@@ -1232,9 +1270,17 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}()
 
 	extraHeaders := make(map[string]string)
-	secrets, err := e.store.ListProjectSecretsForJob(ctx, job.ProjectID, job.ID, job.EnvironmentID)
-	if err != nil {
-		return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+	var secrets []domain.ProjectSecret
+	secretsCacheKey := "secrets:" + job.ID + ":" + job.EnvironmentID
+	if cached, ok := dispatchCacheGet[[]domain.ProjectSecret](ctx, secretsCacheKey); ok {
+		secrets = cached
+	} else {
+		var err error
+		secrets, err = e.store.ListProjectSecretsForJob(ctx, job.ProjectID, job.ID, job.EnvironmentID)
+		if err != nil {
+			return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+		}
+		dispatchCacheSet(ctx, secretsCacheKey, secrets)
 	}
 	for _, secret := range secrets {
 		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
@@ -1258,8 +1304,15 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}
 
 	if run.Attempt > 1 {
-		cp, cpErr := e.store.GetLatestCheckpoint(ctx, run.ID)
-		if cpErr == nil && cp != nil {
+		checkpointCacheKey := "checkpoint:" + run.ID
+		var cp *domain.RunCheckpoint
+		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
+			cp = cached
+		} else {
+			cp, _ = e.store.GetLatestCheckpoint(ctx, run.ID)
+			dispatchCacheSet(ctx, checkpointCacheKey, cp)
+		}
+		if cp != nil {
 			data, _ := json.Marshal(cp.State)
 			if len(data) <= 65536 {
 				extraHeaders["X-Last-Checkpoint"] = string(data)
@@ -1271,8 +1324,8 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}
 
-	_, err = e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
-	return err
+	_, dispatchErr := e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
+	return dispatchErr
 }
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {

@@ -1372,12 +1372,12 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleRuns")
 	defer span.End()
 
-	query := fmt.Sprintf(`
+	query := "/* action=reaper */ " + fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, agent_deployment_id, replayed_run_id
 		FROM job_runs
-		WHERE status = '%s' AND heartbeat_at < NOW() - $1::interval
+		WHERE status = '%s' AND (heartbeat_at < NOW() - $1::interval OR heartbeat_at IS NULL) AND finished_at IS NULL AND started_at IS NOT NULL
 		ORDER BY heartbeat_at ASC
 		LIMIT 1000`, domain.StatusExecuting)
 
@@ -1524,12 +1524,12 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleDequeued")
 	defer span.End()
 
-	query := fmt.Sprintf(`
+	query := "/* action=reaper */ " + fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, agent_deployment_id, replayed_run_id
 		FROM job_runs
-		WHERE status = '%s' AND started_at < NOW() - $1::interval
+		WHERE status = '%s' AND started_at < NOW() - $1::interval AND finished_at IS NULL AND started_at IS NOT NULL
 		ORDER BY started_at ASC
 		LIMIT 1000`, domain.StatusDequeued)
 
@@ -1562,10 +1562,16 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 	shortCutoff := time.Now().Add(-shortRetention)
 	longCutoff := time.Now().Add(-longRetention)
 
-	query := `
+	// Exclude the current month's partition to avoid creating dead tuples
+	// in the hot partition that the dequeue hot path scans. Runs in cold
+	// partitions (older months) do not affect dequeue performance.
+	hotBoundary := beginningOfMonth(time.Now())
+
+	query := "/* action=reaper */ " + `
 		WITH to_delete AS (
 			SELECT id FROM job_runs
 			WHERE finished_at IS NOT NULL
+			  AND created_at < $3
 			  AND (
 				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
 				OR
@@ -1576,12 +1582,20 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 		)
 		DELETE FROM job_runs WHERE id IN (SELECT id FROM to_delete)`
 
-	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff)
+	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, hotBoundary)
 	if err != nil {
 		return 0, fmt.Errorf("delete terminal runs past retention: %w", err)
 	}
 
 	return tag.RowsAffected(), nil
+}
+
+// beginningOfMonth returns midnight on the first day of t's month in UTC.
+// Converts t to UTC first so the calendar fields (Year, Month) are correct
+// regardless of the host's local timezone.
+func beginningOfMonth(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
 // DLQJobDepth represents the dead-letter queue depth for a single job.

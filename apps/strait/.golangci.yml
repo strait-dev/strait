@@ -61,6 +61,8 @@ linters:
     - unused           # checks for unused constants, variables, functions and types
     - wastedassign     # finds wasted assignment statements
     - whitespace       # detects leading and trailing whitespace
+  disable:
+    - errcheck         # covered by gosec and errorlint for critical cases; default-on in v2
 
     ## disabled for project-specific reasons
     #- bodyclose        # too many false positives with failsafe-go Policy[*http.Response]

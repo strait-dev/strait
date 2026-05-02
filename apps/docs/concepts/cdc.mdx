@@ -1,0 +1,64 @@
+---
+title: "Change Data Capture"
+description: "Real-time event streaming from database changes via Sequin."
+icon: "bolt"
+---
+
+Change Data Capture (CDC) streams database changes in real time. When a job run changes status, a webhook delivery completes, or a workflow step finishes, Strait publishes the change as an event. Consumers subscribe to these events for live dashboards, external integrations, and internal processing.
+
+## How It Works
+
+Strait uses [Sequin](https://sequinstream.com) to capture changes from the PostgreSQL write-ahead log (WAL):
+
+1. **Capture**: Sequin reads the WAL and detects inserts, updates, and deletes on tracked tables.
+2. **Deliver**: Sequin pushes change events to Strait's CDC consumer via its streaming API.
+3. **Process**: The consumer dispatches each event to a table-specific handler.
+4. **Publish**: Handlers publish processed events to Redis pub/sub channels, where SSE endpoints and internal consumers pick them up.
+
+The pipeline is near-real-time. Changes typically propagate within milliseconds of the database commit.
+
+## What Gets Tracked
+
+| Table | Events | Use Case |
+| :--- | :--- | :--- |
+| `job_runs` | Status changes (pending, running, completed, failed, timed_out, canceled) | Live run status in dashboards, SSE streaming to clients |
+| `workflow_runs` | Step progression, completion, failure | Workflow monitoring, progress indicators |
+| `webhook_deliveries` | Delivery attempts, success, failure | Delivery status tracking |
+| `event_triggers` | Trigger creation, event receipt, timeout, cancellation | Event wait monitoring |
+
+Each event carries the full current record, the previous values of changed fields, and metadata (table name, action type, commit timestamp).
+
+## Event Flow
+
+CDC events are published to Redis channels scoped by project:
+
+- `cdc:project:{projectID}:job_runs` -- all job run changes for a project.
+- `cdc:project:{projectID}:workflow_runs` -- all workflow run changes for a project.
+- `cdc:project:{projectID}:event_triggers` -- all event trigger changes for a project.
+
+The [activity stream endpoint](/api-reference/overview) (`GET /v1/projects/{projectID}/activity`) merges these channels into a single SSE stream for real-time dashboards.
+
+## Use Cases
+
+- **Real-time dashboards**: Subscribe to the activity stream SSE endpoint for live run status updates without polling.
+- **Analytics enrichment**: CDC handlers feed run completion events to the [ClickHouse analytics](/concepts/clickhouse-analytics) pipeline for time-series reporting.
+- **Webhook triggers**: External systems receive notifications when runs complete or fail.
+- **Audit trail enrichment**: CDC events supplement the [audit log](/concepts/audit-logging) with fine-grained state transitions.
+- **SLO monitoring**: CDC handlers track step durations and flag breaches against defined SLO thresholds.
+
+## Configuration
+
+Sequin runs as a sidecar container. The self-hosted Docker Compose configuration (`docker-compose.selfhost.yml`) includes it by default -- no additional setup is needed.
+
+For self-hosted deployments, Sequin requires:
+
+- PostgreSQL `wal_level` set to `logical` (configured automatically in the provided Docker Compose).
+- Network access between Sequin and PostgreSQL.
+
+For Strait Cloud, CDC is always enabled. No configuration is required.
+
+| Variable | Description |
+| :--- | :--- |
+| `CDC_BASE_URL` | Sequin API base URL. Set automatically in Docker Compose. |
+| `CDC_CONSUMER_NAME` | Sequin stream consumer name. Set automatically in Docker Compose. |
+| `CDC_CREDENTIAL` | Authentication token for the Sequin API. |

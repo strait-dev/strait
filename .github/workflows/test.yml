@@ -5,6 +5,7 @@ on:
     paths:
       - "apps/strait/**"
       - ".github/workflows/test.yml"
+      - ".github/actions/setup-go/**"
   workflow_dispatch:
 
 permissions:
@@ -16,17 +17,12 @@ concurrency:
 
 jobs:
   build:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: apps/strait/go.mod
-          cache: true
-          cache-dependency-path: |
-            apps/strait/go.sum
+      - uses: ./.github/actions/setup-go
 
       - name: Build (community)
         working-directory: apps/strait
@@ -45,18 +41,13 @@ jobs:
         run: go vet -tags cloud ./...
 
   unit:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: build
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: apps/strait/go.mod
-          cache: true
-          cache-dependency-path: |
-            apps/strait/go.sum
+      - uses: ./.github/actions/setup-go
 
       - name: Run unit tests (race + coverage)
         working-directory: apps/strait
@@ -149,7 +140,7 @@ jobs:
 
       - name: Upload unit test artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unit-test-metrics
           if-no-files-found: ignore
@@ -157,26 +148,39 @@ jobs:
             apps/strait/unit-test.jsonl
 
   integration:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: queue
+            packages: ./internal/queue/...
+            timeout: 10m
+          - name: store
+            packages: ./internal/store/...
+            timeout: 12m
+          - name: other
+            packages: ./internal/scheduler/... ./internal/workflow/... ./internal/worker/... ./internal/webhook/... ./internal/cdc/... ./internal/pubsub/... ./internal/e2e/...
+            timeout: 10m
+    name: integration (${{ matrix.shard.name }})
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: apps/strait/go.mod
-          cache: true
-          cache-dependency-path: |
-            apps/strait/go.sum
+      - uses: ./.github/actions/setup-go
 
-      - name: Run integration tests (race + coverage)
+      - name: Pull Postgres image
+        run: docker pull postgres:18-alpine
+
+      - name: Run integration tests (${{ matrix.shard.name }})
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go test -json -race -cover -tags=integration -timeout=20m \
-            ./... \
-            | tee integration-test.jsonl
+          go test -json -cover -tags=integration -timeout=${{ matrix.shard.timeout }} \
+            -failfast \
+            ${{ matrix.shard.packages }} \
+            | tee integration-test-${{ matrix.shard.name }}.jsonl
 
       - name: Publish integration test summary
         if: always()
@@ -187,7 +191,8 @@ jobs:
           import re
           from pathlib import Path
 
-          test_file = Path("integration-test.jsonl")
+          shard = "${{ matrix.shard.name }}"
+          test_file = Path(f"integration-test-{shard}.jsonl")
           summary_file = Path("/tmp/integration_summary.md")
 
           seen_tests = set()
@@ -233,7 +238,7 @@ jobs:
           below = [(p, c) for p, c in package_cov if c < MIN_COVERAGE]
 
           lines = []
-          lines.append("## Integration Test Metrics")
+          lines.append(f"## Integration Test Metrics ({shard})")
           lines.append("")
           lines.append(f"- Total tests: **{total_tests}**")
           lines.append(f"- Passed: **{passed}**")
@@ -262,9 +267,9 @@ jobs:
 
       - name: Upload integration artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: integration-test-metrics
+          name: integration-test-${{ matrix.shard.name }}
           if-no-files-found: ignore
           path: |
-            apps/strait/integration-test.jsonl
+            apps/strait/integration-test-${{ matrix.shard.name }}.jsonl

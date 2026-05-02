@@ -114,9 +114,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 						}
 					}
 				}
-				for k, v := range event.Extra {
+				for k, v := range event.Contexts["extra"] {
 					if s, ok := v.(string); ok {
-						event.Extra[k] = telemetry.SanitizeValue(k, s)
+						event.Contexts["extra"][k] = telemetry.SanitizeValue(k, s)
 					}
 				}
 				return event
@@ -431,6 +431,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	startMaintenanceWorker(g, queries)
 	startDBWatchdog(g, cfg, dbPool)
 	startQueueHealthSampler(g, dbPool)
+	startDBPoolSampler(g, dbPool)
 	var chAnalytics api.AnalyticsStore
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))

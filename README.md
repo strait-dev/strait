@@ -4,13 +4,13 @@
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge)](https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait)
 [![Go Report Card](https://goreportcard.com/badge/github.com/strait-dev/strait)](https://goreportcard.com/report/github.com/strait-dev/strait)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 **Production-grade job orchestration for engineering teams and AI agents — in a single binary.**
 
 Strait handles job queuing, scheduling, state tracking, and execution in one Go service backed by Postgres and Redis. No RabbitMQ, no SQS, no Kafka.
 
-- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and dead-letter, with a real-time dashboard to match
+- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and review queue, with a real-time dashboard to match
 - **Workflow engine** — branching, parallel steps, sub-workflows, approval gates, and compensating transactions
 - **Smart retries** — configurable retry strategies with jitter and per-endpoint circuit breakers
 - **Durable workflows** — multi-day sleeps, checkpoints, expected completion tracking, and stage notifications
@@ -92,7 +92,7 @@ Important rules:
 
 | | Self-host (community) | Cloud ([strait.dev](https://strait.dev)) |
 |---|---|---|
-| Job orchestration with retries, workflows, and dead-letter queue | ✓ | ✓ |
+| Job orchestration with retries, workflows, and review queue | ✓ | ✓ |
 | Workflow engine with branching, rollback, and approval gates | ✓ | ✓ |
 | Real-time streaming and live updates | ✓ | ✓ |
 | All SDKs (TS, Python, Go, Ruby, Rust) | ✓ | ✓ |
@@ -183,4 +183,4 @@ See [`AGENTS.md`](AGENTS.md) for the full contributor guide — tech stack, modu
 
 ## License
 
-[MIT License](LICENSE).
+[Apache License 2.0](LICENSE).
