@@ -49,14 +49,14 @@
     "picomatch": "4.0.4"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.13",
+    "@biomejs/biome": "2.4.14",
     "@changesets/cli": "^2.31.0",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260429.1",
-    "knip": "^6.9.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260502.1",
+    "knip": "^6.11.0",
     "lefthook": "^2.1.6",
     "openapi-typescript": "^7.13.0",
-    "turbo": "^2.9.6",
+    "turbo": "^2.9.7",
     "ultracite": "7.6.2"
   }
 }
