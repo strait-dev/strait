@@ -36,10 +36,6 @@ export default defineConfig({
     csp: true,
   },
 
-  experimental: {
-    svgo: true,
-  },
-
   integrations: [
     react(),
     sitemap({
