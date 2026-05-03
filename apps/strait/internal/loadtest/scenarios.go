@@ -3,7 +3,8 @@
 package loadtest
 
 import (
-	"errors"
+	"context"
+	"fmt"
 	"time"
 )
 
@@ -257,22 +258,29 @@ func ArchiveStress() Scenario {
 	}
 }
 
-// workerScenario is the stub entry point for ModeWorker load tests.
+// workerScenario is the entry point for ModeWorker load tests. It spins up
+// N in-process gRPC workers connected to the target server, drives them to
+// claim and report results over the bidirectional WorkerService stream, and
+// collects per-worker throughput and error metrics.
 //
-// It will eventually:
-//   - Spin up N in-process gRPC workers connected to the target server
-//   - Enqueue runs via the REST API at the configured rate
-//   - Drive workers to claim + execute + report results over the
-//     bidirectional WorkerService stream
-//   - Collect per-worker throughput, P99 claim latency, and error rate
-//   - Assert reconnect behavior when a simulated disconnect is injected
-//
-// Implementation is blocked on the in-process gRPC worker harness;
-// see internal/e2e/orchestration_worker_e2e_test.go for the e2e plan.
-//
-// TODO(phase-13.3): implement once gRPC test primitives are available.
-func workerScenario(_ *Harness, _ Scenario) error { //nolint:unused
-	return errors.New("worker loadtest scenario not yet implemented")
+// Configuration is read from WorkerConfig; see DefaultWorkerConfig() and the
+// LOADTEST_GRPC_ADDR / LOADTEST_WORKER_COUNT environment variables recognized
+// by the loadtest entrypoint.
+func workerScenario(h *Harness, s Scenario) error { //nolint:unused // called by the loadtest entrypoint when ExecutionMode == ModeWorker
+	cfg := DefaultWorkerConfig()
+	if h.Config.WorkerConfig != nil {
+		cfg = *h.Config.WorkerConfig
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.Duration)
+	defer cancel()
+
+	result, err := workerScenarioImpl(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("worker scenario: %w", err)
+	}
+
+	return h.WriteResult("worker_scenario_result.json", result)
 }
 
 // AllScenarios returns every pre-defined scenario.

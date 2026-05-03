@@ -30,9 +30,7 @@ const (
 	// WorkerService streaming RPC rather than outbound HTTP dispatch.
 	// Workers connect to the server, claim runs from the queue, and report
 	// results back over the same bidirectional stream.
-	//
-	// TODO: implement workerScenario in scenarios.go once the gRPC test
-	// harness primitives (in-process worker, synthetic executor) are available.
+	// See internal/loadtest/worker_scenario.go for the implementation.
 	ModeWorker ExecutionMode = "worker"
 )
 
@@ -73,6 +71,10 @@ type HarnessConfig struct {
 
 	// ExecutionMode controls which job types are created.
 	ExecutionMode ExecutionMode
+
+	// WorkerConfig holds gRPC worker scenario parameters for ModeWorker runs.
+	// When nil, DefaultWorkerConfig() is used.
+	WorkerConfig *WorkerConfig
 }
 
 // NewHarness creates a test harness with the given configuration.
