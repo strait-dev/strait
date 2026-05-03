@@ -44,7 +44,7 @@ var _WorkerService_serviceDesc = grpc.ServiceDesc{
 	Metadata: "worker/v1/worker.proto",
 }
 
-func _WorkerService_StreamTasks_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _WorkerService_StreamTasks_Handler(srv any, stream grpc.ServerStream) error {
 	return srv.(WorkerServiceServer).StreamTasks(&workerServiceStreamTasksServer{stream})
 }
 

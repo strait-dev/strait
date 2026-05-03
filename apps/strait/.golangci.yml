@@ -236,3 +236,10 @@ linters:
         linters: [funlen, gocognit, gocyclo, cyclop, nestif, nolintlint, reassign]
       - path: test/
         linters: [cyclop, funlen, gocognit, nestif]
+      # Proto stub files use protobuf naming conventions (underscore-separated type
+      # names, unexported interface methods) that intentionally differ from Go style
+      # guidelines. Both revive and staticcheck ST1003 are excluded here. These files
+      # will be replaced by buf-generated output once buf is wired into CI
+      # (see buf.yaml / buf.gen.yaml).
+      - path: internal/api/grpc/proto/
+        linters: [revive, staticcheck]
