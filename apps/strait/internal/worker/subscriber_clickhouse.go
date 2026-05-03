@@ -107,11 +107,6 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 			executionMode = string(event.Job.ExecutionMode)
 		}
 
-		var machinePreset string
-		if event.Job != nil {
-			machinePreset = string(event.Job.MachinePreset)
-		}
-
 		var tagsJSON string
 		if len(run.Tags) > 0 {
 			if b, err := json.Marshal(run.Tags); err == nil {
@@ -128,7 +123,7 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 			ProjectID:     run.ProjectID,
 			Status:        string(run.Status),
 			ExecutionMode: executionMode,
-			MachinePreset: machinePreset,
+			MachinePreset: "",
 			Attempt:       run.Attempt,
 			DurationMs:    durationMs,
 			QueueWaitMs:   queueWaitMs,

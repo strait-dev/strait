@@ -81,11 +81,11 @@ func recordTerminalMetrics(ctx context.Context, m *telemetry.Metrics, event RunL
 	}
 }
 
-// machineTier returns the machine preset label for the event's job, or "unknown"
-// if the job or preset is not set.
+// machineTier returns the execution mode label for the event's job, or "unknown"
+// if the job is not set.
 func machineTier(event RunLifecycleEvent) string {
-	if event.Job != nil && event.Job.MachinePreset != "" {
-		return string(event.Job.MachinePreset)
+	if event.Job != nil && event.Job.ExecutionMode != "" {
+		return string(event.Job.ExecutionMode)
 	}
 	return "unknown"
 }

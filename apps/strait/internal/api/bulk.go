@@ -89,9 +89,6 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 	if err := s.checkHTTPModeAllowed(ctx, job.ExecutionMode, job.ProjectID); err != nil {
 		return nil, err
 	}
-	if err := s.checkPresetAllowed(ctx, job.ProjectID, string(job.MachinePreset)); err != nil {
-		return nil, err
-	}
 
 	if !job.Enabled {
 		return nil, huma.Error400BadRequest("job is disabled")

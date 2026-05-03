@@ -51,8 +51,7 @@ type CreateJobRequest struct {
 	DebounceWindowSecs        int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
-	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
-	MachinePreset             string            `json:"machine_preset,omitempty"`
+	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
 	ImageURI                  string            `json:"image_uri,omitempty"`
 	Region                    string            `json:"region,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
@@ -98,8 +97,7 @@ type UpdateJobRequest struct {
 	DebounceWindowSecs        *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs           *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
-	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
-	MachinePreset             *string            `json:"machine_preset,omitempty"`
+	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
 	ImageURI                  *string            `json:"image_uri,omitempty"`
 	Region                    *string            `json:"region,omitempty"`
 	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
@@ -215,8 +213,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		execMode = domain.ExecutionModeHTTP
 	}
 	switch execMode {
-	case domain.ExecutionModeManaged:
-		return nil, huma.Error400BadRequest("unsupported_execution_mode: managed execution mode is no longer supported; use http instead")
 	case domain.ExecutionModeHTTP:
 		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
@@ -268,7 +264,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchWindowSecs:           req.BatchWindowSecs,
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
-		MachinePreset:             domain.MachinePreset(req.MachinePreset),
 		ImageURI:                  req.ImageURI,
 		Region:                    req.Region,
 		PreferredRegions:          req.PreferredRegions,
@@ -604,23 +599,10 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)
-		if mode == domain.ExecutionModeManaged {
-			return nil, huma.Error400BadRequest("unsupported_execution_mode: managed execution mode is no longer supported; use http instead")
-		}
 		if err := s.checkHTTPModeAllowed(ctx, mode, job.ProjectID); err != nil {
 			return nil, err
 		}
 		job.ExecutionMode = mode
-	}
-	if req.MachinePreset != nil {
-		preset := domain.MachinePreset(*req.MachinePreset)
-		if *req.MachinePreset != "" && !preset.IsValid() {
-			return nil, huma.Error400BadRequest("invalid machine_preset")
-		}
-		if err := s.checkPresetAllowed(ctx, job.ProjectID, *req.MachinePreset); err != nil {
-			return nil, err
-		}
-		job.MachinePreset = preset
 	}
 	if req.ImageURI != nil {
 		job.ImageURI = *req.ImageURI
@@ -789,9 +771,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := s.checkHTTPModeAllowed(ctx, source.ExecutionMode, source.ProjectID); err != nil {
 		return nil, err
 	}
-	if err := s.checkPresetAllowed(ctx, source.ProjectID, string(source.MachinePreset)); err != nil {
-		return nil, err
-	}
 	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnCompleteTriggerJob, source.OnCompleteTriggerWorkflow); err != nil {
 		return nil, err
 	}
@@ -839,7 +818,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		BackwardsCompatible:  source.BackwardsCompatible,
 		CronOverlapPolicy:    source.CronOverlapPolicy,
 		ExecutionMode:        source.ExecutionMode,
-		MachinePreset:        source.MachinePreset,
 		ImageURI:             source.ImageURI,
 		Region:               source.Region,
 		PreferredRegions:     source.PreferredRegions,

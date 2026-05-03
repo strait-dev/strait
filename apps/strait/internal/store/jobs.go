@@ -121,7 +121,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		job.BatchWindowSecs,
 		job.BatchMaxSize,
 		string(job.ExecutionMode),
-		dbscan.NilIfEmptyString(string(job.MachinePreset)),
+		nil, // machine_preset removed
 		dbscan.NilIfEmptyString(job.ImageURI),
 		dbscan.NilIfEmptyString(job.Region),
 		job.PreferredRegions,
@@ -389,7 +389,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		job.BatchWindowSecs,
 		job.BatchMaxSize,
 		string(job.ExecutionMode),
-		dbscan.NilIfEmptyString(string(job.MachinePreset)),
+		nil, // machine_preset removed
 		dbscan.NilIfEmptyString(job.ImageURI),
 		dbscan.NilIfEmptyString(job.Region),
 		job.PreferredRegions,
@@ -1131,9 +1131,6 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	}
 	if job.ExecutionMode == "" {
 		job.ExecutionMode = domain.ExecutionModeHTTP
-	}
-	if n.machinePreset != nil {
-		job.MachinePreset = domain.MachinePreset(*n.machinePreset)
 	}
 	if n.imageURI != nil {
 		job.ImageURI = *n.imageURI

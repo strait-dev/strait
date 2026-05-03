@@ -346,7 +346,7 @@ type Job struct {
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
 	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
-	MachinePreset             MachinePreset     `json:"machine_preset,omitempty"`
+	Queue                     string            `json:"queue,omitempty"`
 	ImageURI                  string            `json:"image_uri,omitempty"`
 	Region                    string            `json:"region,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
@@ -1101,14 +1101,14 @@ func (p VersionPolicy) IsValid() bool {
 type ExecutionMode string
 
 const (
-	ExecutionModeHTTP    ExecutionMode = "http"
-	ExecutionModeManaged ExecutionMode = "managed"
+	ExecutionModeHTTP   ExecutionMode = "http"
+	ExecutionModeWorker ExecutionMode = "worker"
 )
 
 // IsValid returns true if the execution mode is a known value.
 func (m ExecutionMode) IsValid() bool {
 	switch m {
-	case ExecutionModeHTTP, ExecutionModeManaged:
+	case ExecutionModeHTTP, ExecutionModeWorker:
 		return true
 	default:
 		return false
@@ -1135,28 +1135,6 @@ func (p CronOverlapPolicy) IsValid() bool {
 	}
 }
 
-// MachinePreset defines a compute resource tier for managed execution.
-type MachinePreset string
-
-const (
-	PresetMicro    MachinePreset = "micro"
-	PresetSmall1x  MachinePreset = "small-1x"
-	PresetSmall2x  MachinePreset = "small-2x"
-	PresetMedium1x MachinePreset = "medium-1x"
-	PresetMedium2x MachinePreset = "medium-2x"
-	PresetLarge1x  MachinePreset = "large-1x"
-	PresetLarge2x  MachinePreset = "large-2x"
-)
-
-// IsValid returns true if the machine preset is a known value.
-func (p MachinePreset) IsValid() bool {
-	switch p {
-	case PresetMicro, PresetSmall1x, PresetSmall2x, PresetMedium1x, PresetMedium2x, PresetLarge1x, PresetLarge2x:
-		return true
-	default:
-		return false
-	}
-}
 
 type RetryBackoffPolicy string
 
