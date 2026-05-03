@@ -57,6 +57,47 @@ type CreateNotificationChannelInput struct {
 }
 type CreateNotificationChannelOutput struct{ Body *domain.NotificationChannel }
 
+// redactNotificationChannel returns a shallow copy with sensitive fields in
+// Config redacted. webhook_url, url, and token-bearing keys typically grant
+// post privileges to Slack/Discord/Webhook endpoints; returning them in API
+// responses is equivalent to leaking the secret. Keys are preserved so the
+// caller can see which fields were configured.
+func redactNotificationChannel(c *domain.NotificationChannel) *domain.NotificationChannel {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	if len(c.Config) == 0 {
+		return &out
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(c.Config, &parsed); err != nil {
+		out.Config = json.RawMessage(`{}`)
+		return &out
+	}
+	for k := range parsed {
+		parsed[k] = "***"
+	}
+	redacted, err := json.Marshal(parsed)
+	if err != nil {
+		out.Config = json.RawMessage(`{}`)
+		return &out
+	}
+	out.Config = redacted
+	return &out
+}
+
+func redactNotificationChannelList(in []domain.NotificationChannel) []domain.NotificationChannel {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]domain.NotificationChannel, len(in))
+	for i := range in {
+		out[i] = *redactNotificationChannel(&in[i])
+	}
+	return out
+}
+
 func (s *Server) handleCreateNotificationChannel(ctx context.Context, input *CreateNotificationChannelInput) (*CreateNotificationChannelOutput, error) {
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -82,7 +123,7 @@ func (s *Server) handleCreateNotificationChannel(ctx context.Context, input *Cre
 		"channel_type": ch.ChannelType,
 		"enabled":      ch.Enabled,
 	})
-	return &CreateNotificationChannelOutput{Body: ch}, nil
+	return &CreateNotificationChannelOutput{Body: redactNotificationChannel(ch)}, nil
 }
 
 type ListNotificationChannelsInput struct{}
@@ -97,7 +138,7 @@ func (s *Server) handleListNotificationChannels(ctx context.Context, _ *ListNoti
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list notification channels")
 	}
-	return &ListNotificationChannelsOutput{Body: channels}, nil
+	return &ListNotificationChannelsOutput{Body: redactNotificationChannelList(channels)}, nil
 }
 
 type GetNotificationChannelInput struct {
@@ -120,7 +161,7 @@ func (s *Server) handleGetNotificationChannel(ctx context.Context, input *GetNot
 		}
 		return nil, huma.Error500InternalServerError("failed to get notification channel")
 	}
-	return &GetNotificationChannelOutput{Body: ch}, nil
+	return &GetNotificationChannelOutput{Body: redactNotificationChannel(ch)}, nil
 }
 
 type UpdateNotificationChannelInput struct {
@@ -186,7 +227,7 @@ func (s *Server) handleUpdateNotificationChannel(ctx context.Context, input *Upd
 		"channel_type":   ch.ChannelType,
 		"changed_fields": changedFields,
 	})
-	return &UpdateNotificationChannelOutput{Body: ch}, nil
+	return &UpdateNotificationChannelOutput{Body: redactNotificationChannel(ch)}, nil
 }
 
 type DeleteNotificationChannelInput struct {

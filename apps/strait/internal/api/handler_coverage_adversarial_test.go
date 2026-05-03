@@ -47,7 +47,9 @@ func TestHandlerActivityStream_NoPubSub(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "proj-1")
-	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	r = r.WithContext(ctx)
 
 	srv.handleProjectActivityStream(w, r)
 
@@ -69,7 +71,9 @@ func TestHandlerActivityStream_SubscribeError(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "proj-1")
-	ctx, cancel := context.WithCancel(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	base := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	base = context.WithValue(base, ctxProjectIDKey, "proj-1")
+	ctx, cancel := context.WithCancel(base)
 	r = r.WithContext(ctx)
 
 	// Cancel immediately so the handler exits its event loop after subscribe attempts.
@@ -100,7 +104,9 @@ func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "proj-1")
-	ctx, cancel := context.WithCancel(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	base := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	base = context.WithValue(base, ctxProjectIDKey, "proj-1")
+	ctx, cancel := context.WithCancel(base)
 	r = r.WithContext(ctx)
 
 	ch <- []byte(`{"type":"run_completed"}`)
@@ -498,8 +504,12 @@ func llmStreamRequest(runID string) *http.Request {
 	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("runID", runID)
-	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
-	return r
+	// These tests dispatch directly to the handler (bypassing auth middleware),
+	// so seed the context with the project ID that the handler's BOLA check
+	// expects to match the run's ProjectID.
+	ctx := context.WithValue(r.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+	return r.WithContext(ctx)
 }
 
 func TestHandlerRunLLMStream_RunNotFound(t *testing.T) {

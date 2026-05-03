@@ -97,6 +97,35 @@ type UpdateLogDrainRequest struct {
 type CreateLogDrainInput struct{ Body CreateLogDrainRequest }
 type CreateLogDrainOutput struct{ Body *domain.LogDrain }
 
+// redactLogDrainAuth returns a shallow copy of d with auth_config values
+// replaced by a fixed redaction token. Keys are preserved so callers can see
+// the structure (e.g., which header names were configured) without ever
+// reading the secret back. The original drain is not mutated.
+func redactLogDrainAuth(d *domain.LogDrain) *domain.LogDrain {
+	if d == nil {
+		return nil
+	}
+	out := *d
+	if len(d.AuthConfig) > 0 {
+		out.AuthConfig = make(map[string]string, len(d.AuthConfig))
+		for k := range d.AuthConfig {
+			out.AuthConfig[k] = "***"
+		}
+	}
+	return &out
+}
+
+func redactLogDrainList(in []domain.LogDrain) []domain.LogDrain {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]domain.LogDrain, len(in))
+	for i := range in {
+		out[i] = *redactLogDrainAuth(&in[i])
+	}
+	return out
+}
+
 func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrainInput) (*CreateLogDrainOutput, error) {
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -126,7 +155,7 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 		"auth_type":     drain.AuthType,
 		"enabled":       drain.Enabled,
 	})
-	return &CreateLogDrainOutput{Body: drain}, nil
+	return &CreateLogDrainOutput{Body: redactLogDrainAuth(drain)}, nil
 }
 
 type ListLogDrainsInput struct{}
@@ -137,7 +166,7 @@ func (s *Server) handleListLogDrains(ctx context.Context, _ *ListLogDrainsInput)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list log drains")
 	}
-	return &ListLogDrainsOutput{Body: drains}, nil
+	return &ListLogDrainsOutput{Body: redactLogDrainList(drains)}, nil
 }
 
 type GetLogDrainInput struct {
@@ -153,7 +182,7 @@ func (s *Server) handleGetLogDrain(ctx context.Context, input *GetLogDrainInput)
 		}
 		return nil, huma.Error500InternalServerError("failed to get log drain")
 	}
-	return &GetLogDrainOutput{Body: drain}, nil
+	return &GetLogDrainOutput{Body: redactLogDrainAuth(drain)}, nil
 }
 
 type UpdateLogDrainInput struct {
@@ -231,7 +260,7 @@ func (s *Server) handleUpdateLogDrain(ctx context.Context, input *UpdateLogDrain
 		"changed_fields":      changedFields,
 		"auth_config_changed": req.AuthConfig != nil,
 	})
-	return &UpdateLogDrainOutput{Body: drain}, nil
+	return &UpdateLogDrainOutput{Body: redactLogDrainAuth(drain)}, nil
 }
 
 type DeleteLogDrainInput struct {

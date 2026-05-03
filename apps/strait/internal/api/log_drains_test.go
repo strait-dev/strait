@@ -245,6 +245,91 @@ func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
 	}
 }
 
+// Regression: auth_config secrets must never be returned in API responses.
+// All four read paths (create, list, get, update) must redact values.
+
+func TestHandleLogDrain_AuthConfigRedactedOnCreate(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		CreateLogDrainFunc: func(_ context.Context, drain *domain.LogDrain) error {
+			drain.ID = "drain-1"
+			drain.CreatedAt = time.Now()
+			drain.UpdatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	body := `{
+		"project_id": "proj-1",
+		"name": "my-drain",
+		"drain_type": "http",
+		"endpoint_url": "https://example.com/logs",
+		"auth_type": "bearer",
+		"auth_config": {"token": "super-secret-bearer-token"}
+	}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "super-secret-bearer-token") {
+		t.Fatalf("auth_config secret leaked in create response: %s", w.Body.String())
+	}
+	var resp domain.LogDrain
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got := resp.AuthConfig["token"]; got != "***" {
+		t.Fatalf("expected auth_config.token=***, got %q", got)
+	}
+}
+
+func TestHandleLogDrain_AuthConfigRedactedOnGet(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetLogDrainFunc: func(_ context.Context, drainID, projectID string) (*domain.LogDrain, error) {
+			return &domain.LogDrain{
+				ID: drainID, ProjectID: projectID, Name: "my-drain",
+				DrainType: "http", AuthType: "bearer",
+				AuthConfig: map[string]string{"token": "stored-secret-from-db"},
+				Enabled:    true, CreatedAt: time.Now(),
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-1", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "stored-secret-from-db") {
+		t.Fatalf("auth_config secret leaked in get response: %s", w.Body.String())
+	}
+}
+
+func TestHandleLogDrain_AuthConfigRedactedOnList(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		ListLogDrainsFunc: func(_ context.Context, projectID string) ([]domain.LogDrain, error) {
+			return []domain.LogDrain{{
+				ID: "d1", ProjectID: projectID, Name: "d1",
+				DrainType: "http", AuthType: "header",
+				AuthConfig: map[string]string{"X-Api-Key": "list-leak-secret"},
+				Enabled:    true,
+			}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "list-leak-secret") {
+		t.Fatalf("auth_config secret leaked in list response: %s", w.Body.String())
+	}
+}
+
 // handleBulkReplayRuns.
 
 func TestHandleBulkReplayRuns_Success(t *testing.T) {

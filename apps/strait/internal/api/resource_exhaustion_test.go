@@ -383,7 +383,7 @@ func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
 	srv.acquireSSEConn("proj-1")
 
 	// The next SSE request should get 503.
-	req := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
