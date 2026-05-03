@@ -1279,6 +1279,132 @@ func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
+// CheckMaxDispatchPriority -- fail-closed on DB errors.
+// ---------------------------------------------------------------------------.
+
+// TestCheckMaxDispatchPriority_DBError_FailsClosed verifies that a DB error
+// when resolving the org causes CheckMaxDispatchPriority to fail closed
+// (return a *LimitError) rather than allowing the request.
+func TestCheckMaxDispatchPriority_DBError_FailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getProjectOrgIDFn: func(_ context.Context, _ string) (string, error) {
+			return "", errors.New("simulated db outage")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-1", 5)
+	if err == nil {
+		t.Fatal("expected error when DB is unavailable, got nil (fail-open antipattern)")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "dispatch_priority_exceeded" {
+		t.Fatalf("expected dispatch_priority_exceeded, got %q", le.Code)
+	}
+}
+
+// TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed verifies that a DB
+// error when loading plan limits also causes fail-closed behavior.
+func TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getProjectOrgIDFn: func(_ context.Context, _ string) (string, error) {
+			return "org-1", nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*OrgSubscription, error) {
+			return nil, errors.New("simulated subscription lookup failure")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-1", 5)
+	if err == nil {
+		t.Fatal("expected error when plan limits cannot be loaded, got nil")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+}
+
+// TestCheckMaxDispatchPriority_WithinCap_Allows verifies that a valid priority
+// within the plan cap returns nil.
+func TestCheckMaxDispatchPriority_WithinCap_Allows(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-pro": {OrgID: "org-pro", PlanTier: "pro", Status: "active"},
+	}
+	store.getProjectOrgIDFn = func(_ context.Context, _ string) (string, error) {
+		return "org-pro", nil
+	}
+
+	// Pro plan: MaxDispatchPriority = 10. Priority 5 should be allowed.
+	limits := GetPlanLimits("pro")
+	if limits.MaxDispatchPriority < 5 {
+		t.Skipf("pro plan MaxDispatchPriority=%d < 5, skipping", limits.MaxDispatchPriority)
+	}
+
+	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-pro", 5); err != nil {
+		t.Fatalf("expected nil for priority within cap, got %v", err)
+	}
+}
+
+// TestCheckMaxDispatchPriority_ExceedsCap_Blocks verifies that a priority
+// above the plan cap returns a *LimitError.
+func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-free": {OrgID: "org-free", PlanTier: "free", Status: "active"},
+	}
+	store.getProjectOrgIDFn = func(_ context.Context, _ string) (string, error) {
+		return "org-free", nil
+	}
+
+	// Free plan: MaxDispatchPriority = 0. Any positive priority should be blocked.
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 1)
+	if err == nil {
+		t.Fatal("expected LimitError for priority exceeding free-tier cap")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "dispatch_priority_exceeded" {
+		t.Fatalf("expected dispatch_priority_exceeded, got %q", le.Code)
+	}
+}
+
+// TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed verifies that
+// requestedPriority=0 is always allowed regardless of errors.
+func TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		getProjectOrgIDFn: func(_ context.Context, _ string) (string, error) {
+			return "", errors.New("should not be called for priority=0")
+		},
+	}
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-1", 0); err != nil {
+		t.Fatalf("priority 0 should always be allowed, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------.
 // DecrMonthlyRunCount -- mirrors DecrDailyRunCount behavior for monthly quota.
 // ---------------------------------------------------------------------------.
 

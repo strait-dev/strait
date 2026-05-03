@@ -790,15 +790,27 @@ func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID strin
 	orgID, err := e.store.GetProjectOrgID(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to resolve org for dispatch priority check",
-			"project_id", projectID, "error", err, "fail_open", true)
-		return nil // fail open: don't block runs on lookup error
+			"project_id", projectID, "error", err)
+		// Fail closed: a lookup failure must not grant elevated priority.
+		return &LimitError{
+			Code:    "dispatch_priority_exceeded",
+			Message: fmt.Sprintf("could not verify plan limits: %v", err),
+		}
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for dispatch priority check",
-			"org_id", orgID, "error", err, "fail_open", true)
-		return nil // fail open
+			"org_id", orgID, "error", err)
+		// Fail closed with the most-restrictive default (Free tier: cap = 0).
+		// Any non-zero requestedPriority is rejected.
+		return &LimitError{
+			Code: "dispatch_priority_exceeded",
+			Message: fmt.Sprintf(
+				"could not verify plan limits: %v. Requested priority %d exceeds the default cap of 0.",
+				err, requestedPriority,
+			),
+		}
 	}
 
 	if limits.MaxDispatchPriority == -1 {

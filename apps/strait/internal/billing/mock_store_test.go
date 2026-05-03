@@ -54,6 +54,7 @@ type mockBillingStore struct {
 	recordWebhookErr           error
 	recordedWebhookIDs         []string
 	getOrgSubscriptionFn       func(ctx context.Context, orgID string) (*OrgSubscription, error)
+	getProjectOrgIDFn          func(ctx context.Context, projectID string) (string, error)
 	enterpriseContracts        map[string]*EnterpriseContract
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
@@ -191,7 +192,10 @@ func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]Or
 	return subs, nil
 }
 
-func (m *mockBillingStore) GetProjectOrgID(_ context.Context, _ string) (string, error) {
+func (m *mockBillingStore) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
+	if m.getProjectOrgIDFn != nil {
+		return m.getProjectOrgIDFn(ctx, projectID)
+	}
 	return "", nil
 }
 
