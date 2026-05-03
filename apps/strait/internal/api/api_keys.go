@@ -222,6 +222,17 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 	}
 	slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
+
+	// Broadcast revocation to all gRPC replicas so any worker streams authenticated
+	// with this key are closed immediately.
+	revokeChannel := fmt.Sprintf("apikey:revoked:%s", input.KeyID)
+	if pubErr := s.pubsub.Publish(ctx, revokeChannel, []byte(input.KeyID)); pubErr != nil {
+		slog.Warn("api key revoke: broadcast publish failed",
+			"key_id", input.KeyID,
+			"error", pubErr,
+		)
+	}
+
 	return &RevokeAPIKeyOutput{Body: map[string]string{"status": "revoked"}}, nil
 }
 

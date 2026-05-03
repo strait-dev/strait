@@ -8,6 +8,7 @@ import (
 type ConnectedWorker struct {
 	WorkerID       string
 	ProjectID      string
+	APIKeyID       string // ID of the API key that authenticated this stream
 	Name           string
 	Hostname       string
 	SDKVersion     string
@@ -15,37 +16,83 @@ type ConnectedWorker struct {
 	Queues         []string
 	SlotsTotal     int32
 	SlotsAvailable int32
-	Status         string // active | draining
+	Status         string            // active | draining
 	SendCh         chan<- interface{} // typed in Phase 6.4
+	// revokeCh is closed by the registry when the authenticating API key is revoked.
+	// The stream goroutine selects on this channel to close itself immediately.
+	revokeCh chan struct{}
 }
 
 // ConnectionRegistry is an in-memory store of all active worker streams on
 // this replica. It is the authoritative source for slot accounting.
 // Workers are keyed by worker ID; project isolation is enforced at registration.
 type ConnectionRegistry struct {
-	mu      sync.RWMutex
-	workers map[string]*ConnectedWorker // keyed by worker_id
+	mu       sync.RWMutex
+	workers  map[string]*ConnectedWorker   // keyed by worker_id
+	byAPIKey map[string][]*ConnectedWorker // keyed by api_key_id
 }
 
 // NewConnectionRegistry creates an empty ConnectionRegistry.
 func NewConnectionRegistry() *ConnectionRegistry {
 	return &ConnectionRegistry{
-		workers: make(map[string]*ConnectedWorker),
+		workers:  make(map[string]*ConnectedWorker),
+		byAPIKey: make(map[string][]*ConnectedWorker),
 	}
 }
 
-// Register adds or replaces a worker entry.
+// Register adds or replaces a worker entry and indexes it by API key.
 func (r *ConnectionRegistry) Register(w *ConnectedWorker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.workers[w.WorkerID] = w
+	if w.APIKeyID != "" {
+		r.byAPIKey[w.APIKeyID] = append(r.byAPIKey[w.APIKeyID], w)
+	}
 }
 
-// Deregister removes a worker from the registry.
+// Deregister removes a worker from the registry and cleans up the API key index.
 func (r *ConnectionRegistry) Deregister(workerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	w, ok := r.workers[workerID]
+	if !ok {
+		return
+	}
 	delete(r.workers, workerID)
+	if w.APIKeyID != "" {
+		list := r.byAPIKey[w.APIKeyID]
+		filtered := list[:0]
+		for _, entry := range list {
+			if entry.WorkerID != workerID {
+				filtered = append(filtered, entry)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(r.byAPIKey, w.APIKeyID)
+		} else {
+			r.byAPIKey[w.APIKeyID] = filtered
+		}
+	}
+}
+
+// CloseByAPIKey signals all streams authenticated with the given API key to
+// close by closing their revokeCh. This implements the cross-replica revocation
+// path: the subscriber in stream.go reacts to the Redis pub/sub signal and calls
+// this method so every local stream for that key is closed immediately.
+func (r *ConnectionRegistry) CloseByAPIKey(apiKeyID string) {
+	r.mu.RLock()
+	workers := make([]*ConnectedWorker, len(r.byAPIKey[apiKeyID]))
+	copy(workers, r.byAPIKey[apiKeyID])
+	r.mu.RUnlock()
+
+	for _, w := range workers {
+		select {
+		case <-w.revokeCh:
+			// Already closed — skip.
+		default:
+			close(w.revokeCh)
+		}
+	}
 }
 
 // MarkDraining transitions a worker to draining status.
