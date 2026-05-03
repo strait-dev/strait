@@ -21,6 +21,18 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// addHMACHeaders injects X-Strait-Signature and X-Strait-Timestamp into
+// headers when the job has an endpoint_signing_secret configured. The
+// signature covers "<unix_timestamp>.<body>" using HMAC-SHA256.
+func addHMACHeaders(headers map[string]string, secret string, body []byte) {
+	if secret == "" {
+		return
+	}
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	headers["X-Strait-Timestamp"] = ts
+	headers["X-Strait-Signature"] = SignHTTPDispatch(secret, ts, body)
+}
+
 // resolveJobForRun loads the job configuration for a run, applying version
 // policy rules. For "pin" (default), returns the enqueue-time version. For
 // "latest", upgrades to the current version. For "minor", upgrades only if
@@ -330,7 +342,9 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		if job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
-				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, nil)
+				fallbackHeaders := make(map[string]string)
+				addHMACHeaders(fallbackHeaders, job.EndpointSigningSecret, run.Payload)
+				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
 				if fallbackErr == nil {
 					e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
 					return
@@ -452,6 +466,9 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		}
 	}
 
+	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
+	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
+
 	if run.Attempt > 1 {
 		if cp != nil {
 			data, _ := json.Marshal(cp.State)
@@ -551,6 +568,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 			extraHeaders["X-Previous-Error"] = run.Error
 		}
 	}
+
+	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
+	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
 
 	_, dispatchErr := e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
 	return dispatchErr
