@@ -43,6 +43,7 @@ type Scheduler struct {
 	downgradeApplier         *DowngradeApplier
 	memoryCleanup            *MemoryCleanup
 	gracePeriodEnforcer      *GracePeriodEnforcer
+	quotaResumeEnforcer      *QuotaResumeEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
@@ -225,6 +226,14 @@ func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	}
 }
 
+// WithQuotaResumeEnforcer enables periodic resumption of jobs paused due to quota
+// exhaustion at the billing-period boundary.
+func WithQuotaResumeEnforcer(enforcer *QuotaResumeEnforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.quotaResumeEnforcer = enforcer
+	}
+}
+
 // WithStaleSubscriptionChecker enables periodic detection of stale subscriptions.
 func WithStaleSubscriptionChecker(checker *StaleSubscriptionChecker) SchedulerOption {
 	return func(s *Scheduler) {
@@ -292,6 +301,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.gracePeriodEnforcer != nil {
 		s.tracker.track(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+	}
+	if s.quotaResumeEnforcer != nil {
+		s.tracker.track(&s.wg, "quota_resume_enforcer", func() { s.quotaResumeEnforcer.Run(ctx) })
 	}
 	if s.staleSubscriptionChecker != nil {
 		s.tracker.track(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })

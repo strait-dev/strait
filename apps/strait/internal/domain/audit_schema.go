@@ -629,6 +629,24 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"worker_id", "reason"},
 		Description: "Worker force-disconnected by operator or revocation broadcast.",
 	},
+
+	// Quota and cron lifecycle (billing-period enforcement).
+	AuditActionQuotaExceeded: {
+		Required:    []string{"org_id", "plan_tier"},
+		Description: "Org exceeded its quota; cron jobs paused until the next billing period.",
+	},
+	AuditActionCronPausedQuota: {
+		Required:    []string{"org_id", "jobs_paused"},
+		Description: "Cron jobs paused automatically because the org's quota was exceeded.",
+	},
+	AuditActionCronResumedQuota: {
+		Required:    []string{"org_id", "jobs_resumed"},
+		Description: "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
+	},
+	AuditActionSubscriptionChanged: {
+		Required:    []string{"org_id", "plan_tier"},
+		Description: "Org subscription changed (plan upgrade, downgrade, or renewal).",
+	},
 }
 
 // ForbiddenKeysFor returns the union of the action-specific forbidden keys

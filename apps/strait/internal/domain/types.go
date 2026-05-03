@@ -52,6 +52,9 @@ const (
 	WebhookEventWorkflowCompleted    = "workflow.completed"
 	WebhookEventWorkflowFailed       = "workflow.failed"
 	WebhookEventSLOBudgetWarning = "slo.budget_warning"
+	WebhookEventQuotaExceeded    = "quota.exceeded"
+	WebhookEventCronPausedQuota  = "cron.paused_quota"
+	WebhookEventCronResumed      = "cron.resumed"
 )
 
 const (

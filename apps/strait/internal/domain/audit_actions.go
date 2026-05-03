@@ -201,6 +201,12 @@ const (
 	AuditActionWorkerConnected           = "worker.connected"
 	AuditActionWorkerDisconnected        = "worker.disconnected"
 	AuditActionWorkerForceDisconnected   = "worker.force_disconnected"
+
+	// Quota and cron lifecycle (billing-period enforcement).
+	AuditActionQuotaExceeded          = "quota.exceeded"
+	AuditActionCronPausedQuota        = "cron.paused_quota"
+	AuditActionCronResumedQuota       = "cron.resumed"
+	AuditActionSubscriptionChanged    = "subscription.changed"
 )
 
 // allAuditActions is the set of every action name the emit path will accept.
@@ -344,6 +350,10 @@ var allAuditActions = map[string]struct{}{
 	AuditActionWorkerConnected:                 {},
 	AuditActionWorkerDisconnected:              {},
 	AuditActionWorkerForceDisconnected:         {},
+	AuditActionQuotaExceeded:                   {},
+	AuditActionCronPausedQuota:                 {},
+	AuditActionCronResumedQuota:                {},
+	AuditActionSubscriptionChanged:             {},
 }
 
 // IsKnownAuditAction reports whether action is a registered audit action.

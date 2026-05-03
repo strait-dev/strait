@@ -851,6 +851,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
 			slog.Info("per-org plan retention enabled")
+
+			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(billingStore, billingEnforcer, time.Hour).
+				WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
+			slog.Info("quota resume enforcer enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this
