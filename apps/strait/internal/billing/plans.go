@@ -1,10 +1,6 @@
 package billing
 
-import (
-	"slices"
-
-	"strait/internal/domain"
-)
+import "strait/internal/domain"
 
 // OrgPlanLimits defines the complete set of limits and features for a plan tier.
 type OrgPlanLimits struct {
@@ -55,7 +51,6 @@ type OrgPlanLimits struct {
 	HasSCIM              bool // directory sync (user provisioning)
 	HasDataResidency     bool // regional data isolation
 	HasCustomRBAC        bool // org-level role definitions beyond standard
-	HasReservedCapacity  bool // pre-provisioned machine pool
 	HasPriorityQueue     bool // enterprise jobs dequeued first
 	HasIPAllowlisting    bool // restrict API access to known CIDRs
 	HasSessionManagement bool // view/revoke OIDC sessions, bulk key revocation
@@ -66,19 +61,10 @@ type OrgPlanLimits struct {
 	MaxScheduledJobs       int               // max cron schedules; -1 = unlimited
 	AllCronOverlapPolicies bool              // false = "allow" only; true = all policies
 	MaxEnvironments        int               // max environments per project
-	AllowedPresets         []string          // nil = all presets; non-nil = restricted list
 	MaxWebhookEndpoints    int               // max webhook endpoints; -1 = unlimited, 0 = none
 	WebhookEventLevel      string            // "none", "basic", "all", "all_custom"
 	APIRateLimit           int               // requests per minute; -1 = unlimited
 	MaxAddonPacks          map[AddonType]int `json:"max_addon_packs,omitempty"` // max packs per addon type; -1 = unlimited
-}
-
-// IsPresetAllowed returns true if the given machine preset name is allowed on this plan.
-func (l *OrgPlanLimits) IsPresetAllowed(preset string) bool {
-	if l.AllowedPresets == nil {
-		return true
-	}
-	return slices.Contains(l.AllowedPresets, preset)
 }
 
 // Pricing constants in their respective units.
@@ -239,7 +225,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledFree,
 		AllCronOverlapPolicies:  false,
 		MaxEnvironments:         1,
-		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     0,
 		WebhookEventLevel:       "none",
 		APIRateLimit:            APIRateFree,
@@ -286,7 +271,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledStarter,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     3,
 		WebhookEventLevel:       "basic",
 		APIRateLimit:            APIRateStarter,
@@ -339,7 +323,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledPro,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     10,
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRatePro,
@@ -392,7 +375,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledScale,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     25,
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRateScale,
@@ -448,7 +430,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSCIM:                 true,
 		HasDataResidency:        true,
 		HasCustomRBAC:           true,
-		HasReservedCapacity:     true,
 		HasPriorityQueue:        true,
 		HasIPAllowlisting:       true,
 		HasSessionManagement:    true,
@@ -457,7 +438,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        -1,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     -1,
 		WebhookEventLevel:       "all_custom",
 		APIRateLimit:            -1,

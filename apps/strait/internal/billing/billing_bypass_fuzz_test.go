@@ -192,7 +192,7 @@ func TestBypass_FreeTierCannotAccessPaidFeatures(t *testing.T) {
 		FeatureAuditLogs, FeatureSSO, FeatureSLA,
 		FeatureDedicatedCompute, FeatureStaticIPs, FeatureVPCPeering,
 		FeatureSCIM, FeatureDataResidency, FeatureCustomRBAC,
-		FeatureReservedCapacity, FeaturePriorityQueue, FeatureIPAllowlisting,
+		FeaturePriorityQueue, FeatureIPAllowlisting,
 		FeatureSessionManagement, FeatureSecretRotation, FeatureSIEMExport,
 	}
 
@@ -213,7 +213,7 @@ func TestBypass_EnterpriseHasAllFeatures(t *testing.T) {
 		FeatureAuditLogs, FeatureSSO, FeatureSLA, FeatureRBAC,
 		FeatureDedicatedCompute, FeatureStaticIPs, FeatureVPCPeering,
 		FeatureSCIM, FeatureDataResidency, FeatureCustomRBAC,
-		FeatureReservedCapacity, FeaturePriorityQueue, FeatureIPAllowlisting,
+		FeaturePriorityQueue, FeatureIPAllowlisting,
 		FeatureSessionManagement, FeatureSecretRotation, FeatureSIEMExport,
 		FeatureAllCronOverlap, FeatureAIAssistantBYOK,
 	}

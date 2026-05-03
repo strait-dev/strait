@@ -261,20 +261,19 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tier               domain.PlanTier
-		wantScheduled      int
-		wantOverlapAll     bool
-		wantEnvironments   int
-		wantWebhookEP      int
-		wantWebhookLevel   string
-		wantAPIRate        int
-		wantPresetRestrict bool // true if AllowedPresets is non-nil
+		tier             domain.PlanTier
+		wantScheduled    int
+		wantOverlapAll   bool
+		wantEnvironments int
+		wantWebhookEP    int
+		wantWebhookLevel string
+		wantAPIRate      int
 	}{
-		{domain.PlanFree, MaxScheduledFree, false, 1, 0, "none", APIRateFree, false},
-		{domain.PlanStarter, MaxScheduledStarter, true, 3, 3, "basic", APIRateStarter, false},
-		{domain.PlanPro, MaxScheduledPro, true, 3, 10, "all", APIRatePro, false},
-		{domain.PlanScale, MaxScheduledScale, true, 3, 25, "all", APIRateScale, false},
-		{domain.PlanEnterprise, -1, true, 3, -1, "all_custom", -1, false},
+		{domain.PlanFree, MaxScheduledFree, false, 1, 0, "none", APIRateFree},
+		{domain.PlanStarter, MaxScheduledStarter, true, 3, 3, "basic", APIRateStarter},
+		{domain.PlanPro, MaxScheduledPro, true, 3, 10, "all", APIRatePro},
+		{domain.PlanScale, MaxScheduledScale, true, 3, 25, "all", APIRateScale},
+		{domain.PlanEnterprise, -1, true, 3, -1, "all_custom", -1},
 	}
 
 	for _, tt := range tests {
@@ -299,25 +298,7 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 			if l.APIRateLimit != tt.wantAPIRate {
 				t.Errorf("APIRateLimit = %d, want %d", l.APIRateLimit, tt.wantAPIRate)
 			}
-			hasRestrict := l.AllowedPresets != nil
-			if hasRestrict != tt.wantPresetRestrict {
-				t.Errorf("AllowedPresets restricted = %v, want %v", hasRestrict, tt.wantPresetRestrict)
-			}
 		})
-	}
-}
-
-func TestPlanLimits_IsPresetAllowed(t *testing.T) {
-	t.Parallel()
-
-	// All tiers have AllowedPresets = nil (all presets allowed).
-	for _, tier := range domain.AllPlanTiers() {
-		limits := GetPlanLimits(tier)
-		for _, p := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"} {
-			if !limits.IsPresetAllowed(p) {
-				t.Errorf("%s.IsPresetAllowed(%q) = false, want true", tier, p)
-			}
-		}
 	}
 }
 
@@ -525,9 +506,6 @@ func TestPlanLimits_EnterpriseFeatures(t *testing.T) {
 	}
 	if !ent.HasCustomRBAC {
 		t.Error("Enterprise should have HasCustomRBAC")
-	}
-	if !ent.HasReservedCapacity {
-		t.Error("Enterprise should have HasReservedCapacity")
 	}
 	if !ent.HasPriorityQueue {
 		t.Error("Enterprise should have HasPriorityQueue")

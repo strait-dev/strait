@@ -24,7 +24,6 @@ const (
 	FeatureSCIM              Feature = "scim"
 	FeatureDataResidency     Feature = "data_residency"
 	FeatureCustomRBAC        Feature = "custom_rbac"
-	FeatureReservedCapacity  Feature = "reserved_capacity"
 	FeaturePriorityQueue     Feature = "priority_queue"
 	FeatureIPAllowlisting    Feature = "ip_allowlisting"
 	FeatureSessionManagement Feature = "session_management"
@@ -136,8 +135,6 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 		return limits.HasDataResidency
 	case FeatureCustomRBAC:
 		return limits.HasCustomRBAC
-	case FeatureReservedCapacity:
-		return limits.HasReservedCapacity
 	case FeaturePriorityQueue:
 		return limits.HasPriorityQueue
 	case FeatureIPAllowlisting:

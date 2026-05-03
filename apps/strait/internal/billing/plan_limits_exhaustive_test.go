@@ -6,37 +6,7 @@ import (
 	"strait/internal/domain"
 )
 
-// A. Free Tier Enforcement (20 tests).
-
-func TestFreeEnforcement_Presets(t *testing.T) {
-	t.Parallel()
-	free := GetPlanLimits(domain.PlanFree)
-
-	// Free tier has AllowedPresets = nil: all presets are allowed.
-	tests := []struct {
-		name   string
-		preset string
-		want   bool
-	}{
-		{"large-1x_allowed", "large-1x", true},
-		{"large-2x_allowed", "large-2x", true},
-		{"medium-1x_allowed", "medium-1x", true},
-		{"medium-2x_allowed", "medium-2x", true},
-		{"small-1x_allowed", "small-1x", true},
-		{"micro_allowed", "micro", true},
-		{"case_insensitive_LARGE-1X_allowed", "LARGE-1X", true},
-		{"empty_string_allowed", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := free.IsPresetAllowed(tt.preset); got != tt.want {
-				t.Errorf("Free.IsPresetAllowed(%q) = %v, want %v", tt.preset, got, tt.want)
-			}
-		})
-	}
-}
+// A. Free Tier Enforcement.
 
 func TestFreeEnforcement_ExecutionMode(t *testing.T) {
 	t.Parallel()
@@ -113,7 +83,6 @@ func TestStarterEnforcement(t *testing.T) {
 		fn   func() bool
 		want bool
 	}{
-		{"all_presets_allowed", func() bool { return s.AllowedPresets == nil }, true},
 		{"http_mode_allowed", func() bool { return s.AllowsHTTPMode }, true},
 		{"approval_gates_rejected", func() bool { return s.HasApprovalGates }, false},
 		{"canary_rejected", func() bool { return s.HasCanaryDeployments }, false},
@@ -207,9 +176,6 @@ func TestEnterpriseEnforcement(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
 
-	if e.AllowedPresets != nil {
-		t.Error("Enterprise.AllowedPresets should be nil (all presets)")
-	}
 	if e.MaxWorkflowDAGSteps != -1 {
 		t.Errorf("Enterprise.MaxWorkflowDAGSteps = %d, want -1 (unlimited)", e.MaxWorkflowDAGSteps)
 	}
@@ -355,16 +321,6 @@ func TestSelfHostedEnforcement(t *testing.T) {
 		for _, f := range features {
 			if !reg.AllowsFeature(domain.PlanEnterprise, f) {
 				t.Errorf("Enterprise should have feature %q", f)
-			}
-		}
-	})
-
-	t.Run("enterprise_all_presets", func(t *testing.T) {
-		t.Parallel()
-		e := GetPlanLimits(domain.PlanEnterprise)
-		for _, p := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"} {
-			if !e.IsPresetAllowed(p) {
-				t.Errorf("Enterprise.IsPresetAllowed(%q) = false", p)
 			}
 		}
 	})

@@ -39,7 +39,6 @@ type planResponse struct {
 	HasSCIM                 bool     `json:"has_scim"`
 	HasDataResidency        bool     `json:"has_data_residency"`
 	HasCustomRBAC           bool     `json:"has_custom_rbac"`
-	HasReservedCapacity     bool     `json:"has_reserved_capacity"`
 	HasPriorityQueue        bool     `json:"has_priority_queue"`
 	HasIPAllowlisting       bool     `json:"has_ip_allowlisting"`
 	HasSessionManagement    bool     `json:"has_session_management"`
@@ -85,7 +84,6 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 		HasSCIM:                 p.HasSCIM,
 		HasDataResidency:        p.HasDataResidency,
 		HasCustomRBAC:           p.HasCustomRBAC,
-		HasReservedCapacity:     p.HasReservedCapacity,
 		HasPriorityQueue:        p.HasPriorityQueue,
 		HasIPAllowlisting:       p.HasIPAllowlisting,
 		HasSessionManagement:    p.HasSessionManagement,

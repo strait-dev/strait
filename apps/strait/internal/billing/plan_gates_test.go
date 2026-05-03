@@ -6,71 +6,6 @@ import (
 	"strait/internal/domain"
 )
 
-func TestIsPresetAllowed_FreeTier(t *testing.T) {
-	t.Parallel()
-	free := GetPlanLimits(domain.PlanFree)
-
-	// Free tier has AllowedPresets = nil, meaning all presets are allowed.
-	allPresets := []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"}
-	for _, p := range allPresets {
-		if !free.IsPresetAllowed(p) {
-			t.Errorf("Free.IsPresetAllowed(%q) = false, want true (no preset restrictions)", p)
-		}
-	}
-}
-
-func TestIsPresetAllowed_PaidTiers(t *testing.T) {
-	t.Parallel()
-
-	allPresets := []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"}
-
-	for _, tier := range []domain.PlanTier{domain.PlanStarter, domain.PlanPro, domain.PlanScale, domain.PlanEnterprise} {
-		limits := GetPlanLimits(tier)
-		for _, p := range allPresets {
-			if !limits.IsPresetAllowed(p) {
-				t.Errorf("%s.IsPresetAllowed(%q) = false, want true", tier, p)
-			}
-		}
-	}
-}
-
-func TestIsPresetAllowed_UnknownPreset(t *testing.T) {
-	t.Parallel()
-
-	// All tiers have AllowedPresets = nil, so any preset string is "allowed"
-	// (the field is purely informational; enforcement happens at runtime via compute).
-	for _, tier := range domain.AllPlanTiers() {
-		limits := GetPlanLimits(tier)
-		if !limits.IsPresetAllowed("nonexistent") {
-			t.Errorf("%s.IsPresetAllowed(nonexistent) = false, want true (nil AllowedPresets = all)", tier)
-		}
-	}
-}
-
-func TestIsPresetAllowed_EmptyString(t *testing.T) {
-	t.Parallel()
-
-	// AllowedPresets is nil for all tiers (no restrictions), so empty string is "allowed"
-	// by the IsPresetAllowed helper. Runtime enforcement rejects invalid preset names separately.
-	free := GetPlanLimits(domain.PlanFree)
-	// nil AllowedPresets => IsPresetAllowed returns true for any string including "".
-	_ = free.IsPresetAllowed("") // should not panic
-}
-
-func TestIsPresetAllowed_CaseSensitive(t *testing.T) {
-	t.Parallel()
-
-	// With AllowedPresets = nil, any preset (including differently-cased ones) is allowed.
-	// Case sensitivity only matters when AllowedPresets is non-nil.
-	free := GetPlanLimits(domain.PlanFree)
-	if !free.IsPresetAllowed("MICRO") {
-		t.Error("Free.IsPresetAllowed(MICRO) = false, want true (nil AllowedPresets = all allowed)")
-	}
-	if !free.IsPresetAllowed("Micro") {
-		t.Error("Free.IsPresetAllowed(Micro) = false, want true (nil AllowedPresets = all allowed)")
-	}
-}
-
 func TestFeatureGating_ApprovalGates(t *testing.T) {
 	t.Parallel()
 
@@ -213,22 +148,6 @@ func TestCronOverlapPolicy_FreeTier(t *testing.T) {
 			t.Errorf("%s.AllCronOverlapPolicies = false, want true", tier)
 		}
 	}
-}
-
-func FuzzIsPresetAllowed(f *testing.F) {
-	f.Add("micro")
-	f.Add("large-2x")
-	f.Add("")
-	f.Add("MICRO")
-	f.Add("nonexistent\x00")
-
-	f.Fuzz(func(t *testing.T, preset string) {
-		for _, tier := range domain.AllPlanTiers() {
-			limits := GetPlanLimits(tier)
-			// Should never panic.
-			_ = limits.IsPresetAllowed(preset)
-		}
-	})
 }
 
 func FuzzFeatureGating(f *testing.F) {

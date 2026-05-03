@@ -113,7 +113,7 @@ func downgradeHTTPJobsWarningHTML(periodEnd string, jobCount int) string {
     <tr><td style="height:16px;"></td></tr>
     <tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
-        Your job configurations and run history will be fully preserved. To keep your HTTP jobs running, upgrade back to Pro or higher before the period ends. Alternatively, you can convert them to managed execution mode.
+        Your job configurations and run history will be fully preserved. To keep your HTTP jobs running, upgrade back to Pro or higher before the period ends.
       </td>
     </tr>
     <tr><td style="height:16px;"></td></tr>
