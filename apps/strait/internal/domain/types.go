@@ -51,8 +51,7 @@ const (
 	WebhookEventRunCanceled          = "run.canceled"
 	WebhookEventWorkflowCompleted    = "workflow.completed"
 	WebhookEventWorkflowFailed       = "workflow.failed"
-	WebhookEventComputeBudgetWarning = "compute_budget_warning"
-	WebhookEventSLOBudgetWarning     = "slo.budget_warning"
+	WebhookEventSLOBudgetWarning = "slo.budget_warning"
 )
 
 const (
@@ -104,10 +103,6 @@ type NotificationDelivery struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
-
-// ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
-// that triggers a warning alert.
-const ComputeBudgetAlertThresholdPct = 80
 
 // Error class constants for run error categorization.
 const (
@@ -647,21 +642,6 @@ type RunOutput struct {
 	Schema    json.RawMessage `json:"schema,omitempty"`
 	Value     json.RawMessage `json:"value"`
 	CreatedAt time.Time       `json:"created_at"`
-}
-
-// RunComputeUsage tracks container wall-clock time and cost for managed runs.
-type RunComputeUsage struct {
-	ID            string     `json:"id"`
-	RunID         string     `json:"run_id"`
-	ProjectID     string     `json:"project_id"`
-	JobID         string     `json:"job_id"`
-	MachinePreset string     `json:"machine_preset"`
-	MachineID     string     `json:"machine_id"`
-	DurationSecs  float64    `json:"duration_secs"`
-	CostMicrousd  int64      `json:"cost_microusd"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	FinishedAt    *time.Time `json:"finished_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
 }
 
 // RunResourceSnapshot records a point-in-time resource utilization sample for a run.

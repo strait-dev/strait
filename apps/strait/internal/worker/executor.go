@@ -48,12 +48,8 @@ type ExecutorStore interface {
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
-	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
-	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	SetRunMachineID(ctx context.Context, runID, machineID string) error
-	RecordOOMEvent(ctx context.Context, jobID, preset string) error
-	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
 	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
 	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
 	AtomicRecordHealthResult(

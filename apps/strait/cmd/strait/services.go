@@ -623,8 +623,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	}
 	if chExporter != nil {
 		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
-			UsageLister:        queries,
-			ComputeUsageLister: queries,
+			UsageLister: queries,
 		}))
 	}
 
@@ -732,7 +731,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
-		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter(queries)
+		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter()
 		schedOpts := []scheduler.SchedulerOption{
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),

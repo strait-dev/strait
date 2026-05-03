@@ -483,23 +483,6 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), compute_usage AS (
-			SELECT p.org_id,
-				rcu.project_id,
-				DATE(rcu.created_at) AS period_date,
-				0::bigint AS runs_count,
-				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
-				MIN(rcu.created_at) AS created_at,
-				MAX(rcu.created_at) AS updated_at
-			FROM run_compute_usage rcu
-			JOIN projects p ON p.id = rcu.project_id
-			WHERE p.org_id = $1
-			  AND rcu.created_at >= $2
-			  AND rcu.created_at < $3
-			  AND rcu.status = 'committed'
-			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		), ai_usage AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -530,8 +513,6 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			MAX(updated_at) AS updated_at
 		FROM (
 			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM compute_usage
 			UNION ALL
 			SELECT * FROM ai_usage
 		) usage
@@ -565,23 +546,6 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), compute_usage AS (
-			SELECT p.org_id,
-				rcu.project_id,
-				DATE(rcu.created_at) AS period_date,
-				0::bigint AS runs_count,
-				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
-				MIN(rcu.created_at) AS created_at,
-				MAX(rcu.created_at) AS updated_at
-			FROM run_compute_usage rcu
-			JOIN projects p ON p.id = rcu.project_id
-			WHERE rcu.project_id = $1
-			  AND rcu.created_at >= $2
-			  AND rcu.created_at < $3
-			  AND rcu.status = 'committed'
-			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		), ai_usage AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -613,8 +577,6 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 		FROM (
 			SELECT * FROM run_counts
 			UNION ALL
-			SELECT * FROM compute_usage
-			UNION ALL
 			SELECT * FROM ai_usage
 		) usage
 		GROUP BY org_id, project_id, period_date
@@ -644,22 +606,6 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			WHERE p.org_id = $1
 			  AND DATE(jr.created_at) = $2
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), compute_usage AS (
-			SELECT p.org_id,
-				rcu.project_id,
-				DATE(rcu.created_at) AS period_date,
-				0::bigint AS runs_count,
-				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
-				MIN(rcu.created_at) AS created_at,
-				MAX(rcu.created_at) AS updated_at
-			FROM run_compute_usage rcu
-			JOIN projects p ON p.id = rcu.project_id
-			WHERE p.org_id = $1
-			  AND DATE(rcu.created_at) = $2
-			  AND rcu.status = 'committed'
-			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		), ai_usage AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -690,8 +636,6 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 		FROM (
 			SELECT * FROM run_counts
 			UNION ALL
-			SELECT * FROM compute_usage
-			UNION ALL
 			SELECT * FROM ai_usage
 		) usage
 		GROUP BY org_id, project_id, period_date
@@ -704,19 +648,12 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 }
 
 func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
-	var total int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(rcu.cost_microusd), 0)
-		FROM run_compute_usage rcu
-		JOIN projects p ON p.id = rcu.project_id
-		WHERE p.org_id = $1
-		  AND rcu.created_at >= $2
-		  AND rcu.status = 'committed'
-	`, orgID, from).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("summing org period spend: %w", err)
-	}
-	return total, nil
+	// run_compute_usage was dropped in migration 000227. Compute spend is now
+	// tracked via usage_records (flat per-run cost). Return 0 until the new
+	// usage_records aggregation is wired in.
+	_ = orgID
+	_ = from
+	return 0, nil
 }
 
 func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
@@ -751,18 +688,11 @@ func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budget
 }
 
 func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
-	var total int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(rcu.cost_microusd), 0)
-		FROM run_compute_usage rcu
-		WHERE rcu.project_id = $1
-		  AND rcu.created_at >= $2
-		  AND rcu.status = 'committed'
-	`, projectID, from).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("summing project period spend: %w", err)
-	}
-	return total, nil
+	// run_compute_usage was dropped in migration 000227. Return 0 until the new
+	// per-run cost aggregation is wired in.
+	_ = projectID
+	_ = from
+	return 0, nil
 }
 
 func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error {

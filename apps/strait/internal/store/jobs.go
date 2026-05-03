@@ -547,7 +547,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 
 	query := `
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
-		       rate_limit_requests, rate_limit_window_secs, compute_daily_cost_limit_microusd, default_region, plan_tier,
+		       rate_limit_requests, rate_limit_window_secs, default_region, plan_tier,
 		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
 		       max_memory_per_key_bytes, max_memory_per_job_bytes, max_key_lifetime_days
 		FROM project_quotas
@@ -562,7 +562,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var maxDailyCost *int64
 	var rateLimitRequests *int
 	var rateLimitWindowSecs *int
-	var computeDailyCostLimit *int64
 	var defaultRegion *string
 	var planTier *string
 	var maxTokensPerRun *int64
@@ -581,7 +580,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&maxDailyCost,
 		&rateLimitRequests,
 		&rateLimitWindowSecs,
-		&computeDailyCostLimit,
 		&defaultRegion,
 		&planTier,
 		&maxTokensPerRun,
@@ -621,9 +619,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if rateLimitWindowSecs != nil {
 		quota.RateLimitWindowSecs = *rateLimitWindowSecs
-	}
-	if computeDailyCostLimit != nil {
-		quota.ComputeDailyCostLimitMicrousd = *computeDailyCostLimit
 	}
 	if defaultRegion != nil {
 		quota.DefaultRegion = *defaultRegion

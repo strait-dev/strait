@@ -22,8 +22,7 @@ var validWebhookEventTypes = map[string]bool{
 	domain.WebhookEventRunCanceled:          true,
 	domain.WebhookEventWorkflowCompleted:    true,
 	domain.WebhookEventWorkflowFailed:       true,
-	domain.WebhookEventComputeBudgetWarning: true,
-	domain.WebhookEventSLOBudgetWarning:     true,
+	domain.WebhookEventSLOBudgetWarning: true,
 }
 
 type CreateWebhookSubscriptionRequest struct {

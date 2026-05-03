@@ -26,7 +26,6 @@ type SchedulerStore interface {
 	MemoryCleanupStore
 	store.DebounceStore
 	store.BatchStore
-	store.RunComputeUsageStore
 }
 
 type Scheduler struct {

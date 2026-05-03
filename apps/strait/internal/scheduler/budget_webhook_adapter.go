@@ -3,79 +3,24 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"log/slog"
-
-	"strait/internal/domain"
-	"strait/internal/store"
-
-	"github.com/google/uuid"
 )
 
-// BudgetWebhookAdapter implements BudgetMonitorWebhookEnqueuer by creating
-// WebhookDelivery records for projects with matching webhook subscriptions.
-type BudgetWebhookAdapter struct {
-	store  budgetWebhookStore
-	logger *slog.Logger
-}
-
-// budgetWebhookStore defines the minimal store operations needed by the adapter.
-type budgetWebhookStore interface {
-	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
-	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-}
+// BudgetWebhookAdapter implements BudgetMonitorWebhookEnqueuer.
+// The compute_budget_warning path was removed when run_compute_usage was dropped;
+// this type is retained to satisfy existing wiring in cmd/strait/server.go.
+type BudgetWebhookAdapter struct{}
 
 // Verify interface compliance.
 var _ BudgetMonitorWebhookEnqueuer = (*BudgetWebhookAdapter)(nil)
 
 // NewBudgetWebhookAdapter creates a new adapter.
-func NewBudgetWebhookAdapter(s budgetWebhookStore) *BudgetWebhookAdapter {
-	return &BudgetWebhookAdapter{
-		store:  s,
-		logger: slog.Default(),
-	}
+func NewBudgetWebhookAdapter() *BudgetWebhookAdapter {
+	return &BudgetWebhookAdapter{}
 }
 
-// EnqueueBudgetAlert creates a WebhookDelivery for each active subscription
-// that includes the compute_budget_warning event type.
-func (a *BudgetWebhookAdapter) EnqueueBudgetAlert(ctx context.Context, projectID string, payload json.RawMessage) error {
-	subs, err := a.store.ListWebhookSubscriptions(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("list webhook subscriptions: %w", err)
-	}
-
-	for _, sub := range subs {
-		if !sub.Active || !containsEventType(sub.EventTypes, domain.WebhookEventComputeBudgetWarning) {
-			continue
-		}
-
-		delivery := &domain.WebhookDelivery{
-			ID:          uuid.Must(uuid.NewV7()).String(),
-			WebhookURL:  sub.WebhookURL,
-			Status:      domain.WebhookStatusPending,
-			MaxAttempts: 3,
-		}
-
-		if err := a.store.CreateWebhookDelivery(ctx, delivery); err != nil {
-			a.logger.Warn("failed to create budget webhook delivery",
-				"project_id", projectID,
-				"subscription_id", sub.ID,
-				"error", err,
-			)
-			continue
-		}
-
-		a.logger.Info("enqueued budget alert webhook",
-			"project_id", projectID,
-			"subscription_id", sub.ID,
-			"delivery_id", delivery.ID,
-		)
-	}
-
-	// Suppress the unused variable lint — payload is part of the interface
-	// contract and will be included in the delivery body in a follow-up.
-	_ = payload
-
+// EnqueueBudgetAlert is a no-op since compute_budget_warning was removed in
+// migration 000227.
+func (a *BudgetWebhookAdapter) EnqueueBudgetAlert(_ context.Context, _ string, _ json.RawMessage) error {
 	return nil
 }
 
@@ -88,6 +33,3 @@ func containsEventType(types []string, target string) bool {
 	}
 	return false
 }
-
-// Ensure *store.Queries satisfies budgetWebhookStore.
-var _ budgetWebhookStore = (*store.Queries)(nil)

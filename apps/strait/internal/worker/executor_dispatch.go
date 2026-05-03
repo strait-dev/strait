@@ -352,42 +352,13 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	// Record HTTP run cost for Stripe billing (cloud only).
 	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
-		e.recordHTTPRunCost(ctx, run, job)
+		if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
+			e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
+		}
+		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
 	}
 
 	e.handleSuccess(ctx, run, job, result, execTrace)
-}
-
-// recordHTTPRunCost records the flat orchestration cost for an HTTP-mode run
-// and ingests a Stripe event for metered billing.
-func (e *Executor) recordHTTPRunCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	cost := billing.HTTPCostPerRunMicrousd
-
-	finishedAt := time.Now()
-	startedAt := run.StartedAt
-	if startedAt == nil {
-		startedAt = &run.CreatedAt
-	}
-
-	usage := &domain.RunComputeUsage{
-		RunID:         run.ID,
-		ProjectID:     job.ProjectID,
-		JobID:         job.ID,
-		MachinePreset: "http",
-		DurationSecs:  finishedAt.Sub(*startedAt).Seconds(),
-		CostMicrousd:  cost,
-		StartedAt:     startedAt,
-		FinishedAt:    &finishedAt,
-	}
-	if err := e.store.CreateRunComputeUsage(ctx, usage); err != nil {
-		e.logger.Warn("failed to record HTTP run cost", "run_id", run.ID, "error", err)
-	}
-
-	if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
-		e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
-	}
-
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, cost)
 }
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {

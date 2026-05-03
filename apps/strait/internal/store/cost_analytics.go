@@ -103,16 +103,9 @@ func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, fr
 		return nil, fmt.Errorf("cost analytics ai totals: %w", err)
 	}
 
-	// Totals from run_compute_usage (compute cost).
-	computeQuery := `
-		SELECT COALESCE(SUM(cost_microusd), 0)
-		FROM run_compute_usage
-		WHERE project_id = $1 AND created_at >= $2 AND created_at < $3`
-	if err := q.db.QueryRow(ctx, computeQuery, projectID, from, to).Scan(
-		&result.TotalComputeCostMicrousd,
-	); err != nil {
-		return nil, fmt.Errorf("cost analytics compute totals: %w", err)
-	}
+	// run_compute_usage was dropped in 000227; compute cost is now 0 until
+	// the flat per-run cost path is wired in.
+	result.TotalComputeCostMicrousd = 0
 
 	// By model breakdown.
 	modelQuery := `
@@ -358,46 +351,14 @@ func (q *Queries) GetTopCosts(ctx context.Context, projectID string, from, to ti
 }
 
 // GetComputeCostAnalytics returns compute costs grouped by machine preset.
+// run_compute_usage was dropped in migration 000227; this always returns empty results.
 func (q *Queries) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*ComputeCostAnalytics, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetComputeCostAnalytics")
 	defer span.End()
-
-	result := &ComputeCostAnalytics{
-		ByPreset: make([]CostByPreset, 0),
-	}
-
-	totalQuery := `
-		SELECT COALESCE(SUM(cost_microusd), 0)
-		FROM run_compute_usage
-		WHERE project_id = $1 AND created_at >= $2 AND created_at < $3`
-	if err := q.db.QueryRow(ctx, totalQuery, projectID, from, to).Scan(&result.TotalCostMicrousd); err != nil {
-		return nil, fmt.Errorf("compute cost analytics total: %w", err)
-	}
-
-	presetQuery := `
-		SELECT machine_preset,
-		       SUM(cost_microusd),
-		       COUNT(*),
-		       COALESCE(SUM(duration_secs), 0)
-		FROM run_compute_usage
-		WHERE project_id = $1 AND created_at >= $2 AND created_at < $3
-		GROUP BY machine_preset
-		ORDER BY SUM(cost_microusd) DESC`
-
-	rows, err := q.db.Query(ctx, presetQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("compute cost analytics by preset: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var p CostByPreset
-		if err := rows.Scan(&p.Preset, &p.CostMicrousd, &p.RunCount, &p.DurationSecs); err != nil {
-			return nil, fmt.Errorf("compute cost analytics by preset scan: %w", err)
-		}
-		result.ByPreset = append(result.ByPreset, p)
-	}
-	return result, rows.Err()
+	_ = projectID
+	_ = from
+	_ = to
+	return &ComputeCostAnalytics{ByPreset: make([]CostByPreset, 0)}, nil
 }
 
 // AggregateCostStatsHourly materializes cost data for a given hour into cost_stats_hourly.
@@ -417,19 +378,14 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 			jr.project_id,
 			$1 AS hour,
 			COALESCE(SUM(u.cost_microusd), 0) AS ai_cost_microusd,
-			COALESCE(cu.compute_cost, 0) AS compute_cost_microusd,
+			0 AS compute_cost_microusd,
 			COALESCE(SUM(u.total_tokens), 0) AS total_tokens,
 			COUNT(DISTINCT jr.id) AS run_count
 		FROM job_runs jr
 		LEFT JOIN run_usage u ON u.run_id = jr.id
-		LEFT JOIN LATERAL (
-			SELECT SUM(c.cost_microusd) AS compute_cost
-			FROM run_compute_usage c
-			WHERE c.project_id = jr.project_id AND c.created_at >= $1 AND c.created_at < $2
-		) cu ON true
 		WHERE jr.created_at >= $1 AND jr.created_at < $2
 		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
-		GROUP BY jr.project_id, cu.compute_cost
+		GROUP BY jr.project_id
 		ON CONFLICT (project_id, hour) DO UPDATE SET
 			ai_cost_microusd = EXCLUDED.ai_cost_microusd,
 			compute_cost_microusd = EXCLUDED.compute_cost_microusd,

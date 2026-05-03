@@ -129,7 +129,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		job_runs, job_secrets, job_dependencies, jobs, job_groups,
 		environments, endpoint_circuit_state, project_quotas,
 		run_checkpoints, run_outputs, run_tool_calls, run_usage,
-		pricing_catalog, run_compute_usage, job_preset_recommendations,
+		pricing_catalog,
 		projects, organization_subscriptions, usage_records,
 		organization_addons, sent_usage_reports, processed_webhook_messages,
 		enterprise_contracts,
