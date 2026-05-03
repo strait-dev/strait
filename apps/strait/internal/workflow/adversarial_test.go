@@ -3,6 +3,7 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -185,8 +186,8 @@ func TestRenderTemplateVars_DeeplyNested(t *testing.T) {
 
 	// Build nested vars object.
 	var current any = "leaf_value"
-	for i := len(parts) - 1; i >= 0; i-- {
-		current = map[string]any{parts[i]: current}
+	for _, part := range slices.Backward(parts) {
+		current = map[string]any{part: current}
 	}
 	varsBytes, err := json.Marshal(current)
 	if err != nil {

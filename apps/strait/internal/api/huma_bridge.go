@@ -87,7 +87,7 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 // extractParams fills struct fields tagged with `path` or `query` from the request.
 func extractParams(r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -164,7 +164,7 @@ func setStringField(fv reflect.Value, val string) error {
 
 func hasBodyField(input any) bool {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	return v.Kind() == reflect.Struct && v.FieldByName("Body").IsValid()
@@ -188,7 +188,7 @@ func (n *nullByteStrippingReader) Read(p []byte) (int, error) {
 
 func decodeBody(s *Server, r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	bodyField := v.FieldByName("Body")
@@ -213,7 +213,7 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 // stripNullBytesFromStruct recursively replaces \x00 bytes in all string
 // fields of a struct with spaces, preventing Postgres null byte errors.
 func stripNullBytesFromStruct(v reflect.Value) {
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return
 		}
@@ -236,7 +236,7 @@ func stripNullBytesFromStruct(v reflect.Value) {
 
 func extractBodyField(output any) any {
 	v := reflect.ValueOf(output)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() == reflect.Struct {
@@ -313,8 +313,10 @@ func (e *rawStatusError) GetStatus() int {
 	return e.status
 }
 
-// newValidationError creates a typedAPIError for struct validation failures,
-// preserving the same response shape as the old s.validateRequest helper.
+// newValidationError creates a typedAPIError for struct validation failures.
+// Field-level validation failures are surfaced as 422 Unprocessable Entity
+// with the canonical validation_failed code; non-validation errors fall back
+// to 400 bad_request.
 func newValidationError(err error) error {
 	var ve validator.ValidationErrors
 	if errors.As(err, &ve) {
@@ -323,9 +325,9 @@ func newValidationError(err error) error {
 			messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
 		}
 		return &typedAPIError{
-			status: http.StatusBadRequest,
+			status: http.StatusUnprocessableEntity,
 			apiError: APIError{
-				Code:    ErrorCodeValidationError,
+				Code:    ErrorCodeValidationFailed,
 				Message: "validation failed",
 				Details: messages,
 			},
@@ -334,7 +336,7 @@ func newValidationError(err error) error {
 	return &typedAPIError{
 		status: http.StatusBadRequest,
 		apiError: APIError{
-			Code:    ErrorCodeValidationError,
+			Code:    ErrorCodeBadRequest,
 			Message: "invalid request",
 		},
 	}

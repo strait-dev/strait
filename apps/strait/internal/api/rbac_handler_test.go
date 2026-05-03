@@ -391,8 +391,8 @@ func TestHandleCreateRole_EmptyBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
 	}
 }
 
@@ -405,8 +405,8 @@ func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
 	}
 }
 
@@ -589,8 +589,8 @@ func TestHandleUpdateRole_EmptyBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
 	}
 }
 
@@ -621,8 +621,8 @@ func TestHandleAssignMember_EmptyBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
 	}
 }
 
@@ -635,8 +635,8 @@ func TestHandleAssignMember_MissingUserID(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
 	}
 }
 
@@ -649,8 +649,8 @@ func TestHandleAssignMember_MissingRoleID(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
 	}
 }
 

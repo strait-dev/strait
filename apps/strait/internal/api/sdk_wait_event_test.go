@@ -147,8 +147,8 @@ func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusUnprocessableEntity, rr.Body.String())
 	}
 }
 

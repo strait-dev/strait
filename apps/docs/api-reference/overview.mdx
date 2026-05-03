@@ -120,19 +120,40 @@ All endpoints accept and return JSON. Use the interactive API explorer below for
 }
 ```
 
+## Error Envelope
+
+Every error response follows the same shape:
+
+```json
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "validation failed",
+    "details": ["Field 'name' is required"]
+  },
+  "request_id": "req_abc123"
+}
+```
+
+- `error.code` — machine-readable canonical code (see table below). SDKs branch on this field.
+- `error.message` — human-readable summary suitable for logs.
+- `error.details` — optional array of contextual messages (per-field validation errors, downstream causes).
+- `request_id` — present when the request reached the router; quote this when filing support tickets.
+
 ## Error Codes
 
 |Code|HTTP Status|Description|
 |---|---|---|
-|`not_found`|404|The requested resource does not exist.|
-|`validation_error`|422|Request body failed validation. Check the `error` field for details.|
-|`rate_limited`|429|Too many requests. Wait and retry.|
-|`unauthorized`|401|Missing or invalid authentication.|
+|`bad_request`|400|Malformed JSON, invalid value, or other request-level problem.|
+|`authentication_required`|401|Missing or invalid authentication.|
 |`forbidden`|403|Authenticated but insufficient permissions.|
+|`not_found`|404|The requested resource does not exist.|
 |`conflict`|409|Idempotency key conflict — a run with this key already exists.|
-|`budget_exceeded`|402|Run or daily cost budget exceeded.|
-|`quota_exceeded`|402|Project quota (runs per day, concurrent runs) exceeded.|
-|`ssrf_blocked`|400|Endpoint URL points to a private or blocked network.|
+|`validation_failed`|422|Request body failed schema or field-level validation. See `details`.|
+|`rate_limited`|429|Too many requests. Wait and retry.|
+|`enqueue_throttled`|429|Per-job or per-project enqueue throttle exceeded. Retry with backoff.|
+|`internal_error`|500|Unexpected server-side failure. Quote `request_id` when reporting.|
+|`service_unavailable`|503|Dependency degraded or shedding load. Retry with backoff.|
 ## DAG and Dependency Runtime Endpoints
 
 ### Planning and Diagnostics

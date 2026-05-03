@@ -339,8 +339,8 @@ func TestE2E_BulkTrigger_Validation(t *testing.T) {
 	jobID := job["id"].(string)
 
 	w := advDoReq(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger/bulk", `{"items":[]}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("bulk validation status = %d, want 400; body = %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("bulk validation status = %d, want 422; body = %s", w.Code, w.Body.String())
 	}
 }
 

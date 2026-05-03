@@ -367,8 +367,8 @@ func FuzzCreateJobRetryPriorityBoost(f *testing.F) {
 				t.Errorf("boost=%d: expected 201, got %d", boost, w.Code)
 			}
 		} else {
-			if w.Code != http.StatusBadRequest {
-				t.Errorf("boost=%d: expected 400, got %d", boost, w.Code)
+			if w.Code != http.StatusUnprocessableEntity {
+				t.Errorf("boost=%d: expected 422, got %d", boost, w.Code)
 			}
 		}
 	})
