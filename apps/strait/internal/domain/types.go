@@ -1393,3 +1393,46 @@ func (s DeploymentStrategy) IsValid() bool {
 	}
 }
 
+// WorkerStatus is the lifecycle state of a registered worker.
+type WorkerStatus string
+
+const (
+	WorkerStatusActive   WorkerStatus = "active"
+	WorkerStatusDraining WorkerStatus = "draining"
+	WorkerStatusOffline  WorkerStatus = "offline"
+)
+
+// Worker represents a registered worker process that polls for and executes job runs.
+type Worker struct {
+	ID           string       `json:"id"`
+	ProjectID    string       `json:"project_id"`
+	QueueName    string       `json:"queue_name"`
+	Hostname     string       `json:"hostname"`
+	Version      string       `json:"version"`
+	Status       WorkerStatus `json:"status"`
+	LastSeenAt   time.Time    `json:"last_seen_at"`
+	RegisteredAt time.Time    `json:"registered_at"`
+}
+
+// WorkerTaskStatus is the lifecycle state of a task assigned to a worker.
+type WorkerTaskStatus string
+
+const (
+	WorkerTaskStatusAssigned  WorkerTaskStatus = "assigned"
+	WorkerTaskStatusAccepted  WorkerTaskStatus = "accepted"
+	WorkerTaskStatusCompleted WorkerTaskStatus = "completed"
+	WorkerTaskStatusFailed    WorkerTaskStatus = "failed"
+)
+
+// WorkerTask represents a job run assigned to a specific worker.
+type WorkerTask struct {
+	ID         string           `json:"id"`
+	WorkerID   string           `json:"worker_id"`
+	RunID      string           `json:"run_id"`
+	ProjectID  string           `json:"project_id"`
+	Status     WorkerTaskStatus `json:"status"`
+	AssignedAt time.Time        `json:"assigned_at"`
+	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
+	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+}
+
