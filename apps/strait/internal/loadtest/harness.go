@@ -309,8 +309,6 @@ type JobConfig struct {
 	Slug          string `json:"slug"`
 	EndpointURL   string `json:"endpoint_url,omitempty"`
 	ExecutionMode string `json:"execution_mode"`
-	ImageURI      string `json:"image_uri,omitempty"`
-	MachinePreset string `json:"machine_preset,omitempty"`
 	MaxAttempts   int    `json:"max_attempts,omitempty"`
 	TimeoutSecs   int    `json:"timeout_secs,omitempty"`
 }

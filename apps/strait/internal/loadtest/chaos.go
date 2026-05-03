@@ -81,13 +81,12 @@ func (ce *ChaosEngine) findRedisContainer() (string, error) {
 	return findContainer("redis")
 }
 
-// AllChaosScenarios returns all 8 defined chaos scenarios.
+// AllChaosScenarios returns the defined chaos scenarios.
 func AllChaosScenarios() []ChaosScenario {
 	return []ChaosScenario{
 		{Name: "worker_sigkill", Description: "Kill worker process, 30s wait, restart. Expect: 0 lost, all recovered <5min"},
 		{Name: "database_failover", Description: "Drop primary DB connection. Expect: <30s downtime, 0 data loss"},
 		{Name: "redis_total_failure", Description: "SIGKILL Redis, 2 min downtime. Expect: 0 lost jobs, SSE resumes <10s after recovery"},
-		{Name: "docker_daemon_restart", Description: "Restart Docker during managed execution. Expect: failed runs detected, no zombies"},
 		{Name: "connection_pool_exhaustion", Description: "Set max_connections=10. Expect: backpressure, no crash"},
 		{Name: "disk_pressure", Description: "Insert 10M run events. Expect: graceful error, no corruption"},
 		{Name: "clock_skew", Description: "Jump clock 24h forward. Expect: no incorrect cron/budget/retention behavior"},
