@@ -1769,6 +1769,15 @@ type APIStoreMock struct {
 	// VerifyAuditChainIncrementalFunc mocks the VerifyAuditChainIncremental method.
 	VerifyAuditChainIncrementalFunc func(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
 
+	// GetWorkerFunc mocks the GetWorker method (WorkerStore).
+	GetWorkerFunc func(ctx context.Context, workerID string, projectID string) (*domain.Worker, error)
+
+	// ListWorkersFunc mocks the ListWorkers method (WorkerStore).
+	ListWorkersFunc func(ctx context.Context, projectID string, queueName string, limit int, offset int) ([]domain.Worker, error)
+
+	// ListWorkerTasksByWorkerFunc mocks the ListWorkerTasksByWorker method (WorkerStore).
+	ListWorkerTasksByWorkerFunc func(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error)
+
 	// calls tracks calls to the methods.
 	calls struct {
 		// AggregateCostStatsHourly holds details about calls to the AggregateCostStatsHourly method.

@@ -122,9 +122,42 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		slog.Info("grpc worker disconnected", "worker_id", reg.WorkerID, "project_id", projectID)
 	}()
 
+	// Subscribe to the cross-replica force-disconnect channel for this worker.
+	// When DELETE /v1/workers/:id is called on any replica, it publishes to this
+	// channel and the owning replica (which is running this goroutine) closes the stream.
+	disconnectChannel := fmt.Sprintf("worker:disconnect:%s", reg.WorkerID)
+	disconnectSub, subErr := s.pub.Subscribe(ctx, disconnectChannel)
+	if subErr != nil {
+		slog.Warn("grpc: failed to subscribe to disconnect channel",
+			"worker_id", reg.WorkerID,
+			"error", subErr,
+		)
+	}
+
 	// Run recv and send loops concurrently. If either exits, the stream closes.
 	var wg conc.WaitGroup
-	streamErr := make(chan error, 2)
+	goroutineCount := 2
+	if disconnectSub != nil {
+		goroutineCount = 3
+	}
+	streamErr := make(chan error, goroutineCount)
+
+	// Disconnect signal listener: closes the stream when a force-disconnect is published.
+	if disconnectSub != nil {
+		wg.Go(func() {
+			defer disconnectSub.Close()
+			select {
+			case <-ctx.Done():
+				streamErr <- nil
+			case <-disconnectSub.Ch:
+				slog.Info("grpc worker force-disconnect received",
+					"worker_id", reg.WorkerID,
+					"project_id", projectID,
+				)
+				streamErr <- fmt.Errorf("force disconnected by API request")
+			}
+		})
+	}
 
 	// Send loop: drain sendCh and write to the stream.
 	wg.Go(func() {

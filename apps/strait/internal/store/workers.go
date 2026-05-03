@@ -86,7 +86,7 @@ func (q *Queries) GetWorker(ctx context.Context, workerID, projectID string) (*d
 }
 
 // ListWorkers returns workers for a project, optionally filtered by queue.
-func (q *Queries) ListWorkers(ctx context.Context, projectID, queueName string, limit int) ([]domain.Worker, error) {
+func (q *Queries) ListWorkers(ctx context.Context, projectID, queueName string, limit, offset int) ([]domain.Worker, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkers")
 	defer span.End()
 
@@ -101,8 +101,8 @@ func (q *Queries) ListWorkers(ctx context.Context, projectID, queueName string, 
 		param++
 	}
 
-	query += fmt.Sprintf(" ORDER BY registered_at DESC LIMIT $%d", param)
-	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY registered_at DESC LIMIT $%d OFFSET $%d", param, param+1)
+	args = append(args, limit, offset)
 
 	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
@@ -220,7 +220,7 @@ func (q *Queries) GetWorkerTaskByRunID(ctx context.Context, workerID, runID stri
 }
 
 // ListWorkerTasksByWorker lists tasks assigned to a worker, optionally filtered by status.
-func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit int) ([]domain.WorkerTask, error) {
+func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit, offset int) ([]domain.WorkerTask, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkerTasksByWorker")
 	defer span.End()
 
@@ -235,8 +235,8 @@ func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID string, 
 		param++
 	}
 
-	query += fmt.Sprintf(" ORDER BY assigned_at DESC LIMIT $%d", param)
-	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY assigned_at DESC LIMIT $%d OFFSET $%d", param, param+1)
+	args = append(args, limit, offset)
 
 	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {

@@ -659,6 +659,31 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Batch Operations"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleGetBatchOperation)
 
+	// -- Workers --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-workers", Method: http.MethodGet, Path: "/v1/workers",
+		Summary: "List workers", Description: "Returns a paginated list of connected and recently-seen workers for the current project.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleListWorkers)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-worker", Method: http.MethodGet, Path: "/v1/workers/{workerID}",
+		Summary: "Get a worker", Description: "Returns details of a specific worker. Returns 404 for workers in other projects to avoid existence leaks.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleGetWorker)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "force-disconnect-worker", Method: http.MethodDelete, Path: "/v1/workers/{workerID}",
+		Summary: "Force-disconnect a worker", Description: "Publishes a disconnect signal to the owning replica; the worker stream is closed within milliseconds. Returns 404 for workers in other projects.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleDeleteWorker)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-worker-tasks", Method: http.MethodGet, Path: "/v1/workers/{workerID}/tasks",
+		Summary: "List worker tasks", Description: "Returns a paginated list of run tasks assigned to a specific worker.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListWorkerTasks)
+
 	// -- Webhooks (legacy top-level routes) --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-webhook-deliveries-legacy", Method: http.MethodGet, Path: "/v1/webhook-deliveries",
