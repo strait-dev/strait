@@ -87,7 +87,7 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 // extractParams fills struct fields tagged with `path` or `query` from the request.
 func extractParams(r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -164,7 +164,7 @@ func setStringField(fv reflect.Value, val string) error {
 
 func hasBodyField(input any) bool {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	return v.Kind() == reflect.Struct && v.FieldByName("Body").IsValid()
@@ -188,7 +188,7 @@ func (n *nullByteStrippingReader) Read(p []byte) (int, error) {
 
 func decodeBody(s *Server, r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	bodyField := v.FieldByName("Body")
@@ -213,7 +213,7 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 // stripNullBytesFromStruct recursively replaces \x00 bytes in all string
 // fields of a struct with spaces, preventing Postgres null byte errors.
 func stripNullBytesFromStruct(v reflect.Value) {
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return
 		}
@@ -236,7 +236,7 @@ func stripNullBytesFromStruct(v reflect.Value) {
 
 func extractBodyField(output any) any {
 	v := reflect.ValueOf(output)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() == reflect.Struct {
