@@ -113,6 +113,31 @@ func (r *ConnectionRegistry) Snapshot() []ConnectedWorker {
 	return out
 }
 
+// SnapshotQueues returns the deduplicated set of queue names across all active
+// workers on this replica. Used by the dequeue tick to filter worker-mode runs.
+func (r *ConnectionRegistry) SnapshotQueues() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	for _, w := range r.workers {
+		if w.Status != "active" {
+			continue
+		}
+		for _, q := range w.Queues {
+			seen[q] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for q := range seen {
+		out = append(out, q)
+	}
+	return out
+}
+
 // workerHasQueue returns true if the worker is registered for the given queue.
 func workerHasQueue(w *ConnectedWorker, queue string) bool {
 	for _, q := range w.Queues {

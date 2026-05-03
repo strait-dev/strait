@@ -925,6 +925,164 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 	return nil
 }
 
+// workerClaimDeleteSQL returns a parameterised DELETE FROM job_run_queue that
+// additionally restricts candidate rows to execution_mode='worker' and
+// queue_name = ANY($2). The queue list is passed as a pgx text-array arg.
+//
+// $1 = LIMIT n  |  $2 = connected queue names
+func workerClaimDeleteSQL() string {
+	return "/* action=dequeue */ " + `
+	DELETE FROM job_run_queue
+	WHERE run_id IN (
+		SELECT q.run_id
+		FROM job_run_queue q
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = q.job_id AND jac_job.concurrency_key = ''
+		LEFT JOIN job_active_counts jac_key
+		  ON jac_key.job_id = q.job_id
+		  AND jac_key.concurrency_key = COALESCE(q.concurrency_key, '')
+		WHERE COALESCE(q.job_enabled, true) = true
+		  AND COALESCE(q.job_paused, false) = false
+		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
+		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
+		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
+		       OR q.concurrency_key IS NULL
+		       OR q.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
+		  AND q.execution_mode = 'worker'
+		  AND q.queue_name = ANY($2)
+		ORDER BY q.priority DESC, q.created_at ASC
+		FOR UPDATE OF q SKIP LOCKED
+		LIMIT $1
+	)
+	RETURNING run_id`
+}
+
+// DequeueNForWorker claims up to n worker-mode runs whose queue_name is in
+// the provided queues list. It mirrors DequeueNClaim but adds the
+// execution_mode + queue_name filter so each replica only claims runs that
+// have a connected worker on this instance.
+//
+// On empty queues slice it returns nil immediately — no claim is attempted.
+func (q *PostgresQueue) DequeueNForWorker(ctx context.Context, n int, queues []string) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNForWorker")
+	defer span.End()
+
+	if n <= 0 || len(queues) == 0 {
+		return nil, nil
+	}
+
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return q.dequeueNForWorkerFallback(ctx, n, queues)
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+			return nil, fmt.Errorf("dequeue worker claim: set statement timeout: %w", err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, workerClaimDeleteSQL(), n, queues)
+	if err != nil {
+		// Undefined table = pre-migration; fall back to simple filter variant.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
+			_ = tx.Rollback(ctx)
+			return q.dequeueNForWorkerFallback(ctx, n, queues)
+		}
+		return nil, fmt.Errorf("dequeue worker claim: delete: %w", err)
+	}
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("dequeue worker claim: scan id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: rows: %w", err)
+	}
+
+	if len(ids) == 0 {
+		_ = tx.Commit(ctx)
+		return nil, nil
+	}
+
+	fetchRows, err := tx.Query(ctx, claimUpdateFetchSQL, ids)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: update+fetch: %w", err)
+	}
+	defer fetchRows.Close()
+
+	runs := make([]domain.JobRun, 0, len(ids))
+	for fetchRows.Next() {
+		run, err := dbscan.ScanRun(fetchRows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue worker claim: fetch scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := fetchRows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: fetch rows: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: commit: %w", err)
+	}
+
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
+}
+
+// dequeueNForWorkerFallback is used when the claim table is not yet available.
+// It falls back to the job_runs scan path with execution_mode and queue_name filters.
+func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, queues []string) ([]domain.JobRun, error) {
+	orderBy := q.dequeueOrderByClause()
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName:            "queue.DequeueNForWorkerFallback",
+		skipConcurrencyCTEs: true,
+		candidatesSQL: fmt.Sprintf(`
+			SELECT jr.id, jr.created_at
+			FROM job_runs jr
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = '%s'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			  AND jr.execution_mode = 'worker'
+			  AND jr.queue_name = ANY($2)
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1`, domain.StatusQueued, orderBy),
+		extraArgs: []any{queues},
+	})
+}
+
 // DequeueNClaim deletes from the thin job_run_queue table,
 // then updates+fetches the full job_runs rows in one CTE.
 func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error) {

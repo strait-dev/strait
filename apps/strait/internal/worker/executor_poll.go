@@ -25,6 +25,18 @@ type claimTableDequeuer interface {
 	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
+// workerQueueDequeuer claims worker-mode runs for specific queues.
+type workerQueueDequeuer interface {
+	DequeueNForWorker(ctx context.Context, n int, queues []string) ([]domain.JobRun, error)
+}
+
+// QueueSnapshotter returns the set of queue names that have active workers
+// connected to this replica. Implemented by grpc.ConnectionRegistry via
+// an adapter to avoid a circular import.
+type QueueSnapshotter interface {
+	SnapshotQueues() []string
+}
+
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
 	if e.memoryPressureThreshold > 0 {
@@ -66,6 +78,7 @@ func (e *Executor) poll(ctx context.Context) {
 		case len(e.partitionCycle) > 0:
 			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
 		default:
+			// Pass 1: HTTP-eligible runs (any replica can dispatch these).
 			// Prefer claim_table > two_phase > DequeueN.
 			if cq, ok := e.queue.(claimTableDequeuer); ok {
 				runs, err = cq.DequeueNClaim(innerCtx, available)
@@ -73,6 +86,29 @@ func (e *Executor) poll(ctx context.Context) {
 				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
 			} else {
 				runs, err = e.queue.DequeueN(innerCtx, available)
+			}
+			if err != nil {
+				return err
+			}
+
+			// Pass 2: Worker-eligible runs — only attempt if this replica has
+			// connected workers and capacity remains after the HTTP pass.
+			if e.queueSnapshotter != nil {
+				workerQueues := e.queueSnapshotter.SnapshotQueues()
+				if len(workerQueues) > 0 {
+					remaining := available - len(runs)
+					if remaining > 0 {
+						if wq, ok := e.queue.(workerQueueDequeuer); ok {
+							workerRuns, wErr := wq.DequeueNForWorker(innerCtx, remaining, workerQueues)
+							if wErr != nil {
+								// Log but don't block the HTTP pass result.
+								e.logger.Warn("worker dequeue failed", "error", wErr)
+							} else {
+								runs = append(runs, workerRuns...)
+							}
+						}
+					}
+				}
 			}
 		}
 		return err

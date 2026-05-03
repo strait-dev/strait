@@ -127,6 +127,11 @@ type Executor struct {
 	eventChannelSize         int
 	saturationWarnMu         sync.Mutex
 	saturationLastWarn       map[string]time.Time
+	// queueSnapshotter returns the set of queue names with active workers on
+	// this replica. When non-nil, poll performs a second dequeue pass for
+	// worker-mode runs filtered to those queues. Injected from the gRPC
+	// ConnectionRegistry via QueueSnapshotter interface (no circular import).
+	queueSnapshotter QueueSnapshotter
 	// queueMetrics caches the process-wide queue metrics handle so the
 	// hot-path lifecycle emit/drop paths avoid a sync.Once + error-check
 	// lookup per event. Resolved once in NewExecutor; may be nil if the
@@ -179,6 +184,12 @@ type ExecutorConfig struct {
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
 	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	// QueueSnapshotter provides the set of queue names with active workers on
+	// this replica. When set, the poll loop performs a second dequeue pass
+	// for worker-mode runs filtered to those queues.
+	// Typically injected from grpc.ConnectionRegistry via the QueueSnapshotter
+	// interface to avoid a circular import.
+	QueueSnapshotter QueueSnapshotter
 	// DegradedPollInterval is the shortened poll interval used when the
 	// queue notifier enters degraded mode (LISTEN disconnected for too long).
 	// Zero/negative falls back to 1 second.
@@ -292,6 +303,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
 		degraded:                 cfg.Degraded,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
+		queueSnapshotter:         cfg.QueueSnapshotter,
 		queueMetrics:             resolveQueueMetrics(),
 	}
 }
