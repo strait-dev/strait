@@ -16,6 +16,7 @@ import (
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/domain"
+	grpcserver "strait/internal/api/grpc"
 	"strait/internal/health"
 	"strait/internal/logdrain"
 	"strait/internal/notification"
@@ -533,6 +534,27 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
+	})
+}
+
+// startGRPCServer starts the gRPC server for the Worker streaming API.
+// It is symmetric to startAPIServer: the server shuts down before the HTTP
+// server on SIGTERM so that connected workers can reconnect to other replicas
+// before the HTTP surface disappears.
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) {
+	if cfg.Mode != "api" && cfg.Mode != "all" {
+		return
+	}
+	if !cfg.GRPCEnabled {
+		return
+	}
+
+	srv := grpcserver.NewServer(cfg, queries, pub)
+	g.Go(func(ctx context.Context) error {
+		if err := srv.Serve(ctx); err != nil {
+			return fmt.Errorf("grpc server: %w", err)
+		}
+		return nil
 	})
 }
 

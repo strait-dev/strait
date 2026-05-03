@@ -310,6 +310,19 @@ type Config struct {
 	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
 	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
 
+	// gRPC server settings.
+	GRPCEnabled          bool          `env:"GRPC_ENABLED" default:"true"`
+	GRPCPort             int           `env:"GRPC_PORT" default:"50051"`
+	GRPCTLSCertPath      string        `env:"GRPC_TLS_CERT_PATH"`
+	GRPCTLSKeyPath       string        `env:"GRPC_TLS_KEY_PATH"`
+	GRPCKeepaliveTime    time.Duration `env:"GRPC_KEEPALIVE_TIME" default:"30s"`
+	GRPCKeepaliveTimeout time.Duration `env:"GRPC_KEEPALIVE_TIMEOUT" default:"10s"`
+
+	// gRPC Worker connection management.
+	WorkerHeartbeatTimeout        time.Duration `env:"WORKER_HEARTBEAT_TIMEOUT" default:"30s"`
+	WorkerDBSyncInterval          time.Duration `env:"WORKER_DB_SYNC_INTERVAL" default:"10s"`
+	WorkerDisconnectSweepInterval time.Duration `env:"WORKER_DISCONNECT_SWEEP_INTERVAL" default:"30s"`
+
 }
 
 // Load reads configuration from environment variables.
