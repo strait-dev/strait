@@ -3,6 +3,7 @@
 package loadtest
 
 import (
+	"errors"
 	"time"
 )
 
@@ -254,6 +255,24 @@ func ArchiveStress() Scenario {
 		Tier:        2,
 		Duration:    5 * time.Minute,
 	}
+}
+
+// workerScenario is the stub entry point for ModeWorker load tests.
+//
+// It will eventually:
+//   - Spin up N in-process gRPC workers connected to the target server
+//   - Enqueue runs via the REST API at the configured rate
+//   - Drive workers to claim + execute + report results over the
+//     bidirectional WorkerService stream
+//   - Collect per-worker throughput, P99 claim latency, and error rate
+//   - Assert reconnect behavior when a simulated disconnect is injected
+//
+// Implementation is blocked on the in-process gRPC worker harness;
+// see internal/e2e/orchestration_worker_e2e_test.go for the e2e plan.
+//
+// TODO(phase-13.3): implement once gRPC test primitives are available.
+func workerScenario(_ *Harness, _ Scenario) error { //nolint:unused
+	return errors.New("worker loadtest scenario not yet implemented")
 }
 
 // AllScenarios returns every pre-defined scenario.

@@ -21,8 +21,19 @@ import (
 type ExecutionMode string
 
 const (
-	// ModeHTTP creates only HTTP endpoint jobs.
+	// ModeHTTP creates only HTTP endpoint jobs. The harness signs each dispatch
+	// payload with HMAC-SHA256 (X-Strait-Signature header) and the target
+	// server verifies the signature before accepting the request.
 	ModeHTTP ExecutionMode = "http"
+
+	// ModeWorker creates worker-mode jobs and drives load via the gRPC
+	// WorkerService streaming RPC rather than outbound HTTP dispatch.
+	// Workers connect to the server, claim runs from the queue, and report
+	// results back over the same bidirectional stream.
+	//
+	// TODO: implement workerScenario in scenarios.go once the gRPC test
+	// harness primitives (in-process worker, synthetic executor) are available.
+	ModeWorker ExecutionMode = "worker"
 )
 
 // Harness is the top-level test orchestrator. It sets up infrastructure,
