@@ -93,7 +93,6 @@ func (h *AnalyticsHandler) Handle(_ context.Context, msg Message) error {
 		ProjectID:     record.ProjectID,
 		Status:        record.Status,
 		ExecutionMode: record.ExecutionMode,
-		MachinePreset: record.MachinePreset,
 		Attempt:       record.Attempt,
 		DurationMs:    durationMs,
 		TriggeredBy:   record.TriggeredBy,

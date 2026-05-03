@@ -115,7 +115,6 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 			ProjectID:     run.ProjectID,
 			Status:        string(run.Status),
 			ExecutionMode: executionMode,
-			MachinePreset: "",
 			Attempt:       run.Attempt,
 			DurationMs:    durationMs,
 			QueueWaitMs:   queueWaitMs,

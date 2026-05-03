@@ -23,14 +23,8 @@ var _ AnalyticsStore = &AnalyticsStoreMock{}
 //			GetApprovalStatsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error) {
 //				panic("mock out the GetApprovalStats method")
 //			},
-//			GetComputeCostAnalyticsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error) {
-//				panic("mock out the GetComputeCostAnalytics method")
-//			},
 //			GetCostAnalyticsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.CostAnalytics, error) {
 //				panic("mock out the GetCostAnalytics method")
-//			},
-//			GetCostByMachineFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) ([]store.CostByMachine, error) {
-//				panic("mock out the GetCostByMachine method")
 //			},
 //			GetCostByTriggerFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) ([]store.CostByTrigger, error) {
 //				panic("mock out the GetCostByTrigger method")
@@ -126,14 +120,8 @@ type AnalyticsStoreMock struct {
 	// GetApprovalStatsFunc mocks the GetApprovalStats method.
 	GetApprovalStatsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ApprovalStats, error)
 
-	// GetComputeCostAnalyticsFunc mocks the GetComputeCostAnalytics method.
-	GetComputeCostAnalyticsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error)
-
 	// GetCostAnalyticsFunc mocks the GetCostAnalytics method.
 	GetCostAnalyticsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.CostAnalytics, error)
-
-	// GetCostByMachineFunc mocks the GetCostByMachine method.
-	GetCostByMachineFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) ([]store.CostByMachine, error)
 
 	// GetCostByTriggerFunc mocks the GetCostByTrigger method.
 	GetCostByTriggerFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) ([]store.CostByTrigger, error)
@@ -232,30 +220,8 @@ type AnalyticsStoreMock struct {
 			// To is the to argument value.
 			To time.Time
 		}
-		// GetComputeCostAnalytics holds details about calls to the GetComputeCostAnalytics method.
-		GetComputeCostAnalytics []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// ProjectID is the projectID argument value.
-			ProjectID string
-			// From is the from argument value.
-			From time.Time
-			// To is the to argument value.
-			To time.Time
-		}
 		// GetCostAnalytics holds details about calls to the GetCostAnalytics method.
 		GetCostAnalytics []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// ProjectID is the projectID argument value.
-			ProjectID string
-			// From is the from argument value.
-			From time.Time
-			// To is the to argument value.
-			To time.Time
-		}
-		// GetCostByMachine holds details about calls to the GetCostByMachine method.
-		GetCostByMachine []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// ProjectID is the projectID argument value.
@@ -610,11 +576,9 @@ type AnalyticsStoreMock struct {
 			To time.Time
 		}
 	}
-	lockGetApprovalStats           sync.RWMutex
-	lockGetComputeCostAnalytics    sync.RWMutex
-	lockGetCostAnalytics           sync.RWMutex
-	lockGetCostByMachine           sync.RWMutex
-	lockGetCostByTrigger           sync.RWMutex
+	lockGetApprovalStats  sync.RWMutex
+	lockGetCostAnalytics  sync.RWMutex
+	lockGetCostByTrigger  sync.RWMutex
 	lockGetCostForecast            sync.RWMutex
 	lockGetCostOutliers            sync.RWMutex
 	lockGetCostTrends              sync.RWMutex
@@ -692,54 +656,6 @@ func (mock *AnalyticsStoreMock) GetApprovalStatsCalls() []struct {
 	return calls
 }
 
-// GetComputeCostAnalytics calls GetComputeCostAnalyticsFunc.
-func (mock *AnalyticsStoreMock) GetComputeCostAnalytics(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error) {
-	callInfo := struct {
-		Ctx       context.Context
-		ProjectID string
-		From      time.Time
-		To        time.Time
-	}{
-		Ctx:       ctx,
-		ProjectID: projectID,
-		From:      from,
-		To:        to,
-	}
-	mock.lockGetComputeCostAnalytics.Lock()
-	mock.calls.GetComputeCostAnalytics = append(mock.calls.GetComputeCostAnalytics, callInfo)
-	mock.lockGetComputeCostAnalytics.Unlock()
-	if mock.GetComputeCostAnalyticsFunc == nil {
-		var (
-			computeCostAnalyticsOut *store.ComputeCostAnalytics
-			errOut                  error
-		)
-		return computeCostAnalyticsOut, errOut
-	}
-	return mock.GetComputeCostAnalyticsFunc(ctx, projectID, from, to)
-}
-
-// GetComputeCostAnalyticsCalls gets all the calls that were made to GetComputeCostAnalytics.
-// Check the length with:
-//
-//	len(mockedAnalyticsStore.GetComputeCostAnalyticsCalls())
-func (mock *AnalyticsStoreMock) GetComputeCostAnalyticsCalls() []struct {
-	Ctx       context.Context
-	ProjectID string
-	From      time.Time
-	To        time.Time
-} {
-	var calls []struct {
-		Ctx       context.Context
-		ProjectID string
-		From      time.Time
-		To        time.Time
-	}
-	mock.lockGetComputeCostAnalytics.RLock()
-	calls = mock.calls.GetComputeCostAnalytics
-	mock.lockGetComputeCostAnalytics.RUnlock()
-	return calls
-}
-
 // GetCostAnalytics calls GetCostAnalyticsFunc.
 func (mock *AnalyticsStoreMock) GetCostAnalytics(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.CostAnalytics, error) {
 	callInfo := struct {
@@ -785,54 +701,6 @@ func (mock *AnalyticsStoreMock) GetCostAnalyticsCalls() []struct {
 	mock.lockGetCostAnalytics.RLock()
 	calls = mock.calls.GetCostAnalytics
 	mock.lockGetCostAnalytics.RUnlock()
-	return calls
-}
-
-// GetCostByMachine calls GetCostByMachineFunc.
-func (mock *AnalyticsStoreMock) GetCostByMachine(ctx context.Context, projectID string, from time.Time, to time.Time) ([]store.CostByMachine, error) {
-	callInfo := struct {
-		Ctx       context.Context
-		ProjectID string
-		From      time.Time
-		To        time.Time
-	}{
-		Ctx:       ctx,
-		ProjectID: projectID,
-		From:      from,
-		To:        to,
-	}
-	mock.lockGetCostByMachine.Lock()
-	mock.calls.GetCostByMachine = append(mock.calls.GetCostByMachine, callInfo)
-	mock.lockGetCostByMachine.Unlock()
-	if mock.GetCostByMachineFunc == nil {
-		var (
-			costByMachinesOut []store.CostByMachine
-			errOut            error
-		)
-		return costByMachinesOut, errOut
-	}
-	return mock.GetCostByMachineFunc(ctx, projectID, from, to)
-}
-
-// GetCostByMachineCalls gets all the calls that were made to GetCostByMachine.
-// Check the length with:
-//
-//	len(mockedAnalyticsStore.GetCostByMachineCalls())
-func (mock *AnalyticsStoreMock) GetCostByMachineCalls() []struct {
-	Ctx       context.Context
-	ProjectID string
-	From      time.Time
-	To        time.Time
-} {
-	var calls []struct {
-		Ctx       context.Context
-		ProjectID string
-		From      time.Time
-		To        time.Time
-	}
-	mock.lockGetCostByMachine.RLock()
-	calls = mock.calls.GetCostByMachine
-	mock.lockGetCostByMachine.RUnlock()
 	return calls
 }
 

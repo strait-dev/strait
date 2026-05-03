@@ -885,12 +885,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleGetTopCosts)
 
 	RegisterTypedOp(api, OpMeta{
-		ID: "get-compute-cost-analytics", Method: http.MethodGet, Path: "/v1/analytics/compute",
-		Summary: "Get compute cost analytics", Description: "Returns compute resource utilization and cost breakdown.",
-		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
-	}, s.handleGetComputeCostAnalytics)
-
-	RegisterTypedOp(api, OpMeta{
 		ID: "get-approval-stats", Method: http.MethodGet, Path: "/v1/analytics/approvals",
 		Summary: "Get approval statistics", Description: "Returns statistics about workflow approval steps including wait times.",
 		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -1046,12 +1040,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Get cost by trigger type", Description: "Returns cost breakdown grouped by trigger type.",
 		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleCostByTrigger)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "get-cost-by-machine", Method: http.MethodGet, Path: "/v1/analytics/costs/by-machine",
-		Summary: "Get cost by machine type", Description: "Returns cost breakdown grouped by machine/compute type.",
-		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
-	}, s.handleCostByMachine)
 
 	// -- RBAC: Roles --
 	RegisterTypedOp(api, OpMeta{

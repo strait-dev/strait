@@ -105,24 +105,3 @@ func (s *Server) handleCostByTrigger(ctx context.Context, input *CostByTriggerIn
 	return &CostByTriggerOutput{Body: result}, nil
 }
 
-type CostByMachineInput struct {
-	From string `query:"from"`
-	To   string `query:"to"`
-}
-type CostByMachineOutput struct{ Body any }
-
-func (s *Server) handleCostByMachine(ctx context.Context, input *CostByMachineInput) (*CostByMachineOutput, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "api.CostByMachine")
-	defer span.End()
-	projectID := projectIDFromContext(ctx)
-	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
-	if err != nil {
-		return nil, err
-	}
-	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
-	result, rErr := s.analytics().GetCostByMachine(ctx, projectID, from, to)
-	if rErr != nil {
-		return nil, huma.Error500InternalServerError("failed to get cost by machine")
-	}
-	return &CostByMachineOutput{Body: result}, nil
-}

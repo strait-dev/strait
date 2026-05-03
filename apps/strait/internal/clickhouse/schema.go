@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS run_analytics (
     project_id String,
     status LowCardinality(String),
     execution_mode LowCardinality(String),
-    machine_preset LowCardinality(String),
     attempt UInt8,
     duration_ms UInt64,
     queue_wait_ms UInt64,
@@ -48,24 +47,6 @@ CREATE TABLE IF NOT EXISTS run_analytics (
 ) ENGINE = MergeTree()
 PARTITION BY toDate(inserted_at)
 ORDER BY (project_id, job_id, created_at)
-TTL inserted_at + INTERVAL 365 DAY
-`
-
-// ComputeUsageTable is the DDL for the compute_usage ClickHouse table.
-const ComputeUsageTable = `
-CREATE TABLE IF NOT EXISTS compute_usage (
-    run_id String,
-    project_id String,
-    machine_preset LowCardinality(String),
-    machine_id String,
-    duration_secs Float64,
-    cost_microusd Int64,
-    started_at DateTime64(3),
-    finished_at DateTime64(3),
-    inserted_at DateTime64(3) DEFAULT now64(3)
-) ENGINE = MergeTree()
-PARTITION BY toDate(inserted_at)
-ORDER BY (project_id, started_at)
 TTL inserted_at + INTERVAL 365 DAY
 `
 
@@ -268,9 +249,8 @@ FROM run_usage_events
 GROUP BY project_id, day
 `
 
-// schemaAlterations contains ALTER TABLE statements for adding columns to
-// existing tables. Each statement uses ADD COLUMN IF NOT EXISTS so they are
-// safe to run repeatedly.
+// schemaAlterations contains ALTER TABLE statements for adding or dropping
+// columns on existing tables. Each statement is safe to run repeatedly.
 var schemaAlterations = []struct {
 	table string
 	ddl   string
@@ -282,6 +262,10 @@ var schemaAlterations = []struct {
 	{
 		"run_analytics",
 		"ALTER TABLE run_analytics ADD COLUMN IF NOT EXISTS job_version_id String DEFAULT ''",
+	},
+	{
+		"run_analytics",
+		"ALTER TABLE run_analytics DROP COLUMN IF EXISTS machine_preset",
 	},
 }
 
@@ -313,7 +297,6 @@ func CreateSchema(ctx context.Context, c *Client) error {
 	}{
 		{"run_events", RunEventsTable},
 		{"run_analytics", RunAnalyticsTable},
-		{"compute_usage", ComputeUsageTable},
 		{"run_usage_events", RunUsageEventsTable},
 		{"workflow_approval_events", WorkflowApprovalEventsTable},
 		{"job_metadata", JobMetadataTable},

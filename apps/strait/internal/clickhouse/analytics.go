@@ -166,21 +166,6 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
 	}
 
-	// Compute cost totals.
-	computeQuery := `
-		SELECT coalesce(sum(cost_microusd), 0)
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?`
-	computeRow, err := s.client.QueryRow(ctx, computeQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics compute totals: %w", err)
-	}
-	if err := computeRow.Scan(
-		&result.TotalComputeCostMicrousd,
-	); err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics compute totals: %w", err)
-	}
-
 	// By model breakdown.
 	modelQuery := `
 		SELECT model,
@@ -311,50 +296,6 @@ func (s *AnalyticsStore) GetTopCosts(ctx context.Context, projectID string, from
 		items = append(items, item)
 	}
 	return items, rows.Err()
-}
-
-// GetComputeCostAnalytics returns compute costs grouped by machine preset from ClickHouse.
-func (s *AnalyticsStore) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error) {
-	result := &store.ComputeCostAnalytics{
-		ByPreset: make([]store.CostByPreset, 0),
-	}
-
-	totalQuery := `
-		SELECT coalesce(sum(cost_microusd), 0)
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?`
-	totalRow, err := s.client.QueryRow(ctx, totalQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse compute cost analytics total: %w", err)
-	}
-	if err := totalRow.Scan(&result.TotalCostMicrousd); err != nil {
-		return nil, fmt.Errorf("clickhouse compute cost analytics total: %w", err)
-	}
-
-	presetQuery := `
-		SELECT machine_preset,
-			sum(cost_microusd),
-			count(),
-			coalesce(sum(duration_secs), 0)
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?
-		GROUP BY machine_preset
-		ORDER BY sum(cost_microusd) DESC`
-
-	rows, err := s.client.Query(ctx, presetQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse compute cost analytics by preset: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var p store.CostByPreset
-		if err := rows.Scan(&p.Preset, &p.CostMicrousd, &p.RunCount, &p.DurationSecs); err != nil {
-			return nil, fmt.Errorf("clickhouse compute cost analytics by preset scan: %w", err)
-		}
-		result.ByPreset = append(result.ByPreset, p)
-	}
-	return result, rows.Err()
 }
 
 // GetCostOutliers finds runs whose total cost exceeds the per-job average by
@@ -1333,31 +1274,3 @@ func (s *AnalyticsStore) GetCostByTrigger(ctx context.Context, projectID string,
 	return result, nil
 }
 
-// GetCostByMachine groups cost by machine preset.
-func (s *AnalyticsStore) GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error) {
-	query := `
-		SELECT machine_preset,
-			coalesce(sum(cost_microusd), 0) AS cost,
-			coalesce(sum(duration_secs), 0) AS duration_secs,
-			count() AS run_count
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?
-		GROUP BY machine_preset
-		ORDER BY cost DESC`
-
-	rows, err := s.client.Query(ctx, query, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost by machine: %w", err)
-	}
-	defer rows.Close()
-
-	result := make([]store.CostByMachine, 0)
-	for rows.Next() {
-		var c store.CostByMachine
-		if err := rows.Scan(&c.Preset, &c.Cost, &c.DurationSecs, &c.RunCount); err != nil {
-			return nil, fmt.Errorf("clickhouse cost by machine scan: %w", err)
-		}
-		result = append(result, c)
-	}
-	return result, rows.Err()
-}

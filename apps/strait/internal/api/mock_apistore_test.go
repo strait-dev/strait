@@ -346,9 +346,6 @@ var _ APIStore = &APIStoreMock{}
 //			GetCodeDeploymentFunc: func(ctx context.Context, id string, projectID string) (*domain.CodeDeployment, error) {
 //				panic("mock out the GetCodeDeployment method")
 //			},
-//			GetComputeCostAnalyticsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error) {
-//				panic("mock out the GetComputeCostAnalytics method")
-//			},
 //			GetCostAnalyticsFunc: func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.CostAnalytics, error) {
 //				panic("mock out the GetCostAnalytics method")
 //			},
@@ -1225,9 +1222,6 @@ type APIStoreMock struct {
 
 	// GetCodeDeploymentFunc mocks the GetCodeDeployment method.
 	GetCodeDeploymentFunc func(ctx context.Context, id string, projectID string) (*domain.CodeDeployment, error)
-
-	// GetComputeCostAnalyticsFunc mocks the GetComputeCostAnalytics method.
-	GetComputeCostAnalyticsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error)
 
 	// GetCostAnalyticsFunc mocks the GetCostAnalytics method.
 	GetCostAnalyticsFunc func(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.CostAnalytics, error)
@@ -2644,17 +2638,6 @@ type APIStoreMock struct {
 			ID string
 			// ProjectID is the projectID argument value.
 			ProjectID string
-		}
-		// GetComputeCostAnalytics holds details about calls to the GetComputeCostAnalytics method.
-		GetComputeCostAnalytics []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// ProjectID is the projectID argument value.
-			ProjectID string
-			// From is the from argument value.
-			From time.Time
-			// To is the to argument value.
-			To time.Time
 		}
 		// GetCostAnalytics holds details about calls to the GetCostAnalytics method.
 		GetCostAnalytics []struct {
@@ -4510,9 +4493,8 @@ type APIStoreMock struct {
 	lockGetAuditExportRowCap               sync.RWMutex
 	lockGetAuditRetentionDays              sync.RWMutex
 	lockGetBatchOperation                  sync.RWMutex
-	lockGetCodeDeployment                  sync.RWMutex
-	lockGetComputeCostAnalytics            sync.RWMutex
-	lockGetCostAnalytics                   sync.RWMutex
+	lockGetCodeDeployment  sync.RWMutex
+	lockGetCostAnalytics   sync.RWMutex
 	lockGetCostOutliers                    sync.RWMutex
 	lockGetCostTrends                      sync.RWMutex
 	lockGetDebugBundle                     sync.RWMutex
@@ -9181,54 +9163,6 @@ func (mock *APIStoreMock) GetCodeDeploymentCalls() []struct {
 	mock.lockGetCodeDeployment.RLock()
 	calls = mock.calls.GetCodeDeployment
 	mock.lockGetCodeDeployment.RUnlock()
-	return calls
-}
-
-// GetComputeCostAnalytics calls GetComputeCostAnalyticsFunc.
-func (mock *APIStoreMock) GetComputeCostAnalytics(ctx context.Context, projectID string, from time.Time, to time.Time) (*store.ComputeCostAnalytics, error) {
-	callInfo := struct {
-		Ctx       context.Context
-		ProjectID string
-		From      time.Time
-		To        time.Time
-	}{
-		Ctx:       ctx,
-		ProjectID: projectID,
-		From:      from,
-		To:        to,
-	}
-	mock.lockGetComputeCostAnalytics.Lock()
-	mock.calls.GetComputeCostAnalytics = append(mock.calls.GetComputeCostAnalytics, callInfo)
-	mock.lockGetComputeCostAnalytics.Unlock()
-	if mock.GetComputeCostAnalyticsFunc == nil {
-		var (
-			computeCostAnalyticsOut *store.ComputeCostAnalytics
-			errOut                  error
-		)
-		return computeCostAnalyticsOut, errOut
-	}
-	return mock.GetComputeCostAnalyticsFunc(ctx, projectID, from, to)
-}
-
-// GetComputeCostAnalyticsCalls gets all the calls that were made to GetComputeCostAnalytics.
-// Check the length with:
-//
-//	len(mockedAPIStore.GetComputeCostAnalyticsCalls())
-func (mock *APIStoreMock) GetComputeCostAnalyticsCalls() []struct {
-	Ctx       context.Context
-	ProjectID string
-	From      time.Time
-	To        time.Time
-} {
-	var calls []struct {
-		Ctx       context.Context
-		ProjectID string
-		From      time.Time
-		To        time.Time
-	}
-	mock.lockGetComputeCostAnalytics.RLock()
-	calls = mock.calls.GetComputeCostAnalytics
-	mock.lockGetComputeCostAnalytics.RUnlock()
 	return calls
 }
 

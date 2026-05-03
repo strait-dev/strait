@@ -388,7 +388,6 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs", TypedHandler(s, http.StatusOK, s.handleGetCostAnalytics))
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/trends", TypedHandler(s, http.StatusOK, s.handleGetCostTrends))
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/costs/top", TypedHandler(s, http.StatusOK, s.handleGetTopCosts))
-			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/compute", TypedHandler(s, http.StatusOK, s.handleGetComputeCostAnalytics))
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/approvals", TypedHandler(s, http.StatusOK, s.handleGetApprovalStats))
 			r.With(s.requirePermission(domain.ScopeStatsRead)).Get("/cost-insights", TypedHandler(s, http.StatusOK, s.handleGetCostInsights))
 
@@ -439,7 +438,6 @@ func (s *Server) routes() chi.Router {
 
 				r.Get("/costs/forecast", TypedHandler(s, http.StatusOK, s.handleCostForecast))
 				r.Get("/costs/by-trigger", TypedHandler(s, http.StatusOK, s.handleCostByTrigger))
-				r.Get("/costs/by-machine", TypedHandler(s, http.StatusOK, s.handleCostByMachine))
 			})
 		})
 
