@@ -85,11 +85,6 @@ var orderingExempt = map[string]string{
 	"handleUpdateNotificationChannel": "GetNotificationChannel before UpdateNotificationChannel",
 	"handleDeleteEventSubscription":   "GetEventSubscription before DeleteEventSubscription",
 
-	// Confirm code deployment: ConfirmCodeDeployment is the mutation but
-	// several reads come before.
-	"handleConfirmCodeDeployment":  "Get/HeadObject checks before Confirm",
-	"handleRollbackCodeDeployment": "Get check before RollbackToDeployment",
-
 	// Canary, workflow policy: Get before mutation.
 	"handleUpdateCanaryDeployment":   "Get before UpdateCanaryDeploymentTraffic",
 	"handleRollbackCanaryDeployment": "Get before UpdateCanaryDeploymentTraffic",

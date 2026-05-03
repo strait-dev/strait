@@ -15,7 +15,6 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"strait/internal/clickhouse"
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -123,7 +122,7 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen
+//nolint:gocognit,gocyclo,cyclop
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
@@ -222,17 +221,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		}
 		if req.ImageURI == "" {
 			return nil, huma.Error400BadRequest("image_uri is required for managed execution")
-		}
-		if len(s.config.AllowedImageRegistries) == 0 {
-			return nil, huma.Error400BadRequest("ALLOWED_IMAGE_REGISTRIES must be configured for managed execution")
-		}
-		if err := compute.ValidateImageRegistry(req.ImageURI, s.config.AllowedImageRegistries); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if s.config.RequireImageDigest {
-			if err := compute.ValidateImageDigest(req.ImageURI); err != nil {
-				return nil, huma.Error400BadRequest(err.Error())
-			}
 		}
 		preset := domain.MachinePreset(req.MachinePreset)
 		if req.MachinePreset != "" && !preset.IsValid() {
@@ -1049,18 +1037,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 		if len(jobReq.Tags) > 0 {
 			if err := validateTags(jobReq.Tags); err != nil {
 				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
-				continue
-			}
-		}
-
-		// Region validation.
-		if jobReq.Region != "" && !compute.IsValidRegion(jobReq.Region) {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid region: " + jobReq.Region})
-			continue
-		}
-		for _, pr := range jobReq.PreferredRegions {
-			if !compute.IsValidRegion(pr) {
-				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid preferred region: " + pr})
 				continue
 			}
 		}
