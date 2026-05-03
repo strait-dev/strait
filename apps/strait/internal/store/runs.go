@@ -1167,7 +1167,6 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		"lineage_depth":        {},
 		"priority":             {},
 		"metadata":             {},
-		"machine_id":           {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -2104,7 +2103,6 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		"lineage_depth":        {},
 		"priority":             {},
 		"metadata":             {},
-		"machine_id":           {},
 	}
 
 	setClauses := []string{"status = $1"}
