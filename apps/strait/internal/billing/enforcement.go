@@ -32,6 +32,7 @@ var (
 	ErrSpendingLimitReached          = errors.New("spending limit reached")
 	ErrProjectBudgetReached          = errors.New("project budget reached")
 	ErrGracePeriodExpired            = errors.New("payment grace period expired")
+	ErrDispatchPriorityExceeded      = errors.New("dispatch priority exceeds plan cap")
 	ErrPaymentRestricted             = errors.New("payment restricted")
 	ErrProjectSuspended              = errors.New("project suspended due to plan downgrade")
 )
@@ -754,6 +755,58 @@ func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
 		e.logger.Warn("failed to decrement concurrent run counter", "org_id", orgID, "error", err)
 	}
+}
+
+// CheckMaxDispatchPriority checks whether requestedPriority is within the cap
+// allowed by the org's current plan. Call this at enqueue time before writing
+// the run to the queue.
+//
+// MaxDispatchPriority semantics:
+//   - -1  unlimited (Enterprise)
+//   - 0   only the default priority (Free, Starter)
+//   - N>0 priorities 0..N are allowed (Pro: 10, Scale: 50)
+//
+// projectID is used to resolve the org. Returns a *LimitError when the
+// requested priority exceeds the cap; nil on success or fail-open.
+func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, requestedPriority int) error {
+	if e == nil || projectID == "" || requestedPriority <= 0 {
+		return nil // priority 0 is always valid
+	}
+
+	orgID, err := e.store.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to resolve org for dispatch priority check",
+			"project_id", projectID, "error", err, "fail_open", true)
+		return nil // fail open: don't block runs on lookup error
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for dispatch priority check",
+			"org_id", orgID, "error", err, "fail_open", true)
+		return nil // fail open
+	}
+
+	if limits.MaxDispatchPriority == -1 {
+		return nil // unlimited
+	}
+
+	if requestedPriority > limits.MaxDispatchPriority {
+		e.recordRejection(ctx, "dispatch_priority", limits.PlanTier)
+		return &LimitError{
+			Code: "dispatch_priority_exceeded",
+			Message: fmt.Sprintf(
+				"Your %s plan allows a maximum dispatch priority of %d. Requested: %d. Upgrade to use higher priority values.",
+				limits.DisplayName, limits.MaxDispatchPriority, requestedPriority,
+			),
+			CurrentUsage: int64(requestedPriority),
+			Limit:        int64(limits.MaxDispatchPriority),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
 }
 
 // CheckProjectLimit checks if org can create another project.

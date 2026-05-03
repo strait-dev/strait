@@ -147,6 +147,13 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 	}
 
+	// Billing: enforce dispatch priority cap before any quota or run creation work.
+	if s.billingEnforcer != nil && req.Priority > 0 {
+		if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
+			return nil, huma.Error402PaymentRequired(err.Error())
+		}
+	}
+
 	var projectQuota *store.ProjectQuota
 	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
 	if err != nil {
