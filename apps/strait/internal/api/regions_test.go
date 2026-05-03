@@ -12,51 +12,6 @@ import (
 	"strait/internal/store"
 )
 
-func TestHandleListRegions(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp RegionsListResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-
-	if len(resp.Regions) == 0 {
-		t.Fatal("expected non-empty regions list")
-	}
-
-	// Verify all regions have required fields.
-	for _, r := range resp.Regions {
-		if r.Code == "" || r.Label == "" || r.City == "" || r.Country == "" || r.Continent == "" {
-			t.Errorf("region %q has empty required field", r.Code)
-		}
-	}
-
-	// Verify sorted by code.
-	for i := 1; i < len(resp.Regions); i++ {
-		if resp.Regions[i].Code <= resp.Regions[i-1].Code {
-			t.Errorf("regions not sorted: %q <= %q", resp.Regions[i].Code, resp.Regions[i-1].Code)
-		}
-	}
-
-	// Verify known regions exist.
-	codeSet := make(map[string]bool)
-	for _, r := range resp.Regions {
-		codeSet[r.Code] = true
-	}
-	for _, expected := range []string{"iad", "lhr", "nrt", "syd", "fra"} {
-		if !codeSet[expected] {
-			t.Errorf("expected region %q not found in list", expected)
-		}
-	}
-}
 
 func TestHandleGetProjectSettings(t *testing.T) {
 	t.Parallel()
@@ -239,51 +194,6 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 	}
 }
 
-func TestHandleListRegions_IncludesAvailability(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	var resp RegionsListResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-
-	// Find IAD and check availability.
-	for _, r := range resp.Regions {
-		if r.Code == "iad" {
-			if !r.Availability["free"] {
-				t.Error("expected iad available on free plan")
-			}
-			if !r.Availability["starter"] {
-				t.Error("expected iad available on starter plan")
-			}
-			if !r.Availability["pro"] {
-				t.Error("expected iad available on professional plan")
-			}
-			if !r.Availability["enterprise"] {
-				t.Error("expected iad available on enterprise plan")
-			}
-		}
-		if r.Code == "hkg" {
-			if r.Availability["free"] {
-				t.Error("expected hkg NOT available on free plan")
-			}
-			if r.Availability["starter"] {
-				t.Error("expected hkg NOT available on starter plan")
-			}
-			if !r.Availability["pro"] {
-				t.Error("expected hkg available on professional plan")
-			}
-		}
-	}
-}
 
 func TestHandleCreateJob_RegionGating(t *testing.T) {
 	t.Parallel()

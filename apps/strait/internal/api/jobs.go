@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -200,6 +201,11 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	// Plan-based gating validation.
 	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
 		return nil, err
+	}
+
+	// Validate optional queue_name.
+	if err := validateQueueName(req.QueueName); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	// Execution mode validation.
@@ -599,6 +605,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.ExecutionMode = mode
 	}
 	if req.QueueName != nil {
+		if err := validateQueueName(*req.QueueName); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		job.Queue = *req.QueueName
 	}
 	if req.PreferredRegions != nil {
@@ -822,6 +831,21 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	})
 
 	return &CloneJobOutput{Body: clone}, nil
+}
+
+// queueNameRe is the allowed pattern for queue names: alphanumerics, dashes, underscores, 1–63 chars.
+var queueNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,63}$`)
+
+// validateQueueName returns an error if the queue name is non-empty and does not match
+// the required pattern ^[A-Za-z0-9_-]{1,63}$.
+func validateQueueName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if !queueNameRe.MatchString(name) {
+		return fmt.Errorf("queue_name must match ^[A-Za-z0-9_-]{1,63}$")
+	}
+	return nil
 }
 
 func validateTags(tags map[string]string) error {

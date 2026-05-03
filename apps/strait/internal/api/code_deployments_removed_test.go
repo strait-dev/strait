@@ -24,6 +24,9 @@ func TestCodeDeploymentRoutesRemoved(t *testing.T) {
 		"/v1/jobs/{jobID}/deployments/{deploymentID}/rollback",
 		"/v1/jobs/{jobID}/deployments/{deploymentID}/logs",
 		"/internal/admin/orgs/{orgID}/deployments",
+		"/v1/regions",
+		"/v1/machines",
+		"/v1/presets",
 	}
 
 	var registered []string
