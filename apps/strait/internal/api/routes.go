@@ -94,7 +94,7 @@ func (s *Server) routes() chi.Router {
 	// since it depends only on handler types, not runtime state.
 	cachedOpenAPIOnce.Do(func() {
 		humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
-		humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs, workflows, and managed execution."
+		humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs and workflows."
 		humaConfig.Servers = []*huma.Server{
 			{URL: "https://api.strait.dev", Description: "Production"},
 		}

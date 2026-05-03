@@ -43,7 +43,6 @@ type TriggerJobInput struct {
 	JobID             string `path:"jobID"`
 	XIdempotencyKey   string `header:"X-Idempotency-Key"`
 	IdempotencyKeyAlt string `header:"Idempotency-Key"`
-	RegionHint        string `header:"X-Region"`
 	Traceparent       string `header:"Traceparent"`
 	Tracestate        string `header:"Tracestate"`
 	Body              TriggerRequest
@@ -398,14 +397,6 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 	}
 	run.ConcurrencyKey = req.ConcurrencyKey
-
-	// Capture region hint header for geo-routing of managed dispatch.
-	if input.RegionHint != "" {
-		if run.Metadata == nil {
-			run.Metadata = make(map[string]string)
-		}
-		run.Metadata["_region_hint"] = input.RegionHint
-	}
 
 	// Capture W3C trace context from incoming request headers.
 	if input.Traceparent != "" {
