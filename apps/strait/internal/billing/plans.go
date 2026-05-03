@@ -15,10 +15,10 @@ type OrgPlanLimits struct {
 	MaxOrgsPerUser          int   // -1 = unlimited
 	MaxProjectsPerOrg       int   // -1 = unlimited
 	MaxMembersPerOrg        int   // -1 = unlimited
-	MaxRunsPerDay         int64 // -1 = unlimited
-	MaxConcurrentRuns     int   // -1 = unlimited
-	FreeManagedPreset     string
-	FreeManagedMaxTimeout int // seconds, free tier only
+	MaxRunsPerDay           int64 // -1 = unlimited (legacy daily cap; see MaxRunsPerMonth)
+	MaxRunsPerMonth         int   // -1 = unlimited; monthly cap for orchestration billing
+	OveragePerKMicrousd     int64 // per-1K-run overage in micro-USD (new name); alias for OveragePerKRunsMicrousd
+	MaxConcurrentRuns       int   // -1 = unlimited
 	RetentionDays           int
 	AllowedRegions          []string // nil = all
 	MaxAlertRulesPerProj    int      // -1 = unlimited, 0 = none
@@ -34,6 +34,9 @@ type OrgPlanLimits struct {
 	RequiresCreditCard      bool
 	OveragePerKRunsMicrousd int64  // cost per 1K runs overage in micro-USD
 	AllowsHTTPMode          bool   // whether HTTP execution mode is available
+	LogStreamingEnabled     bool   // whether log streaming is available
+	MaxDispatchPriority     int    // max enqueue priority value; 0 = default only, -1 = unlimited
+	WorkerConnections       int    // max registered worker connections per org; -1 = unlimited
 	SupportLevel            string // "community", "email_72h", "priority_24h", "priority_slack_8h", "dedicated"
 
 	// Workflow feature gates.
@@ -85,12 +88,16 @@ const (
 	// 20 micro-USD = $0.00002/run = $20/1M runs.
 	HTTPCostPerRunMicrousd int64 = 20
 
+	// WorkerCostPerRunMicrousd is the per-run cost for Worker execution mode.
+	// Flat rate matching HTTP dispatch.
+	WorkerCostPerRunMicrousd int64 = 20
+
 	// Plan prices in cents (USD).
 	PriceStarterMonthlyCents = 1999  // $19.99
 	PriceStarterAnnualCents  = 19999 // $199.99
 	PriceProMonthlyCents     = 4999  // $49.99
 	PriceProAnnualCents      = 49999 // $499.99
-	PriceScaleMonthlyCents   = 9900  // $99.00
+	PriceScaleMonthlyCents   = 14999 // $149.99
 	PriceScaleAnnualCents    = 99000 // $990.00
 
 	// Per-plan breakeven thresholds for plan-recommendation logic (micro-USD).
@@ -99,18 +106,30 @@ const (
 	CreditProMicrousd     int64 = 49_990_000 // $49.99
 	CreditScaleMicrousd   int64 = 99_000_000 // $99.00
 
-	// Concurrent run limits per plan.
-	ConcurrentFree    = 5
-	ConcurrentStarter = 25
-	ConcurrentPro     = 100
-	ConcurrentScale   = 500
+	// Monthly run caps per plan (orchestration-only model).
+	MaxRunsPerMonthFree       = 1_000
+	MaxRunsPerMonthStarter    = 10_000
+	MaxRunsPerMonthPro        = 50_000
+	MaxRunsPerMonthScale      = 200_000
+	MaxRunsPerMonthEnterprise = -1 // unlimited
 
-	// Overage cost per 1K runs in micro-USD ($0.20/1K runs).
-	DefaultOveragePerKRunsMicrousd int64 = 200_000
+	// Concurrent run limits per plan.
+	ConcurrentFree       = 2
+	ConcurrentStarter    = 10
+	ConcurrentPro        = 50
+	ConcurrentScale      = 200
+	ConcurrentEnterprise = -1 // unlimited
+
+	// Overage cost per 1K runs in micro-USD.
+	DefaultOveragePerKRunsMicrousd  int64 = 200_000 // $0.20/1K
+	StarterOveragePerKMicrousd      int64 = 300_000 // $0.30/1K
+	ProOveragePerKMicrousd          int64 = 250_000 // $0.25/1K
+	ScaleOveragePerKMicrousd        int64 = 200_000 // $0.20/1K
+	EnterpriseOveragePerKMicrousd   int64 = 200_000 // $0.20/1K
 
 	// Data retention in days.
-	RetentionFree       = 1
-	RetentionStarter    = 7
+	RetentionFree       = 7
+	RetentionStarter    = 14
 	RetentionPro        = 30
 	RetentionScale      = 60
 	RetentionEnterprise = 90
@@ -127,12 +146,9 @@ const (
 	MaxProjectsScale   = 50
 
 	MaxMembersFree    = 1
-	MaxMembersStarter = 5
+	MaxMembersStarter = 3
 	MaxMembersPro     = 10
 	MaxMembersScale   = 50
-
-	// Free tier managed execution limits.
-	FreeManagedMaxTimeout = 10 // seconds
 
 	// Spending limit caps per tier in micro-USD.
 	MaxSpendingStarter int64 = 500_000_000   // $500
@@ -144,15 +160,29 @@ const (
 
 	// Workflow DAG step limits per plan.
 	MaxDAGStepsFree    = 10
-	MaxDAGStepsStarter = 50
-	MaxDAGStepsPro     = 250
-	MaxDAGStepsScale   = 1000
+	MaxDAGStepsStarter = 25
+	MaxDAGStepsPro     = 100
+	MaxDAGStepsScale   = 500
 
 	// Scheduled job (cron) limits per plan.
-	MaxScheduledFree    = 10
+	MaxScheduledFree    = 5
 	MaxScheduledStarter = 25
 	MaxScheduledPro     = 100
 	MaxScheduledScale   = 500
+
+	// Dispatch priority caps per plan (0 = default priority only).
+	MaxDispatchPriorityFree       = 0
+	MaxDispatchPriorityStarter    = 0
+	MaxDispatchPriorityPro        = 10
+	MaxDispatchPriorityScale      = 50
+	MaxDispatchPriorityEnterprise = -1 // unlimited
+
+	// Worker connection limits per plan (-1 = unlimited).
+	WorkerConnectionsFree       = 1
+	WorkerConnectionsStarter    = 5
+	WorkerConnectionsPro        = 25
+	WorkerConnectionsScale      = 100
+	WorkerConnectionsEnterprise = -1 // unlimited
 
 	// API rate limits (requests per minute).
 	APIRateFree    = 60
@@ -160,10 +190,6 @@ const (
 	APIRatePro     = 1000
 	APIRateScale   = 3000
 )
-
-// freePresets is the list of machine presets available on the Free plan.
-// Free tier has access to Micro, Small, and Medium presets only.
-var freePresets = []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x"}
 
 // Plans maps plan tiers to their limits.
 var Plans = map[domain.PlanTier]OrgPlanLimits{
@@ -175,10 +201,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxOrgsPerUser:          MaxOrgsFree,
 		MaxProjectsPerOrg:       MaxProjectsFree,
 		MaxMembersPerOrg:        MaxMembersFree,
-		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:     ConcurrentFree,
-		FreeManagedPreset:     "micro",
-		FreeManagedMaxTimeout:   FreeManagedMaxTimeout,
+		MaxRunsPerDay:           -1, // no daily cap; monthly cap applies
+		MaxRunsPerMonth:         MaxRunsPerMonthFree,
+		OveragePerKMicrousd:     0, // no overage on free
+		MaxConcurrentRuns:       ConcurrentFree,
 		RetentionDays:           RetentionFree,
 		AllowedRegions:          []string{"iad"},
 		MaxAlertRulesPerProj:    0,
@@ -193,7 +219,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSLA:                  false,
 		RequiresCreditCard:      false,
 		OveragePerKRunsMicrousd: 0,
-		AllowsHTTPMode:          false,
+		AllowsHTTPMode:          true,
+		LogStreamingEnabled:     false,
+		MaxDispatchPriority:     MaxDispatchPriorityFree,
+		WorkerConnections:       WorkerConnectionsFree,
 		SupportLevel:            "community",
 		MaxWorkflowDAGSteps:     MaxDAGStepsFree,
 		HasApprovalGates:        false,
@@ -205,7 +234,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledFree,
 		AllCronOverlapPolicies:  false,
 		MaxEnvironments:         1,
-		AllowedPresets:          freePresets,
+		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     0,
 		WebhookEventLevel:       "none",
 		APIRateLimit:            APIRateFree,
@@ -219,12 +248,12 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxOrgsPerUser:          MaxOrgsStarter,
 		MaxProjectsPerOrg:       MaxProjectsStarter,
 		MaxMembersPerOrg:        MaxMembersStarter,
-		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:     ConcurrentStarter,
-		FreeManagedPreset:     "",
-		FreeManagedMaxTimeout: 0,
-		RetentionDays:         RetentionStarter,
-		AllowedRegions:          []string{"iad", "ord", "lax", "lhr", "fra", "sin"},
+		MaxRunsPerDay:           -1, // no daily cap; monthly cap applies
+		MaxRunsPerMonth:         MaxRunsPerMonthStarter,
+		OveragePerKMicrousd:     StarterOveragePerKMicrousd,
+		MaxConcurrentRuns:       ConcurrentStarter,
+		RetentionDays:           RetentionStarter,
+		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    0,
 		MaxWebhookSubsPerProj:   3,
 		MaxLogDrainsPerOrg:      1,
@@ -236,8 +265,11 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
-		AllowsHTTPMode:          false,
+		OveragePerKRunsMicrousd: StarterOveragePerKMicrousd,
+		AllowsHTTPMode:          true,
+		LogStreamingEnabled:     true,
+		MaxDispatchPriority:     MaxDispatchPriorityStarter,
+		WorkerConnections:       WorkerConnectionsStarter,
 		SupportLevel:            "email_72h",
 		MaxWorkflowDAGSteps:     MaxDAGStepsStarter,
 		HasApprovalGates:        false,
@@ -249,7 +281,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledStarter,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil, // all presets
+		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     3,
 		WebhookEventLevel:       "basic",
 		APIRateLimit:            APIRateStarter,
@@ -269,11 +301,11 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxOrgsPerUser:          MaxOrgsPro,
 		MaxProjectsPerOrg:       MaxProjectsPro,
 		MaxMembersPerOrg:        MaxMembersPro,
-		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:     ConcurrentPro,
-		FreeManagedPreset:     "",
-		FreeManagedMaxTimeout: 0,
-		RetentionDays:         RetentionPro,
+		MaxRunsPerDay:           -1, // no daily cap; monthly cap applies
+		MaxRunsPerMonth:         MaxRunsPerMonthPro,
+		OveragePerKMicrousd:     ProOveragePerKMicrousd,
+		MaxConcurrentRuns:       ConcurrentPro,
+		RetentionDays:           RetentionPro,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   10,
@@ -286,8 +318,11 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
+		OveragePerKRunsMicrousd: ProOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
+		LogStreamingEnabled:     true,
+		MaxDispatchPriority:     MaxDispatchPriorityPro,
+		WorkerConnections:       WorkerConnectionsPro,
 		SupportLevel:            "priority_24h",
 		MaxWorkflowDAGSteps:     MaxDAGStepsPro,
 		HasApprovalGates:        true,
@@ -299,7 +334,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledPro,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil, // all presets
+		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     10,
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRatePro,
@@ -319,11 +354,11 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxOrgsPerUser:          MaxOrgsScale,
 		MaxProjectsPerOrg:       MaxProjectsScale,
 		MaxMembersPerOrg:        MaxMembersScale,
-		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:     ConcurrentScale,
-		FreeManagedPreset:     "",
-		FreeManagedMaxTimeout: 0,
-		RetentionDays:         RetentionScale,
+		MaxRunsPerDay:           -1, // no daily cap; monthly cap applies
+		MaxRunsPerMonth:         MaxRunsPerMonthScale,
+		OveragePerKMicrousd:     ScaleOveragePerKMicrousd,
+		MaxConcurrentRuns:       ConcurrentScale,
+		RetentionDays:           RetentionScale,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   25,
@@ -336,8 +371,11 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: DefaultOveragePerKRunsMicrousd,
+		OveragePerKRunsMicrousd: ScaleOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
+		LogStreamingEnabled:     true,
+		MaxDispatchPriority:     MaxDispatchPriorityScale,
+		WorkerConnections:       WorkerConnectionsScale,
 		SupportLevel:            "priority_slack_8h",
 		MaxWorkflowDAGSteps:     MaxDAGStepsScale,
 		HasApprovalGates:        true,
@@ -349,7 +387,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledScale,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil, // all presets
+		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     25,
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRateScale,
@@ -370,10 +408,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxProjectsPerOrg:       -1,
 		MaxMembersPerOrg:        -1,
 		MaxRunsPerDay:           -1,
-		MaxConcurrentRuns:     -1,
-		FreeManagedPreset:     "",
-		FreeManagedMaxTimeout: 0,
-		RetentionDays:         RetentionEnterprise,
+		MaxRunsPerMonth:         MaxRunsPerMonthEnterprise,
+		OveragePerKMicrousd:     EnterpriseOveragePerKMicrousd,
+		MaxConcurrentRuns:       ConcurrentEnterprise,
+		RetentionDays:           RetentionEnterprise,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    -1,
 		MaxWebhookSubsPerProj:   -1,
@@ -386,8 +424,11 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  true,
 		HasSLA:                  true,
 		RequiresCreditCard:      false,
-		OveragePerKRunsMicrousd: 0,
+		OveragePerKRunsMicrousd: EnterpriseOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
+		LogStreamingEnabled:     true,
+		MaxDispatchPriority:     MaxDispatchPriorityEnterprise,
+		WorkerConnections:       WorkerConnectionsEnterprise,
 		SupportLevel:            "dedicated",
 		MaxWorkflowDAGSteps:     -1,
 		HasApprovalGates:        true,
@@ -411,7 +452,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        -1,
 		AllCronOverlapPolicies:  true,
 		MaxEnvironments:         3,
-		AllowedPresets:          nil, // all presets
+		AllowedPresets:          nil,
 		MaxWebhookEndpoints:     -1,
 		WebhookEventLevel:       "all_custom",
 		APIRateLimit:            -1,
@@ -450,6 +491,7 @@ func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
 	}
 
 	return less(oldLimits.MaxRunsPerDay, newLimits.MaxRunsPerDay) ||
+		lessInt(oldLimits.MaxRunsPerMonth, newLimits.MaxRunsPerMonth) ||
 		lessInt(oldLimits.MaxConcurrentRuns, newLimits.MaxConcurrentRuns) ||
 		lessInt(oldLimits.MaxProjectsPerOrg, newLimits.MaxProjectsPerOrg) ||
 		lessInt(oldLimits.MaxMembersPerOrg, newLimits.MaxMembersPerOrg) ||
@@ -463,7 +505,9 @@ func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
 		lessInt(oldLimits.MaxScheduledJobs, newLimits.MaxScheduledJobs) ||
 		lessInt(oldLimits.MaxEnvironments, newLimits.MaxEnvironments) ||
 		lessInt(oldLimits.MaxWebhookEndpoints, newLimits.MaxWebhookEndpoints) ||
-		lessInt(oldLimits.APIRateLimit, newLimits.APIRateLimit)
+		lessInt(oldLimits.APIRateLimit, newLimits.APIRateLimit) ||
+		lessInt(oldLimits.MaxDispatchPriority, newLimits.MaxDispatchPriority) ||
+		lessInt(oldLimits.WorkerConnections, newLimits.WorkerConnections)
 }
 
 // GetPlanLimits returns the plan limits for the given tier.
