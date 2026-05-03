@@ -22,10 +22,6 @@ func (r *recordingStore) UpsertUsageRecord(_ context.Context, _ *UsageRecord) er
 	return nil
 }
 
-// errRedisClient is a redis.Cmdable that always returns an error for SetNX.
-// We use miniredis and immediately close it to simulate connection failures.
-type setupFn func(t *testing.T) (*RunCostRecorder, *recordingStore)
-
 func newTestRecorder(t *testing.T, rdb redis.Cmdable) (*RunCostRecorder, *recordingStore) {
 	t.Helper()
 	store := &recordingStore{}
