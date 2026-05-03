@@ -427,6 +427,11 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
 			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
 			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
+			// Orchestration-only flat tier prices (new billing model).
+			billing.WithStarterFlatPrice(cfg.StripeStarterPriceID),
+			billing.WithProFlatPrice(cfg.StripeProPriceID),
+			billing.WithScaleFlatPrice(cfg.StripeScalePriceID),
+			billing.WithEnterpriseFlatPrice(cfg.StripeEnterprisePriceID),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {

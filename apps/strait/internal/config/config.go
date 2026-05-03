@@ -241,6 +241,22 @@ type Config struct {
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
+	// Orchestration-only tier price IDs (new billing model).
+	// Set these to the Stripe Price IDs for each plan's flat monthly subscription.
+	StripeStarterPriceID          string `env:"STRIPE_STARTER_PRICE_ID"`
+	StripeProPriceID              string `env:"STRIPE_PRO_PRICE_ID"`
+	StripeScalePriceID            string `env:"STRIPE_SCALE_PRICE_ID"`
+	StripeEnterprisePriceID       string `env:"STRIPE_ENTERPRISE_PRICE_ID"`
+	// Overage meter price IDs — one per paid tier, used for metered billing.
+	StripeStarterOveragePriceID   string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
+	StripeProOveragePriceID       string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
+	StripeScaleOveragePriceID     string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
+	// Add-on price IDs for optional per-org upgrades.
+	StripeRetentionPackPriceID    string `env:"STRIPE_RETENTION_PACK_PRICE_ID"`
+	StripePrioritySlotPackPriceID string `env:"STRIPE_PRIORITY_SLOT_PACK_PRICE_ID"`
+	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
+	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
+
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
