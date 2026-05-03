@@ -477,6 +477,179 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
+// monthlyRunKey returns the Redis key for the org's monthly run counter.
+// Key is scoped to the calendar month (UTC) and expires after 62 days.
+func monthlyRunKey(orgID string, t time.Time) string {
+	return fmt.Sprintf("strait:org_monthly_runs:%s:%s", orgID, t.UTC().Format("2006-01"))
+}
+
+const monthlyRunCounterTTLSecs = int(62 * 24 * time.Hour / time.Second)
+
+// CheckMonthlyRunLimit checks if the org has exceeded its monthly run quota.
+// Free-tier orgs are hard-capped; paid plans enter overage (counted but not rejected).
+// Returns a *LimitError with code "plan_cap_reached" when the free cap is hit.
+func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error {
+	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+
+	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+		return err
+	} else if skipLimits {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for monthly run check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "monthly_run", "db_error")
+	}
+	e.resetFailOpen(orgID, "monthly_run")
+
+	if e.checkEnforcementMode(orgID, "monthly_run") {
+		return nil
+	}
+
+	if limits.MaxRunsPerMonth == -1 {
+		return nil // unlimited
+	}
+
+	key := monthlyRunKey(orgID, time.Now())
+	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
+		int64(limits.MaxRunsPerMonth), int64(monthlyRunCounterTTLSecs)).Result()
+	if err != nil {
+		e.logger.Warn("failed to run atomic monthly run check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
+	}
+
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected result from atomic monthly run check", "org_id", orgID)
+		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
+	}
+
+	allowed, _ := vals[0].(int64)
+	currentCount, _ := vals[1].(int64)
+
+	if allowed == 0 {
+		// Paid plans allow overage — track but don't reject.
+		if limits.PlanTier != domain.PlanFree {
+			e.logger.Info("monthly run cap exceeded on paid plan (overage allowed)",
+				"org_id", orgID,
+				"plan", limits.DisplayName,
+				"limit", limits.MaxRunsPerMonth,
+				"current", currentCount,
+			)
+			e.emitBillingEvent(orgID, "monthly_run_overage", string(limits.PlanTier))
+			return nil
+		}
+
+		// Free tier: hard reject.
+		e.recordRejection(ctx, "monthly_run_limit", limits.PlanTier)
+		return &LimitError{
+			Code:         "plan_cap_reached",
+			Message:      fmt.Sprintf("Your %s plan allows %d runs per month. You've used %d. Upgrade to continue.", limits.DisplayName, limits.MaxRunsPerMonth, currentCount),
+			CurrentUsage: currentCount,
+			Limit:        int64(limits.MaxRunsPerMonth),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// GetMonthlyRunCount returns the current monthly run count for an org from Redis.
+// Returns 0 on any error or if no key exists.
+func (e *Enforcer) GetMonthlyRunCount(ctx context.Context, orgID string) (int64, error) {
+	if orgID == "" || e.rdb == nil {
+		return 0, nil
+	}
+	key := monthlyRunKey(orgID, time.Now())
+	count, err := e.rdb.Get(ctx, key).Int64()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("getting monthly run count: %w", err)
+	}
+	return count, nil
+}
+
+// PauseJobsForQuotaExceeded pauses all HTTP-mode jobs for an org with reason
+// "quota_exceeded". Called when the org exceeds their monthly cap on free tier.
+func (e *Enforcer) PauseJobsForQuotaExceeded(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+	paused, err := e.store.PauseHTTPJobsByOrg(ctx, orgID, "quota_exceeded")
+	if err != nil {
+		return fmt.Errorf("pausing jobs for quota exceeded (org=%s): %w", orgID, err)
+	}
+	e.logger.Info("paused jobs for quota exceeded",
+		"org_id", orgID,
+		"jobs_paused", paused,
+	)
+	e.emitBillingEvent(orgID, "jobs_paused_quota_exceeded", "")
+	return nil
+}
+
+// ResumeJobsAfterQuotaReset unpauses jobs that were paused due to quota exceeded.
+// Call this at the start of a new billing period.
+func (e *Enforcer) ResumeJobsAfterQuotaReset(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+	resumed, err := e.store.UnpauseJobsByPauseReason(ctx, orgID, "quota_exceeded")
+	if err != nil {
+		return fmt.Errorf("resuming jobs after quota reset (org=%s): %w", orgID, err)
+	}
+	e.logger.Info("resumed jobs after quota reset",
+		"org_id", orgID,
+		"jobs_resumed", resumed,
+	)
+	e.emitBillingEvent(orgID, "jobs_resumed_quota_reset", "")
+	return nil
+}
+
+// Check80PercentMonthlyWarning returns true when the org has used 80% or more of
+// its monthly run cap and a warning email has not yet been sent this period.
+// Returns (false, nil) for unlimited plans.
+func (e *Enforcer) Check80PercentMonthlyWarning(ctx context.Context, orgID string) (bool, error) {
+	if orgID == "" || e.rdb == nil {
+		return false, nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("getting org plan limits for monthly warning: %w", err)
+	}
+
+	if limits.MaxRunsPerMonth == -1 {
+		return false, nil
+	}
+
+	count, err := e.GetMonthlyRunCount(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("getting monthly run count for warning check: %w", err)
+	}
+
+	threshold := int64(float64(limits.MaxRunsPerMonth) * 0.8)
+	if count < threshold {
+		return false, nil
+	}
+
+	// Only send once per billing period — use a Redis key to track.
+	periodKey := fmt.Sprintf("strait:billing_email:%s:monthly_80pct:%s",
+		orgID, time.Now().UTC().Format("2006-01"))
+	set, err := e.rdb.SetNX(ctx, periodKey, "1", 32*24*time.Hour).Result()
+	if err != nil {
+		// Fail open: surface the warning if we can't track dedup.
+		return true, nil
+	}
+	return set, nil
+}
+
 // concurrentCheckScript is a Lua script that atomically increments the counter
 // and checks the limit. Returns the new count if under limit, or -1 if at/over.
 // KEYS[1] = counter key, ARGV[1] = max limit, ARGV[2] = TTL seconds.
