@@ -354,6 +354,7 @@ type Job struct {
 	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
 	AllowedTools              []string          `json:"allowed_tools,omitempty"`
 	BlockedTools              []string          `json:"blocked_tools,omitempty"`
+	EndpointSigningSecret      string    `json:"-"`
 	CreatedBy string `json:"created_by,omitempty"`
 	UpdatedBy                  string    `json:"updated_by,omitempty"`
 	CreatedAt                  time.Time `json:"created_at"`
