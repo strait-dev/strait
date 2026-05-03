@@ -158,7 +158,7 @@ func TestRunLifecycle_ReplayDeadLetterRun(t *testing.T) {
 	}
 }
 
-// TestRunLifecycle_RestartMaxDepth verifies that restart works for a managed run
+// TestRunLifecycle_RestartMaxDepth verifies that restart works for a run
 // that is in an executing or paused state.
 func TestRunLifecycle_RestartMaxDepth(t *testing.T) {
 	t.Parallel()

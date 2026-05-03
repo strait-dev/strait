@@ -2415,7 +2415,7 @@
     },
     "run.paused": {
       "type": "object",
-      "description": "Managed run paused.",
+      "description": "Run paused.",
       "properties": {
         "job_id": {
           "type": "string",
@@ -2525,7 +2525,7 @@
     },
     "run.restarted": {
       "type": "object",
-      "description": "Managed run restarted.",
+      "description": "Run restarted.",
       "properties": {
         "job_id": {
           "type": "string",
@@ -2550,7 +2550,7 @@
     },
     "run.resumed": {
       "type": "object",
-      "description": "Managed run resumed.",
+      "description": "Run resumed.",
       "properties": {
         "job_id": {
           "type": "string",

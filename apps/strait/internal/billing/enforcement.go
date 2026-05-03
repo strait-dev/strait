@@ -1167,7 +1167,7 @@ func (e *Enforcer) ReconcileDailyRunCounts(ctx context.Context, counter DailyRun
 
 // concurrentCounterTTL is the TTL for concurrent run counters.
 // The reconciler runs every 5 minutes to correct drift; 24h is a backstop
-// for total Redis failure. Managed runs can last many hours, so shorter
+// for total Redis failure. Runs can last many hours, so shorter
 // TTLs cause keys to expire mid-run and undercount active concurrency.
 const concurrentCounterTTL = 24 * time.Hour
 

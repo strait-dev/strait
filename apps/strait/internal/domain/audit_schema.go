@@ -262,15 +262,15 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	},
 	AuditActionRunPaused: {
 		Required:    []string{"job_id"},
-		Description: "Managed run paused.",
+		Description: "Run paused.",
 	},
 	AuditActionRunResumed: {
 		Required:    []string{"job_id"},
-		Description: "Managed run resumed.",
+		Description: "Run resumed.",
 	},
 	AuditActionRunRestarted: {
 		Required:    []string{"job_id"},
-		Description: "Managed run restarted.",
+		Description: "Run restarted.",
 	},
 	AuditActionRunsExported: {
 		Required:    []string{"format", "from", "to", "project_id"},
