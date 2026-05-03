@@ -1,0 +1,6 @@
+version: v1
+name: buf.build/strait/strait
+lint:
+  use: [DEFAULT]
+breaking:
+  use: [FILE]

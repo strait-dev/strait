@@ -4,6 +4,10 @@
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
 .PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
 .PHONY: test-k8s-unit test-k8s-integration
+.PHONY: proto
+
+proto: ## Regenerate gRPC Go code from .proto sources (requires buf)
+	buf generate
 
 build:
 	go build ./...
