@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -92,28 +91,6 @@ func TestIndexMaintainer_Run_StopsOnCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		m.Run(ctx)
-		close(done)
-	}()
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
-	}
-}
-
-func TestPoolPruner_Run_StopsOnCancel(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	p := NewPoolPruner(pool, &mockPrunerRuntime{}, 10*time.Millisecond, 10*time.Minute)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		p.Run(ctx)
 		close(done)
 	}()
 

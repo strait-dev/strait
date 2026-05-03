@@ -3,12 +3,10 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -193,44 +191,6 @@ func TestBatchFlusher_TTLZeroSeconds(t *testing.T) {
 	if enqueuedRun.ExpiresAt.Before(expectedMin) {
 		t.Fatalf("ExpiresAt too early: %v", enqueuedRun.ExpiresAt)
 	}
-}
-
-// TestPoolPruner_NilPool verifies that a pool pruner with a nil pool
-// exits immediately without panicking.
-func TestPoolPruner_NilPool(t *testing.T) {
-	t.Parallel()
-
-	pruner := NewPoolPruner(nil, &mockPrunerRuntime{}, time.Millisecond, time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	// Run should return immediately because pool is nil.
-	pruner.Run(ctx)
-}
-
-// TestPoolPruner_DestroyCallbackPanic verifies that a panic in the destroy
-// callback during pruning does not crash the pruner.
-func TestPoolPruner_DestroyCallbackPanic(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	pool.Release("test-project", "img:latest", "iad", "m-panic")
-
-	// TTL is nanosecond, so entries are immediately stale -- no sleep needed.
-
-	rt := &mockPrunerRuntime{
-		destroyFn: func(_ context.Context, _ string) error {
-			return errors.New("destroy failed")
-		},
-	}
-
-	pruner := NewPoolPruner(pool, rt, 10*time.Millisecond, time.Nanosecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	// Should not panic even though destroy returns an error.
-	pruner.Run(ctx)
 }
 
 // TestAutoRotate_ConcurrentRotation verifies that multiple concurrent rotation

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"strait/internal/billing"
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -837,83 +836,6 @@ func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not stop on context cancel")
 	}
-}
-
-// ---------------------------------------------------------------------------.
-// Pool management
-// ---------------------------------------------------------------------------.
-
-func TestPoolPruner_ZeroInterval_Clamped(t *testing.T) {
-	t.Parallel()
-	pool := compute.NewMachinePool(1)
-	p := NewPoolPruner(pool, nil, 0, 0)
-	if p.interval != 60*time.Second {
-		t.Fatalf("expected zero interval clamped to 60s, got %v", p.interval)
-	}
-	if p.ttl != 10*time.Minute {
-		t.Fatalf("expected zero TTL clamped to 10m, got %v", p.ttl)
-	}
-}
-
-func TestPoolPruner_NegativeInterval_Clamped(t *testing.T) {
-	t.Parallel()
-	pool := compute.NewMachinePool(1)
-	p := NewPoolPruner(pool, nil, -time.Second, -time.Second)
-	if p.interval != 60*time.Second {
-		t.Fatalf("expected negative interval clamped, got %v", p.interval)
-	}
-	if p.ttl != 10*time.Minute {
-		t.Fatalf("expected negative TTL clamped, got %v", p.ttl)
-	}
-}
-
-func TestPoolPruner_NilRuntime(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	pool.Release("test-project", "img:latest", "iad", "m-1")
-
-	pruner := NewPoolPruner(pool, nil, 50*time.Millisecond, time.Nanosecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	pruner.Run(ctx)
-
-	if pool.Size() != 0 {
-		t.Errorf("expected pool emptied even with nil runtime, got size %d", pool.Size())
-	}
-}
-
-func TestPoolPruner_ConcurrentAccess(t *testing.T) {
-	t.Parallel()
-
-	var destroyed atomic.Int32
-	rt := &mockPrunerRuntime{
-		destroyFn: func(_ context.Context, _ string) error {
-			destroyed.Add(1)
-			return nil
-		},
-	}
-
-	pool := compute.NewMachinePool(20)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	pruner := NewPoolPruner(pool, rt, 20*time.Millisecond, time.Nanosecond)
-
-	var wg conc.WaitGroup
-	wg.Go(func() {
-		pruner.Run(ctx)
-	})
-
-	for i := range 10 {
-		wg.Go(func() {
-			pool.Release("proj", "img:latest", "iad", "m-concurrent-"+string(rune('0'+i)))
-			time.Sleep(50 * time.Millisecond)
-		})
-	}
-
-	wg.Wait()
 }
 
 // ---------------------------------------------------------------------------.

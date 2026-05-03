@@ -373,26 +373,6 @@ func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domai
 	return nil, nil
 }
 
-// mockMachineDestroyer implements MachineDestroyer for testing.
-type mockMachineDestroyer struct {
-	stopFn    func(ctx context.Context, machineID string) error
-	destroyFn func(ctx context.Context, machineID string) error
-}
-
-func (m *mockMachineDestroyer) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
-	}
-	return nil
-}
-
-func (m *mockMachineDestroyer) Destroy(ctx context.Context, machineID string) error {
-	if m.destroyFn != nil {
-		return m.destroyFn(ctx, machineID)
-	}
-	return nil
-}
-
 // mockWorkflowCallback implements WorkflowCallback for testing.
 type mockWorkflowCallback struct {
 	onJobRunTerminalFn func(ctx context.Context, run *domain.JobRun) error

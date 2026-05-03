@@ -877,9 +877,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				}).WithAdvisoryLocker(queries),
 			),
 		}
-		if containerRuntime != nil {
-			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
-		}
 		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
 			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
 				Interval:     cfg.PartitionReclaimInterval,
