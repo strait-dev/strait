@@ -186,6 +186,10 @@ const (
 	AuditActionDeploymentVersionPromoted   = "deployment_version.promoted"
 	AuditActionDeploymentVersionRolledBack = "deployment_version.rolled_back"
 
+	// Job endpoints (HMAC signing surface).
+	AuditActionEndpointSet      = "endpoint.set"
+	AuditActionEndpointVerified = "endpoint.verified"
+
 	// Billing / usage / org settings.
 	AuditActionSpendingLimitUpdated    = "spending_limit.updated"
 	AuditActionEmailPreferencesUpdated = "email_preferences.updated"
@@ -325,6 +329,8 @@ var allAuditActions = map[string]struct{}{
 	AuditActionDeploymentVersionFinalized:      {},
 	AuditActionDeploymentVersionPromoted:       {},
 	AuditActionDeploymentVersionRolledBack:     {},
+	AuditActionEndpointSet:                     {},
+	AuditActionEndpointVerified:                {},
 	AuditActionSpendingLimitUpdated:            {},
 	AuditActionEmailPreferencesUpdated:         {},
 	AuditActionUsageExported:                   {},

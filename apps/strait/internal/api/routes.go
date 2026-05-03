@@ -263,6 +263,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseJob))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeJob))
+				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/endpoint", TypedHandler(s, http.StatusOK, s.handleSetJobEndpoint))
+				r.With(s.requirePermission(domain.ScopeJobsWrite), rateLimit(10, time.Minute)).Post("/endpoint/verify", TypedHandler(s, http.StatusOK, s.handleVerifyJobEndpoint))
 			})
 		})
 

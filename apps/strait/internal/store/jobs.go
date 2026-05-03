@@ -1269,3 +1269,33 @@ func (q *Queries) ResumeJob(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// UpdateJobEndpoint persists a new endpoint URL, optional fallback URL, and
+// signing secret for a job. Callers are responsible for SSRF-validating the
+// URLs and generating a fresh signing secret before calling this method.
+func (q *Queries) UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJobEndpoint")
+	defer span.End()
+
+	query := `
+		UPDATE jobs
+		SET endpoint_url            = $2,
+		    fallback_endpoint_url   = $3,
+		    endpoint_signing_secret = $4,
+		    updated_at              = NOW()
+		WHERE id = $1`
+
+	var fallback *string
+	if fallbackURL != "" {
+		fallback = &fallbackURL
+	}
+
+	tag, err := q.db.Exec(ctx, query, jobID, endpointURL, fallback, signingSecret)
+	if err != nil {
+		return fmt.Errorf("update job endpoint: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrJobNotFound
+	}
+	return nil
+}

@@ -330,6 +330,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleResumeJob)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "set-job-endpoint", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/endpoint",
+		Summary: "Set job endpoint", Description: "Sets the HTTP endpoint URL for a job and generates a fresh HMAC signing secret. SSRF-safe: private/loopback addresses are rejected at registration time.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleSetJobEndpoint)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "verify-job-endpoint", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/endpoint/verify",
+		Summary: "Verify job endpoint", Description: "Sends a signed HMAC test ping to the job's configured endpoint URL and returns the outcome.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 429, 500},
+	}, s.handleVerifyJobEndpoint)
+
 	// -- Job Groups --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-job-group", Method: http.MethodPost, Path: "/v1/job-groups",

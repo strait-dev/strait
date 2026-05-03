@@ -582,6 +582,18 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Artifact deployment version rolled back.",
 	},
 
+	// Job endpoints.
+	AuditActionEndpointSet: {
+		Required:    []string{"job_id", "endpoint_url_host"},
+		Forbidden:   []string{"endpoint_signing_secret", "signing_secret"},
+		Description: "Job HTTP endpoint URL updated; a fresh HMAC signing secret was generated.",
+	},
+	AuditActionEndpointVerified: {
+		Required:    []string{"job_id", "endpoint_url_host", "success"},
+		Forbidden:   []string{"endpoint_signing_secret", "signing_secret"},
+		Description: "Signed test ping sent to the job endpoint; result recorded.",
+	},
+
 	// Billing / usage.
 	AuditActionSpendingLimitUpdated: {
 		Required:    []string{"limit_microusd", "action"},
