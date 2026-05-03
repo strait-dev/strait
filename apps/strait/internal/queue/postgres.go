@@ -168,7 +168,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, machine_id, metadata,
+			execution_mode, metadata,
 			is_rollback
 		)
 		SELECT
@@ -176,7 +176,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb, $32
+			$29, $30::jsonb, $31
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -215,7 +215,6 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
-		dbscan.NilIfEmptyString(run.MachineID),
 		metadataJSON,
 		run.IsRollback,
 	}
@@ -358,7 +357,7 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
-	"execution_mode", "machine_id", "metadata",
+	"execution_mode", "metadata",
 	"is_rollback",
 }
 
@@ -452,7 +451,6 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.ConcurrencyKey),
 			dbscan.NilIfEmptyString(run.BatchID),
 			string(run.ExecutionMode),
-			dbscan.NilIfEmptyString(run.MachineID),
 			metadataJSON,
 			run.IsRollback,
 		}
@@ -480,7 +478,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 // dequeueColumns is the shared column list for all dequeue RETURNING/SELECT clauses.
 const dequeueColumns = `id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, is_rollback, replayed_run_id`
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id`
 
 // concurrencyCTEs is the fallback concurrency-checking path used when
 // QUEUE_USE_DENORMALIZED_DEQUEUE is false. It scans all active runs

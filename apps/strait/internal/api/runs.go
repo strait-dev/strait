@@ -970,7 +970,7 @@ func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*Pau
 	}
 
 	if err := s.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusPaused, map[string]any{
-		"metadata": map[string]string{"_paused_machine_id": run.MachineID},
+		"metadata": map[string]string{},
 	}); err != nil {
 		return nil, huma.Error409Conflict("failed to pause run")
 	}
@@ -1045,9 +1045,7 @@ type RestartRunOutput struct {
 	Body *domain.JobRun
 }
 
-type restartRunRequest struct {
-	MachinePreset string `json:"machine_preset,omitempty"`
-}
+type restartRunRequest struct{}
 
 func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (*RestartRunOutput, error) {
 	run, err := s.store.GetRun(ctx, input.RunID)
@@ -1066,18 +1064,10 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 		return nil, huma.Error400BadRequest("run must be executing or paused to restart")
 	}
 
-	req := input.Body
-
-	metadata := map[string]string{}
-	if req.MachinePreset != "" {
-		metadata["_preset_override"] = req.MachinePreset
-	}
-
 	if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusQueued, map[string]any{
 		"started_at":  nil,
 		"finished_at": nil,
-		"machine_id":  nil,
-		"metadata":    metadata,
+		"metadata":    map[string]string{},
 	}); err != nil {
 		return nil, huma.Error409Conflict("failed to restart run")
 	}
@@ -1088,8 +1078,7 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunRestarted, "run", run.ID, map[string]any{
-		"job_id":         run.JobID,
-		"machine_preset": req.MachinePreset,
+		"job_id": run.JobID,
 	})
 
 	return &RestartRunOutput{Body: updatedRun}, nil

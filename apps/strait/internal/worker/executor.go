@@ -49,7 +49,6 @@ type ExecutorStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
-	SetRunMachineID(ctx context.Context, runID, machineID string) error
 	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
 	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
 	AtomicRecordHealthResult(

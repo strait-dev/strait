@@ -52,8 +52,6 @@ type CreateJobRequest struct {
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
-	ImageURI                  string            `json:"image_uri,omitempty"`
-	Region                    string            `json:"region,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
@@ -98,8 +96,6 @@ type UpdateJobRequest struct {
 	BatchWindowSecs           *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
-	ImageURI                  *string            `json:"image_uri,omitempty"`
-	Region                    *string            `json:"region,omitempty"`
 	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
@@ -199,10 +195,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	// Region and plan-based gating validation.
-	if err := s.checkRegionForPlan(ctx, req.ProjectID, req.Region); err != nil {
-		return nil, err
-	}
+	// Plan-based gating validation.
 	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
 		return nil, err
 	}
@@ -264,8 +257,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchWindowSecs:           req.BatchWindowSecs,
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
-		ImageURI:                  req.ImageURI,
-		Region:                    req.Region,
 		PreferredRegions:          req.PreferredRegions,
 		PoisonPillThreshold:       req.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
@@ -604,15 +595,6 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		}
 		job.ExecutionMode = mode
 	}
-	if req.ImageURI != nil {
-		job.ImageURI = *req.ImageURI
-	}
-	if req.Region != nil {
-		if err := s.checkRegionForPlan(ctx, job.ProjectID, *req.Region); err != nil {
-			return nil, err
-		}
-		job.Region = *req.Region
-	}
 	if req.PreferredRegions != nil {
 		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
 			return nil, err
@@ -818,8 +800,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		BackwardsCompatible:  source.BackwardsCompatible,
 		CronOverlapPolicy:    source.CronOverlapPolicy,
 		ExecutionMode:        source.ExecutionMode,
-		ImageURI:             source.ImageURI,
-		Region:               source.Region,
 		PreferredRegions:     source.PreferredRegions,
 		CreatedBy:            actorFromContext(ctx),
 		UpdatedBy:            actorFromContext(ctx),
@@ -1023,7 +1003,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
 			RetryPriorityBoost:  jobReq.RetryPriorityBoost,
 			EnvironmentID:       jobReq.EnvironmentID,
-			Region:              jobReq.Region,
 			PreferredRegions:    jobReq.PreferredRegions,
 			Enabled:             true,
 		}

@@ -278,7 +278,6 @@ type WorkflowStore interface {
 	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
-	ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error)
 	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
 	MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)

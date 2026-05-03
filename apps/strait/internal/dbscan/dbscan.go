@@ -31,7 +31,6 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var batchID *string
 	var concurrencyKey *string
 	var executionMode *string
-	var machineID *string
 	var isRollback bool
 	var replayedRunID *string
 
@@ -69,7 +68,6 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&batchID,
 		&concurrencyKey,
 		&executionMode,
-		&machineID,
 		&isRollback,
 		&replayedRunID,
 	)
@@ -132,9 +130,6 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if executionMode != nil {
 		run.ExecutionMode = domain.ExecutionMode(*executionMode)
-	}
-	if machineID != nil {
-		run.MachineID = *machineID
 	}
 	run.IsRollback = isRollback
 	if replayedRunID != nil {

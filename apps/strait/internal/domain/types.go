@@ -342,8 +342,6 @@ type Job struct {
 	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
 	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
 	Queue                     string            `json:"queue,omitempty"`
-	ImageURI                  string            `json:"image_uri,omitempty"`
-	Region                    string            `json:"region,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
@@ -503,8 +501,7 @@ type JobRun struct {
 	CreatedBy             string            `json:"created_by,omitempty"`
 	BatchID               string            `json:"batch_id,omitempty"`
 	ConcurrencyKey string        `json:"concurrency_key,omitempty"`
-	ExecutionMode  ExecutionMode `json:"execution_mode,omitempty"`
-	MachineID      string        `json:"machine_id,omitempty"`
+	ExecutionMode ExecutionMode `json:"execution_mode,omitempty"`
 	// IsRollback is retained for historical run records; always false for new runs.
 	IsRollback bool `json:"is_rollback,omitempty"`
 	// ReplayedRunID is set on a dead-letter run after it has been successfully
@@ -781,10 +778,7 @@ type JobVersion struct {
 	WebhookURL          string            `json:"webhook_url,omitempty"`
 	WebhookSecret       string            `json:"-"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
-	MachinePreset       string            `json:"machine_preset,omitempty"`
-	ImageURI            string            `json:"image_uri,omitempty"`
-	Region              string            `json:"region,omitempty"`
-	CreatedAt           time.Time         `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // WorkflowVersion is a point-in-time snapshot of a workflow.
