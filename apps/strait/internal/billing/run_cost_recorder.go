@@ -9,26 +9,41 @@ import (
 	"strait/internal/clickhouse"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
+
+// costRecordedTTL is the Redis key TTL for the idempotency guard. 48 hours
+// covers any realistic retry window (worker reconnect, dispatcher requeue,
+// idempotency-key replay) without consuming unbounded memory.
+const costRecordedTTL = 48 * time.Hour
 
 // RunCostRecorder writes flat per-run billing events to the usage_records table
 // and (optionally) to ClickHouse run_analytics for cross-system reporting.
 //
 // All execution modes (HTTP and Worker) charge the same flat rate of
 // HTTPCostPerRunMicrousd / WorkerCostPerRunMicrousd (currently both 20 micro-USD).
+//
+// A Redis SetNX gate ensures each runID/deliveryID is billed AT MOST ONCE even
+// when the caller retries. If Redis is unavailable the recorder FAILS CLOSED —
+// it returns an error so the caller can retry the full billing flow rather than
+// silently double-billing.
 type RunCostRecorder struct {
 	store      Store
+	rdb        redis.Cmdable
 	chExporter billingEventEnqueuer
 	logger     *slog.Logger
 }
 
 // NewRunCostRecorder creates a recorder. store must not be nil.
-func NewRunCostRecorder(store Store, chExporter billingEventEnqueuer, logger *slog.Logger) *RunCostRecorder {
+// rdb may be nil; when nil the idempotency guard is skipped (callers without
+// Redis should ensure they only call Record* once per runID themselves).
+func NewRunCostRecorder(store Store, rdb redis.Cmdable, chExporter billingEventEnqueuer, logger *slog.Logger) *RunCostRecorder {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &RunCostRecorder{
 		store:      store,
+		rdb:        rdb,
 		chExporter: chExporter,
 		logger:     logger,
 	}
@@ -57,6 +72,25 @@ func (r *RunCostRecorder) RecordWebhookDeliveryCost(ctx context.Context, orgID, 
 func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID string, costMicroUSD int64, executionMode string) error {
 	if orgID == "" || projectID == "" {
 		return nil
+	}
+
+	// Idempotency gate: use Redis SetNX to ensure each runID is billed at most once.
+	// Fail closed on Redis error so retries don't silently double-bill.
+	if runID == "" {
+		r.logger.Warn("run_cost_recorder: empty runID, skipping idempotency guard",
+			"org_id", orgID, "project_id", projectID, "execution_mode", executionMode)
+	} else if r.rdb != nil {
+		key := "strait:cost_recorded:" + runID
+		set, err := r.rdb.SetNX(ctx, key, "1", costRecordedTTL).Result()
+		if err != nil {
+			return fmt.Errorf("run_cost_recorder: redis idempotency check failed (org=%s run=%s): %w",
+				orgID, runID, err)
+		}
+		if !set {
+			r.logger.Debug("skipping duplicate cost record", "run_id", runID,
+				"org_id", orgID, "execution_mode", executionMode)
+			return nil
+		}
 	}
 
 	now := time.Now().UTC()

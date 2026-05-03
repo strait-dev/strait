@@ -413,7 +413,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 		// Wire webhook delivery cost recording. Each successful outbound delivery
 		// is billed at the same flat rate as an HTTP run (20 micro-USD).
-		webhookCostRecorder := billing.NewRunCostRecorder(billingStore, nil, slog.Default())
+		webhookCostRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, slog.Default())
 		eventNotifier.SetRunCostRecorder(webhookCostRecorder)
 	}
 
