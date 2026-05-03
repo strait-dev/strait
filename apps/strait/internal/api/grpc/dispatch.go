@@ -125,6 +125,11 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		return nil, ErrNoWorkerAvailable
 	}
 
+	// Guard: if the stream closed between pick and now, bail before any DB write.
+	if worker.SendCh == nil {
+		return nil, ErrNoWorkerAvailable
+	}
+
 	// Decrement available slots (server-side authoritative accounting).
 	d.registry.DecrementSlots(worker.WorkerID)
 
@@ -153,12 +158,6 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		Payload: &workerv1.ServerMessage_TaskAssignment{
 			TaskAssignment: assignment,
 		},
-	}
-
-	if worker.SendCh == nil {
-		// Stream already closed before we could send.
-		d.registry.IncrementSlots(worker.WorkerID)
-		return nil, ErrNoWorkerAvailable
 	}
 
 	select {
