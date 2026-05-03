@@ -205,7 +205,7 @@ const (
 	// Quota and cron lifecycle (billing-period enforcement).
 	AuditActionQuotaExceeded       = "quota.exceeded"
 	AuditActionCronPausedQuota     = "cron.paused_quota"
-	AuditActionCronResumedQuota    = "cron.resumed"
+	AuditActionCronResumedQuota    = "cron.resumed_quota"
 	AuditActionSubscriptionChanged = "subscription.changed"
 )
 

@@ -699,7 +699,7 @@
         "bearer"
       ]
     },
-    "cron.resumed": {
+    "cron.resumed_quota": {
       "type": "object",
       "description": "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
       "properties": {
