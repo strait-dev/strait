@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"time"
 
+	"fmt"
+
 	"strait/internal/domain"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -59,7 +61,24 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 		httpReq.Header.Set("X-Strait-Signature", "v1="+sig)
 	}
 	start := time.Now()
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Re-validate the URL on every hop. Without CheckRedirect the bare http
+	// client follows 3xx by default — a public attacker host can return 302
+	// to http://169.254.169.254/ (cloud metadata) and exfiltrate IAM creds.
+	// The SSRF guard at the entry point only covers the first hop; this
+	// hook covers every redirect target.
+	requireTLS := s.config.WebhookRequireTLS
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := validateURLWithTLS(req.URL.String(), requireTLS); err != nil {
+				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(httpReq)
 	latencyMs := time.Since(start).Milliseconds()
 	if err != nil {

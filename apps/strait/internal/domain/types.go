@@ -996,6 +996,13 @@ const (
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
 
+// MaxEventTimeoutSecs is the upper bound enforced on wait_for_event step
+// timeouts (30 days). Without a cap, a workflow author can pin a step in
+// 'waiting' for ~68 years (INT_MAX seconds), creating a permanently
+// occupied event_trigger row and an orphaned workflow_run that the reaper
+// will never clean up — a slow-burn resource exhaustion vector.
+const MaxEventTimeoutSecs = 30 * 24 * 3600
+
 // SLO metric types.
 const (
 	SLOMetricSuccessRate    = "success_rate"

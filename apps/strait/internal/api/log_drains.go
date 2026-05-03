@@ -16,15 +16,63 @@ import (
 )
 
 func validateAuthConfig(authType string, config map[string]string) error {
-	if authType != "header" || config == nil {
+	if config == nil {
 		return nil
 	}
-	for k := range config {
-		if logdrain.ProtectedHeaders[strings.ToLower(k)] {
+	for k, v := range config {
+		// Reject CR/LF/NUL anywhere in keys or values to prevent header
+		// splitting / response injection at delivery time. The drain worker
+		// replays these into req.Header.Set; even though net/http will
+		// panic on CRLF in modern Go versions, we block the value at write
+		// time so it never reaches the database in the first place.
+		if hasHeaderInjectionChars(k) || hasHeaderInjectionChars(v) {
+			return fmt.Errorf("auth_config entries must not contain CR, LF, or NUL characters")
+		}
+		if !isValidHeaderName(k) {
+			return fmt.Errorf("auth_config key %q is not a valid HTTP header name", k)
+		}
+		if authType == "header" && logdrain.ProtectedHeaders[strings.ToLower(k)] {
 			return fmt.Errorf("auth_config key %q is a protected HTTP header and cannot be used", k)
 		}
 	}
 	return nil
+}
+
+// hasHeaderInjectionChars reports whether s contains any byte that would
+// allow HTTP header splitting (\r, \n) or terminate a C string (\x00).
+func hasHeaderInjectionChars(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\r', '\n', 0:
+			return true
+		}
+	}
+	return false
+}
+
+// isValidHeaderName mirrors RFC 7230 token grammar for HTTP header names.
+// Empty or names containing whitespace, control characters, or separators
+// are rejected.
+func isValidHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		// token character set: letters, digits, and !#$%&'*+-.^_`|~
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '!', c == '#', c == '$', c == '%', c == '&', c == '\'',
+			c == '*', c == '+', c == '-', c == '.', c == '^', c == '_',
+			c == '`', c == '|', c == '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type CreateLogDrainRequest struct {

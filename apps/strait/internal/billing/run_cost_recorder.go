@@ -76,12 +76,14 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 
 	// Idempotency gate: use Redis SetNX to ensure each runID is billed at most once.
 	// Fail closed on Redis error so retries don't silently double-bill.
+	var idempotencyKey string
+	idempotencyClaimed := false
 	if runID == "" {
 		r.logger.Warn("run_cost_recorder: empty runID, skipping idempotency guard",
 			"org_id", orgID, "project_id", projectID, "execution_mode", executionMode)
 	} else if r.rdb != nil {
-		key := "strait:cost_recorded:" + runID
-		set, err := r.rdb.SetNX(ctx, key, "1", costRecordedTTL).Result()
+		idempotencyKey = "strait:cost_recorded:" + runID
+		set, err := r.rdb.SetNX(ctx, idempotencyKey, "1", costRecordedTTL).Result()
 		if err != nil {
 			return fmt.Errorf("run_cost_recorder: redis idempotency check failed (org=%s run=%s): %w",
 				orgID, runID, err)
@@ -91,6 +93,7 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 				"org_id", orgID, "execution_mode", executionMode)
 			return nil
 		}
+		idempotencyClaimed = true
 	}
 
 	now := time.Now().UTC()
@@ -111,6 +114,18 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 	}
 
 	if err := r.store.UpsertUsageRecord(ctx, rec); err != nil {
+		// Release the Redis idempotency claim so a subsequent retry can
+		// bill. Without this, the SetNX claim outlives the failed DB write
+		// and any retry within costRecordedTTL silently skips billing —
+		// the bill is permanently lost. Best-effort: log and continue if
+		// the release itself fails (the runID will simply be unbilled
+		// until the TTL expires, which is the prior failure mode).
+		if idempotencyClaimed {
+			if delErr := r.rdb.Del(context.Background(), idempotencyKey).Err(); delErr != nil {
+				r.logger.Warn("run_cost_recorder: failed to release idempotency key after DB error",
+					"run_id", runID, "redis_key", idempotencyKey, "error", delErr)
+			}
+		}
 		return fmt.Errorf("recording %s run cost (org=%s project=%s run=%s): %w",
 			executionMode, orgID, projectID, runID, err)
 	}

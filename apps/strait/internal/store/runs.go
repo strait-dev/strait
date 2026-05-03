@@ -173,7 +173,7 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 		  AND idempotency_key = $2
 		  AND (
 		    status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
-		    OR (status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled') AND finished_at > NOW() - INTERVAL '24 hours')
+		    OR (status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'dead_letter') AND finished_at > NOW() - INTERVAL '24 hours')
 		  )
 		ORDER BY created_at DESC
 		LIMIT 1`
