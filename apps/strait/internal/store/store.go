@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -413,6 +414,12 @@ type Queries struct {
 	auditSigningKey     []byte
 	maxSLOWindowHours   int
 
+	// chDB is an optional *sql.DB connected to ClickHouse. When non-nil,
+	// GetJobCostEstimate queries run_analytics for a rolling average instead
+	// of falling back to the flat-rate constant. May be nil when ClickHouse
+	// is disabled.
+	chDB *sql.DB
+
 	// tombstoneInsertHook is a test-only injection point invoked inside
 	// writeRetentionTombstone immediately before the anchor insert. When
 	// non-nil and it returns a non-nil error, writeRetentionTombstone
@@ -445,6 +452,13 @@ func (q *Queries) SetAuditSigningKey(key []byte) {
 
 func (q *Queries) SetMaxSLOWindowHours(hours int) {
 	q.maxSLOWindowHours = hours
+}
+
+// SetClickHouseDB wires an optional ClickHouse *sql.DB into the store so that
+// GetJobCostEstimate can derive rolling-average costs from run_analytics.
+// Pass nil to disable (falls back to the flat-rate constant).
+func (q *Queries) SetClickHouseDB(db *sql.DB) {
+	q.chDB = db
 }
 
 type TxBeginner interface {

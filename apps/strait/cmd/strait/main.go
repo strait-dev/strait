@@ -298,6 +298,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// on it, and every subsequent store call inside the request runs on
 	// the same tx.
 	queries := store.NewWithContextRouting(dbPool)
+	if chClient != nil {
+		queries.SetClickHouseDB(chClient.DB())
+	}
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
 	if cfg.RunRetentionShort > 0 {
 		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
