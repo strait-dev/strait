@@ -34,23 +34,35 @@ type WorkerDispatcher struct {
 
 // ResultChannelRegistry manages per-run result channels shared between the
 // stream recv loop (which writes) and WorkerDispatch (which reads).
+//
+// Each registered channel is bound to the project ID of the run that owns it.
+// Send rejects deliveries from any other project, preventing a worker
+// authenticated to project A from completing a run owned by project B with
+// forged status / output_json (cross-tenant integrity attack).
 type ResultChannelRegistry struct {
 	mu       sync.Mutex
-	channels map[string]chan *workerv1.TaskResult
+	channels map[string]resultChannelEntry
+}
+
+type resultChannelEntry struct {
+	ch        chan *workerv1.TaskResult
+	projectID string
 }
 
 // NewResultChannelRegistry creates an empty registry.
 func NewResultChannelRegistry() *ResultChannelRegistry {
 	return &ResultChannelRegistry{
-		channels: make(map[string]chan *workerv1.TaskResult),
+		channels: make(map[string]resultChannelEntry),
 	}
 }
 
-// Register creates a buffered channel for the given run ID and returns it.
-func (r *ResultChannelRegistry) Register(runID string) chan *workerv1.TaskResult {
+// Register creates a buffered channel for the given run ID, scoped to the
+// run's project ID, and returns it. The dispatcher must pass the authoritative
+// project ID from the run row (not user input).
+func (r *ResultChannelRegistry) Register(runID, projectID string) chan *workerv1.TaskResult {
 	ch := make(chan *workerv1.TaskResult, 1)
 	r.mu.Lock()
-	r.channels[runID] = ch
+	r.channels[runID] = resultChannelEntry{ch: ch, projectID: projectID}
 	r.mu.Unlock()
 	return ch
 }
@@ -63,17 +75,19 @@ func (r *ResultChannelRegistry) Deregister(runID string) {
 	r.mu.Unlock()
 }
 
-// Send delivers a TaskResult to the channel for the given run ID.
-// Returns true if a channel was registered and the send succeeded.
-func (r *ResultChannelRegistry) Send(runID string, result *workerv1.TaskResult) bool {
+// Send delivers a TaskResult to the channel for the given run ID, ONLY if the
+// caller's project ID matches the project ID the channel was registered with.
+// Returns true on successful delivery; false on missing channel, project
+// mismatch, or already-buffered duplicate.
+func (r *ResultChannelRegistry) Send(runID, projectID string, result *workerv1.TaskResult) bool {
 	r.mu.Lock()
-	ch, ok := r.channels[runID]
+	entry, ok := r.channels[runID]
 	r.mu.Unlock()
-	if !ok {
+	if !ok || entry.projectID != projectID {
 		return false
 	}
 	select {
-	case ch <- result:
+	case entry.ch <- result:
 		return true
 	default:
 		// Channel already has a result; discard duplicate.
@@ -148,8 +162,10 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	}
 
 	// Register the result channel before sending the assignment so we can
-	// never miss a TaskResult that arrives before we start waiting.
-	resultCh := d.resultChannels.Register(run.ID)
+	// never miss a TaskResult that arrives before we start waiting. The
+	// channel is bound to run.ProjectID so any TaskResult arriving from a
+	// worker authenticated to a different project is dropped on the floor.
+	resultCh := d.resultChannels.Register(run.ID, run.ProjectID)
 	defer d.resultChannels.Deregister(run.ID)
 
 	// Build and send the TaskAssignment.

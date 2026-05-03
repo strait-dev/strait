@@ -13,10 +13,10 @@ import (
 // TestResultChannelRegistry_SendAndReceive verifies basic send/receive semantics.
 func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 	r := NewResultChannelRegistry()
-	ch := r.Register("run-1")
+	ch := r.Register("run-1", "proj-1")
 
 	result := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
-	if !r.Send("run-1", result) {
+	if !r.Send("run-1", "proj-1", result) {
 		t.Fatal("expected Send to return true")
 	}
 
@@ -34,21 +34,47 @@ func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 func TestResultChannelRegistry_SendToUnknownRun(t *testing.T) {
 	r := NewResultChannelRegistry()
 	result := &workerv1.TaskResult{RunId: "unknown", Status: "success"}
-	if r.Send("unknown", result) {
+	if r.Send("unknown", "proj-1", result) {
 		t.Error("expected Send to return false for unknown run")
+	}
+}
+
+// TestResultChannelRegistry_RejectCrossProject is the regression test for the
+// cross-tenant integrity attack: a worker authenticated to project A must not
+// be able to deliver a TaskResult for a run owned by project B.
+func TestResultChannelRegistry_RejectCrossProject(t *testing.T) {
+	r := NewResultChannelRegistry()
+	ch := r.Register("victim-run", "proj-victim")
+
+	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success"}
+	if r.Send("victim-run", "proj-attacker", forged) {
+		t.Fatal("Send must reject TaskResult from a non-owning project")
+	}
+
+	// And the legitimate owner can still deliver.
+	if !r.Send("victim-run", "proj-victim", forged) {
+		t.Fatal("legitimate owner Send should succeed")
+	}
+	select {
+	case got := <-ch:
+		if got != forged {
+			t.Error("expected legitimate result delivered to channel")
+		}
+	default:
+		t.Error("expected legitimate result in channel")
 	}
 }
 
 // TestResultChannelRegistry_DeduplicateSend verifies that a second send to a full channel is dropped.
 func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 	r := NewResultChannelRegistry()
-	_ = r.Register("run-1") // buffered cap 1
+	_ = r.Register("run-1", "proj-1") // buffered cap 1
 
 	r1 := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
 	r2 := &workerv1.TaskResult{RunId: "run-1", Status: "failed"}
 
-	first := r.Send("run-1", r1)
-	second := r.Send("run-1", r2) // channel full, should be dropped
+	first := r.Send("run-1", "proj-1", r1)
+	second := r.Send("run-1", "proj-1", r2) // channel full, should be dropped
 
 	if !first {
 		t.Error("expected first send to succeed")
@@ -61,12 +87,12 @@ func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 // TestResultChannelRegistry_Deregister verifies cleanup after dispatch completes.
 func TestResultChannelRegistry_Deregister(t *testing.T) {
 	r := NewResultChannelRegistry()
-	_ = r.Register("run-1")
+	_ = r.Register("run-1", "proj-1")
 	r.Deregister("run-1")
 
 	// After deregister, Send must return false.
 	result := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
-	if r.Send("run-1", result) {
+	if r.Send("run-1", "proj-1", result) {
 		t.Error("expected Send to return false after Deregister")
 	}
 }
@@ -260,7 +286,7 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 	resultChannels := NewResultChannelRegistry()
 
 	// Pre-register a result channel so WorkerDispatch waits on it.
-	resultChannels.Register("run-3")
+	resultChannels.Register("run-3", "test-project")
 
 	d := &WorkerDispatcher{
 		registry:       registry,

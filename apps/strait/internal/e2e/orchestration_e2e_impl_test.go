@@ -302,7 +302,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 				RunId:  assignment.RunId,
 				Status: "success",
 			}
-			resultChannels.Send(assignment.RunId, result)
+			resultChannels.Send(assignment.RunId, projectID, result)
 
 			// Update run to completed.
 			_ = runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()})

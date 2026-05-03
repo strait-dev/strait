@@ -273,7 +273,7 @@ func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, proje
 	case *workerv1.WorkerMessage_TaskResult:
 		return s.handleTaskResult(ctx, workerID, projectID, p.TaskResult)
 	case *workerv1.WorkerMessage_LogLine:
-		return s.handleLogLine(ctx, p.LogLine)
+		return s.handleLogLine(ctx, workerID, p.LogLine)
 	case *workerv1.WorkerMessage_Ack:
 		// No-op: acknowledgements are fire-and-forget.
 		return nil
@@ -311,12 +311,16 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 
 	// Route result to a waiting WorkerDispatch call if one exists.
 	// The dispatch goroutine is responsible for slot accounting in that path.
-	if s.resultChannels != nil && s.resultChannels.Send(tr.RunId, tr) {
+	// The result channel is project-scoped so a worker authenticated to a
+	// different project cannot deliver a forged TaskResult into another
+	// project's dispatch goroutine: Send drops the message on project mismatch.
+	if s.resultChannels != nil && s.resultChannels.Send(tr.RunId, projectID, tr) {
 		// Successfully delivered to the waiting dispatcher — it owns the rest.
 		return nil
 	}
 
-	// No dispatcher is waiting (e.g. timed out or disconnected mid-flight).
+	// No dispatcher is waiting (e.g. timed out or disconnected mid-flight)
+	// OR the message was dropped above due to a project mismatch.
 	// Adversarial guard: confirm the run belongs to this worker's project before
 	// touching status. Without this check, a worker authenticated to project A
 	// could mark runs in project B if it knew (or guessed) the run ID.
@@ -374,8 +378,24 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 }
 
 // handleLogLine publishes a worker log line to the per-run pub/sub channel.
-func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine) error {
+//
+// Adversarial guard: the worker may only emit logs for runs assigned to it
+// via worker_tasks (the same row written by WorkerDispatch). Without this
+// check, a worker authenticated to project A could publish forged log lines
+// to any run in any project — visible via the SSE log stream.
+func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *workerv1.LogLine) error {
 	if ll == nil || ll.RunId == "" {
+		return nil
+	}
+	taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, ll.RunId)
+	if err != nil {
+		slog.Warn("grpc log line: ownership lookup failed",
+			"worker_id", workerID, "run_id", ll.RunId, "error", err)
+		return nil
+	}
+	if taskRow == nil {
+		slog.Warn("grpc log line: rejecting — run not assigned to this worker",
+			"worker_id", workerID, "run_id", ll.RunId)
 		return nil
 	}
 	msg := ll.Message
