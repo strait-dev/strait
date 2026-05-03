@@ -100,17 +100,6 @@ func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentID
 	return 0, nil
 }
 
-type mockMachineStopper struct {
-	stopFn func(ctx context.Context, machineID string) error
-}
-
-func (m *mockMachineStopper) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
-	}
-	return nil
-}
-
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)

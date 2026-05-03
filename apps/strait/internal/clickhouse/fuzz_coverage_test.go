@@ -98,6 +98,7 @@ func FuzzInsertBatchRecordTyping(f *testing.F) {
 	f.Add("\x00null\x00", "j\x00b", "p\nid", "status'quote", "mode\"dbl", "preset<html>", -1, "trigger\ttab")
 
 	f.Fuzz(func(t *testing.T, runID, jobID, projectID, status, execMode, preset string, attempt int, triggeredBy string) {
+		_ = preset // preset field removed from RunAnalyticsRecord with managed-compute migration
 		logger := slog.Default()
 		// Exporter with nil client: insertBatch returns nil early, but
 		// the type-switch grouping code still runs if we call it with a
@@ -115,15 +116,9 @@ func FuzzInsertBatchRecordTyping(f *testing.F) {
 				ProjectID:     projectID,
 				Status:        status,
 				ExecutionMode: execMode,
-				MachinePreset: preset,
 				Attempt:       attempt,
 				TriggeredBy:   triggeredBy,
 				CreatedAt:     now,
-			},
-			ComputeUsageRecord{
-				RunID:     runID,
-				ProjectID: projectID,
-				StartedAt: now,
 			},
 			JobMetadataRecord{
 				JobID:     jobID,

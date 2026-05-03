@@ -83,9 +83,9 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator: NewStatsAggregator(s),
-		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
-		memoryCleanup:   NewMemoryCleanup(s, 5*time.Minute),
+		statsAggregator:          NewStatsAggregator(s),
+		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
+		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
 	for _, opt := range opts {

@@ -201,10 +201,10 @@ type Config struct {
 	MaxSnoozeCount             int           `env:"MAX_SNOOZE_COUNT" default:"50"`
 	DebouncePollerInterval     time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
-	WebhookRequireTLS     bool   `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
-	AllowPrivateEndpoints bool   `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DefaultRegion         string `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL        string `env:"EXTERNAL_API_URL"`
+	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
+	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
+	DefaultRegion              string        `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL             string        `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -243,14 +243,14 @@ type Config struct {
 
 	// Orchestration-only tier price IDs (new billing model).
 	// Set these to the Stripe Price IDs for each plan's flat monthly subscription.
-	StripeStarterPriceID          string `env:"STRIPE_STARTER_PRICE_ID"`
-	StripeProPriceID              string `env:"STRIPE_PRO_PRICE_ID"`
-	StripeScalePriceID            string `env:"STRIPE_SCALE_PRICE_ID"`
-	StripeEnterprisePriceID       string `env:"STRIPE_ENTERPRISE_PRICE_ID"`
+	StripeStarterPriceID    string `env:"STRIPE_STARTER_PRICE_ID"`
+	StripeProPriceID        string `env:"STRIPE_PRO_PRICE_ID"`
+	StripeScalePriceID      string `env:"STRIPE_SCALE_PRICE_ID"`
+	StripeEnterprisePriceID string `env:"STRIPE_ENTERPRISE_PRICE_ID"`
 	// Overage meter price IDs — one per paid tier, used for metered billing.
-	StripeStarterOveragePriceID   string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
-	StripeProOveragePriceID       string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
-	StripeScaleOveragePriceID     string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
+	StripeStarterOveragePriceID string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
+	StripeProOveragePriceID     string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
+	StripeScaleOveragePriceID   string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
 	// Add-on price IDs for optional per-org upgrades.
 	StripeRetentionPackPriceID    string `env:"STRIPE_RETENTION_PACK_PRICE_ID"`
 	StripePrioritySlotPackPriceID string `env:"STRIPE_PRIORITY_SLOT_PACK_PRICE_ID"`
@@ -322,7 +322,6 @@ type Config struct {
 	WorkerHeartbeatTimeout        time.Duration `env:"WORKER_HEARTBEAT_TIMEOUT" default:"30s"`
 	WorkerDBSyncInterval          time.Duration `env:"WORKER_DB_SYNC_INTERVAL" default:"10s"`
 	WorkerDisconnectSweepInterval time.Duration `env:"WORKER_DISCONNECT_SWEEP_INTERVAL" default:"30s"`
-
 }
 
 // Load reads configuration from environment variables.
@@ -383,7 +382,7 @@ func Load() (*Config, error) {
 // assignments) to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
 //
-//nolint:gocyclo,cyclop,gocognit
+//nolint:gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
@@ -504,10 +503,10 @@ func (c *Config) Redacted() map[string]any {
 		"Mode":                   c.Mode,
 		"Port":                   c.Port,
 		"Edition":                c.Edition,
-		"WorkerConcurrency": c.WorkerConcurrency,
-		"PollerInterval":    c.PollerInterval.String(),
-		"DBMaxConns":        c.DBMaxConns,
-		"SentryEnvironment": c.SentryEnvironment,
+		"WorkerConcurrency":      c.WorkerConcurrency,
+		"PollerInterval":         c.PollerInterval.String(),
+		"DBMaxConns":             c.DBMaxConns,
+		"SentryEnvironment":      c.SentryEnvironment,
 		"DefaultAPIKeyRateLimit": c.DefaultAPIKeyRateLimit,
 		"DatabaseURL":            "[REDACTED]",
 		"RedisURL":               "[REDACTED]",

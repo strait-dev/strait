@@ -45,16 +45,16 @@ const (
 const MaxJobChainDepth = 10
 
 const (
-	WebhookEventRunCompleted         = "run.completed"
-	WebhookEventRunFailed            = "run.failed"
-	WebhookEventRunTimedOut          = "run.timed_out"
-	WebhookEventRunCanceled          = "run.canceled"
-	WebhookEventWorkflowCompleted    = "workflow.completed"
-	WebhookEventWorkflowFailed       = "workflow.failed"
-	WebhookEventSLOBudgetWarning = "slo.budget_warning"
-	WebhookEventQuotaExceeded    = "quota.exceeded"
-	WebhookEventCronPausedQuota  = "cron.paused_quota"
-	WebhookEventCronResumed      = "cron.resumed"
+	WebhookEventRunCompleted      = "run.completed"
+	WebhookEventRunFailed         = "run.failed"
+	WebhookEventRunTimedOut       = "run.timed_out"
+	WebhookEventRunCanceled       = "run.canceled"
+	WebhookEventWorkflowCompleted = "workflow.completed"
+	WebhookEventWorkflowFailed    = "workflow.failed"
+	WebhookEventSLOBudgetWarning  = "slo.budget_warning"
+	WebhookEventQuotaExceeded     = "quota.exceeded"
+	WebhookEventCronPausedQuota   = "cron.paused_quota"
+	WebhookEventCronResumed       = "cron.resumed"
 )
 
 const (
@@ -357,11 +357,11 @@ type Job struct {
 	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
 	AllowedTools              []string          `json:"allowed_tools,omitempty"`
 	BlockedTools              []string          `json:"blocked_tools,omitempty"`
-	EndpointSigningSecret      string    `json:"-"`
-	CreatedBy string `json:"created_by,omitempty"`
-	UpdatedBy                  string    `json:"updated_by,omitempty"`
-	CreatedAt                  time.Time `json:"created_at"`
-	UpdatedAt                  time.Time `json:"updated_at"`
+	EndpointSigningSecret     string            `json:"-"`
+	CreatedBy                 string            `json:"created_by,omitempty"`
+	UpdatedBy                 string            `json:"updated_by,omitempty"`
+	CreatedAt                 time.Time         `json:"created_at"`
+	UpdatedAt                 time.Time         `json:"updated_at"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -504,8 +504,8 @@ type JobRun struct {
 	LineageDepth          int               `json:"lineage_depth"`
 	CreatedBy             string            `json:"created_by,omitempty"`
 	BatchID               string            `json:"batch_id,omitempty"`
-	ConcurrencyKey string        `json:"concurrency_key,omitempty"`
-	ExecutionMode ExecutionMode `json:"execution_mode,omitempty"`
+	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
+	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
 	// IsRollback is retained for historical run records; always false for new runs.
 	IsRollback bool `json:"is_rollback,omitempty"`
 	// ReplayedRunID is set on a dead-letter run after it has been successfully
@@ -784,7 +784,7 @@ type JobVersion struct {
 	WebhookURL          string            `json:"webhook_url,omitempty"`
 	WebhookSecret       string            `json:"-"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt           time.Time         `json:"created_at"`
 }
 
 // WorkflowVersion is a point-in-time snapshot of a workflow.
@@ -1099,7 +1099,6 @@ func (p CronOverlapPolicy) IsValid() bool {
 		return false
 	}
 }
-
 
 type RetryBackoffPolicy string
 
@@ -1441,4 +1440,3 @@ type WorkerTask struct {
 	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
 	FinishedAt *time.Time       `json:"finished_at,omitempty"`
 }
-

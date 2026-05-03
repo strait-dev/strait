@@ -9,9 +9,9 @@ import (
 // Each field holds the number of purchased packs of that add-on type.
 // The zero value means no add-ons purchased.
 type SubscriptionAddOns struct {
-	RetentionPack    int `json:"retention_pack"`
-	PrioritySlotPack int `json:"priority_slot_pack"`
-	LogDrainVolumeGB int `json:"log_drain_volume_gb"`
+	RetentionPack     int `json:"retention_pack"`
+	PrioritySlotPack  int `json:"priority_slot_pack"`
+	LogDrainVolumeGB  int `json:"log_drain_volume_gb"`
 	WorkerConnections int `json:"worker_connections"`
 }
 

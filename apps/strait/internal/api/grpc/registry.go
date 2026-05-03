@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"slices"
 	"sync"
 )
 
@@ -16,8 +17,8 @@ type ConnectedWorker struct {
 	Queues         []string
 	SlotsTotal     int32
 	SlotsAvailable int32
-	Status         string            // active | draining
-	SendCh         chan<- interface{} // typed in Phase 6.4
+	Status         string     // active | draining
+	SendCh         chan<- any // typed in Phase 6.4
 	// revokeCh is closed by the registry when the authenticating API key is revoked.
 	// The stream goroutine selects on this channel to close itself immediately.
 	revokeCh chan struct{}
@@ -187,10 +188,5 @@ func (r *ConnectionRegistry) SnapshotQueues() []string {
 
 // workerHasQueue returns true if the worker is registered for the given queue.
 func workerHasQueue(w *ConnectedWorker, queue string) bool {
-	for _, q := range w.Queues {
-		if q == queue {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(w.Queues, queue)
 }

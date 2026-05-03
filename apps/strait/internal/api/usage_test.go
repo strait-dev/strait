@@ -62,6 +62,10 @@ func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int
 	return 0, nil
 }
 
+func (m *mockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return nil
+}
+
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 
 type mockUsageService struct {

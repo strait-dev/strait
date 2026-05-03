@@ -174,7 +174,7 @@ func TestRunLifecycle_RestartMaxDepth(t *testing.T) {
 			return &domain.JobRun{
 				ID:            "run-restart",
 				Status:        status,
-				ExecutionMode: domain.ExecutionModeManaged,
+				ExecutionMode: domain.ExecutionModeHTTP,
 				LineageDepth:  99,
 			}, nil
 		},
@@ -207,7 +207,7 @@ func TestRunLifecycle_RestartLineageOverflow(t *testing.T) {
 			return &domain.JobRun{
 				ID:            "run-overflow",
 				Status:        status,
-				ExecutionMode: domain.ExecutionModeManaged,
+				ExecutionMode: domain.ExecutionModeHTTP,
 				LineageDepth:  1<<31 - 1,
 			}, nil
 		},
@@ -351,7 +351,7 @@ func TestRunLifecycle_PauseResumeRace(t *testing.T) {
 			return &domain.JobRun{
 				ID:            "run-pr",
 				Status:        domain.StatusExecuting,
-				ExecutionMode: domain.ExecutionModeManaged,
+				ExecutionMode: domain.ExecutionModeHTTP,
 			}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, _ map[string]any) error {

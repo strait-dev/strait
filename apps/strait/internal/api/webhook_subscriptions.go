@@ -16,13 +16,13 @@ import (
 
 // validWebhookEventTypes is the allowed set of event types for webhook subscriptions.
 var validWebhookEventTypes = map[string]bool{
-	domain.WebhookEventRunCompleted:         true,
-	domain.WebhookEventRunFailed:            true,
-	domain.WebhookEventRunTimedOut:          true,
-	domain.WebhookEventRunCanceled:          true,
-	domain.WebhookEventWorkflowCompleted:    true,
-	domain.WebhookEventWorkflowFailed:       true,
-	domain.WebhookEventSLOBudgetWarning: true,
+	domain.WebhookEventRunCompleted:      true,
+	domain.WebhookEventRunFailed:         true,
+	domain.WebhookEventRunTimedOut:       true,
+	domain.WebhookEventRunCanceled:       true,
+	domain.WebhookEventWorkflowCompleted: true,
+	domain.WebhookEventWorkflowFailed:    true,
+	domain.WebhookEventSLOBudgetWarning:  true,
 }
 
 type CreateWebhookSubscriptionRequest struct {

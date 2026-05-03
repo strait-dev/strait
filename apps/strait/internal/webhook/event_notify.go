@@ -416,8 +416,6 @@ type batchPayloadItem struct {
 }
 
 // attemptBatchDelivery sends multiple deliveries to the same URL as a JSON array.
-//
-//nolint:funlen
 func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()
@@ -439,22 +437,8 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 		}
 	}()
 
-	// Circuit breaker check (once per batch, same URL).
-	if n.circuitBreaker != nil {
-		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, webhookURL)
-		if err != nil {
-			n.logger.Warn("webhook circuit breaker check failed", "url", webhookURL, "error", err)
-		} else if !canDeliver {
-			n.recordCircuitBreakerState(ctx, webhookURL, "open")
-			for i := range deliveries {
-				deliveries[i].Attempts++
-				n.recordFailure(ctx, &deliveries[i], now, true, "circuit breaker is open")
-			}
-			span.SetStatus(codes.Error, "circuit breaker is open")
-			return
-		} else {
-			n.recordCircuitBreakerState(ctx, webhookURL, "closed")
-		}
+	if blocked := n.checkBatchCircuitBreaker(ctx, webhookURL, deliveries, now, span); blocked {
+		return
 	}
 
 	// Extract payloads first, preserving them so we can restore on fallback.
@@ -547,6 +531,41 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	statusCode := resp.StatusCode
 	span.SetAttributes(attribute.Int("status_code", statusCode))
 
+	if n.handleBatchResponseStatus(ctx, webhookURL, deliveries, now, statusCode, span) {
+		return
+	}
+
+	n.markBatchDelivered(ctx, webhookURL, deliveries, now, statusCode)
+	n.logger.Info("webhook batch delivered", "url", webhookURL, "batch_size", len(deliveries))
+}
+
+// checkBatchCircuitBreaker checks the circuit breaker for webhookURL and records failures
+// for all deliveries if the circuit is open. Returns true if the caller should return early.
+func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, span trace.Span) bool {
+	if n.circuitBreaker == nil {
+		return false
+	}
+	canDeliver, err := n.circuitBreaker.CanDeliver(ctx, webhookURL)
+	if err != nil {
+		n.logger.Warn("webhook circuit breaker check failed", "url", webhookURL, "error", err)
+		return false
+	}
+	if !canDeliver {
+		n.recordCircuitBreakerState(ctx, webhookURL, "open")
+		for i := range deliveries {
+			deliveries[i].Attempts++
+			n.recordFailure(ctx, &deliveries[i], now, true, "circuit breaker is open")
+		}
+		span.SetStatus(codes.Error, "circuit breaker is open")
+		return true
+	}
+	n.recordCircuitBreakerState(ctx, webhookURL, "closed")
+	return false
+}
+
+// handleBatchResponseStatus processes non-2xx HTTP responses for a batch delivery.
+// Returns true if the caller should return early (error path).
+func (n *DeliveryWorker) handleBatchResponseStatus(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int, span trace.Span) bool {
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, webhookURL)
@@ -557,7 +576,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 			n.recordFailure(ctx, &deliveries[i], now, true, errMsg)
 		}
 		span.SetStatus(codes.Error, errMsg)
-		return
+		return true
 	}
 	if statusCode >= 400 {
 		errMsg := fmt.Sprintf("client error: status %d", statusCode)
@@ -566,38 +585,44 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 			n.recordFailure(ctx, &deliveries[i], now, false, errMsg)
 		}
 		span.SetStatus(codes.Error, errMsg)
-		return
+		return true
 	}
+	return false
+}
 
-	// Success: mark all delivered.
+// markBatchDelivered records a successful batch delivery for all deliveries.
+func (n *DeliveryWorker) markBatchDelivered(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int) {
 	if n.circuitBreaker != nil {
 		n.circuitBreaker.RecordSuccess(ctx, webhookURL)
 	}
 	for i := range deliveries {
-		deliveries[i].Status = domain.WebhookStatusDelivered
-		deliveries[i].DeliveredAt = &now
-		deliveries[i].LastError = ""
-		deliveries[i].LastStatusCode = &statusCode
-		if err := n.store.UpdateWebhookDelivery(ctx, &deliveries[i]); err != nil {
-			n.logger.Error("failed to mark webhook delivered", "delivery_id", deliveries[i].ID, "error", err)
-		}
-		if n.costRecorder != nil && deliveries[i].OrgID != "" && deliveries[i].ProjectID != "" {
-			if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, deliveries[i].OrgID, deliveries[i].ProjectID, deliveries[i].ID); err != nil {
-				n.logger.Warn("failed to record webhook delivery cost", "delivery_id", deliveries[i].ID, "error", err)
-			}
-		}
-		if n.metrics != nil {
-			n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
-				attribute.String("status", "delivered"),
-				attribute.String("retry_policy", n.retryPolicyForDelivery(&deliveries[i])),
-			))
-		}
-		if deliveries[i].EventTriggerID != "" {
-			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, deliveries[i].EventTriggerID, "sent")
+		n.markSingleDelivered(ctx, &deliveries[i], now, statusCode)
+	}
+}
+
+// markSingleDelivered persists a delivered status for one webhook delivery.
+func (n *DeliveryWorker) markSingleDelivered(ctx context.Context, d *domain.WebhookDelivery, now time.Time, statusCode int) {
+	d.Status = domain.WebhookStatusDelivered
+	d.DeliveredAt = &now
+	d.LastError = ""
+	d.LastStatusCode = &statusCode
+	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
+	}
+	if n.costRecorder != nil && d.OrgID != "" && d.ProjectID != "" {
+		if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, d.OrgID, d.ProjectID, d.ID); err != nil {
+			n.logger.Warn("failed to record webhook delivery cost", "delivery_id", d.ID, "error", err)
 		}
 	}
-
-	n.logger.Info("webhook batch delivered", "url", webhookURL, "batch_size", len(deliveries))
+	if n.metrics != nil {
+		n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("status", "delivered"),
+			attribute.String("retry_policy", n.retryPolicyForDelivery(d)),
+		))
+	}
+	if d.EventTriggerID != "" {
+		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
+	}
 }
 
 // enqueueBatchDeliveryEvents emits a ClickHouse event for each delivery in a batch.

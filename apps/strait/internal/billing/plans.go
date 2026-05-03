@@ -126,11 +126,11 @@ const (
 	ConcurrentEnterprise = -1 // unlimited
 
 	// Overage cost per 1K runs in micro-USD.
-	DefaultOveragePerKRunsMicrousd  int64 = 200_000 // $0.20/1K
-	StarterOveragePerKMicrousd      int64 = 300_000 // $0.30/1K
-	ProOveragePerKMicrousd          int64 = 250_000 // $0.25/1K
-	ScaleOveragePerKMicrousd        int64 = 200_000 // $0.20/1K
-	EnterpriseOveragePerKMicrousd   int64 = 200_000 // $0.20/1K
+	DefaultOveragePerKRunsMicrousd int64 = 200_000 // $0.20/1K
+	StarterOveragePerKMicrousd     int64 = 300_000 // $0.30/1K
+	ProOveragePerKMicrousd         int64 = 250_000 // $0.25/1K
+	ScaleOveragePerKMicrousd       int64 = 200_000 // $0.20/1K
+	EnterpriseOveragePerKMicrousd  int64 = 200_000 // $0.20/1K
 
 	// Data retention in days.
 	RetentionFree       = 7

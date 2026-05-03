@@ -104,4 +104,3 @@ func (s *Server) handleCostByTrigger(ctx context.Context, input *CostByTriggerIn
 	}
 	return &CostByTriggerOutput{Body: result}, nil
 }
-

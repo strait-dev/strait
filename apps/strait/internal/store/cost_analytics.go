@@ -353,7 +353,7 @@ func (q *Queries) GetTopCosts(ctx context.Context, projectID string, from, to ti
 // GetComputeCostAnalytics returns compute costs grouped by machine preset.
 // run_compute_usage was dropped in migration 000227; this always returns empty results.
 func (q *Queries) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*ComputeCostAnalytics, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetComputeCostAnalytics")
+	_, span := otel.Tracer("strait").Start(ctx, "store.GetComputeCostAnalytics")
 	defer span.End()
 	_ = projectID
 	_ = from

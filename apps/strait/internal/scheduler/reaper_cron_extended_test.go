@@ -11,7 +11,6 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
-	"strait/internal/store"
 )
 
 // Section separator.
@@ -700,8 +699,3 @@ func (m *extMockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID
 	}
 	return &domain.WorkflowRun{}, nil
 }
-
-// Ensure unused imports compile.
-var (
-	_ = store.ProjectComputeQuota{}
-)

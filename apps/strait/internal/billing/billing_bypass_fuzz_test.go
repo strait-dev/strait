@@ -538,4 +538,3 @@ func TestBypass_SQLInjectionInTier(t *testing.T) {
 		t.Errorf("SQL injection tier should fall back to free, got %q", limits.PlanTier)
 	}
 }
-

@@ -84,7 +84,7 @@ type WorkflowCallback interface {
 // keep the worker package free of grpc proto imports — the actual type is
 // *workerv1.TaskResult.
 type WorkerRunDispatcher interface {
-	WorkerDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) (interface{}, error)
+	WorkerDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) (any, error)
 }
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
@@ -306,9 +306,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
-		jwtSigningKey:  cfg.JWTSigningKey,
-		externalAPIURL: cfg.ExternalAPIURL,
-		defaultRegion:  cfg.DefaultRegion,
+		jwtSigningKey:            cfg.JWTSigningKey,
+		externalAPIURL:           cfg.ExternalAPIURL,
+		defaultRegion:            cfg.DefaultRegion,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		runCostRecorder:          cfg.RunCostRecorder,

@@ -28,7 +28,7 @@ func streamInterceptorChain() []grpc.StreamServerInterceptor {
 
 // unaryRecoveryInterceptor recovers from panics in unary handlers.
 func unaryRecoveryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("grpc unary panic recovered",
@@ -45,7 +45,7 @@ func unaryRecoveryInterceptor() grpc.UnaryServerInterceptor {
 
 // streamRecoveryInterceptor recovers from panics in streaming handlers.
 func streamRecoveryInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("grpc stream panic recovered",
@@ -62,7 +62,7 @@ func streamRecoveryInterceptor() grpc.StreamServerInterceptor {
 
 // unaryLoggingInterceptor logs unary RPC calls at debug level.
 func unaryLoggingInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		resp, err := handler(ctx, req)
 		if err != nil {
 			slog.Debug("grpc unary call error", "method", info.FullMethod, "error", err)
@@ -73,7 +73,7 @@ func unaryLoggingInterceptor() grpc.UnaryServerInterceptor {
 
 // streamLoggingInterceptor logs stream RPC connections at debug level.
 func streamLoggingInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		slog.Debug("grpc stream connected", "method", info.FullMethod)
 		err := handler(srv, ss)
 		if err != nil {

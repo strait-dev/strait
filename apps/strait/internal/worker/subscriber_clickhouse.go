@@ -58,8 +58,6 @@ func ClickHouseSubscriber(exporter *clickhouse.Exporter, events EventLister, dep
 
 // NewClickHouseSubscriberHandle creates a ClickHouseSubscriberHandle that
 // tracks background goroutines and exposes a Wait method for graceful drain.
-//
-//nolint:gocognit
 func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLister, deps ...ClickHouseSubscriberDeps) *ClickHouseSubscriberHandle {
 	var usage UsageLister
 	if len(deps) > 0 {
@@ -186,7 +184,6 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 				slog.Warn("clickhouse: usage fetch semaphore timeout", "run_id", run.ID)
 			}
 		}
-
 	}
 
 	return h

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"strait/internal/domain"
@@ -23,8 +24,8 @@ type ExecutionMiddleware func(next ExecutionHandler) ExecutionHandler
 // Chain composes middlewares into a single middleware, applied left-to-right.
 func Chain(middlewares ...ExecutionMiddleware) ExecutionMiddleware {
 	return func(next ExecutionHandler) ExecutionHandler {
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			next = middlewares[i](next)
+		for _, m := range slices.Backward(middlewares) {
+			next = m(next)
 		}
 		return next
 	}

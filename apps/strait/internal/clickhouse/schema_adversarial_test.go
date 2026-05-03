@@ -77,7 +77,6 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 	}{
 		{"RunEventsTable", RunEventsTable},
 		{"RunAnalyticsTable", RunAnalyticsTable},
-		{"ComputeUsageTable", ComputeUsageTable},
 		{"RunUsageEventsTable", RunUsageEventsTable},
 		{"WorkflowApprovalEventsTable", WorkflowApprovalEventsTable},
 		{"JobMetadataTable", JobMetadataTable},

@@ -1273,4 +1273,3 @@ func (s *AnalyticsStore) GetCostByTrigger(ctx context.Context, projectID string,
 	}
 	return result, nil
 }
-

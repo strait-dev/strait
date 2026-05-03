@@ -119,7 +119,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	ctx context.Context,
 	run *domain.JobRun,
 	job *domain.Job,
-) (interface{}, error) {
+) (any, error) {
 	worker, ok := d.registry.PickWorkerForQueue(run.ProjectID, job.Queue)
 	if !ok {
 		return nil, ErrNoWorkerAvailable
@@ -226,7 +226,7 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) 
 		JobSlug:     job.Slug,
 		Queue:       job.Queue,
 		PayloadJSON: run.Payload,
-		TimeoutSecs: int32(job.TimeoutSecs),
+		TimeoutSecs: int32(job.TimeoutSecs), //nolint:gosec // TimeoutSecs is validated upstream to be non-negative and within range
 	}
 
 	// JWT run-token so the worker SDK can authenticate callbacks.
@@ -268,8 +268,8 @@ func dispatchHMAC(secret, timestamp string, body []byte) string {
 }
 
 // TaskResultStatus returns the status string from an opaque TaskResult
-// (interface{}) returned by WorkerDispatch. Returns "" on nil or wrong type.
-func TaskResultStatus(opaque interface{}) string {
+// returned by WorkerDispatch. Returns "" on nil or wrong type.
+func TaskResultStatus(opaque any) string {
 	if opaque == nil {
 		return ""
 	}
@@ -281,7 +281,7 @@ func TaskResultStatus(opaque interface{}) string {
 }
 
 // TaskResultError returns the error message from an opaque TaskResult.
-func TaskResultError(opaque interface{}) string {
+func TaskResultError(opaque any) string {
 	if opaque == nil {
 		return ""
 	}

@@ -280,78 +280,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_CancelError(t *testing.T) {
 	}
 }
 
-func TestCronScheduler_TriggerJob_CancelRunning_WithMachineStopper(t *testing.T) {
-	t.Parallel()
-
-	var stopped []string
-	var mu sync.Mutex
-	stopper := &mockMachineStopper{
-		stopFn: func(_ context.Context, machineID string) error {
-			mu.Lock()
-			stopped = append(stopped, machineID)
-			mu.Unlock()
-			return nil
-		},
-	}
-
-	ms := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
-			return []store.CanceledRun{
-				{ID: "run-1", ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"},
-				{ID: "run-2", ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-2"},
-				{ID: "run-3", ExecutionMode: "standard", MachineID: ""},
-			}, nil
-		},
-	}
-	q := &mockQueue{}
-	cs := NewCronScheduler(context.Background(), ms, q, nil).
-		WithMachineStopper(stopper)
-
-	job := domain.Job{
-		ID:                "job-cancel-managed",
-		ProjectID:         "p1",
-		CronOverlapPolicy: domain.OverlapPolicyCancelRunning,
-		Cron:              "* * * * *",
-	}
-	cs.triggerJob(context.Background(), job)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(stopped) != 2 {
-		t.Fatalf("expected 2 machines stopped, got %d", len(stopped))
-	}
-}
-
-func TestCronScheduler_TriggerJob_CancelRunning_MachineStopError(t *testing.T) {
-	t.Parallel()
-
-	stopper := &mockMachineStopper{
-		stopFn: func(_ context.Context, _ string) error {
-			return errors.New("machine not found")
-		},
-	}
-
-	ms := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
-			return []store.CanceledRun{
-				{ID: "run-1", ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-dead"},
-			}, nil
-		},
-	}
-	q := &mockQueue{}
-	cs := NewCronScheduler(context.Background(), ms, q, nil).
-		WithMachineStopper(stopper)
-
-	job := domain.Job{
-		ID:                "job-cancel-stop-err",
-		ProjectID:         "p1",
-		CronOverlapPolicy: domain.OverlapPolicyCancelRunning,
-		Cron:              "* * * * *",
-	}
-	// Should not panic even when machine stop fails.
-	cs.triggerJob(context.Background(), job)
-}
-
 func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallback(t *testing.T) {
 	t.Parallel()
 
@@ -1028,19 +956,7 @@ func TestCooldownKey_Format(t *testing.T) {
 func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 	t.Parallel()
 
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-				{ProjectID: "proj-2", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 200_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 90_000, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, &mockEnqueuer{}, time.Minute)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute)
 
 	bm.alertedMu.Lock()
 	bm.alerted["proj-x:1970-01-01"] = true
@@ -1062,75 +978,6 @@ func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 		}
 	}
 	bm.alertedMu.Unlock()
-}
-
-func TestBudgetMonitor_ExactlyAtThreshold_Alerts(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 80_000, nil // exactly at 80% threshold
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert at exact threshold, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_NegativeCost_NoAlert(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return -50_000, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts for negative cost, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_MaxInt64Cost(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return math.MaxInt64, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert for extreme cost, got %d", len(enqueuer.calls))
-	}
 }
 
 // ---------------------------------------------------------------------------.
@@ -1171,10 +1018,7 @@ func TestBudgetMonitor_SpendingLimit_NilPeriodStart(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1190,10 +1034,7 @@ func TestBudgetMonitor_SpendingLimit_SubscriptionError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1218,10 +1059,7 @@ func TestBudgetMonitor_SpendingLimit_SpendError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1234,10 +1072,7 @@ func TestBudgetMonitor_SpendingLimit_OrgListError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 

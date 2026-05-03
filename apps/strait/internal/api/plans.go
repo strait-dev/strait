@@ -15,9 +15,9 @@ type planResponse struct {
 	MaxOrgsPerUser          int      `json:"max_orgs_per_user"`
 	MaxProjectsPerOrg       int      `json:"max_projects_per_org"`
 	MaxMembersPerOrg        int      `json:"max_members_per_org"`
-	MaxRunsPerDay         int64 `json:"max_runs_per_day"`
-	MaxRunsPerMonth       int   `json:"max_runs_per_month"`
-	MaxConcurrentRuns     int   `json:"max_concurrent_runs"`
+	MaxRunsPerDay           int64    `json:"max_runs_per_day"`
+	MaxRunsPerMonth         int      `json:"max_runs_per_month"`
+	MaxConcurrentRuns       int      `json:"max_concurrent_runs"`
 	RetentionDays           int      `json:"retention_days"`
 	AllowedRegions          []string `json:"allowed_regions"`
 	MaxAlertRulesPerProj    int      `json:"max_alert_rules_per_project"`
@@ -61,9 +61,9 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 		MaxOrgsPerUser:          p.MaxOrgsPerUser,
 		MaxProjectsPerOrg:       p.MaxProjectsPerOrg,
 		MaxMembersPerOrg:        p.MaxMembersPerOrg,
-		MaxRunsPerDay:         p.MaxRunsPerDay,
-		MaxRunsPerMonth:       p.MaxRunsPerMonth,
-		MaxConcurrentRuns:     p.MaxConcurrentRuns,
+		MaxRunsPerDay:           p.MaxRunsPerDay,
+		MaxRunsPerMonth:         p.MaxRunsPerMonth,
+		MaxConcurrentRuns:       p.MaxConcurrentRuns,
 		RetentionDays:           p.RetentionDays,
 		AllowedRegions:          regions,
 		MaxAlertRulesPerProj:    p.MaxAlertRulesPerProj,

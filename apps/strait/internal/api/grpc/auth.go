@@ -21,8 +21,8 @@ type grpcContextKey string
 const (
 	grpcCtxProjectIDKey grpcContextKey = "grpc_project_id"
 	grpcCtxOrgIDKey     grpcContextKey = "grpc_org_id"
-	grpcCtxAPIKeyIDKey  grpcContextKey = "grpc_api_key_id"
-	grpcCtxAPIKeyKey    grpcContextKey = "grpc_api_key"
+	grpcCtxAPIKeyIDKey  grpcContextKey = "grpc_api_key_id" //nolint:gosec // not a credential; context-key name
+	grpcCtxAPIKeyKey    grpcContextKey = "grpc_api_key"    //nolint:gosec // not a credential; context-key name
 )
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata

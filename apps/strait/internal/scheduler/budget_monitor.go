@@ -14,7 +14,7 @@ import (
 
 // BudgetMonitorStore is the store interface required by BudgetMonitor.
 // The compute-budget monitoring path was removed when run_compute_usage was dropped.
-type BudgetMonitorStore interface{}
+type BudgetMonitorStore = any
 
 // BudgetMonitorWebhookEnqueuer enqueues webhook deliveries for budget alerts.
 type BudgetMonitorWebhookEnqueuer interface {

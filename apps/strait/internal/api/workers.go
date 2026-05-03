@@ -11,7 +11,7 @@ import (
 	"strait/internal/domain"
 )
 
-// -- List workers --
+// -- List workers --.
 
 type ListWorkersInput struct {
 	Limit  string `query:"limit"`
@@ -20,9 +20,9 @@ type ListWorkersInput struct {
 
 type ListWorkersOutput struct {
 	Body struct {
-		Data   []domain.Worker `json:"data"`
-		Offset int             `json:"offset"`
-		HasMore bool           `json:"has_more"`
+		Data    []domain.Worker `json:"data"`
+		Offset  int             `json:"offset"`
+		HasMore bool            `json:"has_more"`
 	}
 }
 
@@ -57,7 +57,7 @@ func (s *Server) handleListWorkers(ctx context.Context, input *ListWorkersInput)
 	return out, nil
 }
 
-// -- Get worker --
+// -- Get worker --.
 
 type GetWorkerInput struct {
 	WorkerID string `path:"workerID"`
@@ -85,7 +85,7 @@ func (s *Server) handleGetWorker(ctx context.Context, input *GetWorkerInput) (*G
 	return &GetWorkerOutput{Body: worker}, nil
 }
 
-// -- Delete (force-disconnect) worker --
+// -- Delete (force-disconnect) worker --.
 
 type DeleteWorkerInput struct {
 	WorkerID string `path:"workerID"`
@@ -116,7 +116,7 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 		)
 	}
 
-	s.emitAuditEvent(ctx, domain.AuditActionWorkerForceDisconnected, "worker", input.WorkerID, map[string]interface{}{
+	s.emitAuditEvent(ctx, domain.AuditActionWorkerForceDisconnected, "worker", input.WorkerID, map[string]any{
 		"worker_id": input.WorkerID,
 	})
 
@@ -129,7 +129,7 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 	return &DeleteWorkerOutput{Body: map[string]string{"status": "disconnect_requested"}}, nil
 }
 
-// -- List worker tasks --
+// -- List worker tasks --.
 
 type ListWorkerTasksInput struct {
 	WorkerID string `path:"workerID"`
@@ -207,4 +207,3 @@ func parseSimplePagination(limitStr, offsetStr string) (int, int, error) {
 
 	return limit, offset, nil
 }
-

@@ -12,7 +12,7 @@ import (
 // than heartbeatTimeout, indicating the worker disconnected without a clean
 // deregister (e.g. network partition). This loop complements the in-memory
 // Deregister path — it cleans up DB rows that outlive a crashed replica.
-func runSweep(ctx context.Context, reg *ConnectionRegistry, q *store.Queries, heartbeatTimeout, interval time.Duration) {
+func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, heartbeatTimeout, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}

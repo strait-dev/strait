@@ -115,18 +115,6 @@ func TestGetPlanLimits_UnknownTier(t *testing.T) {
 	}
 }
 
-func TestFreeTierLimits(t *testing.T) {
-	t.Parallel()
-	free := GetPlanLimits(domain.PlanFree)
-
-	if free.FreeManagedPreset != "micro" {
-		t.Errorf("FreeManagedPreset = %q, want micro", free.FreeManagedPreset)
-	}
-	if free.FreeManagedMaxTimeout != 10 {
-		t.Errorf("FreeManagedMaxTimeout = %d, want 10", free.FreeManagedMaxTimeout)
-	}
-}
-
 func TestIsDowngrade(t *testing.T) {
 	t.Parallel()
 

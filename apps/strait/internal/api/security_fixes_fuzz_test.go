@@ -319,14 +319,13 @@ func FuzzWebhookEventTypes(f *testing.F) {
 		isValid := validWebhookEventTypes[eventType]
 
 		knownTypes := map[string]bool{
-			domain.WebhookEventRunCompleted:         true,
-			domain.WebhookEventRunFailed:            true,
-			domain.WebhookEventRunTimedOut:          true,
-			domain.WebhookEventRunCanceled:          true,
-			domain.WebhookEventWorkflowCompleted:    true,
-			domain.WebhookEventWorkflowFailed:       true,
-			domain.WebhookEventComputeBudgetWarning: true,
-			domain.WebhookEventSLOBudgetWarning:     true,
+			domain.WebhookEventRunCompleted:      true,
+			domain.WebhookEventRunFailed:         true,
+			domain.WebhookEventRunTimedOut:       true,
+			domain.WebhookEventRunCanceled:       true,
+			domain.WebhookEventWorkflowCompleted: true,
+			domain.WebhookEventWorkflowFailed:    true,
+			domain.WebhookEventSLOBudgetWarning:  true,
 		}
 
 		if isValid && !knownTypes[eventType] {

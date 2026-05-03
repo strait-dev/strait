@@ -94,7 +94,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	s.dbUpsertWorker(ctx, cw)
 
 	// Emit audit event.
-	s.emitWorkerAudit(ctx, domain.AuditActionWorkerConnected, projectID, reg.WorkerID, map[string]interface{}{
+	s.emitWorkerAudit(ctx, domain.AuditActionWorkerConnected, projectID, reg.WorkerID, map[string]any{
 		"worker_id": reg.WorkerID,
 		"hostname":  reg.Hostname,
 		"queues":    reg.Queues,
@@ -118,7 +118,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// Clean up on any exit path.
 	defer func() {
 		s.registry.Deregister(reg.WorkerID)
-		s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, reg.WorkerID, map[string]interface{}{
+		s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, reg.WorkerID, map[string]any{
 			"worker_id": reg.WorkerID,
 		})
 		slog.Info("grpc worker disconnected", "worker_id", reg.WorkerID, "project_id", projectID)
@@ -283,7 +283,7 @@ func (s *workerService) handleHeartbeat(ctx context.Context, workerID string, hb
 // state transitions (status update, cost recording). If no channel is
 // registered (e.g. the dispatcher timed out), this method falls back to
 // updating the run status directly.
-func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectID string, tr *workerv1.TaskResult) error {
+func (s *workerService) handleTaskResult(ctx context.Context, workerID, _ string, tr *workerv1.TaskResult) error {
 	if tr == nil || tr.RunID == "" {
 		return nil
 	}
@@ -369,7 +369,7 @@ func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine)
 // worker_tasks to confirm it was actually assigned to this worker. Mismatches
 // are logged and skipped — this prevents a malicious or buggy worker from
 // marking runs it doesn't own.
-func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, projectID string, tasks []*workerv1.InFlightTask) {
+func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ string, tasks []*workerv1.InFlightTask) {
 	for _, t := range tasks {
 		if t == nil || t.RunID == "" {
 			continue
@@ -499,10 +499,7 @@ func (s *workerService) reconcileMarkFailed(ctx context.Context, runID, errMsg s
 // (1-indexed). Matches the default policy in internal/worker/backoff.go:
 // delay = min(2^(attempt-1), 3600) seconds.
 func retryBackoffDuration(attempt int) time.Duration {
-	secs := 1 << (attempt - 1) // 2^(attempt-1)
-	if secs > 3600 {
-		secs = 3600
-	}
+	secs := min(1<<(attempt-1), 3600) // 2^(attempt-1), capped at 3600
 	return time.Duration(secs) * time.Second
 }
 
@@ -531,7 +528,7 @@ func (s *workerService) dbUpsertWorker(ctx context.Context, cw *ConnectedWorker)
 
 // emitWorkerAudit writes an audit event for a worker lifecycle transition.
 // Failures are logged but do not abort the caller.
-func (s *workerService) emitWorkerAudit(ctx context.Context, action, projectID, workerID string, details map[string]interface{}) {
+func (s *workerService) emitWorkerAudit(ctx context.Context, action, projectID, workerID string, details map[string]any) {
 	raw, err := json.Marshal(details)
 	if err != nil {
 		slog.Warn("grpc audit: marshal details failed", "error", err)
@@ -555,4 +552,3 @@ func (s *workerService) emitWorkerAudit(ctx context.Context, action, projectID, 
 		)
 	}
 }
-

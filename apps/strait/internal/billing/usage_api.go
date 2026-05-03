@@ -474,13 +474,13 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 
 	if limits.PlanTier == domain.PlanFree {
 		return &SpendingLimitResponse{
-			OrgID:           orgID,
-			PlanTier:        string(domain.PlanFree),
+			OrgID:            orgID,
+			PlanTier:         string(domain.PlanFree),
 			SpendingLimitUsd: 0,
-			LimitAction:     "reject",
-			CurrentSpendUsd: float64(periodSpend) / 1000000,
-			OverageSpendUsd: float64(overageSpend) / 1000000,
-			IsHardCapped:    true,
+			LimitAction:      "reject",
+			CurrentSpendUsd:  float64(periodSpend) / 1000000,
+			OverageSpendUsd:  float64(overageSpend) / 1000000,
+			IsHardCapped:     true,
 		}, nil
 	}
 

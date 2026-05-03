@@ -34,28 +34,24 @@ type statusUpdateCall struct {
 }
 
 type mockExecutorStore struct {
-	getJobFn                  func(ctx context.Context, id string) (*domain.Job, error)
-	getJobAtVersionFn         func(ctx context.Context, jobID string, version int) (*domain.Job, error)
-	listSecretsFn             func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
-	getWorkflowStepRunFn      func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
-	getWorkflowRunFn          func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listStepsByWorkflowVerFn  func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
-	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	updateHeartbeatFn         func(ctx context.Context, id string) error
-	batchUpdateHeartbeatFn    func(ctx context.Context, ids []string) error
-	canDispatchFn             func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
-	recordFailureFn           func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
-	recordSuccessFn           func(ctx context.Context, endpointURL string) error
-	getJobHealthStatsFn       func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
-	getResolvedEnvVarsFn      func(ctx context.Context, id string) (map[string]string, error)
-	getLatestCheckpointFn     func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
-	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
-	getProjectQuotaFn         func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
-	sumDailyComputeCostFn     func(ctx context.Context, projectID, timezone string) (int64, error)
-	createRunComputeUsageFn   func(ctx context.Context, usage *domain.RunComputeUsage) error
-	insertEventFn             func(ctx context.Context, event *domain.RunEvent) error
-	recordOOMEventFn          func(ctx context.Context, jobID, preset string) error
-	getPresetRecommendationFn func(ctx context.Context, jobID string) (*orcstore.PresetRecommendation, error)
+	getJobFn                 func(ctx context.Context, id string) (*domain.Job, error)
+	getJobAtVersionFn        func(ctx context.Context, jobID string, version int) (*domain.Job, error)
+	listSecretsFn            func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
+	getWorkflowStepRunFn     func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	getWorkflowRunFn         func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listStepsByWorkflowVerFn func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn        func(ctx context.Context, id string) error
+	batchUpdateHeartbeatFn   func(ctx context.Context, ids []string) error
+	canDispatchFn            func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	recordFailureFn          func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	recordSuccessFn          func(ctx context.Context, endpointURL string) error
+	getJobHealthStatsFn      func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
+	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
+	getLatestCheckpointFn    func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
+	getRunFn                 func(ctx context.Context, id string) (*domain.JobRun, error)
+	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
+	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 
 	mu              sync.Mutex
 	statusCalls     []statusUpdateCall
@@ -199,43 +195,11 @@ func (m *mockExecutorStore) GetProjectQuota(ctx context.Context, projectID strin
 	return m.getProjectQuotaFn(ctx, projectID)
 }
 
-func (m *mockExecutorStore) SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error) {
-	if m.sumDailyComputeCostFn == nil {
-		return 0, nil
-	}
-	return m.sumDailyComputeCostFn(ctx, projectID, timezone)
-}
-
-func (m *mockExecutorStore) CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error {
-	if m.createRunComputeUsageFn == nil {
-		return nil
-	}
-	return m.createRunComputeUsageFn(ctx, usage)
-}
-
 func (m *mockExecutorStore) InsertEvent(ctx context.Context, event *domain.RunEvent) error {
 	if m.insertEventFn == nil {
 		return nil
 	}
 	return m.insertEventFn(ctx, event)
-}
-
-func (m *mockExecutorStore) SetRunMachineID(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (m *mockExecutorStore) RecordOOMEvent(ctx context.Context, jobID, preset string) error {
-	if m.recordOOMEventFn != nil {
-		return m.recordOOMEventFn(ctx, jobID, preset)
-	}
-	return nil
-}
-
-func (m *mockExecutorStore) GetPresetRecommendation(ctx context.Context, jobID string) (*orcstore.PresetRecommendation, error) {
-	if m.getPresetRecommendationFn != nil {
-		return m.getPresetRecommendationFn(ctx, jobID)
-	}
-	return nil, nil
 }
 
 func (m *mockExecutorStore) GetEndpointHealthScore(_ context.Context, _ string) (*domain.EndpointHealthScore, error) {

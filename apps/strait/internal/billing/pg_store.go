@@ -661,7 +661,7 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 	return scanUsageRecords(rows)
 }
 
-func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
+func (s *PgStore) SumOrgPeriodSpend(_ context.Context, orgID string, from time.Time) (int64, error) {
 	// run_compute_usage was dropped in migration 000227. Compute spend is now
 	// tracked via usage_records (flat per-run cost). Return 0 until the new
 	// usage_records aggregation is wired in.
@@ -701,7 +701,7 @@ func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budget
 	return nil
 }
 
-func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
+func (s *PgStore) GetProjectPeriodSpend(_ context.Context, projectID string, from time.Time) (int64, error) {
 	// run_compute_usage was dropped in migration 000227. Return 0 until the new
 	// per-run cost aggregation is wired in.
 	_ = projectID

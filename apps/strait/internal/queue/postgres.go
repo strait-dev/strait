@@ -929,7 +929,7 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 // additionally restricts candidate rows to execution_mode='worker' and
 // queue_name = ANY($2). The queue list is passed as a pgx text-array arg.
 //
-// $1 = LIMIT n  |  $2 = connected queue names
+// $1 = LIMIT n  |  $2 = connected queue names.
 func workerClaimDeleteSQL() string {
 	return "/* action=dequeue */ " + `
 	DELETE FROM job_run_queue

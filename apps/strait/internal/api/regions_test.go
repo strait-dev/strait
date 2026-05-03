@@ -12,7 +12,6 @@ import (
 	"strait/internal/store"
 )
 
-
 func TestHandleGetProjectSettings(t *testing.T) {
 	t.Parallel()
 
@@ -154,7 +153,7 @@ func TestHandleCreateJob_InvalidRegion(t *testing.T) {
 		"name": "Test Job",
 		"slug": "test-job",
 		"endpoint_url": "https://example.com/callback",
-		"region": "invalid-region"
+		"preferred_regions": ["invalid-region"]
 	}`
 
 	w := httptest.NewRecorder()
@@ -170,9 +169,6 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-123"
-			if job.Region != "lhr" {
-				t.Errorf("expected region=lhr, got %q", job.Region)
-			}
 			return nil
 		},
 	}
@@ -183,7 +179,7 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 		"name": "Test Job",
 		"slug": "test-job",
 		"endpoint_url": "https://example.com/callback",
-		"region": "lhr"
+		"preferred_regions": ["lhr"]
 	}`
 
 	w := httptest.NewRecorder()
@@ -193,7 +189,6 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
 
 func TestHandleCreateJob_RegionGating(t *testing.T) {
 	t.Parallel()
@@ -222,7 +217,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			"name": "Test Job",
 			"slug": "test-job",
 			"endpoint_url": "https://example.com/callback",
-			"region": "lhr"
+			"preferred_regions": ["lhr"]
 		}`
 
 		w := httptest.NewRecorder()
@@ -233,18 +228,16 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 		}
 	})
 
-	t.Run("starter_plan_allowed_region", func(t *testing.T) {
+	t.Run("starter_plan_multi_region_blocked", func(t *testing.T) {
 		t.Parallel()
+		// preferred_regions (multi-region) requires Pro or higher;
+		// starter plan is rejected when region gating is enabled.
 		ms := &APIStoreMock{
 			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID: projectID,
 					PlanTier:  "starter",
 				}, nil
-			},
-			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
-				job.ID = "job-123"
-				return nil
 			},
 		}
 		cfg := &config.Config{
@@ -261,14 +254,14 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			"name": "Test Job",
 			"slug": "test-job",
 			"endpoint_url": "https://example.com/callback",
-			"region": "lhr"
+			"preferred_regions": ["lhr"]
 		}`
 
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-		if w.Code != http.StatusCreated {
-			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for starter plan with preferred_regions, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
@@ -288,7 +281,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			"name": "Test Job",
 			"slug": "test-job",
 			"endpoint_url": "https://example.com/callback",
-			"region": "hkg"
+			"preferred_regions": ["hkg"]
 		}`
 
 		w := httptest.NewRecorder()
@@ -463,7 +456,7 @@ func TestHandleUpdateJob_InvalidRegion(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123/", `{"region":"invalid-region"}`))
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123/", `{"preferred_regions":["invalid-region"]}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())

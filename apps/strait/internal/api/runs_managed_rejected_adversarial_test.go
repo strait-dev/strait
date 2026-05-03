@@ -11,9 +11,8 @@ import (
 )
 
 // TestCreateJob_ManagedExecutionMode_Rejected asserts that any attempt to create
-// a job with execution_mode="managed" returns HTTP 400 containing
-// "unsupported_execution_mode". Managed execution is no longer supported;
-// clients must use http mode instead.
+// a job with execution_mode="managed" returns HTTP 400. Managed execution is no
+// longer supported; clients must use http or worker mode instead.
 func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	t.Parallel()
 
@@ -38,8 +37,9 @@ func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for managed execution_mode, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "unsupported_execution_mode") {
-		t.Fatalf("expected unsupported_execution_mode in response body, got: %s", w.Body.String())
+	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
+	if !strings.Contains(w.Body.String(), "ExecutionMode") {
+		t.Fatalf("expected ExecutionMode validation error in response body, got: %s", w.Body.String())
 	}
 }
 
@@ -73,7 +73,8 @@ func TestUpdateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for managed execution_mode on update, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "unsupported_execution_mode") {
-		t.Fatalf("expected unsupported_execution_mode in response body, got: %s", w.Body.String())
+	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
+	if !strings.Contains(w.Body.String(), "ExecutionMode") {
+		t.Fatalf("expected ExecutionMode validation error in response body, got: %s", w.Body.String())
 	}
 }

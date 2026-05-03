@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"strait/internal/api"
+	grpcserver "strait/internal/api/grpc"
 	"strait/internal/billing"
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/domain"
-	grpcserver "strait/internal/api/grpc"
 	"strait/internal/health"
 	"strait/internal/logdrain"
 	"strait/internal/notification"
@@ -489,8 +489,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		WorkflowEngine:     workflowEngine,
 		TxPool:             txPool,
 		RedisClient:        rdb,
-		Encryptor:     encryptor,
-		StripeWebhook: stripeWebhook,
+		Encryptor:          encryptor,
+		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:       usageSvc,
 		CHExporter:         chExporter,
@@ -613,9 +613,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
-		JWTSigningKey:  cfg.JWTSigningKey,
-		ExternalAPIURL: cfg.ExternalAPIURL,
-		DefaultRegion:  cfg.DefaultRegion,
+		JWTSigningKey:           cfg.JWTSigningKey,
+		ExternalAPIURL:          cfg.ExternalAPIURL,
+		DefaultRegion:           cfg.DefaultRegion,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
 

@@ -90,29 +90,6 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 	)
 }
 
-// checkPresetAllowed verifies that the requested machine preset is available
-// on the project's org plan. Returns nil if allowed or if billing is unavailable.
-func (s *Server) checkPresetAllowed(ctx context.Context, projectID, preset string) error {
-	if preset == "" {
-		return nil
-	}
-
-	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
-		return nil // fail open
-	}
-
-	if limits.IsPresetAllowed(preset) {
-		return nil
-	}
-
-	s.recordBillingEvent(ctx, projectID, "gate_rejected", preset, string(limits.PlanTier))
-
-	return huma.Error400BadRequest(
-		fmt.Sprintf("Machine preset %q is not available on the %s plan. Upgrade at /settings/billing", preset, limits.DisplayName),
-	)
-}
-
 // checkWorkflowStepLimit verifies that the number of steps does not exceed
 // the plan's MaxWorkflowDAGSteps. Returns nil if within limits.
 func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, stepCount int) error {

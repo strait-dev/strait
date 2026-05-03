@@ -155,24 +155,24 @@ type RunStore interface {
 }
 
 type ProjectQuota struct {
-	ProjectID                     string
-	MaxQueuedRuns                 int
-	MaxExecutingRuns              int
-	MaxJobs                       int
-	Timezone                      string
+	ProjectID              string
+	MaxQueuedRuns          int
+	MaxExecutingRuns       int
+	MaxJobs                int
+	Timezone               string
 	MaxCostPerRunMicrousd  int64
 	MaxDailyCostMicrousd   int64
 	MaxActiveEventTriggers int // 0 = unlimited
-	RateLimitRequests             int
-	RateLimitWindowSecs           int
-	DefaultRegion                 string
-	PlanTier                      string
-	MaxTokensPerRun               int64
-	MaxToolCallsPerRun            int
-	MaxIterationsPerRun           int
-	MaxMemoryPerKeyBytes          int
-	MaxMemoryPerJobBytes          int
-	MaxKeyLifetimeDays            int
+	RateLimitRequests      int
+	RateLimitWindowSecs    int
+	DefaultRegion          string
+	PlanTier               string
+	MaxTokensPerRun        int64
+	MaxToolCallsPerRun     int
+	MaxIterationsPerRun    int
+	MaxMemoryPerKeyBytes   int
+	MaxMemoryPerJobBytes   int
+	MaxKeyLifetimeDays     int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -365,7 +365,6 @@ type JobMemoryStore interface {
 	SumJobMemorySizeBytes(ctx context.Context, jobID string) (int, error)
 	DeleteExpiredJobMemory(ctx context.Context) (int64, error)
 }
-
 
 // NotificationStore handles notification channel and delivery operations.
 type NotificationStore interface {

@@ -935,59 +935,59 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		onFailureTriggerJob:       onFailureTriggerJob,
 		onFailureTriggerWorkflow:  onFailureTriggerWorkflow,
 		onFailurePayloadMapping:   onFailurePayloadMapping,
-		maxTokensPerRun:     maxTokensPerRun, maxToolCallsPerRun: maxToolCallsPerRun,
+		maxTokensPerRun:           maxTokensPerRun, maxToolCallsPerRun: maxToolCallsPerRun,
 		maxIterationsPerRun: maxIterationsPerRun,
 	})
 }
 
 type scannedJobNullables struct {
-	pausedAt                   *time.Time
-	pauseReason                *string
-	description                *string
-	groupID                    *string
-	cron                       *string
-	payloadSchema              []byte
-	tagsJSON                   []byte
-	fallbackEndpointURL        *string
-	webhookURL                 *string
-	webhookSecret              *string
-	runTTLSecs                 *int
-	maxConcurrency             *int
-	executionWindowCron        *string
-	timezone                   *string
-	rateLimitMax               *int
-	rateLimitWindowSecs        *int
-	dedupWindowSecs            *int
-	retryStrategy              *string
-	retryDelaysSecs            []int
-	environmentID              *string
-	versionID                  *string
-	versionPolicy              *string
-	createdBy                  *string
-	updatedBy                  *string
-	maxConcurrencyPerKey       *int
-	rateLimitKeysJSON          []byte
-	defaultRunMetadataJSON     []byte
-	cronOverlapPolicy          *string
-	resultSchema               []byte
-	debounceWindowSecs         *int
-	batchWindowSecs            *int
-	batchMaxSize               *int
-	executionMode     *string
-	preferredRegions  []string
-	queueName         *string
-	onCompleteTriggerWorkflow  *string
-	onCompleteTriggerJob       *string
-	onCompletePayloadMapping   []byte
-	onFailureTriggerJob        *string
-	onFailureTriggerWorkflow   *string
-	onFailurePayloadMapping    []byte
-	maxTokensPerRun     *int64
-	maxToolCallsPerRun  *int
-	maxIterationsPerRun *int
+	pausedAt                  *time.Time
+	pauseReason               *string
+	description               *string
+	groupID                   *string
+	cron                      *string
+	payloadSchema             []byte
+	tagsJSON                  []byte
+	fallbackEndpointURL       *string
+	webhookURL                *string
+	webhookSecret             *string
+	runTTLSecs                *int
+	maxConcurrency            *int
+	executionWindowCron       *string
+	timezone                  *string
+	rateLimitMax              *int
+	rateLimitWindowSecs       *int
+	dedupWindowSecs           *int
+	retryStrategy             *string
+	retryDelaysSecs           []int
+	environmentID             *string
+	versionID                 *string
+	versionPolicy             *string
+	createdBy                 *string
+	updatedBy                 *string
+	maxConcurrencyPerKey      *int
+	rateLimitKeysJSON         []byte
+	defaultRunMetadataJSON    []byte
+	cronOverlapPolicy         *string
+	resultSchema              []byte
+	debounceWindowSecs        *int
+	batchWindowSecs           *int
+	batchMaxSize              *int
+	executionMode             *string
+	preferredRegions          []string
+	queueName                 *string
+	onCompleteTriggerWorkflow *string
+	onCompleteTriggerJob      *string
+	onCompletePayloadMapping  []byte
+	onFailureTriggerJob       *string
+	onFailureTriggerWorkflow  *string
+	onFailurePayloadMapping   []byte
+	maxTokensPerRun           *int64
+	maxToolCallsPerRun        *int
+	maxIterationsPerRun       *int
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen // flat nullable-to-field assignments, not meaningfully splittable.
+//nolint:gocyclo,cyclop,funlen // flat nullable-to-field assignments, not meaningfully splittable.
 func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.Job, error) {
 	if n.pausedAt != nil {
 		job.PausedAt = n.pausedAt

@@ -547,4 +547,3 @@ func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitIn
 	}
 	return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
 }
-

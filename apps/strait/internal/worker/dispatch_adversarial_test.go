@@ -15,13 +15,9 @@ import (
 
 	"github.com/sourcegraph/conc"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
 )
-
-// mockContainerRuntime is defined in executor_managed_test.go and reused across
-// test files in this package.
 
 // ---------------------------------------------------------------------------.
 // dispatch: expired TTL -- job should be marked system_failed
@@ -667,136 +663,6 @@ func TestDispatch_UnknownExecutionMode_SystemFails(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// runPoolPruner: empty pool -- exits cleanly on context cancellation
-// ---------------------------------------------------------------------------.
-
-func TestRunPoolPruner_EmptyPool_ExitsOnCancel(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	// Pool is empty -- Prune should return 0 without error.
-
-	st := &mockExecutorStore{}
-	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, http.DefaultClient)
-	exec.machinePool = pool
-	exec.containerRuntime = &mockContainerRuntime{}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		exec.runPoolPruner(ctx)
-		close(done)
-	}()
-
-	// Cancel immediately; pruner should exit.
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("runPoolPruner did not exit after context cancellation")
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// runPoolPruner: with expired machines -- prunes them
-// ---------------------------------------------------------------------------.
-
-func TestRunPoolPruner_ExpiredMachines_Pruned(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-
-	var destroyedIDs sync.Map
-	rt := &mockContainerRuntime{
-		destroyFn: func(_ context.Context, machineID string) error {
-			destroyedIDs.Store(machineID, true)
-			return nil
-		},
-	}
-
-	// Release some machines into the pool, then test that Prune works
-	// via direct invocation (not the ticker-based pruner, which has a 5min interval).
-	pool.Release("proj-1", "image:latest", "iad", "machine-old-1")
-	pool.Release("proj-1", "image:latest", "iad", "machine-old-2")
-
-	// Verify pool has entries.
-	if pool.Size() == 0 {
-		t.Fatal("pool should have entries after Release")
-	}
-
-	// Prune with zero max age removes everything.
-	pruned := pool.Prune(0, func(mid string) error {
-		return rt.Destroy(context.Background(), mid)
-	})
-
-	if pruned != 2 {
-		t.Fatalf("expected 2 pruned, got %d", pruned)
-	}
-
-	if pool.Size() != 0 {
-		t.Fatalf("pool should be empty after prune, got size %d", pool.Size())
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// runPoolPruner: context cancellation before tick -- exits cleanly
-// ---------------------------------------------------------------------------.
-
-func TestRunPoolPruner_ContextCancelledBeforeTick(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	pool.Release("proj-1", "image:latest", "iad", "machine-1")
-
-	rt := &mockContainerRuntime{
-		destroyFn: func(_ context.Context, _ string) error {
-			t.Fatal("destroy should not be called if context is cancelled before tick")
-			return nil
-		},
-	}
-
-	st := &mockExecutorStore{}
-	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, http.DefaultClient)
-	exec.machinePool = pool
-	exec.containerRuntime = rt
-
-	// Cancel immediately -- the 5-minute ticker should never fire.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	done := make(chan struct{})
-	go func() {
-		exec.runPoolPruner(ctx)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("runPoolPruner did not exit after pre-cancelled context")
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// runPoolPruner: nil containerRuntime -- should not panic in Prune
-// ---------------------------------------------------------------------------.
-
-func TestRunPoolPruner_NilRuntime_PanicFree(t *testing.T) {
-	t.Parallel()
-
-	// Directly test that Prune works with a nil destroy function by passing nil.
-	pool := compute.NewMachinePool(5)
-	pool.Release("proj-1", "image:latest", "iad", "machine-1")
-
-	// Prune with nil destroyFn: should not panic, machines removed from pool.
-	pruned := pool.Prune(0, nil)
-	if pruned != 1 {
-		t.Fatalf("expected 1 pruned with nil destroyFn, got %d", pruned)
-	}
-}
-
-// ---------------------------------------------------------------------------.
 // ingestStripeUsageEvent: with compute usage metadata (realistic data)
 // ---------------------------------------------------------------------------.
 
@@ -972,34 +838,6 @@ func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected run to complete with adaptive timeout enabled")
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// dispatch: managed execution mode -- always system_failed (mode unsupported)
-// ---------------------------------------------------------------------------.
-
-func TestDispatch_ManagedMode_SystemFails(t *testing.T) {
-	t.Parallel()
-
-	st := &mockExecutorStore{}
-	st.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
-		job := testJob("", 1, 30)
-		job.ExecutionMode = domain.ExecutionModeManaged
-		return job, nil
-	}
-
-	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, http.DefaultClient)
-	run := testRun(1)
-
-	exec.execute(context.Background(), run)
-
-	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update for managed mode")
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("expected system_failed for unsupported managed mode, got %s", calls[0].to)
 	}
 }
 

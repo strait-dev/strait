@@ -119,108 +119,16 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocyclo
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
-	if err := s.validate.Struct(&req); err != nil {
-		return nil, newValidationError(err)
-	}
-	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
-		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
-	}
-	if err := validateJobName(req.Name); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	if err := validateJobSlug(req.Slug); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	if req.EndpointURL != "" {
-		if err := validateURL(req.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
-		}
-	}
-	if req.FallbackEndpointURL != "" {
-		if err := validateURL(req.FallbackEndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
-		}
-	}
-
-	if req.MaxAttempts == 0 {
-		req.MaxAttempts = s.defaultJobMaxAttempts()
-	}
-	if req.TimeoutSecs == 0 {
-		req.TimeoutSecs = s.defaultJobTimeoutSecs()
-	}
-	if req.TimeoutSecs > 86400 {
-		return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
-	}
-	if req.RetryPriorityBoost == 0 {
-		req.RetryPriorityBoost = 1
-	}
-
-	if req.Cron != "" {
-		if err := validateCronFieldCount(req.Cron); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(req.Cron); err != nil {
-			return nil, huma.Error400BadRequest("invalid cron expression")
-		}
-	}
-
-	if req.ExecutionWindowCron != "" {
-		if err := validateCronFieldCount(req.ExecutionWindowCron); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
-			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
-		}
-	}
-
-	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	if len(req.Tags) > 0 {
-		if err := validateTags(req.Tags); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-
-	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
-		return nil, huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
-	}
-
-	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	// Plan-based gating validation.
-	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
+	if err := s.validateCreateJobFields(ctx, &req); err != nil {
 		return nil, err
 	}
 
-	// Validate optional queue_name.
-	if err := validateQueueName(req.QueueName); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	// Execution mode validation.
-	execMode := domain.ExecutionMode(req.ExecutionMode)
-	if execMode == "" {
-		execMode = domain.ExecutionModeHTTP
-	}
-	switch execMode {
-	case domain.ExecutionModeHTTP:
-		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if err := s.checkHTTPModeAllowed(ctx, execMode, req.ProjectID); err != nil {
-			return nil, err
-		}
+	execMode, err := s.resolveAndCheckExecMode(ctx, &req)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnCompleteTriggerJob, req.OnCompleteTriggerWorkflow); err != nil {
@@ -304,6 +212,113 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	})
 
 	return &CreateJobOutput{Body: job}, nil
+}
+
+// validateCreateJobFields validates the scalar and cron fields on a CreateJobRequest,
+// applies defaults, and checks plan gates that do not depend on execution mode.
+// It mutates req to apply defaults (MaxAttempts, TimeoutSecs, RetryPriorityBoost).
+func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequest) error {
+	if err := s.validate.Struct(req); err != nil {
+		return newValidationError(err)
+	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+	if err := validateJobName(req.Name); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validateJobSlug(req.Slug); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if req.EndpointURL != "" {
+		if err := validateURL(req.EndpointURL); err != nil {
+			return huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
+		}
+	}
+	if req.FallbackEndpointURL != "" {
+		if err := validateURL(req.FallbackEndpointURL); err != nil {
+			return huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
+		}
+	}
+	if req.MaxAttempts == 0 {
+		req.MaxAttempts = s.defaultJobMaxAttempts()
+	}
+	if req.TimeoutSecs == 0 {
+		req.TimeoutSecs = s.defaultJobTimeoutSecs()
+	}
+	if req.TimeoutSecs > 86400 {
+		return huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
+	}
+	if req.RetryPriorityBoost == 0 {
+		req.RetryPriorityBoost = 1
+	}
+	if err := validateCreateJobCronFields(req); err != nil {
+		return err
+	}
+	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if len(req.Tags) > 0 {
+		if err := validateTags(req.Tags); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
+		return huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
+	}
+	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
+		return err
+	}
+	if err := validateQueueName(req.QueueName); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	return nil
+}
+
+// validateCreateJobCronFields validates the cron and execution_window_cron expressions.
+func validateCreateJobCronFields(req *CreateJobRequest) error {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	if req.Cron != "" {
+		if err := validateCronFieldCount(req.Cron); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+		if _, err := parser.Parse(req.Cron); err != nil {
+			return huma.Error400BadRequest("invalid cron expression")
+		}
+	}
+	if req.ExecutionWindowCron != "" {
+		if err := validateCronFieldCount(req.ExecutionWindowCron); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
+			return huma.Error400BadRequest("invalid execution_window_cron expression")
+		}
+	}
+	return nil
+}
+
+// resolveAndCheckExecMode determines the execution mode and validates it
+// against plan gates. Returns the resolved ExecutionMode.
+func (s *Server) resolveAndCheckExecMode(ctx context.Context, req *CreateJobRequest) (domain.ExecutionMode, error) {
+	execMode := domain.ExecutionMode(req.ExecutionMode)
+	if execMode == "" {
+		execMode = domain.ExecutionModeHTTP
+	}
+	switch execMode {
+	case domain.ExecutionModeHTTP:
+		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
+			return "", huma.Error400BadRequest(err.Error())
+		}
+		if err := s.checkHTTPModeAllowed(ctx, execMode, req.ProjectID); err != nil {
+			return "", err
+		}
+	case domain.ExecutionModeWorker:
+		// Worker mode: execution is handled by a connected worker process.
+	}
+	return execMode, nil
 }
 
 // GetJobInput is the typed input for getting a single job.

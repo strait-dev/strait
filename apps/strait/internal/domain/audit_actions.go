@@ -198,15 +198,15 @@ const (
 	AuditActionAnomalyConfigUpdated    = "anomaly_config.updated"
 
 	// Worker connections (gRPC streaming).
-	AuditActionWorkerConnected           = "worker.connected"
-	AuditActionWorkerDisconnected        = "worker.disconnected"
-	AuditActionWorkerForceDisconnected   = "worker.force_disconnected"
+	AuditActionWorkerConnected         = "worker.connected"
+	AuditActionWorkerDisconnected      = "worker.disconnected"
+	AuditActionWorkerForceDisconnected = "worker.force_disconnected"
 
 	// Quota and cron lifecycle (billing-period enforcement).
-	AuditActionQuotaExceeded          = "quota.exceeded"
-	AuditActionCronPausedQuota        = "cron.paused_quota"
-	AuditActionCronResumedQuota       = "cron.resumed"
-	AuditActionSubscriptionChanged    = "subscription.changed"
+	AuditActionQuotaExceeded       = "quota.exceeded"
+	AuditActionCronPausedQuota     = "cron.paused_quota"
+	AuditActionCronResumedQuota    = "cron.resumed"
+	AuditActionSubscriptionChanged = "subscription.changed"
 )
 
 // allAuditActions is the set of every action name the emit path will accept.

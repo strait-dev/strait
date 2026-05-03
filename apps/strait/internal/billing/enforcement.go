@@ -649,7 +649,7 @@ func (e *Enforcer) Check80PercentMonthlyWarning(ctx context.Context, orgID strin
 	set, err := e.rdb.SetNX(ctx, periodKey, "1", 32*24*time.Hour).Result()
 	if err != nil {
 		// Fail open: surface the warning if we can't track dedup.
-		return true, nil
+		return true, err
 	}
 	return set, nil
 }

@@ -198,7 +198,6 @@ func TestExporter_InsertBatch_AllRecordTypes_FailingClient(t *testing.T) {
 	batch := []any{
 		RunEventRecord{EventID: "e1", RunID: "r1", ProjectID: "p1", CreatedAt: now},
 		RunAnalyticsRecord{RunID: "r1", ProjectID: "p1", CreatedAt: now},
-		ComputeUsageRecord{RunID: "r1", ProjectID: "p1", StartedAt: now, FinishedAt: now},
 		RunUsageEventRecord{RunID: "r1", ProjectID: "p1", CreatedAt: now},
 		WorkflowApprovalEventRecord{ApprovalID: "a1", ProjectID: "p1", RequestedAt: now},
 		JobMetadataRecord{JobID: "j1", ProjectID: "p1", Slug: "slug"},
@@ -216,7 +215,7 @@ func TestExporter_InsertBatch_AllRecordTypes_FailingClient(t *testing.T) {
 	// Verify that errors from multiple tables are joined.
 	errMsg := err.Error()
 	expectedTables := []string{
-		"run_events", "run_analytics", "compute_usage", "run_usage_events",
+		"run_events", "run_analytics", "run_usage_events",
 		"workflow_approval_events", "job_metadata", "webhook_delivery_events",
 		"workflow_run_analytics", "workflow_step_analytics", "event_trigger_events",
 	}
