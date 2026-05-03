@@ -88,6 +88,17 @@ pre-push:
       fail_text: "Go lint failed"
       timeout: 660s
 
+    - name: buf_lint
+      glob: "apps/strait/proto/**/*.proto"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: |
+        if command -v buf > /dev/null 2>&1; then
+          cd apps/strait && buf lint
+        fi
+      fail_text: "buf lint failed (install buf: brew install bufbuild/buf/buf)"
+      timeout: 60s
+
 
 commit-msg:
   commands:

@@ -1,6 +1,10 @@
-version: v1
+version: v2
+modules:
+  - path: proto
 name: buf.build/strait/strait
 lint:
-  use: [DEFAULT]
+  use:
+    - DEFAULT
 breaking:
-  use: [FILE]
+  use:
+    - FILE

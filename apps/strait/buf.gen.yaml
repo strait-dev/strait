@@ -1,8 +1,12 @@
-version: v1
+version: v2
+inputs:
+  - directory: proto
 plugins:
-  - plugin: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go
     out: internal/api/grpc/proto
     opt: paths=source_relative
-  - plugin: buf.build/grpc/go
+  - remote: buf.build/grpc/go
     out: internal/api/grpc/proto
-    opt: paths=source_relative,require_unimplemented_servers=false
+    opt:
+      - paths=source_relative
+      - require_unimplemented_servers=false
