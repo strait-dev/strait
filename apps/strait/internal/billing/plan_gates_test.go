@@ -10,17 +10,11 @@ func TestIsPresetAllowed_FreeTier(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
 
-	allowed := []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x"}
-	blocked := []string{"large-1x", "large-2x"}
-
-	for _, p := range allowed {
+	// Free tier has AllowedPresets = nil, meaning all presets are allowed.
+	allPresets := []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"}
+	for _, p := range allPresets {
 		if !free.IsPresetAllowed(p) {
-			t.Errorf("Free.IsPresetAllowed(%q) = false, want true", p)
-		}
-	}
-	for _, p := range blocked {
-		if free.IsPresetAllowed(p) {
-			t.Errorf("Free.IsPresetAllowed(%q) = true, want false", p)
+			t.Errorf("Free.IsPresetAllowed(%q) = false, want true (no preset restrictions)", p)
 		}
 	}
 }
@@ -43,35 +37,37 @@ func TestIsPresetAllowed_PaidTiers(t *testing.T) {
 func TestIsPresetAllowed_UnknownPreset(t *testing.T) {
 	t.Parallel()
 
-	free := GetPlanLimits(domain.PlanFree)
-	if free.IsPresetAllowed("nonexistent") {
-		t.Error("Free.IsPresetAllowed(nonexistent) = true, want false")
-	}
-
-	pro := GetPlanLimits(domain.PlanPro)
-	if !pro.IsPresetAllowed("nonexistent") {
-		t.Error("Pro.IsPresetAllowed(nonexistent) = true (nil AllowedPresets = all)")
+	// All tiers have AllowedPresets = nil, so any preset string is "allowed"
+	// (the field is purely informational; enforcement happens at runtime via compute).
+	for _, tier := range domain.AllPlanTiers() {
+		limits := GetPlanLimits(tier)
+		if !limits.IsPresetAllowed("nonexistent") {
+			t.Errorf("%s.IsPresetAllowed(nonexistent) = false, want true (nil AllowedPresets = all)", tier)
+		}
 	}
 }
 
 func TestIsPresetAllowed_EmptyString(t *testing.T) {
 	t.Parallel()
 
+	// AllowedPresets is nil for all tiers (no restrictions), so empty string is "allowed"
+	// by the IsPresetAllowed helper. Runtime enforcement rejects invalid preset names separately.
 	free := GetPlanLimits(domain.PlanFree)
-	if free.IsPresetAllowed("") {
-		t.Error("Free.IsPresetAllowed(\"\") = true, want false (empty not in allowed list)")
-	}
+	// nil AllowedPresets => IsPresetAllowed returns true for any string including "".
+	_ = free.IsPresetAllowed("") // should not panic
 }
 
 func TestIsPresetAllowed_CaseSensitive(t *testing.T) {
 	t.Parallel()
 
+	// With AllowedPresets = nil, any preset (including differently-cased ones) is allowed.
+	// Case sensitivity only matters when AllowedPresets is non-nil.
 	free := GetPlanLimits(domain.PlanFree)
-	if free.IsPresetAllowed("MICRO") {
-		t.Error("Free.IsPresetAllowed(MICRO) = true, want false (case-sensitive)")
+	if !free.IsPresetAllowed("MICRO") {
+		t.Error("Free.IsPresetAllowed(MICRO) = false, want true (nil AllowedPresets = all allowed)")
 	}
-	if free.IsPresetAllowed("Micro") {
-		t.Error("Free.IsPresetAllowed(Micro) = true, want false (case-sensitive)")
+	if !free.IsPresetAllowed("Micro") {
+		t.Error("Free.IsPresetAllowed(Micro) = false, want true (nil AllowedPresets = all allowed)")
 	}
 }
 

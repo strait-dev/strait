@@ -168,7 +168,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, metadata,
+			execution_mode, queue_name, metadata,
 			is_rollback
 		)
 		SELECT
@@ -176,7 +176,8 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30::jsonb, $31
+			$29, $30, $31::jsonb,
+			$32
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -215,6 +216,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
+		"default", // queue_name: resolved from jobs table at runtime; 'default' used for non-worker runs
 		metadataJSON,
 		run.IsRollback,
 	}
@@ -357,7 +359,7 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
-	"execution_mode", "metadata",
+	"execution_mode", "queue_name", "metadata",
 	"is_rollback",
 }
 
@@ -451,6 +453,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.ConcurrencyKey),
 			dbscan.NilIfEmptyString(run.BatchID),
 			string(run.ExecutionMode),
+			"default", // queue_name: 'default' for batch enqueues; worker routing uses jobs.queue_name
 			metadataJSON,
 			run.IsRollback,
 		}

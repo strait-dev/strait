@@ -25,44 +25,44 @@ func TestGetPlanLimits(t *testing.T) {
 			tier:           domain.PlanFree,
 			wantDisplay:    "Free",
 			wantMonthly:    0,
-			wantConcurrent: 5,
-			wantProjects:   1,
-			wantMembers:    1,
+			wantConcurrent: ConcurrentFree,
+			wantProjects:   MaxProjectsFree,
+			wantMembers:    MaxMembersFree,
 			wantCreditCard: false,
-			wantRetention:  1,
+			wantRetention:  RetentionFree,
 		},
 		{
 			name:           "starter",
 			tier:           domain.PlanStarter,
 			wantDisplay:    "Starter",
-			wantMonthly:    1999,
-			wantConcurrent: 25,
-			wantProjects:   3,
-			wantMembers:    5,
+			wantMonthly:    PriceStarterMonthlyCents,
+			wantConcurrent: ConcurrentStarter,
+			wantProjects:   MaxProjectsStarter,
+			wantMembers:    MaxMembersStarter,
 			wantCreditCard: true,
-			wantRetention:  7,
+			wantRetention:  RetentionStarter,
 		},
 		{
 			name:           "pro",
 			tier:           domain.PlanPro,
 			wantDisplay:    "Pro",
-			wantMonthly:    4999,
-			wantConcurrent: 100,
-			wantProjects:   10,
-			wantMembers:    10,
+			wantMonthly:    PriceProMonthlyCents,
+			wantConcurrent: ConcurrentPro,
+			wantProjects:   MaxProjectsPro,
+			wantMembers:    MaxMembersPro,
 			wantCreditCard: true,
-			wantRetention:  30,
+			wantRetention:  RetentionPro,
 		},
 		{
 			name:           "scale",
 			tier:           domain.PlanScale,
 			wantDisplay:    "Scale",
-			wantMonthly:    9900,
-			wantConcurrent: 500,
-			wantProjects:   50,
-			wantMembers:    50,
+			wantMonthly:    PriceScaleMonthlyCents,
+			wantConcurrent: ConcurrentScale,
+			wantProjects:   MaxProjectsScale,
+			wantMembers:    MaxMembersScale,
 			wantCreditCard: true,
-			wantRetention:  60,
+			wantRetention:  RetentionScale,
 		},
 		{
 			name:           "enterprise",
@@ -164,24 +164,13 @@ func TestIsDowngrade(t *testing.T) {
 func TestPlanLimits_AllowsHTTPMode(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		tier domain.PlanTier
-		want bool
-	}{
-		{"free", domain.PlanFree, false},
-		{"starter", domain.PlanStarter, false},
-		{"pro", domain.PlanPro, true},
-		{"scale", domain.PlanScale, true},
-		{"enterprise", domain.PlanEnterprise, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	// All tiers have HTTP mode available; gating is done in plans.go.
+	for _, tier := range domain.AllPlanTiers() {
+		t.Run(string(tier), func(t *testing.T) {
 			t.Parallel()
-			limits := GetPlanLimits(tt.tier)
-			if limits.AllowsHTTPMode != tt.want {
-				t.Errorf("AllowsHTTPMode = %v, want %v", limits.AllowsHTTPMode, tt.want)
+			limits := GetPlanLimits(tier)
+			if !limits.AllowsHTTPMode {
+				t.Errorf("%s.AllowsHTTPMode = false, want true", tier)
 			}
 		})
 	}
@@ -232,10 +221,10 @@ func TestPlanLimits_WorkflowFeatures(t *testing.T) {
 		wantCompensation  bool
 		wantCanary        bool
 	}{
-		{domain.PlanFree, 10, false, false, false, 0, false, false},
-		{domain.PlanStarter, 50, false, false, false, 0, false, false},
-		{domain.PlanPro, 250, true, true, true, 10, true, false},
-		{domain.PlanScale, 1000, true, true, true, 10, true, true},
+		{domain.PlanFree, MaxDAGStepsFree, false, false, false, 0, false, false},
+		{domain.PlanStarter, MaxDAGStepsStarter, false, false, false, 0, false, false},
+		{domain.PlanPro, MaxDAGStepsPro, true, true, true, 10, true, false},
+		{domain.PlanScale, MaxDAGStepsScale, true, true, true, 10, true, true},
 		{domain.PlanEnterprise, -1, true, true, true, -1, true, true},
 	}
 
@@ -281,10 +270,10 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 		wantAPIRate        int
 		wantPresetRestrict bool // true if AllowedPresets is non-nil
 	}{
-		{domain.PlanFree, 10, false, 1, 0, "none", 60, true},
-		{domain.PlanStarter, 25, true, 3, 3, "basic", 300, false},
-		{domain.PlanPro, 100, true, 3, 10, "all", 1000, false},
-		{domain.PlanScale, 500, true, 3, 25, "all", 3000, false},
+		{domain.PlanFree, MaxScheduledFree, false, 1, 0, "none", APIRateFree, false},
+		{domain.PlanStarter, MaxScheduledStarter, true, 3, 3, "basic", APIRateStarter, false},
+		{domain.PlanPro, MaxScheduledPro, true, 3, 10, "all", APIRatePro, false},
+		{domain.PlanScale, MaxScheduledScale, true, 3, 25, "all", APIRateScale, false},
 		{domain.PlanEnterprise, -1, true, 3, -1, "all_custom", -1, false},
 	}
 
@@ -321,24 +310,10 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 func TestPlanLimits_IsPresetAllowed(t *testing.T) {
 	t.Parallel()
 
-	free := GetPlanLimits(domain.PlanFree)
-	// Free allows micro through medium-2x.
-	for _, p := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x"} {
-		if !free.IsPresetAllowed(p) {
-			t.Errorf("Free.IsPresetAllowed(%q) = false, want true", p)
-		}
-	}
-	// Free blocks large presets.
-	for _, p := range []string{"large-1x", "large-2x"} {
-		if free.IsPresetAllowed(p) {
-			t.Errorf("Free.IsPresetAllowed(%q) = true, want false", p)
-		}
-	}
-
-	// Paid plans allow all presets.
-	for _, tier := range []domain.PlanTier{domain.PlanStarter, domain.PlanPro, domain.PlanScale, domain.PlanEnterprise} {
+	// All tiers have AllowedPresets = nil (all presets allowed).
+	for _, tier := range domain.AllPlanTiers() {
 		limits := GetPlanLimits(tier)
-		for _, p := range []string{"micro", "small-1x", "large-1x", "large-2x"} {
+		for _, p := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"} {
 			if !limits.IsPresetAllowed(p) {
 				t.Errorf("%s.IsPresetAllowed(%q) = false, want true", tier, p)
 			}
@@ -384,8 +359,8 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 	if scale.MaxConcurrentRuns != ConcurrentScale {
 		t.Errorf("MaxConcurrentRuns = %d, want %d", scale.MaxConcurrentRuns, ConcurrentScale)
 	}
-	if scale.OveragePerKRunsMicrousd != DefaultOveragePerKRunsMicrousd {
-		t.Errorf("OveragePerKRunsMicrousd = %d, want %d", scale.OveragePerKRunsMicrousd, DefaultOveragePerKRunsMicrousd)
+	if scale.OveragePerKRunsMicrousd != ScaleOveragePerKMicrousd {
+		t.Errorf("OveragePerKRunsMicrousd = %d, want %d", scale.OveragePerKRunsMicrousd, ScaleOveragePerKMicrousd)
 	}
 }
 
@@ -403,8 +378,8 @@ func TestPlanConstants_Pricing(t *testing.T) {
 	if PriceProAnnualCents != 49999 {
 		t.Errorf("PriceProAnnualCents = %d, want 49999", PriceProAnnualCents)
 	}
-	if PriceScaleMonthlyCents != 9900 {
-		t.Errorf("PriceScaleMonthlyCents = %d, want 9900", PriceScaleMonthlyCents)
+	if PriceScaleMonthlyCents != 14999 {
+		t.Errorf("PriceScaleMonthlyCents = %d, want 14999", PriceScaleMonthlyCents)
 	}
 	if PriceScaleAnnualCents != 99000 {
 		t.Errorf("PriceScaleAnnualCents = %d, want 99000", PriceScaleAnnualCents)
@@ -429,27 +404,27 @@ func TestPlanConstants_Credits(t *testing.T) {
 
 func TestPlanConstants_Concurrent(t *testing.T) {
 	t.Parallel()
-	if ConcurrentFree != 5 {
-		t.Errorf("ConcurrentFree = %d, want 5", ConcurrentFree)
+	if ConcurrentFree != 2 {
+		t.Errorf("ConcurrentFree = %d, want 2", ConcurrentFree)
 	}
-	if ConcurrentStarter != 25 {
-		t.Errorf("ConcurrentStarter = %d, want 25", ConcurrentStarter)
+	if ConcurrentStarter != 10 {
+		t.Errorf("ConcurrentStarter = %d, want 10", ConcurrentStarter)
 	}
-	if ConcurrentPro != 100 {
-		t.Errorf("ConcurrentPro = %d, want 100", ConcurrentPro)
+	if ConcurrentPro != 50 {
+		t.Errorf("ConcurrentPro = %d, want 50", ConcurrentPro)
 	}
-	if ConcurrentScale != 500 {
-		t.Errorf("ConcurrentScale = %d, want 500", ConcurrentScale)
+	if ConcurrentScale != 200 {
+		t.Errorf("ConcurrentScale = %d, want 200", ConcurrentScale)
 	}
 }
 
 func TestPlanConstants_Retention(t *testing.T) {
 	t.Parallel()
-	if RetentionFree != 1 {
-		t.Errorf("RetentionFree = %d, want 1", RetentionFree)
+	if RetentionFree != 7 {
+		t.Errorf("RetentionFree = %d, want 7", RetentionFree)
 	}
-	if RetentionStarter != 7 {
-		t.Errorf("RetentionStarter = %d, want 7", RetentionStarter)
+	if RetentionStarter != 14 {
+		t.Errorf("RetentionStarter = %d, want 14", RetentionStarter)
 	}
 	if RetentionPro != 30 {
 		t.Errorf("RetentionPro = %d, want 30", RetentionPro)
@@ -499,8 +474,8 @@ func TestPlanConstants_MemberLimits(t *testing.T) {
 	if MaxMembersFree != 1 {
 		t.Errorf("MaxMembersFree = %d, want 1", MaxMembersFree)
 	}
-	if MaxMembersStarter != 5 {
-		t.Errorf("MaxMembersStarter = %d, want 5", MaxMembersStarter)
+	if MaxMembersStarter != 3 {
+		t.Errorf("MaxMembersStarter = %d, want 3", MaxMembersStarter)
 	}
 	if MaxMembersPro != 10 {
 		t.Errorf("MaxMembersPro = %d, want 10", MaxMembersPro)

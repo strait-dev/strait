@@ -126,14 +126,14 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	enforcer, _, _ := setupEnforcer(t)
 
 	ctx := context.Background()
-	// Free plan: 5 concurrent runs max.
-	for range 5 {
+	// Free plan: ConcurrentFree concurrent runs max.
+	for range ConcurrentFree {
 		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
 
-	// Run 6 should fail.
+	// Next run should fail.
 	err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc")
 	if err == nil {
 		t.Fatal("expected concurrent limit error")
@@ -333,23 +333,28 @@ func TestReconcileConcurrentRunCount(t *testing.T) {
 
 func TestConcurrentCounter_CrashRecovery(t *testing.T) {
 	t.Parallel()
-	enforcer, _, mr := setupEnforcer(t)
+	enforcer, store, mr := setupEnforcer(t)
 
 	ctx := context.Background()
 
-	// Simulate 5 runs started (increment without decrement = crash scenario)
+	// Use a pro-tier org so the concurrent limit is high enough to simulate a crash.
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_crash": {OrgID: "org_crash", PlanTier: "pro", Status: "active"},
+	}
+
+	// Simulate 5 runs started (increment without decrement = crash scenario).
 	for range 5 {
 		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_crash"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
 
-	// Reconcile: actual executing count is 2 (3 crashed)
+	// Reconcile: actual executing count is 2 (3 crashed).
 	if err := enforcer.ReconcileConcurrentRunCount(ctx, "org_crash", 2); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify counter is now 2
+	// Verify counter is now 2.
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	val, err := rdb.Get(ctx, "strait:org_concurrent:org_crash").Int64()
 	if err != nil {
@@ -1129,8 +1134,8 @@ func TestEnforcer_GetOrgPlanLimits_AllowsHTTPMode(t *testing.T) {
 		planTier string
 		want     bool
 	}{
-		{"free", "free", false},
-		{"starter", "starter", false},
+		{"free", "free", true},
+		{"starter", "starter", true},
 		{"pro", "pro", true},
 		{"enterprise", "enterprise", true},
 	}
@@ -1165,8 +1170,8 @@ func TestEnforcer_GetOrgPlanLimits_NoSubscription_DefaultsFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if limits.AllowsHTTPMode != false {
-		t.Error("AllowsHTTPMode should be false for org with no subscription")
+	if !limits.AllowsHTTPMode {
+		t.Error("AllowsHTTPMode should be true for org with no subscription (free tier allows HTTP mode)")
 	}
 	if limits.PlanTier != domain.PlanFree {
 		t.Errorf("PlanTier = %q, want %q", limits.PlanTier, domain.PlanFree)

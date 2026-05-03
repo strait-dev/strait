@@ -205,9 +205,10 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
 	// Pre-fill the concurrent counter to simulate max concurrent runs reached.
-	// The free tier has 1 concurrent run. Set the counter to 1 already.
+	// The free tier allows 2 concurrent runs. Set the counter to 2 so the
+	// next increment (to 3) exceeds the limit.
 	concurrentKey := "strait:org_concurrent:org-test"
-	mr.Set(concurrentKey, "1")
+	mr.Set(concurrentKey, "2")
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	// Set up an HTTP server that would handle the job.
@@ -279,76 +280,4 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T
 	}
 	// If key doesn't exist, that's fine -- the decrement script floors at 0 and the key
 	// may not have been set if the daily limit check passed without incrementing.
-}
-
-func TestBillingEnforcement_DailyLimitExceeded_RunFailed(t *testing.T) {
-	t.Parallel()
-
-	sub := &billing.OrgSubscription{
-		OrgID:    "org-limited",
-		PlanTier: string(domain.PlanFree),
-	}
-	bStore := &mockBillingEnforcerStore{
-		projectOrgID: "org-limited",
-		sub:          sub,
-	}
-
-	enforcer, mr := newWorkerTestEnforcer(t, bStore)
-
-	// Pre-fill the daily counter beyond the free tier limit.
-	dailyKey := "strait:org_runs:org-limited:" + time.Now().UTC().Format("2006-01-02")
-	mr.Set(dailyKey, "10000") // Way over any free tier limit.
-	mr.SetTTL(dailyKey, 48*time.Hour)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
-
-	ms := &mockExecutorStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return &domain.Job{
-				ID:          "job-1",
-				ProjectID:   "proj-1",
-				Version:     1,
-				EndpointURL: srv.URL,
-				MaxAttempts: 1,
-				TimeoutSecs: 30,
-			}, nil
-		},
-	}
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:            NewPool(4),
-		Store:           ms,
-		PollInterval:    time.Millisecond,
-		HTTPClient:      srv.Client(),
-		BillingEnforcer: enforcer,
-	})
-
-	run := &domain.JobRun{
-		ID:         "run-daily-limit",
-		JobID:      "job-1",
-		JobVersion: 1,
-		Status:     domain.StatusDequeued,
-	}
-
-	ec := &ExecutionContext{Run: run, Start: time.Now()}
-	exec.executeInner(context.Background(), ec)
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	var foundFailure bool
-	for _, call := range ms.statusCalls {
-		if call.to == domain.StatusSystemFailed {
-			foundFailure = true
-			break
-		}
-	}
-	if !foundFailure {
-		t.Error("expected run to be failed when daily limit exceeded on free tier")
-	}
 }

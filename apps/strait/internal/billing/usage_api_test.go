@@ -86,12 +86,14 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 		t.Errorf("deprecated ai assistant field = %+v, want %+v", resp.Usage.AIAssistantMessages, resp.Usage.AIModelCalls)
 	}
 	assertFloatApprox(t, resp.Usage.AIModelCalls.Percent, 35)
-	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, 60)
-	// Members: 2 used / 1 limit = 200% (over limit on free).
+	// ConcurrentRuns: 3 used / ConcurrentFree limit.
+	expectedConcPct := safePercent(3, int64(freeLimits.MaxConcurrentRuns))
+	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, expectedConcPct)
+	// Members: 2 used / MaxMembersFree limit.
 	expectedMemberPct := safePercent(2, int64(freeLimits.MaxMembersPerOrg))
 	assertFloatApprox(t, resp.Usage.Members.Percent, expectedMemberPct)
-	if resp.Usage.RetentionDays != 1 {
-		t.Errorf("retention = %d, want 1", resp.Usage.RetentionDays)
+	if resp.Usage.RetentionDays != RetentionFree {
+		t.Errorf("retention = %d, want %d", resp.Usage.RetentionDays, RetentionFree)
 	}
 }
 

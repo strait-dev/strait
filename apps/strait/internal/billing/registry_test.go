@@ -53,9 +53,9 @@ func TestStaticRegistry_AllowsFeature(t *testing.T) {
 		feature Feature
 		want    bool
 	}{
-		// HTTP mode: Pro+.
-		{domain.PlanFree, FeatureHTTPMode, false},
-		{domain.PlanStarter, FeatureHTTPMode, false},
+		// HTTP mode: all tiers.
+		{domain.PlanFree, FeatureHTTPMode, true},
+		{domain.PlanStarter, FeatureHTTPMode, true},
 		{domain.PlanPro, FeatureHTTPMode, true},
 		{domain.PlanScale, FeatureHTTPMode, true},
 		{domain.PlanEnterprise, FeatureHTTPMode, true},
@@ -141,18 +141,18 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 		{domain.PlanScale, LimitMaxProjectsPerOrg, 50},
 		{domain.PlanEnterprise, LimitMaxProjectsPerOrg, -1},
 
-		{domain.PlanFree, LimitMaxConcurrentRuns, 5},
-		{domain.PlanScale, LimitMaxConcurrentRuns, 500},
-		{domain.PlanEnterprise, LimitMaxConcurrentRuns, -1},
+		{domain.PlanFree, LimitMaxConcurrentRuns, ConcurrentFree},
+		{domain.PlanScale, LimitMaxConcurrentRuns, ConcurrentScale},
+		{domain.PlanEnterprise, LimitMaxConcurrentRuns, ConcurrentEnterprise},
 
-		{domain.PlanFree, LimitMaxWorkflowDAGSteps, 10},
-		{domain.PlanStarter, LimitMaxWorkflowDAGSteps, 50},
-		{domain.PlanPro, LimitMaxWorkflowDAGSteps, 250},
-		{domain.PlanScale, LimitMaxWorkflowDAGSteps, 1000},
+		{domain.PlanFree, LimitMaxWorkflowDAGSteps, MaxDAGStepsFree},
+		{domain.PlanStarter, LimitMaxWorkflowDAGSteps, MaxDAGStepsStarter},
+		{domain.PlanPro, LimitMaxWorkflowDAGSteps, MaxDAGStepsPro},
+		{domain.PlanScale, LimitMaxWorkflowDAGSteps, MaxDAGStepsScale},
 		{domain.PlanEnterprise, LimitMaxWorkflowDAGSteps, -1},
 
-		{domain.PlanFree, LimitMaxScheduledJobs, 10},
-		{domain.PlanScale, LimitMaxScheduledJobs, 500},
+		{domain.PlanFree, LimitMaxScheduledJobs, MaxScheduledFree},
+		{domain.PlanScale, LimitMaxScheduledJobs, MaxScheduledScale},
 
 		{domain.PlanFree, LimitMaxEnvironments, 1},
 		{domain.PlanStarter, LimitMaxEnvironments, 3},
@@ -196,8 +196,9 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 	reg := NewStaticRegistry()
 
 	// Verify that no feature is accidentally available on a tier lower than its minimum.
+	// HTTP mode is now available on all tiers; the following features remain Pro-gated.
 	proFeatures := []Feature{
-		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
+		FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns,
 	}
 	for _, f := range proFeatures {
@@ -276,8 +277,9 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 		// Starter features.
 		{FeatureRBAC, domain.PlanStarter},
 		{FeatureAllCronOverlap, domain.PlanStarter},
+		// HTTP mode is now available on all tiers (free is the first tier).
+		{FeatureHTTPMode, domain.PlanFree},
 		// Pro features.
-		{FeatureHTTPMode, domain.PlanPro},
 		{FeatureApprovalGates, domain.PlanPro},
 		{FeatureSubWorkflows, domain.PlanPro},
 		{FeatureJobChaining, domain.PlanPro},

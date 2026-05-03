@@ -184,8 +184,10 @@ func TestBypass_FreeTierCannotAccessPaidFeatures(t *testing.T) {
 	t.Parallel()
 	reg := NewStaticRegistry()
 
+	// HTTP mode is available on all tiers; only features that are genuinely
+	// paid-tier-gated are listed here.
 	paidFeatures := []Feature{
-		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
+		FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
 		FeatureAuditLogs, FeatureSSO, FeatureSLA,
 		FeatureDedicatedCompute, FeatureStaticIPs, FeatureVPCPeering,
@@ -500,8 +502,9 @@ func TestBypass_UnknownTierGetsFreeEnforcement(t *testing.T) {
 	if limits.MaxProjectsPerOrg != freeLimits.MaxProjectsPerOrg {
 		t.Errorf("unknown tier projects=%d, free=%d", limits.MaxProjectsPerOrg, freeLimits.MaxProjectsPerOrg)
 	}
-	if limits.AllowsHTTPMode {
-		t.Error("unknown tier should not allow HTTP mode")
+	// HTTP mode is available on all tiers including free (the fallback).
+	if !limits.AllowsHTTPMode {
+		t.Error("unknown tier (falls back to free) should allow HTTP mode")
 	}
 	if limits.HasAuditLogs {
 		t.Error("unknown tier should not have audit logs")

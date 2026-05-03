@@ -12,19 +12,20 @@ func TestFreeEnforcement_Presets(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
 
+	// Free tier has AllowedPresets = nil: all presets are allowed.
 	tests := []struct {
 		name   string
 		preset string
 		want   bool
 	}{
-		{"large-1x_rejected", "large-1x", false},
-		{"large-2x_rejected", "large-2x", false},
+		{"large-1x_allowed", "large-1x", true},
+		{"large-2x_allowed", "large-2x", true},
 		{"medium-1x_allowed", "medium-1x", true},
 		{"medium-2x_allowed", "medium-2x", true},
 		{"small-1x_allowed", "small-1x", true},
 		{"micro_allowed", "micro", true},
-		{"case_sensitive_LARGE-1X_rejected", "LARGE-1X", false},
-		{"empty_string_not_in_list", "", false},
+		{"case_insensitive_LARGE-1X_allowed", "LARGE-1X", true},
+		{"empty_string_allowed", "", true},
 	}
 
 	for _, tt := range tests {
@@ -41,8 +42,9 @@ func TestFreeEnforcement_ExecutionMode(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
 
-	if free.AllowsHTTPMode {
-		t.Error("Free.AllowsHTTPMode = true, want false")
+	// HTTP mode is available on all tiers.
+	if !free.AllowsHTTPMode {
+		t.Error("Free.AllowsHTTPMode = false, want true")
 	}
 }
 
@@ -83,8 +85,8 @@ func TestFreeEnforcement_ResourceLimits(t *testing.T) {
 	if free.MaxWebhookEndpoints != 0 {
 		t.Errorf("Free.MaxWebhookEndpoints = %d, want 0", free.MaxWebhookEndpoints)
 	}
-	if free.MaxScheduledJobs != 10 {
-		t.Errorf("Free.MaxScheduledJobs = %d, want 10", free.MaxScheduledJobs)
+	if free.MaxScheduledJobs != MaxScheduledFree {
+		t.Errorf("Free.MaxScheduledJobs = %d, want %d", free.MaxScheduledJobs, MaxScheduledFree)
 	}
 	if free.WebhookEventLevel != "none" {
 		t.Errorf("Free.WebhookEventLevel = %q, want none", free.WebhookEventLevel)
@@ -112,15 +114,15 @@ func TestStarterEnforcement(t *testing.T) {
 		want bool
 	}{
 		{"all_presets_allowed", func() bool { return s.AllowedPresets == nil }, true},
-		{"http_mode_rejected", func() bool { return s.AllowsHTTPMode }, false},
+		{"http_mode_allowed", func() bool { return s.AllowsHTTPMode }, true},
 		{"approval_gates_rejected", func() bool { return s.HasApprovalGates }, false},
 		{"canary_rejected", func() bool { return s.HasCanaryDeployments }, false},
 		{"cron_overlap_skip_allowed", func() bool { return s.AllCronOverlapPolicies }, true},
 		{"webhook_basic_level", func() bool { return s.WebhookEventLevel == "basic" }, true},
 		{"3_webhook_endpoints", func() bool { return s.MaxWebhookEndpoints == 3 }, true},
-		{"25_schedules", func() bool { return s.MaxScheduledJobs == 25 }, true},
+		{"25_schedules", func() bool { return s.MaxScheduledJobs == MaxScheduledStarter }, true},
 		{"3_environments", func() bool { return s.MaxEnvironments == 3 }, true},
-		{"50_workflow_steps", func() bool { return s.MaxWorkflowDAGSteps == 50 }, true},
+		{"dag_steps_at_starter_limit", func() bool { return s.MaxWorkflowDAGSteps == MaxDAGStepsStarter }, true},
 		{"basic_rbac", func() bool { return s.RBACLevel == "basic" }, true},
 		{"no_audit_logs", func() bool { return s.HasAuditLogs }, false},
 	}
@@ -149,13 +151,13 @@ func TestProEnforcement(t *testing.T) {
 		{"http_mode_allowed", func() bool { return p.AllowsHTTPMode }, true},
 		{"approval_gates_allowed", func() bool { return p.HasApprovalGates }, true},
 		{"sub_workflows_allowed", func() bool { return p.HasSubWorkflows }, true},
-		{"250_steps_at_limit", func() bool { return 250 <= p.MaxWorkflowDAGSteps }, true},
-		{"251_steps_over_limit", func() bool { return 251 <= p.MaxWorkflowDAGSteps }, false},
+		{"pro_dag_steps_at_limit", func() bool { return MaxDAGStepsPro <= p.MaxWorkflowDAGSteps }, true},
+		{"pro_dag_steps_over_limit", func() bool { return MaxDAGStepsPro+1 <= p.MaxWorkflowDAGSteps }, false},
 		{"job_chaining_allowed", func() bool { return p.HasJobChaining }, true},
 		{"canary_rejected", func() bool { return p.HasCanaryDeployments }, false},
 		{"compensating_txns_allowed", func() bool { return p.HasCompensatingTxns }, true},
 		{"10_webhook_endpoints", func() bool { return p.MaxWebhookEndpoints == 10 }, true},
-		{"100_schedules", func() bool { return p.MaxScheduledJobs == 100 }, true},
+		{"pro_schedules", func() bool { return p.MaxScheduledJobs == MaxScheduledPro }, true},
 	}
 
 	for _, tt := range tests {
@@ -181,9 +183,9 @@ func TestScaleEnforcement(t *testing.T) {
 	}{
 		{"canary_allowed", func() bool { return s.HasCanaryDeployments }, true},
 		{"audit_logs_allowed", func() bool { return s.HasAuditLogs }, true},
-		{"1000_steps_at_limit", func() bool { return 1000 <= s.MaxWorkflowDAGSteps }, true},
-		{"1001_steps_over_limit", func() bool { return 1001 <= s.MaxWorkflowDAGSteps }, false},
-		{"500_schedules", func() bool { return s.MaxScheduledJobs == 500 }, true},
+		{"scale_dag_steps_at_limit", func() bool { return MaxDAGStepsScale <= s.MaxWorkflowDAGSteps }, true},
+		{"scale_dag_steps_over_limit", func() bool { return MaxDAGStepsScale+1 <= s.MaxWorkflowDAGSteps }, false},
+		{"scale_schedules", func() bool { return s.MaxScheduledJobs == MaxScheduledScale }, true},
 		{"25_webhook_endpoints", func() bool { return s.MaxWebhookEndpoints == 25 }, true},
 		{"all_overlap_policies", func() bool { return s.AllCronOverlapPolicies }, true},
 		{"http_mode_allowed", func() bool { return s.AllowsHTTPMode }, true},
@@ -233,10 +235,10 @@ func TestCronEnforcement(t *testing.T) {
 		overlap bool
 		maxCron int
 	}{
-		{"free_allow_only", domain.PlanFree, false, 10},
-		{"starter_all_policies", domain.PlanStarter, true, 25},
-		{"pro_all_policies", domain.PlanPro, true, 100},
-		{"scale_all_policies", domain.PlanScale, true, 500},
+		{"free_allow_only", domain.PlanFree, false, MaxScheduledFree},
+		{"starter_all_policies", domain.PlanStarter, true, MaxScheduledStarter},
+		{"pro_all_policies", domain.PlanPro, true, MaxScheduledPro},
+		{"scale_all_policies", domain.PlanScale, true, MaxScheduledScale},
 		{"enterprise_all_policies", domain.PlanEnterprise, true, -1},
 	}
 
@@ -267,13 +269,14 @@ func TestCronEnforcement(t *testing.T) {
 		// This is tested at the API level, not the plan level.
 	})
 
-	t.Run("boundary_free_10th_schedule", func(t *testing.T) {
+	t.Run("boundary_free_schedule_limit", func(t *testing.T) {
 		free := GetPlanLimits(domain.PlanFree)
-		if 10 > free.MaxScheduledJobs {
-			t.Error("10th schedule should be at the limit, not over")
+		// MaxScheduledFree is the exact limit.
+		if MaxScheduledFree > free.MaxScheduledJobs {
+			t.Errorf("%dth schedule should be at the limit, not over", MaxScheduledFree)
 		}
-		if 11 <= free.MaxScheduledJobs {
-			t.Error("11th schedule should be over the limit")
+		if MaxScheduledFree+1 <= free.MaxScheduledJobs {
+			t.Errorf("%dth schedule should be over the limit", MaxScheduledFree+1)
 		}
 	})
 }

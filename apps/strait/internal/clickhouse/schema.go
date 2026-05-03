@@ -249,8 +249,8 @@ FROM run_usage_events
 GROUP BY project_id, day
 `
 
-// schemaAlterations contains ALTER TABLE statements for adding or dropping
-// columns on existing tables. Each statement is safe to run repeatedly.
+// schemaAlterations contains ALTER TABLE statements for adding columns on
+// existing tables. Each statement must be idempotent (ADD COLUMN IF NOT EXISTS).
 var schemaAlterations = []struct {
 	table string
 	ddl   string
@@ -262,10 +262,6 @@ var schemaAlterations = []struct {
 	{
 		"run_analytics",
 		"ALTER TABLE run_analytics ADD COLUMN IF NOT EXISTS job_version_id String DEFAULT ''",
-	},
-	{
-		"run_analytics",
-		"ALTER TABLE run_analytics DROP COLUMN IF EXISTS machine_preset",
 	},
 }
 
