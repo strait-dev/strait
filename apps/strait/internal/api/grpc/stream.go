@@ -20,10 +20,11 @@ import (
 
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
-	queries  *store.Queries
-	pub      pubsub.Publisher
-	registry *ConnectionRegistry
-	cfg      *config.Config
+	queries        *store.Queries
+	pub            pubsub.Publisher
+	registry       *ConnectionRegistry
+	cfg            *config.Config
+	resultChannels *ResultChannelRegistry
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -202,11 +203,25 @@ func (s *workerService) handleHeartbeat(ctx context.Context, workerID string, hb
 }
 
 // handleTaskResult reconciles a completed/failed run from the worker.
+// If a WorkerDispatch call is waiting on this run, the result is routed via
+// the ResultChannelRegistry so the dispatch goroutine can handle terminal
+// state transitions (status update, cost recording). If no channel is
+// registered (e.g. the dispatcher timed out), this method falls back to
+// updating the run status directly.
 func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectID string, tr *workerv1.TaskResult) error {
 	if tr == nil || tr.RunID == "" {
 		return nil
 	}
 
+	// Route result to a waiting WorkerDispatch call if one exists.
+	// The dispatch goroutine is responsible for slot accounting in that path.
+	if s.resultChannels != nil && s.resultChannels.Send(tr.RunID, tr) {
+		// Successfully delivered to the waiting dispatcher — it owns the rest.
+		return nil
+	}
+
+	// No dispatcher is waiting (e.g. timed out or disconnected mid-flight).
+	// Fall back: update the run status directly and restore the slot.
 	s.registry.IncrementSlots(workerID)
 
 	var newStatus domain.RunStatus

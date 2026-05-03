@@ -23,20 +23,22 @@ import (
 
 // Server wraps the gRPC server and all its dependencies.
 type Server struct {
-	cfg      *config.Config
-	queries  *store.Queries
-	pub      pubsub.Publisher
-	registry *ConnectionRegistry
-	gs       *grpc.Server
+	cfg            *config.Config
+	queries        *store.Queries
+	pub            pubsub.Publisher
+	registry       *ConnectionRegistry
+	resultChannels *ResultChannelRegistry
+	gs             *grpc.Server
 }
 
 // NewServer creates a new gRPC Server. It does not start listening.
 func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) *Server {
 	s := &Server{
-		cfg:      cfg,
-		queries:  queries,
-		pub:      pub,
-		registry: NewConnectionRegistry(),
+		cfg:            cfg,
+		queries:        queries,
+		pub:            pub,
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
 	}
 	s.gs = s.buildServer()
 	return s
@@ -45,6 +47,12 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher)
 // Registry returns the connection registry for external use (e.g. dispatcher).
 func (s *Server) Registry() *ConnectionRegistry {
 	return s.registry
+}
+
+// WorkerDispatcher returns a WorkerDispatcher wired to this server's registry
+// and result channel registry. Used by the executor to dispatch worker-mode runs.
+func (s *Server) WorkerDispatcher(jwtSigningKey string) *WorkerDispatcher {
+	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels)
 }
 
 func (s *Server) buildServer() *grpc.Server {
@@ -82,10 +90,11 @@ func (s *Server) buildServer() *grpc.Server {
 
 	// Register worker service.
 	svc := &workerService{
-		queries:  s.queries,
-		pub:      s.pub,
-		registry: s.registry,
-		cfg:      s.cfg,
+		queries:        s.queries,
+		pub:            s.pub,
+		registry:       s.registry,
+		cfg:            s.cfg,
+		resultChannels: s.resultChannels,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)
 

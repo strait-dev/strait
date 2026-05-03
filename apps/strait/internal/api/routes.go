@@ -174,6 +174,8 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
+		// Worker-mode log streaming: subscribes to worker:log:<runID> pub/sub channel.
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/logs", s.handleRunLogStream)
 	})
 
 	// Project activity stream (SSE, no timeout -- connections stay open).

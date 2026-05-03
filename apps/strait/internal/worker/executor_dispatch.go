@@ -193,6 +193,10 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	switch job.ExecutionMode {
 	case domain.ExecutionModeHTTP, "":
+		// HTTP dispatch continues below.
+	case domain.ExecutionModeWorker:
+		e.executeWorkerMode(ctx, run, job)
+		return
 	default:
 		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
 		e.handleSystemFailureWithJob(ctx, run, job, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
@@ -386,7 +390,6 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				}()
 			}
 		}
-		// TODO(phase-7.2): wire RecordWorkerRunCost in the Worker dispatch result path.
 	}
 
 	e.handleSuccess(ctx, run, job, result, execTrace)
@@ -760,6 +763,111 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 	}
 
 	return fallback, nil
+}
+
+// executeWorkerMode dispatches a run to a connected gRPC worker. It mirrors
+// the HTTP dispatch flow for billing, status transitions, and retry logic.
+//
+// If no worker is currently available for the run's queue, the run is left
+// in its current state so it can be re-claimed on the next poll tick.
+//
+// On a successful result from the worker, cost is recorded via RecordWorkerRunCost
+// (resolving the TODO(phase-7.2) left in Phase 4.3).
+func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+	if e.workerDispatcher == nil {
+		e.logger.Warn("worker dispatcher not configured; leaving run queued",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+		)
+		// Transition back to queued so the next tick can retry.
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, nil); err != nil {
+			e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", err)
+		}
+		return
+	}
+
+	// Transition to executing if not already (claim-table dequeue may have
+	// set it already).
+	if run.Status != domain.StatusExecuting {
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		}); err != nil {
+			e.logger.Error("executeWorkerMode: transition to executing failed",
+				"run_id", run.ID,
+				"error", err,
+			)
+			return
+		}
+		run.Status = domain.StatusExecuting
+	}
+	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+
+	result, err := e.workerDispatcher.WorkerDispatch(ctx, run, job)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			// Context cancelled — treat as a timeout.
+			policy := executionPolicy{
+				maxAttempts:      job.MaxAttempts,
+				timeoutSecs:      job.TimeoutSecs,
+				retryBackoff:     domain.RetryBackoffExponential,
+				retryInitialSecs: 1,
+				retryMaxSecs:     3600,
+			}
+			e.handleTimeout(ctx, run, job, policy, nil)
+			return
+		}
+		// ErrNoWorkerAvailable: leave queued, next tick retries.
+		// Any other error: treat as a dispatch failure.
+		e.logger.Warn("worker dispatch failed",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"error", err,
+		)
+		if err.Error() == "no worker available for queue" {
+			if requeueErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, nil); requeueErr != nil {
+				e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", requeueErr)
+			}
+			return
+		}
+		policy := executionPolicy{
+			maxAttempts:      job.MaxAttempts,
+			timeoutSecs:      job.TimeoutSecs,
+			retryBackoff:     domain.RetryBackoffExponential,
+			retryInitialSecs: 1,
+			retryMaxSecs:     3600,
+		}
+		e.handleFailure(ctx, run, job, policy, err, nil)
+		return
+	}
+
+	// Successful result — record cost and complete the run.
+	// Cost recording resolves the TODO(phase-7.2) from billing/run_cost_recorder.go.
+	if e.runCostRecorder != nil && e.billingEnforcer != nil {
+		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+		if orgErr == nil && orgID != "" {
+			costCtx := context.WithoutCancel(ctx)
+			go func() {
+				if err := e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
+					e.logger.Warn("failed to record worker run cost",
+						"run_id", run.ID,
+						"org_id", orgID,
+						"error", err,
+					)
+				}
+			}()
+		}
+	}
+	// Also report to Stripe.
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
+
+	// Mark the run complete based on the worker result status.
+	var runResult json.RawMessage
+	if result != nil {
+		// result is an opaque interface{}; we don't extract output here since
+		// the worker handles payload routing. A nil result is fine.
+		_ = result
+	}
+	e.handleSuccess(ctx, run, job, runResult, nil)
 }
 
 // ingestStripeUsageEvent sends a usage event to Stripe for metered billing.

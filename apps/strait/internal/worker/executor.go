@@ -75,6 +75,18 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
+// WorkerRunDispatcher is implemented by grpc.WorkerDispatcher to avoid a
+// circular import between internal/worker and internal/api/grpc. Injected
+// via ExecutorConfig.WorkerDispatcher.
+//
+// The return value is an opaque result container; callers cast it to extract
+// the status and error message fields they need. Defined as interface{} to
+// keep the worker package free of grpc proto imports — the actual type is
+// *workerv1.TaskResult.
+type WorkerRunDispatcher interface {
+	WorkerDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) (interface{}, error)
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool
@@ -89,6 +101,7 @@ type Executor struct {
 	publisher                pubsub.Publisher
 	metrics                  *telemetry.Metrics
 	workflowCallback         WorkflowCallback
+	workerDispatcher         WorkerRunDispatcher
 	partitionCycle           []string
 	nextPartition            int
 	bulkhead                 *ShardedBulkhead
@@ -190,6 +203,9 @@ type ExecutorConfig struct {
 	// Typically injected from grpc.ConnectionRegistry via the QueueSnapshotter
 	// interface to avoid a circular import.
 	QueueSnapshotter QueueSnapshotter
+	// WorkerDispatcher handles gRPC-based dispatch for ExecutionModeWorker runs.
+	// Injected from the gRPC server to avoid a circular import.
+	WorkerDispatcher WorkerRunDispatcher
 	// DegradedPollInterval is the shortened poll interval used when the
 	// queue notifier enters degraded mode (LISTEN disconnected for too long).
 	// Zero/negative falls back to 1 second.
@@ -304,6 +320,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		degraded:                 cfg.Degraded,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
 		queueSnapshotter:         cfg.QueueSnapshotter,
+		workerDispatcher:         cfg.WorkerDispatcher,
 		queueMetrics:             resolveQueueMetrics(),
 	}
 }

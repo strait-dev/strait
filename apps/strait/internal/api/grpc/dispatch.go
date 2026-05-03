@@ -1,0 +1,293 @@
+package grpc
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"sync"
+	"time"
+
+	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/domain"
+	"strait/internal/store"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+)
+
+// WorkerDispatcher picks a connected worker, sends a TaskAssignment over the
+// gRPC stream, and awaits the TaskResult via a per-run result channel.
+// It is called from the executor dispatch path when job.ExecutionMode == "worker".
+//
+// On no available worker for the run's queue, WorkerDispatch returns
+// ErrNoWorkerAvailable so the caller can leave the run queued for the next tick.
+type WorkerDispatcher struct {
+	registry       *ConnectionRegistry
+	queries        *store.Queries
+	jwtSigningKey  string
+	resultChannels *ResultChannelRegistry
+}
+
+// ResultChannelRegistry manages per-run result channels shared between the
+// stream recv loop (which writes) and WorkerDispatch (which reads).
+type ResultChannelRegistry struct {
+	mu       sync.Mutex
+	channels map[string]chan *workerv1.TaskResult
+}
+
+// NewResultChannelRegistry creates an empty registry.
+func NewResultChannelRegistry() *ResultChannelRegistry {
+	return &ResultChannelRegistry{
+		channels: make(map[string]chan *workerv1.TaskResult),
+	}
+}
+
+// Register creates a buffered channel for the given run ID and returns it.
+func (r *ResultChannelRegistry) Register(runID string) chan *workerv1.TaskResult {
+	ch := make(chan *workerv1.TaskResult, 1)
+	r.mu.Lock()
+	r.channels[runID] = ch
+	r.mu.Unlock()
+	return ch
+}
+
+// Deregister removes the channel for the given run ID. Must be called by
+// WorkerDispatch when the dispatch completes (deferred).
+func (r *ResultChannelRegistry) Deregister(runID string) {
+	r.mu.Lock()
+	delete(r.channels, runID)
+	r.mu.Unlock()
+}
+
+// Send delivers a TaskResult to the channel for the given run ID.
+// Returns true if a channel was registered and the send succeeded.
+func (r *ResultChannelRegistry) Send(runID string, result *workerv1.TaskResult) bool {
+	r.mu.Lock()
+	ch, ok := r.channels[runID]
+	r.mu.Unlock()
+	if !ok {
+		return false
+	}
+	select {
+	case ch <- result:
+		return true
+	default:
+		// Channel already has a result; discard duplicate.
+		return false
+	}
+}
+
+// ErrNoWorkerAvailable is returned when no connected worker services the run's queue.
+var ErrNoWorkerAvailable = fmt.Errorf("no worker available for queue")
+
+// NewWorkerDispatcher creates a WorkerDispatcher. The resultChannels registry
+// must be shared with the workerService so TaskResult messages received on the
+// stream are routed to the waiting WorkerDispatch call.
+func NewWorkerDispatcher(
+	registry *ConnectionRegistry,
+	queries *store.Queries,
+	jwtSigningKey string,
+	resultChannels *ResultChannelRegistry,
+) *WorkerDispatcher {
+	return &WorkerDispatcher{
+		registry:       registry,
+		queries:        queries,
+		jwtSigningKey:  jwtSigningKey,
+		resultChannels: resultChannels,
+	}
+}
+
+// WorkerDispatch assigns a run to the least-loaded active worker for the
+// run's queue and project. It:
+//  1. Picks a worker via PickWorkerForQueue (most slots available).
+//  2. Inserts a worker_tasks row.
+//  3. Sends TaskAssignment over the worker's send channel.
+//  4. Waits for TaskResult via the per-run buffered result channel.
+//  5. On ctx.Done(), sends CancelTask and returns ctx.Err().
+//
+// Callers are responsible for marking the run terminal and recording cost
+// after WorkerDispatch returns.
+//
+// WorkerDispatch satisfies worker.WorkerRunDispatcher: the return value is
+// boxed as interface{} and can be inspected via TaskResultStatus /
+// TaskResultError helpers in this package.
+func (d *WorkerDispatcher) WorkerDispatch(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+) (interface{}, error) {
+	worker, ok := d.registry.PickWorkerForQueue(run.ProjectID, job.Queue)
+	if !ok {
+		return nil, ErrNoWorkerAvailable
+	}
+
+	// Decrement available slots (server-side authoritative accounting).
+	d.registry.DecrementSlots(worker.WorkerID)
+
+	// Insert worker_tasks record so the reaper can pick it up if the
+	// worker disconnects without reporting a result.
+	task := &domain.WorkerTask{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		WorkerID:  worker.WorkerID,
+		RunID:     run.ID,
+		ProjectID: run.ProjectID,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}
+	if err := d.queries.CreateWorkerTask(ctx, task); err != nil {
+		d.registry.IncrementSlots(worker.WorkerID)
+		return nil, fmt.Errorf("worker dispatch: record task: %w", err)
+	}
+
+	// Register the result channel before sending the assignment so we can
+	// never miss a TaskResult that arrives before we start waiting.
+	resultCh := d.resultChannels.Register(run.ID)
+	defer d.resultChannels.Deregister(run.ID)
+
+	// Build and send the TaskAssignment.
+	assignment := d.buildAssignment(run, job)
+	msg := &workerv1.ServerMessage{
+		Payload: &workerv1.ServerMessage_TaskAssignment{
+			TaskAssignment: assignment,
+		},
+	}
+
+	if worker.SendCh == nil {
+		// Stream already closed before we could send.
+		d.registry.IncrementSlots(worker.WorkerID)
+		return nil, ErrNoWorkerAvailable
+	}
+
+	select {
+	case worker.SendCh <- msg:
+	case <-ctx.Done():
+		d.registry.IncrementSlots(worker.WorkerID)
+		return nil, ctx.Err()
+	}
+
+	// Wait for the TaskResult or context cancellation.
+	select {
+	case result, open := <-resultCh:
+		d.registry.IncrementSlots(worker.WorkerID)
+		if !open || result == nil {
+			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
+		}
+		// Update the worker_tasks row.
+		taskStatus := domain.WorkerTaskStatusFailed
+		if result.Status == "success" {
+			taskStatus = domain.WorkerTaskStatusCompleted
+		}
+		if err := d.queries.UpdateWorkerTaskStatus(ctx, task.ID, taskStatus); err != nil {
+			slog.Warn("worker dispatch: update task status",
+				"task_id", task.ID,
+				"run_id", run.ID,
+				"error", err,
+			)
+		}
+		// Return as interface{} so callers in worker package don't need to import workerv1.
+		return result, nil
+
+	case <-ctx.Done():
+		// Best-effort cancellation: notify the worker.
+		d.sendCancel(worker, run.ID)
+		d.registry.IncrementSlots(worker.WorkerID)
+		return nil, ctx.Err()
+	}
+}
+
+// sendCancel sends a CancelTask message to the worker. Non-blocking; errors
+// are silently dropped because the worker may have already disconnected.
+func (d *WorkerDispatcher) sendCancel(worker *ConnectedWorker, runID string) {
+	if worker.SendCh == nil {
+		return
+	}
+	cancelMsg := &workerv1.ServerMessage{
+		Payload: &workerv1.ServerMessage_CancelTask{
+			CancelTask: &workerv1.CancelTask{
+				RunID:  runID,
+				Reason: "context cancelled",
+			},
+		},
+	}
+	select {
+	case worker.SendCh <- cancelMsg:
+	default:
+	}
+}
+
+// buildAssignment constructs a TaskAssignment for the given run and job,
+// including JWT run-token and HMAC signature (matching the HTTP dispatch path).
+func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) *workerv1.TaskAssignment {
+	a := &workerv1.TaskAssignment{
+		RunID:       run.ID,
+		JobSlug:     job.Slug,
+		Queue:       job.Queue,
+		PayloadJSON: run.Payload,
+		TimeoutSecs: int32(job.TimeoutSecs),
+	}
+
+	// JWT run-token so the worker SDK can authenticate callbacks.
+	if d.jwtSigningKey != "" {
+		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		if run.ExpiresAt != nil {
+			expiresAt = *run.ExpiresAt
+		}
+		claims := jwt.RegisteredClaims{
+			Subject:   run.ID,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		if signed, err := tok.SignedString([]byte(d.jwtSigningKey)); err == nil {
+			a.RunTokenJWT = signed
+		}
+	}
+
+	// HMAC-SHA256 body+timestamp signing (same algorithm as worker.SignHTTPDispatch
+	// in internal/worker/sign.go — reproduced here to avoid circular import).
+	if job.EndpointSigningSecret != "" {
+		ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+		a.HMACTimestamp = ts
+		a.HMACSignature = dispatchHMAC(job.EndpointSigningSecret, ts, run.Payload)
+	}
+
+	return a
+}
+
+// dispatchHMAC returns `v1=<hex-sha256>` for the given secret, timestamp, and
+// body. Matches worker.SignHTTPDispatch exactly.
+func dispatchHMAC(secret, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	return "v1=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// TaskResultStatus returns the status string from an opaque TaskResult
+// (interface{}) returned by WorkerDispatch. Returns "" on nil or wrong type.
+func TaskResultStatus(opaque interface{}) string {
+	if opaque == nil {
+		return ""
+	}
+	r, ok := opaque.(*workerv1.TaskResult)
+	if !ok {
+		return ""
+	}
+	return r.Status
+}
+
+// TaskResultError returns the error message from an opaque TaskResult.
+func TaskResultError(opaque interface{}) string {
+	if opaque == nil {
+		return ""
+	}
+	r, ok := opaque.(*workerv1.TaskResult)
+	if !ok {
+		return ""
+	}
+	return r.ErrorMessage
+}
