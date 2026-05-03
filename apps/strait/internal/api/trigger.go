@@ -285,7 +285,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 						JobVersionID: job.VersionID,
 						ExpiresAt:    &batchExpiresAt,
 						CreatedBy:    actorFromContext(ctx),
-						IsRollback:   job.RollbackSourceDeploymentID != "",
+						IsRollback:   false,
 					}
 					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
@@ -373,7 +373,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		JobVersionID:   job.VersionID,
 		CreatedBy:      actorFromContext(ctx),
 		ExpiresAt:      &expiresAt,
-		IsRollback:     job.RollbackSourceDeploymentID != "",
+		IsRollback:     false,
 	}
 	if dependencyKey != "" {
 		run.Metadata = map[string]string{"dependency_key": dependencyKey}
