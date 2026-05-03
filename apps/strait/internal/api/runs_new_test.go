@@ -445,7 +445,7 @@ func TestHandlePauseRun_HTTPRun_CanBePaused(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for HTTP run pause (managed guard removed), got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected 200 for HTTP run pause, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -93,12 +93,11 @@ func FuzzExporterEnqueue(f *testing.F) {
 // FuzzInsertBatchRecordTyping exercises the insertBatch type-switch with a mix
 // of valid record types and arbitrary unknown types.
 func FuzzInsertBatchRecordTyping(f *testing.F) {
-	f.Add("run-id", "job-id", "proj-id", "completed", "standard", "small", 1, "api")
-	f.Add("", "", "", "", "", "", 0, "")
-	f.Add("\x00null\x00", "j\x00b", "p\nid", "status'quote", "mode\"dbl", "preset<html>", -1, "trigger\ttab")
+	f.Add("run-id", "job-id", "proj-id", "completed", "standard", 1, "api")
+	f.Add("", "", "", "", "", 0, "")
+	f.Add("\x00null\x00", "j\x00b", "p\nid", "status'quote", "mode\"dbl", -1, "trigger\ttab")
 
-	f.Fuzz(func(t *testing.T, runID, jobID, projectID, status, execMode, preset string, attempt int, triggeredBy string) {
-		_ = preset // preset field removed from RunAnalyticsRecord with managed-compute migration
+	f.Fuzz(func(t *testing.T, runID, jobID, projectID, status, execMode string, attempt int, triggeredBy string) {
 		logger := slog.Default()
 		// Exporter with nil client: insertBatch returns nil early, but
 		// the type-switch grouping code still runs if we call it with a

@@ -164,7 +164,7 @@ func TestThroughputCeiling(t *testing.T) {
 	}
 }
 
-// TestConcurrencyCeiling finds the maximum concurrent connections for HTTP and Managed modes.
+// TestConcurrencyCeiling finds the maximum concurrent connections for HTTP-mode dispatch.
 // Use: go test -tags=loadtest -run TestConcurrencyCeiling -timeout 1h ./internal/loadtest/...
 func TestConcurrencyCeiling(t *testing.T) {
 	h := setupHarness(t)

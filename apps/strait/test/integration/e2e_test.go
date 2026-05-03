@@ -1,7 +1,7 @@
 // Package integration runs end-to-end tests against a live Strait service.
 // It spins up a local HTTP server that acts as a job endpoint (simulating
-// what a real user's code does inside Fly Machines), receives dispatches
-// from the Strait worker, calls back SDK endpoints, and completes.
+// what a real user's HTTP-mode job endpoint does), receives dispatches from
+// the Strait worker, calls back SDK endpoints, and completes.
 package integration
 
 import (
@@ -106,8 +106,8 @@ func (s *sdkClient) get(path string) (int, []byte, error) {
 	return resp.StatusCode, data, nil
 }
 
-// jobEndpoint is a local HTTP server that simulates a real job running inside
-// a Fly Machine. When Strait dispatches to it, it exercises every SDK callback.
+// jobEndpoint is a local HTTP server that simulates a customer's HTTP-mode job
+// endpoint. When Strait dispatches to it, it exercises every SDK callback.
 type jobEndpoint struct {
 	server   *http.Server
 	addr     string
