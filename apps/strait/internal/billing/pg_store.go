@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// unmarshalJSON is a thin wrapper so callers don't need to import encoding/json.
+func unmarshalJSON(data []byte, v any) error {
+	return json.Unmarshal(data, v)
+}
 
 var ErrSubscriptionNotFound = errors.New("organization subscription not found")
 
@@ -39,6 +45,7 @@ func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error
 
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
 	var sub OrgSubscription
+	var addOnsJSON []byte
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
@@ -49,6 +56,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
 			COALESCE(monthly_usage_email, false),
+			COALESCE(add_ons, '{}'::jsonb),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE org_id = $1
@@ -62,6 +70,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 		&sub.EnforcementMode,
 		&sub.MonthlyUsageEmail,
+		&addOnsJSON,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -69,6 +78,11 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 	}
 	if err != nil {
 		return nil, fmt.Errorf("getting org subscription: %w", err)
+	}
+	if len(addOnsJSON) > 0 {
+		if jsonErr := unmarshalJSON(addOnsJSON, &sub.AddOns); jsonErr != nil {
+			return nil, fmt.Errorf("unmarshalling add_ons for org %s: %w", orgID, jsonErr)
+		}
 	}
 	return &sub, nil
 }

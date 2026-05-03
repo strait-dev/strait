@@ -332,6 +332,9 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits = EffectiveLimits(limits, addons)
 	}
 
+	// Apply subscription-level add-on adjustments (add_ons JSONB column).
+	limits = applySubscriptionAddOns(limits, sub.AddOns)
+
 	// Apply per-org overrides from support.
 	if sub.OverrideDailyRunLimit != nil {
 		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
@@ -1376,4 +1379,37 @@ type SpendingLimitResponse struct {
 	IncludedCreditUsd float64 `json:"included_credit_usd"`
 	OverageSpendUsd   float64 `json:"overage_spend_usd"`
 	IsHardCapped      bool    `json:"is_hard_capped"`
+}
+
+// prioritySlotPackIncrement is the number of additional MaxDispatchPriority levels
+// granted per priority_slot_pack unit.
+const prioritySlotPackIncrement = 10
+
+// applySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
+// add-ons stored in the add_ons JSONB column. Enforcement points for limits that
+// don't yet exist are annotated with TODO comments.
+func applySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
+	result := base
+
+	// Extra data retention: each pack adds retentionPackDays days.
+	if addOns.RetentionPack > 0 && result.RetentionDays > 0 {
+		result.RetentionDays += addOns.RetentionPack * retentionPackDays
+	}
+
+	// Priority slot packs: each pack extends MaxDispatchPriority by prioritySlotPackIncrement.
+	if addOns.PrioritySlotPack > 0 && result.MaxDispatchPriority != -1 {
+		result.MaxDispatchPriority += addOns.PrioritySlotPack * prioritySlotPackIncrement
+	}
+
+	// Log drain volume: extends base log drain capacity.
+	// TODO(phase-4.5): wire log_drain_volume_gb into the log-drain volume meter once
+	// per-org volume tracking is implemented in internal/logdrain.
+	_ = addOns.LogDrainVolumeGB
+
+	// Additional worker connections: extends WorkerConnections limit.
+	if addOns.WorkerConnections > 0 && result.WorkerConnections != -1 {
+		result.WorkerConnections += addOns.WorkerConnections
+	}
+
+	return result
 }
