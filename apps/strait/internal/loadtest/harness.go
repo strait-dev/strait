@@ -23,10 +23,6 @@ type ExecutionMode string
 const (
 	// ModeHTTP creates only HTTP endpoint jobs.
 	ModeHTTP ExecutionMode = "http"
-	// ModeManaged creates only managed container jobs.
-	ModeManaged ExecutionMode = "managed"
-	// ModeMixed creates both HTTP and managed jobs (70% HTTP, 30% managed).
-	ModeMixed ExecutionMode = "mixed"
 )
 
 // Harness is the top-level test orchestrator. It sets up infrastructure,
@@ -64,11 +60,8 @@ type HarnessConfig struct {
 	// MetricsInterval is how often to sample metrics.
 	MetricsInterval time.Duration
 
-	// ExecutionMode controls which job types are created (http, managed, mixed).
+	// ExecutionMode controls which job types are created.
 	ExecutionMode ExecutionMode
-
-	// ManagedImage is the container image for managed jobs.
-	ManagedImage string
 }
 
 // NewHarness creates a test harness with the given configuration.
@@ -323,103 +316,56 @@ func (qs *QueueStats) QueueDepth() int64 {
 	return qs.Queued + qs.Delayed
 }
 
-// SetupLoadTestJobs creates the standard load test jobs and returns their IDs.
-// The test server must be started before calling this. When the harness
-// ExecutionMode is managed or mixed, managed container jobs are also created.
+// SetupLoadTestJobs creates the standard HTTP load test jobs and returns their IDs.
+// The test server must be started before calling this.
 func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[string]string, error) {
 	testServerURL := fmt.Sprintf("http://%s", h.TestServer.Addr())
 	jobs := map[string]string{}
 
-	mode := h.Config.ExecutionMode
-	if mode == "" {
-		mode = ModeHTTP
-	}
-
-	// HTTP jobs (created for http and mixed modes).
-	if mode == ModeHTTP || mode == ModeMixed {
-		httpConfigs := []JobConfig{
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Fast Echo",
-				Slug:          "loadtest-fast-echo",
-				EndpointURL:   testServerURL + "/fast-echo",
-				ExecutionMode: "http",
-				MaxAttempts:   1,
-				TimeoutSecs:   30,
-			},
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Slow Process",
-				Slug:          "loadtest-slow-process",
-				EndpointURL:   testServerURL + "/slow-process",
-				ExecutionMode: "http",
-				MaxAttempts:   1,
-				TimeoutSecs:   60,
-			},
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Variable Load",
-				Slug:          "loadtest-variable-load",
-				EndpointURL:   testServerURL + "/variable-load",
-				ExecutionMode: "http",
-				MaxAttempts:   1,
-				TimeoutSecs:   30,
-			},
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Flaky",
-				Slug:          "loadtest-flaky",
-				EndpointURL:   testServerURL + "/flaky",
-				ExecutionMode: "http",
-				MaxAttempts:   3,
-				TimeoutSecs:   30,
-			},
-		}
-
-		if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
-			return nil, err
-		}
-	}
-
-	// Managed container jobs (created for managed and mixed modes).
-	if mode == ModeManaged || mode == ModeMixed {
-		managedConfigs := h.managedJobConfigs(projectID)
-		if err := h.createJobs(ctx, projectID, managedConfigs, jobs); err != nil {
-			return nil, err
-		}
-	}
-
-	return jobs, nil
-}
-
-// managedJobConfigs returns the job configurations for managed container jobs.
-// Callers using ModeManaged or ModeMixed must set HarnessConfig.ManagedImage
-// to a pullable container image; there is no default.
-func (h *Harness) managedJobConfigs(projectID string) []JobConfig {
-	image := h.Config.ManagedImage
-
-	return []JobConfig{
+	httpConfigs := []JobConfig{
 		{
 			ProjectID:     projectID,
-			Name:          "Load Test Managed Fast",
-			Slug:          "loadtest-managed-fast",
-			ExecutionMode: "managed",
-			ImageURI:      image,
-			MachinePreset: "micro",
+			Name:          "Load Test Fast Echo",
+			Slug:          "loadtest-fast-echo",
+			EndpointURL:   testServerURL + "/fast-echo",
+			ExecutionMode: "http",
 			MaxAttempts:   1,
 			TimeoutSecs:   30,
 		},
 		{
 			ProjectID:     projectID,
-			Name:          "Load Test Managed Slow",
-			Slug:          "loadtest-managed-slow",
-			ExecutionMode: "managed",
-			ImageURI:      image,
-			MachinePreset: "micro",
+			Name:          "Load Test Slow Process",
+			Slug:          "loadtest-slow-process",
+			EndpointURL:   testServerURL + "/slow-process",
+			ExecutionMode: "http",
 			MaxAttempts:   1,
 			TimeoutSecs:   60,
 		},
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Variable Load",
+			Slug:          "loadtest-variable-load",
+			EndpointURL:   testServerURL + "/variable-load",
+			ExecutionMode: "http",
+			MaxAttempts:   1,
+			TimeoutSecs:   30,
+		},
+		{
+			ProjectID:     projectID,
+			Name:          "Load Test Flaky",
+			Slug:          "loadtest-flaky",
+			EndpointURL:   testServerURL + "/flaky",
+			ExecutionMode: "http",
+			MaxAttempts:   3,
+			TimeoutSecs:   30,
+		},
 	}
+
+	if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
+		return nil, err
+	}
+
+	return jobs, nil
 }
 
 // createJobs creates the given job configs, falling back to slug lookup on conflict.
