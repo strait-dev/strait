@@ -269,21 +269,6 @@ func TestEnforcer_CheckSpendingLimit_HardCapZeroBlocksAnySpend(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckManagedRunLimit_FreeTierBudgetMode_NoLegacyCap(t *testing.T) {
-	t.Parallel()
-	enforcer, store, _ := setupEnforcer(t)
-
-	store.subscriptions = map[string]*OrgSubscription{
-		"org_free": {OrgID: "org_free", PlanTier: "free", Status: "active"},
-	}
-
-	for range 250 {
-		if err := enforcer.CheckManagedRunLimit(context.Background(), "org_free"); err != nil {
-			t.Fatalf("legacy managed-run cap should be disabled for free-tier budget mode: %v", err)
-		}
-	}
-}
-
 func TestEnforcer_GetOrgPlanLimits_Cache(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)

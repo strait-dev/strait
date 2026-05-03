@@ -67,10 +67,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 	switch cfg.Mode {
 	case "api", "worker", "all":
 		// Standard modes — fall through to normal service startup.
-	case "dispatcher":
-		return runDispatcher(ctx, cfg)
 	default:
-		return fmt.Errorf("invalid mode %q: must be api, worker, all, or dispatcher", cfg.Mode)
+		return fmt.Errorf("invalid mode %q: must be api, worker, or all", cfg.Mode)
 	}
 
 	setupLogging(cfg.LogLevel, cfg.LogFormat)

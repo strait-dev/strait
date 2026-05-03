@@ -762,12 +762,20 @@ func TestHandlePauseRun_ManagedStopsContainer(t *testing.T) {
 	}
 }
 
-func TestHandlePauseRun_HTTPRun_Rejected(t *testing.T) {
+func TestHandlePauseRun_HTTPRun_CanBePaused(t *testing.T) {
 	t.Parallel()
 
+	getCalls := 0
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeHTTP}, nil
+			getCalls++
+			if getCalls == 1 {
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeHTTP}, nil
+			}
+			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeHTTP}, nil
+		},
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
 		},
 	}
 
@@ -775,8 +783,8 @@ func TestHandlePauseRun_HTTPRun_Rejected(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for HTTP run pause (managed guard removed), got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -902,21 +910,21 @@ func TestHandleRestartRun_WithPresetOverride(t *testing.T) {
 	}
 }
 
-func TestHandleRestartRun_InvalidPreset(t *testing.T) {
+func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusCompleted, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", `{"machine_preset":"invalid_preset"}`))
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", `{}`))
 
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected 400 for completed run restart, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

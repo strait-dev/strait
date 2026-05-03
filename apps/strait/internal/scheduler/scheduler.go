@@ -104,14 +104,6 @@ func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	}
 }
 
-// WithMachineStopper attaches a container runtime to the cron scheduler
-// for stopping managed containers on cancel_running overlap policy.
-func WithMachineStopper(ms MachineStopper) SchedulerOption {
-	return func(s *Scheduler) {
-		s.cron.machineStopper = ms
-	}
-}
-
 // WithChExporter attaches the ClickHouse exporter to the reaper for event trigger analytics.
 func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
 	return func(s *Scheduler) {

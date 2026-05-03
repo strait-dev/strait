@@ -976,33 +976,30 @@ func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// dispatch: managed execution mode without containerRuntime -- system failure
+// dispatch: managed execution mode -- always system_failed (mode unsupported)
 // ---------------------------------------------------------------------------.
 
-func TestDispatch_ManagedMode_NoRuntime_SystemFails(t *testing.T) {
+func TestDispatch_ManagedMode_SystemFails(t *testing.T) {
 	t.Parallel()
 
 	st := &mockExecutorStore{}
 	st.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
 		job := testJob("", 1, 30)
 		job.ExecutionMode = domain.ExecutionModeManaged
-		job.ImageURI = "registry.example.com/worker:latest"
-		job.MachinePreset = "shared-cpu-1x"
 		return job, nil
 	}
 
 	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, http.DefaultClient)
-	// No containerRuntime configured.
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
 	if len(calls) == 0 {
-		t.Fatal("expected status update for managed mode without runtime")
+		t.Fatal("expected status update for managed mode")
 	}
 	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("expected system_failed, got %s", calls[0].to)
+		t.Fatalf("expected system_failed for unsupported managed mode, got %s", calls[0].to)
 	}
 }
 

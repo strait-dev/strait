@@ -6,7 +6,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 )
 
@@ -15,7 +14,7 @@ func (s *Server) checkRegionForPlan(ctx context.Context, projectID, region strin
 	if region == "" {
 		return nil
 	}
-	if !compute.IsValidRegion(region) {
+	if !domain.IsValidRegion(region) {
 		return huma.Error400BadRequest("invalid region: " + region)
 	}
 	if !s.config.EnforceRegionGating {
@@ -36,7 +35,7 @@ func (s *Server) checkPreferredRegionsForPlan(ctx context.Context, projectID str
 
 	// Validate all region codes in a single pass.
 	for _, pr := range regions {
-		if !compute.IsValidRegion(pr) {
+		if !domain.IsValidRegion(pr) {
 			return huma.Error400BadRequest("invalid preferred region: " + pr)
 		}
 	}

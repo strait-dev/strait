@@ -477,17 +477,6 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// CheckManagedRunLimit is a no-op: the monthly managed-execution cap was
-// gated on FreeManagedRunsPerMonth which has been removed along with the
-// preset cost estimator. The method signature is kept so callers compile.
-func (e *Enforcer) CheckManagedRunLimit(_ context.Context, _ string) error {
-	return nil
-}
-
-// DecrManagedRunCount is a no-op: the managed run counter was used by the
-// preset cost estimator which has been removed.
-func (e *Enforcer) DecrManagedRunCount(_ context.Context, _ string) {}
-
 // concurrentCheckScript is a Lua script that atomically increments the counter
 // and checks the limit. Returns the new count if under limit, or -1 if at/over.
 // KEYS[1] = counter key, ARGV[1] = max limit, ARGV[2] = TTL seconds.
@@ -749,51 +738,6 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 		Plan:         string(domain.PlanFree),
 		UpgradeURL:   "/upgrade",
 	}
-}
-
-// CheckProjectBudgetLimit checks if a project has exceeded its monthly budget.
-// Returns ErrProjectBudgetReached if the budget is exceeded and action is "reject".
-// Fails open on any store errors.
-func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string) error {
-	if projectID == "" {
-		return nil
-	}
-
-	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
-	if err != nil {
-		e.logger.Warn("failed to get project budget", "project_id", projectID, "error", err)
-		return e.boundedFailOpen(ctx, projectID, "project_budget", "db_error")
-	}
-
-	if budget < 0 {
-		return nil // no budget set
-	}
-
-	periodStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
-	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
-	if err != nil {
-		e.logger.Warn("failed to get project period spend", "project_id", projectID, "error", err)
-		return e.boundedFailOpen(ctx, projectID, "project_budget", "db_spend_error")
-	}
-
-	if budget == 0 || spend >= budget {
-		if action == "reject" {
-			return &LimitError{
-				Code:         "project_budget_reached",
-				Message:      fmt.Sprintf("This project's monthly budget of $%.2f has been reached.", float64(budget)/1000000),
-				CurrentUsage: spend,
-				Limit:        budget,
-				UpgradeURL:   "/settings/billing",
-			}
-		}
-		e.logger.Warn("project budget reached (notify mode)",
-			"project_id", projectID,
-			"spend_microusd", spend,
-			"budget_microusd", budget,
-		)
-	}
-
-	return nil
 }
 
 // GetProjectOrgID resolves the org ID for a project via the billing store.

@@ -1296,57 +1296,6 @@ func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckProjectBudget_NotifyMode(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budget: 100000, action: "notify", spend: 200000}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	// Notify mode should not reject even when over budget.
-	err := e.CheckProjectBudgetLimit(context.Background(), "proj-notify")
-	if err != nil {
-		t.Fatalf("expected nil for notify mode, got %v", err)
-	}
-}
-
-func TestEnforcer_CheckProjectBudget_DBError(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budgetErr: errors.New("db down")}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	// Should fail open.
-	err := e.CheckProjectBudgetLimit(context.Background(), "proj-db-err")
-	if err != nil {
-		t.Fatalf("expected fail-open (nil), got %v", err)
-	}
-}
-
-func TestEnforcer_CheckProjectBudget_SpendDBError(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budget: 100000, action: "reject", spendErr: errors.New("spend query failed")}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	// Should fail open on spend query error.
-	err := e.CheckProjectBudgetLimit(context.Background(), "proj-spend-err")
-	if err != nil {
-		t.Fatalf("expected fail-open (nil), got %v", err)
-	}
-}
-
-func TestEnforcer_CheckProjectBudget_EmptyProjectID(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budget: 0, action: "reject"}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	err := e.CheckProjectBudgetLimit(context.Background(), "")
-	if err != nil {
-		t.Fatalf("expected nil for empty project ID, got %v", err)
-	}
-}
-
 // ============================================================.
 // Payment status / grace period paths
 // ============================================================.

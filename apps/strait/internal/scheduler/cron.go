@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
-	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -34,18 +32,12 @@ type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
 }
 
-// MachineStopper can stop a running managed container.
-type MachineStopper interface {
-	Stop(ctx context.Context, machineID string) error
-}
-
 type CronScheduler struct {
 	ctx               context.Context
 	cron              *cron.Cron
 	store             CronStore
 	queue             queue.Queue
 	workflowTrigger   WorkflowTrigger
-	machineStopper    MachineStopper
 	workflowCallback  WorkflowCallback
 	metrics           *telemetry.Metrics
 	defaultRunTTLSecs int
@@ -69,11 +61,6 @@ func (cs *CronScheduler) WithMetrics(m *telemetry.Metrics) *CronScheduler {
 
 func (cs *CronScheduler) WithDefaultRunTTLSecs(ttl int) *CronScheduler {
 	cs.defaultRunTTLSecs = ttl
-	return cs
-}
-
-func (cs *CronScheduler) WithMachineStopper(ms MachineStopper) *CronScheduler {
-	cs.machineStopper = ms
 	return cs
 }
 
@@ -243,49 +230,9 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 	slog.Info("cron workflow triggered", "workflow_id", workflow.ID, "project_id", workflow.ProjectID)
 }
 
-// machineStopTimeout caps how long the scheduler waits for a single
-// managed container to stop before giving up and moving on.
-const machineStopTimeout = 10 * time.Second
-
-// maxConcurrentStops limits the number of concurrent machine stop
-// operations during cron cancel to prevent unbounded goroutine spawning.
-const maxConcurrentStops = 10
-
 // processCanceledRuns handles side effects for runs canceled by the
-// cancel_running overlap policy: stops managed containers, cancels child
-// runs, and notifies the workflow engine.
+// cancel_running overlap policy: cancels child runs and notifies the workflow engine.
 func (cs *CronScheduler) processCanceledRuns(ctx context.Context, jobID string, runs []store.CanceledRun) {
-	if cs.machineStopper != nil {
-		sem := make(chan struct{}, maxConcurrentStops)
-		var wg sync.WaitGroup
-		for _, cr := range runs {
-			if cr.ExecutionMode == domain.ExecutionModeManaged && cr.MachineID != "" {
-				wg.Add(1)
-				sem <- struct{}{}
-				go func(id, machineID string) { //nolint:gosec // detached context intentional: stop must survive parent cancel
-					defer wg.Done()
-					defer func() { <-sem }()
-					defer func() {
-						if r := recover(); r != nil {
-							slog.Error("panic stopping container on cron cancel",
-								"run_id", id, "machine_id", machineID,
-								"panic", fmt.Sprintf("%v", r),
-								"stack", string(debug.Stack()),
-							)
-						}
-					}()
-					stopCtx, stopCancel := context.WithTimeout(context.Background(), machineStopTimeout)
-					defer stopCancel()
-					if stopErr := cs.machineStopper.Stop(stopCtx, machineID); stopErr != nil {
-						slog.Warn("failed to stop container on cron cancel",
-							"run_id", id, "machine_id", machineID, "error", stopErr)
-					}
-				}(cr.ID, cr.MachineID)
-			}
-		}
-		wg.Wait()
-	}
-
 	parentIDs := make([]string, len(runs))
 	for i, cr := range runs {
 		parentIDs[i] = cr.ID

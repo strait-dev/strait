@@ -123,7 +123,7 @@ func TestTraceChain(t *testing.T) {
 			},
 		}
 
-		// Build the env map the same way managedDispatch does:
+		// Build the env map for trace context propagation:
 		//   env["TRACEPARENT"] = run.Metadata["_trace_parent"]
 		env := make(map[string]string)
 		if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {

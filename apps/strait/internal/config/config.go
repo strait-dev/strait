@@ -201,32 +201,10 @@ type Config struct {
 	MaxSnoozeCount             int           `env:"MAX_SNOOZE_COUNT" default:"50"`
 	DebouncePollerInterval     time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
-	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
-	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	// Managed execution (container runtime)
-	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
-	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
-	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"k8s"`
-	ComputeFallbackProvider string        `env:"COMPUTE_FALLBACK_PROVIDER"`
-	DefaultRegion           string        `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL          string        `env:"EXTERNAL_API_URL"`
-	MaxConcurrentMachines   int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
-	WarmPoolEnabled         bool          `env:"WARM_POOL_ENABLED" default:"false"`
-	WarmPoolMaxPerJob       int           `env:"WARM_POOL_MAX_PER_JOB" default:"0"`
-	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
-	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
-
-	// Kubernetes runtime
-	K8sKubeconfig    string        `env:"K8S_KUBECONFIG"`
-	K8sNamespace     string        `env:"K8S_NAMESPACE" default:"default"`
-	K8sPriorityClass string        `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
-	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
-	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
-	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
-	// K8sRuntimeClass sets the RuntimeClassName on all job pods.
-	// Set to "gvisor" to enable gVisor kernel isolation on worker nodes that have
-	// the RuntimeClass installed. Leave empty to use the node default runtime.
-	K8sRuntimeClass string `env:"K8S_RUNTIME_CLASS" default:""`
+	WebhookRequireTLS     bool   `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
+	AllowPrivateEndpoints bool   `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
+	DefaultRegion         string `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL        string `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -316,50 +294,6 @@ type Config struct {
 	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
 	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
 
-	// Container registry for built images.
-	// Type selects the implementation: "ecr" or "generic" (Docker Registry API v2).
-	ContainerRegistryType   string `env:"CONTAINER_REGISTRY_TYPE" default:"ecr"`
-	ContainerRegistryURL    string `env:"CONTAINER_REGISTRY_URL"`  // for generic
-	ContainerRegistryUser   string `env:"CONTAINER_REGISTRY_USER"` // for generic
-	ContainerRegistryPass   string `env:"CONTAINER_REGISTRY_PASS"` // for generic
-	ContainerRegistryPrefix string `env:"CONTAINER_REGISTRY_PREFIX" default:"strait-jobs"`
-	ECRRegion               string `env:"ECR_REGION" default:"us-east-1"`
-	ECRRegistryID           string `env:"ECR_REGISTRY_ID"` // AWS account ID; defaults to caller account
-	ECRRoleARN              string `env:"ECR_ROLE_ARN"`    // optional IAM role for cross-account access
-	// BuildExtraRegistryAuths is a JSON object mapping registry hostnames to
-	// bearer tokens used for authenticating private base images at build time.
-	// Example: {"private.registry.io": "base64token", "ghcr.io": "ghp_token"}
-	BuildExtraRegistryAuths string `env:"BUILD_EXTRA_REGISTRY_AUTHS" default:"{}"`
-
-	// Dispatcher mode: multi-cluster job routing (--mode dispatcher).
-	// DispatcherClusterRegistryConfigMap is the name of the K8s ConfigMap that
-	// contains the cluster-registry.yaml manifest listing all Strait clusters.
-	// Defaults to the name deployed by the infra repo.
-	DispatcherClusterRegistryConfigMap string `env:"DISPATCHER_CLUSTER_REGISTRY_CONFIGMAP" default:"cluster-registry"`
-	// DispatcherClusterRegistryNamespace is the K8s namespace that contains the
-	// cluster-registry ConfigMap.
-	DispatcherClusterRegistryNamespace string `env:"DISPATCHER_CLUSTER_REGISTRY_NAMESPACE" default:"strait"`
-	// DispatcherRefreshInterval controls how often the dispatcher re-reads cluster
-	// queue depths. Shorter intervals improve routing accuracy at the cost of more
-	// Prometheus queries.
-	DispatcherRefreshInterval time.Duration `env:"DISPATCHER_REFRESH_INTERVAL" default:"5s"`
-
-	// Performance: image pull policy and lazy loading.
-	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.
-	ImagePullPolicy string `env:"IMAGE_PULL_POLICY" default:"IfNotPresent"`
-	// PrePullEnabled deploys a DaemonSet that pre-pulls base runtime images to
-	// all nodes, eliminating cold-start latency on the first run.
-	PrePullEnabled bool `env:"PRE_PULL_ENABLED" default:"false"`
-	// SOCIEnabled enables Seekable OCI (SOCI) lazy image loading via the
-	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
-	// When enabled, container startup begins before the full image is pulled.
-	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
-	// SOCIMinImageBytes is the minimum compressed image size (in bytes) below which
-	// SOCI index generation is skipped — the overhead of lazy loading is not worth it
-	// for small images. Defaults to 10 MiB.
-	// NOTE: size-based skipping is not yet implemented; this config is reserved for
-	// a future optimisation once post-build image size querying is available.
-	SOCIMinImageBytes int64 `env:"SOCI_MIN_IMAGE_SIZE_BYTES" default:"10485760"`
 }
 
 // Load reads configuration from environment variables.
@@ -472,37 +406,6 @@ func validateLoaded(cfg *Config) error {
 		}
 	}
 
-	switch cfg.ComputeRuntime {
-	case "none", "docker", "k8s", "":
-		// valid
-	default:
-		return &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
-	}
-	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
-		if cfg.K8sNamespace == "" {
-			return &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
-		}
-	}
-	if cfg.ComputeFallbackProvider != "" {
-		switch cfg.ComputeFallbackProvider {
-		case "docker", "k8s":
-			// valid
-		default:
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
-		}
-		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
-		}
-		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
-		}
-	}
-	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
-		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
-			"configured", cfg.ComputeRuntime)
-		cfg.ComputeRuntime = "none"
-	}
-
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
@@ -572,11 +475,10 @@ func (c *Config) Redacted() map[string]any {
 		"Mode":                   c.Mode,
 		"Port":                   c.Port,
 		"Edition":                c.Edition,
-		"WorkerConcurrency":      c.WorkerConcurrency,
-		"PollerInterval":         c.PollerInterval.String(),
-		"DBMaxConns":             c.DBMaxConns,
-		"ComputeRuntime":         c.ComputeRuntime,
-		"SentryEnvironment":      c.SentryEnvironment,
+		"WorkerConcurrency": c.WorkerConcurrency,
+		"PollerInterval":    c.PollerInterval.String(),
+		"DBMaxConns":        c.DBMaxConns,
+		"SentryEnvironment": c.SentryEnvironment,
 		"DefaultAPIKeyRateLimit": c.DefaultAPIKeyRateLimit,
 		"DatabaseURL":            "[REDACTED]",
 		"RedisURL":               "[REDACTED]",

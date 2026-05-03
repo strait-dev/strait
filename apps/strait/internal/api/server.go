@@ -16,7 +16,6 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
-	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
@@ -535,7 +534,6 @@ type Server struct {
 	rateLimiter        *ratelimit.RedisRateLimiter
 	authLimiter        *ratelimit.AuthLimiter
 	encryptor          Encryptor
-	containerRuntime   compute.ContainerRuntime
 	stripeWebhook      http.Handler
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
@@ -646,7 +644,6 @@ type BillingEnforcer interface {
 	CheckProjectLimit(ctx context.Context, orgID string) error
 	CheckMemberLimit(ctx context.Context, orgID string) error
 	CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error
-	CheckProjectBudgetLimit(ctx context.Context, projectID string) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
@@ -692,7 +689,6 @@ type ServerDeps struct {
 	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
 	RedisClient          *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor            Encryptor                // Optional: enables event source signature encryption.
-	ContainerRuntime     compute.ContainerRuntime // Optional: enables managed container stop on cancel.
 	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
 	UsageService         UsageService             // Optional: enables usage endpoint.
@@ -747,7 +743,6 @@ func NewServer(deps ServerDeps) *Server {
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
-		containerRuntime:   deps.ContainerRuntime,
 		stripeWebhook:      deps.StripeWebhook,
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,

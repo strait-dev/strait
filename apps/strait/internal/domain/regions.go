@@ -1,17 +1,17 @@
-package compute
+package domain
 
 import "sort"
 
 // IsValidRegion returns true if code is a known region.
 func IsValidRegion(code string) bool {
-	_, ok := regions[code]
+	_, ok := knownRegions[code]
 	return ok
 }
 
 // AllRegionCodes returns all known region codes in sorted order.
 func AllRegionCodes() []string {
-	codes := make([]string, 0, len(regions))
-	for code := range regions {
+	codes := make([]string, 0, len(knownRegions))
+	for code := range knownRegions {
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
@@ -91,16 +91,12 @@ var regionMetadata = map[string]RegionInfo{
 // hints) to region codes. If the input is already a valid region
 // code it is returned as-is.
 func NearestRegion(hint string) string {
-	// Direct region codes pass through.
-	if _, ok := regions[hint]; ok {
+	if _, ok := knownRegions[hint]; ok {
 		return hint
 	}
-
-	// Continent/zone hints.
 	if region, ok := regionHints[hint]; ok {
 		return region
 	}
-
 	return ""
 }
 
@@ -179,8 +175,8 @@ var regionHints = map[string]string{
 	"africa":  "jnb",
 }
 
-// regions is the set of known region codes.
-var regions = map[string]struct{}{
+// knownRegions is the set of known region codes.
+var knownRegions = map[string]struct{}{
 	"ams": {}, "arn": {}, "atl": {}, "bog": {}, "bom": {},
 	"bos": {}, "cdg": {}, "den": {}, "dfw": {}, "ewr": {},
 	"eze": {}, "fra": {}, "gdl": {}, "gig": {}, "gru": {},

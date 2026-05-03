@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"strait/internal/compute"
+	"strait/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -33,7 +33,7 @@ func (q *Queries) RecordOOMEvent(ctx context.Context, jobID, preset string) erro
 	defer span.End()
 
 	recommended := preset
-	if next, ok := compute.NextPreset(preset); ok {
+	if next, ok := domain.NextPreset(preset); ok {
 		recommended = next
 	}
 

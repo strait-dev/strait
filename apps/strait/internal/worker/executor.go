@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	"strait/internal/billing"
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
@@ -29,7 +28,6 @@ import (
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/sync/semaphore"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -115,10 +113,6 @@ type Executor struct {
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
 	jwtSigningKey            string
-	containerRuntime         compute.ContainerRuntime
-	managedSemaphore         *semaphore.Weighted
-	machinePool              *compute.MachinePool
-	disableMachinePoolReuse  bool
 	externalAPIURL           string
 	defaultRegion            string
 	billingEnforcer          *billing.Enforcer
@@ -180,13 +174,8 @@ type ExecutorConfig struct {
 	JobCacheTTL                time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
-	ContainerRuntime           compute.ContainerRuntime
 	ExternalAPIURL             string
-	MaxConcurrentMachines      int
 	DefaultRegion              string
-	WarmPoolEnabled            bool
-	WarmPoolMaxPerJob          int
-	DisableMachinePoolReuse    bool
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
 	JobLookup                  JobLookup
@@ -255,28 +244,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		whMaxAttempts = 3
 	}
 
-	var managedSem *semaphore.Weighted
-	if cfg.ContainerRuntime != nil {
-		maxMachines := cfg.MaxConcurrentMachines
-		if maxMachines <= 0 {
-			maxMachines = 10
-		}
-		managedSem = semaphore.NewWeighted(int64(maxMachines))
-	}
-
-	var machinePool *compute.MachinePool
-	if cfg.WarmPoolEnabled {
-		machinePool = compute.NewMachinePool(cfg.WarmPoolMaxPerJob)
-		if cfg.ContainerRuntime != nil {
-			rt := cfg.ContainerRuntime
-			machinePool.SetOnEvict(func(machineID string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				_ = rt.Destroy(ctx, machineID)
-			})
-		}
-	}
-
 	var jobCache *cache.Cache[*domain.Job]
 	var jobCacheStore *otterstore.OtterStore
 	if cfg.JobCacheTTL > 0 {
@@ -315,13 +282,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
-		jwtSigningKey:            cfg.JWTSigningKey,
-		containerRuntime:         cfg.ContainerRuntime,
-		managedSemaphore:         managedSem,
-		machinePool:              machinePool,
-		disableMachinePoolReuse:  cfg.DisableMachinePoolReuse,
-		externalAPIURL:           cfg.ExternalAPIURL,
-		defaultRegion:            cfg.DefaultRegion,
+		jwtSigningKey:  cfg.JWTSigningKey,
+		externalAPIURL: cfg.ExternalAPIURL,
+		defaultRegion:  cfg.DefaultRegion,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		healthScorer:             NewHealthScorer(cfg.Store),
@@ -579,10 +542,6 @@ func (e *Executor) Run(ctx context.Context) {
 	})
 	go e.runEventLoop()
 
-	if e.machinePool != nil {
-		go e.runPoolPruner(runCtx)
-	}
-
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
@@ -628,33 +587,6 @@ func (e *Executor) Run(ctx context.Context) {
 	}
 }
 
-func (e *Executor) runPoolPruner(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			e.logger.Error("pool pruner panicked", "panic", r)
-		}
-	}()
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-e.stop:
-			return
-		case <-ticker.C:
-			pruned := e.machinePool.Prune(10*time.Minute, func(mid string) error {
-				dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				return e.containerRuntime.Destroy(dCtx, mid)
-			})
-			if pruned > 0 {
-				e.logger.Info("pool pruner cleaned machines", "count", pruned)
-			}
-		}
-	}
-}
-
 func (e *Executor) Shutdown(ctx context.Context) error {
 	e.stopOnce.Do(func() {
 		close(e.stop)
@@ -671,17 +603,6 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	}
 
 	e.pollWG.Wait()
-
-	if e.machinePool != nil && e.containerRuntime != nil {
-		drained := e.machinePool.Prune(0, func(mid string) error {
-			dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			return e.containerRuntime.Destroy(dCtx, mid)
-		})
-		if drained > 0 {
-			e.logger.Info("shutdown: drained warm pool", "count", drained)
-		}
-	}
 
 	callbackDone := make(chan struct{})
 	go func() {

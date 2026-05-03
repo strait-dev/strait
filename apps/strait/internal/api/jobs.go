@@ -122,7 +122,7 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocognit,gocyclo,cyclop
+//nolint:gocyclo
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
@@ -216,22 +216,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	}
 	switch execMode {
 	case domain.ExecutionModeManaged:
-		if s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none" {
-			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
-		}
-		if req.ImageURI == "" {
-			return nil, huma.Error400BadRequest("image_uri is required for managed execution")
-		}
-		preset := domain.MachinePreset(req.MachinePreset)
-		if req.MachinePreset != "" && !preset.IsValid() {
-			return nil, huma.Error400BadRequest("invalid machine_preset")
-		}
-		if req.MachinePreset == "" {
-			req.MachinePreset = string(domain.PresetMicro)
-		}
-		if err := s.checkPresetAllowed(ctx, req.ProjectID, req.MachinePreset); err != nil {
-			return nil, err
-		}
+		return nil, huma.Error400BadRequest("unsupported_execution_mode: managed execution mode is no longer supported; use http instead")
 	case domain.ExecutionModeHTTP:
 		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
@@ -619,8 +604,8 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)
-		if mode == domain.ExecutionModeManaged && (s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none") {
-			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
+		if mode == domain.ExecutionModeManaged {
+			return nil, huma.Error400BadRequest("unsupported_execution_mode: managed execution mode is no longer supported; use http instead")
 		}
 		if err := s.checkHTTPModeAllowed(ctx, mode, job.ProjectID); err != nil {
 			return nil, err
@@ -685,11 +670,6 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	if req.OnFailurePayloadMapping != nil {
 		job.OnFailurePayloadMapping = *req.OnFailurePayloadMapping
 	}
-	// Cross-field validation for managed mode.
-	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {
-		return nil, huma.Error400BadRequest("image_uri is required for managed execution")
-	}
-
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
 			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())

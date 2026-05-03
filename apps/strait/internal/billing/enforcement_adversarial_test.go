@@ -18,10 +18,10 @@ import (
 )
 
 // ---------------------------------------------------------------------------.
-// 1. CheckManagedRunLimit adversarial tests
+// 1. Enforcer nil-receiver adversarial tests
 // ---------------------------------------------------------------------------.
 
-func TestCheckManagedRunLimit_NilEnforcer(t *testing.T) {
+func TestEnforcer_NilReceiver_GetOrgPlanLimits(t *testing.T) {
 	t.Parallel()
 	// A nil Enforcer pointer should not panic; GetOrgPlanLimits handles nil receiver.
 	var e *Enforcer
@@ -31,19 +31,6 @@ func TestCheckManagedRunLimit_NilEnforcer(t *testing.T) {
 	}
 	if limits.PlanTier != domain.PlanFree {
 		t.Fatalf("expected free-tier defaults, got %q", limits.PlanTier)
-	}
-}
-
-func TestCheckManagedRunLimit_AlwaysNil(t *testing.T) {
-	t.Parallel()
-	store := &mockBillingStore{}
-	enforcer := NewEnforcer(store, nil, slog.Default())
-
-	// CheckManagedRunLimit is a no-op after removal of FreeManagedRunsPerMonth.
-	for i := range 500 {
-		if err := enforcer.CheckManagedRunLimit(context.Background(), "org-any"); err != nil {
-			t.Fatalf("CheckManagedRunLimit should always return nil, got error at %d: %v", i, err)
-		}
 	}
 }
 
@@ -575,48 +562,6 @@ func TestEnforcer_ConcurrentRunLimit_DoubleFreeAfterDecrement(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckProjectBudgetLimit_ZeroBudget_RejectAction(t *testing.T) {
-	t.Parallel()
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	store := &mockBillingStore{}
-	enforcer := NewEnforcer(store, rdb, slog.Default())
-
-	_ = enforcer // use the standard enforcer for compilation; custom store below.
-	// Override the mock to return a zero budget with reject action.
-	// The default mock returns (-1, "notify", nil) which means no budget.
-	// We need a custom store for this test.
-	customStore := &budgetMockStore{budget: 0, action: "reject"}
-	enforcerWithBudget := NewEnforcer(customStore, rdb, slog.Default())
-
-	err := enforcerWithBudget.CheckProjectBudgetLimit(context.Background(), "proj-zero-budget")
-	if err == nil {
-		t.Fatal("expected rejection for zero budget with reject action")
-	}
-	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "project_budget_reached" {
-		t.Errorf("code = %q, want project_budget_reached", le.Code)
-	}
-}
-
-// budgetMockStore extends mockBillingStore with configurable project budget.
-type budgetMockStore struct {
-	mockBillingStore
-	budget int64
-	action string
-}
-
-func (s *budgetMockStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
-	return s.budget, s.action, nil
-}
-
-func (s *budgetMockStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
-}
-
 func TestEnforcer_PaymentRestricted_BlocksAllLimitChecks(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
@@ -640,7 +585,6 @@ func TestEnforcer_PaymentRestricted_BlocksAllLimitChecks(t *testing.T) {
 	}{
 		{"daily_run", func() error { return enforcer.CheckDailyRunLimit(ctx, "org-blocked") }},
 		{"concurrent_run", func() error { return enforcer.CheckConcurrentRunLimit(ctx, "org-blocked") }},
-		// CheckManagedRunLimit is a no-op (managed-execution cap removed in orchestration-only mode).
 	}
 
 	for _, c := range checks {

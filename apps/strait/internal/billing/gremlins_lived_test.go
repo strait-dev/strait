@@ -3,7 +3,6 @@ package billing
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -764,44 +763,6 @@ func TestPostHogClient_Timeout_Positive(t *testing.T) {
 	}
 }
 
-// Enforcement LIVED mutants.
-
-func TestCheckProjectBudgetLimit_RejectMessageFormat(t *testing.T) {
-	t.Parallel()
-	store := &mockBillingStore{
-		getProjectBudgetFn: func(_ context.Context, _ string) (int64, string, error) {
-			return 5_000_000, "reject", nil
-		},
-		getProjectPeriodSpendFn: func(_ context.Context, _ string, _ time.Time) (int64, error) {
-			return 5_000_000, nil
-		},
-	}
-
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = rdb.Close() })
-	enforcer := NewEnforcer(store, rdb, slog.Default())
-
-	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-1")
-	if err == nil {
-		t.Fatal("expected error when spend >= budget with reject action")
-	}
-	var limErr *LimitError
-	if !errors.As(err, &limErr) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	expectedMsg := fmt.Sprintf("This project's monthly budget of $%.2f has been reached.", float64(5_000_000)/1000000)
-	if limErr.Message != expectedMsg {
-		t.Errorf("message = %q, want %q", limErr.Message, expectedMsg)
-	}
-	if limErr.CurrentUsage != 5_000_000 {
-		t.Errorf("CurrentUsage = %d, want 5000000", limErr.CurrentUsage)
-	}
-	if limErr.Limit != 5_000_000 {
-		t.Errorf("Limit = %d, want 5000000", limErr.Limit)
-	}
-}
-
 func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
@@ -1176,19 +1137,6 @@ func TestEnforcer_DecrConcurrentRunCount_EmptyOrgID(t *testing.T) {
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	enforcer.DecrConcurrentRunCount(context.Background(), "")
-}
-
-// CheckManagedRunLimit enforcement.go:495.
-
-func TestEnforcer_CheckManagedRunLimit_EmptyOrgID(t *testing.T) {
-	t.Parallel()
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	store := &mockBillingStore{}
-	enforcer := NewEnforcer(store, rdb, slog.Default())
-	if err := enforcer.CheckManagedRunLimit(context.Background(), ""); err != nil {
-		t.Fatalf("empty org should return nil: %v", err)
-	}
 }
 
 // Enforcement recordRejection/recordFailOpen nil-metrics guards.

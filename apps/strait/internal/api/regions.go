@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 )
 
@@ -24,7 +23,7 @@ type ListRegionsInput struct{}
 type ListRegionsOutput struct{ Body RegionsListResponse }
 
 func (s *Server) handleListRegions(_ context.Context, _ *ListRegionsInput) (*ListRegionsOutput, error) {
-	allRegions := compute.AllRegions()
+	allRegions := domain.AllRegions()
 	regions := make([]RegionResponse, len(allRegions))
 	for i, reg := range allRegions {
 		regions[i] = RegionResponse{
