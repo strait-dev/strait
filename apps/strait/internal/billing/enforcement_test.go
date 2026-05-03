@@ -168,33 +168,36 @@ func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierUnderIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
 	store.periodSpendByOrg = map[string]int64{
-		"org_free": 900_000,
+		"org_free": 0,
 	}
 
 	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
-		t.Fatalf("free tier under included credit should pass: %v", err)
+		t.Fatalf("free tier with zero spend should pass: %v", err)
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierAtIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_FreeTierAnySpend_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
+	// Orchestration-only: free tier has no included compute credit.
+	// Any spend triggers the limit immediately.
 	store.periodSpendByOrg = map[string]int64{
-		"org_free": CreditFreeMicrousd,
+		"org_free": 1,
 	}
 
-	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
-		t.Fatalf("free tier at included credit should pass: %v", err)
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
+	if err == nil {
+		t.Fatal("expected free-tier spending limit error for any spend")
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierOverIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_FreeTierOverBudget_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
@@ -214,8 +217,8 @@ func TestEnforcer_CheckSpendingLimit_FreeTierOverIncludedCredit(t *testing.T) {
 	if le.Code != "spending_limit_reached" {
 		t.Fatalf("Code = %q, want spending_limit_reached", le.Code)
 	}
-	if le.Limit != CreditFreeMicrousd {
-		t.Fatalf("Limit = %d, want %d", le.Limit, CreditFreeMicrousd)
+	if le.Limit != 0 {
+		t.Fatalf("Limit = %d, want 0 (no included credit in orchestration-only mode)", le.Limit)
 	}
 }
 
@@ -236,10 +239,12 @@ func TestEnforcer_CheckSpendingLimit_FreeSubscriptionOverIncludedCredit(t *testi
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_HardCapZeroAllowsIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_HardCapZeroBlocksAnySpend(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
+	// Orchestration-only: no included compute credit. A $0 spending cap means
+	// the org is blocked as soon as any spend is recorded.
 	store.subscriptions = map[string]*OrgSubscription{
 		"org_starter": {
 			OrgID:                 "org_starter",
@@ -250,17 +255,17 @@ func TestEnforcer_CheckSpendingLimit_HardCapZeroAllowsIncludedCredit(t *testing.
 		},
 	}
 	store.periodSpendByOrg = map[string]int64{
-		"org_starter": CreditStarterMicrousd,
+		"org_starter": 0,
 	}
 
 	if err := enforcer.CheckSpendingLimit(context.Background(), "org_starter"); err != nil {
-		t.Fatalf("hard cap at $0 overage should still allow included credit: %v", err)
+		t.Fatalf("zero spend with $0 cap should pass: %v", err)
 	}
 
-	store.periodSpendByOrg["org_starter"] = CreditStarterMicrousd + 1
+	store.periodSpendByOrg["org_starter"] = 1
 	err := enforcer.CheckSpendingLimit(context.Background(), "org_starter")
 	if err == nil {
-		t.Fatal("expected spending limit error after overage begins")
+		t.Fatal("expected spending limit error: any spend exceeds $0 cap")
 	}
 }
 

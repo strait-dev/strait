@@ -131,12 +131,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleUpdateSpendingLimit)
 
 	RegisterTypedOp(api, OpMeta{
-		ID: "get-cost-estimate", Method: http.MethodGet, Path: "/v1/cost-estimate",
-		Summary: "Get cost estimate", Description: "Returns a cost estimate based on current usage patterns.",
-		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
-	}, s.handleGetCostEstimate)
-
-	RegisterTypedOp(api, OpMeta{
 		ID: "get-downgrade-preview", Method: http.MethodGet, Path: "/v1/downgrade-preview",
 		Summary: "Get downgrade preview", Description: "Returns a preview of the impact of downgrading to a lower plan tier.",
 		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500, 501},

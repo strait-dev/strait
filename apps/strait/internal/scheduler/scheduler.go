@@ -23,7 +23,6 @@ type SchedulerStore interface {
 	ReaperStore
 	IndexMaintenanceStore
 	StatsAggregatorStore
-	CostEstimateRefresherStore
 	MemoryCleanupStore
 	store.DebounceStore
 	store.BatchStore
@@ -43,7 +42,6 @@ type Scheduler struct {
 	usageFlusher             *UsageFlusher
 	concurrentReconciler     *ConcurrentReconciler
 	downgradeApplier         *DowngradeApplier
-	costEstimateRefresher    *CostEstimateRefresher
 	memoryCleanup            *MemoryCleanup
 	gracePeriodEnforcer      *GracePeriodEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
@@ -85,10 +83,9 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator:          NewStatsAggregator(s),
-		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
-		costEstimateRefresher:    NewCostEstimateRefresher(s, time.Hour),
-		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
+		statsAggregator: NewStatsAggregator(s),
+		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
+		memoryCleanup:   NewMemoryCleanup(s, 5*time.Minute),
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
 	for _, opt := range opts {
@@ -289,7 +286,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.tracker.track(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
 	s.tracker.track(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
 	s.tracker.track(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
-	s.tracker.track(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
 	s.tracker.track(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
 	if s.usageFlusher != nil {
 		s.tracker.track(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })

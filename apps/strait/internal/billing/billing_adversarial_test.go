@@ -1178,15 +1178,32 @@ func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
 
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
-			"org-no-sub": 500_000, // within free credit
+			// Orchestration-only: no included credit; any spend triggers the cap.
+			"org-no-sub": 500_000,
 		},
 	}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	// No subscription -> free tier path.
+	// No subscription -> free tier path -> any spend blocks.
 	err := e.CheckSpendingLimit(context.Background(), "org-no-sub")
+	if err == nil {
+		t.Fatal("expected spending limit error for no-subscription org with non-zero spend")
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_NoSubscription_ZeroSpend_Passes(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org-no-sub-zero": 0,
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckSpendingLimit(context.Background(), "org-no-sub-zero")
 	if err != nil {
-		t.Fatalf("expected nil for under-credit free tier, got %v", err)
+		t.Fatalf("expected nil for no-spend no-subscription org, got %v", err)
 	}
 }
 

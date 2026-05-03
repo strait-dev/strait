@@ -22,6 +22,8 @@ import (
 func TestSpendingEnforcement(t *testing.T) {
 	t.Parallel()
 
+	// Orchestration-only: SpendingLimitMicrousd is compared against total spend.
+	// There is no included compute credit; any spend counts toward the limit.
 	tests := []struct {
 		name          string
 		tier          string
@@ -29,13 +31,13 @@ func TestSpendingEnforcement(t *testing.T) {
 		periodSpend   int64
 		wantBlock     bool
 	}{
-		{"free_under_credit", "free", 0, CreditFreeMicrousd - 1, false},
-		{"free_at_credit", "free", 0, CreditFreeMicrousd, false},
-		{"free_over_credit", "free", 0, CreditFreeMicrousd + 1, true},
+		{"free_zero_spend", "free", 0, 0, false},
+		{"free_any_spend", "free", 0, 1, true},
+		{"free_over_credit_threshold", "free", 0, CreditFreeMicrousd + 1, true},
 		{"starter_no_limit_overage", "starter", -1, CreditStarterMicrousd + 50_000_000, false},
-		{"pro_50_limit_under", "pro", 50_000_000, CreditProMicrousd + 49_990_000, false},
-		{"pro_50_limit_over", "pro", 50_000_000, CreditProMicrousd + 50_010_000, true},
-		{"pro_0_cap_at_credit", "pro", 0, CreditProMicrousd + 1, true},
+		{"pro_50_limit_under", "pro", 50_000_000, 40_000_000, false},
+		{"pro_50_limit_over", "pro", 50_000_000, 60_000_000, true},
+		{"pro_0_cap_any_spend", "pro", 0, 1, true},
 		{"scale_no_limit", "scale", -1, CreditScaleMicrousd + 200_000_000, false},
 		{"enterprise_no_block", "enterprise", -1, 500_000_000, false},
 	}
@@ -95,7 +97,9 @@ func TestSpendingEnforcement(t *testing.T) {
 					CurrentPeriodEnd:      &pe,
 				},
 			},
-			periodSpendByOrg: map[string]int64{"org-conc": CreditProMicrousd + 9_990_000},
+			// Orchestration-only: spend is compared against total limit directly.
+			// Use spend well under the $10 limit to ensure all concurrent checks pass.
+			periodSpendByOrg: map[string]int64{"org-conc": 9_990_000},
 		}
 
 		enforcer := NewEnforcer(store, rdb, slog.Default())

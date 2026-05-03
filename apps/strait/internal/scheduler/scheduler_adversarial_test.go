@@ -1476,55 +1476,6 @@ func TestMemoryCleanup_DeletesExpired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Cost estimate refresher edge cases
-// ---------------------------------------------------------------------------.
-
-func TestCostEstimateRefresher_ZeroInterval_Clamped(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{}
-	r := NewCostEstimateRefresher(s, 0)
-	if r.interval != time.Hour {
-		t.Fatalf("expected zero interval clamped to 1h, got %v", r.interval)
-	}
-}
-
-func TestCostEstimateRefresher_Refresh_StoreError(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{
-		listActiveJobIDsFn: func(_ context.Context) ([]string, error) {
-			return nil, errors.New("db error")
-		},
-	}
-	r := NewCostEstimateRefresher(s, time.Hour)
-	r.refresh(context.Background())
-}
-
-func TestCostEstimateRefresher_Refresh_UpsertError(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{
-		listActiveJobIDsFn: func(_ context.Context) ([]string, error) {
-			return []string{"job-1", "job-2"}, nil
-		},
-		upsertFn: func(_ context.Context, _ string) error {
-			return errors.New("upsert failed")
-		},
-	}
-	r := NewCostEstimateRefresher(s, time.Hour)
-	r.refresh(context.Background())
-}
-
-func TestCostEstimateRefresher_Refresh_EmptyJobs(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{
-		listActiveJobIDsFn: func(_ context.Context) ([]string, error) {
-			return nil, nil
-		},
-	}
-	r := NewCostEstimateRefresher(s, time.Hour)
-	r.refresh(context.Background())
-}
-
-// ---------------------------------------------------------------------------.
 // Usage flusher edge cases
 // ---------------------------------------------------------------------------.
 
@@ -1853,25 +1804,6 @@ func (m *advMockMemoryStore) DeleteExpiredJobMemory(ctx context.Context) (int64,
 		return m.deleteExpiredFn(ctx)
 	}
 	return 0, nil
-}
-
-type advMockCostEstimateStore struct {
-	listActiveJobIDsFn func(ctx context.Context) ([]string, error)
-	upsertFn           func(ctx context.Context, jobID string) error
-}
-
-func (m *advMockCostEstimateStore) ListActiveJobIDs(ctx context.Context) ([]string, error) {
-	if m.listActiveJobIDsFn != nil {
-		return m.listActiveJobIDsFn(ctx)
-	}
-	return nil, nil
-}
-
-func (m *advMockCostEstimateStore) UpsertJobCostEstimate(ctx context.Context, jobID string) error {
-	if m.upsertFn != nil {
-		return m.upsertFn(ctx, jobID)
-	}
-	return nil
 }
 
 type advMockStaleSubStore struct {

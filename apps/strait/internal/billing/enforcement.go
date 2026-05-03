@@ -477,74 +477,16 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// CheckManagedRunLimit checks if an org has exceeded the legacy monthly managed
-// execution cap. Newer plan enforcement uses compute credits instead, so this
-// path only applies when FreeManagedRunsPerMonth > 0.
-func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error {
-	if orgID == "" || e.rdb == nil {
-		return nil
-	}
-
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
-		return err
-	} else if skipLimits {
-		return nil
-	}
-
-	limits, err := e.GetOrgPlanLimits(ctx, orgID)
-	if err != nil {
-		e.logger.Warn("failed to get org plan limits for managed run check", "org_id", orgID, "error", err)
-		return nil
-	}
-
-	if limits.FreeManagedRunsPerMonth <= 0 {
-		return nil // paid plan or unlimited
-	}
-
-	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
-	managedTTLSecs := int(35 * 24 * time.Hour / time.Second)
-	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
-		limits.FreeManagedRunsPerMonth, managedTTLSecs).Result()
-	if err != nil {
-		e.logger.Warn("failed to run atomic managed run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "managed_run", "redis_error")
-	}
-
-	vals, ok := result.([]any)
-	if !ok || len(vals) < 2 {
-		e.logger.Warn("unexpected result from atomic managed run check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "managed_run", "redis_error")
-	}
-
-	allowed, _ := vals[0].(int64)
-	currentCount, _ := vals[1].(int64)
-
-	if allowed == 0 {
-		e.recordRejection(ctx, "managed_run_limit", limits.PlanTier)
-		return &LimitError{
-			Code:         "managed_run_limit_exceeded",
-			Message:      fmt.Sprintf("Your free plan allows %d managed runs per month. Upgrade for unlimited managed execution.", limits.FreeManagedRunsPerMonth),
-			CurrentUsage: currentCount,
-			Limit:        int64(limits.FreeManagedRunsPerMonth),
-			Plan:         string(limits.PlanTier),
-			UpgradeURL:   "/upgrade",
-		}
-	}
-
+// CheckManagedRunLimit is a no-op: the monthly managed-execution cap was
+// gated on FreeManagedRunsPerMonth which has been removed along with the
+// preset cost estimator. The method signature is kept so callers compile.
+func (e *Enforcer) CheckManagedRunLimit(_ context.Context, _ string) error {
 	return nil
 }
 
-// DecrManagedRunCount decrements the monthly managed run counter (for rollback on failure).
-// Uses decrFloorScript to prevent negative values from double-decrements.
-func (e *Enforcer) DecrManagedRunCount(ctx context.Context, orgID string) {
-	if orgID == "" || e.rdb == nil {
-		return
-	}
-	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
-	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
-		e.logger.Warn("failed to decrement managed run counter", "org_id", orgID, "error", err)
-	}
-}
+// DecrManagedRunCount is a no-op: the managed run counter was used by the
+// preset cost estimator which has been removed.
+func (e *Enforcer) DecrManagedRunCount(_ context.Context, _ string) {}
 
 // concurrentCheckScript is a Lua script that atomically increments the counter
 // and checks the limit. Returns the new count if under limit, or -1 if at/over.
@@ -738,7 +680,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_spend_error")
 	}
 
-	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+	overageSpend := computeOverageSpend(periodSpend, 0)
 
 	// Send spending alerts (async with 24h cooldown per org).
 	if e.billingEmails != nil && sub.SpendingLimitMicrousd > 0 {
@@ -764,7 +706,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 			defer cancel()
 			e.billingEmails.SendOverageAlert(emailCtx, adminEmails, sub.PlanTier,
 				fmt.Sprintf("$%.2f", float64(overageSpend)/1e6),
-				fmt.Sprintf("$%.2f", float64(limits.ComputeCreditMicrousd)/1e6))
+				"$0.00")
 		}()
 	}
 
@@ -785,7 +727,6 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 }
 
 func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string, sub *OrgSubscription) error {
-	limits := GetPlanLimits(domain.PlanFree)
 	periodStart, _ := usagePeriodWindow(time.Now().UTC(), domain.PlanFree, sub)
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
@@ -793,18 +734,19 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 		return nil
 	}
 
-	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+	// Free tier has no included compute credit; any spend is overage.
+	overageSpend := computeOverageSpend(periodSpend, 0)
 	if !isOverageLimitReached(0, overageSpend) {
 		return nil
 	}
 
-	e.recordRejection(ctx, "spending_limit", limits.PlanTier)
+	e.recordRejection(ctx, "spending_limit", domain.PlanFree)
 	return &LimitError{
 		Code:         "spending_limit_reached",
-		Message:      fmt.Sprintf("Your free plan monthly compute budget of $%.2f has been reached.", float64(limits.ComputeCreditMicrousd)/1000000),
+		Message:      "Your free plan monthly compute budget has been reached.",
 		CurrentUsage: periodSpend,
-		Limit:        limits.ComputeCreditMicrousd,
-		Plan:         string(limits.PlanTier),
+		Limit:        0,
+		Plan:         string(domain.PlanFree),
 		UpgradeURL:   "/upgrade",
 	}
 }
@@ -1248,4 +1190,73 @@ func (e *Enforcer) SuspendExcessProjects(ctx context.Context, orgID string, maxP
 // initialize a free-tier subscription row for the given org.
 func (e *Enforcer) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	return e.store.EnsureOrgSubscription(ctx, orgID)
+}
+
+// usagePeriodWindow returns the billing period start and end times for an org.
+// For free-tier or missing subscriptions the calendar month is used; for paid
+// plans the Stripe billing period anchors are preferred when available.
+func usagePeriodWindow(now time.Time, tier domain.PlanTier, sub *OrgSubscription) (time.Time, time.Time) {
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, -1)
+
+	if tier == domain.PlanFree || sub == nil {
+		return monthStart, monthEnd
+	}
+
+	start := monthStart
+	end := monthEnd
+	if sub.CurrentPeriodStart != nil {
+		start = *sub.CurrentPeriodStart
+	}
+	if sub.CurrentPeriodEnd != nil {
+		end = *sub.CurrentPeriodEnd
+	}
+	return start, end
+}
+
+// computeOverageSpend returns the portion of periodSpend that exceeds includedCredit.
+// Returns 0 if spend is within the included credit.
+func computeOverageSpend(periodSpend, includedCredit int64) int64 {
+	return max(periodSpend-includedCredit, 0)
+}
+
+// isOverageLimitReached reports whether the overage spend has reached the configured limit.
+// A limitMicrousd of -1 means uncapped; 0 means any overage triggers the limit.
+func isOverageLimitReached(limitMicrousd, overageSpendMicrousd int64) bool {
+	switch {
+	case limitMicrousd < 0:
+		return false
+	case limitMicrousd == 0:
+		return overageSpendMicrousd > 0
+	default:
+		return overageSpendMicrousd >= limitMicrousd
+	}
+}
+
+// MaxSpendingLimit returns the maximum allowed spending limit for a plan tier.
+func MaxSpendingLimit(tier domain.PlanTier) int64 {
+	switch tier {
+	case domain.PlanStarter:
+		return MaxSpendingStarter
+	case domain.PlanPro:
+		return MaxSpendingPro
+	case domain.PlanScale:
+		return MaxSpendingScale
+	case domain.PlanEnterprise:
+		return -1 // custom
+	default:
+		return 0 // free: no spending limit
+	}
+}
+
+// SpendingLimitResponse is the API response for spending limit queries.
+type SpendingLimitResponse struct {
+	OrgID             string  `json:"org_id"`
+	PlanTier          string  `json:"plan_tier"`
+	SpendingLimitUsd  float64 `json:"spending_limit_usd"`
+	LimitAction       string  `json:"limit_action"`
+	CurrentSpendUsd   float64 `json:"current_spend_usd"`
+	IncludedCreditUsd float64 `json:"included_credit_usd"`
+	OverageSpendUsd   float64 `json:"overage_spend_usd"`
+	IsHardCapped      bool    `json:"is_hard_capped"`
 }

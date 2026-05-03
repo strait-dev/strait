@@ -366,12 +366,6 @@ type JobMemoryStore interface {
 	DeleteExpiredJobMemory(ctx context.Context) (int64, error)
 }
 
-// CostEstimateStore defines operations for job cost estimates.
-type CostEstimateStore interface {
-	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
-	UpsertJobCostEstimate(ctx context.Context, jobID string) error
-	ListActiveJobIDs(ctx context.Context) ([]string, error)
-}
 
 // NotificationStore handles notification channel and delivery operations.
 type NotificationStore interface {
@@ -408,7 +402,7 @@ type Store interface {
 	DeploymentStore
 	LogDrainStore
 	EventSourceStore
-	CostEstimateStore
+	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
 	JobMemoryStore
 	NotificationStore
 	QueueStats(ctx context.Context) (*QueueStats, error)

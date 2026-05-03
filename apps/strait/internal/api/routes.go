@@ -236,7 +236,6 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/export", TypedHandler(s, http.StatusOK, s.handleExportUsage))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/spending-limit", TypedHandler(s, http.StatusOK, s.handleGetSpendingLimit))
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/spending-limit", TypedHandler(s, http.StatusOK, s.handleUpdateSpendingLimit))
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/cost-estimate", TypedHandler(s, http.StatusOK, s.handleGetCostEstimate))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/downgrade-preview", TypedHandler(s, http.StatusOK, s.handleGetDowngradePreview))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/project-budget", TypedHandler(s, http.StatusOK, s.handleGetProjectBudget))
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/project-budget", TypedHandler(s, http.StatusOK, s.handleUpdateProjectBudget))
@@ -244,8 +243,6 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/anomaly-config", TypedHandler(s, http.StatusOK, s.handleUpdateAnomalyConfig))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/email-preferences", TypedHandler(s, http.StatusOK, s.handleGetEmailPreferences))
 		r.With(s.requirePermission(domain.ScopeProjectsManage)).Put("/usage/email-preferences", TypedHandler(s, http.StatusOK, s.handleUpdateEmailPreferences))
-		r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/cost-estimate/what-if", TypedHandler(s, http.StatusOK, s.handleWhatIfCostEstimate))
-		r.With(s.requirePermission(domain.ScopeProjectsManage)).Post("/cost-estimate/deployment", TypedHandler(s, http.StatusOK, s.handleEstimateDeploymentDelta))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/billing/check-org-limit", TypedHandler(s, http.StatusOK, s.handleCheckOrgLimit))
 		r.Route("/projects", func(r chi.Router) {
 			r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeProjectsManage)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateProject))

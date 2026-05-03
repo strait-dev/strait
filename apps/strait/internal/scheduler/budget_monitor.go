@@ -257,8 +257,8 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 			continue
 		}
 
-		limits := billing.GetPlanLimits(domain.PlanTier(sub.PlanTier))
-		includedCredit := limits.ComputeCreditMicrousd
+		// Included compute credit is zero in orchestration-only mode; all spend is overage.
+		var includedCredit int64
 
 		periodStart := sub.CurrentPeriodStart
 		if periodStart == nil {

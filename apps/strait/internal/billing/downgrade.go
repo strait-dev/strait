@@ -93,13 +93,6 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		int64(targetLimits.MaxConcurrentRuns),
 	))
 
-	// Compute credit
-	impact.Impacts = append(impact.Impacts, buildImpact(
-		"compute_credit",
-		currentLimits.ComputeCreditMicrousd,
-		targetLimits.ComputeCreditMicrousd,
-	))
-
 	// Retention days
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"retention_days",

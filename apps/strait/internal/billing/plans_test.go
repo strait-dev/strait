@@ -119,36 +119,11 @@ func TestFreeTierLimits(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
 
-	if free.FreeManagedRunsPerMonth != 0 {
-		t.Errorf("FreeManagedRunsPerMonth = %d, want 0", free.FreeManagedRunsPerMonth)
-	}
 	if free.FreeManagedPreset != "micro" {
 		t.Errorf("FreeManagedPreset = %q, want micro", free.FreeManagedPreset)
 	}
 	if free.FreeManagedMaxTimeout != 10 {
 		t.Errorf("FreeManagedMaxTimeout = %d, want 10", free.FreeManagedMaxTimeout)
-	}
-	if free.ComputeCreditMicrousd != CreditFreeMicrousd {
-		t.Errorf("ComputeCreditMicrousd = %d, want CreditFreeMicrousd (%d)", free.ComputeCreditMicrousd, CreditFreeMicrousd)
-	}
-}
-
-func TestPaidTierCredits(t *testing.T) {
-	t.Parallel()
-
-	starter := GetPlanLimits(domain.PlanStarter)
-	if starter.ComputeCreditMicrousd != 19_990_000 {
-		t.Errorf("Starter credit = %d, want 19990000", starter.ComputeCreditMicrousd)
-	}
-
-	pro := GetPlanLimits(domain.PlanPro)
-	if pro.ComputeCreditMicrousd != 49_990_000 {
-		t.Errorf("Pro credit = %d, want 49990000", pro.ComputeCreditMicrousd)
-	}
-
-	scale := GetPlanLimits(domain.PlanScale)
-	if scale.ComputeCreditMicrousd != 99_000_000 {
-		t.Errorf("Scale credit = %d, want 99000000", scale.ComputeCreditMicrousd)
 	}
 }
 
@@ -417,9 +392,6 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 	}
 	if scale.PriceAnnualUsd != PriceScaleAnnualCents {
 		t.Errorf("PriceAnnualUsd = %d, want %d", scale.PriceAnnualUsd, PriceScaleAnnualCents)
-	}
-	if scale.ComputeCreditMicrousd != CreditScaleMicrousd {
-		t.Errorf("ComputeCreditMicrousd = %d, want %d", scale.ComputeCreditMicrousd, CreditScaleMicrousd)
 	}
 	if scale.MaxConcurrentRuns != ConcurrentScale {
 		t.Errorf("MaxConcurrentRuns = %d, want %d", scale.MaxConcurrentRuns, ConcurrentScale)

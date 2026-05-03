@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"strait/internal/billing"
@@ -193,42 +192,6 @@ func (s *Server) handleGetProjectCosts(ctx context.Context, input *GetProjectCos
 		return nil, huma.Error500InternalServerError("failed to get project costs")
 	}
 	return &GetProjectCostsOutput{Body: costs}, nil
-}
-
-type GetCostEstimateInput struct {
-	Preset     string `query:"preset"`
-	TimeoutStr string `query:"timeout_secs"`
-	OrgID      string `query:"org_id"`
-}
-type GetCostEstimateOutput struct{ Body any }
-
-func (s *Server) handleGetCostEstimate(ctx context.Context, input *GetCostEstimateInput) (*GetCostEstimateOutput, error) {
-	if input.Preset == "" {
-		return nil, huma.Error400BadRequest("preset query parameter is required")
-	}
-	if input.TimeoutStr == "" {
-		return nil, huma.Error400BadRequest("timeout_secs query parameter is required")
-	}
-	timeoutSecs, err := strconv.Atoi(input.TimeoutStr)
-	if err != nil || timeoutSecs <= 0 {
-		return nil, huma.Error400BadRequest("timeout_secs must be a positive integer")
-	}
-	var creditRemaining int64
-	if s.usageService != nil && input.OrgID != "" {
-		if err := s.validateCallerOrgAccess(ctx, input.OrgID); err != nil {
-			return nil, huma.Error403Forbidden(err.Error())
-		}
-		limit, limitErr := s.usageService.GetSpendingLimit(ctx, input.OrgID)
-		if limitErr == nil {
-			creditRemaining = int64((limit.IncludedCreditUsd - limit.CurrentSpendUsd) * 1000000)
-			creditRemaining = max(creditRemaining, 0)
-		}
-	}
-	estimate, err := billing.EstimateJobCost(input.Preset, timeoutSecs, creditRemaining)
-	if err != nil {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("invalid preset: %v", err))
-	}
-	return &GetCostEstimateOutput{Body: estimate}, nil
 }
 
 type GetSpendingLimitInput struct {
@@ -585,69 +548,3 @@ func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitIn
 	return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
 }
 
-type WhatIfCostInput struct {
-	Body struct {
-		Preset      string `json:"preset"`
-		TimeoutSecs int    `json:"timeout_secs"`
-		Cron        string `json:"cron,omitempty"`
-		Count       int    `json:"count,omitempty"`
-	}
-}
-type WhatIfCostOutput struct{ Body any }
-
-func (s *Server) handleWhatIfCostEstimate(_ context.Context, input *WhatIfCostInput) (*WhatIfCostOutput, error) {
-	if input.Body.Preset == "" {
-		return nil, huma.Error400BadRequest("preset is required")
-	}
-	if input.Body.TimeoutSecs <= 0 {
-		return nil, huma.Error400BadRequest("timeout_secs must be a positive integer")
-	}
-
-	estimate, err := billing.EstimateWhatIf(
-		input.Body.Preset,
-		input.Body.TimeoutSecs,
-		input.Body.Cron,
-		input.Body.Count,
-	)
-	if err != nil {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("invalid input: %v", err))
-	}
-
-	return &WhatIfCostOutput{Body: estimate}, nil
-}
-
-type DeploymentDeltaInput struct {
-	Body struct {
-		Changes []billing.DeploymentChange `json:"changes"`
-	}
-}
-type DeploymentDeltaOutput struct{ Body any }
-
-func (s *Server) handleEstimateDeploymentDelta(ctx context.Context, input *DeploymentDeltaInput) (*DeploymentDeltaOutput, error) {
-	if len(input.Body.Changes) == 0 {
-		return &DeploymentDeltaOutput{Body: &billing.DeploymentDeltaResponse{}}, nil
-	}
-
-	// Fetch current job configs from store.
-	var jobs []billing.JobConfig
-	for _, change := range input.Body.Changes {
-		job, err := s.store.GetJob(ctx, change.JobID)
-		if err != nil {
-			return nil, huma.Error404NotFound(fmt.Sprintf("job %q not found", change.JobID))
-		}
-		jobs = append(jobs, billing.JobConfig{
-			ID:          job.ID,
-			Name:        job.Name,
-			Preset:      string(job.MachinePreset),
-			TimeoutSecs: job.TimeoutSecs,
-			Cron:        job.Cron,
-		})
-	}
-
-	result, err := billing.EstimateDeploymentDelta(jobs, input.Body.Changes)
-	if err != nil {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("estimation error: %v", err))
-	}
-
-	return &DeploymentDeltaOutput{Body: result}, nil
-}

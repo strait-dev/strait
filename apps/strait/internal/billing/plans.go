@@ -15,12 +15,10 @@ type OrgPlanLimits struct {
 	MaxOrgsPerUser          int   // -1 = unlimited
 	MaxProjectsPerOrg       int   // -1 = unlimited
 	MaxMembersPerOrg        int   // -1 = unlimited
-	MaxRunsPerDay           int64 // -1 = unlimited
-	MaxConcurrentRuns       int   // -1 = unlimited
-	ComputeCreditMicrousd   int64 // 19990000 = $19.99
-	FreeManagedRunsPerMonth int   // free tier only
-	FreeManagedPreset       string
-	FreeManagedMaxTimeout   int // seconds, free tier only
+	MaxRunsPerDay         int64 // -1 = unlimited
+	MaxConcurrentRuns     int   // -1 = unlimited
+	FreeManagedPreset     string
+	FreeManagedMaxTimeout int // seconds, free tier only
 	RetentionDays           int
 	AllowedRegions          []string // nil = all
 	MaxAlertRulesPerProj    int      // -1 = unlimited, 0 = none
@@ -95,7 +93,7 @@ const (
 	PriceScaleMonthlyCents   = 9900  // $99.00
 	PriceScaleAnnualCents    = 99000 // $990.00
 
-	// Compute credits in micro-USD, matching subscription price.
+	// Per-plan breakeven thresholds for plan-recommendation logic (micro-USD).
 	CreditFreeMicrousd    int64 = 1_000_000  // $1.00
 	CreditStarterMicrousd int64 = 19_990_000 // $19.99
 	CreditProMicrousd     int64 = 49_990_000 // $49.99
@@ -178,10 +176,8 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxProjectsPerOrg:       MaxProjectsFree,
 		MaxMembersPerOrg:        MaxMembersFree,
 		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:       ConcurrentFree,
-		ComputeCreditMicrousd:   CreditFreeMicrousd,
-		FreeManagedRunsPerMonth: 0,
-		FreeManagedPreset:       "micro",
+		MaxConcurrentRuns:     ConcurrentFree,
+		FreeManagedPreset:     "micro",
 		FreeManagedMaxTimeout:   FreeManagedMaxTimeout,
 		RetentionDays:           RetentionFree,
 		AllowedRegions:          []string{"iad"},
@@ -224,12 +220,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxProjectsPerOrg:       MaxProjectsStarter,
 		MaxMembersPerOrg:        MaxMembersStarter,
 		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:       ConcurrentStarter,
-		ComputeCreditMicrousd:   CreditStarterMicrousd,
-		FreeManagedRunsPerMonth: 0,
-		FreeManagedPreset:       "",
-		FreeManagedMaxTimeout:   0,
-		RetentionDays:           RetentionStarter,
+		MaxConcurrentRuns:     ConcurrentStarter,
+		FreeManagedPreset:     "",
+		FreeManagedMaxTimeout: 0,
+		RetentionDays:         RetentionStarter,
 		AllowedRegions:          []string{"iad", "ord", "lax", "lhr", "fra", "sin"},
 		MaxAlertRulesPerProj:    0,
 		MaxWebhookSubsPerProj:   3,
@@ -276,12 +270,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxProjectsPerOrg:       MaxProjectsPro,
 		MaxMembersPerOrg:        MaxMembersPro,
 		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:       ConcurrentPro,
-		ComputeCreditMicrousd:   CreditProMicrousd,
-		FreeManagedRunsPerMonth: 0,
-		FreeManagedPreset:       "",
-		FreeManagedMaxTimeout:   0,
-		RetentionDays:           RetentionPro,
+		MaxConcurrentRuns:     ConcurrentPro,
+		FreeManagedPreset:     "",
+		FreeManagedMaxTimeout: 0,
+		RetentionDays:         RetentionPro,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   10,
@@ -328,12 +320,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxProjectsPerOrg:       MaxProjectsScale,
 		MaxMembersPerOrg:        MaxMembersScale,
 		MaxRunsPerDay:           -1, // unlimited
-		MaxConcurrentRuns:       ConcurrentScale,
-		ComputeCreditMicrousd:   CreditScaleMicrousd,
-		FreeManagedRunsPerMonth: 0,
-		FreeManagedPreset:       "",
-		FreeManagedMaxTimeout:   0,
-		RetentionDays:           RetentionScale,
+		MaxConcurrentRuns:     ConcurrentScale,
+		FreeManagedPreset:     "",
+		FreeManagedMaxTimeout: 0,
+		RetentionDays:         RetentionScale,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   25,
@@ -380,12 +370,10 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxProjectsPerOrg:       -1,
 		MaxMembersPerOrg:        -1,
 		MaxRunsPerDay:           -1,
-		MaxConcurrentRuns:       -1,
-		ComputeCreditMicrousd:   0, // set per-contract via EnterpriseContract.IncludedCreditMicrousd
-		FreeManagedRunsPerMonth: 0,
-		FreeManagedPreset:       "",
-		FreeManagedMaxTimeout:   0,
-		RetentionDays:           RetentionEnterprise,
+		MaxConcurrentRuns:     -1,
+		FreeManagedPreset:     "",
+		FreeManagedMaxTimeout: 0,
+		RetentionDays:         RetentionEnterprise,
 		AllowedRegions:          nil,
 		MaxAlertRulesPerProj:    -1,
 		MaxWebhookSubsPerProj:   -1,
@@ -460,19 +448,12 @@ func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
 	lessInt := func(oldVal, newVal int) bool {
 		return less(int64(oldVal), int64(newVal))
 	}
-	lessCredit := func(oldTier, newTier domain.PlanTier, oldVal, newVal int64) bool {
-		if oldTier == domain.PlanEnterprise || newTier == domain.PlanEnterprise {
-			return false
-		}
-		return less(oldVal, newVal)
-	}
 
 	return less(oldLimits.MaxRunsPerDay, newLimits.MaxRunsPerDay) ||
 		lessInt(oldLimits.MaxConcurrentRuns, newLimits.MaxConcurrentRuns) ||
 		lessInt(oldLimits.MaxProjectsPerOrg, newLimits.MaxProjectsPerOrg) ||
 		lessInt(oldLimits.MaxMembersPerOrg, newLimits.MaxMembersPerOrg) ||
 		lessInt(oldLimits.MaxOrgsPerUser, newLimits.MaxOrgsPerUser) ||
-		lessCredit(oldTier, newTier, oldLimits.ComputeCreditMicrousd, newLimits.ComputeCreditMicrousd) ||
 		lessInt(oldLimits.RetentionDays, newLimits.RetentionDays) ||
 		lessInt(oldLimits.MaxAlertRulesPerProj, newLimits.MaxAlertRulesPerProj) ||
 		lessInt(oldLimits.MaxWebhookSubsPerProj, newLimits.MaxWebhookSubsPerProj) ||

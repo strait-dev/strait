@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,54 +43,6 @@ func TestWebhookMessageCleanup_DefaultInterval(t *testing.T) {
 	c := NewWebhookMessageCleanup(&rcMockWebhookCleanupStore{}, nil)
 	if c.interval != 6*time.Hour {
 		t.Fatalf("expected default interval 6h, got %v", c.interval)
-	}
-}
-
-func TestCostEstimateRefresher_Run_StopsOnCancel(t *testing.T) {
-	t.Parallel()
-
-	s := &rcMockCostEstimateStore{}
-	r := NewCostEstimateRefresher(s, 10*time.Millisecond)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		r.Run(ctx)
-		close(done)
-	}()
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
-	}
-}
-
-func TestCostEstimateRefresher_RefreshError_Continues(t *testing.T) {
-	t.Parallel()
-
-	var upsertCalls atomic.Int32
-	s := &rcMockCostEstimateStore{
-		listActiveJobIDsFn: func(context.Context) ([]string, error) {
-			return []string{"job-fail", "job-ok"}, nil
-		},
-		upsertJobCostEstimateFn: func(_ context.Context, jobID string) error {
-			upsertCalls.Add(1)
-			if jobID == "job-fail" {
-				return errors.New("estimate failed")
-			}
-			return nil
-		},
-	}
-
-	r := NewCostEstimateRefresher(s, time.Minute)
-	r.refresh(context.Background())
-
-	// Both jobs should have been attempted.
-	if upsertCalls.Load() != 2 {
-		t.Fatalf("expected 2 upsert calls, got %d", upsertCalls.Load())
 	}
 }
 
@@ -237,25 +188,6 @@ type rcMockWebhookCleanupStore struct{}
 
 func (m *rcMockWebhookCleanupStore) DeleteOldWebhookMessages(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
-}
-
-type rcMockCostEstimateStore struct {
-	listActiveJobIDsFn      func(ctx context.Context) ([]string, error)
-	upsertJobCostEstimateFn func(ctx context.Context, jobID string) error
-}
-
-func (m *rcMockCostEstimateStore) ListActiveJobIDs(ctx context.Context) ([]string, error) {
-	if m.listActiveJobIDsFn != nil {
-		return m.listActiveJobIDsFn(ctx)
-	}
-	return nil, nil
-}
-
-func (m *rcMockCostEstimateStore) UpsertJobCostEstimate(ctx context.Context, jobID string) error {
-	if m.upsertJobCostEstimateFn != nil {
-		return m.upsertJobCostEstimateFn(ctx, jobID)
-	}
-	return nil
 }
 
 type rcMockMemoryCleanupStore struct {

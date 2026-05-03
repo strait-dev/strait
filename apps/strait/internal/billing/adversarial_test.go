@@ -8,73 +8,6 @@ import (
 	"strait/internal/domain"
 )
 
-// TestCostEstimate_ExtremeTimeout verifies behavior with MaxInt timeout value.
-func TestCostEstimate_ExtremeTimeout(t *testing.T) {
-	t.Parallel()
-
-	est, err := EstimateJobCost("micro", math.MaxInt, 1000000000)
-	if err != nil {
-		t.Fatalf("unexpected error with MaxInt timeout: %v", err)
-	}
-	// Cost should be non-negative regardless of overflow behavior.
-	if est.CostMicro < 0 {
-		t.Fatalf("cost should not be negative, got: %d", est.CostMicro)
-	}
-}
-
-// TestCostEstimate_ZeroTimeout verifies that a zero timeout produces zero cost.
-func TestCostEstimate_ZeroTimeout(t *testing.T) {
-	t.Parallel()
-
-	est, err := EstimateJobCost("micro", 0, 1000000000)
-	if err != nil {
-		t.Fatalf("unexpected error with zero timeout: %v", err)
-	}
-	if est.CostMicro != 0 {
-		t.Fatalf("expected zero cost for zero timeout, got: %d", est.CostMicro)
-	}
-}
-
-// TestCostEstimate_NegativeTimeout verifies that a negative timeout is handled safely.
-func TestCostEstimate_NegativeTimeout(t *testing.T) {
-	t.Parallel()
-
-	est, err := EstimateJobCost("micro", -1, 1000000000)
-	if err != nil {
-		t.Fatalf("unexpected error with negative timeout: %v", err)
-	}
-	if est.CostMicro != 0 {
-		t.Fatalf("expected zero cost for negative timeout, got: %d", est.CostMicro)
-	}
-}
-
-// TestCostEstimate_ZeroCredit verifies that zero remaining credit produces zero runs remaining.
-func TestCostEstimate_ZeroCredit(t *testing.T) {
-	t.Parallel()
-
-	est, err := EstimateJobCost("micro", 60, 0)
-	if err != nil {
-		t.Fatalf("unexpected error with zero credit: %v", err)
-	}
-	if est.CreditRunsRemaining != 0 {
-		t.Fatalf("expected 0 runs remaining with zero credit, got: %d", est.CreditRunsRemaining)
-	}
-}
-
-// TestCostEstimate_NegativeCredit verifies that negative remaining credit does not cause issues.
-func TestCostEstimate_NegativeCredit(t *testing.T) {
-	t.Parallel()
-
-	est, err := EstimateJobCost("micro", 60, -1000000)
-	if err != nil {
-		t.Fatalf("unexpected error with negative credit: %v", err)
-	}
-	// Negative credit / positive cost should yield a negative (or zero) runs remaining.
-	if est.CreditRunsRemaining > 0 {
-		t.Fatalf("expected non-positive runs remaining with negative credit, got: %d", est.CreditRunsRemaining)
-	}
-}
-
 // TestCalculateCost_InfDuration verifies that infinite duration does not panic.
 func TestCalculateCost_InfDuration(t *testing.T) {
 	t.Parallel()
@@ -114,27 +47,6 @@ func TestCalculateCost_MaxFloat64(t *testing.T) {
 	if cost < 0 {
 		t.Fatalf("cost should not be negative for MaxFloat64 duration, got: %d", cost)
 	}
-}
-
-// FuzzCostEstimateOverflow fuzzes EstimateJobCost with arbitrary timeout and credit values.
-func FuzzCostEstimateOverflow(f *testing.F) {
-	f.Add(0, int64(0))
-	f.Add(1, int64(1000000))
-	f.Add(-1, int64(-1))
-	f.Add(math.MaxInt, int64(math.MaxInt64))
-	f.Add(math.MinInt, int64(math.MinInt64))
-
-	f.Fuzz(func(t *testing.T, timeout int, credit int64) {
-		// Should never panic regardless of input.
-		est, err := EstimateJobCost("micro", timeout, credit)
-		if err != nil {
-			return
-		}
-		// Basic sanity: cost should not be negative.
-		if est.CostMicro < 0 {
-			t.Fatalf("negative cost: %d", est.CostMicro)
-		}
-	})
 }
 
 // TestSpendingLimit_BoundaryValues verifies spending limit boundary checks for each plan tier.
