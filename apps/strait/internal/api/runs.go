@@ -221,18 +221,6 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 		}
 	}
 
-	// Stop managed container if running -- use detached context so client
-	// disconnect doesn't abort the stop, and cap at 10s to avoid blocking
-	// if the Fly API is unresponsive.
-	if s.containerRuntime != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stopCancel()
-		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
-			slog.Warn("failed to stop managed container on cancel",
-				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-		}
-	}
-
 	canceledCount := s.cancelChildRunsRecursive(ctx, run.ID)
 	if canceledCount > 0 && s.metrics != nil {
 		s.metrics.ChildCancellationsTotal.Add(ctx, canceledCount)
@@ -974,9 +962,6 @@ func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*Pau
 		return nil, huma.Error404NotFound("run not found")
 	}
 
-	if run.ExecutionMode != domain.ExecutionModeManaged {
-		return nil, huma.Error400BadRequest("only managed runs can be paused")
-	}
 	if run.Status == domain.StatusPaused {
 		return &PauseRunOutput{Body: run}, nil
 	}
@@ -988,16 +973,6 @@ func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*Pau
 		"metadata": map[string]string{"_paused_machine_id": run.MachineID},
 	}); err != nil {
 		return nil, huma.Error409Conflict("failed to pause run")
-	}
-
-	// Stop managed container (non-fatal).
-	if s.containerRuntime != nil && run.MachineID != "" {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stopCancel()
-		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
-			slog.Warn("failed to stop managed container on run pause",
-				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-		}
 	}
 
 	updatedRun, err := s.store.GetRun(ctx, run.ID)
@@ -1087,27 +1062,11 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 		return nil, huma.Error404NotFound("run not found")
 	}
 
-	if run.ExecutionMode != domain.ExecutionModeManaged {
-		return nil, huma.Error400BadRequest("only managed runs can be restarted")
-	}
 	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
 		return nil, huma.Error400BadRequest("run must be executing or paused to restart")
 	}
 
 	req := input.Body
-	if req.MachinePreset != "" && !domain.MachinePreset(req.MachinePreset).IsValid() {
-		return nil, huma.Error400BadRequest("invalid machine_preset")
-	}
-
-	// Stop container if running.
-	if s.containerRuntime != nil && run.MachineID != "" && run.Status == domain.StatusExecuting {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stopCancel()
-		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
-			slog.Warn("failed to stop managed container on restart",
-				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-		}
-	}
 
 	metadata := map[string]string{}
 	if req.MachinePreset != "" {
