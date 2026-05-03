@@ -901,29 +901,54 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
+	// Detailed subsystem inventory (db, redis, clickhouse, ...) and per-
+	// component status is only exposed to authenticated internal callers.
+	// The public endpoint returns a minimal {status} body so an
+	// unauthenticated probe cannot fingerprint our infrastructure or
+	// learn which dependency is currently degraded.
+	secret := r.Header.Get("X-Internal-Secret")
+	isInternal := secret != "" && s.config != nil && s.config.InternalSecret != "" &&
+		subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) == 1
+
 	if s.healthRegistry != nil {
 		result := s.healthRegistry.CheckAll(r.Context())
 		if result.Status == health.StatusDown {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				slog.Warn("failed to encode health check response", "error", err)
+			if isInternal {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				if err := json.NewEncoder(w).Encode(result); err != nil {
+					slog.Warn("failed to encode health check response", "error", err)
+				}
+				return
 			}
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 			return
 		}
-		respondJSON(w, http.StatusOK, result)
+		if isInternal {
+			respondJSON(w, http.StatusOK, result)
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 		return
 	}
 
 	_, err := s.store.QueueStats(r.Context())
 	if err != nil {
-		respondError(w, r, http.StatusServiceUnavailable, "database not ready")
+		if isInternal {
+			respondError(w, r, http.StatusServiceUnavailable, "database not ready")
+			return
+		}
+		respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 		return
 	}
 
 	if s.pinger != nil {
 		if err := s.pinger.Ping(r.Context()); err != nil {
-			respondError(w, r, http.StatusServiceUnavailable, "redis not ready")
+			if isInternal {
+				respondError(w, r, http.StatusServiceUnavailable, "redis not ready")
+				return
+			}
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 			return
 		}
 	}
