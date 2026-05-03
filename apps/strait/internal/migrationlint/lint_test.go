@@ -314,6 +314,124 @@ func TestLintDir_SortedOutput(t *testing.T) {
 	}
 }
 
+func TestLintPairs_AllRepoMigrationsArePaired(t *testing.T) {
+	dir := filepath.Join("..", "..", "migrations")
+	v, err := LintPairs(dir)
+	if err != nil {
+		t.Fatalf("LintPairs: %v", err)
+	}
+	if len(v) != 0 {
+		for _, vv := range v {
+			t.Errorf("orphan migration: %s", vv.String())
+		}
+	}
+}
+
+func TestLintPairs_OrphanUpFlagged(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "000001_a.up.sql"), []byte(`SELECT 1;`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := LintPairs(tmp)
+	if err != nil {
+		t.Fatalf("LintPairs: %v", err)
+	}
+	if !hasRule(v, RuleUnpairedMigration) {
+		t.Fatalf("expected %s, got %v", RuleUnpairedMigration, v)
+	}
+	if !strings.Contains(v[0].Snippet, "000001_a.up.sql") {
+		t.Errorf("snippet should reference the orphan up file, got %q", v[0].Snippet)
+	}
+}
+
+func TestLintPairs_OrphanDownFlagged(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "000001_a.down.sql"), []byte(`SELECT 1;`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := LintPairs(tmp)
+	if err != nil {
+		t.Fatalf("LintPairs: %v", err)
+	}
+	if !hasRule(v, RuleUnpairedMigration) {
+		t.Fatalf("expected %s, got %v", RuleUnpairedMigration, v)
+	}
+	if !strings.Contains(v[0].Snippet, "000001_a.down.sql") {
+		t.Errorf("snippet should reference the orphan down file, got %q", v[0].Snippet)
+	}
+}
+
+func TestLintPairs_PairedAccepted(t *testing.T) {
+	tmp := t.TempDir()
+	must := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("000001_a.up.sql", `SELECT 1;`)
+	must("000001_a.down.sql", `SELECT 1;`)
+	must("000002_b.up.sql", `SELECT 1;`)
+	must("000002_b.down.sql", `SELECT 1;`)
+	v, err := LintPairs(tmp)
+	if err != nil {
+		t.Fatalf("LintPairs: %v", err)
+	}
+	if len(v) != 0 {
+		t.Fatalf("paired migrations should pass, got %v", v)
+	}
+}
+
+func TestLintPairs_PairedDeletionAccepted(t *testing.T) {
+	// Simulates the state after a migration pair has been deleted: the
+	// directory simply contains the surviving paired migrations. The check
+	// must not report anything because both halves were removed together.
+	tmp := t.TempDir()
+	must := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("000001_a.up.sql", `SELECT 1;`)
+	must("000001_a.down.sql", `SELECT 1;`)
+	v, err := LintPairs(tmp)
+	if err != nil {
+		t.Fatalf("LintPairs: %v", err)
+	}
+	if len(v) != 0 {
+		t.Fatalf("paired deletion should pass, got %v", v)
+	}
+}
+
+func TestLintPairs_MissingDir(t *testing.T) {
+	if _, err := LintPairs("/nope/not/here"); err == nil {
+		t.Error("missing dir should error")
+	}
+}
+
+func TestLintPairs_SortedOutput(t *testing.T) {
+	tmp := t.TempDir()
+	must := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("000002_b.up.sql", `SELECT 1;`)
+	must("000001_a.down.sql", `SELECT 1;`)
+	v, err := LintPairs(tmp)
+	if err != nil {
+		t.Fatalf("LintPairs: %v", err)
+	}
+	if len(v) != 2 {
+		t.Fatalf("expected 2 violations, got %v", v)
+	}
+	if !strings.Contains(v[0].File, "000001_a") {
+		t.Errorf("expected sorted order, got %s first", v[0].File)
+	}
+}
+
 // FuzzLinterNoPanicOnGarbage asserts the linter never panics on arbitrary
 // input.
 func FuzzLinterNoPanicOnGarbage(f *testing.F) {
