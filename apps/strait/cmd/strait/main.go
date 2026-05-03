@@ -410,6 +410,11 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
+
+		// Wire webhook delivery cost recording. Each successful outbound delivery
+		// is billed at the same flat rate as an HTTP run (20 micro-USD).
+		webhookCostRecorder := billing.NewRunCostRecorder(billingStore, nil, slog.Default())
+		eventNotifier.SetRunCostRecorder(webhookCostRecorder)
 	}
 
 	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {

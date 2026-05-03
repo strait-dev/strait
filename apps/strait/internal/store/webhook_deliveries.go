@@ -256,12 +256,14 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListPendingWebhookRetries")
 	defer span.End()
 
-	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
-					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
-					 event_trigger_id
-			  FROM webhook_deliveries
-			  WHERE status = 'pending' AND next_retry_at IS NOT NULL AND next_retry_at <= NOW()
-			  ORDER BY next_retry_at ASC
+	query := `SELECT wd.id, wd.run_id, wd.job_id, wd.webhook_url, wd.webhook_retry_policy, wd.status, wd.attempts, wd.max_attempts,
+					 wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
+					 wd.event_trigger_id,
+					 COALESCE(wd.project_id, ''), COALESCE(p.org_id, '')
+			  FROM webhook_deliveries wd
+			  LEFT JOIN projects p ON p.id = wd.project_id AND wd.project_id != '__orphaned__'
+			  WHERE wd.status = 'pending' AND wd.next_retry_at IS NOT NULL AND wd.next_retry_at <= NOW()
+			  ORDER BY wd.next_retry_at ASC
 			  LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query)
@@ -272,7 +274,7 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 
 	deliveries := make([]domain.WebhookDelivery, 0, 16)
 	for rows.Next() {
-		d, err := scanWebhookDelivery(rows)
+		d, err := scanWebhookDeliveryWithOrg(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list pending webhook retries scan: %w", err)
 		}
@@ -352,6 +354,45 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
 		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
 		&eventTriggerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if lastError != nil {
+		d.LastError = *lastError
+	}
+	if runID != nil {
+		d.RunID = *runID
+	}
+	if jobID != nil {
+		d.JobID = *jobID
+	}
+	if retryPolicy != nil {
+		d.RetryPolicy = *retryPolicy
+	}
+	if eventTriggerID != nil {
+		d.EventTriggerID = *eventTriggerID
+	}
+	return &d, nil
+}
+
+// scanWebhookDeliveryWithOrg scans a delivery row that includes two extra trailing
+// columns: project_id and org_id (populated by ListPendingWebhookRetries for
+// billing cost recording).
+func scanWebhookDeliveryWithOrg(scanner scanTarget) (*domain.WebhookDelivery, error) {
+	var d domain.WebhookDelivery
+	var lastError *string
+	var runID *string
+	var jobID *string
+	var retryPolicy *string
+	var eventTriggerID *string
+
+	err := scanner.Scan(
+		&d.ID, &runID, &jobID, &d.WebhookURL, &retryPolicy, &d.Status,
+		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
+		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
+		&eventTriggerID,
+		&d.ProjectID, &d.OrgID,
 	)
 	if err != nil {
 		return nil, err

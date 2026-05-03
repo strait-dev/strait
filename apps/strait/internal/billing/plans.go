@@ -92,6 +92,11 @@ const (
 	// Flat rate matching HTTP dispatch.
 	WorkerCostPerRunMicrousd int64 = 20
 
+	// WebhookDeliveryCostPerRunMicrousd is the per-successful-delivery cost for
+	// outbound webhook deliveries. Billed once on eventual success; failed
+	// deliveries that never succeed are not billed.
+	WebhookDeliveryCostPerRunMicrousd int64 = 20
+
 	// Plan prices in cents (USD).
 	PriceStarterMonthlyCents = 1999  // $19.99
 	PriceStarterAnnualCents  = 19999 // $199.99

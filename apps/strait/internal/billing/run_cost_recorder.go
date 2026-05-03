@@ -44,6 +44,14 @@ func (r *RunCostRecorder) RecordWorkerRunCost(ctx context.Context, orgID, projec
 	return r.record(ctx, orgID, projectID, runID, WorkerCostPerRunMicrousd, "worker")
 }
 
+// RecordWebhookDeliveryCost writes a flat 20 micro-USD cost row for a successful
+// outbound webhook delivery. Only call this on the eventual success path — failed
+// deliveries that are retried and never succeed are not billed. orgID and projectID
+// are required; deliveryID is used for ClickHouse analytics only.
+func (r *RunCostRecorder) RecordWebhookDeliveryCost(ctx context.Context, orgID, projectID, deliveryID string) error {
+	return r.record(ctx, orgID, projectID, deliveryID, WebhookDeliveryCostPerRunMicrousd, "webhook_delivery")
+}
+
 func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID string, costMicroUSD int64, executionMode string) error {
 	if orgID == "" || projectID == "" {
 		return nil

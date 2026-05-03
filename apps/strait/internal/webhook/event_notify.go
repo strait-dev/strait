@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/telemetry"
@@ -65,6 +66,7 @@ type DeliveryWorker struct {
 	circuitBreaker     WebhookCircuitBreaker
 	metrics            *telemetry.Metrics
 	chExporter         *clickhouse.Exporter
+	costRecorder       *billing.RunCostRecorder
 	maxPayloadBytes    int64
 	batchByURL         bool
 	maxBatchSize       int
@@ -112,6 +114,16 @@ func WithMetrics(metrics *telemetry.Metrics) DeliveryWorkerOption {
 func WithChExporter(exporter *clickhouse.Exporter) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
 		w.chExporter = exporter
+	}
+}
+
+// WithRunCostRecorder wires a billing cost recorder so that each successful
+// webhook delivery is recorded as a billable event (flat 20 micro-USD).
+// Failed deliveries that are retried and eventually succeed are billed once;
+// deliveries that never succeed are not billed.
+func WithRunCostRecorder(recorder *billing.RunCostRecorder) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.costRecorder = recorder
 	}
 }
 
@@ -180,6 +192,13 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 // NewEventNotifier creates a new event notifier.
 func NewEventNotifier(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	return NewDeliveryWorker(store, logger, opts...)
+}
+
+// SetRunCostRecorder sets the billing cost recorder after construction.
+// This allows wiring the recorder when it is created after the worker
+// (e.g. main.go creates the worker before the billing store is initialised).
+func (n *DeliveryWorker) SetRunCostRecorder(recorder *billing.RunCostRecorder) {
+	n.costRecorder = recorder
 }
 
 // NotifyAsync persists a webhook delivery for the given trigger.
@@ -562,6 +581,11 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 		if err := n.store.UpdateWebhookDelivery(ctx, &deliveries[i]); err != nil {
 			n.logger.Error("failed to mark webhook delivered", "delivery_id", deliveries[i].ID, "error", err)
 		}
+		if n.costRecorder != nil && deliveries[i].OrgID != "" && deliveries[i].ProjectID != "" {
+			if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, deliveries[i].OrgID, deliveries[i].ProjectID, deliveries[i].ID); err != nil {
+				n.logger.Warn("failed to record webhook delivery cost", "delivery_id", deliveries[i].ID, "error", err)
+			}
+		}
 		if n.metrics != nil {
 			n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
 				attribute.String("status", "delivered"),
@@ -845,6 +869,11 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
 		span.SetStatus(codes.Error, "failed to persist delivered webhook")
 		return
+	}
+	if n.costRecorder != nil && d.OrgID != "" && d.ProjectID != "" {
+		if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, d.OrgID, d.ProjectID, d.ID); err != nil {
+			n.logger.Warn("failed to record webhook delivery cost", "delivery_id", d.ID, "error", err)
+		}
 	}
 	if n.metrics != nil {
 		n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(

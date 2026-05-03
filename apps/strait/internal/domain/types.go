@@ -715,6 +715,8 @@ type WebhookDelivery struct {
 	JobID          string     `json:"job_id,omitempty"`
 	EventTriggerID string     `json:"event_trigger_id,omitempty"`
 	SubscriptionID string     `json:"subscription_id,omitempty"`
+	ProjectID      string     `json:"project_id,omitempty"`
+	OrgID          string     `json:"org_id,omitempty"`
 	WebhookURL     string     `json:"webhook_url"`
 	RetryPolicy    string     `json:"webhook_retry_policy,omitempty"`
 	Status         string     `json:"status"`
