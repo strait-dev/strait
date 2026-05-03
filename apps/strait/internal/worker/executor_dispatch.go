@@ -377,9 +377,10 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		if e.runCostRecorder != nil && e.billingEnforcer != nil {
 			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 			if orgErr == nil && orgID != "" {
-				// Fire-and-forget: cost recording is non-critical; log failures but don't fail the run.
+				// Tracked on stripeUsageWG so graceful shutdown waits — without this the
+				// goroutine is torn down mid-write and the run completes without a billing row.
 				costCtx := context.WithoutCancel(ctx)
-				go func() {
+				e.stripeUsageWG.Go(func() {
 					if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
 						e.logger.Warn("failed to record HTTP run cost",
 							"run_id", run.ID,
@@ -387,7 +388,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 							"error", err,
 						)
 					}
-				}()
+				})
 			}
 		}
 	}
@@ -846,7 +847,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr == nil && orgID != "" {
 			costCtx := context.WithoutCancel(ctx)
-			go func() {
+			e.stripeUsageWG.Go(func() {
 				if err := e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
 					e.logger.Warn("failed to record worker run cost",
 						"run_id", run.ID,
@@ -854,7 +855,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 						"error", err,
 					)
 				}
-			}()
+			})
 		}
 	}
 	// Also report to Stripe.
