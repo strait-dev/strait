@@ -335,63 +335,6 @@ func TestRuns_ListQueueDepthByJob_ExcludesExecuting(t *testing.T) {
 	}
 }
 
-// SetRunMachineID.
-
-func TestRuns_SetRunMachineID_HappyPath(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	job := mustCreateJob(t, ctx, q, "project-machine-id")
-	run := mustCreateRun(t, ctx, q, job)
-
-	if err := q.SetRunMachineID(ctx, run.ID, "machine-abc"); err != nil {
-		t.Fatalf("SetRunMachineID() error = %v", err)
-	}
-
-	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.MachineID != "machine-abc" {
-		t.Fatalf("machine_id = %q, want %q", got.MachineID, "machine-abc")
-	}
-}
-
-func TestRuns_SetRunMachineID_NotFound(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	err := q.SetRunMachineID(ctx, newID(), "machine-xyz")
-	if err == nil {
-		t.Fatal("expected error for nonexistent run")
-	}
-}
-
-func TestRuns_SetRunMachineID_Overwrite(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	job := mustCreateJob(t, ctx, q, "project-machine-id-overwrite")
-	run := mustCreateRun(t, ctx, q, job)
-
-	if err := q.SetRunMachineID(ctx, run.ID, "machine-1"); err != nil {
-		t.Fatalf("first SetRunMachineID() error = %v", err)
-	}
-	if err := q.SetRunMachineID(ctx, run.ID, "machine-2"); err != nil {
-		t.Fatalf("second SetRunMachineID() error = %v", err)
-	}
-	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.MachineID != "machine-2" {
-		t.Fatalf("machine_id = %q, want %q", got.MachineID, "machine-2")
-	}
-}
-
 // GetRunsByIDs.
 
 func TestRuns_GetRunsByIDs_HappyPath(t *testing.T) {
@@ -634,100 +577,6 @@ func TestRuns_CancelJobRunsByWorkflowRun_UnrelatedUntouched(t *testing.T) {
 	}
 }
 
-// ListManagedMachineIDsByWorkflowRun.
-
-func TestRuns_ListManagedMachineIDsByWorkflowRun_HappyPath(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	projectID := "project-managed-machines"
-	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
-	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
-	})
-	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
-	})
-
-	jobRun := baseRun(stepJob, newID())
-	jobRun.Status = domain.StatusExecuting
-	jobRun.ExecutionMode = domain.ExecutionModeManaged
-	jobRun.MachineID = "machine-managed-1"
-	if err := q.CreateRun(ctx, jobRun); err != nil {
-		t.Fatalf("CreateRun error = %v", err)
-	}
-	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
-	})
-
-	ids, err := q.ListManagedMachineIDsByWorkflowRun(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("ListManagedMachineIDsByWorkflowRun() error = %v", err)
-	}
-	if len(ids) != 1 {
-		t.Fatalf("len = %d, want 1", len(ids))
-	}
-	if ids[0] != "machine-managed-1" {
-		t.Fatalf("machine_id = %q, want %q", ids[0], "machine-managed-1")
-	}
-}
-
-func TestRuns_ListManagedMachineIDsByWorkflowRun_Empty(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	ids, err := q.ListManagedMachineIDsByWorkflowRun(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListManagedMachineIDsByWorkflowRun() error = %v", err)
-	}
-	if len(ids) != 0 {
-		t.Fatalf("len = %d, want 0", len(ids))
-	}
-}
-
-func TestRuns_ListManagedMachineIDsByWorkflowRun_ExcludesHTTP(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	projectID := "project-managed-machines-http"
-	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
-	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
-	})
-	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
-	})
-
-	// HTTP mode run with machine_id should be excluded.
-	jobRun := baseRun(stepJob, newID())
-	jobRun.Status = domain.StatusExecuting
-	jobRun.ExecutionMode = domain.ExecutionModeHTTP
-	jobRun.MachineID = "machine-http-1"
-	if err := q.CreateRun(ctx, jobRun); err != nil {
-		t.Fatalf("CreateRun error = %v", err)
-	}
-	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
-	})
-
-	ids, err := q.ListManagedMachineIDsByWorkflowRun(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("ListManagedMachineIDsByWorkflowRun() error = %v", err)
-	}
-	if len(ids) != 0 {
-		t.Fatalf("len = %d, want 0 (http mode excluded)", len(ids))
-	}
-}
-
 // MarkJobRunsPausedByWorkflowRun.
 
 func TestRuns_MarkJobRunsPausedByWorkflowRun_HappyPath(t *testing.T) {
@@ -749,8 +598,6 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_HappyPath(t *testing.T) {
 
 	jobRun := baseRun(stepJob, newID())
 	jobRun.Status = domain.StatusExecuting
-	jobRun.ExecutionMode = domain.ExecutionModeManaged
-	jobRun.MachineID = "machine-pause-1"
 	if err := q.CreateRun(ctx, jobRun); err != nil {
 		t.Fatalf("CreateRun error = %v", err)
 	}
@@ -795,8 +642,6 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_SkipsNonExecuting(t *testing.T) {
 	// Queued run should not be paused.
 	jobRun := baseRun(stepJob, newID())
 	jobRun.Status = domain.StatusQueued
-	jobRun.ExecutionMode = domain.ExecutionModeManaged
-	jobRun.MachineID = "machine-pause-2"
 	if err := q.CreateRun(ctx, jobRun); err != nil {
 		t.Fatalf("CreateRun error = %v", err)
 	}
@@ -846,11 +691,9 @@ func TestRuns_RequeuePausedJobRuns_HappyPath(t *testing.T) {
 		ProjectID: testutil.Ptr(projectID),
 	})
 
-	// Create executing managed run, pause it, then requeue.
+	// Create executing run, pause it, then requeue.
 	jobRun := baseRun(stepJob, newID())
 	jobRun.Status = domain.StatusExecuting
-	jobRun.ExecutionMode = domain.ExecutionModeManaged
-	jobRun.MachineID = "machine-requeue-1"
 	if err := q.CreateRun(ctx, jobRun); err != nil {
 		t.Fatalf("CreateRun error = %v", err)
 	}
@@ -1944,253 +1787,6 @@ func TestRunState_CopyRunState_EmptySource(t *testing.T) {
 	}
 }
 
-// ListRunComputeUsage.
-
-func TestRunCompute_ListRunComputeUsage_HappyPath(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	job := mustCreateJob(t, ctx, q, "project-compute-usage")
-	run := mustCreateRun(t, ctx, q, job)
-
-	now := time.Now().UTC()
-	startedAt := now.Add(-10 * time.Minute)
-	finishedAt := now
-
-	usage := &domain.RunComputeUsage{
-		RunID:         run.ID,
-		ProjectID:     job.ProjectID,
-		JobID:         job.ID,
-		MachinePreset: "cpu-1x",
-		MachineID:     "machine-compute-1",
-		DurationSecs:  600,
-		CostMicrousd:  5000,
-		StartedAt:     &startedAt,
-		FinishedAt:    &finishedAt,
-	}
-	if err := q.CreateRunComputeUsage(ctx, usage); err != nil {
-		t.Fatalf("CreateRunComputeUsage() error = %v", err)
-	}
-
-	// Commit the reservation to make it visible to ListRunComputeUsage.
-	if err := q.CommitReservation(ctx, run.ID, 5000, 600, "machine-compute-1", &startedAt, &finishedAt); err != nil {
-		t.Fatalf("CommitReservation() error = %v", err)
-	}
-
-	usages, err := q.ListRunComputeUsage(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("ListRunComputeUsage() error = %v", err)
-	}
-	// The first insert does not set status='committed', only CommitReservation
-	// updates reserved rows. The CreateRunComputeUsage row has no status column
-	// default matching 'committed'. This test verifies the method works.
-	// Due to status filtering, the count depends on implementation.
-	_ = usages
-}
-
-func TestRunCompute_ListRunComputeUsage_Empty(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	job := mustCreateJob(t, ctx, q, "project-compute-usage-empty")
-	run := mustCreateRun(t, ctx, q, job)
-
-	usages, err := q.ListRunComputeUsage(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("ListRunComputeUsage() error = %v", err)
-	}
-	if len(usages) != 0 {
-		t.Fatalf("len = %d, want 0", len(usages))
-	}
-}
-
-func TestRunCompute_ListRunComputeUsage_NonexistentRun(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	usages, err := q.ListRunComputeUsage(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListRunComputeUsage() error = %v", err)
-	}
-	if len(usages) != 0 {
-		t.Fatalf("len = %d, want 0", len(usages))
-	}
-}
-
-// ListRunComputeUsageByProject.
-
-func TestRunCompute_ListRunComputeUsageByProject_HappyPath(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	projectID := "project-compute-by-project"
-	job := mustCreateJob(t, ctx, q, projectID)
-	run := mustCreateRun(t, ctx, q, job)
-
-	now := time.Now().UTC()
-	startedAt := now.Add(-5 * time.Minute)
-	finishedAt := now
-
-	usage := &domain.RunComputeUsage{
-		RunID:         run.ID,
-		ProjectID:     projectID,
-		JobID:         job.ID,
-		MachinePreset: "cpu-1x",
-		MachineID:     "m1",
-		DurationSecs:  300,
-		CostMicrousd:  2500,
-		StartedAt:     &startedAt,
-		FinishedAt:    &finishedAt,
-	}
-	if err := q.CreateRunComputeUsage(ctx, usage); err != nil {
-		t.Fatalf("CreateRunComputeUsage() error = %v", err)
-	}
-
-	usages, err := q.ListRunComputeUsageByProject(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListRunComputeUsageByProject() error = %v", err)
-	}
-	if len(usages) != 1 {
-		t.Fatalf("len = %d, want 1", len(usages))
-	}
-	if usages[0].ProjectID != projectID {
-		t.Fatalf("project_id = %q, want %q", usages[0].ProjectID, projectID)
-	}
-}
-
-func TestRunCompute_ListRunComputeUsageByProject_Empty(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	usages, err := q.ListRunComputeUsageByProject(ctx, "nonexistent-project", 10, nil)
-	if err != nil {
-		t.Fatalf("ListRunComputeUsageByProject() error = %v", err)
-	}
-	if len(usages) != 0 {
-		t.Fatalf("len = %d, want 0", len(usages))
-	}
-}
-
-func TestRunCompute_ListRunComputeUsageByProject_Pagination(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	projectID := "project-compute-pagination"
-	job := mustCreateJob(t, ctx, q, projectID)
-
-	for range 5 {
-		run := mustCreateRun(t, ctx, q, job)
-		now := time.Now().UTC()
-		startedAt := now.Add(-1 * time.Minute)
-		finishedAt := now
-		usage := &domain.RunComputeUsage{
-			RunID:         run.ID,
-			ProjectID:     projectID,
-			JobID:         job.ID,
-			MachinePreset: "cpu-1x",
-			MachineID:     "m-" + run.ID[:8],
-			DurationSecs:  60,
-			CostMicrousd:  100,
-			StartedAt:     &startedAt,
-			FinishedAt:    &finishedAt,
-		}
-		if err := q.CreateRunComputeUsage(ctx, usage); err != nil {
-			t.Fatalf("CreateRunComputeUsage() error = %v", err)
-		}
-	}
-
-	// Fetch first page.
-	page1, err := q.ListRunComputeUsageByProject(ctx, projectID, 3, nil)
-	if err != nil {
-		t.Fatalf("page 1 error = %v", err)
-	}
-	if len(page1) != 3 {
-		t.Fatalf("page 1 len = %d, want 3", len(page1))
-	}
-
-	// Fetch second page using cursor.
-	cursor := page1[2].CreatedAt
-	page2, err := q.ListRunComputeUsageByProject(ctx, projectID, 3, &cursor)
-	if err != nil {
-		t.Fatalf("page 2 error = %v", err)
-	}
-	if len(page2) != 2 {
-		t.Fatalf("page 2 len = %d, want 2", len(page2))
-	}
-}
-
-// ListProjectsWithComputeLimit.
-
-func TestRunCompute_ListProjectsWithComputeLimit_HappyPath(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	// Insert a project_quota row directly.
-	projectID := "project-compute-limit"
-	if _, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO project_quotas (project_id, timezone, compute_daily_cost_limit_microusd) VALUES ($1, $2, $3)`,
-		projectID, "UTC", int64(100000),
-	); err != nil {
-		t.Fatalf("insert project_quota error = %v", err)
-	}
-
-	results, err := q.ListProjectsWithComputeLimit(ctx)
-	if err != nil {
-		t.Fatalf("ListProjectsWithComputeLimit() error = %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("len = %d, want 1", len(results))
-	}
-	if results[0].ProjectID != projectID {
-		t.Fatalf("project_id = %q, want %q", results[0].ProjectID, projectID)
-	}
-	if results[0].ComputeDailyCostLimitMicrousd != 100000 {
-		t.Fatalf("limit = %d, want 100000", results[0].ComputeDailyCostLimitMicrousd)
-	}
-}
-
-func TestRunCompute_ListProjectsWithComputeLimit_Empty(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	results, err := q.ListProjectsWithComputeLimit(ctx)
-	if err != nil {
-		t.Fatalf("ListProjectsWithComputeLimit() error = %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("len = %d, want 0", len(results))
-	}
-}
-
-func TestRunCompute_ListProjectsWithComputeLimit_ExcludesZero(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	projectID := "project-compute-limit-zero"
-	if _, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO project_quotas (project_id, timezone, compute_daily_cost_limit_microusd) VALUES ($1, $2, $3)`,
-		projectID, "UTC", int64(0),
-	); err != nil {
-		t.Fatalf("insert project_quota error = %v", err)
-	}
-
-	results, err := q.ListProjectsWithComputeLimit(ctx)
-	if err != nil {
-		t.Fatalf("ListProjectsWithComputeLimit() error = %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("len = %d, want 0 (zero excluded)", len(results))
-	}
-}
 
 // CreateRunResourceSnapshot.
 

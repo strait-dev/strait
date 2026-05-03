@@ -542,35 +542,6 @@ func (s *intMockRunLimitStore) CreateNotificationDelivery(_ context.Context, d *
 	return nil
 }
 
-// intMockBudgetMonitorStore implements scheduler.BudgetMonitorStore.
-type intMockBudgetMonitorStore struct {
-	projects       []store.ProjectComputeQuota
-	sumDailyCostFn func(ctx context.Context, projectID, timezone string) (int64, error)
-}
-
-func (s *intMockBudgetMonitorStore) ListProjectsWithComputeLimit(_ context.Context) ([]store.ProjectComputeQuota, error) {
-	return s.projects, nil
-}
-
-func (s *intMockBudgetMonitorStore) SumDailyComputeCost(ctx context.Context, projectID string, timezone string) (int64, error) {
-	if s.sumDailyCostFn != nil {
-		return s.sumDailyCostFn(ctx, projectID, timezone)
-	}
-	return 0, nil
-}
-
-// intMockBudgetEnqueuer implements scheduler.BudgetMonitorWebhookEnqueuer.
-type intMockBudgetEnqueuer struct {
-	enqueueFn func(ctx context.Context, projectID string, payload json.RawMessage) error
-}
-
-func (e *intMockBudgetEnqueuer) EnqueueBudgetAlert(ctx context.Context, projectID string, payload json.RawMessage) error {
-	if e.enqueueFn != nil {
-		return e.enqueueFn(ctx, projectID, payload)
-	}
-	return nil
-}
-
 // intMockEnforcer wraps the Check80PercentDailyRunWarning behavior
 // without requiring a real billing.Enforcer (which needs Redis).
 // Since checkRunLimitWarnings calls enforcer.Check80PercentDailyRunWarning
@@ -581,7 +552,6 @@ func (e *intMockBudgetEnqueuer) EnqueueBudgetAlert(ctx context.Context, projectI
 func TestIntegration_CheckRunLimitWarnings_NilEnforcer(t *testing.T) {
 	// When runLimitStore is set but enforcer is nil, checkRunLimitWarnings
 	// should not be called (the guard: bm.runLimitStore != nil && bm.enforcer != nil).
-	ms := &intMockBudgetMonitorStore{}
 	rlStore := &intMockRunLimitStore{
 		orgIDs: []string{"org-1"},
 		projectsByOrg: map[string][]string{
@@ -591,67 +561,15 @@ func TestIntegration_CheckRunLimitWarnings_NilEnforcer(t *testing.T) {
 			"proj-1": {{ID: "ch-1", ProjectID: "proj-1", ChannelType: "webhook", Enabled: true}},
 		},
 	}
-	// Only set the run limit store, not the enforcer -- use the returned monitor.
-	bm := scheduler.NewBudgetMonitor(ms, nil, 50*time.Millisecond).
+	bm := scheduler.NewBudgetMonitor(struct{}{}, nil, 50*time.Millisecond).
 		WithRunLimitNotifications(rlStore, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	bm.Run(ctx)
 
-	// No deliveries should be created because the enforcer is nil.
 	if rlStore.deliveryCalls.Load() != 0 {
 		t.Fatalf("expected 0 notification deliveries without enforcer, got %d", rlStore.deliveryCalls.Load())
-	}
-}
-
-func TestIntegration_CheckRunLimitWarnings_NoBudgetProjects(t *testing.T) {
-	// When there are no projects with compute limits, the monitor should
-	// loop without error.
-	ms := &intMockBudgetMonitorStore{projects: nil}
-	bm := scheduler.NewBudgetMonitor(ms, nil, 50*time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	bm.Run(ctx)
-}
-
-func TestIntegration_BudgetMonitor_DedupAlerts(t *testing.T) {
-	// Verify that the budget monitor does not re-alert for the same project
-	// on the same day. Uses the compute budget path (not run limits) since
-	// both share the same alerted dedup map.
-	var alertCount atomic.Int32
-	ms := &intMockBudgetMonitorStore{
-		projects: []store.ProjectComputeQuota{
-			{
-				ProjectID:                     "proj-dedup",
-				Timezone:                      "UTC",
-				ComputeDailyCostLimitMicrousd: 1_000_000,
-			},
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			// Return cost above threshold (80% of 1_000_000 = 800_000).
-			return 900_000, nil
-		},
-	}
-
-	enqueuer := &intMockBudgetEnqueuer{
-		enqueueFn: func(_ context.Context, _ string, _ json.RawMessage) error {
-			alertCount.Add(1)
-			return nil
-		},
-	}
-
-	bm := scheduler.NewBudgetMonitor(ms, enqueuer, 50*time.Millisecond)
-
-	// Run long enough for multiple ticks.
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	bm.Run(ctx)
-
-	// Even with multiple ticks, the same project should only be alerted once per day.
-	if alertCount.Load() != 1 {
-		t.Fatalf("expected exactly 1 budget alert (dedup), got %d", alertCount.Load())
 	}
 }
 

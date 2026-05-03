@@ -681,58 +681,6 @@ func TestReindexIndexConcurrently_ValidIndex(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Cost / analytics
-// ---------------------------------------------------------------------------
-
-func TestGetCostByMachine_ReturnsEmpty(t *testing.T) {
-	ctx := context.Background()
-	q := covStore(t)
-
-	// GetCostByMachine is a stub that returns empty results.
-	result, err := q.GetCostByMachine(ctx, "any-project", time.Now().Add(-24*time.Hour), time.Now())
-	if err != nil {
-		t.Fatalf("GetCostByMachine() error = %v", err)
-	}
-	if len(result) != 0 {
-		t.Fatalf("expected empty result, got %d", len(result))
-	}
-}
-
-func TestListActiveJobIDs(t *testing.T) {
-	ctx := context.Background()
-	q := covStore(t)
-	covClean(t, ctx)
-
-	// No jobs -- empty result.
-	ids, err := q.ListActiveJobIDs(ctx)
-	if err != nil {
-		t.Fatalf("ListActiveJobIDs() error = %v", err)
-	}
-	if len(ids) != 0 {
-		t.Fatalf("expected 0 IDs, got %d", len(ids))
-	}
-
-	// Create one enabled and one disabled job.
-	enabled := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr("proj-active-ids")})
-	disabled := testutil.BuildJob(&testutil.JobOpts{ProjectID: ptr("proj-active-ids")})
-	disabled.Enabled = false
-	if err := q.CreateJob(ctx, disabled); err != nil {
-		t.Fatalf("CreateJob(disabled) error = %v", err)
-	}
-
-	ids, err = q.ListActiveJobIDs(ctx)
-	if err != nil {
-		t.Fatalf("ListActiveJobIDs() error = %v", err)
-	}
-	if len(ids) != 1 {
-		t.Fatalf("expected 1 active ID, got %d", len(ids))
-	}
-	if ids[0] != enabled.ID {
-		t.Fatalf("active ID = %q, want %q", ids[0], enabled.ID)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // CRUD: DeleteRunState
 // ---------------------------------------------------------------------------
 
