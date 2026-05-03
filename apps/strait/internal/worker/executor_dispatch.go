@@ -145,7 +145,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	policy = resolved
 
-	// Billing enforcement: daily and concurrent run limits.
+	// Billing enforcement: daily, monthly, and concurrent run limits.
 	if e.billingEnforcer != nil { //nolint:nestif // billing enforcement is inherently nested with multiple sequential checks
 		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
 			e.logger.Warn("project suspended",
@@ -166,10 +166,18 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
+			if err := e.billingEnforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org monthly run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+				return
+			}
 			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org concurrent run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
 				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
@@ -180,6 +188,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 				if limErr == nil && !limits.AllowsHTTPMode {
 					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+					e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 					e.handleSystemFailureWithJob(ctx, run, job,
 						"HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
 					return
