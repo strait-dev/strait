@@ -4,8 +4,11 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"strait/internal/pubsub"
 	"strait/internal/store"
@@ -223,6 +226,167 @@ func keyIDFromIndex(i int) string {
 
 func itoa(i int) string {
 	return [...]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}[i]
+}
+
+// TestIntegration_CrossReplica_WorkerDisconnect verifies that publishing to the
+// worker:disconnect:<id> Redis channel causes a subscribed stream to receive the
+// signal. This exercises the cross-replica disconnect path end-to-end: the DELETE
+// /v1/workers/:id handler publishes to this channel; the stream goroutine
+// subscribes and closes the stream on receipt.
+func TestIntegration_CrossReplica_WorkerDisconnect(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	r, err := testutil.SetupTestRedis(ctx)
+	if err != nil {
+		t.Fatalf("setup redis: %v", err)
+	}
+	t.Cleanup(func() { r.Cleanup(context.Background()) })
+
+	// Build a publisher and subscriber backed by the same Redis container.
+	client := redis.NewClient(&redis.Options{Addr: r.Addr})
+	t.Cleanup(func() { _ = client.Close() })
+	pub := pubsub.NewRedisPublisher(client)
+
+	workerID := "cross-replica-worker-1"
+	channel := fmt.Sprintf("worker:disconnect:%s", workerID)
+
+	sub, err := pub.Subscribe(ctx, channel)
+	if err != nil {
+		t.Fatalf("subscribe to disconnect channel: %v", err)
+	}
+	defer sub.Close()
+
+	// Publish the disconnect signal (what DELETE /v1/workers/:id does).
+	if err := pub.Publish(ctx, channel, []byte(workerID)); err != nil {
+		t.Fatalf("publish disconnect signal: %v", err)
+	}
+
+	// The stream goroutine selects on sub.Ch; verify the message arrives.
+	select {
+	case msg := <-sub.Ch:
+		if string(msg) != workerID {
+			t.Errorf("received payload %q, want %q", msg, workerID)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for disconnect signal on Redis channel")
+	}
+}
+
+// TestIntegration_CrossReplica_APIKeyRevoke verifies that publishing to the
+// apikey:revoked:<id> Redis channel causes a subscribed stream to receive the
+// signal. This exercises the cross-replica revocation path: the POST
+// /v1/api-keys/:id/revoke handler publishes to this channel; the stream goroutine
+// subscribes and calls registry.CloseByAPIKey on receipt.
+func TestIntegration_CrossReplica_APIKeyRevoke(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	r, err := testutil.SetupTestRedis(ctx)
+	if err != nil {
+		t.Fatalf("setup redis: %v", err)
+	}
+	t.Cleanup(func() { r.Cleanup(context.Background()) })
+
+	client := redis.NewClient(&redis.Options{Addr: r.Addr})
+	t.Cleanup(func() { _ = client.Close() })
+	pub := pubsub.NewRedisPublisher(client)
+
+	apiKeyID := "key-revoke-cross-replica"
+	channel := fmt.Sprintf("apikey:revoked:%s", apiKeyID)
+
+	sub, err := pub.Subscribe(ctx, channel)
+	if err != nil {
+		t.Fatalf("subscribe to revoke channel: %v", err)
+	}
+	defer sub.Close()
+
+	// Publish the revocation signal (what POST /v1/api-keys/:id/revoke does).
+	if err := pub.Publish(ctx, channel, []byte(apiKeyID)); err != nil {
+		t.Fatalf("publish revoke signal: %v", err)
+	}
+
+	select {
+	case msg := <-sub.Ch:
+		if string(msg) != apiKeyID {
+			t.Errorf("received payload %q, want %q", msg, apiKeyID)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for revoke signal on Redis channel")
+	}
+}
+
+// TestIntegration_CrossReplica_APIKeyRevoke_RegistryCloseByAPIKey verifies the full
+// revocation flow: publish to Redis, receive in subscriber, call CloseByAPIKey,
+// observe all matching streams' revokeCh closed.
+func TestIntegration_CrossReplica_APIKeyRevoke_RegistryCloseByAPIKey(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	r, err := testutil.SetupTestRedis(ctx)
+	if err != nil {
+		t.Fatalf("setup redis: %v", err)
+	}
+	t.Cleanup(func() { r.Cleanup(context.Background()) })
+
+	client := redis.NewClient(&redis.Options{Addr: r.Addr})
+	t.Cleanup(func() { _ = client.Close() })
+	pub := pubsub.NewRedisPublisher(client)
+
+	apiKeyID := "key-full-revoke-flow"
+	channel := fmt.Sprintf("apikey:revoked:%s", apiKeyID)
+
+	// Set up registry with workers under the key being revoked.
+	reg := NewConnectionRegistry()
+	w1 := makeWorker("w-full-1", "proj-b", apiKeyID, []string{"q"}, 2)
+	w2 := makeWorker("w-full-2", "proj-b", apiKeyID, []string{"q"}, 2)
+	if err := reg.Register(w1); err != nil {
+		t.Fatalf("register w1: %v", err)
+	}
+	if err := reg.Register(w2); err != nil {
+		t.Fatalf("register w2: %v", err)
+	}
+
+	// Subscribe to the revocation channel (simulating what the stream goroutine does).
+	sub, err := pub.Subscribe(ctx, channel)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// Start a goroutine that simulates the stream goroutine's select on the revokeCh.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-sub.Ch:
+			// Signal received from Redis — close all matching streams locally.
+			reg.CloseByAPIKey(apiKeyID)
+		case <-ctx.Done():
+		}
+	}()
+
+	// Publish revocation (simulating POST /v1/api-keys/:id/revoke).
+	if err := pub.Publish(ctx, channel, []byte(apiKeyID)); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// Wait for the goroutine to process the signal.
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for revoke goroutine")
+	}
+	sub.Close()
+
+	// Both workers' revokeCh must be closed.
+	for _, w := range []*ConnectedWorker{w1, w2} {
+		select {
+		case <-w.revokeCh:
+			// closed as expected
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("revokeCh for worker %s was not closed", w.WorkerID)
+		}
+	}
 }
 
 // noopPublisher is a no-op implementation of pubsub.Publisher for integration tests
