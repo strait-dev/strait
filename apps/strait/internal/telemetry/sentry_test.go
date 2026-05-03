@@ -420,7 +420,7 @@ func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {
 	t.Parallel()
 	knownKeys := []string{
 		"run_id", "job_id", "project_id", "workflow_run_id",
-		"delivery_id", "trigger_id", "step_run_id", "machine_id",
+		"delivery_id", "trigger_id", "step_run_id",
 		"table", "batch_key", "error_class", "attempt",
 		"status_code", "operation", "consumer", "approval_id",
 		"key_id", "subscription_id", "source_id", "drain_id", "batch_id",

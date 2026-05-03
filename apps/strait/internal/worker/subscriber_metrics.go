@@ -50,14 +50,14 @@ func recordTerminalMetrics(ctx context.Context, m *telemetry.Metrics, event RunL
 				attribute.String("project_id", run.ProjectID),
 			))
 
-			// Per-tenant job duration with machine tier for cost attribution.
+			// Per-tenant job duration tagged with execution mode for cost attribution.
 			// Guard on non-empty ProjectID — recording project_id="" creates a
 			// cardinality-polluting catch-all series with no actionable owner.
 			if run.ProjectID != "" {
 				m.JobDuration.Record(ctx, dur, metric.WithAttributes(
 					statusAttr,
 					attribute.String("project_id", run.ProjectID),
-					attribute.String("tier", machineTier(event)),
+					attribute.String("tier", executionModeTier(event)),
 				))
 			}
 		}
@@ -81,9 +81,9 @@ func recordTerminalMetrics(ctx context.Context, m *telemetry.Metrics, event RunL
 	}
 }
 
-// machineTier returns the execution mode label for the event's job, or "unknown"
-// if the job is not set.
-func machineTier(event RunLifecycleEvent) string {
+// executionModeTier returns the execution mode label for the event's job, or
+// "unknown" if the job is not set.
+func executionModeTier(event RunLifecycleEvent) string {
 	if event.Job != nil && event.Job.ExecutionMode != "" {
 		return string(event.Job.ExecutionMode)
 	}

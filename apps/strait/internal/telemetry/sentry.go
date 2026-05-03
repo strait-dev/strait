@@ -15,7 +15,7 @@ import (
 var sentryTagKeys = map[string]bool{
 	"run_id": true, "job_id": true, "project_id": true,
 	"workflow_run_id": true, "delivery_id": true, "trigger_id": true,
-	"step_run_id": true, "machine_id": true, "table": true,
+	"step_run_id": true, "table": true,
 	"batch_key": true, "error_class": true, "attempt": true,
 	"status_code": true, "operation": true, "consumer": true,
 	"approval_id": true, "key_id": true, "subscription_id": true,
