@@ -6,8 +6,11 @@
 .PHONY: test-k8s-unit test-k8s-integration
 .PHONY: proto
 
-proto: ## Regenerate gRPC Go code from .proto sources (requires buf)
+proto: ## Regenerate gRPC Go code from .proto sources (requires buf, protoc-gen-go, protoc-gen-go-grpc)
 	buf generate
+	cp internal/api/grpc/proto/worker/v1/worker.pb.go internal/api/grpc/proto/workerv1/worker.pb.go
+	cp internal/api/grpc/proto/worker/v1/worker_grpc.pb.go internal/api/grpc/proto/workerv1/worker_grpc.pb.go
+	rm -rf internal/api/grpc/proto/worker
 
 build:
 	go build ./...

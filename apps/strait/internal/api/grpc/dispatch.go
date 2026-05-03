@@ -206,7 +206,7 @@ func (d *WorkerDispatcher) sendCancel(worker *ConnectedWorker, runID string) {
 	cancelMsg := &workerv1.ServerMessage{
 		Payload: &workerv1.ServerMessage_CancelTask{
 			CancelTask: &workerv1.CancelTask{
-				RunID:  runID,
+				RunId:  runID,
 				Reason: "context cancelled",
 			},
 		},
@@ -221,10 +221,10 @@ func (d *WorkerDispatcher) sendCancel(worker *ConnectedWorker, runID string) {
 // including JWT run-token and HMAC signature (matching the HTTP dispatch path).
 func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) *workerv1.TaskAssignment {
 	a := &workerv1.TaskAssignment{
-		RunID:       run.ID,
+		RunId:       run.ID,
 		JobSlug:     job.Slug,
 		Queue:       job.Queue,
-		PayloadJSON: run.Payload,
+		PayloadJson: run.Payload,
 		TimeoutSecs: int32(job.TimeoutSecs), //nolint:gosec // TimeoutSecs is validated upstream to be non-negative and within range
 	}
 
@@ -241,7 +241,7 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) 
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, err := tok.SignedString([]byte(d.jwtSigningKey)); err == nil {
-			a.RunTokenJWT = signed
+			a.RunTokenJwt = signed
 		}
 	}
 
@@ -249,8 +249,8 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) 
 	// in internal/worker/sign.go — reproduced here to avoid circular import).
 	if job.EndpointSigningSecret != "" {
 		ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
-		a.HMACTimestamp = ts
-		a.HMACSignature = dispatchHMAC(job.EndpointSigningSecret, ts, run.Payload)
+		a.HmacTimestamp = ts
+		a.HmacSignature = dispatchHMAC(job.EndpointSigningSecret, ts, run.Payload)
 	}
 
 	return a

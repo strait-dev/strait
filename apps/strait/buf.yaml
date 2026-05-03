@@ -1,10 +1,17 @@
 version: v2
 modules:
   - path: proto
-name: buf.build/strait/strait
+    name: buf.build/strait/strait
 lint:
   use:
-    - DEFAULT
+    - STANDARD
+  ignore_only:
+    PACKAGE_DIRECTORY_MATCH:
+      - proto/worker/v1/worker.proto
+    RPC_REQUEST_STANDARD_NAME:
+      - proto/worker/v1/worker.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - proto/worker/v1/worker.proto
 breaking:
   use:
     - FILE

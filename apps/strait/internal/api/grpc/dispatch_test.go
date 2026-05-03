@@ -15,7 +15,7 @@ func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 	r := NewResultChannelRegistry()
 	ch := r.Register("run-1")
 
-	result := &workerv1.TaskResult{RunID: "run-1", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
 	if !r.Send("run-1", result) {
 		t.Fatal("expected Send to return true")
 	}
@@ -33,7 +33,7 @@ func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 // TestResultChannelRegistry_SendToUnknownRun verifies Send returns false for unknown run IDs.
 func TestResultChannelRegistry_SendToUnknownRun(t *testing.T) {
 	r := NewResultChannelRegistry()
-	result := &workerv1.TaskResult{RunID: "unknown", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "unknown", Status: "success"}
 	if r.Send("unknown", result) {
 		t.Error("expected Send to return false for unknown run")
 	}
@@ -44,8 +44,8 @@ func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 	r := NewResultChannelRegistry()
 	_ = r.Register("run-1") // buffered cap 1
 
-	r1 := &workerv1.TaskResult{RunID: "run-1", Status: "success"}
-	r2 := &workerv1.TaskResult{RunID: "run-1", Status: "failed"}
+	r1 := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
+	r2 := &workerv1.TaskResult{RunId: "run-1", Status: "failed"}
 
 	first := r.Send("run-1", r1)
 	second := r.Send("run-1", r2) // channel full, should be dropped
@@ -65,7 +65,7 @@ func TestResultChannelRegistry_Deregister(t *testing.T) {
 	r.Deregister("run-1")
 
 	// After deregister, Send must return false.
-	result := &workerv1.TaskResult{RunID: "run-1", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
 	if r.Send("run-1", result) {
 		t.Error("expected Send to return false after Deregister")
 	}
@@ -99,7 +99,7 @@ func TestDispatchHMAC_DifferentInputsDifferentSigs(t *testing.T) {
 
 // TestTaskResultStatus_HappyPath verifies TaskResultStatus extracts status correctly.
 func TestTaskResultStatus_HappyPath(t *testing.T) {
-	result := &workerv1.TaskResult{RunID: "r1", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "r1", Status: "success"}
 	got := TaskResultStatus(result)
 	if got != "success" {
 		t.Errorf("expected success, got %s", got)
@@ -124,7 +124,7 @@ func TestTaskResultStatus_WrongType(t *testing.T) {
 
 // TestTaskResultError_HappyPath verifies TaskResultError extracts error message.
 func TestTaskResultError_HappyPath(t *testing.T) {
-	result := &workerv1.TaskResult{RunID: "r1", Status: "failed", ErrorMessage: "something went wrong"}
+	result := &workerv1.TaskResult{RunId: "r1", Status: "failed", ErrorMessage: "something went wrong"}
 	got := TaskResultError(result)
 	if got != "something went wrong" {
 		t.Errorf("expected 'something went wrong', got %s", got)
@@ -282,8 +282,8 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 		cancel, ok := msg.Payload.(*workerv1.ServerMessage_CancelTask)
 		if !ok {
 			t.Errorf("expected CancelTask payload, got %T", msg.Payload)
-		} else if cancel.CancelTask.RunID != "run-3" {
-			t.Errorf("expected run_id=run-3, got %s", cancel.CancelTask.RunID)
+		} else if cancel.CancelTask.RunId != "run-3" {
+			t.Errorf("expected run_id=run-3, got %s", cancel.CancelTask.RunId)
 		}
 	case <-ctx.Done():
 		t.Error("timed out waiting for CancelTask message")

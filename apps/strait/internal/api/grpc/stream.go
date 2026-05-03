@@ -68,10 +68,10 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	reg := regPayload.Registration
 
-	if reg.WorkerID == "" {
+	if reg.WorkerId == "" {
 		return status.Error(codes.InvalidArgument, "worker_id must be non-empty")
 	}
-	if len(reg.WorkerID) > maxWorkerIDLen {
+	if len(reg.WorkerId) > maxWorkerIDLen {
 		return status.Errorf(codes.InvalidArgument, "worker_id exceeds %d bytes", maxWorkerIDLen)
 	}
 	if len(reg.Queues) > maxQueuesPerWorker {
@@ -89,13 +89,13 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// Register worker in the in-memory registry. SendCh is assigned BEFORE
 	// Register so any concurrent dispatch on this replica sees a usable channel.
 	cw := &ConnectedWorker{
-		WorkerID:       reg.WorkerID,
+		WorkerID:       reg.WorkerId,
 		ProjectID:      projectID,
 		APIKeyID:       apiKey.ID,
 		Name:           reg.Name,
 		Hostname:       reg.Hostname,
-		SDKVersion:     reg.SDKVersion,
-		SDKLanguage:    reg.SDKLanguage,
+		SDKVersion:     reg.SdkVersion,
+		SDKLanguage:    reg.SdkLanguage,
 		Queues:         reg.Queues,
 		SlotsTotal:     reg.SlotsTotal,
 		SlotsAvailable: reg.SlotsAvailable,
@@ -109,20 +109,20 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 
 	// Reconcile in-flight tasks from the registration (reconnect recovery).
 	// Passing workerID enables the adversarial ownership check.
-	s.reconcileInFlightTasks(ctx, reg.WorkerID, projectID, reg.InFlightTasks)
+	s.reconcileInFlightTasks(ctx, reg.WorkerId, projectID, reg.InFlightTasks)
 
 	// Upsert worker into DB immediately (don't wait for the next sync tick).
 	s.dbUpsertWorker(ctx, cw)
 
 	// Emit audit event.
-	s.emitWorkerAudit(ctx, domain.AuditActionWorkerConnected, projectID, reg.WorkerID, map[string]any{
-		"worker_id": reg.WorkerID,
+	s.emitWorkerAudit(ctx, domain.AuditActionWorkerConnected, projectID, reg.WorkerId, map[string]any{
+		"worker_id": reg.WorkerId,
 		"hostname":  reg.Hostname,
 		"queues":    reg.Queues,
 	})
 
 	slog.Info("grpc worker registered",
-		"worker_id", reg.WorkerID,
+		"worker_id", reg.WorkerId,
 		"project_id", projectID,
 		"hostname", reg.Hostname,
 		"queues", reg.Queues,
@@ -132,27 +132,27 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// Acknowledge registration.
 	_ = stream.Send(&workerv1.ServerMessage{
 		Payload: &workerv1.ServerMessage_Ack{
-			Ack: &workerv1.Acknowledged{ID: reg.WorkerID},
+			Ack: &workerv1.Acknowledged{Id: reg.WorkerId},
 		},
 	})
 
 	// Clean up on any exit path.
 	defer func() {
-		s.registry.Deregister(reg.WorkerID)
-		s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, reg.WorkerID, map[string]any{
-			"worker_id": reg.WorkerID,
+		s.registry.Deregister(reg.WorkerId)
+		s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, reg.WorkerId, map[string]any{
+			"worker_id": reg.WorkerId,
 		})
-		slog.Info("grpc worker disconnected", "worker_id", reg.WorkerID, "project_id", projectID)
+		slog.Info("grpc worker disconnected", "worker_id", reg.WorkerId, "project_id", projectID)
 	}()
 
 	// Subscribe to the cross-replica force-disconnect channel for this worker.
 	// When DELETE /v1/workers/:id is called on any replica, it publishes to this
 	// channel and the owning replica (which is running this goroutine) closes the stream.
-	disconnectChannel := fmt.Sprintf("worker:disconnect:%s", reg.WorkerID)
+	disconnectChannel := fmt.Sprintf("worker:disconnect:%s", reg.WorkerId)
 	disconnectSub, subErr := s.pub.Subscribe(ctx, disconnectChannel)
 	if subErr != nil {
 		slog.Warn("grpc: failed to subscribe to disconnect channel",
-			"worker_id", reg.WorkerID,
+			"worker_id", reg.WorkerId,
 			"error", subErr,
 		)
 	}
@@ -186,7 +186,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 				streamErr <- nil
 			case <-disconnectSub.Ch:
 				slog.Info("grpc worker force-disconnect received",
-					"worker_id", reg.WorkerID,
+					"worker_id", reg.WorkerId,
 					"project_id", projectID,
 				)
 				streamErr <- fmt.Errorf("force disconnected by API request")
@@ -203,7 +203,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 				streamErr <- nil
 			case <-revokeKeySub.Ch:
 				slog.Info("grpc worker api key revoked, closing stream",
-					"worker_id", reg.WorkerID,
+					"worker_id", reg.WorkerId,
 					"api_key_id", apiKey.ID,
 					"project_id", projectID,
 				)
@@ -213,7 +213,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 			case <-cw.revokeCh:
 				// Triggered locally by registry.CloseByAPIKey from another goroutine.
 				slog.Info("grpc worker api key revoked (local signal), closing stream",
-					"worker_id", reg.WorkerID,
+					"worker_id", reg.WorkerId,
 					"api_key_id", apiKey.ID,
 				)
 				streamErr <- fmt.Errorf("api key revoked")
@@ -249,9 +249,9 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 				streamErr <- err
 				return
 			}
-			if err := s.handleWorkerMessage(ctx, reg.WorkerID, projectID, msg); err != nil {
+			if err := s.handleWorkerMessage(ctx, reg.WorkerId, projectID, msg); err != nil {
 				slog.Warn("grpc handle worker message error",
-					"worker_id", reg.WorkerID,
+					"worker_id", reg.WorkerId,
 					"error", err,
 				)
 			}
@@ -305,13 +305,13 @@ func (s *workerService) handleHeartbeat(ctx context.Context, workerID string, hb
 // registered (e.g. the dispatcher timed out), this method falls back to
 // updating the run status directly.
 func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectID string, tr *workerv1.TaskResult) error {
-	if tr == nil || tr.RunID == "" {
+	if tr == nil || tr.RunId == "" {
 		return nil
 	}
 
 	// Route result to a waiting WorkerDispatch call if one exists.
 	// The dispatch goroutine is responsible for slot accounting in that path.
-	if s.resultChannels != nil && s.resultChannels.Send(tr.RunID, tr) {
+	if s.resultChannels != nil && s.resultChannels.Send(tr.RunId, tr) {
 		// Successfully delivered to the waiting dispatcher — it owns the rest.
 		return nil
 	}
@@ -320,15 +320,15 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// Adversarial guard: confirm the run belongs to this worker's project before
 	// touching status. Without this check, a worker authenticated to project A
 	// could mark runs in project B if it knew (or guessed) the run ID.
-	run, err := s.queries.GetRun(ctx, tr.RunID)
+	run, err := s.queries.GetRun(ctx, tr.RunId)
 	if err != nil || run == nil {
 		slog.Warn("grpc task result: get run failed",
-			"worker_id", workerID, "run_id", tr.RunID, "error", err)
+			"worker_id", workerID, "run_id", tr.RunId, "error", err)
 		return nil
 	}
 	if run.ProjectID != projectID {
 		slog.Warn("grpc task result: project mismatch — rejecting",
-			"worker_id", workerID, "run_id", tr.RunID,
+			"worker_id", workerID, "run_id", tr.RunId,
 			"worker_project", projectID, "run_project", run.ProjectID)
 		return nil
 	}
@@ -352,9 +352,9 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	if tr.ErrorMessage != "" {
 		fields["error"] = tr.ErrorMessage
 	}
-	if err := s.queries.UpdateRunStatus(ctx, tr.RunID, domain.StatusExecuting, newStatus, fields); err != nil {
+	if err := s.queries.UpdateRunStatus(ctx, tr.RunId, domain.StatusExecuting, newStatus, fields); err != nil {
 		slog.Warn("grpc task result: update run status failed",
-			"run_id", tr.RunID,
+			"run_id", tr.RunId,
 			"status", newStatus,
 			"error", err,
 		)
@@ -365,9 +365,9 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 		RunID  string `json:"run_id"`
 		Status string `json:"status"`
 	}
-	payload, _ := json.Marshal(runResultEvent{RunID: tr.RunID, Status: string(newStatus)})
-	if err := s.pub.Publish(ctx, fmt.Sprintf("run:%s", tr.RunID), payload); err != nil {
-		slog.Warn("grpc task result: publish failed", "run_id", tr.RunID, "error", err)
+	payload, _ := json.Marshal(runResultEvent{RunID: tr.RunId, Status: string(newStatus)})
+	if err := s.pub.Publish(ctx, fmt.Sprintf("run:%s", tr.RunId), payload); err != nil {
+		slog.Warn("grpc task result: publish failed", "run_id", tr.RunId, "error", err)
 	}
 
 	return nil
@@ -375,7 +375,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 
 // handleLogLine publishes a worker log line to the per-run pub/sub channel.
 func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine) error {
-	if ll == nil || ll.RunID == "" {
+	if ll == nil || ll.RunId == "" {
 		return nil
 	}
 	msg := ll.Message
@@ -389,14 +389,14 @@ func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine)
 		Timestamp int64  `json:"timestamp_unix_ms"`
 	}
 	payload, _ := json.Marshal(logLineEvent{
-		RunID:     ll.RunID,
+		RunID:     ll.RunId,
 		Level:     ll.Level,
 		Message:   msg,
-		Timestamp: ll.TimestampUnixMS,
+		Timestamp: ll.TimestampUnixMs,
 	})
-	channel := fmt.Sprintf("worker:log:%s", ll.RunID)
+	channel := fmt.Sprintf("worker:log:%s", ll.RunId)
 	if err := s.pub.Publish(ctx, channel, payload); err != nil {
-		slog.Warn("grpc log line publish failed", "run_id", ll.RunID, "error", err)
+		slog.Warn("grpc log line publish failed", "run_id", ll.RunId, "error", err)
 	}
 	return nil
 }
@@ -412,16 +412,16 @@ func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine)
 // marking runs it doesn't own.
 func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ string, tasks []*workerv1.InFlightTask) {
 	for _, t := range tasks {
-		if t == nil || t.RunID == "" {
+		if t == nil || t.RunId == "" {
 			continue
 		}
 
 		// Adversarial guard: verify ownership via worker_tasks.
-		taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, t.RunID)
+		taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, t.RunId)
 		if err != nil {
 			slog.Warn("grpc reconcile: ownership lookup failed",
 				"worker_id", workerID,
-				"run_id", t.RunID,
+				"run_id", t.RunId,
 				"error", err,
 			)
 			continue
@@ -430,7 +430,7 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 			// No matching worker_tasks row — mismatch; reject.
 			slog.Warn("grpc reconcile: rejecting in-flight task not owned by this worker",
 				"worker_id", workerID,
-				"run_id", t.RunID,
+				"run_id", t.RunId,
 			)
 			continue
 		}
@@ -438,9 +438,9 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 		switch t.Status {
 		case "completed":
 			reconcileFields := map[string]any{"finished_at": time.Now()}
-			if err := s.queries.UpdateRunStatus(ctx, t.RunID, domain.StatusExecuting, domain.StatusCompleted, reconcileFields); err != nil {
+			if err := s.queries.UpdateRunStatus(ctx, t.RunId, domain.StatusExecuting, domain.StatusCompleted, reconcileFields); err != nil {
 				slog.Warn("grpc reconcile: mark completed failed",
-					"run_id", t.RunID,
+					"run_id", t.RunId,
 					"error", err,
 				)
 			}
@@ -453,7 +453,7 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 		default:
 			slog.Warn("grpc reconcile: unknown in-flight task status",
 				"worker_id", workerID,
-				"run_id", t.RunID,
+				"run_id", t.RunId,
 				"status", t.Status,
 			)
 		}
@@ -464,10 +464,10 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 // reported during worker reconnection. It mirrors the retry scheduling in
 // internal/worker/executor_handlers.go without importing that package.
 func (s *workerService) reconcileFailedTask(ctx context.Context, t *workerv1.InFlightTask) {
-	run, err := s.queries.GetRun(ctx, t.RunID)
+	run, err := s.queries.GetRun(ctx, t.RunId)
 	if err != nil || run == nil {
 		slog.Warn("grpc reconcile: get run failed",
-			"run_id", t.RunID,
+			"run_id", t.RunId,
 			"error", err,
 		)
 		return
@@ -476,12 +476,12 @@ func (s *workerService) reconcileFailedTask(ctx context.Context, t *workerv1.InF
 	job, err := s.queries.GetJob(ctx, run.JobID)
 	if err != nil || job == nil {
 		slog.Warn("grpc reconcile: get job failed",
-			"run_id", t.RunID,
+			"run_id", t.RunId,
 			"job_id", run.JobID,
 			"error", err,
 		)
 		// Fall back: mark failed without retry.
-		s.reconcileMarkFailed(ctx, t.RunID, t.ErrorMessage)
+		s.reconcileMarkFailed(ctx, t.RunId, t.ErrorMessage)
 		return
 	}
 
@@ -503,14 +503,14 @@ func (s *workerService) reconcileFailedTask(ctx context.Context, t *workerv1.InF
 		if t.ErrorMessage != "" {
 			fields["error"] = t.ErrorMessage
 		}
-		if err := s.queries.UpdateRunStatus(ctx, t.RunID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+		if err := s.queries.UpdateRunStatus(ctx, t.RunId, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
 			slog.Warn("grpc reconcile: retry requeue failed",
-				"run_id", t.RunID,
+				"run_id", t.RunId,
 				"error", err,
 			)
 		} else {
 			slog.Info("grpc reconcile: run requeued for retry",
-				"run_id", t.RunID,
+				"run_id", t.RunId,
 				"attempt", run.Attempt+1,
 				"next_retry_at", retryAt,
 			)
@@ -519,7 +519,7 @@ func (s *workerService) reconcileFailedTask(ctx context.Context, t *workerv1.InF
 	}
 
 	// Exhausted retries: mark dead-letter.
-	s.reconcileMarkFailed(ctx, t.RunID, t.ErrorMessage)
+	s.reconcileMarkFailed(ctx, t.RunId, t.ErrorMessage)
 }
 
 // reconcileMarkFailed transitions a run to StatusDeadLetter.
