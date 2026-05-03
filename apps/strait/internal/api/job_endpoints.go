@@ -145,8 +145,24 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 		httpReq.Header.Set("X-Strait-Signature", worker.SignHTTPDispatch(job.EndpointSigningSecret, ts, testPayload))
 	}
 
+	// Re-validate the URL on every hop. Without CheckRedirect, the bare client
+	// follows 3xx by default — an endpoint that registered as a public host can
+	// return 302 to http://169.254.169.254/ (cloud metadata) and exfiltrate
+	// IAM credentials. The SSRF guard at registration time only covers the
+	// first hop; this one covers redirect targets.
 	start := time.Now()
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := worker.ValidateEndpointURL(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
+			}
+			return nil
+		},
+	}
 	resp, doErr := client.Do(httpReq)
 	latencyMs := time.Since(start).Milliseconds()
 

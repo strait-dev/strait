@@ -32,7 +32,9 @@ type Server struct {
 }
 
 // NewServer creates a new gRPC Server. It does not start listening.
-func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) *Server {
+// Returns an error if TLS is configured but cert/key cannot be loaded —
+// silent fallback to plaintext would leak API keys in transit.
+func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) (*Server, error) {
 	s := &Server{
 		cfg:            cfg,
 		queries:        queries,
@@ -40,8 +42,12 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher)
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
 	}
-	s.gs = s.buildServer()
-	return s
+	gs, err := s.buildServer()
+	if err != nil {
+		return nil, err
+	}
+	s.gs = gs
+	return s, nil
 }
 
 // Registry returns the connection registry for external use (e.g. dispatcher).
@@ -55,7 +61,7 @@ func (s *Server) WorkerDispatcher(jwtSigningKey string) *WorkerDispatcher {
 	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels)
 }
 
-func (s *Server) buildServer() *grpc.Server {
+func (s *Server) buildServer() (*grpc.Server, error) {
 	kpParams := keepalive.ServerParameters{
 		Time:    s.cfg.GRPCKeepaliveTime,
 		Timeout: s.cfg.GRPCKeepaliveTimeout,
@@ -65,25 +71,37 @@ func (s *Server) buildServer() *grpc.Server {
 		PermitWithoutStream: true,
 	}
 
+	// Cap inbound message size so a malicious worker cannot send 4 GB protos.
+	const maxRecvBytes = 1 * 1024 * 1024 // 1 MiB
+	const maxSendBytes = 4 * 1024 * 1024 // 4 MiB
+
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveParams(kpParams),
 		grpc.KeepaliveEnforcementPolicy(kpPolicy),
+		grpc.MaxRecvMsgSize(maxRecvBytes),
+		grpc.MaxSendMsgSize(maxSendBytes),
 		grpc.ChainUnaryInterceptor(unaryInterceptorChain()...),
 		grpc.ChainStreamInterceptor(streamInterceptorChain()...),
 	}
 
-	if s.cfg.GRPCTLSCertPath != "" && s.cfg.GRPCTLSKeyPath != "" {
+	// TLS is mutually exclusive: either both paths are set and both must load,
+	// or both are empty and the server runs plaintext (cloud terminates at the
+	// LB). Partial config or load failure is a hard error so an operator who
+	// configured TLS never silently runs cleartext.
+	switch {
+	case s.cfg.GRPCTLSCertPath != "" && s.cfg.GRPCTLSKeyPath != "":
 		cert, err := tls.LoadX509KeyPair(s.cfg.GRPCTLSCertPath, s.cfg.GRPCTLSKeyPath)
 		if err != nil {
-			slog.Warn("grpc tls cert load failed; falling back to plaintext", "error", err)
-		} else {
-			tlsCfg := &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				MinVersion:   tls.VersionTLS12,
-			}
-			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
-			slog.Info("grpc TLS enabled", "cert", s.cfg.GRPCTLSCertPath)
+			return nil, fmt.Errorf("grpc tls: load cert %s: %w", s.cfg.GRPCTLSCertPath, err)
 		}
+		tlsCfg := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
+		slog.Info("grpc TLS enabled", "cert", s.cfg.GRPCTLSCertPath)
+	case s.cfg.GRPCTLSCertPath != "" || s.cfg.GRPCTLSKeyPath != "":
+		return nil, fmt.Errorf("grpc tls: both GRPC_TLS_CERT_PATH and GRPC_TLS_KEY_PATH must be set together")
 	}
 
 	gs := grpc.NewServer(opts...)
@@ -104,7 +122,7 @@ func (s *Server) buildServer() *grpc.Server {
 	hs.SetServingStatus("strait.worker.v1.WorkerService", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(gs, hs)
 
-	return gs
+	return gs, nil
 }
 
 // Serve starts the gRPC listener and blocks until ctx is cancelled or an error occurs.

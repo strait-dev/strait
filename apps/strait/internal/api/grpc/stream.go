@@ -18,6 +18,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Resource bounds for incoming worker messages. Without these, a malicious or
+// buggy worker can register with millions of queues / in-flight tasks /
+// log lines and exhaust server memory or DB capacity.
+const (
+	maxWorkerIDLen     = 128
+	maxQueuesPerWorker = 64
+	maxInFlightTasks   = 256
+	maxLogMessageBytes = 4096
+)
+
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
 	queries        *store.Queries
@@ -61,18 +71,23 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	if reg.WorkerID == "" {
 		return status.Error(codes.InvalidArgument, "worker_id must be non-empty")
 	}
-
-	// Reconcile in-flight tasks from the registration (reconnect recovery).
-	// Passing workerID enables the adversarial ownership check.
-	s.reconcileInFlightTasks(ctx, reg.WorkerID, projectID, reg.InFlightTasks)
+	if len(reg.WorkerID) > maxWorkerIDLen {
+		return status.Errorf(codes.InvalidArgument, "worker_id exceeds %d bytes", maxWorkerIDLen)
+	}
+	if len(reg.Queues) > maxQueuesPerWorker {
+		return status.Errorf(codes.InvalidArgument, "too many queues: max %d", maxQueuesPerWorker)
+	}
+	if len(reg.InFlightTasks) > maxInFlightTasks {
+		return status.Errorf(codes.InvalidArgument, "too many in-flight tasks: max %d", maxInFlightTasks)
+	}
 
 	// Per-stream typed send channel for outbound ServerMessages.
-	// The ConnectedWorker entry in the registry stores a send-only view of this
-	// channel so that the dispatcher (and future cross-replica signals) can push
-	// assignments without knowing the concrete message type.
+	// The dispatcher pushes TaskAssignment / CancelTask messages here; the send
+	// loop below drains the channel and writes each message to the gRPC stream.
 	sendCh := make(chan *workerv1.ServerMessage, 32)
 
-	// Register worker in the in-memory registry.
+	// Register worker in the in-memory registry. SendCh is assigned BEFORE
+	// Register so any concurrent dispatch on this replica sees a usable channel.
 	cw := &ConnectedWorker{
 		WorkerID:       reg.WorkerID,
 		ProjectID:      projectID,
@@ -85,10 +100,16 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		SlotsTotal:     reg.SlotsTotal,
 		SlotsAvailable: reg.SlotsAvailable,
 		Status:         "active",
-		SendCh:         nil, // populated below after sendCh is created
+		SendCh:         sendCh,
 		revokeCh:       make(chan struct{}),
 	}
-	s.registry.Register(cw)
+	if err := s.registry.Register(cw); err != nil {
+		return status.Errorf(codes.AlreadyExists, "register worker: %v", err)
+	}
+
+	// Reconcile in-flight tasks from the registration (reconnect recovery).
+	// Passing workerID enables the adversarial ownership check.
+	s.reconcileInFlightTasks(ctx, reg.WorkerID, projectID, reg.InFlightTasks)
 
 	// Upsert worker into DB immediately (don't wait for the next sync tick).
 	s.dbUpsertWorker(ctx, cw)
@@ -283,7 +304,7 @@ func (s *workerService) handleHeartbeat(ctx context.Context, workerID string, hb
 // state transitions (status update, cost recording). If no channel is
 // registered (e.g. the dispatcher timed out), this method falls back to
 // updating the run status directly.
-func (s *workerService) handleTaskResult(ctx context.Context, workerID, _ string, tr *workerv1.TaskResult) error {
+func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectID string, tr *workerv1.TaskResult) error {
 	if tr == nil || tr.RunID == "" {
 		return nil
 	}
@@ -296,6 +317,22 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, _ string
 	}
 
 	// No dispatcher is waiting (e.g. timed out or disconnected mid-flight).
+	// Adversarial guard: confirm the run belongs to this worker's project before
+	// touching status. Without this check, a worker authenticated to project A
+	// could mark runs in project B if it knew (or guessed) the run ID.
+	run, err := s.queries.GetRun(ctx, tr.RunID)
+	if err != nil || run == nil {
+		slog.Warn("grpc task result: get run failed",
+			"worker_id", workerID, "run_id", tr.RunID, "error", err)
+		return nil
+	}
+	if run.ProjectID != projectID {
+		slog.Warn("grpc task result: project mismatch — rejecting",
+			"worker_id", workerID, "run_id", tr.RunID,
+			"worker_project", projectID, "run_project", run.ProjectID)
+		return nil
+	}
+
 	// Fall back: update the run status directly and restore the slot.
 	s.registry.IncrementSlots(workerID)
 
@@ -341,6 +378,10 @@ func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine)
 	if ll == nil || ll.RunID == "" {
 		return nil
 	}
+	msg := ll.Message
+	if len(msg) > maxLogMessageBytes {
+		msg = msg[:maxLogMessageBytes]
+	}
 	type logLineEvent struct {
 		RunID     string `json:"run_id"`
 		Level     string `json:"level"`
@@ -350,7 +391,7 @@ func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine)
 	payload, _ := json.Marshal(logLineEvent{
 		RunID:     ll.RunID,
 		Level:     ll.Level,
-		Message:   ll.Message,
+		Message:   msg,
 		Timestamp: ll.TimestampUnixMS,
 	})
 	channel := fmt.Sprintf("worker:log:%s", ll.RunID)

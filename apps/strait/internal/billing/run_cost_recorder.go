@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/clickhouse"
+
+	"github.com/google/uuid"
 )
 
 // RunCostRecorder writes flat per-run billing events to the usage_records table
@@ -57,13 +59,21 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 		return nil
 	}
 
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	now := time.Now().UTC()
+	today := now.Truncate(24 * time.Hour)
+	// ID/CreatedAt/UpdatedAt must be set explicitly: UpsertUsageRecord passes
+	// every column by parameter, so the schema's DEFAULT clauses do not fire.
+	// Without an explicit ID, the second insert in a day under a different
+	// (org, project, period_date) tuple would collide on PRIMARY KEY id=''.
 	rec := &UsageRecord{
+		ID:               uuid.NewString(),
 		OrgID:            orgID,
 		ProjectID:        projectID,
 		PeriodDate:       today,
 		RunsCount:        1,
 		ComputeCostMicro: costMicroUSD,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 
 	if err := r.store.UpsertUsageRecord(ctx, rec); err != nil {

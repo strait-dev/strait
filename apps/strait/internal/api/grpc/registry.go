@@ -1,8 +1,11 @@
 package grpc
 
 import (
+	"fmt"
 	"slices"
 	"sync"
+
+	workerv1 "strait/internal/api/grpc/proto/workerv1"
 )
 
 // ConnectedWorker holds in-memory state for a single connected worker stream.
@@ -17,8 +20,8 @@ type ConnectedWorker struct {
 	Queues         []string
 	SlotsTotal     int32
 	SlotsAvailable int32
-	Status         string     // active | draining
-	SendCh         chan<- any // typed in Phase 6.4
+	Status         string                         // active | draining
+	SendCh         chan<- *workerv1.ServerMessage // populated by stream goroutine on Register
 	// revokeCh is closed by the registry when the authenticating API key is revoked.
 	// The stream goroutine selects on this channel to close itself immediately.
 	revokeCh chan struct{}
@@ -42,13 +45,38 @@ func NewConnectionRegistry() *ConnectionRegistry {
 }
 
 // Register adds or replaces a worker entry and indexes it by API key.
-func (r *ConnectionRegistry) Register(w *ConnectedWorker) {
+// If a worker with the same ID already exists under a different API key,
+// the registration is rejected to prevent session hijacking via worker-id
+// guessing. Same-key re-registration evicts the prior entry from byAPIKey
+// to avoid stale-pointer accumulation across reconnects.
+func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if existing, ok := r.workers[w.WorkerID]; ok {
+		if existing.APIKeyID != w.APIKeyID {
+			return fmt.Errorf("worker_id %q already registered under a different api key", w.WorkerID)
+		}
+		// Same key reconnecting: evict stale byAPIKey pointer.
+		if existing.APIKeyID != "" {
+			list := r.byAPIKey[existing.APIKeyID]
+			filtered := list[:0]
+			for _, e := range list {
+				if e.WorkerID != existing.WorkerID {
+					filtered = append(filtered, e)
+				}
+			}
+			if len(filtered) == 0 {
+				delete(r.byAPIKey, existing.APIKeyID)
+			} else {
+				r.byAPIKey[existing.APIKeyID] = filtered
+			}
+		}
+	}
 	r.workers[w.WorkerID] = w
 	if w.APIKeyID != "" {
 		r.byAPIKey[w.APIKeyID] = append(r.byAPIKey[w.APIKeyID], w)
 	}
+	return nil
 }
 
 // Deregister removes a worker from the registry and cleans up the API key index.
@@ -130,11 +158,12 @@ func (r *ConnectionRegistry) PickWorkerForQueue(projectID, queue string) (*Conne
 }
 
 // IncrementSlots increases a worker's available slots by one (called when a
-// task completes or fails).
+// task completes or fails). Capped at SlotsTotal so a misbehaving worker
+// cannot inflate its slot count and become preferred for every dispatch.
 func (r *ConnectionRegistry) IncrementSlots(workerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if w, ok := r.workers[workerID]; ok {
+	if w, ok := r.workers[workerID]; ok && w.SlotsAvailable < w.SlotsTotal {
 		w.SlotsAvailable++
 	}
 }
