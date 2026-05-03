@@ -858,9 +858,16 @@ type DeploymentVersion struct {
 	UpdatedAt              time.Time               `json:"updated_at"`
 }
 
+// IsTerminal reports whether the run is in a final state where no further
+// state transitions or work are expected. Includes dead_letter — a
+// permanently-failed run that has exhausted retries IS terminal from every
+// callers' perspective (SSE handlers must hang up, webhooks/notifications
+// must fire, the reaper must skip it, replay/idempotency must consider it
+// already-resolved). Use IsDeadLetter when you need to distinguish DLQ
+// runs from normally-completed ones.
 func (s RunStatus) IsTerminal() bool {
 	switch s {
-	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
+	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired, StatusDeadLetter:
 		return true
 	default:
 		return false
@@ -887,6 +894,7 @@ func TerminalStatuses() []RunStatus {
 		StatusSystemFailed,
 		StatusCanceled,
 		StatusExpired,
+		StatusDeadLetter,
 	}
 }
 
