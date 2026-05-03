@@ -63,7 +63,8 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 
 	// Reconcile in-flight tasks from the registration (reconnect recovery).
-	s.reconcileInFlightTasks(ctx, projectID, reg.InFlightTasks)
+	// Passing workerID enables the adversarial ownership check.
+	s.reconcileInFlightTasks(ctx, reg.WorkerID, projectID, reg.InFlightTasks)
 
 	// Per-stream typed send channel for outbound ServerMessages.
 	// The ConnectedWorker entry in the registry stores a send-only view of this
@@ -286,36 +287,149 @@ func (s *workerService) handleLogLine(ctx context.Context, ll *workerv1.LogLine)
 }
 
 // reconcileInFlightTasks handles runs that the worker was executing at the time
-// of (re)connection. Each run is moved to the appropriate terminal state.
-func (s *workerService) reconcileInFlightTasks(ctx context.Context, projectID string, tasks []*workerv1.InFlightTask) {
+// of (re)connection. It applies the correct terminal transition per status and,
+// for failed/abandoned runs, schedules a retry per the job's retry policy
+// (mirroring the executor's handleFailure path).
+//
+// Adversarial guard: before reconciling, the run is validated against
+// worker_tasks to confirm it was actually assigned to this worker. Mismatches
+// are logged and skipped — this prevents a malicious or buggy worker from
+// marking runs it doesn't own.
+func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, projectID string, tasks []*workerv1.InFlightTask) {
 	for _, t := range tasks {
 		if t == nil || t.RunID == "" {
 			continue
 		}
-		var target domain.RunStatus
-		switch t.Status {
-		case "completed":
-			target = domain.StatusCompleted
-		case "failed":
-			target = domain.StatusFailed
-		case "abandoned":
-			target = domain.StatusFailed
-		default:
+
+		// Adversarial guard: verify ownership via worker_tasks.
+		taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, t.RunID)
+		if err != nil {
+			slog.Warn("grpc reconcile: ownership lookup failed",
+				"worker_id", workerID,
+				"run_id", t.RunID,
+				"error", err,
+			)
+			continue
+		}
+		if taskRow == nil {
+			// No matching worker_tasks row — mismatch; reject.
+			slog.Warn("grpc reconcile: rejecting in-flight task not owned by this worker",
+				"worker_id", workerID,
+				"run_id", t.RunID,
+			)
 			continue
 		}
 
-		reconcileFields := map[string]any{"finished_at": time.Now()}
-		if t.ErrorMessage != "" {
-			reconcileFields["error"] = t.ErrorMessage
-		}
-		if err := s.queries.UpdateRunStatus(ctx, t.RunID, domain.StatusExecuting, target, reconcileFields); err != nil {
-			slog.Warn("grpc reconcile in-flight task failed",
+		switch t.Status {
+		case "completed":
+			reconcileFields := map[string]any{"finished_at": time.Now()}
+			if err := s.queries.UpdateRunStatus(ctx, t.RunID, domain.StatusExecuting, domain.StatusCompleted, reconcileFields); err != nil {
+				slog.Warn("grpc reconcile: mark completed failed",
+					"run_id", t.RunID,
+					"error", err,
+				)
+			}
+
+		case "failed", "abandoned":
+			// For failed/abandoned: attempt a retry if the job allows it,
+			// otherwise mark as dead-letter.
+			s.reconcileFailedTask(ctx, t)
+
+		default:
+			slog.Warn("grpc reconcile: unknown in-flight task status",
+				"worker_id", workerID,
 				"run_id", t.RunID,
-				"target_status", target,
-				"error", err,
+				"status", t.Status,
 			)
 		}
 	}
+}
+
+// reconcileFailedTask applies retry-or-fail logic for a failed/abandoned run
+// reported during worker reconnection. It mirrors the retry scheduling in
+// internal/worker/executor_handlers.go without importing that package.
+func (s *workerService) reconcileFailedTask(ctx context.Context, t *workerv1.InFlightTask) {
+	run, err := s.queries.GetRun(ctx, t.RunID)
+	if err != nil || run == nil {
+		slog.Warn("grpc reconcile: get run failed",
+			"run_id", t.RunID,
+			"error", err,
+		)
+		return
+	}
+
+	job, err := s.queries.GetJob(ctx, run.JobID)
+	if err != nil || job == nil {
+		slog.Warn("grpc reconcile: get job failed",
+			"run_id", t.RunID,
+			"job_id", run.JobID,
+			"error", err,
+		)
+		// Fall back: mark failed without retry.
+		s.reconcileMarkFailed(ctx, t.RunID, t.ErrorMessage)
+		return
+	}
+
+	// Determine whether another attempt is allowed.
+	maxAttempts := job.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 1
+	}
+
+	if run.Attempt < maxAttempts {
+		// Schedule retry: increment attempt, compute next_retry_at, requeue.
+		retryAt := time.Now().Add(retryBackoffDuration(run.Attempt))
+		fields := map[string]any{
+			"attempt":       run.Attempt + 1,
+			"next_retry_at": retryAt,
+			"started_at":    nil,
+			"finished_at":   nil,
+		}
+		if t.ErrorMessage != "" {
+			fields["error"] = t.ErrorMessage
+		}
+		if err := s.queries.UpdateRunStatus(ctx, t.RunID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+			slog.Warn("grpc reconcile: retry requeue failed",
+				"run_id", t.RunID,
+				"error", err,
+			)
+		} else {
+			slog.Info("grpc reconcile: run requeued for retry",
+				"run_id", t.RunID,
+				"attempt", run.Attempt+1,
+				"next_retry_at", retryAt,
+			)
+		}
+		return
+	}
+
+	// Exhausted retries: mark dead-letter.
+	s.reconcileMarkFailed(ctx, t.RunID, t.ErrorMessage)
+}
+
+// reconcileMarkFailed transitions a run to StatusDeadLetter.
+func (s *workerService) reconcileMarkFailed(ctx context.Context, runID, errMsg string) {
+	fields := map[string]any{"finished_at": time.Now()}
+	if errMsg != "" {
+		fields["error"] = errMsg
+	}
+	if err := s.queries.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusDeadLetter, fields); err != nil {
+		slog.Warn("grpc reconcile: mark failed",
+			"run_id", runID,
+			"error", err,
+		)
+	}
+}
+
+// retryBackoffDuration returns an exponential backoff delay for a given attempt
+// (1-indexed). Matches the default policy in internal/worker/backoff.go:
+// delay = min(2^(attempt-1), 3600) seconds.
+func retryBackoffDuration(attempt int) time.Duration {
+	secs := 1 << (attempt - 1) // 2^(attempt-1)
+	if secs > 3600 {
+		secs = 3600
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // dbUpsertWorker immediately upserts the worker into the DB on registration,
