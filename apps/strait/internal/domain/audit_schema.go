@@ -615,6 +615,20 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"warning_threshold", "critical_threshold"},
 		Description: "Anomaly detection thresholds updated.",
 	},
+
+	// Worker connections (gRPC streaming).
+	AuditActionWorkerConnected: {
+		Required:    []string{"worker_id", "hostname"},
+		Description: "Worker connected via gRPC streaming.",
+	},
+	AuditActionWorkerDisconnected: {
+		Required:    []string{"worker_id"},
+		Description: "Worker disconnected from gRPC stream.",
+	},
+	AuditActionWorkerForceDisconnected: {
+		Required:    []string{"worker_id", "reason"},
+		Description: "Worker force-disconnected by operator or revocation broadcast.",
+	},
 }
 
 // ForbiddenKeysFor returns the union of the action-specific forbidden keys

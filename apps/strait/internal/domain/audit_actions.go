@@ -196,6 +196,11 @@ const (
 	AuditActionUsageExported           = "usage.exported"
 	AuditActionProjectBudgetUpdated    = "project_budget.updated"
 	AuditActionAnomalyConfigUpdated    = "anomaly_config.updated"
+
+	// Worker connections (gRPC streaming).
+	AuditActionWorkerConnected           = "worker.connected"
+	AuditActionWorkerDisconnected        = "worker.disconnected"
+	AuditActionWorkerForceDisconnected   = "worker.force_disconnected"
 )
 
 // allAuditActions is the set of every action name the emit path will accept.
@@ -336,6 +341,9 @@ var allAuditActions = map[string]struct{}{
 	AuditActionUsageExported:                   {},
 	AuditActionProjectBudgetUpdated:            {},
 	AuditActionAnomalyConfigUpdated:            {},
+	AuditActionWorkerConnected:                 {},
+	AuditActionWorkerDisconnected:              {},
+	AuditActionWorkerForceDisconnected:         {},
 }
 
 // IsKnownAuditAction reports whether action is a registered audit action.
