@@ -158,6 +158,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       j.batch_max_size,
 		       j.execution_mode,
 		       j.preferred_regions,
+		       j.queue_name,
 		       j.on_complete_trigger_workflow,
 		       j.on_complete_trigger_job,
 		       j.on_complete_payload_mapping,
@@ -165,7 +166,8 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       j.on_failure_trigger_workflow,
 		       j.on_failure_payload_mapping,
 		       j.max_tokens_per_run, j.max_tool_calls_per_run, j.max_iterations_per_run, j.allowed_tools, j.blocked_tools,
-		       j.paused, j.paused_at, j.pause_reason
+		       j.paused, j.paused_at, j.pause_reason,
+		       j.endpoint_signing_secret
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id
 		WHERE jv.job_id = $1 AND jv.version = $2`
