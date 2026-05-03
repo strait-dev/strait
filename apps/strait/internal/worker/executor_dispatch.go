@@ -350,12 +350,29 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	// Record HTTP run cost for Stripe billing (cloud only).
+	// Record HTTP run cost for Stripe billing and usage records (cloud only).
 	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
 		if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
 			e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
 		}
 		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
+		if e.runCostRecorder != nil && e.billingEnforcer != nil {
+			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+			if orgErr == nil && orgID != "" {
+				// Fire-and-forget: cost recording is non-critical; log failures but don't fail the run.
+				costCtx := context.WithoutCancel(ctx)
+				go func() {
+					if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
+						e.logger.Warn("failed to record HTTP run cost",
+							"run_id", run.ID,
+							"org_id", orgID,
+							"error", err,
+						)
+					}
+				}()
+			}
+		}
+		// TODO(phase-7.2): wire RecordWorkerRunCost in the Worker dispatch result path.
 	}
 
 	e.handleSuccess(ctx, run, job, result, execTrace)

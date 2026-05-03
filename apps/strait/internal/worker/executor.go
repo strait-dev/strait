@@ -113,6 +113,7 @@ type Executor struct {
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder          *billing.RunCostRecorder
 	stop                     chan struct{}
 	done                     chan struct{}
 	stopOnce                 sync.Once
@@ -177,6 +178,7 @@ type ExecutorConfig struct {
 	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
 	// DegradedPollInterval is the shortened poll interval used when the
 	// queue notifier enters degraded mode (LISTEN disconnected for too long).
 	// Zero/negative falls back to 1 second.
@@ -282,6 +284,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		defaultRegion:  cfg.DefaultRegion,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
+		runCostRecorder:          cfg.RunCostRecorder,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
