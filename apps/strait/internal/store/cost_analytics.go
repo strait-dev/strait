@@ -52,20 +52,6 @@ type TopCostItem struct {
 	RunCount     int    `json:"run_count"`
 }
 
-// ComputeCostAnalytics holds compute cost breakdowns.
-type ComputeCostAnalytics struct {
-	TotalCostMicrousd int64          `json:"total_cost_microusd"`
-	ByPreset          []CostByPreset `json:"by_preset"`
-}
-
-// CostByPreset breaks down compute cost by machine preset.
-type CostByPreset struct {
-	Preset       string  `json:"preset"`
-	CostMicrousd int64   `json:"cost_microusd"`
-	RunCount     int     `json:"run_count"`
-	DurationSecs float64 `json:"duration_secs"`
-}
-
 // isShortPeriod returns true when the time range is 24 hours or less,
 // indicating we should query live tables instead of materialized ones.
 func isShortPeriod(from, to time.Time) bool {
@@ -348,17 +334,6 @@ func (q *Queries) GetTopCosts(ctx context.Context, projectID string, from, to ti
 		items = append(items, item)
 	}
 	return items, rows.Err()
-}
-
-// GetComputeCostAnalytics returns compute costs grouped by machine preset.
-// run_compute_usage was dropped in migration 000227; this always returns empty results.
-func (q *Queries) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*ComputeCostAnalytics, error) {
-	_, span := otel.Tracer("strait").Start(ctx, "store.GetComputeCostAnalytics")
-	defer span.End()
-	_ = projectID
-	_ = from
-	_ = to
-	return &ComputeCostAnalytics{ByPreset: make([]CostByPreset, 0)}, nil
 }
 
 // AggregateCostStatsHourly materializes cost data for a given hour into cost_stats_hourly.

@@ -1652,11 +1652,6 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 	}, nil
 }
 
-// SetRunMachineID is a no-op; machine_id column was removed in migration 000230.
-func (q *Queries) SetRunMachineID(_ context.Context, _, _ string) error {
-	return nil
-}
-
 func (q *Queries) UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunDebugMode")
 	defer span.End()
@@ -1821,11 +1816,6 @@ func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID 
 		return 0, fmt.Errorf("cancel job runs by workflow run: %w", err)
 	}
 	return tag.RowsAffected(), nil
-}
-
-// ListManagedMachineIDsByWorkflowRun is a no-op; machine_id column was removed in migration 000230.
-func (q *Queries) ListManagedMachineIDsByWorkflowRun(_ context.Context, _ string) ([]string, error) {
-	return nil, nil
 }
 
 // MarkJobRunsPausedByWorkflowRun transitions executing job runs linked to this

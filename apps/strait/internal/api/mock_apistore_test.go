@@ -565,9 +565,6 @@ var _ APIStore = &APIStoreMock{}
 //			ListLogDrainsFunc: func(ctx context.Context, projectID string) ([]domain.LogDrain, error) {
 //				panic("mock out the ListLogDrains method")
 //			},
-//			ListManagedMachineIDsByWorkflowRunFunc: func(ctx context.Context, workflowRunID string) ([]string, error) {
-//				panic("mock out the ListManagedMachineIDsByWorkflowRun method")
-//			},
 //			ListNotificationChannelsFunc: func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
 //				panic("mock out the ListNotificationChannels method")
 //			},
@@ -1423,9 +1420,6 @@ type APIStoreMock struct {
 
 	// ListLogDrainsFunc mocks the ListLogDrains method.
 	ListLogDrainsFunc func(ctx context.Context, projectID string) ([]domain.LogDrain, error)
-
-	// ListManagedMachineIDsByWorkflowRunFunc mocks the ListManagedMachineIDsByWorkflowRun method.
-	ListManagedMachineIDsByWorkflowRunFunc func(ctx context.Context, workflowRunID string) ([]string, error)
 
 	// ListNotificationChannelsFunc mocks the ListNotificationChannels method.
 	ListNotificationChannelsFunc func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
@@ -3307,13 +3301,6 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
-		// ListManagedMachineIDsByWorkflowRun holds details about calls to the ListManagedMachineIDsByWorkflowRun method.
-		ListManagedMachineIDsByWorkflowRun []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// WorkflowRunID is the workflowRunID argument value.
-			WorkflowRunID string
-		}
 		// ListNotificationChannels holds details about calls to the ListNotificationChannels method.
 		ListNotificationChannels []struct {
 			// Ctx is the ctx argument value.
@@ -4488,7 +4475,6 @@ type APIStoreMock struct {
 	lockListJobsByOrg                      sync.RWMutex
 	lockListJobsByTag                      sync.RWMutex
 	lockListLogDrains                      sync.RWMutex
-	lockListManagedMachineIDsByWorkflowRun sync.RWMutex
 	lockListNotificationChannels           sync.RWMutex
 	lockListNotificationDeliveries         sync.RWMutex
 	lockListProjectMembers                 sync.RWMutex
@@ -12370,46 +12356,6 @@ func (mock *APIStoreMock) ListLogDrainsCalls() []struct {
 	mock.lockListLogDrains.RLock()
 	calls = mock.calls.ListLogDrains
 	mock.lockListLogDrains.RUnlock()
-	return calls
-}
-
-// ListManagedMachineIDsByWorkflowRun calls ListManagedMachineIDsByWorkflowRunFunc.
-func (mock *APIStoreMock) ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error) {
-	callInfo := struct {
-		Ctx           context.Context
-		WorkflowRunID string
-	}{
-		Ctx:           ctx,
-		WorkflowRunID: workflowRunID,
-	}
-	mock.lockListManagedMachineIDsByWorkflowRun.Lock()
-	mock.calls.ListManagedMachineIDsByWorkflowRun = append(mock.calls.ListManagedMachineIDsByWorkflowRun, callInfo)
-	mock.lockListManagedMachineIDsByWorkflowRun.Unlock()
-	if mock.ListManagedMachineIDsByWorkflowRunFunc == nil {
-		var (
-			stringsOut []string
-			errOut     error
-		)
-		return stringsOut, errOut
-	}
-	return mock.ListManagedMachineIDsByWorkflowRunFunc(ctx, workflowRunID)
-}
-
-// ListManagedMachineIDsByWorkflowRunCalls gets all the calls that were made to ListManagedMachineIDsByWorkflowRun.
-// Check the length with:
-//
-//	len(mockedAPIStore.ListManagedMachineIDsByWorkflowRunCalls())
-func (mock *APIStoreMock) ListManagedMachineIDsByWorkflowRunCalls() []struct {
-	Ctx           context.Context
-	WorkflowRunID string
-} {
-	var calls []struct {
-		Ctx           context.Context
-		WorkflowRunID string
-	}
-	mock.lockListManagedMachineIDsByWorkflowRun.RLock()
-	calls = mock.calls.ListManagedMachineIDsByWorkflowRun
-	mock.lockListManagedMachineIDsByWorkflowRun.RUnlock()
 	return calls
 }
 
