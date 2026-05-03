@@ -487,6 +487,20 @@ func monthlyRunKey(orgID string, t time.Time) string {
 	return fmt.Sprintf("strait:org_monthly_runs:%s:%s", orgID, t.UTC().Format("2006-01"))
 }
 
+// DecrMonthlyRunCount decrements the monthly run counter (for rollback on failure).
+// Uses decrFloorScript to prevent negative values from double-decrements.
+// Call this on any enqueue-abort path that happened AFTER CheckMonthlyRunLimit incremented
+// the counter but BEFORE the run was successfully persisted.
+func (e *Enforcer) DecrMonthlyRunCount(ctx context.Context, orgID string) {
+	if orgID == "" || e.rdb == nil {
+		return
+	}
+	key := monthlyRunKey(orgID, time.Now())
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
+		e.logger.Warn("failed to decrement org monthly run counter", "org_id", orgID, "error", err)
+	}
+}
+
 const monthlyRunCounterTTLSecs = int(62 * 24 * time.Hour / time.Second)
 
 // CheckMonthlyRunLimit checks if the org has exceeded its monthly run quota.

@@ -1277,3 +1277,111 @@ func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
 		t.Error("expected false for empty orgID")
 	}
 }
+
+// ---------------------------------------------------------------------------.
+// DecrMonthlyRunCount -- mirrors DecrDailyRunCount behavior for monthly quota.
+// ---------------------------------------------------------------------------.
+
+// TestDecrMonthlyRunCount_DecrAfterIncr verifies that decrementing after an
+// increment returns the counter to the baseline value.
+func TestDecrMonthlyRunCount_DecrAfterIncr(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	// Wire a starter subscription so the monthly limit kicks in.
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-monthly-1": {OrgID: "org-monthly-1", PlanTier: "starter", Status: "active"},
+	}
+
+	// CheckMonthlyRunLimit increments the counter atomically on each allowed call.
+	if err := enforcer.CheckMonthlyRunLimit(ctx, "org-monthly-1"); err != nil {
+		t.Fatalf("CheckMonthlyRunLimit: %v", err)
+	}
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	key := monthlyRunKey("org-monthly-1", time.Now())
+	before, _ := rdb.Get(ctx, key).Int64()
+	if before != 1 {
+		t.Fatalf("expected counter=1 after one incr, got %d", before)
+	}
+
+	// Rollback (abort path).
+	enforcer.DecrMonthlyRunCount(ctx, "org-monthly-1")
+
+	after, _ := rdb.Get(ctx, key).Int64()
+	if after != 0 {
+		t.Errorf("expected counter=0 after decr, got %d", after)
+	}
+}
+
+// TestDecrMonthlyRunCount_FloorsAtZero verifies that decrementing from 0 does
+// not produce a negative value.
+func TestDecrMonthlyRunCount_FloorsAtZero(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	// Decrement with no prior increment — should be a no-op.
+	enforcer.DecrMonthlyRunCount(ctx, "org-monthly-floor")
+	enforcer.DecrMonthlyRunCount(ctx, "org-monthly-floor")
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	key := monthlyRunKey("org-monthly-floor", time.Now())
+	val, err := rdb.Get(ctx, key).Int64()
+	if err == nil && val < 0 {
+		t.Errorf("counter went negative: %d", val)
+	}
+	// If the key doesn't exist (redis.Nil) that's also acceptable (counter = 0).
+}
+
+// TestDecrMonthlyRunCount_EmptyOrgID verifies that an empty orgID is a no-op.
+func TestDecrMonthlyRunCount_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+	// Should not panic.
+	enforcer.DecrMonthlyRunCount(context.Background(), "")
+}
+
+// TestDecrMonthlyRunCount_NilRedis verifies that a nil Redis client is a no-op.
+func TestDecrMonthlyRunCount_NilRedis(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, nil, slog.Default())
+	// Should not panic.
+	enforcer.DecrMonthlyRunCount(context.Background(), "org-1")
+}
+
+// TestDecrMonthlyRunCount_Parallel verifies that parallel incr/decr operations
+// leave the counter consistent (no race condition, no negative value).
+func TestDecrMonthlyRunCount_Parallel(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-parallel": {OrgID: "org-parallel", PlanTier: "starter", Status: "active"},
+	}
+
+	const ops = 50
+	done := make(chan struct{})
+	go func() {
+		for range ops {
+			_ = enforcer.CheckMonthlyRunLimit(ctx, "org-parallel")
+		}
+		close(done)
+	}()
+	go func() {
+		for range ops {
+			enforcer.DecrMonthlyRunCount(ctx, "org-parallel")
+		}
+	}()
+	<-done
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	key := monthlyRunKey("org-parallel", time.Now())
+	val, err := rdb.Get(ctx, key).Int64()
+	if err == nil && val < 0 {
+		t.Errorf("counter went negative after parallel ops: %d", val)
+	}
+}
