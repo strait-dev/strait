@@ -63,7 +63,7 @@ func (s *Server) routes() chi.Router {
 		requestTimeout = 30 * time.Second
 	}
 	if s.config.RateLimitRequests > 0 {
-		r.Use(httprate.LimitByIP(s.config.RateLimitRequests, s.config.RateLimitWindow))
+		r.Use(httprate.Limit(s.config.RateLimitRequests, s.config.RateLimitWindow, httprate.WithKeyFuncs(s.rateLimitKeyByIP)))
 	}
 
 	triggerRateLimitRequests := s.config.TriggerRateLimitRequests

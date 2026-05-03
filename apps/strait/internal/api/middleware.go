@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,24 +95,97 @@ func requireJSONContentType(next http.Handler) http.Handler {
 	})
 }
 
-// realIP extracts the client IP from the request, preferring the last entry
-// in X-Forwarded-For (the one appended by the first trusted reverse proxy)
-// over RemoteAddr. Returns only the IP, stripping port if present.
-func realIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Use the rightmost (last) entry: this is the IP appended by the
-		// first trusted proxy and cannot be spoofed by the client.
-		parts := strings.Split(xff, ",")
-		ip := strings.TrimSpace(parts[len(parts)-1])
-		if ip != "" {
-			return ip
+// realIP extracts the client IP for rate-limit / lockout accounting.
+//
+// When trustedProxies is non-empty, it walks X-Forwarded-For from right to
+// left, skipping entries whose IP is in the trusted-proxy set, and returns
+// the first untrusted IP it finds (the real client). When trustedProxies is
+// empty, X-Forwarded-For is ignored entirely and the connection's RemoteAddr
+// is returned, because any client can append arbitrary XFF entries and a
+// rightmost-entry policy would let attackers spoof the IP recorded for
+// lockout (rotating it to evade auth-failure throttling).
+func realIP(r *http.Request, trustedProxies []net.IPNet) string {
+	remote := remoteAddrIP(r)
+	if len(trustedProxies) == 0 {
+		return remote
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return remote
+	}
+	if !ipInNets(remote, trustedProxies) {
+		// The connecting peer is not a trusted proxy; ignore its XFF.
+		return remote
+	}
+	parts := strings.Split(xff, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(parts[i])
+		if candidate == "" {
+			continue
+		}
+		if ipInNets(candidate, trustedProxies) {
+			continue
+		}
+		return candidate
+	}
+	return remote
+}
+
+// rateLimitKeyByIP is an httprate.KeyFunc that derives the rate-limit bucket
+// from the trusted-proxy-aware client IP, instead of httprate's default which
+// can be spoofed by clients in deployments where the server sees X-Forwarded-For.
+func (s *Server) rateLimitKeyByIP(r *http.Request) (string, error) {
+	return realIP(r, s.trustedProxies), nil
+}
+
+// remoteAddrIP returns the IP portion of r.RemoteAddr, stripping the port if
+// present. It correctly handles IPv6 forms like "[::1]:1234".
+func remoteAddrIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// ipInNets reports whether the IP literal ip belongs to any of the given
+// CIDR ranges. Invalid IPs return false.
+func ipInNets(ip string, nets []net.IPNet) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for i := range nets {
+		if nets[i].Contains(parsed) {
+			return true
 		}
 	}
-	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	return false
+}
+
+// parseTrustedProxies converts a list of CIDR strings or bare IPs from
+// configuration into net.IPNet ranges. Invalid entries are dropped; a
+// warning is the caller's responsibility.
+func parseTrustedProxies(entries []string) []net.IPNet {
+	out := make([]net.IPNet, 0, len(entries))
+	for _, raw := range entries {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if _, cidr, err := net.ParseCIDR(raw); err == nil {
+			out = append(out, *cidr)
+			continue
+		}
+		if ip := net.ParseIP(raw); ip != nil {
+			mask := net.CIDRMask(32, 32)
+			if ip.To4() == nil {
+				mask = net.CIDRMask(128, 128)
+			}
+			out = append(out, net.IPNet{IP: ip, Mask: mask})
+		}
 	}
-	return ip
+	return out
 }
 
 // sseTokenAuth extracts auth token from ?token= query param for SSE endpoints
@@ -189,7 +263,7 @@ func traceIDFromContext(ctx context.Context) string {
 func (s *Server) attachAuditContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r))
+		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r, s.trustedProxies))
 		ua := r.UserAgent()
 		if len(ua) > auditUserAgentMaxBytes {
 			ua = ua[:auditUserAgentMaxBytes]
@@ -276,7 +350,7 @@ func orgIDFromContext(ctx context.Context) string {
 
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r)
+		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
@@ -434,7 +508,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r)
+		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
@@ -960,7 +1034,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 6. Fall back to per-IP rate limit when no key/project limits matched.
 	if s.config.RateLimitRequests > 0 {
-		ip := realIP(r)
+		ip := realIP(r, s.trustedProxies)
 		return resolvedRateLimit{s.config.RateLimitRequests, int(time.Minute.Seconds()), "rl:ip:" + ip}
 	}
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -549,6 +550,11 @@ type Server struct {
 	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
 
+	// trustedProxies is the parsed CIDR list of reverse proxies whose
+	// X-Forwarded-For header is trusted for client IP attribution. Empty
+	// means XFF is ignored entirely (fail-safe default).
+	trustedProxies []net.IPNet
+
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
 	sseProjectConns sync.Map // map[string]*atomic.Int64
@@ -770,6 +776,13 @@ func NewServer(deps ServerDeps) *Server {
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
+
+	if deps.Config != nil {
+		srv.trustedProxies = parseTrustedProxies(deps.Config.TrustedProxies)
+		if len(deps.Config.TrustedProxies) > 0 && len(srv.trustedProxies) == 0 {
+			slog.Warn("TRUSTED_PROXIES configured but no valid CIDR/IP entries parsed; X-Forwarded-For will be ignored")
+		}
+	}
 
 	if deps.TxPool != nil {
 		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {

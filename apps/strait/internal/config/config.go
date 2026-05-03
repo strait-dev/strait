@@ -108,6 +108,13 @@ type Config struct {
 	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `env:"CORS_ALLOW_CREDENTIALS" default:"false"`
 
+	// TrustedProxies is a comma-separated list of CIDR ranges (or single IPs)
+	// that are allowed to set the X-Forwarded-For header. When empty (the
+	// default), X-Forwarded-For is ignored entirely and the connection's
+	// RemoteAddr is used for rate-limit / lockout accounting. This prevents
+	// clients from spoofing their source IP by adding their own XFF entries.
+	TrustedProxies []string `env:"TRUSTED_PROXIES"`
+
 	WorkerPartitions       []string `env:"WORKER_PARTITIONS"`
 	WorkerPartitionWeights string   `env:"WORKER_PARTITION_WEIGHTS"`
 	AdaptiveConcurrencyMin int      `env:"ADAPTIVE_CONCURRENCY_MIN" default:"5"`

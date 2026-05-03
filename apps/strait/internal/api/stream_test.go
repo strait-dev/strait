@@ -14,6 +14,55 @@ import (
 	"strait/internal/store"
 )
 
+func TestHandleRunStream_CrossProjectReturns404(t *testing.T) {
+	t.Parallel()
+
+	// Regression: an authenticated caller in project "proj-attacker" must
+	// not be able to subscribe to a run owned by "proj-victim". The handler
+	// should return 404 (not 200, not 403) to avoid leaking run existence.
+	// This is the SSE BOLA bug — RLS does not enforce isolation on long-lived
+	// SSE connections, so the handler must check application-side.
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-1", ProjectID: "proj-victim",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/victim-run/stream", "", "proj-attacker"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (cross-project must not leak run existence), got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "event: ") || strings.Contains(strings.ToLower(body), "subscribe") {
+		t.Fatalf("response leaked SSE subscription evidence: %s", body)
+	}
+}
+
+func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-1", ProjectID: "proj-victim",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/victim-run/stream/logs", "", "proj-attacker"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (cross-project log stream must not leak), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleRunStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -24,7 +73,7 @@ func TestHandleRunStream_RunNotFound(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/missing-run/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/missing-run/stream", "", "proj-1"))
 
 	// store.ErrRunNotFound does NOT match pgx.ErrNoRows, so handler returns 500
 	if w.Code != http.StatusInternalServerError {
@@ -42,7 +91,7 @@ func TestHandleRunStream_StoreError(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
@@ -65,7 +114,7 @@ func TestHandleRunStream_TerminalRun(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-done/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-done/stream", "", "proj-1"))
 
 	if w.Code != http.StatusGone {
 		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
@@ -89,7 +138,7 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 	// nil pubsub
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	// When pubsub is nil, handler writes SSE headers then error event
 	if w.Code != http.StatusOK {
@@ -125,7 +174,7 @@ func TestHandleRunStream_SubscribeError(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	// Handler writes SSE headers then error event for subscribe failure
 	if w.Code != http.StatusOK {
@@ -166,7 +215,7 @@ func TestHandleRunStream_ReceivesMessage(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -207,7 +256,7 @@ func TestHandleRunStream_ClientDisconnect(t *testing.T) {
 	// Create a request with a cancelled context to simulate client disconnect
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancel
-	r := authedRequest(http.MethodGet, "/v1/runs/run-123/stream", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1")
 	r = r.WithContext(ctx)
 
 	srv.ServeHTTP(w, r)
@@ -245,7 +294,7 @@ func TestHandleRunStream_TerminalStatuses(t *testing.T) {
 			}
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 			if w.Code != http.StatusGone {
 				t.Fatalf("status %s: expected 410, got %d", status, w.Code)
@@ -280,7 +329,7 @@ func TestHandleRunStream_SSEHeaders(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -336,7 +385,7 @@ func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
 
 			srv := newTestServer(t, ms, &mockQueue{}, pub)
 			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 			// Should NOT return 410 for non-terminal statuses
 			if w.Code == http.StatusGone {

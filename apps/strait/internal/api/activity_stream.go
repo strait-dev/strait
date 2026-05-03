@@ -20,6 +20,14 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Tenant isolation: SSE long-lived handlers cannot rely on RLS, so we
+	// must verify the URL projectID matches the caller's authenticated project.
+	// 404 on mismatch to avoid cross-tenant existence disclosure.
+	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || projectID != callerProjectID {
+		respondError(w, r, http.StatusNotFound, "project not found")
+		return
+	}
+
 	if s.pubsub == nil {
 		respondError(w, r, http.StatusServiceUnavailable, "real-time streaming not available")
 		return

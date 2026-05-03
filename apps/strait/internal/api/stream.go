@@ -24,6 +24,15 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tenant isolation: long-lived SSE handlers cannot rely on RLS
+	// (the projectContextMiddleware set_config is transaction-local), so we
+	// must verify project ownership in application code before subscribing.
+	// Return 404 on mismatch to avoid leaking run existence across tenants.
+	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || run.ProjectID != callerProjectID {
+		respondError(w, r, http.StatusNotFound, "run not found")
+		return
+	}
+
 	if run.Status.IsTerminal() {
 		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return
@@ -100,13 +109,18 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
-	_, err := s.store.GetRun(r.Context(), runID)
+	run, err := s.store.GetRun(r.Context(), runID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondError(w, r, http.StatusNotFound, "run not found")
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || run.ProjectID != callerProjectID {
+		respondError(w, r, http.StatusNotFound, "run not found")
 		return
 	}
 
@@ -185,6 +199,10 @@ func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || run.ProjectID != callerProjectID {
+		respondError(w, r, http.StatusNotFound, "run not found")
 		return
 	}
 	if run.Status.IsTerminal() {
