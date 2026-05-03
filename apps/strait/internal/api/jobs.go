@@ -52,6 +52,7 @@ type CreateJobRequest struct {
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
+	QueueName                 string            `json:"queue_name,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
@@ -96,6 +97,7 @@ type UpdateJobRequest struct {
 	BatchWindowSecs           *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
+	QueueName                 *string            `json:"queue_name,omitempty"`
 	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
@@ -257,6 +259,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchWindowSecs:           req.BatchWindowSecs,
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
+		Queue:                     req.QueueName,
 		PreferredRegions:          req.PreferredRegions,
 		PoisonPillThreshold:       req.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
@@ -594,6 +597,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 			return nil, err
 		}
 		job.ExecutionMode = mode
+	}
+	if req.QueueName != nil {
+		job.Queue = *req.QueueName
 	}
 	if req.PreferredRegions != nil {
 		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
