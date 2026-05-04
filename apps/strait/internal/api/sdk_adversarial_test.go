@@ -159,9 +159,14 @@ func newAuthTestServer(t *testing.T) *Server {
 }
 
 // signToken creates a JWT signed with the given key and subject.
+//
+// The Issuer is set to "strait:run-token" because runTokenAuth now
+// strictly enforces it (jwt.WithIssuer); a token without that issuer
+// is rejected as "invalid run token".
 func signToken(t *testing.T, key, subject string, expiry time.Time) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "strait:run-token",
 		Subject:   subject,
 		ExpiresAt: jwt.NewNumericDate(expiry),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -238,6 +243,71 @@ func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
 	}
 	if called.Load() {
 		t.Fatal("next handler should not have been called")
+	}
+}
+
+// Regression for F-AK-13: a token without the "strait:run-token"
+// issuer must be rejected. Without this guard a token issued for a
+// different audience (SSE token, gRPC inter-service token) signed
+// with the same JWT key could be replayed against the SDK plane.
+func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
+	t.Parallel()
+	srv := newAuthTestServer(t)
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "strait:sse",
+		Subject:   "run-1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	})
+	signed, err := token.SignedString([]byte(testSigningKey))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+signed)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong-issuer token, got %d", w.Code)
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called for wrong-issuer token")
+	}
+}
+
+// Regression for F-AK-13: a token without an `exp` claim must be
+// rejected (jwt.WithExpirationRequired). Otherwise a forged or
+// misissued token would never time out.
+func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
+	t.Parallel()
+	srv := newAuthTestServer(t)
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:   "strait:run-token",
+		Subject:  "run-1",
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+		// Deliberately no ExpiresAt.
+	})
+	signed, err := token.SignedString([]byte(testSigningKey))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+signed)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for token with no exp, got %d", w.Code)
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called for non-expiring token")
 	}
 }
 

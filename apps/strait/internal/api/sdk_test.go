@@ -21,6 +21,7 @@ import (
 func generateRunToken(t *testing.T, runID string) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "strait:run-token",
 		Subject:   runID,
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -51,6 +52,7 @@ func sdkRequest(t *testing.T, method, path, runID, body string) *http.Request {
 func generateExpiredRunToken(t *testing.T, runID string) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "strait:run-token",
 		Subject:   runID,
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
 		IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),

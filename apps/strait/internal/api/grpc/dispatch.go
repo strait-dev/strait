@@ -251,6 +251,7 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) 
 			expiresAt = *run.ExpiresAt
 		}
 		claims := jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
 			Subject:   run.ID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

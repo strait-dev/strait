@@ -103,12 +103,18 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		}
 		tokenString := strings.TrimPrefix(auth, "Bearer ")
 		claims := &jwt.RegisteredClaims{}
+		// jwt.WithExpirationRequired rejects tokens that omit `exp`. Without
+		// it the library silently treats a missing exp as valid forever, so
+		// a forged or accidentally-non-expiring token would never time out.
+		// Issuer is bound to "strait:run-token" so a token issued for a
+		// different audience (e.g. an SSE token) cannot be replayed against
+		// the SDK plane.
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 			return []byte(s.config.JWTSigningKey), nil
-		})
+		}, jwt.WithExpirationRequired(), jwt.WithIssuer("strait:run-token"))
 		if err != nil || !token.Valid {
 			respondError(w, r, http.StatusUnauthorized, "invalid run token")
 			return
