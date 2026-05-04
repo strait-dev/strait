@@ -27,6 +27,16 @@ type ConnectedWorker struct {
 	// revoked or when a same-id reconnect supersedes this entry. The stream
 	// goroutine selects on this channel to close itself immediately.
 	revokeCh chan struct{}
+	// revokeOnce guards the close(revokeCh). Both Register's same-key reconnect
+	// path and CloseByAPIKey can race to close the channel — without this
+	// once, the second closer panics with "close of closed channel". The
+	// previous select-default-close pattern was insufficient: between the
+	// select branch and the close, a concurrent closer can pass the same
+	// select and double-close.
+	//
+	// Pointer-typed so the surrounding struct stays copyable (Snapshot copies
+	// ConnectedWorker by value); sync.Once carries a noCopy guard.
+	revokeOnce *sync.Once
 	// regToken is the per-registration token assigned by the registry. It is
 	// passed back to Deregister so a stale stream goroutine's deferred cleanup
 	// cannot evict a live replacement that registered under the same WorkerID
@@ -69,6 +79,9 @@ func NewConnectionRegistry() *ConnectionRegistry {
 // Register populates w.regToken with the assigned token; callers must pass
 // that token back to Deregister.
 func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
+	if w.revokeOnce == nil {
+		w.revokeOnce = &sync.Once{}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if existing, ok := r.workers[w.WorkerID]; ok {
@@ -76,14 +89,10 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 			return fmt.Errorf("worker_id %q already registered under a different api key", w.WorkerID)
 		}
 		// Same key reconnecting: signal the stale stream to exit, then evict
-		// the old byAPIKey pointer.
+		// the old byAPIKey pointer. The once guards against a concurrent
+		// CloseByAPIKey racing to close the same channel.
 		if existing.revokeCh != nil {
-			select {
-			case <-existing.revokeCh:
-				// Already closed (e.g., concurrent CloseByAPIKey) — skip.
-			default:
-				close(existing.revokeCh)
-			}
+			existing.revokeOnce.Do(func() { close(existing.revokeCh) })
 		}
 		if existing.APIKeyID != "" {
 			list := r.byAPIKey[existing.APIKeyID]
@@ -157,12 +166,7 @@ func (r *ConnectionRegistry) CloseByAPIKey(apiKeyID string) {
 	r.mu.RUnlock()
 
 	for _, w := range workers {
-		select {
-		case <-w.revokeCh:
-			// Already closed — skip.
-		default:
-			close(w.revokeCh)
-		}
+		w.revokeOnce.Do(func() { close(w.revokeCh) })
 	}
 }
 

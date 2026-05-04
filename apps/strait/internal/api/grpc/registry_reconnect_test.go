@@ -85,8 +85,9 @@ func TestRegistry_ReconnectClosesOldRevokeCh(t *testing.T) {
 }
 
 // TestRegistry_ReconnectAlreadyClosedRevokeCh covers the case where the
-// existing revokeCh has already been closed (e.g. concurrent CloseByAPIKey
-// or a prior close); the reconnect path must not double-close + panic.
+// existing revokeCh has already been closed by a prior CloseByAPIKey; the
+// reconnect path must not double-close + panic. revokeOnce owns the close;
+// after CloseByAPIKey consumes it, reconnect's revokeOnce.Do is a no-op.
 func TestRegistry_ReconnectAlreadyClosedRevokeCh(t *testing.T) {
 	t.Parallel()
 	r := NewConnectionRegistry()
@@ -95,7 +96,7 @@ func TestRegistry_ReconnectAlreadyClosedRevokeCh(t *testing.T) {
 	if err := r.Register(w1); err != nil {
 		t.Fatalf("register w1: %v", err)
 	}
-	close(w1.revokeCh) // simulate prior CloseByAPIKey
+	r.CloseByAPIKey("key-1") // consume the once via the supported path
 
 	defer func() {
 		if r := recover(); r != nil {
