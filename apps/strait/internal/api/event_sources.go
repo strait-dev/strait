@@ -21,7 +21,7 @@ type CreateEventSourceRequest struct {
 	Schema             json.RawMessage `json:"schema,omitempty"`
 	Enabled            *bool           `json:"enabled,omitempty"`
 	SignatureHeader    string          `json:"signature_header,omitempty"`
-	SignatureAlgorithm string          `json:"signature_algorithm,omitempty"`
+	SignatureAlgorithm string          `json:"signature_algorithm,omitempty" validate:"omitempty,oneof=hmac-sha256 stripe-v1 github-sha256"`
 	SignatureSecret    string          `json:"signature_secret,omitempty"`
 }
 
@@ -31,7 +31,7 @@ type UpdateEventSourceRequest struct {
 	Schema             *json.RawMessage `json:"schema,omitempty"`
 	Enabled            *bool            `json:"enabled,omitempty"`
 	SignatureHeader    *string          `json:"signature_header,omitempty"`
-	SignatureAlgorithm *string          `json:"signature_algorithm,omitempty"`
+	SignatureAlgorithm *string          `json:"signature_algorithm,omitempty" validate:"omitempty,oneof=hmac-sha256 stripe-v1 github-sha256"`
 	SignatureSecret    *string          `json:"signature_secret,omitempty"`
 }
 

@@ -40,7 +40,17 @@ type Service struct {
 
 func NewService() *Service {
 	return &Service{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			// Refuse to follow redirects: the drain endpoint URL was
+			// validated against the SSRF allowlist, but a redirect
+			// target has not been. Following would let a compromised
+			// drain pivot us to internal services (cloud metadata,
+			// localhost admin endpoints, etc.).
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 

@@ -208,7 +208,15 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 		endpoint:          endpoint,
 		endpointSanitized: sanitizeSIEMEndpoint(endpoint),
 		authToken:         authToken,
-		client:            &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			// SIEM endpoint URL is validated, but a redirect target is not.
+			// Refuse redirects to prevent SSRF pivots from a compromised
+			// or misconfigured SIEM receiver.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		logger:            slog.Default(),
 		batchSize:         batchSize,
 		flushInterval:     flushInterval,

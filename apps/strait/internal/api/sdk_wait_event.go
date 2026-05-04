@@ -42,6 +42,11 @@ func (s *Server) handleSDKWaitForEvent(ctx context.Context, input *SDKWaitForEve
 	if errMsg := validateEventKey(req.EventKey); errMsg != "" {
 		return nil, huma.Error400BadRequest(errMsg)
 	}
+	if req.NotifyURL != "" {
+		if err := validateURL(req.NotifyURL); err != nil {
+			return nil, huma.Error400BadRequest(fmt.Sprintf("notify_url rejected: %s", err.Error()))
+		}
+	}
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get run")
