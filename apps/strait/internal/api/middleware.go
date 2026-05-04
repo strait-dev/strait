@@ -26,6 +26,7 @@ import (
 
 const ctxProjectIDKey contextKey = "project_id"
 const ctxOrgIDKey contextKey = "org_id"
+const ctxEnvironmentIDKey contextKey = "environment_id"
 const ctxScopesKey contextKey = "scopes"
 const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
@@ -320,6 +321,41 @@ func requireProjectMatch(ctx context.Context, resourceProjectID string) error {
 	return nil
 }
 
+// errEnvironmentMismatch is returned when an API key is bound to an
+// environment that differs from the resource's environment. Handlers
+// should map this to 404 (not 403) to avoid leaking the existence of
+// resources in other environments.
+var errEnvironmentMismatch = errors.New("resource does not belong to the authenticated environment")
+
+// environmentIDFromContext returns the EnvironmentID stamped onto the
+// request by apiKeyAuth. Empty string means the caller is not bound to a
+// specific environment and may access resources in any environment of
+// their project.
+func environmentIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxEnvironmentIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// requireEnvironmentMatch enforces that an environment-scoped API key
+// can only access resources in its own environment. The conservative
+// rule: if the caller is bound to env X, every resource it touches must
+// also be bound to env X. Resources without an EnvironmentID (legacy or
+// unset) are also rejected for env-scoped keys to prevent silent
+// privilege escalation when keys are progressively rolled out.
+// Project-wide keys (empty ctx env) skip the check.
+func requireEnvironmentMatch(ctx context.Context, resourceEnvironmentID string) error {
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv == "" {
+		return nil
+	}
+	if resourceEnvironmentID != callerEnv {
+		return errEnvironmentMismatch
+	}
+	return nil
+}
+
 // requireRunAccess fetches the run by ID and enforces tenant isolation.
 // Returns an appropriate huma error if the caller does not own the run.
 // Internal callers (scheduler, worker) that operate without a project
@@ -416,6 +452,14 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		// Org-scoped keys get org context set so cross-project queries work.
 		if apiKey.OrgID != "" {
 			ctx = context.WithValue(ctx, ctxOrgIDKey, apiKey.OrgID)
+		}
+
+		// Environment-scoped keys carry their bound environment so resource
+		// handlers can reject requests targeting a different environment
+		// (see requireEnvironmentMatch). A key with no EnvironmentID has
+		// project-wide reach and is unaffected.
+		if apiKey.EnvironmentID != "" {
+			ctx = context.WithValue(ctx, ctxEnvironmentIDKey, apiKey.EnvironmentID)
 		}
 
 		// Actor identity: API key requests are always attributed to the key itself.

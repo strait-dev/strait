@@ -346,6 +346,9 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	return &GetJobOutput{Body: job}, nil
 }
@@ -439,6 +442,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 
@@ -717,6 +723,9 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 
@@ -1257,6 +1266,9 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	alreadyPaused := job.Paused
 
@@ -1306,6 +1318,9 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 

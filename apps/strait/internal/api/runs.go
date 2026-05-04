@@ -38,6 +38,20 @@ func (s *Server) handleGetRun(ctx context.Context, input *GetRunInput) (*GetRunO
 	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("run not found")
 	}
+	if env := environmentIDFromContext(ctx); env != "" {
+		// Run-level access for environment-scoped keys is gated on the
+		// owning job's environment; the run row itself does not carry
+		// EnvironmentID, so we resolve via run.JobID. Mirrors the same
+		// 404-on-mismatch behavior used at the job level to avoid
+		// leaking the existence of resources in other environments.
+		job, jobErr := s.store.GetJob(ctx, run.JobID)
+		if jobErr != nil || job == nil {
+			return nil, huma.Error404NotFound("run not found")
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			return nil, huma.Error404NotFound("run not found")
+		}
+	}
 
 	return &GetRunOutput{Body: run}, nil
 }
