@@ -177,10 +177,51 @@ func (r *ConnectionRegistry) MarkDraining(workerID string) {
 
 // PickWorkerForQueue returns the least-loaded active worker for the given
 // queue that belongs to the given project, or (nil, false) if none found.
+//
+// NOTE: callers that intend to dispatch a task should use
+// ReserveWorkerForQueue instead, which combines pick + decrement under a
+// single critical section. PickWorkerForQueue is retained for read-only
+// inspection (tests, metrics, debugging). The returned pointer aliases a
+// live registry entry — do not mutate it and do not retain it across calls.
 func (r *ConnectionRegistry) PickWorkerForQueue(projectID, queue string) (*ConnectedWorker, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	best := r.pickLocked(projectID, queue)
+	if best == nil {
+		return nil, false
+	}
+	return best, true
+}
+
+// ReserveWorkerForQueue atomically picks the least-loaded active worker for
+// the queue and decrements its available slots in a single critical section.
+// This eliminates the TOCTOU race where N concurrent dispatchers each see
+// the same SlotsAvailable, all "win" the pick, and oversubscribe a worker
+// that only had one slot.
+//
+// Returns the worker's ID and SendCh so callers can route a task message
+// without keeping a pointer to the registry entry. The SendCh is the same
+// channel used by the stream goroutine; the caller must select on
+// ctx.Done() when sending so it gives up if the worker disconnects (the
+// stream's send loop exits on ctx.Done(), so receiving stops). On any
+// failure to actually deliver the work, the caller must call
+// IncrementSlots(workerID) to release the reservation.
+func (r *ConnectionRegistry) ReserveWorkerForQueue(projectID, queue string) (workerID string, sendCh chan<- *workerv1.ServerMessage, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	best := r.pickLocked(projectID, queue)
+	if best == nil {
+		return "", nil, false
+	}
+	best.SlotsAvailable--
+	return best.WorkerID, best.SendCh, true
+}
+
+// pickLocked returns the least-loaded active worker for the queue, or nil if
+// none qualify. Caller must hold r.mu (read or write).
+func (r *ConnectionRegistry) pickLocked(projectID, queue string) *ConnectedWorker {
 	var best *ConnectedWorker
 	for _, w := range r.workers {
 		if w.ProjectID != projectID || w.Status != "active" || w.SlotsAvailable <= 0 {
@@ -193,10 +234,7 @@ func (r *ConnectionRegistry) PickWorkerForQueue(projectID, queue string) (*Conne
 			best = w
 		}
 	}
-	if best == nil {
-		return nil, false
-	}
-	return best, true
+	return best
 }
 
 // IncrementSlots increases a worker's available slots by one (called when a

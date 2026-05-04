@@ -157,7 +157,7 @@ func TestAdversarial_SendChannelDeadlock(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.sendCancel(w, "run-blocked")
+		d.sendCancel(ch, "run-blocked")
 	}()
 
 	select {

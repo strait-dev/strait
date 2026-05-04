@@ -134,30 +134,31 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	run *domain.JobRun,
 	job *domain.Job,
 ) (any, error) {
-	worker, ok := d.registry.PickWorkerForQueue(run.ProjectID, job.Queue)
+	// Atomic pick + slot reservation under the registry write lock. Without
+	// this, N concurrent dispatchers can all see SlotsAvailable=1 on the
+	// same worker, all decrement, and oversubscribe a single-slot worker.
+	workerID, sendCh, ok := d.registry.ReserveWorkerForQueue(run.ProjectID, job.Queue)
 	if !ok {
 		return nil, ErrNoWorkerAvailable
 	}
-
-	// Guard: if the stream closed between pick and now, bail before any DB write.
-	if worker.SendCh == nil {
+	if sendCh == nil {
+		// Defensive: a worker entry without a send channel should never be
+		// pickable, but if one slipped through, release the reservation.
+		d.registry.IncrementSlots(workerID)
 		return nil, ErrNoWorkerAvailable
 	}
-
-	// Decrement available slots (server-side authoritative accounting).
-	d.registry.DecrementSlots(worker.WorkerID)
 
 	// Insert worker_tasks record so the reaper can pick it up if the
 	// worker disconnects without reporting a result.
 	task := &domain.WorkerTask{
 		ID:        uuid.Must(uuid.NewV7()).String(),
-		WorkerID:  worker.WorkerID,
+		WorkerID:  workerID,
 		RunID:     run.ID,
 		ProjectID: run.ProjectID,
 		Status:    domain.WorkerTaskStatusAssigned,
 	}
 	if err := d.queries.CreateWorkerTask(ctx, task); err != nil {
-		d.registry.IncrementSlots(worker.WorkerID)
+		d.registry.IncrementSlots(workerID)
 		return nil, fmt.Errorf("worker dispatch: record task: %w", err)
 	}
 
@@ -177,16 +178,16 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	}
 
 	select {
-	case worker.SendCh <- msg:
+	case sendCh <- msg:
 	case <-ctx.Done():
-		d.registry.IncrementSlots(worker.WorkerID)
+		d.registry.IncrementSlots(workerID)
 		return nil, ctx.Err()
 	}
 
 	// Wait for the TaskResult or context cancellation.
 	select {
 	case result, open := <-resultCh:
-		d.registry.IncrementSlots(worker.WorkerID)
+		d.registry.IncrementSlots(workerID)
 		if !open || result == nil {
 			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
 		}
@@ -207,16 +208,16 @@ func (d *WorkerDispatcher) WorkerDispatch(
 
 	case <-ctx.Done():
 		// Best-effort cancellation: notify the worker.
-		d.sendCancel(worker, run.ID)
-		d.registry.IncrementSlots(worker.WorkerID)
+		d.sendCancel(sendCh, run.ID)
+		d.registry.IncrementSlots(workerID)
 		return nil, ctx.Err()
 	}
 }
 
 // sendCancel sends a CancelTask message to the worker. Non-blocking; errors
 // are silently dropped because the worker may have already disconnected.
-func (d *WorkerDispatcher) sendCancel(worker *ConnectedWorker, runID string) {
-	if worker.SendCh == nil {
+func (d *WorkerDispatcher) sendCancel(sendCh chan<- *workerv1.ServerMessage, runID string) {
+	if sendCh == nil {
 		return
 	}
 	cancelMsg := &workerv1.ServerMessage{
@@ -228,7 +229,7 @@ func (d *WorkerDispatcher) sendCancel(worker *ConnectedWorker, runID string) {
 		},
 	}
 	select {
-	case worker.SendCh <- cancelMsg:
+	case sendCh <- cancelMsg:
 	default:
 	}
 }

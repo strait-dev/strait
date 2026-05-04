@@ -261,9 +261,17 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 	})
 
-	// Wait for first error.
+	// Wait for first error. We deregister synchronously *before* wg.Wait so
+	// no new ReserveWorkerForQueue call can hand out our sendCh. We do NOT
+	// close(sendCh): a concurrent WorkerDispatch that picked us before the
+	// Deregister still holds a reference and would panic on send-to-closed.
+	// Stale, in-flight sends fill the 32-slot buffer and then unblock when
+	// the dispatcher's ctx times out; sendCh is GC'd once the last reference
+	// drops. The deferred Deregister below remains as a safety net for
+	// early-exit paths and is a no-op once this synchronous call removes
+	// the entry.
 	firstErr := <-streamErr
-	close(sendCh)
+	s.registry.Deregister(reg.WorkerId, myToken)
 	wg.Wait()
 	return firstErr
 }

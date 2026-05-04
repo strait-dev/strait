@@ -300,7 +300,7 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 	defer cancel()
 
 	// Test sendCancel does not block when channel is available.
-	d.sendCancel(w, "run-3")
+	d.sendCancel(sendCh, "run-3")
 
 	// Drain the cancel message.
 	select {
@@ -319,6 +319,5 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 // TestWorkerDispatch_SendCancel_NilChannel verifies sendCancel does not panic with nil channel.
 func TestWorkerDispatch_SendCancel_NilChannel(t *testing.T) {
 	d := &WorkerDispatcher{}
-	w := &ConnectedWorker{SendCh: nil}
-	d.sendCancel(w, "run-1") // must not panic
+	d.sendCancel(nil, "run-1") // must not panic
 }
