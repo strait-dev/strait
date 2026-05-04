@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -119,8 +120,8 @@ func realIP(r *http.Request, trustedProxies []net.IPNet) string {
 		return remote
 	}
 	parts := strings.Split(xff, ",")
-	for i := len(parts) - 1; i >= 0; i-- {
-		candidate := strings.TrimSpace(parts[i])
+	for _, raw := range slices.Backward(parts) {
+		candidate := strings.TrimSpace(raw)
 		if candidate == "" {
 			continue
 		}

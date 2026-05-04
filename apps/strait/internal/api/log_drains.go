@@ -41,7 +41,7 @@ func validateAuthConfig(authType string, config map[string]string) error {
 // hasHeaderInjectionChars reports whether s contains any byte that would
 // allow HTTP header splitting (\r, \n) or terminate a C string (\x00).
 func hasHeaderInjectionChars(s string) bool {
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		switch s[i] {
 		case '\r', '\n', 0:
 			return true
@@ -57,7 +57,7 @@ func isValidHeaderName(name string) bool {
 	if name == "" {
 		return false
 	}
-	for i := 0; i < len(name); i++ {
+	for i := range len(name) {
 		c := name[i]
 		// token character set: letters, digits, and !#$%&'*+-.^_`|~
 		switch {

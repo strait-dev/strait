@@ -131,9 +131,9 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 	t.Parallel()
 
-	var redirectTargetHits int32
+	var redirectTargetHits atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&redirectTargetHits, 1)
+		redirectTargetHits.Add(1)
 	}))
 	defer target.Close()
 
@@ -162,7 +162,7 @@ func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 
 	worker.processBatch(context.Background())
 
-	if hits := atomic.LoadInt32(&redirectTargetHits); hits != 0 {
+	if hits := redirectTargetHits.Load(); hits != 0 {
 		t.Fatalf("redirect target was hit %d times; redirects must not be followed", hits)
 	}
 

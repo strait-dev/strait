@@ -217,10 +217,10 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 				return http.ErrUseLastResponse
 			},
 		},
-		logger:            slog.Default(),
-		batchSize:         batchSize,
-		flushInterval:     flushInterval,
-		subDLQ:            newFailureRingBuffer(siemSubDLQCapacity),
+		logger:        slog.Default(),
+		batchSize:     batchSize,
+		flushInterval: flushInterval,
+		subDLQ:        newFailureRingBuffer(siemSubDLQCapacity),
 	}
 	d.retryPolicy = retrypolicy.NewBuilder[*http.Response]().
 		WithMaxRetries(siemMaxRetryAttempts-1).

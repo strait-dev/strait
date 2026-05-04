@@ -77,7 +77,7 @@ var webhookRand = func() *rand.Rand {
 	_, _ = cryptorand.Read(seed[:])
 	s1 := binary.LittleEndian.Uint64(seed[0:8])
 	s2 := binary.LittleEndian.Uint64(seed[8:16])
-	return rand.New(rand.NewPCG(s1, s2))
+	return rand.New(rand.NewPCG(s1, s2)) //nolint:gosec // jitter only; seeded from crypto/rand
 }()
 
 type DeliveryWorker struct {
