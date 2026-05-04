@@ -81,6 +81,22 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		return err
 	}
 
+	// Reject cross-project worker_id collisions. The in-memory registry
+	// rejects same-id-different-api-key on this replica, but a separate
+	// replica or a stale workers row could already own this id under a
+	// different project. Without this check, the DB-side
+	// `WHERE workers.project_id = EXCLUDED.project_id` upsert guard would
+	// silently no-op the row sync, leaving the worker alive in memory but
+	// invisible in the DB to its own project.
+	if existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, reg.WorkerId); err != nil {
+		slog.Warn("grpc registration: worker project lookup failed",
+			"worker_id", reg.WorkerId, "error", err)
+		return status.Errorf(codes.Internal, "worker registration: lookup failed")
+	} else if ok && existingProject != projectID {
+		return status.Errorf(codes.AlreadyExists,
+			"worker_id %q already registered under a different project", reg.WorkerId)
+	}
+
 	// Per-stream typed send channel for outbound ServerMessages.
 	// The dispatcher pushes TaskAssignment / CancelTask messages here; the send
 	// loop below drains the channel and writes each message to the gRPC stream.
