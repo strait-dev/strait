@@ -576,9 +576,9 @@ type AnalyticsStoreMock struct {
 			To time.Time
 		}
 	}
-	lockGetApprovalStats  sync.RWMutex
-	lockGetCostAnalytics  sync.RWMutex
-	lockGetCostByTrigger  sync.RWMutex
+	lockGetApprovalStats           sync.RWMutex
+	lockGetCostAnalytics           sync.RWMutex
+	lockGetCostByTrigger           sync.RWMutex
 	lockGetCostForecast            sync.RWMutex
 	lockGetCostOutliers            sync.RWMutex
 	lockGetCostTrends              sync.RWMutex

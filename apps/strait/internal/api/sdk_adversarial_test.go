@@ -311,6 +311,91 @@ func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
 	}
 }
 
+// Regression for F-AK-15: a token bound to a run that has already
+// reached a terminal state must be rejected with 410 Gone, even if
+// the JWT itself is otherwise valid (correct issuer, exp, signature,
+// subject). Without this guard a stolen token outlives the runtime
+// and can keep writing logs/state/memory after the run is dead.
+func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
+	t.Parallel()
+	for _, status := range []domain.RunStatus{
+		domain.StatusCompleted,
+		domain.StatusFailed,
+		domain.StatusCanceled,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
+		domain.StatusExpired,
+		domain.StatusDeadLetter,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				InternalSecret:      "test-secret-value",
+				MaxBulkTriggerItems: 500,
+				JWTSigningKey:       testSigningKey,
+			}
+			ms := &APIStoreMock{
+				GetRunStatusFunc: func(_ context.Context, _ string) (domain.RunStatus, error) {
+					return status, nil
+				},
+			}
+			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+			t.Cleanup(srv.Close)
+			var called atomic.Bool
+			handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+				called.Store(true)
+			}))
+			tok := signToken(t, testSigningKey, "run-1", time.Now().Add(time.Hour))
+			r := authRequest(t, "run-1")
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != http.StatusGone {
+				t.Fatalf("status %s: expected 410 Gone, got %d (body=%s)", status, w.Code, w.Body.String())
+			}
+			if called.Load() {
+				t.Fatalf("status %s: next handler should not have been called", status)
+			}
+		})
+	}
+}
+
+// Regression for F-AK-15: when the run has been deleted between token
+// issuance and use, runTokenAuth must surface a 404 rather than a
+// generic 500. This keeps the failure mode unambiguous for SDK retry
+// classification.
+func TestRunTokenAuth_RunNotFound_Rejected(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testSigningKey,
+	}
+	ms := &APIStoreMock{
+		GetRunStatusFunc: func(_ context.Context, _ string) (domain.RunStatus, error) {
+			return "", store.ErrRunNotFound
+		},
+	}
+	srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+	t.Cleanup(srv.Close)
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	tok := signToken(t, testSigningKey, "run-1", time.Now().Add(time.Hour))
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called")
+	}
+}
+
 func TestRunTokenAuth_SubjectMismatch(t *testing.T) {
 	t.Parallel()
 	srv := newAuthTestServer(t)

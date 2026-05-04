@@ -136,6 +136,7 @@ type JobStore interface {
 // RunStore handles job runs, events, checkpoints, and related data.
 type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetRunStatus(ctx context.Context, id string) (domain.RunStatus, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)

@@ -129,6 +129,26 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusForbidden, "token does not match run ID")
 			return
 		}
+		// Reject run tokens for runs that have already reached a terminal
+		// state. The token's exp typically outlives the run, so without this
+		// guard a stolen token could keep writing logs/state/memory long
+		// after the runtime is gone. We use the lightweight GetRunStatus
+		// (single indexed lookup) so this stays cheap on hot SDK paths like
+		// heartbeat. Read-only post-mortem fetches must use the regular API
+		// key plane, not the run-token plane.
+		status, statusErr := s.store.GetRunStatus(r.Context(), subject)
+		if statusErr != nil {
+			if errors.Is(statusErr, store.ErrRunNotFound) {
+				respondError(w, r, http.StatusNotFound, "run not found")
+				return
+			}
+			respondError(w, r, http.StatusInternalServerError, "failed to verify run status")
+			return
+		}
+		if status.IsTerminal() {
+			respondError(w, r, http.StatusGone, "run has reached a terminal state")
+			return
+		}
 		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
 		sdkCaps := resolveSDKCapabilities(sdkVersion)
 		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
