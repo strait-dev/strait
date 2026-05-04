@@ -84,12 +84,10 @@
             "group": "Execution",
             "pages": [
               "concepts/execution-modes",
-              "concepts/managed-execution",
               "concepts/batch-operations",
               "concepts/job-chaining",
               "concepts/versioning",
-              "concepts/environments",
-              "concepts/code-deployments"
+              "concepts/environments"
             ]
           },
           {
