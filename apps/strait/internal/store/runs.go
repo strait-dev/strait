@@ -1627,6 +1627,23 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetDebugBundle")
 	defer span.End()
 
+	// Refuse to materialize a debug bundle for runs that the DLQ
+	// age-out / explicit mask flow has hidden. Masked rows carry rich
+	// PII (raw payloads, prompts, tool outputs) that operators have
+	// already chosen to take out of circulation; surfacing them via
+	// the debug endpoint would defeat that decision. UnmaskDLQRun is
+	// the supported path back to visibility.
+	var visibleUntil *time.Time
+	if err := q.db.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, runID).Scan(&visibleUntil); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrRunNotFound
+		}
+		return nil, fmt.Errorf("get debug bundle visibility: %w", err)
+	}
+	if visibleUntil != nil && !visibleUntil.After(time.Now()) {
+		return nil, ErrRunNotFound
+	}
+
 	run, err := q.GetRun(ctx, runID)
 	if err != nil {
 		return nil, err

@@ -374,6 +374,20 @@ func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
 	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
 		return huma.Error404NotFound("run not found")
 	}
+	if env := environmentIDFromContext(ctx); env != "" {
+		// Environment scoping: an env-bound key must not reach a run
+		// whose owning job lives in a different environment, even when
+		// the project matches. The debug bundle in particular embeds
+		// raw events/payloads/outputs, so this gate prevents staging
+		// keys from pulling production telemetry.
+		job, jobErr := s.store.GetJob(ctx, run.JobID)
+		if jobErr != nil || job == nil {
+			return huma.Error404NotFound("run not found")
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			return huma.Error404NotFound("run not found")
+		}
+	}
 	return nil
 }
 
