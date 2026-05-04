@@ -394,6 +394,11 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		// Successful auth — clear the brute-force counter for this IP so
+		// a legitimate user who fat-fingered their key a few times before
+		// finding the right one isn't held up by the lockout window.
+		s.authLimiter.Reset(r.Context(), clientIP)
+
 		touchCtx := context.WithoutCancel(r.Context())
 		s.bgPool.Submit(func() {
 			ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
@@ -447,18 +452,36 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 
 func (s *Server) oidcAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := realIP(r, s.trustedProxies)
+
+		// Check if this IP is locked out from too many failed attempts.
+		// Mirrors apiKeyAuth/internalSecretAuth so all three auth paths
+		// share the same brute-force budget — without this, an attacker
+		// could pivot from API-key brute force to OIDC token brute force
+		// once locked out on one path.
+		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "missing bearer token")
 			return
 		}
 
 		claims, err := s.oidcVerifier.verify(token)
 		if err != nil {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "invalid bearer token")
 			return
 		}
+
+		// Successful OIDC verification — clear the brute-force counter.
+		s.authLimiter.Reset(r.Context(), clientIP)
 
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, ctxActorIDKey, claims.Subject)
@@ -523,6 +546,9 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
+
+		// Successful internal-secret auth — clear the brute-force counter.
+		s.authLimiter.Reset(r.Context(), clientIP)
 
 		ctx := r.Context()
 		// Mark the request as authenticated via internal secret. This flag is

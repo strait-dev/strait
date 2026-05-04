@@ -85,7 +85,18 @@ func (s *Server) routes() chi.Router {
 		if !rateLimitEnabled {
 			return func(next http.Handler) http.Handler { return next }
 		}
-		return httprate.LimitByIP(requests, window)
+		// Use the trusted-proxy-aware key func instead of httprate's
+		// LimitByIP, which keys on r.RemoteAddr only. Behind a load
+		// balancer that's the LB's address, so all traffic shares one
+		// bucket — and any legitimate burst from a single user can drag
+		// the whole tenant pool over the limit. rateLimitKeyByIP walks
+		// X-Forwarded-For across trusted proxies the same way realIP
+		// does for auth-lockout accounting.
+		return httprate.Limit(
+			requests,
+			window,
+			httprate.WithKeyFuncs(s.rateLimitKeyByIP),
+		)
 	}
 
 	// Initialize Huma API for auto-generated OpenAPI documentation.
