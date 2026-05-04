@@ -397,6 +397,9 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		if run.TriggeredBy == "" {
 			run.TriggeredBy = domain.TriggerManual
 		}
+		if run.ExecutionMode == "" {
+			run.ExecutionMode = domain.ExecutionModeHTTP
+		}
 		run.Status = domain.StatusQueued
 		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
 			run.Status = domain.StatusDelayed

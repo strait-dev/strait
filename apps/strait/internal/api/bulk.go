@@ -301,6 +301,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 			CreatedBy:      actorFromContext(ctx),
 			BatchID:        batchID,
 			ExpiresAt:      &expiresAt,
+			ExecutionMode:  job.ExecutionMode,
 		}
 
 		// Merge default run metadata from job. Caller metadata wins on conflicts.
