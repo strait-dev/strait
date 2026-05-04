@@ -344,6 +344,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	claims := jwt.RegisteredClaims{
+		Issuer:    "strait:run-token",
 		Subject:   runID,
 		ExpiresAt: jwt.NewNumericDate(expiresAt),
 		IssuedAt:  jwt.NewNumericDate(now),
