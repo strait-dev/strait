@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"strait/internal/config"
+
+	"github.com/sourcegraph/conc/pool"
 )
 
 func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
@@ -65,5 +69,22 @@ func TestNotificationWorkerEnabled(t *testing.T) {
 		if got := notificationWorkerEnabled(tt.mode); got != tt.want {
 			t.Fatalf("notificationWorkerEnabled(%q) = %v, want %v", tt.mode, got, tt.want)
 		}
+	}
+}
+
+func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
+	t.Helper()
+
+	cfg := &config.Config{
+		Mode:        "api",
+		GRPCEnabled: true,
+	}
+
+	err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil)
+	if err == nil {
+		t.Fatal("expected error when GRPC is enabled without pubsub")
+	}
+	if !strings.Contains(err.Error(), "no pubsub publisher is configured") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
