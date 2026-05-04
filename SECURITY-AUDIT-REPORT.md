@@ -331,7 +331,126 @@ for the lockout check.
 1. `188d73c2` — `fix(webhook): decrypt secret before signing, scope breaker per tenant, block redirect ssrf, jitter backoff`
 2. `7e0a7b8c` — `fix(api,logdrain): close SSRF gaps on SDK wait_event, event source signature, log drains`
 3. `8ac84d6b` — `fix(ratelimit,api): close brute-force + IP-spoof gaps in auth and global limiter`
-4. (this commit) — `fix(api,grpc): bind run tokens to a strait:run-token issuer and require exp`
+4. `74198ac0` — `fix(api,grpc): bind run tokens to a strait:run-token issuer and require exp`
+
+---
+
+## 5c. Round 3 — terminal-run / environment scoping / DLQ-mask review
+
+Targeted follow-up sweep on the residual items from the Round-2 priority list:
+run-token replay against terminal runs, API-key environment scoping, and the
+debug-bundle bypass of DLQ masking. All three were exploitable on `master` at
+the start of the round.
+
+### High (Round 3)
+
+**F-AK-15 — Run tokens remained valid after the run reached a terminal state.**
+`runTokenAuth` only verified the JWT signature, issuer, and that the `sub`
+claim matched the URL's run ID. A token issued during execution stayed
+acceptable for its full lifetime even after the run completed/failed/was
+canceled — letting a compromised SDK process keep emitting events, checkpoints,
+and tool calls into a "closed" run, undetectable in the run timeline because
+the system treats those rows as part of the original execution.
+
+Fix (commit `086eee72`):
+- Added `store.GetRunStatus(ctx, id)` — a status-only lookup with
+  `job_runs_history` fallback; returns `ErrRunNotFound` when the run no longer
+  exists in either table.
+- Wired the lookup into `runTokenAuth` after subject/URL verification: if the
+  status `IsTerminal()`, the request is rejected with `410 Gone`; missing runs
+  return `404`. Status check runs once per SDK request (one indexed PK lookup,
+  no `RETURNING` payload).
+- Added 14 regression tests (`TestRunTokenAuth_TerminalRun_Rejected` table-
+  driven across all 8 terminal `RunStatus` values, plus
+  `TestRunTokenAuth_RunNotFound_Rejected`).
+
+### Medium (Round 3)
+
+**F-AK-8 — API-key `EnvironmentID` was loaded but never enforced.**
+`domain.APIKey.EnvironmentID` and `domain.Job.EnvironmentID` had been wired
+through `store` and the trigger schema, but `apiKeyAuth` dropped the
+environment binding on the floor. An env-prod-scoped key could trigger,
+read, update, pause, resume, or delete jobs in env-staging — the
+environment column was effectively cosmetic.
+
+Fix (commit `2302966b`):
+- Stamped `ctxEnvironmentIDKey` in `apiKeyAuth` whenever the bound key carries
+  an `EnvironmentID`; project-wide keys remain untouched.
+- Added `requireEnvironmentMatch(ctx, resourceEnv)` helper with conservative
+  semantics: project-wide callers pass through, env-bound callers must match
+  exactly (including the env-bound-vs-env-less case, to prevent silent
+  escalation as environments are progressively rolled out).
+- Wired the check into the 6 job-targeted handlers (trigger, get, update,
+  delete, pause, resume) after the existing `requireProjectMatch` call, so
+  mismatches surface as 404 Not Found (no cross-tenant existence leak).
+- 7 regression tests (`middleware_environment_test.go`) covering helper edge
+  cases plus end-to-end handler-level mismatch / match assertions.
+
+**F-DBG-2 — Debug-bundle endpoint ignored `visible_until` masking.**
+The DLQ age-out flow uses `job_runs.visible_until <= NOW()` to take rich-PII
+rows out of circulation without dropping them (audit retention). The
+`/v1/runs/:id/debug` endpoint went straight to `GetRun` and returned the full
+fan-out (events, checkpoints, usage, tool calls, outputs) on masked runs —
+silently undoing the DLQ decision.
+
+Fix (commit `6cadab86`):
+- Added a `visible_until` probe at the top of `GetDebugBundle`. Missing rows
+  return `ErrRunNotFound`; rows with a past `visible_until` also return
+  `ErrRunNotFound` (treat masked as if it never existed, matching DLQ
+  semantics).
+- Extended `requireRunAccess` to additionally fetch the owning job via
+  `run.JobID` and apply `requireEnvironmentMatch` against `Job.EnvironmentID`,
+  so an env-prod key cannot read runs of an env-staging job through the
+  read/wait/SSE plane.
+- Mock dispatcher in `runs_debug_test.go` now branches on
+  `strings.Contains(sql, "visible_until")` to serve the new probe; added
+  `TestGetDebugBundle_MaskedRun_ReturnsNotFound` as a regression for the mask
+  bypass.
+
+### Round 3 verified-not-vulnerable
+
+Spot-checked while in the area; no fix needed:
+
+- **iss/aud validation on run tokens** — already enforced via
+  `jwt.WithIssuer("strait:run-token")` + `jwt.WithExpirationRequired()` from
+  Round 2 (commit `74198ac0`); a run-token has no audience because the
+  subject-vs-URL check already binds it to a single run.
+- **Atomic INCR+EXPIRE in `auth_limiter.go`** — already uses `TxPipelined`
+  (MULTI/EXEC) so the `Incr` and `PExpire` either both apply or both roll
+  back, eliminating the "permanently locked-out IP" race.
+- **Reset on successful auth** — `apiKeyAuth`, `oidcAuth`, and
+  `internalSecretAuth` all call `s.authLimiter.Reset(...)` after a successful
+  verification, so a legitimate user who fat-fingered their key isn't held in
+  the lockout window.
+
+### Round 3 commit list
+
+1. `086eee72` — `fix(api,store): reject run tokens bound to terminal runs`
+2. `2302966b` — `fix(api): enforce environment scoping for environment-bound api keys`
+3. `6cadab86` — `fix(store,api): hide masked runs from debug bundle and gate run access by environment`
+
+### Round 3 deferred
+
+**F-AK-3 — HMAC pepper for the API-key hash.** The current scheme is
+`SHA256(rawKey)` only; an attacker who exfiltrates the `api_keys` table can
+brute-force the (high-entropy but not infinite) `strait_…` key space offline
+without ever touching the running system. The mitigation — peppered HMAC —
+requires:
+1. A new `key_hash_version` column on `api_keys`.
+2. Dual-hash lookup (try v2 with pepper, fall back to v1 SHA256) so existing
+   keys keep working through their grace window.
+3. Coordinated changes to the three direct hash callers
+   (`internal/api/middleware.go:420`, `internal/scheduler/reaper.go:1278`,
+   `internal/api/grpc/auth.go:72-74`) plus all key-creation paths.
+4. A pepper config knob backed by a separate secret (so a single DB exfil
+   isn't enough to recover keys).
+
+This crosses the threshold from "fix in-flight" to "scoped change requiring a
+migration plan and a separate review window," so it's deferred to a dedicated
+PR. The current scheme is still gated by AES-GCM-encrypted DB connections,
+restricted DB ACLs, and the brute-force lockout in `auth_limiter.go`; the
+peppered HMAC is defense-in-depth, not a closing of an open exploit on the
+running system.
 
 ---
 
@@ -342,6 +461,7 @@ for the lockout check.
 3. **TRUSTED_PROXIES runbook entry** — add a self-host deployment note explaining the empty-default fail-safe and the LB CIDR they must configure.
 4. **Integration + lint suites** — run `go test -tags integration ./...` and `golangci-lint run --timeout=10m ./...` on PR; both were skipped in this pass per the time budget.
 5. **Per-route quota for `/v1/projects/:id/activity/stream`** — the SSE conn limit is project-scoped; consider a tighter cap on this endpoint specifically since it's the highest-fanout subscriber.
+6. **F-AK-3 follow-up PR** — peppered HMAC for the API-key hash, with the v1/v2 dual-hash migration plan described in §5c.
 
 ---
 
