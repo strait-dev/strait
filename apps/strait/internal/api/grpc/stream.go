@@ -340,17 +340,37 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 		return nil
 	}
 
+	// Ownership guard: confirm the worker_tasks row exists and belongs to this
+	// worker. This mirrors handleLogLine so a worker cannot mark runs it was
+	// never assigned. The row also gives us the task ID needed to drive the
+	// worker_tasks transition below.
+	taskRow, taskErr := s.queries.GetWorkerTaskByRunID(ctx, workerID, tr.RunId)
+	if taskErr != nil {
+		slog.Warn("grpc task result fallback: ownership lookup failed",
+			"worker_id", workerID, "run_id", tr.RunId, "error", taskErr)
+		return nil
+	}
+	if taskRow == nil {
+		slog.Warn("grpc task result fallback: rejecting — run not assigned to this worker",
+			"worker_id", workerID, "run_id", tr.RunId)
+		return nil
+	}
+
 	// Fall back: update the run status directly and restore the slot.
 	s.registry.IncrementSlots(workerID)
 
 	var newStatus domain.RunStatus
+	var newTaskStatus domain.WorkerTaskStatus
 	switch tr.Status {
 	case "success":
 		newStatus = domain.StatusCompleted
+		newTaskStatus = domain.WorkerTaskStatusCompleted
 	case "failed":
 		newStatus = domain.StatusFailed
+		newTaskStatus = domain.WorkerTaskStatusFailed
 	default:
 		newStatus = domain.StatusFailed
+		newTaskStatus = domain.WorkerTaskStatusFailed
 	}
 
 	// Transition the run to its terminal state.
@@ -363,6 +383,20 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 		slog.Warn("grpc task result: update run status failed",
 			"run_id", tr.RunId,
 			"status", newStatus,
+			"error", err,
+		)
+	}
+
+	// Transition the worker_tasks row to its terminal state. The normal dispatch
+	// path (dispatch.go) does this when the result arrives in time; the fallback
+	// must do it too so a late TaskResult doesn't leave the row stuck in
+	// "assigned" forever. UpdateWorkerTaskStatus is idempotent — safe to call
+	// even if a concurrent normal-path update already wrote the same value.
+	if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, newTaskStatus); err != nil {
+		slog.Warn("grpc task result fallback: update worker_task status failed",
+			"task_id", taskRow.ID,
+			"run_id", tr.RunId,
+			"status", newTaskStatus,
 			"error", err,
 		)
 	}
