@@ -781,8 +781,7 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 // If no worker is currently available for the run's queue, the run is left
 // in its current state so it can be re-claimed on the next poll tick.
 //
-// On a successful result from the worker, cost is recorded via RecordWorkerRunCost
-// (resolving the TODO(phase-7.2) left in Phase 4.3).
+// On a successful result, cost is recorded via RecordWorkerRunCost.
 func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	if e.workerDispatcher == nil {
 		e.logger.Warn("worker dispatcher not configured; leaving run queued",
@@ -851,7 +850,6 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	}
 
 	// Successful result — record cost and complete the run.
-	// Cost recording resolves the TODO(phase-7.2) from billing/run_cost_recorder.go.
 	if e.runCostRecorder != nil && e.billingEnforcer != nil {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr == nil && orgID != "" {

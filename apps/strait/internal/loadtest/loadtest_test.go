@@ -243,7 +243,7 @@ func TestProductionSimulation(t *testing.T) {
 		},
 	)
 
-	// Inject error scenarios during simulation (50/min as per STR-197)
+	// Inject error scenarios during simulation at 50/min.
 	errorCtx, errorCancel := context.WithCancel(context.Background())
 	defer errorCancel()
 	errorInjector := loadtest.NewErrorInjector(h, loadtestProjectID, 50)

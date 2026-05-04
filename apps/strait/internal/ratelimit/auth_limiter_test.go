@@ -254,7 +254,7 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 	}
 }
 
-// Regression for F-RL-4: every RecordFailure must leave a TTL on the
+// Regression: every RecordFailure must leave a TTL on the
 // counter key. The previous implementation used a non-transactional
 // Pipeline so a partial failure between INCR and PExpire could leave
 // a TTL-less key, which would never expire and effectively lock out

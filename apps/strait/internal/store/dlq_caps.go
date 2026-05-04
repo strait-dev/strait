@@ -83,8 +83,8 @@ func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, l
 
 // OldestUnmaskedDLQAge returns the age in seconds of the oldest visible
 // dead_letter row (finished_at). Returns 0 if no visible DLQ rows exist.
-// Used by the DLQ age gauge so Grafana can alert when age-out falls
-// behind.
+// The DLQ age gauge feeds this into Grafana so alerts fire when age-out
+// falls behind.
 func (q *Queries) OldestUnmaskedDLQAge(ctx context.Context) (float64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.OldestUnmaskedDLQAge")
 	defer span.End()

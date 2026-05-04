@@ -1480,9 +1480,9 @@ func applySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgP
 		result.MaxDispatchPriority += addOns.PrioritySlotPack * prioritySlotPackIncrement
 	}
 
-	// Log drain volume: extends base log drain capacity.
-	// TODO(phase-4.5): wire log_drain_volume_gb into the log-drain volume meter once
-	// per-org volume tracking is implemented in internal/logdrain.
+	// Log drain volume: extends base log drain capacity. Not yet wired into
+	// the log-drain volume meter — pending per-org volume tracking in
+	// internal/logdrain.
 	_ = addOns.LogDrainVolumeGB
 
 	// Additional worker connections: extends WorkerConnections limit.

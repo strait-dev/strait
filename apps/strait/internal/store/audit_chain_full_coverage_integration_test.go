@@ -271,7 +271,7 @@ func TestAuditChain_Concurrent_ProjectsAreIndependent(t *testing.T) {
 // events appear tampered — because signatures were computed with the
 // old key. SOC 2 key rotation requires either re-signing the chain or
 // anchoring the key change in a forensic marker. Neither is in scope
-// for STR-373; this test exists so the limitation is visible.
+// today; this test exists so the limitation is visible.
 func TestAuditChain_KeyRotation_DetectsOldEventsAsBroken(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

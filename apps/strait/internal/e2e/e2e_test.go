@@ -1208,9 +1208,9 @@ func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
 }
 
 func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
-	// After STR-329, terminal runs within 24h are returned as idempotency
-	// hits to prevent duplicate execution. The same idempotency key should
-	// return the original completed run (not create a new one).
+	// Terminal runs within 24h are returned as idempotency hits to prevent
+	// duplicate execution. The same idempotency key should return the
+	// original completed run (not create a new one).
 	mustClean(t)
 
 	projectID := "proj-idem-reuse-" + newID()

@@ -246,7 +246,7 @@ func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
 	}
 }
 
-// Regression for F-AK-13: a token without the "strait:run-token"
+// Regression: a token without the "strait:run-token"
 // issuer must be rejected. Without this guard a token issued for a
 // different audience (SSE token, gRPC inter-service token) signed
 // with the same JWT key could be replayed against the SDK plane.
@@ -279,7 +279,7 @@ func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
 	}
 }
 
-// Regression for F-AK-13: a token without an `exp` claim must be
+// Regression: a token without an `exp` claim must be
 // rejected (jwt.WithExpirationRequired). Otherwise a forged or
 // misissued token would never time out.
 func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
@@ -311,7 +311,7 @@ func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
 	}
 }
 
-// Regression for F-AK-15: a token bound to a run that has already
+// Regression: a token bound to a run that has already
 // reached a terminal state must be rejected with 410 Gone, even if
 // the JWT itself is otherwise valid (correct issuer, exp, signature,
 // subject). Without this guard a stolen token outlives the runtime
@@ -361,7 +361,7 @@ func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
 	}
 }
 
-// Regression for F-AK-15: when the run has been deleted between token
+// Regression: when the run has been deleted between token
 // issuance and use, runTokenAuth must surface a 404 rather than a
 // generic 500. This keeps the failure mode unambiguous for SDK retry
 // classification.

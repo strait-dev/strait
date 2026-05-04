@@ -357,7 +357,8 @@ var allAuditActions = map[string]struct{}{
 }
 
 // IsKnownAuditAction reports whether action is a registered audit action.
-// Used by the emit path to reject typos at runtime.
+// The emit path calls this to reject typos at runtime before they reach
+// the database.
 func IsKnownAuditAction(action string) bool {
 	_, ok := allAuditActions[action]
 	return ok

@@ -3825,7 +3825,7 @@ func (f fakeSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	return ciphertext[len(f.prefix):], nil
 }
 
-// Regression for F-WH-1: when the store returns an encrypted secret, the
+// Regression: when the store returns an encrypted secret, the
 // outbound HMAC signature MUST be computed over the decrypted plaintext.
 // Before the fix, the worker hashed the ciphertext directly, so subscribers
 // could never validate signatures against their shared secret.
@@ -3875,11 +3875,11 @@ func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testi
 	}
 	ciphertextSig := "sha256=" + ComputeHMACSHA256(storedCiphertext, []byte(`{"event":"run.completed"}`))
 	if receivedSigHeader == ciphertextSig {
-		t.Fatal("signature was computed over ciphertext (regression of F-WH-1)")
+		t.Fatal("signature was computed over ciphertext regression")
 	}
 }
 
-// Regression for F-WH-3: tenants with the same external webhook URL must
+// Regression: tenants with the same external webhook URL must
 // not share a circuit-breaker key. Without per-tenant scoping, one noisy
 // tenant could trip the breaker for everyone pointing at the same shared
 // receiver (cross-tenant DoS).

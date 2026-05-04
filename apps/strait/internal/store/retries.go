@@ -52,7 +52,6 @@ func (q *Queries) ClearRetry(ctx context.Context, runID string) error {
 }
 
 // ReadyRetries returns up to limit run_ids whose next_retry_at has passed.
-// Used by the DelayedPoller to wake runs that are ready to claim.
 func (q *Queries) ReadyRetries(ctx context.Context, limit int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReadyRetries")
 	defer span.End()

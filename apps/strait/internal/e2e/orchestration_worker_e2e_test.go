@@ -4,9 +4,8 @@
 //
 // This file documents the planned orchestration-only e2e test suite covering the
 // full gRPC worker lifecycle. The actual implementation requires additional test
-// infrastructure (in-process gRPC worker, synthetic job executor) that is deferred.
-//
-// TODO(phase-13.2): implement when test infra supports in-process gRPC workers.
+// infrastructure (in-process gRPC worker, synthetic job executor) that is deferred
+// until the test harness can run a worker in-process.
 package e2e_test
 
 import (
@@ -60,7 +59,7 @@ import (
 //     state; assert that requests with a bad or missing signature are rejected
 //     with 401.
 func TestOrchestrationWorkerE2E(t *testing.T) {
-	t.Skip("phase 13.2 e2e skeleton - implement when test infra available")
+	t.Skip("e2e skeleton - implement when in-process gRPC worker harness lands")
 
 	// Pseudocode outline — will be replaced with real implementation.
 	//

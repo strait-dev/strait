@@ -1372,7 +1372,6 @@ type TimelineResponse struct {
 }
 
 // EventTrigger represents a durable wait for an external event signal.
-// Used by wait_for_event workflow steps and SDK wait-for-event on job runs.
 type EventTrigger struct {
 	ID                string          `json:"id"`
 	EventKey          string          `json:"event_key"`

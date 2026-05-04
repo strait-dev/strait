@@ -12,8 +12,7 @@ import (
 
 // TestRespondError_AlwaysAPIError verifies respondError emits the canonical
 // {error: APIError, request_id?} envelope for every supported input shape.
-// The "error" field is never a bare string -- that was the legacy bug
-// fixed in STR-409.
+// The "error" field is never a bare string.
 func TestRespondError_AlwaysAPIError(t *testing.T) {
 	t.Parallel()
 

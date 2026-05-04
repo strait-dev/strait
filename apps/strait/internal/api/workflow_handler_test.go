@@ -484,10 +484,10 @@ func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T
 	if resp["previous_version_id"] != "v-old" {
 		t.Fatalf("previous_version_id = %v, want v-old", resp["previous_version_id"])
 	}
-	// Post-STR-373: workflow updates always emit a generic workflow.updated
-	// audit event, even without a breaking_change flag. The breaking-change
-	// path still emits workflow.updated_breaking; this asserts the default
-	// path emits the generic action.
+	// Workflow updates always emit a generic workflow.updated audit event,
+	// even without a breaking_change flag. The breaking-change path still
+	// emits workflow.updated_breaking; this asserts the default path emits
+	// the generic action.
 	if !auditCalled {
 		t.Fatal("expected workflow.updated audit event even without breaking_change")
 	}
@@ -583,9 +583,9 @@ func TestHandleUpdateWorkflow_BreakingChangeFalseEmitsGenericAudit(t *testing.T)
 	if int(resp["active_runs_on_previous_version"].(float64)) != 5 {
 		t.Fatalf("active_runs_on_previous_version = %v, want 5", resp["active_runs_on_previous_version"])
 	}
-	// Post-STR-373: breaking_change=false still emits workflow.updated (the
-	// generic action). The breaking variant is only emitted when
-	// breaking_change=true AND there are active runs on the previous version.
+	// breaking_change=false still emits workflow.updated (the generic
+	// action). The breaking variant is only emitted when breaking_change=true
+	// AND there are active runs on the previous version.
 	if capturedAction != "workflow.updated" {
 		t.Fatalf("audit action = %q, want workflow.updated", capturedAction)
 	}
@@ -631,9 +631,9 @@ func TestHandleUpdateWorkflow_NoActiveRunsEmitsGenericAudit(t *testing.T) {
 	if _, ok := resp["active_runs_on_previous_version"]; ok {
 		t.Fatal("expected no active_runs_on_previous_version when count is 0")
 	}
-	// Post-STR-373: even with breaking_change=true, when there are zero active
-	// runs on the previous version the handler falls back to the generic
-	// workflow.updated action rather than workflow.updated_breaking.
+	// Even with breaking_change=true, when there are zero active runs on the
+	// previous version the handler falls back to the generic workflow.updated
+	// action rather than workflow.updated_breaking.
 	if capturedAction != "workflow.updated" {
 		t.Fatalf("audit action = %q, want workflow.updated", capturedAction)
 	}
