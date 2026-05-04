@@ -19,12 +19,6 @@ import (
 // entry in this map needs a reason — the default stance is "a defined
 // audit action const must be emitted by at least one call site".
 var auditActionReferenceAllowlist = map[string]string{
-	// Code deployment constants are retained for historical audit log backward
-	// compatibility after managed-compute (code deployments) was removed.
-	"AuditActionCodeDeploymentCreated":    "retained for historical audit log records after managed-compute removal",
-	"AuditActionCodeDeploymentConfirmed":  "retained for historical audit log records after managed-compute removal",
-	"AuditActionCodeDeploymentRolledBack": "retained for historical audit log records after managed-compute removal",
-
 	// Worker connected/disconnected are emitted from internal/api/grpc/stream.go
 	// which lives in a subdirectory not scanned by this test.
 	"AuditActionWorkerConnected":    "emitted from internal/api/grpc/stream.go (grpc subdirectory not scanned)",

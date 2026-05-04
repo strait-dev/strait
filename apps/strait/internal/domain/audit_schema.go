@@ -552,19 +552,7 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Event triggers purged.",
 	},
 
-	// Code + deployment versions.
-	AuditActionCodeDeploymentCreated: {
-		Required:    []string{"job_id", "runtime"},
-		Description: "Code-first deployment created.",
-	},
-	AuditActionCodeDeploymentConfirmed: {
-		Required:    []string{"job_id", "runtime"},
-		Description: "Code-first deployment confirmed and queued for build.",
-	},
-	AuditActionCodeDeploymentRolledBack: {
-		Required:    []string{"job_id"},
-		Description: "Code-first deployment rolled back.",
-	},
+	// Deployment versions.
 	AuditActionDeploymentVersionCreated: {
 		Required:    []string{"environment"},
 		Description: "Artifact deployment version created.",

@@ -178,9 +178,6 @@ const (
 	AuditActionEventTriggerPurged       = "event_trigger.purged"
 
 	// Deployments.
-	AuditActionCodeDeploymentCreated       = "code_deployment.created"
-	AuditActionCodeDeploymentConfirmed     = "code_deployment.confirmed"
-	AuditActionCodeDeploymentRolledBack    = "code_deployment.rolled_back"
 	AuditActionDeploymentVersionCreated    = "deployment_version.created"
 	AuditActionDeploymentVersionFinalized  = "deployment_version.finalized"
 	AuditActionDeploymentVersionPromoted   = "deployment_version.promoted"
@@ -333,9 +330,6 @@ var allAuditActions = map[string]struct{}{
 	AuditActionEventSentByPrefix:               {},
 	AuditActionEventTriggerCancelled:           {},
 	AuditActionEventTriggerPurged:              {},
-	AuditActionCodeDeploymentCreated:           {},
-	AuditActionCodeDeploymentConfirmed:         {},
-	AuditActionCodeDeploymentRolledBack:        {},
 	AuditActionDeploymentVersionCreated:        {},
 	AuditActionDeploymentVersionFinalized:      {},
 	AuditActionDeploymentVersionPromoted:       {},
