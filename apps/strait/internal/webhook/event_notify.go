@@ -72,6 +72,10 @@ const (
 // math/rand/v2's NewPCG, which would make jitter predictable across pods.
 // We don't need cryptographic randomness here — just enough to break up
 // synchronized retry storms — so a non-blocking PCG is appropriate.
+//
+// math/rand/v2's *rand.Rand over PCG is not safe for concurrent use, so the
+// delivery worker dispatches retries from many goroutines in parallel; guard
+// access with webhookRandMu.
 var webhookRand = func() *rand.Rand {
 	var seed [16]byte
 	_, _ = cryptorand.Read(seed[:])
@@ -79,6 +83,8 @@ var webhookRand = func() *rand.Rand {
 	s2 := binary.LittleEndian.Uint64(seed[8:16])
 	return rand.New(rand.NewPCG(s1, s2)) //nolint:gosec // jitter only; seeded from crypto/rand
 }()
+
+var webhookRandMu sync.Mutex
 
 type DeliveryWorker struct {
 	client *http.Client
@@ -1165,8 +1171,11 @@ func jitterBackoff(d time.Duration) time.Duration {
 	if d <= 0 {
 		return d
 	}
+	webhookRandMu.Lock()
 	jitter := webhookRand.Int64N(int64(d) / 5) // up to 20%
-	if webhookRand.Int64N(2) == 0 {
+	sign := webhookRand.Int64N(2)
+	webhookRandMu.Unlock()
+	if sign == 0 {
 		return d - time.Duration(jitter)
 	}
 	return d + time.Duration(jitter)
