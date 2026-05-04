@@ -158,10 +158,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	myToken := cw.regToken
 	defer func() {
 		s.registry.Deregister(reg.WorkerId, myToken)
-		s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, reg.WorkerId, map[string]any{
-			"worker_id": reg.WorkerId,
-		})
-		slog.Info("grpc worker disconnected", "worker_id", reg.WorkerId, "project_id", projectID)
+		s.finalizeDisconnect(projectID, reg.WorkerId)
 	}()
 
 	// Subscribe to the cross-replica force-disconnect channel for this worker.
@@ -741,6 +738,28 @@ func (s *workerService) dbUpsertWorker(ctx context.Context, cw *ConnectedWorker)
 			"error", err,
 		)
 	}
+}
+
+// finalizeDisconnect runs the post-stream cleanup writes: mark the worker
+// offline in the workers table, then emit the disconnect audit event.
+//
+// The stream's ctx is cancelled by the time the deferred cleanup fires (that
+// cancellation is precisely how we exit), so any DB call using it would fail
+// with context canceled. We allocate a fresh background context with a short
+// timeout so the offline transition and audit row still land — without this,
+// the workers row stays in `active` forever after a clean disconnect and the
+// audit log is missing the disconnect event entirely.
+func (s *workerService) finalizeDisconnect(projectID, workerID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.queries.SetWorkerStatus(ctx, workerID, domain.WorkerStatusOffline); err != nil {
+		slog.Warn("grpc worker disconnect: failed to mark offline",
+			"worker_id", workerID, "error", err)
+	}
+	s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, workerID, map[string]any{
+		"worker_id": workerID,
+	})
+	slog.Info("grpc worker disconnected", "worker_id", workerID, "project_id", projectID)
 }
 
 // emitWorkerAudit writes an audit event for a worker lifecycle transition.
