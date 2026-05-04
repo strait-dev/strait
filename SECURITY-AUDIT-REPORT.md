@@ -179,6 +179,162 @@ Each commit message documents the threat model, the fix, and the regression cove
 
 ---
 
+## 5b. Round 2 — rate limiter / webhook / API key bypass review
+
+A second focused pass per user request — "I want to run a full rate
+limiter, webhook, api key, everything to make sure we don't got any
+bypass." Findings and fixes:
+
+### Critical (Round 2)
+
+#### F-WH-1 — Webhook delivery worker hashed encrypted secret
+**Impact:** When `STRAIT_ENCRYPTION_KEY` is set the API persists
+subscription signing secrets as AES-GCM ciphertext. The delivery
+worker passed the ciphertext bytes directly into the HMAC-SHA256
+function, so the outbound signature could never validate against the
+shared plaintext secret on the subscriber side. This silently broke
+every signed-webhook integration whenever encryption was enabled.
+**Fix:** Added a `SecretDecryptor` interface plumbed from `main.go`
+via `WithSecretDecryptor`. The worker decrypts current and previous
+secrets right before signing; on decrypt failure it falls back to the
+raw value (with a warn log) so misconfigured rotations don't black-
+hole deliveries. (`apps/strait/internal/webhook/event_notify.go`,
+`apps/strait/cmd/strait/main.go`)
+**Regression:** `TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning`
+**Commit:** `188d73c2`
+
+### High (Round 2)
+
+#### F-WH-3 — Cross-tenant circuit-breaker DoS
+**Impact:** The webhook circuit breaker keyed solely on URL hash, so
+two orgs sharing the same external receiver shared one breaker. A
+single noisy tenant could trip delivery for everyone pointing at that
+receiver. `groupByURL` had the same property — cross-tenant
+deliveries were colocated in one batch.
+**Fix:** Composed a `(orgID|url)` breaker key at every call site
+without changing the breaker interface; `groupByURL` now keys on the
+same composite. (`apps/strait/internal/webhook/event_notify.go`)
+**Regression:** `TestBreakerKey_PerTenantScoping`
+**Commit:** `188d73c2`
+
+#### F-WH-6 — Webhook delivery followed redirects (SSRF)
+**Impact:** The default Go HTTP client follows redirects, so a
+webhook receiver could 301 the worker to `169.254.169.254`, internal
+admin endpoints, or any non-allowlisted target.
+**Fix:** Set `CheckRedirect: noFollowRedirects` on both the default
+and custom-transport client. Any 3xx response is now classified as a
+permanent delivery failure (single + batch path).
+**Regression:** `TestWebhookResilience_RedirectToLocalhost` (asserts
+the redirect target is never hit, status=dead, last_status_code=301).
+`TestAttemptBatchDelivery_3xxResponse` inverted to assert dead.
+**Commit:** `188d73c2`
+
+#### F-WH-2 — SDK wait_event NotifyURL bypassed SSRF validator
+**Impact:** `POST /sdk/v1/runs/:id/wait-for-event` accepted a
+`notify_url` that the webhook delivery worker would later POST to
+without going through `validateURL`, so a compromised SDK caller
+could coerce the worker into hitting the cloud metadata endpoint or
+internal services.
+**Fix:** Run `req.NotifyURL` through the same validator the public
+webhook subscription create/update path uses.
+(`apps/strait/internal/api/sdk_wait_event.go`)
+**Commit:** `7e0a7b8c` (this PR — see commit list).
+
+#### F-RL-3 — OIDC auth missing brute-force lockout
+**Impact:** `apiKeyAuth` and `internalSecretAuth` ran every request
+through the IP-keyed auth limiter; `oidcAuth` did not. An attacker
+who exhausted the API-key budget on one IP could pivot to OIDC token
+brute force from the same IP and chew through the budget again.
+**Fix:** `oidcAuth` now mirrors the other two paths
+(`IsBlocked` → 429 + `Retry-After`; `RecordFailure` on every
+rejection). All three paths additionally call `Reset` after
+successful auth so a user who fat-fingered the key isn't held up
+by stale failures. (`apps/strait/internal/api/middleware.go`)
+**Commit:** `8ac84d6b`
+
+#### F-AK-13 — Run tokens accepted any HS256 JWT signed with the shared key
+**Impact:** `runTokenAuth` validated the signing method and key but
+not the issuer, audience, or that an `exp` claim was present. The
+JWT signing key is also used for SSE tokens and gRPC inter-service
+tokens, so a token issued for a different audience could be replayed
+against the SDK plane. golang-jwt/jwt/v5 also silently treats a
+missing `exp` as never-expiring.
+**Fix:** Token generation in `dispatcher.buildAttempt` now sets
+`Issuer = "strait:run-token"`. `runTokenAuth` now passes
+`jwt.WithIssuer("strait:run-token")` and `jwt.WithExpirationRequired()`
+to `ParseWithClaims`. (`apps/strait/internal/api/sdk.go`,
+`apps/strait/internal/api/grpc/dispatch.go`)
+**Regression:** `TestRunTokenAuth_WrongIssuer_Rejected`,
+`TestRunTokenAuth_NoExpiration_Rejected`
+**Commit:** (this round)
+
+### Medium (Round 2)
+
+#### F-WH-5 — Synchronized retry storms (no jitter)
+**Impact:** Exponential / linear retry policies produced identical
+retry timestamps across every failed delivery in a poll cycle, so a
+recovering downstream got DDoSed by a synchronized wave.
+**Fix:** `backoffForRetryPolicy` now applies +/- 20% decorrelated
+jitter via a process-local PCG seeded from `crypto/rand` (so jitter
+is unpredictable across pods).
+**Commit:** `188d73c2`
+
+#### F-WH-7 — `signature_algorithm` accepted any string
+**Impact:** `event_sources` POST/PATCH let callers store arbitrary
+values in `signature_algorithm`. `ValidateSignature` rejected unknown
+algorithms at use-time, but accepting arbitrary values polluted the
+schema and made audit logs harder to reason about.
+**Fix:** Added `validate:"omitempty,oneof=hmac-sha256 stripe-v1 github-sha256"`
+to both create and update request structs.
+**Commit:** `7e0a7b8c`
+
+#### F-BD-13 — Log-drain HTTP clients followed redirects (SSRF pivot)
+**Impact:** Both the run-event log drain and the audit SIEM drain
+used `http.Client` without `CheckRedirect`. A compromised or
+mis-configured drain could 3xx-pivot to an internal target.
+**Fix:** Both clients now refuse redirects via
+`http.ErrUseLastResponse`. The endpoint URL is still validated with
+`httputil.ValidateExternalURL`. (`apps/strait/internal/logdrain/service.go`,
+`apps/strait/internal/logdrain/audit_drain.go`)
+**Commit:** `7e0a7b8c`
+
+#### F-RL-4 — Auth-limiter INCR/EXPIRE not atomic
+**Impact:** `RecordFailure` used a non-transactional Pipeline so the
+INCR and PExpire ran independently. If Redis hiccupped between them
+the counter incremented but stayed without a TTL — the IP would be
+locked out forever.
+**Fix:** Switched to `TxPipelined` (MULTI/EXEC). Both commands now
+either succeed or fail together. (`apps/strait/internal/ratelimit/auth_limiter.go`)
+**Regression:** `TestAuthLimiter_RecordFailure_AlwaysSetsTTL`
+**Commit:** `8ac84d6b`
+
+#### F-RL-1 — `httprate.LimitByIP` keyed on RemoteAddr only
+**Impact:** Behind a load balancer `LimitByIP` keys all traffic to
+the LB's address — every tenant's requests share one bucket and any
+burst from a single user drags the whole pool over the limit.
+**Fix:** Replaced with `httprate.Limit(...WithKeyFuncs(rateLimitKeyByIP))`,
+which walks X-Forwarded-For across `TRUSTED_PROXIES` the same way
+the auth-lockout path does. (`apps/strait/internal/api/routes.go`)
+**Commit:** `8ac84d6b`
+
+#### F-RL-6 — Lockout counter never reset on success
+**Impact:** A user who fat-fingered their key 9 times could still hit
+the lockout window for legitimate subsequent calls because nothing
+called `AuthLimiter.Reset` on a successful auth.
+**Fix:** All three auth paths now call `s.authLimiter.Reset(...)`
+after a successful auth, with the same `clientIP` derivation used
+for the lockout check.
+**Commit:** `8ac84d6b`
+
+### Round 2 commit list
+
+1. `188d73c2` — `fix(webhook): decrypt secret before signing, scope breaker per tenant, block redirect ssrf, jitter backoff`
+2. `7e0a7b8c` — `fix(api,logdrain): close SSRF gaps on SDK wait_event, event source signature, log drains`
+3. `8ac84d6b` — `fix(ratelimit,api): close brute-force + IP-spoof gaps in auth and global limiter`
+4. (this commit) — `fix(api,grpc): bind run tokens to a strait:run-token issuer and require exp`
+
+---
+
 ## 6. Recommended follow-ups (not security-critical)
 
 1. **F-1505** — move org daily/monthly run-limit INCR-and-check from dispatch to trigger. Touches every run-creation path; do under a feature flag with billing-team review.
