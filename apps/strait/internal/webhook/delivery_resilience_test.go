@@ -124,14 +124,21 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 }
 
 // TestWebhookResilience_RedirectToLocalhost verifies that a 301 redirect
-// to localhost is handled. The default Go HTTP client follows redirects,
-// so this tests that the redirect target is reachable or fails gracefully.
+// from the receiver is NOT followed. Following redirects would let a
+// receiver coerce the worker into hitting attacker-chosen URLs (SSRF
+// via redirect to 169.254.169.254, internal services, etc.), so the
+// worker treats any 3xx as a permanent delivery failure.
 func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 	t.Parallel()
 
+	var redirectTargetHits int32
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&redirectTargetHits, 1)
+	}))
+	defer target.Close()
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Redirect to a port that should refuse connections.
-		http.Redirect(w, r, "http://127.0.0.1:1/should-not-reach", http.StatusMovedPermanently)
+		http.Redirect(w, r, target.URL+"/should-not-reach", http.StatusMovedPermanently)
 	}))
 	defer ts.Close()
 
@@ -155,14 +162,20 @@ func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 
 	worker.processBatch(context.Background())
 
+	if hits := atomic.LoadInt32(&redirectTargetHits); hits != 0 {
+		t.Fatalf("redirect target was hit %d times; redirects must not be followed", hits)
+	}
+
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	// The redirect to 127.0.0.1:1 should fail with a connection refused error.
 	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead for redirect to unreachable localhost, got %s", got.Status)
+		t.Fatalf("expected status=dead for unfollowed 3xx, got %s", got.Status)
+	}
+	if got.LastStatusCode == nil || *got.LastStatusCode != http.StatusMovedPermanently {
+		t.Fatalf("expected last_status_code=301, got %v", got.LastStatusCode)
 	}
 	if got.LastError == "" {
-		t.Fatal("expected non-empty error message for failed redirect")
+		t.Fatal("expected non-empty error message for unfollowed redirect")
 	}
 }
 

@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -779,28 +780,30 @@ func TestPow(t *testing.T) {
 	}
 }
 
+// approxBackoff asserts that got is within +/- 20% of want. The webhook
+// backoff helper applies decorrelated jitter, so we can't compare for
+// exact equality.
+func approxBackoff(t *testing.T, got, want time.Duration, label string) {
+	t.Helper()
+	low := want - want/5
+	high := want + want/5
+	if got < low || got > high {
+		t.Fatalf("%s = %s, want within [%s, %s]", label, got, low, high)
+	}
+}
+
 func TestBackoffForRetryPolicy_Linear(t *testing.T) {
 	t.Parallel()
 
-	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 1); got != 5*time.Second {
-		t.Fatalf("linear attempt 1 backoff = %s, want %s", got, 5*time.Second)
-	}
-
-	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 3); got != 15*time.Second {
-		t.Fatalf("linear attempt 3 backoff = %s, want %s", got, 15*time.Second)
-	}
+	approxBackoff(t, backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 1), 5*time.Second, "linear attempt 1")
+	approxBackoff(t, backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 3), 15*time.Second, "linear attempt 3")
 }
 
 func TestBackoffForRetryPolicy_Fixed(t *testing.T) {
 	t.Parallel()
 
-	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyFixed, 1); got != 5*time.Second {
-		t.Fatalf("fixed attempt 1 backoff = %s, want %s", got, 5*time.Second)
-	}
-
-	if got := backoffForRetryPolicy(domain.WebhookRetryPolicyFixed, 7); got != 5*time.Second {
-		t.Fatalf("fixed attempt 7 backoff = %s, want %s", got, 5*time.Second)
-	}
+	approxBackoff(t, backoffForRetryPolicy(domain.WebhookRetryPolicyFixed, 1), 5*time.Second, "fixed attempt 1")
+	approxBackoff(t, backoffForRetryPolicy(domain.WebhookRetryPolicyFixed, 7), 5*time.Second, "fixed attempt 7")
 }
 
 func TestEnqueueSubscriptionWebhooks_MatchingSubscription(t *testing.T) {
@@ -2590,11 +2593,13 @@ func TestAttemptBatchDelivery_ServerSlowResponse(t *testing.T) {
 }
 
 func TestAttemptBatchDelivery_3xxResponse(t *testing.T) {
-	// Edge case: 3xx responses are treated as success (not 4xx/5xx).
+	// 3xx responses are treated as a permanent failure: redirects are
+	// not followed (SSRF defense), so the receiver returning a redirect
+	// is a configuration error, not a successful delivery.
 	t.Parallel()
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotModified) // 304
+		w.WriteHeader(http.StatusFound) // 302
 	}))
 	defer ts.Close()
 
@@ -2614,8 +2619,11 @@ func TestAttemptBatchDelivery_3xxResponse(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s on 3xx, got %s", d.ID, d.Status)
+		if d.Status != domain.WebhookStatusDead {
+			t.Fatalf("expected dead for %s on unfollowed 3xx, got %s", d.ID, d.Status)
+		}
+		if d.LastStatusCode == nil || *d.LastStatusCode != http.StatusFound {
+			t.Fatalf("expected last_status_code=302 for %s, got %v", d.ID, d.LastStatusCode)
 		}
 	}
 }
@@ -3803,6 +3811,90 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 	}
 }
 
+// fakeSecretDecryptor reverses a fixed prefix to simulate AES-GCM decryption
+// without pulling crypto into the webhook test surface. Production wires
+// crypto.Encryptor through WithSecretDecryptor.
+type fakeSecretDecryptor struct {
+	prefix string
+}
+
+func (f fakeSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	if !bytes.HasPrefix(ciphertext, []byte(f.prefix)) {
+		return nil, fmt.Errorf("not encrypted")
+	}
+	return ciphertext[len(f.prefix):], nil
+}
+
+// Regression for F-WH-1: when the store returns an encrypted secret, the
+// outbound HMAC signature MUST be computed over the decrypted plaintext.
+// Before the fix, the worker hashed the ciphertext directly, so subscribers
+// could never validate signatures against their shared secret.
+func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testing.T) {
+	t.Parallel()
+
+	var receivedSigHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSigHeader = r.Header.Get("X-Webhook-Signature")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	plaintextSecret := "shared-with-subscriber"
+	const fakePrefix = "ENC::"
+	storedCiphertext := fakePrefix + plaintextSecret
+
+	ms := &mockDeliveryStore{
+		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {
+			return storedCiphertext, "", nil, nil
+		},
+	}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-enc-1",
+		SubscriptionID: "sub-enc",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		LastError:      `{"event":"run.completed"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(),
+		WithSecretDecryptor(fakeSecretDecryptor{prefix: fakePrefix}))
+	worker.processBatch(context.Background())
+
+	if receivedSigHeader == "" {
+		t.Fatal("expected X-Webhook-Signature header to be set")
+	}
+	expectedSig := "sha256=" + ComputeHMACSHA256(plaintextSecret, []byte(`{"event":"run.completed"}`))
+	if receivedSigHeader != expectedSig {
+		t.Fatalf("signature was not computed over plaintext secret\n  got:  %q\n  want: %q", receivedSigHeader, expectedSig)
+	}
+	ciphertextSig := "sha256=" + ComputeHMACSHA256(storedCiphertext, []byte(`{"event":"run.completed"}`))
+	if receivedSigHeader == ciphertextSig {
+		t.Fatal("signature was computed over ciphertext (regression of F-WH-1)")
+	}
+}
+
+// Regression for F-WH-3: tenants with the same external webhook URL must
+// not share a circuit-breaker key. Without per-tenant scoping, one noisy
+// tenant could trip the breaker for everyone pointing at the same shared
+// receiver (cross-tenant DoS).
+func TestBreakerKey_PerTenantScoping(t *testing.T) {
+	t.Parallel()
+
+	url := "https://hooks.example.com/in"
+	if breakerKey("orgA", url) == breakerKey("orgB", url) {
+		t.Fatal("breakerKey must produce distinct keys for different orgs on the same URL")
+	}
+	if breakerKey("", url) != url {
+		t.Fatalf("empty orgID must fall through to URL-only key for backwards compat, got %q", breakerKey("", url))
+	}
+}
+
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {
 	t.Parallel()
 
@@ -4063,30 +4155,30 @@ func TestBackoffForRetryPolicy_ExponentialCapsAt30Min(t *testing.T) {
 
 	// 5^5 = 3125 seconds = ~52 minutes, exceeds 30-minute cap.
 	got := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 5)
-	if got != 30*time.Minute {
-		t.Fatalf("exponential backoff for attempt 5 = %s, expected exactly 30m (cap)", got)
+	approxBackoff(t, got, 30*time.Minute, "exponential attempt 5 (capped)")
+	if got > 30*time.Minute+(30*time.Minute)/5 {
+		t.Fatalf("exponential backoff for attempt 5 = %s, exceeded 30m cap + jitter", got)
 	}
 }
 
 func TestBackoffForRetryPolicy_AttemptsZero_NormalizedToOne(t *testing.T) {
 	t.Parallel()
 
+	// Both should normalize to the same base; jitter +/- 20% means the
+	// observed values still cluster around 5s (the exponential base).
 	gotZero := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 0)
 	gotOne := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 1)
-	if gotZero != gotOne {
-		t.Fatalf("attempt 0 backoff = %s, attempt 1 = %s: expected same (normalized)", gotZero, gotOne)
-	}
+	approxBackoff(t, gotZero, 5*time.Second, "exponential attempt 0 (normalized)")
+	approxBackoff(t, gotOne, 5*time.Second, "exponential attempt 1")
 }
 
 func TestBackoffForRetryPolicy_LinearCapsAt30Min(t *testing.T) {
 	t.Parallel()
 
 	got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 500)
-	if got > 30*time.Minute {
-		t.Fatalf("linear backoff for attempt 500 = %s, expected <= 30m", got)
-	}
-	if got != 30*time.Minute {
-		t.Fatalf("linear backoff for attempt 500 = %s, expected exactly 30m (cap)", got)
+	approxBackoff(t, got, 30*time.Minute, "linear attempt 500 (capped)")
+	if got > 30*time.Minute+(30*time.Minute)/5 {
+		t.Fatalf("linear backoff for attempt 500 = %s, exceeded 30m cap + jitter", got)
 	}
 }
 

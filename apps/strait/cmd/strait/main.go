@@ -345,6 +345,14 @@ func runServe(ctx context.Context, modeOverride string) error {
 		webhook.WithBatchByURL(cfg.WebhookBatchEnabled),
 		webhook.WithMaxBatchSize(cfg.WebhookMaxBatchSize),
 	)
+	// Webhook signing secrets are stored encrypted at rest when an
+	// encryption key is configured, so the delivery worker must decrypt
+	// before computing the outbound HMAC. Without this the signature is
+	// computed over the AES-GCM ciphertext and cannot be verified by
+	// subscribers.
+	if webhookEnc, encErr := crypto.NewEncryptor(cfg.EncryptionKey); cfg.EncryptionKey != "" && encErr == nil {
+		webhookOptions = append(webhookOptions, webhook.WithSecretDecryptor(webhookEnc))
+	}
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {
