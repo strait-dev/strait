@@ -35,6 +35,16 @@ const (
 	// for its project. 1024 leaves several orders of magnitude of headroom
 	// over realistic SDK concurrency (4–32 typical).
 	maxSlotsPerWorker = 1024
+	// Bounds for unconstrained string fields a worker advertises on
+	// registration. Without these a misbehaving SDK can register with
+	// megabyte-scale Hostname/SDK metadata, bloating the in-memory registry,
+	// the dbSync UPSERT, and any audit row that captures the registration.
+	// Limits are generous against typical real values (POSIX HOST_NAME_MAX is
+	// 255; SDK versions and language tokens are short identifiers).
+	maxHostnameBytes    = 255
+	maxSDKVersionBytes  = 64
+	maxSDKLanguageBytes = 32
+	maxNameBytes        = 128
 )
 
 // workerService implements workerv1.WorkerServiceServer.
@@ -705,6 +715,18 @@ func validateRegistration(reg *workerv1.WorkerRegistration) error {
 	}
 	if reg.SlotsAvailable > reg.SlotsTotal {
 		return status.Errorf(codes.InvalidArgument, "slots_available (%d) exceeds slots_total (%d)", reg.SlotsAvailable, reg.SlotsTotal)
+	}
+	if len(reg.Hostname) > maxHostnameBytes {
+		return status.Errorf(codes.InvalidArgument, "hostname exceeds %d bytes", maxHostnameBytes)
+	}
+	if len(reg.SdkVersion) > maxSDKVersionBytes {
+		return status.Errorf(codes.InvalidArgument, "sdk_version exceeds %d bytes", maxSDKVersionBytes)
+	}
+	if len(reg.SdkLanguage) > maxSDKLanguageBytes {
+		return status.Errorf(codes.InvalidArgument, "sdk_language exceeds %d bytes", maxSDKLanguageBytes)
+	}
+	if len(reg.Name) > maxNameBytes {
+		return status.Errorf(codes.InvalidArgument, "name exceeds %d bytes", maxNameBytes)
 	}
 	return nil
 }

@@ -127,6 +127,54 @@ func TestValidateRegistration(t *testing.T) {
 			mutate:     func(r *workerv1.WorkerRegistration) { r.SlotsTotal = 0; r.SlotsAvailable = 0 },
 			isAccepted: true,
 		},
+		{
+			name:       "oversized hostname",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Hostname = strings.Repeat("h", maxHostnameBytes+1) },
+			wantErr:    true,
+			wantSubstr: "hostname exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "boundary hostname (=max)",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Hostname = strings.Repeat("h", maxHostnameBytes) },
+			isAccepted: true,
+		},
+		{
+			name:       "oversized sdk_version",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.SdkVersion = strings.Repeat("v", maxSDKVersionBytes+1) },
+			wantErr:    true,
+			wantSubstr: "sdk_version exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "boundary sdk_version (=max)",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.SdkVersion = strings.Repeat("v", maxSDKVersionBytes) },
+			isAccepted: true,
+		},
+		{
+			name:       "oversized sdk_language",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.SdkLanguage = strings.Repeat("l", maxSDKLanguageBytes+1) },
+			wantErr:    true,
+			wantSubstr: "sdk_language exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "boundary sdk_language (=max)",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.SdkLanguage = strings.Repeat("l", maxSDKLanguageBytes) },
+			isAccepted: true,
+		},
+		{
+			name:       "oversized name",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Name = strings.Repeat("n", maxNameBytes+1) },
+			wantErr:    true,
+			wantSubstr: "name exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "boundary name (=max)",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Name = strings.Repeat("n", maxNameBytes) },
+			isAccepted: true,
+		},
 	}
 
 	for _, tc := range cases {
