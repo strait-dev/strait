@@ -153,23 +153,6 @@
         ]
       },
       {
-        "title": "Active Jobs",
-        "description": "K8s job pods currently running managed execution.",
-        "type": "stat",
-        "gridPos": {
-          "h": 3,
-          "w": 3,
-          "x": 9,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "strait_k8s_jobs_active",
-            "legendFormat": "Active"
-          }
-        ]
-      },
-      {
         "title": "Queue Depth",
         "description": "Jobs waiting to be dequeued and dispatched.",
         "type": "stat",
@@ -458,83 +441,6 @@
           {
             "expr": "sum(rate(strait_dispatch_errors[$interval]))",
             "legendFormat": "Errors"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s"
-          }
-        }
-      },
-      {
-        "title": "Job Create Rate (by preset)",
-        "description": "K8s job creation rate grouped by machine preset (micro, small, medium, large).",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 8,
-          "x": 0,
-          "y": 15
-        },
-        "targets": [
-          {
-            "expr": "sum(rate(strait_k8s_job_create_total[$interval])) by (preset)",
-            "legendFormat": "{{preset}}"
-          }
-        ]
-      },
-      {
-        "title": "Pod Scheduling Latency (Cold Start)",
-        "description": "Time from job creation to pod running. High values = node autoscaling or image pull delays.",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 8,
-          "x": 8,
-          "y": 15
-        },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[$interval])) by (le))",
-            "legendFormat": "P50"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_pod_scheduling_duration_seconds_bucket[$interval])) by (le))",
-            "legendFormat": "P99"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s"
-          }
-        }
-      },
-      {
-        "title": "Job Wait + Create Duration",
-        "description": "Total time from job creation to completion. Create duration = K8s API call time. Fallback rate = jobs routed to secondary runtime.",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 8,
-          "x": 16,
-          "y": 15
-        },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.5, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))",
-            "legendFormat": "Wait P50"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_wait_duration_seconds_bucket[$interval])) by (le))",
-            "legendFormat": "Wait P99"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(strait_k8s_job_create_duration_seconds_bucket[$interval])) by (le))",
-            "legendFormat": "Create P99"
-          },
-          {
-            "expr": "sum(rate(strait_compute_fallback_total[$interval]))",
-            "legendFormat": "Fallback/s"
           }
         ],
         "fieldConfig": {
