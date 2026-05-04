@@ -548,6 +548,13 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	if !cfg.GRPCEnabled {
 		return nil
 	}
+	if pub == nil {
+		// Refuse to boot rather than serve a worker stream that will panic
+		// the first time a worker connects (subscribe / publish on a nil
+		// publisher). Operators see a clear cause instead of a recovered
+		// internal error after the fact.
+		return fmt.Errorf("grpc worker plane is enabled but no pubsub publisher is configured: set REDIS_URL or disable GRPC_ENABLED")
+	}
 
 	srv, err := grpcserver.NewServer(cfg, queries, pub)
 	if err != nil {

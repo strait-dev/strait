@@ -1,11 +1,31 @@
 package grpc
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/config"
 )
+
+// TestNewServer_NilPubRejected pins the precondition that NewServer must
+// refuse a nil publisher. The worker stream relies on pubsub for cross-
+// replica force-disconnect, API-key revocation broadcast, and run-result
+// fan-out — booting without it would panic on the first connect, far away
+// from any signal a startup-time misconfiguration is the cause.
+func TestNewServer_NilPubRejected(t *testing.T) {
+	t.Parallel()
+	srv, err := NewServer(testConfig(), nil, nil)
+	if err == nil {
+		t.Fatal("expected error when pub is nil")
+	}
+	if srv != nil {
+		t.Fatal("expected nil server when pub is nil")
+	}
+	if !strings.Contains(err.Error(), "pubsub") {
+		t.Fatalf("error message should mention pubsub, got: %v", err)
+	}
+}
 
 // testConfig returns a minimal config suitable for unit tests.
 func testConfig() *config.Config {
@@ -92,7 +112,7 @@ func TestBuildServer_BothPathsSet_BadCert(t *testing.T) {
 // TestNewServer_Plaintext verifies NewServer succeeds with plaintext config.
 func TestNewServer_Plaintext(t *testing.T) {
 	cfg := testConfig()
-	srv, err := NewServer(cfg, nil, nil)
+	srv, err := NewServer(cfg, nil, noopPub{})
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
@@ -105,7 +125,7 @@ func TestNewServer_Plaintext(t *testing.T) {
 // TestServer_Registry verifies Registry() returns the internal registry.
 func TestServer_Registry(t *testing.T) {
 	cfg := testConfig()
-	srv, err := NewServer(cfg, nil, nil)
+	srv, err := NewServer(cfg, nil, noopPub{})
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
@@ -120,7 +140,7 @@ func TestServer_Registry(t *testing.T) {
 // TestServer_WorkerDispatcher verifies WorkerDispatcher() returns a non-nil dispatcher.
 func TestServer_WorkerDispatcher(t *testing.T) {
 	cfg := testConfig()
-	srv, err := NewServer(cfg, nil, nil)
+	srv, err := NewServer(cfg, nil, noopPub{})
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}

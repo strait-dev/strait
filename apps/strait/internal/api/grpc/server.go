@@ -32,9 +32,19 @@ type Server struct {
 }
 
 // NewServer creates a new gRPC Server. It does not start listening.
-// Returns an error if TLS is configured but cert/key cannot be loaded —
-// silent fallback to plaintext would leak API keys in transit.
+//
+// Preconditions:
+//   - pub MUST be non-nil. The worker stream depends on the publisher for
+//     cross-replica force-disconnect, API-key revocation broadcast, and
+//     run-result / log-line fan-out. A nil publisher would panic the first
+//     time a worker connects (Subscribe / Publish dereference). We refuse
+//     to boot rather than serve a half-functional stream.
+//   - Returns an error if TLS is configured but cert/key cannot be loaded —
+//     silent fallback to plaintext would leak API keys in transit.
 func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) (*Server, error) {
+	if pub == nil {
+		return nil, fmt.Errorf("grpc server: pubsub publisher is required (set REDIS_URL or disable GRPC_ENABLED)")
+	}
 	s := &Server{
 		cfg:            cfg,
 		queries:        queries,
