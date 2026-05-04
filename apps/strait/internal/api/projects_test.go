@@ -71,8 +71,8 @@ func TestHandleCreateProject_MissingFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", tc.body))
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			if w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 			}
 		})
 	}
@@ -86,8 +86,8 @@ func TestHandleCreateProject_NameTooShort(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -24,8 +24,8 @@ type ExecutionMiddleware func(next ExecutionHandler) ExecutionHandler
 // Chain composes middlewares into a single middleware, applied left-to-right.
 func Chain(middlewares ...ExecutionMiddleware) ExecutionMiddleware {
 	return func(next ExecutionHandler) ExecutionHandler {
-		for _, m := range slices.Backward(middlewares) {
-			next = m(next)
+		for _, mw := range slices.Backward(middlewares) {
+			next = mw(next)
 		}
 		return next
 	}

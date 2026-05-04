@@ -214,8 +214,8 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 
 	var resp struct {
@@ -228,8 +228,8 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp.Error.Code != ErrorCodeValidationError {
-		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
+	if resp.Error.Code != ErrorCodeValidationFailed {
+		t.Fatalf("expected validation_failed code, got %q", resp.Error.Code)
 	}
 	if resp.Error.Message != "validation failed" {
 		t.Fatalf("expected validation failed message, got %q", resp.Error.Message)
@@ -421,8 +421,8 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 
 	var resp struct {
@@ -433,8 +433,8 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp.Error.Code != ErrorCodeValidationError {
-		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
+	if resp.Error.Code != ErrorCodeValidationFailed {
+		t.Fatalf("expected validation_failed code, got %q", resp.Error.Code)
 	}
 }
 
@@ -647,8 +647,8 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -1245,12 +1245,15 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	tests := []struct {
-		name string
-		url  string
+		name       string
+		url        string
+		wantStatus int
 	}{
-		{"no scheme", "example.com/callback"},
-		{"ftp scheme", "ftp://example.com/callback"},
-		{"empty string", ""},
+		// Struct-level URL validation -> 422 validation_failed.
+		{"no scheme", "example.com/callback", http.StatusUnprocessableEntity},
+		{"empty string", "", http.StatusUnprocessableEntity},
+		// Custom scheme check past struct validation -> 400 bad_request.
+		{"ftp scheme", "ftp://example.com/callback", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -1260,8 +1263,8 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 			body := `{"endpoint_url": "` + tt.url + `"}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
 
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400 for %q, got %d: %s", tt.url, w.Code, w.Body.String())
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected %d for %q, got %d: %s", tt.wantStatus, tt.url, w.Code, w.Body.String())
 			}
 		})
 	}
@@ -2135,8 +2138,8 @@ func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 

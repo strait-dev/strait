@@ -34,8 +34,8 @@ func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for managed execution_mode, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for managed execution_mode, got %d: %s", w.Code, w.Body.String())
 	}
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
 	if !strings.Contains(w.Body.String(), "ExecutionMode") {
@@ -70,8 +70,8 @@ func TestUpdateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for managed execution_mode on update, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for managed execution_mode on update, got %d: %s", w.Code, w.Body.String())
 	}
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
 	if !strings.Contains(w.Body.String(), "ExecutionMode") {

@@ -77,12 +77,12 @@ func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]string
+	var resp ErrorResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp["error"] != "api key does not belong to this organization" {
-		t.Fatalf("expected org mismatch error, got %q", resp["error"])
+	if resp.Error == nil || resp.Error.Message != "api key does not belong to this organization" {
+		t.Fatalf("expected org mismatch error, got %+v", resp.Error)
 	}
 }
 

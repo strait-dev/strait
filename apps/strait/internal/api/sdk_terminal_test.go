@@ -328,8 +328,8 @@ func TestSDKTerminal_Fail_MissingError(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/fail", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing error field, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing error field, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

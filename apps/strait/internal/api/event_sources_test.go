@@ -60,8 +60,8 @@ func TestHandleCreateEventSource_MissingName(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "validation") {
 		t.Fatalf("expected validation error, got %s", w.Body.String())
@@ -275,8 +275,8 @@ func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources/src-1/subscribe", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

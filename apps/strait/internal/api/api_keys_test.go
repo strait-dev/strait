@@ -127,8 +127,8 @@ func TestHandleCreateAPIKey_MissingFields(t *testing.T) {
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -139,8 +139,8 @@ func TestHandleCreateAPIKey_MissingProjectID(t *testing.T) {
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", `{"name":"missing project"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -452,12 +452,12 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
 
-	var resp map[string]string
+	var resp ErrorResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp["error"] != "api key has expired" {
-		t.Fatalf("expected expired message, got %q", resp["error"])
+	if resp.Error == nil || resp.Error.Message != "api key has expired" {
+		t.Fatalf("expected expired message, got %+v", resp.Error)
 	}
 }
 
@@ -483,12 +483,12 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
 
-	var resp map[string]string
+	var resp ErrorResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp["error"] != "api key has been revoked" {
-		t.Fatalf("expected revoked message, got %q", resp["error"])
+	if resp.Error == nil || resp.Error.Message != "api key has been revoked" {
+		t.Fatalf("expected revoked message, got %+v", resp.Error)
 	}
 }
 
