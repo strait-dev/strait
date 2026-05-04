@@ -76,7 +76,7 @@ type APIStore interface {
 type WorkerStore interface {
 	GetWorker(ctx context.Context, workerID, projectID string) (*domain.Worker, error)
 	ListWorkers(ctx context.Context, projectID, queueName string, limit, offset int) ([]domain.Worker, error)
-	ListWorkerTasksByWorker(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit, offset int) ([]domain.WorkerTask, error)
+	ListWorkerTasksByWorker(ctx context.Context, workerID, projectID string, status domain.WorkerTaskStatus, limit, offset int) ([]domain.WorkerTask, error)
 }
 
 // ProjectStore handles project CRUD operations.

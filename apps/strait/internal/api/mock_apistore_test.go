@@ -634,7 +634,7 @@ var _ APIStore = &APIStoreMock{}
 //			ListWebhookSubscriptionsFunc: func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error) {
 //				panic("mock out the ListWebhookSubscriptions method")
 //			},
-//			ListWorkerTasksByWorkerFunc: func(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error) {
+//			ListWorkerTasksByWorkerFunc: func(ctx context.Context, workerID string, projectID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error) {
 //				panic("mock out the ListWorkerTasksByWorker method")
 //			},
 //			ListWorkersFunc: func(ctx context.Context, projectID string, queueName string, limit int, offset int) ([]domain.Worker, error) {
@@ -1491,7 +1491,7 @@ type APIStoreMock struct {
 	ListWebhookSubscriptionsFunc func(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 
 	// ListWorkerTasksByWorkerFunc mocks the ListWorkerTasksByWorker method.
-	ListWorkerTasksByWorkerFunc func(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error)
+	ListWorkerTasksByWorkerFunc func(ctx context.Context, workerID string, projectID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error)
 
 	// ListWorkersFunc mocks the ListWorkers method.
 	ListWorkersFunc func(ctx context.Context, projectID string, queueName string, limit int, offset int) ([]domain.Worker, error)
@@ -3555,6 +3555,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// WorkerID is the workerID argument value.
 			WorkerID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// Status is the status argument value.
 			Status domain.WorkerTaskStatus
 			// Limit is the limit argument value.
@@ -13467,19 +13469,21 @@ func (mock *APIStoreMock) ListWebhookSubscriptionsCalls() []struct {
 }
 
 // ListWorkerTasksByWorker calls ListWorkerTasksByWorkerFunc.
-func (mock *APIStoreMock) ListWorkerTasksByWorker(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error) {
+func (mock *APIStoreMock) ListWorkerTasksByWorker(ctx context.Context, workerID string, projectID string, status domain.WorkerTaskStatus, limit int, offset int) ([]domain.WorkerTask, error) {
 	callInfo := struct {
-		Ctx      context.Context
-		WorkerID string
-		Status   domain.WorkerTaskStatus
-		Limit    int
-		Offset   int
+		Ctx       context.Context
+		WorkerID  string
+		ProjectID string
+		Status    domain.WorkerTaskStatus
+		Limit     int
+		Offset    int
 	}{
-		Ctx:      ctx,
-		WorkerID: workerID,
-		Status:   status,
-		Limit:    limit,
-		Offset:   offset,
+		Ctx:       ctx,
+		WorkerID:  workerID,
+		ProjectID: projectID,
+		Status:    status,
+		Limit:     limit,
+		Offset:    offset,
 	}
 	mock.lockListWorkerTasksByWorker.Lock()
 	mock.calls.ListWorkerTasksByWorker = append(mock.calls.ListWorkerTasksByWorker, callInfo)
@@ -13491,7 +13495,7 @@ func (mock *APIStoreMock) ListWorkerTasksByWorker(ctx context.Context, workerID 
 		)
 		return workerTasksOut, errOut
 	}
-	return mock.ListWorkerTasksByWorkerFunc(ctx, workerID, status, limit, offset)
+	return mock.ListWorkerTasksByWorkerFunc(ctx, workerID, projectID, status, limit, offset)
 }
 
 // ListWorkerTasksByWorkerCalls gets all the calls that were made to ListWorkerTasksByWorker.
@@ -13499,18 +13503,20 @@ func (mock *APIStoreMock) ListWorkerTasksByWorker(ctx context.Context, workerID 
 //
 //	len(mockedAPIStore.ListWorkerTasksByWorkerCalls())
 func (mock *APIStoreMock) ListWorkerTasksByWorkerCalls() []struct {
-	Ctx      context.Context
-	WorkerID string
-	Status   domain.WorkerTaskStatus
-	Limit    int
-	Offset   int
+	Ctx       context.Context
+	WorkerID  string
+	ProjectID string
+	Status    domain.WorkerTaskStatus
+	Limit     int
+	Offset    int
 } {
 	var calls []struct {
-		Ctx      context.Context
-		WorkerID string
-		Status   domain.WorkerTaskStatus
-		Limit    int
-		Offset   int
+		Ctx       context.Context
+		WorkerID  string
+		ProjectID string
+		Status    domain.WorkerTaskStatus
+		Limit     int
+		Offset    int
 	}
 	mock.lockListWorkerTasksByWorker.RLock()
 	calls = mock.calls.ListWorkerTasksByWorker

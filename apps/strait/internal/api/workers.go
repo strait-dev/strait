@@ -171,7 +171,7 @@ func (s *Server) handleListWorkerTasks(ctx context.Context, input *ListWorkerTas
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	tasks, err := s.store.ListWorkerTasksByWorker(ctx, input.WorkerID, "", limit+1, offset)
+	tasks, err := s.store.ListWorkerTasksByWorker(ctx, input.WorkerID, projectID, "", limit+1, offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list worker tasks")
 	}

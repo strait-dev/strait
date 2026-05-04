@@ -235,15 +235,20 @@ func (q *Queries) GetWorkerTaskByRunID(ctx context.Context, workerID, runID stri
 	return &t, nil
 }
 
-// ListWorkerTasksByWorker lists tasks assigned to a worker, optionally filtered by status.
-func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID string, status domain.WorkerTaskStatus, limit, offset int) ([]domain.WorkerTask, error) {
+// ListWorkerTasksByWorker lists tasks assigned to a worker, scoped to a
+// project, optionally filtered by status. The project filter is defense in
+// depth: callers should already have verified the worker belongs to the
+// project, but matching on project_id at the SQL layer prevents any future
+// caller (or any future cross-project worker_id artifact) from leaking tasks
+// that happen to share a worker_id across projects.
+func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID, projectID string, status domain.WorkerTaskStatus, limit, offset int) ([]domain.WorkerTask, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkerTasksByWorker")
 	defer span.End()
 
 	query := `SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
-	          FROM worker_tasks WHERE worker_id = $1`
-	args := []any{workerID}
-	param := 2
+	          FROM worker_tasks WHERE worker_id = $1 AND project_id = $2`
+	args := []any{workerID, projectID}
+	param := 3
 
 	if status != "" {
 		query += fmt.Sprintf(" AND status = $%d", param)
