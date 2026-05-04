@@ -121,6 +121,47 @@ func FuzzReplicaID(f *testing.F) {
 	})
 }
 
+// FuzzTaskResultStatus verifies that TaskResultStatus / TaskResultError
+// extract proto fields safely for any input — including nil, wrong types,
+// and arbitrary status / error byte content. Used by the worker dispatch
+// path to decide success/failure routing, so a panic here would crash the
+// executor.
+func FuzzTaskResultStatus(f *testing.F) {
+	f.Add("", "")
+	f.Add("success", "")
+	f.Add("failed", "boom")
+	f.Add("\x00\x01", "\x00")
+	f.Add(strings.Repeat("s", 10000), strings.Repeat("e", 10000))
+	f.Add("status with\nnewline", "err\twith\ttab")
+
+	f.Fuzz(func(t *testing.T, status, errMsg string) {
+		// Wrong-type input must return "" without panic.
+		if got := TaskResultStatus("not a proto"); got != "" {
+			t.Errorf("TaskResultStatus on string = %q, want \"\"", got)
+		}
+		if got := TaskResultError(42); got != "" {
+			t.Errorf("TaskResultError on int = %q, want \"\"", got)
+		}
+
+		// nil must return "" without panic.
+		if got := TaskResultStatus(nil); got != "" {
+			t.Errorf("TaskResultStatus(nil) = %q, want \"\"", got)
+		}
+		if got := TaskResultError(nil); got != "" {
+			t.Errorf("TaskResultError(nil) = %q, want \"\"", got)
+		}
+
+		// Real proto with arbitrary fields must round-trip.
+		tr := &workerv1.TaskResult{Status: status, ErrorMessage: errMsg}
+		if got := TaskResultStatus(tr); got != status {
+			t.Errorf("TaskResultStatus round-trip: got %q, want %q", got, status)
+		}
+		if got := TaskResultError(tr); got != errMsg {
+			t.Errorf("TaskResultError round-trip: got %q, want %q", got, errMsg)
+		}
+	})
+}
+
 // FuzzDispatchHMAC verifies that dispatchHMAC never panics with arbitrary inputs.
 func FuzzDispatchHMAC(f *testing.F) {
 	f.Add("secret", "1234567890", []byte(`{"hello":"world"}`))

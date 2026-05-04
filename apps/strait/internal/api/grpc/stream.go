@@ -501,11 +501,28 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 					"error", err,
 				)
 			}
+			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, domain.WorkerTaskStatusCompleted); err != nil {
+				slog.Warn("grpc reconcile: update worker_task status failed",
+					"task_id", taskRow.ID,
+					"run_id", t.RunId,
+					"error", err,
+				)
+			}
 
 		case "failed", "abandoned":
 			// For failed/abandoned: attempt a retry if the job allows it,
 			// otherwise mark as dead-letter.
 			s.reconcileFailedTask(ctx, t)
+			// Whether the run gets requeued or dead-lettered, the worker_task
+			// row that recorded this assignment is done — mark it failed so it
+			// doesn't linger in "assigned" forever.
+			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, domain.WorkerTaskStatusFailed); err != nil {
+				slog.Warn("grpc reconcile: update worker_task status failed",
+					"task_id", taskRow.ID,
+					"run_id", t.RunId,
+					"error", err,
+				)
+			}
 
 		default:
 			slog.Warn("grpc reconcile: unknown in-flight task status",
