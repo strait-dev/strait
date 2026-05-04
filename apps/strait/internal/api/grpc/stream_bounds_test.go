@@ -22,6 +22,7 @@ func TestBounds_Constants(t *testing.T) {
 		{"maxLogLevelBytes", maxLogLevelBytes, 32},
 		{"maxRunIDLen", maxRunIDLen, 128},
 		{"maxErrorMsgBytes", maxErrorMsgBytes, 8192},
+		{"maxSlotsPerWorker", maxSlotsPerWorker, 1024},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {

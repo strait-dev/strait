@@ -20,12 +20,15 @@ func FuzzWorkerRegistration(f *testing.F) {
 	f.Add(strings.Repeat("unicode-", 20), "proj", int32(0), int32(0))
 
 	f.Fuzz(func(t *testing.T, workerID, projectID string, slotsTotal, slotsAvailable int32) {
-		// Simulate the validation logic from StreamTasks.
-		if workerID == "" {
-			return // would be rejected: worker_id must be non-empty
+		// validateRegistration must never panic, regardless of input. If it
+		// rejects, we stop — no in-memory registry mutation should follow.
+		regProto := &workerv1.WorkerRegistration{
+			WorkerId:       workerID,
+			SlotsTotal:     slotsTotal,
+			SlotsAvailable: slotsAvailable,
 		}
-		if len(workerID) > maxWorkerIDLen {
-			return // would be rejected: too long
+		if err := validateRegistration(regProto); err != nil {
+			return
 		}
 
 		r := NewConnectionRegistry()

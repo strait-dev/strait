@@ -29,6 +29,12 @@ const (
 	maxLogLevelBytes   = 32
 	maxRunIDLen        = 128
 	maxErrorMsgBytes   = 8192
+	// maxSlotsPerWorker bounds the slots count a worker can advertise on
+	// registration. PickWorkerForQueue ranks by SlotsAvailable, so an
+	// unbounded value lets a buggy or malicious worker monopolize dispatch
+	// for its project. 1024 leaves several orders of magnitude of headroom
+	// over realistic SDK concurrency (4–32 typical).
+	maxSlotsPerWorker = 1024
 )
 
 // workerService implements workerv1.WorkerServiceServer.
@@ -71,17 +77,8 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	reg := regPayload.Registration
 
-	if reg.WorkerId == "" {
-		return status.Error(codes.InvalidArgument, "worker_id must be non-empty")
-	}
-	if len(reg.WorkerId) > maxWorkerIDLen {
-		return status.Errorf(codes.InvalidArgument, "worker_id exceeds %d bytes", maxWorkerIDLen)
-	}
-	if len(reg.Queues) > maxQueuesPerWorker {
-		return status.Errorf(codes.InvalidArgument, "too many queues: max %d", maxQueuesPerWorker)
-	}
-	if len(reg.InFlightTasks) > maxInFlightTasks {
-		return status.Errorf(codes.InvalidArgument, "too many in-flight tasks: max %d", maxInFlightTasks)
+	if err := validateRegistration(reg); err != nil {
+		return err
 	}
 
 	// Per-stream typed send channel for outbound ServerMessages.
@@ -646,6 +643,48 @@ func (s *workerService) reconcileMarkFailed(ctx context.Context, runID, errMsg s
 			"error", err,
 		)
 	}
+}
+
+// validateRegistration enforces the resource bounds and slot-count sanity
+// checks on an incoming WorkerRegistration. Returning a typed gRPC status
+// error (codes.InvalidArgument) lets the stream handler reject malformed
+// registrations without doing any state mutation. Extracted as a pure
+// function so it is exhaustively unit-testable.
+//
+// Slot-count checks defend the dispatcher: PickWorkerForQueue ranks
+// workers by SlotsAvailable, so a worker advertising an oversized or
+// negative slot count could either monopolize dispatch or wedge it. We
+// trust the worker to report its own concurrency, but only within bounds
+// the server can enforce.
+func validateRegistration(reg *workerv1.WorkerRegistration) error {
+	if reg == nil {
+		return status.Error(codes.InvalidArgument, "registration must not be nil")
+	}
+	if reg.WorkerId == "" {
+		return status.Error(codes.InvalidArgument, "worker_id must be non-empty")
+	}
+	if len(reg.WorkerId) > maxWorkerIDLen {
+		return status.Errorf(codes.InvalidArgument, "worker_id exceeds %d bytes", maxWorkerIDLen)
+	}
+	if len(reg.Queues) > maxQueuesPerWorker {
+		return status.Errorf(codes.InvalidArgument, "too many queues: max %d", maxQueuesPerWorker)
+	}
+	if len(reg.InFlightTasks) > maxInFlightTasks {
+		return status.Errorf(codes.InvalidArgument, "too many in-flight tasks: max %d", maxInFlightTasks)
+	}
+	if reg.SlotsTotal < 0 {
+		return status.Errorf(codes.InvalidArgument, "slots_total must be non-negative, got %d", reg.SlotsTotal)
+	}
+	if reg.SlotsTotal > maxSlotsPerWorker {
+		return status.Errorf(codes.InvalidArgument, "slots_total exceeds %d", maxSlotsPerWorker)
+	}
+	if reg.SlotsAvailable < 0 {
+		return status.Errorf(codes.InvalidArgument, "slots_available must be non-negative, got %d", reg.SlotsAvailable)
+	}
+	if reg.SlotsAvailable > reg.SlotsTotal {
+		return status.Errorf(codes.InvalidArgument, "slots_available (%d) exceeds slots_total (%d)", reg.SlotsAvailable, reg.SlotsTotal)
+	}
+	return nil
 }
 
 // retryBackoffDuration returns an exponential backoff delay for a given attempt
