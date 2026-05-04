@@ -108,12 +108,21 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 	}
 
 	// Publish disconnect signal to the owning replica's subscriber.
+	// Without a publisher, the disconnect cannot be propagated cross-replica;
+	// fail loud rather than silently returning success.
+	if s.pubsub == nil {
+		slog.Error("worker force-disconnect: pubsub publisher not configured",
+			"worker_id", input.WorkerID,
+		)
+		return nil, huma.Error503ServiceUnavailable("worker force-disconnect unavailable: pubsub not configured")
+	}
 	channel := fmt.Sprintf("worker:disconnect:%s", input.WorkerID)
 	if pubErr := s.pubsub.Publish(ctx, channel, []byte(input.WorkerID)); pubErr != nil {
-		slog.Warn("worker force-disconnect: publish failed",
+		slog.Error("worker force-disconnect: publish failed",
 			"worker_id", input.WorkerID,
 			"error", pubErr,
 		)
+		return nil, huma.Error503ServiceUnavailable("failed to broadcast disconnect signal")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionWorkerForceDisconnected, "worker", input.WorkerID, map[string]any{
