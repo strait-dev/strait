@@ -136,9 +136,12 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		},
 	})
 
-	// Clean up on any exit path.
+	// Clean up on any exit path. Pass the per-registration token so a stale
+	// goroutine cannot evict a live replacement that registered under the
+	// same WorkerID after a reconnect race.
+	myToken := cw.regToken
 	defer func() {
-		s.registry.Deregister(reg.WorkerId)
+		s.registry.Deregister(reg.WorkerId, myToken)
 		s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, reg.WorkerId, map[string]any{
 			"worker_id": reg.WorkerId,
 		})

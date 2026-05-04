@@ -44,7 +44,7 @@ func FuzzWorkerRegistration(f *testing.F) {
 
 		// Must not panic.
 		_ = r.Register(w)
-		r.Deregister(workerID)
+		r.Deregister(workerID, w.regToken)
 	})
 }
 

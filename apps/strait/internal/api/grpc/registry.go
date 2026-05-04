@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 )
@@ -22,9 +23,15 @@ type ConnectedWorker struct {
 	SlotsAvailable int32
 	Status         string                         // active | draining
 	SendCh         chan<- *workerv1.ServerMessage // populated by stream goroutine on Register
-	// revokeCh is closed by the registry when the authenticating API key is revoked.
-	// The stream goroutine selects on this channel to close itself immediately.
+	// revokeCh is closed by the registry when the authenticating API key is
+	// revoked or when a same-id reconnect supersedes this entry. The stream
+	// goroutine selects on this channel to close itself immediately.
 	revokeCh chan struct{}
+	// regToken is the per-registration token assigned by the registry. It is
+	// passed back to Deregister so a stale stream goroutine's deferred cleanup
+	// cannot evict a live replacement that registered under the same WorkerID
+	// after a reconnect race.
+	regToken uint64
 }
 
 // ConnectionRegistry is an in-memory store of all active worker streams on
@@ -34,6 +41,11 @@ type ConnectionRegistry struct {
 	mu       sync.RWMutex
 	workers  map[string]*ConnectedWorker   // keyed by worker_id
 	byAPIKey map[string][]*ConnectedWorker // keyed by api_key_id
+	// nextToken issues monotonically increasing registration tokens. Any value
+	// > 0 is valid; a zero token signals "unassigned" and is rejected on
+	// Deregister to keep test fixtures and accidental zero-valued callers from
+	// silently evicting live entries.
+	nextToken atomic.Uint64
 }
 
 // NewConnectionRegistry creates an empty ConnectionRegistry.
@@ -47,8 +59,15 @@ func NewConnectionRegistry() *ConnectionRegistry {
 // Register adds or replaces a worker entry and indexes it by API key.
 // If a worker with the same ID already exists under a different API key,
 // the registration is rejected to prevent session hijacking via worker-id
-// guessing. Same-key re-registration evicts the prior entry from byAPIKey
-// to avoid stale-pointer accumulation across reconnects.
+// guessing.
+//
+// Same-key reconnect: the existing entry's revokeCh is closed (so the stale
+// stream goroutine wakes up and exits) and a fresh registration token is
+// assigned to the new entry. The old goroutine's deferred Deregister will
+// no-op because its token no longer matches.
+//
+// Register populates w.regToken with the assigned token; callers must pass
+// that token back to Deregister.
 func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -56,7 +75,16 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 		if existing.APIKeyID != w.APIKeyID {
 			return fmt.Errorf("worker_id %q already registered under a different api key", w.WorkerID)
 		}
-		// Same key reconnecting: evict stale byAPIKey pointer.
+		// Same key reconnecting: signal the stale stream to exit, then evict
+		// the old byAPIKey pointer.
+		if existing.revokeCh != nil {
+			select {
+			case <-existing.revokeCh:
+				// Already closed (e.g., concurrent CloseByAPIKey) — skip.
+			default:
+				close(existing.revokeCh)
+			}
+		}
 		if existing.APIKeyID != "" {
 			list := r.byAPIKey[existing.APIKeyID]
 			filtered := list[:0]
@@ -72,6 +100,7 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 			}
 		}
 	}
+	w.regToken = r.nextToken.Add(1)
 	r.workers[w.WorkerID] = w
 	if w.APIKeyID != "" {
 		r.byAPIKey[w.APIKeyID] = append(r.byAPIKey[w.APIKeyID], w)
@@ -79,12 +108,25 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 	return nil
 }
 
-// Deregister removes a worker from the registry and cleans up the API key index.
-func (r *ConnectionRegistry) Deregister(workerID string) {
+// Deregister removes a worker from the registry and cleans up the API key
+// index, but only if the stored entry's token matches the supplied token.
+// This prevents a stale stream's deferred cleanup from evicting a live
+// replacement that registered after a reconnect race. A token of 0 is always
+// rejected (Register never assigns 0), making accidental zero-token calls
+// safe no-ops.
+func (r *ConnectionRegistry) Deregister(workerID string, token uint64) {
+	if token == 0 {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	w, ok := r.workers[workerID]
 	if !ok {
+		return
+	}
+	if w.regToken != token {
+		// The current registration belongs to a newer connection; the caller
+		// is a stale goroutine cleaning up its own (already-superseded) entry.
 		return
 	}
 	delete(r.workers, workerID)

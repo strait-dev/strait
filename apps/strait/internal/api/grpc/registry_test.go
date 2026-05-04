@@ -98,7 +98,7 @@ func TestRegistry_Deregister_RemovesWorkerAndIndex(t *testing.T) {
 	if err := r.Register(w); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-	r.Deregister("w1")
+	r.Deregister("w1", w.regToken)
 
 	snap := r.Snapshot()
 	if len(snap) != 0 {
@@ -115,7 +115,7 @@ func TestRegistry_Deregister_RemovesWorkerAndIndex(t *testing.T) {
 // TestRegistry_Deregister_Noop verifies deregistering a nonexistent worker does not panic.
 func TestRegistry_Deregister_Noop(t *testing.T) {
 	r := NewConnectionRegistry()
-	r.Deregister("does-not-exist") // must not panic
+	r.Deregister("does-not-exist", 1) // must not panic
 }
 
 // TestRegistry_IncrementSlots_Cap verifies that IncrementSlots cannot exceed SlotsTotal.
@@ -384,17 +384,26 @@ func TestRegistry_Concurrent_RegisterDeregister(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines * 2)
 
-	// Writers: alternate register/deregister for unique worker IDs.
+	// Writers: register a unique worker, then deregister with the assigned
+	// token. The deregister goroutine waits on a per-id channel so it
+	// receives the token issued by Register.
+	tokenChs := make([]chan uint64, goroutines)
+	for i := range goroutines {
+		tokenChs[i] = make(chan uint64, 1)
+	}
+
 	for i := range goroutines {
 		go func() {
 			defer wg.Done()
 			wid := fmt.Sprintf("w-%d", i)
 			w := makeWorker(wid, "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 4)
 			_ = r.Register(w)
+			tokenChs[i] <- w.regToken
 		}()
 		go func() {
 			defer wg.Done()
-			r.Deregister(fmt.Sprintf("w-%d", i))
+			tok := <-tokenChs[i]
+			r.Deregister(fmt.Sprintf("w-%d", i), tok)
 		}()
 	}
 
