@@ -26,6 +26,9 @@ const (
 	maxQueuesPerWorker = 64
 	maxInFlightTasks   = 256
 	maxLogMessageBytes = 4096
+	maxLogLevelBytes   = 32
+	maxRunIDLen        = 128
+	maxErrorMsgBytes   = 8192
 )
 
 // workerService implements workerv1.WorkerServiceServer.
@@ -311,6 +314,17 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	if tr == nil || tr.RunId == "" {
 		return nil
 	}
+	// Bound RunId so a malicious worker can't use it as a pubsub-channel
+	// amplifier or DB-key blow-up vector.
+	if len(tr.RunId) > maxRunIDLen {
+		slog.Warn("grpc task result: run_id exceeds bound — rejecting",
+			"worker_id", workerID, "run_id_len", len(tr.RunId))
+		return nil
+	}
+	// Cap error message so a worker can't bloat DB rows or page logs.
+	if len(tr.ErrorMessage) > maxErrorMsgBytes {
+		tr.ErrorMessage = tr.ErrorMessage[:maxErrorMsgBytes]
+	}
 
 	// Route result to a waiting WorkerDispatch call if one exists.
 	// The dispatch goroutine is responsible for slot accounting in that path.
@@ -424,6 +438,11 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *
 	if ll == nil || ll.RunId == "" {
 		return nil
 	}
+	if len(ll.RunId) > maxRunIDLen {
+		slog.Warn("grpc log line: run_id exceeds bound — rejecting",
+			"worker_id", workerID, "run_id_len", len(ll.RunId))
+		return nil
+	}
 	taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, ll.RunId)
 	if err != nil {
 		slog.Warn("grpc log line: ownership lookup failed",
@@ -439,6 +458,10 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *
 	if len(msg) > maxLogMessageBytes {
 		msg = msg[:maxLogMessageBytes]
 	}
+	level := ll.Level
+	if len(level) > maxLogLevelBytes {
+		level = level[:maxLogLevelBytes]
+	}
 	type logLineEvent struct {
 		RunID     string `json:"run_id"`
 		Level     string `json:"level"`
@@ -447,7 +470,7 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *
 	}
 	payload, _ := json.Marshal(logLineEvent{
 		RunID:     ll.RunId,
-		Level:     ll.Level,
+		Level:     level,
 		Message:   msg,
 		Timestamp: ll.TimestampUnixMs,
 	})
@@ -471,6 +494,14 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 	for _, t := range tasks {
 		if t == nil || t.RunId == "" {
 			continue
+		}
+		if len(t.RunId) > maxRunIDLen {
+			slog.Warn("grpc reconcile: run_id exceeds bound — skipping",
+				"worker_id", workerID, "run_id_len", len(t.RunId))
+			continue
+		}
+		if len(t.ErrorMessage) > maxErrorMsgBytes {
+			t.ErrorMessage = t.ErrorMessage[:maxErrorMsgBytes]
 		}
 
 		// Adversarial guard: verify ownership via worker_tasks.
