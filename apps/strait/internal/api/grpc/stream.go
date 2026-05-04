@@ -370,8 +370,15 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 		return nil
 	}
 
-	// Fall back: update the run status directly and restore the slot.
-	s.registry.IncrementSlots(workerID)
+	// Fall back: update the run status directly. Do NOT restore the slot
+	// here — if a WorkerDispatch goroutine ever held this run, it has
+	// already restored the slot on its ctx.Done() / result branch
+	// (see dispatch.go IncrementSlots sites). If no dispatcher ever held
+	// the run on this replica (e.g. cross-replica handoff, in-flight
+	// reconnect), no slot was decremented here, so there is nothing to
+	// credit. Calling IncrementSlots in this path produced an over-credit
+	// when a late result arrived after the dispatcher's ctx.Done()
+	// already restored the slot, letting the worker monopolize dispatch.
 
 	var newStatus domain.RunStatus
 	var newTaskStatus domain.WorkerTaskStatus
