@@ -307,3 +307,16 @@ func TaskResultError(opaque any) string {
 	}
 	return r.ErrorMessage
 }
+
+// ResultStatus implements worker.WorkerRunDispatcher by delegating to
+// TaskResultStatus. Defined as a method so the worker package can extract
+// the status from the opaque result without importing grpc proto types.
+func (d *WorkerDispatcher) ResultStatus(opaque any) string {
+	return TaskResultStatus(opaque)
+}
+
+// ResultError implements worker.WorkerRunDispatcher by delegating to
+// TaskResultError.
+func (d *WorkerDispatcher) ResultError(opaque any) string {
+	return TaskResultError(opaque)
+}

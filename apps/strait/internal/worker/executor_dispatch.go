@@ -849,6 +849,33 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		return
 	}
 
+	// Inspect the worker's reported terminal status. Only "success" routes
+	// to the success handler; everything else (including "failed", "" from
+	// a nil/malformed result, or any unexpected sentinel) is routed to
+	// handleFailure with the worker-supplied error message so retry / DLQ
+	// policies kick in. This avoids silently recording worker failures as
+	// successes and bypassing the executor's retry path.
+	status := e.workerDispatcher.ResultStatus(result)
+	policy := executionPolicy{
+		maxAttempts:      job.MaxAttempts,
+		timeoutSecs:      job.TimeoutSecs,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     3600,
+	}
+	if status != "success" {
+		errMsg := e.workerDispatcher.ResultError(result)
+		if errMsg == "" {
+			if status == "" {
+				errMsg = "worker returned malformed or empty result"
+			} else {
+				errMsg = fmt.Sprintf("worker reported terminal status %q without error message", status)
+			}
+		}
+		e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil)
+		return
+	}
+
 	// Successful result — record cost and complete the run.
 	if e.runCostRecorder != nil && e.billingEnforcer != nil {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
@@ -868,13 +895,10 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	// Also report to Stripe.
 	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
 
-	// Mark the run complete based on the worker result status.
+	// Output extraction is not yet implemented: the worker SDK handles payload
+	// routing in-band and the dispatcher does not surface it. A nil result here
+	// produces an empty json.RawMessage which handleSuccess accepts.
 	var runResult json.RawMessage
-	if result != nil {
-		// result is an opaque interface{}; we don't extract output here since
-		// the worker handles payload routing. A nil result is fine.
-		_ = result
-	}
 	e.handleSuccess(ctx, run, job, runResult, nil)
 }
 

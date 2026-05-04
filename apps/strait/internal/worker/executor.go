@@ -85,6 +85,12 @@ type WorkflowCallback interface {
 // *workerv1.TaskResult.
 type WorkerRunDispatcher interface {
 	WorkerDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) (any, error)
+	// ResultStatus extracts the status string ("success", "failed", or "")
+	// from an opaque TaskResult. Returns "" for nil or wrong type.
+	ResultStatus(opaque any) string
+	// ResultError extracts the error message from a failed TaskResult.
+	// Returns "" for nil, wrong type, or empty error_message.
+	ResultError(opaque any) string
 }
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
