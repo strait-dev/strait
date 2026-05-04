@@ -281,25 +281,3 @@ Strait is orchestration-only. Workers connect via gRPC streaming and execute job
 | `AUDIT_DLQ_RECLAIM_BATCH` | Integer | `200` | Maximum deadletter rows the reclaimer processes per scheduler tick. |
 | `AUDIT_DLQ_MAX_AGE_DAYS` | Integer | `30` | Maximum days a deadletter row may live before the retention reaper drops it. `0` disables the sweep. |
 | `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | Integer | `10` | Maximum reclaim attempts per DLQ row before skipping. `0` disables the cap. |
-
-## Code Deployments
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `BUILDKIT_ADDRESS` | String | `tcp://buildkitd.strait-build.svc.cluster.local:1234` | BuildKit daemon address for building container images. |
-| `BUILDKIT_ADDRESSES` | String | - | Comma-separated list of BuildKit daemon addresses for multi-node round-robin dispatch. Overrides `BUILDKIT_ADDRESS` when non-empty. |
-| `BUILDKIT_NAMESPACE` | String | `strait-build` | Kubernetes namespace where BuildKit runs. |
-| `BUILDKIT_CACHE_ENABLED` | Boolean | `true` | Enable BuildKit layer caching to speed up repeated builds. |
-| `BUILD_MAX_TARBALL_MB` | Integer | `256` | Maximum size in MB of uploaded source tarballs. |
-| `BUILD_TIMEOUT` | Duration | `10m` | Maximum time to wait for a container image build to complete. |
-| `DEPLOYMENT_GC_ENABLED` | Boolean | `true` | Enable automatic garbage collection of stale pending and failed deployments. |
-| `DEPLOYMENT_GC_INTERVAL` | Duration | `1h` | How often the deployment GC runs. |
-| `DEPLOYMENT_GC_PENDING_TTL` | Duration | `15m` | Age at which a pending deployment is considered stale and removed. |
-| `DEPLOYMENT_GC_FAILED_AGE` | Duration | `168h` | Age at which failed deployments are removed (default: 7 days). |
-| `OBJECT_STORE_TYPE` | String | `s3` | Object store type. `s3` works for AWS S3, Cloudflare R2, and MinIO. |
-| `OBJECT_STORE_BUCKET` | String | - | Bucket name for storing code bundles. |
-| `OBJECT_STORE_ENDPOINT` | String | - | S3-compatible endpoint URL. Leave empty for AWS S3. |
-| `OBJECT_STORE_REGION` | String | `auto` | Storage region. |
-| `OBJECT_STORE_ACCESS_KEY` | String | - | Access key for object store authentication. |
-| `OBJECT_STORE_SECRET_KEY` | String | - | Secret key for object store authentication. |
-| `OBJECT_STORE_FORCE_PATH_STYLE` | Boolean | `false` | Use path-style S3 URLs. Set `true` for MinIO. |

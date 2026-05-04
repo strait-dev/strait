@@ -287,36 +287,6 @@ type Config struct {
 	// This field exists for config logging but is ignored by domain.ParseEdition.
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 
-	// Code-first build pipeline (STR-385).
-
-	// BuildKit daemon address. Used by the build orchestrator to submit builds.
-	BuildKitAddress string `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
-	// BuildKitAddresses is an optional comma-separated list of BuildKit daemon
-	// addresses used for multi-node round-robin dispatch. When non-empty it
-	// overrides BuildKitAddress.
-	BuildKitAddresses string `env:"BUILDKIT_ADDRESSES" default:""`
-	BuildKitNamespace string `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
-
-	// Deployment GC removes stale pending and old failed/timed_out deployments.
-	DeploymentGCEnabled    bool          `env:"DEPLOYMENT_GC_ENABLED" default:"true"`
-	DeploymentGCInterval   time.Duration `env:"DEPLOYMENT_GC_INTERVAL" default:"1h"`
-	DeploymentGCPendingTTL time.Duration `env:"DEPLOYMENT_GC_PENDING_TTL" default:"15m"`
-	DeploymentGCFailedAge  time.Duration `env:"DEPLOYMENT_GC_FAILED_AGE" default:"168h"` // 7 days
-
-	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
-	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`
-	BuildTimeout         time.Duration `env:"BUILD_TIMEOUT" default:"10m"`
-
-	// Object store for deployment tarballs.
-	// Type selects the implementation: "s3" (default, works for R2 and MinIO).
-	ObjectStoreType           string `env:"OBJECT_STORE_TYPE" default:"s3"`
-	ObjectStoreBucket         string `env:"OBJECT_STORE_BUCKET"`
-	ObjectStoreEndpoint       string `env:"OBJECT_STORE_ENDPOINT"` // e.g. "https://{account}.r2.cloudflarestorage.com" or "http://minio:9000"
-	ObjectStoreRegion         string `env:"OBJECT_STORE_REGION" default:"auto"`
-	ObjectStoreAccessKey      string `env:"OBJECT_STORE_ACCESS_KEY"`
-	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
-	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
-
 	// gRPC server settings.
 	GRPCEnabled          bool          `env:"GRPC_ENABLED" default:"true"`
 	GRPCPort             int           `env:"GRPC_PORT" default:"50051"`
