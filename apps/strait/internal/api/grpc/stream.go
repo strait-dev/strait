@@ -288,15 +288,16 @@ func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, proje
 	}
 }
 
-// handleHeartbeat updates the worker's last_seen_at in memory and periodically in DB.
-func (s *workerService) handleHeartbeat(ctx context.Context, workerID string, hb *workerv1.Heartbeat) error {
+// handleHeartbeat is a no-op on the DB. last_seen_at is refreshed by the
+// dbSync loop (RegisterWorker UPSERT, every WORKER_DB_SYNC_INTERVAL ≈ 10s),
+// which is well inside the WORKER_HEARTBEAT_TIMEOUT sweep window (≈ 30s).
+// Writing on every heartbeat caused N×workers DB writes per HeartbeatInterval
+// without changing observability — the dbSync row already carries the same
+// timestamp. The slot hint in hb is informational; the server is
+// authoritative on slot accounting via Increment/DecrementSlots.
+func (s *workerService) handleHeartbeat(_ context.Context, _ string, hb *workerv1.Heartbeat) error {
 	if hb == nil {
 		return nil
-	}
-	// Update slot hint from worker (informational only — server is authoritative).
-	// The DB heartbeat is handled by the dbSync loop; we just touch last_seen_at here.
-	if err := s.queries.HeartbeatWorker(ctx, workerID); err != nil {
-		slog.Warn("grpc heartbeat db update failed", "worker_id", workerID, "error", err)
 	}
 	return nil
 }

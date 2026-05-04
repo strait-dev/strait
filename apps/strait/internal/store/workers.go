@@ -36,21 +36,6 @@ func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	return nil
 }
 
-// HeartbeatWorker updates last_seen_at for a worker.
-func (q *Queries) HeartbeatWorker(ctx context.Context, workerID string) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.HeartbeatWorker")
-	defer span.End()
-
-	_, err := q.db.Exec(ctx,
-		`UPDATE workers SET last_seen_at = NOW() WHERE id = $1`,
-		workerID,
-	)
-	if err != nil {
-		return fmt.Errorf("heartbeat worker: %w", err)
-	}
-	return nil
-}
-
 // SetWorkerStatus transitions a worker to a new status.
 func (q *Queries) SetWorkerStatus(ctx context.Context, workerID string, status domain.WorkerStatus) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetWorkerStatus")
