@@ -105,19 +105,21 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 	}
 
 	run := &domain.JobRun{
-		ID:           uuid.Must(uuid.NewV7()).String(),
-		JobID:        batch.JobID,
-		ProjectID:    batch.ProjectID,
-		Tags:         job.Tags,
-		Status:       domain.StatusQueued,
-		Attempt:      1,
-		Payload:      batchPayload,
-		TriggeredBy:  "batch",
-		Priority:     items[0].Priority,
-		JobVersion:   job.Version,
-		JobVersionID: job.VersionID,
-		ExpiresAt:    &expiresAt,
-		CreatedBy:    items[0].CreatedBy,
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         batch.JobID,
+		ProjectID:     batch.ProjectID,
+		Tags:          job.Tags,
+		Status:        domain.StatusQueued,
+		Attempt:       1,
+		Payload:       batchPayload,
+		TriggeredBy:   "batch",
+		Priority:      items[0].Priority,
+		JobVersion:    job.Version,
+		JobVersionID:  job.VersionID,
+		ExpiresAt:     &expiresAt,
+		CreatedBy:     items[0].CreatedBy,
+		ExecutionMode: job.ExecutionMode,
+		QueueName:     job.Queue,
 	}
 
 	return queue.EnqueueWithRetry(ctx, f.queue, run, queue.DefaultInternalEnqueueRetryConfig())

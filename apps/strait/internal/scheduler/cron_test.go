@@ -130,7 +130,7 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 	}
 
 	cs := NewCronScheduler(context.Background(), &mockCronStore{}, q, nil)
-	job := domain.Job{ID: "job-1", ProjectID: "proj-1"}
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", ExecutionMode: domain.ExecutionModeWorker, Queue: "priority"}
 	cs.triggerJob(context.Background(), job)
 
 	if enqueued.JobID != job.ID {
@@ -141,6 +141,12 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 	}
 	if enqueued.TriggeredBy != "cron" {
 		t.Fatalf("expected triggered_by cron, got %q", enqueued.TriggeredBy)
+	}
+	if enqueued.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("expected execution_mode worker, got %q", enqueued.ExecutionMode)
+	}
+	if enqueued.QueueName != "priority" {
+		t.Fatalf("expected queue_name priority, got %q", enqueued.QueueName)
 	}
 }
 

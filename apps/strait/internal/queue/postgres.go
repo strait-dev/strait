@@ -185,6 +185,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 	if execMode == "" {
 		execMode = domain.ExecutionModeHTTP
 	}
+	queueName := runQueueName(run.QueueName)
 
 	args := []any{
 		run.ID,
@@ -216,7 +217,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
-		"default", // queue_name: resolved from jobs table at runtime; 'default' used for non-worker runs
+		queueName,
 		metadataJSON,
 		run.IsRollback,
 	}
@@ -456,7 +457,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.ConcurrencyKey),
 			dbscan.NilIfEmptyString(run.BatchID),
 			string(run.ExecutionMode),
-			"default", // queue_name: 'default' for batch enqueues; worker routing uses jobs.queue_name
+			runQueueName(run.QueueName),
 			metadataJSON,
 			run.IsRollback,
 		}
@@ -479,6 +480,13 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	}
 
 	return n, nil
+}
+
+func runQueueName(queueName string) string {
+	if queueName == "" {
+		return "default"
+	}
+	return queueName
 }
 
 // dequeueColumns is the shared column list for all dequeue RETURNING/SELECT clauses.

@@ -383,6 +383,8 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		JobVersionID:   job.VersionID,
 		CreatedBy:      actorFromContext(ctx),
 		ExpiresAt:      &expiresAt,
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
 		IsRollback:     false,
 	}
 	if dependencyKey != "" {

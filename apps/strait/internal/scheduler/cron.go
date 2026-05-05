@@ -119,13 +119,15 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	cs.recordCronDrift(ctx, job.Cron)
 
 	run := domain.JobRun{
-		JobID:        job.ID,
-		ProjectID:    job.ProjectID,
-		Tags:         job.Tags,
-		TriggeredBy:  domain.TriggerCron,
-		JobVersion:   job.Version,
-		JobVersionID: job.VersionID,
-		CreatedBy:    "system:cron",
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Tags:          job.Tags,
+		TriggeredBy:   domain.TriggerCron,
+		JobVersion:    job.Version,
+		JobVersionID:  job.VersionID,
+		CreatedBy:     "system:cron",
+		ExecutionMode: job.ExecutionMode,
+		QueueName:     job.Queue,
 	}
 
 	if job.RunTTLSecs > 0 {

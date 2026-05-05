@@ -506,6 +506,7 @@ type JobRun struct {
 	BatchID               string            `json:"batch_id,omitempty"`
 	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
 	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
+	QueueName             string            `json:"queue_name,omitempty"`
 	// IsRollback is retained for historical run records; always false for new runs.
 	IsRollback bool `json:"is_rollback,omitempty"`
 	// ReplayedRunID is set on a dead-letter run after it has been successfully

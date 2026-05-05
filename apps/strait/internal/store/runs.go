@@ -66,21 +66,25 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, metadata,
-			is_rollback
-		)
-		SELECT
-			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			$21, $22, $23,
-			$24::jsonb, $25, $26, $27, $28,
-			$29, $30::jsonb, $31
-		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
-		RETURNING created_at`
+				execution_mode, queue_name, metadata,
+				is_rollback
+			)
+			SELECT
+				$1, $2, $3, $4, $5, $6, $7, $8,
+				$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+				$21, $22, $23,
+				$24::jsonb, $25, $26, $27, $28,
+				$29, $30, $31::jsonb, $32
+			WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
+			RETURNING created_at`
 
 	execMode := run.ExecutionMode
 	if execMode == "" {
 		execMode = domain.ExecutionModeHTTP
+	}
+	queueName := run.QueueName
+	if queueName == "" {
+		queueName = defaultJobQueueName
 	}
 
 	err := q.db.QueryRow(
@@ -115,6 +119,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
+		queueName,
 		metadataJSON,
 		run.IsRollback,
 	).Scan(&run.CreatedAt)

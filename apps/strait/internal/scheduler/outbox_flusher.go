@@ -228,13 +228,15 @@ func rollbackAndReleaseSavepoint(ctx context.Context, tx pgx.Tx, name string) er
 
 func (f *OutboxFlusher) toJobRun(row store.OutboxRow) *domain.JobRun {
 	run := &domain.JobRun{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		JobID:       row.JobID,
-		ProjectID:   row.ProjectID,
-		Payload:     row.Payload,
-		Priority:    row.Priority,
-		ScheduledAt: row.ScheduledAt,
-		TriggeredBy: domain.TriggerManual,
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         row.JobID,
+		ProjectID:     row.ProjectID,
+		Payload:       row.Payload,
+		Priority:      row.Priority,
+		ScheduledAt:   row.ScheduledAt,
+		TriggeredBy:   domain.TriggerManual,
+		ExecutionMode: domain.ExecutionMode(row.ExecutionMode),
+		QueueName:     row.QueueName,
 	}
 	if row.IdempotencyKey != nil {
 		run.IdempotencyKey = *row.IdempotencyKey
