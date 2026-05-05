@@ -78,13 +78,14 @@ func claimOutboxOnConn(ctx context.Context, q outboxQuerier, limit int) ([]Outbo
 	rows, err := q.Query(ctx, `
 		SELECT eo.id, eo.project_id, eo.job_id, eo.payload, eo.metadata,
 		       eo.idempotency_key, eo.scheduled_at, eo.priority, eo.created_at, eo.retry_of_outbox_id,
-		       j.execution_mode, j.queue_name
+		       COALESCE(j.execution_mode, 'http'),
+		       COALESCE(NULLIF(j.queue_name, ''), 'default')
 		FROM enqueue_outbox eo
-		JOIN jobs j ON j.id = eo.job_id
+		LEFT JOIN jobs j ON j.id = eo.job_id
 		WHERE eo.consumed_at IS NULL
 		ORDER BY eo.created_at ASC
 		LIMIT $1
-		FOR UPDATE SKIP LOCKED
+		FOR UPDATE OF eo SKIP LOCKED
 	`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("claim outbox: %w", err)
