@@ -41,7 +41,8 @@ type Service struct {
 func NewService() *Service {
 	return &Service{
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(false),
 			// Refuse to follow redirects: the drain endpoint URL was
 			// validated against the SSRF allowlist, but a redirect
 			// target has not been. Following would let a compromised

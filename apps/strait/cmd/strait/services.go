@@ -18,6 +18,7 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
+	"strait/internal/httputil"
 	"strait/internal/logdrain"
 	"strait/internal/notification"
 	"strait/internal/pubsub"
@@ -333,7 +334,13 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 		return
 	}
 
-	httpClient := &http.Client{Timeout: 15 * time.Second}
+	httpClient := &http.Client{
+		Timeout:   15 * time.Second,
+		Transport: httputil.NewExternalTransport(cfg.AllowPrivateEndpoints),
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	notifWorker := notification.NewWorker(queries, httpClient)
 	if metrics != nil {
 		notifWorker.WithDeliveriesCounter(metrics.NotificationDeliveriesTotal)
@@ -622,6 +629,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		PartitionWeights:        partitionWeights,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
+		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 		JWTSigningKey:           cfg.JWTSigningKey,

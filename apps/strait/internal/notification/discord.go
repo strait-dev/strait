@@ -20,7 +20,13 @@ type DiscordSender struct {
 // NewDiscordSender creates a new DiscordSender with the given HTTP client.
 func NewDiscordSender(client *http.Client) *DiscordSender {
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(false),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	return &DiscordSender{client: client}
 }

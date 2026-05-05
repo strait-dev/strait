@@ -16,6 +16,7 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -190,6 +191,7 @@ type ExecutorConfig struct {
 	PartitionWeights           string
 	ExecutorHTTPTimeout        time.Duration
 	ExecutorIdleConnTimeout    time.Duration
+	AllowPrivateEndpoints      bool
 	WebhookMaxAttempts         int
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
@@ -263,11 +265,16 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		}
 		httpClient = &http.Client{
 			Timeout: execTimeout,
-			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     execIdleTimeout,
-				TLSHandshakeTimeout: 10 * time.Second,
+			Transport: func() *http.Transport {
+				transport := httputil.NewExternalTransport(cfg.AllowPrivateEndpoints)
+				transport.MaxIdleConns = 100
+				transport.MaxIdleConnsPerHost = 10
+				transport.IdleConnTimeout = execIdleTimeout
+				transport.TLSHandshakeTimeout = 10 * time.Second
+				return transport
+			}(),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
 			},
 		}
 	}

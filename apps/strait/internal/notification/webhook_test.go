@@ -6,13 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/jarcoal/httpmock"
@@ -692,5 +695,36 @@ func TestWebhookSender_DefaultRetryPolicy_429IsRetried(t *testing.T) {
 	}
 	if hits.Load() < 2 {
 		t.Fatalf("server hits = %d, want >= 2 (default policy should retry on 429)", hits.Load())
+	}
+}
+
+func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
+	var lookups atomic.Int32
+	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
+		if host != "rebind.test" {
+			return nil, fmt.Errorf("unexpected host lookup: %s", host)
+		}
+		if lookups.Add(1) == 1 {
+			return []string{"203.0.113.10"}, nil
+		}
+		return []string{"127.0.0.1"}, nil
+	})
+	t.Cleanup(restore)
+
+	sender := NewWebhookSender(nil, WithWebhookRetryPolicy(nil))
+	ch := newTestChannel("http://rebind.test/hook", "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{"ok":true}`))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := sender.Send(ctx, ch, del)
+	if err == nil {
+		t.Fatal("expected DNS rebinding attempt to be blocked")
+	}
+	if !strings.Contains(err.Error(), "private address") && !strings.Contains(err.Error(), "resolves to private") {
+		t.Fatalf("expected private-address rejection, got %v", err)
+	}
+	if lookups.Load() < 2 {
+		t.Fatalf("expected validation and dial-time DNS lookups, got %d", lookups.Load())
 	}
 }

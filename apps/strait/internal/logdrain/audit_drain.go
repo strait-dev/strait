@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/failsafe-go/failsafe-go"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
@@ -209,7 +210,8 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 		endpointSanitized: sanitizeSIEMEndpoint(endpoint),
 		authToken:         authToken,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: httputil.NewExternalTransport(false),
 			// SIEM endpoint URL is validated, but a redirect target is not.
 			// Refuse redirects to prevent SSRF pivots from a compromised
 			// or misconfigured SIEM receiver.

@@ -36,7 +36,13 @@ func WithWebhookRetryPolicy(p failsafe.Policy[*http.Response]) WebhookSenderOpti
 // NewWebhookSender creates a new WebhookSender with the given HTTP client.
 func NewWebhookSender(client *http.Client, opts ...WebhookSenderOption) *WebhookSender {
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(false),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 
 	w := &WebhookSender{

@@ -3,14 +3,17 @@ package logdrain
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 )
 
 func TestNewService_ClientTimeout(t *testing.T) {
@@ -18,6 +21,33 @@ func TestNewService_ClientTimeout(t *testing.T) {
 	svc := NewService()
 	if svc.client.Timeout != 10*time.Second {
 		t.Errorf("client.Timeout = %v, want 10s", svc.client.Timeout)
+	}
+}
+
+func TestDrainRunEvents_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
+	var lookups atomic.Int32
+	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
+		if host != "rebind.test" {
+			return nil, fmt.Errorf("unexpected host lookup: %s", host)
+		}
+		lookups.Add(1)
+		return []string{"127.0.0.1"}, nil
+	})
+	t.Cleanup(restore)
+
+	svc := NewService()
+	err := svc.DrainRunEvents(context.Background(), &domain.LogDrain{
+		EndpointURL: "http://rebind.test/drain",
+		AuthType:    "none",
+	}, []domain.RunEvent{{ID: "evt-1", RunID: "run-1"}})
+	if err == nil {
+		t.Fatal("expected DNS rebinding attempt to be blocked")
+	}
+	if !strings.Contains(err.Error(), "private address") && !strings.Contains(err.Error(), "resolves to private") {
+		t.Fatalf("expected private-address rejection, got %v", err)
+	}
+	if lookups.Load() == 0 {
+		t.Fatal("expected SSRF validation to resolve the drain host")
 	}
 }
 

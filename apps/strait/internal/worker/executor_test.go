@@ -21,6 +21,7 @@ import (
 	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
 	"strait/internal/testutil"
@@ -4638,5 +4639,32 @@ func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
 	}
 	if calls[0].to != domain.StatusCompleted {
 		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
+	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
+		if host != "rebind.test" {
+			return nil, fmt.Errorf("unexpected host lookup: %s", host)
+		}
+		return []string{"127.0.0.1"}, nil
+	})
+	t.Cleanup(restore)
+
+	exec := NewExecutor(ExecutorConfig{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := exec.dispatchToEndpoint(ctx, "http://rebind.test/hook", &domain.JobRun{
+		ID:      "run-ssrf",
+		JobID:   "job-ssrf",
+		Attempt: 1,
+		Payload: json.RawMessage(`{"ok":true}`),
+	}, nil)
+	if err == nil {
+		t.Fatal("expected SSRF-safe executor client to reject private DNS answer")
+	}
+	if !strings.Contains(err.Error(), "blocked private") && !strings.Contains(err.Error(), "resolves to private") {
+		t.Fatalf("expected private-address rejection, got %v", err)
 	}
 }
