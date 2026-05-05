@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+const defaultJobQueueName = "default"
+
 func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJob")
 	defer span.End()
@@ -36,6 +38,9 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	}
 	if job.CronOverlapPolicy == "" {
 		job.CronOverlapPolicy = domain.OverlapPolicyAllow
+	}
+	if job.Queue == "" {
+		job.Queue = defaultJobQueueName
 	}
 
 	query := `
@@ -250,6 +255,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	defer span.End()
 
 	newVersionID := domain.NewVersionID()
+	if job.Queue == "" {
+		job.Queue = defaultJobQueueName
+	}
 
 	query := `
 		WITH snapshot AS (

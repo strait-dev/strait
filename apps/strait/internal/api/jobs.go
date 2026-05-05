@@ -64,6 +64,8 @@ type CreateJobRequest struct {
 	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
 }
 
+const defaultJobQueueName = "default"
+
 type UpdateJobRequest struct {
 	Name                      *string            `json:"name,omitempty"`
 	Slug                      *string            `json:"slug,omitempty"`
@@ -173,7 +175,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchWindowSecs:           req.BatchWindowSecs,
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
-		Queue:                     req.QueueName,
+		Queue:                     normalizeJobQueueName(req.QueueName),
 		PreferredRegions:          req.PreferredRegions,
 		PoisonPillThreshold:       req.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
@@ -629,7 +631,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		if err := validateQueueName(*req.QueueName); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
-		job.Queue = *req.QueueName
+		job.Queue = normalizeJobQueueName(*req.QueueName)
 	}
 	if req.PreferredRegions != nil {
 		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
@@ -675,6 +677,12 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
+	if job.ExecutionMode == domain.ExecutionModeHTTP {
+		if err := validateEndpointNotEmpty(job.EndpointURL); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+	}
+	job.Queue = normalizeJobQueueName(job.Queue)
 
 	job.UpdatedBy = actorFromContext(ctx)
 
@@ -776,6 +784,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := requireProjectMatch(ctx, source.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, source.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	req := input.Body
 	if req.Name == "" || req.Slug == "" {
@@ -803,45 +814,61 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	}
 
 	clone := &domain.Job{
-		ProjectID:            source.ProjectID,
-		GroupID:              source.GroupID,
-		Name:                 req.Name,
-		Slug:                 req.Slug,
-		Description:          source.Description,
-		Cron:                 source.Cron,
-		PayloadSchema:        source.PayloadSchema,
-		Tags:                 source.Tags,
-		EndpointURL:          source.EndpointURL,
-		FallbackEndpointURL:  source.FallbackEndpointURL,
-		MaxAttempts:          source.MaxAttempts,
-		TimeoutSecs:          source.TimeoutSecs,
-		MaxConcurrency:       source.MaxConcurrency,
-		MaxConcurrencyPerKey: source.MaxConcurrencyPerKey,
-		ExecutionWindowCron:  source.ExecutionWindowCron,
-		Timezone:             source.Timezone,
-		RateLimitMax:         source.RateLimitMax,
-		RateLimitWindowSecs:  source.RateLimitWindowSecs,
-		DedupWindowSecs:      source.DedupWindowSecs,
-		WebhookURL:           source.WebhookURL,
-		WebhookSecret:        source.WebhookSecret,
-		RunTTLSecs:           source.RunTTLSecs,
-		RetryStrategy:        source.RetryStrategy,
-		RetryDelaysSecs:      source.RetryDelaysSecs,
-		RetryPriorityBoost:   source.RetryPriorityBoost,
-		EnvironmentID:        source.EnvironmentID,
-		DefaultRunMetadata:   source.DefaultRunMetadata,
-		ResultSchema:         source.ResultSchema,
-		DebounceWindowSecs:   source.DebounceWindowSecs,
-		BatchWindowSecs:      source.BatchWindowSecs,
-		BatchMaxSize:         source.BatchMaxSize,
-		Enabled:              true,
-		VersionPolicy:        source.VersionPolicy,
-		BackwardsCompatible:  source.BackwardsCompatible,
-		CronOverlapPolicy:    source.CronOverlapPolicy,
-		ExecutionMode:        source.ExecutionMode,
-		PreferredRegions:     source.PreferredRegions,
-		CreatedBy:            actorFromContext(ctx),
-		UpdatedBy:            actorFromContext(ctx),
+		ProjectID:                 source.ProjectID,
+		GroupID:                   source.GroupID,
+		Name:                      req.Name,
+		Slug:                      req.Slug,
+		Description:               source.Description,
+		Cron:                      source.Cron,
+		PayloadSchema:             source.PayloadSchema,
+		Tags:                      source.Tags,
+		EndpointURL:               source.EndpointURL,
+		FallbackEndpointURL:       source.FallbackEndpointURL,
+		MaxAttempts:               source.MaxAttempts,
+		TimeoutSecs:               source.TimeoutSecs,
+		MaxConcurrency:            source.MaxConcurrency,
+		MaxConcurrencyPerKey:      source.MaxConcurrencyPerKey,
+		ExecutionWindowCron:       source.ExecutionWindowCron,
+		Timezone:                  source.Timezone,
+		RateLimitMax:              source.RateLimitMax,
+		RateLimitWindowSecs:       source.RateLimitWindowSecs,
+		DedupWindowSecs:           source.DedupWindowSecs,
+		WebhookURL:                source.WebhookURL,
+		WebhookSecret:             source.WebhookSecret,
+		RunTTLSecs:                source.RunTTLSecs,
+		RetryStrategy:             source.RetryStrategy,
+		RetryDelaysSecs:           source.RetryDelaysSecs,
+		RetryPriorityBoost:        source.RetryPriorityBoost,
+		DLQAlertThreshold:         source.DLQAlertThreshold,
+		QueueDepthAlertThreshold:  source.QueueDepthAlertThreshold,
+		EnvironmentID:             source.EnvironmentID,
+		DefaultRunMetadata:        source.DefaultRunMetadata,
+		ResultSchema:              source.ResultSchema,
+		DebounceWindowSecs:        source.DebounceWindowSecs,
+		BatchWindowSecs:           source.BatchWindowSecs,
+		BatchMaxSize:              source.BatchMaxSize,
+		Enabled:                   true,
+		VersionPolicy:             source.VersionPolicy,
+		BackwardsCompatible:       source.BackwardsCompatible,
+		CronOverlapPolicy:         source.CronOverlapPolicy,
+		ExecutionMode:             source.ExecutionMode,
+		Queue:                     normalizeJobQueueName(source.Queue),
+		PreferredRegions:          source.PreferredRegions,
+		PoisonPillThreshold:       source.PoisonPillThreshold,
+		OnCompleteTriggerWorkflow: source.OnCompleteTriggerWorkflow,
+		OnCompleteTriggerJob:      source.OnCompleteTriggerJob,
+		OnCompletePayloadMapping:  source.OnCompletePayloadMapping,
+		OnFailureTriggerJob:       source.OnFailureTriggerJob,
+		OnFailureTriggerWorkflow:  source.OnFailureTriggerWorkflow,
+		OnFailurePayloadMapping:   source.OnFailurePayloadMapping,
+		MaxTokensPerRun:           source.MaxTokensPerRun,
+		MaxToolCallsPerRun:        source.MaxToolCallsPerRun,
+		MaxIterationsPerRun:       source.MaxIterationsPerRun,
+		AllowedTools:              source.AllowedTools,
+		BlockedTools:              source.BlockedTools,
+		EndpointSigningSecret:     source.EndpointSigningSecret,
+		CreatedBy:                 actorFromContext(ctx),
+		UpdatedBy:                 actorFromContext(ctx),
 	}
 
 	if err := s.store.CreateJob(ctx, clone); err != nil {
@@ -870,6 +897,13 @@ func validateQueueName(name string) error {
 		return fmt.Errorf("queue_name must match ^[A-Za-z0-9_-]{1,63}$")
 	}
 	return nil
+}
+
+func normalizeJobQueueName(name string) string {
+	if name == "" {
+		return defaultJobQueueName
+	}
+	return name
 }
 
 func validateTags(tags map[string]string) error {

@@ -361,19 +361,26 @@ func requireEnvironmentMatch(ctx context.Context, resourceEnvironmentID string) 
 // Returns an appropriate huma error if the caller does not own the run.
 // Internal callers (scheduler, worker) that operate without a project
 // context skip the check.
-func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
+func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.JobRun, error) {
 	if projectIDFromContext(ctx) == "" {
-		return nil // internal caller without project context
+		run, err := s.store.GetRun(ctx, runID)
+		if err != nil {
+			if errors.Is(err, store.ErrRunNotFound) {
+				return nil, huma.Error404NotFound("run not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to get run")
+		}
+		return run, nil
 	}
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			return huma.Error404NotFound("run not found")
+			return nil, huma.Error404NotFound("run not found")
 		}
-		return huma.Error500InternalServerError("failed to get run")
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return huma.Error404NotFound("run not found")
+		return nil, huma.Error404NotFound("run not found")
 	}
 	if env := environmentIDFromContext(ctx); env != "" {
 		// Environment scoping: an env-bound key must not reach a run
@@ -383,13 +390,18 @@ func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
 		// keys from pulling production telemetry.
 		job, jobErr := s.store.GetJob(ctx, run.JobID)
 		if jobErr != nil || job == nil {
-			return huma.Error404NotFound("run not found")
+			return nil, huma.Error404NotFound("run not found")
 		}
 		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
-			return huma.Error404NotFound("run not found")
+			return nil, huma.Error404NotFound("run not found")
 		}
 	}
-	return nil
+	return run, nil
+}
+
+func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
+	_, accessErr := s.getRunForAccess(ctx, runID)
+	return accessErr
 }
 
 func orgIDFromContext(ctx context.Context) string {

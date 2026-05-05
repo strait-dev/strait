@@ -27,30 +27,9 @@ type GetRunOutput struct {
 }
 
 func (s *Server) handleGetRun(ctx context.Context, input *GetRunInput) (*GetRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
-	}
-	if env := environmentIDFromContext(ctx); env != "" {
-		// Run-level access for environment-scoped keys is gated on the
-		// owning job's environment; the run row itself does not carry
-		// EnvironmentID, so we resolve via run.JobID. Mirrors the same
-		// 404-on-mismatch behavior used at the job level to avoid
-		// leaking the existence of resources in other environments.
-		job, jobErr := s.store.GetJob(ctx, run.JobID)
-		if jobErr != nil || job == nil {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
-			return nil, huma.Error404NotFound("run not found")
-		}
+		return nil, err
 	}
 
 	return &GetRunOutput{Body: run}, nil
@@ -175,13 +154,18 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	var runs []domain.JobRun
-	if tagKey != "" {
-		runs, err = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, limit+1, cursor)
+	var (
+		runs    []domain.JobRun
+		listErr error
+	)
+	if environmentIDFromContext(ctx) != "" {
+		runs, listErr = s.listRunsForEnvironment(ctx, projectID, tagKey, tagValue, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+	} else if tagKey != "" {
+		runs, listErr = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, limit+1, cursor)
 	} else {
-		runs, err = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+		runs, listErr = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
 	}
-	if err != nil {
+	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list runs")
 	}
 
@@ -203,16 +187,9 @@ type CancelRunOutput struct {
 }
 
 func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*CancelRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if run.Status.IsTerminal() {
@@ -319,16 +296,9 @@ type GetRunDependencyStatusOutput struct {
 }
 
 func (s *Server) handleGetRunDependencyStatus(ctx context.Context, input *GetRunDependencyStatusInput) (*GetRunDependencyStatusOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	deps, err := s.store.ListJobDependencies(ctx, run.JobID, 1000, nil)
@@ -362,16 +332,9 @@ type ReplayRunOutput struct {
 }
 
 func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*ReplayRunOutput, error) {
-	originalRun, err := s.store.GetRun(ctx, input.RunID)
+	originalRun, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, originalRun.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if !isReplayableRunStatus(originalRun.Status) {
@@ -584,15 +547,8 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 			}
 		}
 		for _, runID := range req.RunIDs {
-			run, err := s.store.GetRun(ctx, runID)
-			if err != nil {
-				if errors.Is(err, store.ErrRunNotFound) {
-					return nil, huma.Error404NotFound("run not found: " + runID)
-				}
-				return nil, huma.Error500InternalServerError("failed to get run")
-			}
-			if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-				return nil, huma.Error404NotFound("run not found: " + runID)
+			if _, err := s.getRunForAccess(ctx, runID); err != nil {
+				return nil, err
 			}
 		}
 	} else {
@@ -610,13 +566,20 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		}
 	}
 
-	// Scope bulk replay to the caller's project when using project_id mode.
-	effectiveProjectID := req.ProjectID
-	if effectiveProjectID == "" {
-		effectiveProjectID = projectIDFromContext(ctx)
+	var (
+		runs []domain.JobRun
+		err  error
+	)
+	if !hasRunIDs && environmentIDFromContext(ctx) != "" {
+		runs, err = s.bulkReplayDeadLetterRunsForEnvironment(ctx, projectIDFromContext(ctx), req.Limit)
+	} else {
+		// Scope bulk replay to the caller's project when using project_id mode.
+		effectiveProjectID := req.ProjectID
+		if effectiveProjectID == "" {
+			effectiveProjectID = projectIDFromContext(ctx)
+		}
+		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
 	}
-
-	runs, err := s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
 	if err != nil {
 		errMsg := err.Error()
 		switch {
@@ -637,7 +600,7 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunBulkReplayedDeadletter, "run", "", map[string]any{
 		"count":      len(runs),
-		"project_id": effectiveProjectID,
+		"project_id": projectIDFromContext(ctx),
 		"run_ids":    req.RunIDs,
 	})
 
@@ -828,16 +791,9 @@ func (s *Server) handleRescheduleRun(ctx context.Context, input *RescheduleRunIn
 		return nil, newValidationError(err)
 	}
 
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if err := s.store.RescheduleRun(ctx, input.RunID, req.ScheduledAt, req.Payload); err != nil {
@@ -893,12 +849,8 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 	replayed := 0
 
 	for _, runID := range req.RunIDs {
-		original, err := s.store.GetRun(ctx, runID)
+		original, err := s.getRunForAccess(ctx, runID)
 		if err != nil {
-			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
-			continue
-		}
-		if err := requireProjectMatch(ctx, original.ProjectID); err != nil {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
 			continue
 		}
@@ -964,16 +916,9 @@ type PauseRunOutput struct {
 }
 
 func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*PauseRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if run.Status == domain.StatusPaused {
@@ -1012,16 +957,9 @@ type ResumeRunOutput struct {
 }
 
 func (s *Server) handleResumeRun(ctx context.Context, input *ResumeRunInput) (*ResumeRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if run.Status != domain.StatusPaused {
@@ -1062,16 +1000,9 @@ type RestartRunOutput struct {
 type restartRunRequest struct{}
 
 func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (*RestartRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
@@ -1109,4 +1040,119 @@ func parseBracketParam(param, prefix string) (string, bool) {
 		return "", false
 	}
 	return key, true
+}
+
+func (s *Server) listRunsForEnvironment(
+	ctx context.Context,
+	projectID, tagKey, tagValue string,
+	status *domain.RunStatus,
+	metadataKey, metadataValue, triggeredBy, batchID *string,
+	payloadContains json.RawMessage,
+	executionMode *domain.ExecutionMode,
+	errorClass *string,
+	limit int,
+	cursor *time.Time,
+) ([]domain.JobRun, error) {
+	jobEnvCache := make(map[string]bool)
+	filtered := make([]domain.JobRun, 0, limit)
+	pageCursor := cursor
+	fetchLimit := max(limit, 25)
+
+	for {
+		var (
+			page []domain.JobRun
+			err  error
+		)
+		if tagKey != "" {
+			page, err = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, fetchLimit, pageCursor)
+		} else {
+			page, err = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, fetchLimit, pageCursor)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return filtered, nil
+		}
+
+		for _, run := range page {
+			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+			if err != nil {
+				return nil, err
+			}
+			if allowed {
+				filtered = append(filtered, run)
+				if len(filtered) >= limit {
+					return filtered, nil
+				}
+			}
+		}
+
+		if len(page) < fetchLimit {
+			return filtered, nil
+		}
+		lastCreatedAt := page[len(page)-1].CreatedAt
+		pageCursor = &lastCreatedAt
+	}
+}
+
+func (s *Server) runMatchesEnvironment(ctx context.Context, run domain.JobRun, jobEnvCache map[string]bool) (bool, error) {
+	if environmentIDFromContext(ctx) == "" {
+		return true, nil
+	}
+	if allowed, ok := jobEnvCache[run.JobID]; ok {
+		return allowed, nil
+	}
+
+	job, err := s.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return false, err
+	}
+	if job == nil {
+		return false, huma.Error404NotFound("run not found")
+	}
+
+	allowed := requireEnvironmentMatch(ctx, job.EnvironmentID) == nil
+	jobEnvCache[run.JobID] = allowed
+	return allowed, nil
+}
+
+func (s *Server) bulkReplayDeadLetterRunsForEnvironment(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+	cursor := (*time.Time)(nil)
+	jobEnvCache := make(map[string]bool)
+	runIDs := make([]string, 0, limit)
+
+	for len(runIDs) < limit {
+		page, err := s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+
+		for _, run := range page {
+			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+			if err != nil {
+				return nil, err
+			}
+			if allowed {
+				runIDs = append(runIDs, run.ID)
+				if len(runIDs) >= limit {
+					break
+				}
+			}
+		}
+
+		if len(page) < limit+1 {
+			break
+		}
+		lastCreatedAt := page[len(page)-1].CreatedAt
+		cursor = &lastCreatedAt
+	}
+
+	if len(runIDs) == 0 {
+		return []domain.JobRun{}, nil
+	}
+	return s.store.BulkReplayDeadLetterRuns(ctx, runIDs, "", 0)
 }
