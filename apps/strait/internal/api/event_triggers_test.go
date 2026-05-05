@@ -1574,10 +1574,12 @@ func TestValidateEventKey(t *testing.T) {
 	}
 }
 
-// SSE stream: query param auth works for browser EventSource clients.
-func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
+// SSE stream: raw API keys in query params are rejected to avoid credential
+// leakage through browser history, logs, and referrers.
+func TestHandleEventTriggerStream_RawQueryParamAuthRejected(t *testing.T) {
 	t.Parallel()
 
+	keyLookupCalled := false
 	ms := &APIStoreMock{
 		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
@@ -1588,6 +1590,7 @@ func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 			}, nil
 		},
 		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			keyLookupCalled = true
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1"}, nil
 		},
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
@@ -1595,16 +1598,15 @@ func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 
 	srv := newEventTriggersTestServer(t, ms, nil)
 
-	// No Authorization header — token in query param instead.
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/qp-key/stream?token=strait_testapikey123", nil)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "event: status") {
-		t.Fatalf("expected SSE event, got: %s", rr.Body.String())
+	if keyLookupCalled {
+		t.Fatal("raw query API key should be rejected before store lookup")
 	}
 }
 
