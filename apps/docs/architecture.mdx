@@ -123,56 +123,26 @@ For the full lifecycle diagram and state transition details, see [Runs](/concept
 
 ## Authentication
 
-Strait uses two authentication schemes:
+There are two auth schemes. The management API at `/v1/*` uses an `Authorization: Bearer <INTERNAL_SECRET>` header — a simple string compare, fast enough for job CRUD, triggering, and run management. The SDK API at `/sdk/v1/*` uses HS256 JWTs signed with `JWT_SIGNING_KEY`. The token's `sub` is the run ID, `exp` is the job's timeout plus 60 seconds, and validation is stateless.
 
-<Tabs>
-  <Tab title="Internal Secret">
-    Used for management API (`/v1/*`). Requires `Authorization: Bearer <INTERNAL_SECRET>` header. Simple string comparison provides fast auth for job CRUD, triggering, and run management.
-  </Tab>
-  <Tab title="Run Token">
-    Used for SDK API (`/sdk/v1/*`). Uses JWT HS256 signed with `JWT_SIGNING_KEY`. Token contains `sub` (runID), `exp` (timeout + 60s), and `iat`. Stateless auth—server validates signature on each request.
-  </Tab>
-</Tabs>
+## Execution lifecycle
 
-## Execution Lifecycle
+A run starts when you POST to `/v1/jobs/{id}/trigger`. Strait checks the project's cost budget, creates a `job_run` row (`queued` if it's runnable now, `delayed` if it has a future `scheduled_at`), and mints a run token. A worker eventually claims the run from the queue and submits it to the worker pool. In-flight runs keep going even during shutdown, and a background heartbeat is what lets the reaper notice when one stops making progress.
 
-<Steps>
-  <Step title="Trigger">
-    You send a POST to `/v1/jobs/{id}/trigger`. Strait checks your cost budget, creates a job run (status `queued` or `delayed`), and generates a run token.
-  </Step>
-  <Step title="Dequeue">
-    A worker claims available runs from the queue and begins processing them.
-  </Step>
-  <Step title="Execute">
-    The run is submitted to the worker pool. In-flight jobs continue to completion even if Strait is shutting down. A background process sends heartbeats so the system can detect stalled runs.
-  </Step>
-  <Step title="Resolve Environment">
-    If your job has an `environment_id`, the executor resolves environment variables. For HTTP-mode jobs it checks for `ENDPOINT_URL` overrides and validates URLs to block requests to private or loopback networks.
-  </Step>
-  <Step title="Dispatch">
-    The executor branches on the job's `execution_mode`:
+Before dispatching, the executor resolves the run's environment. For HTTP-mode jobs that means looking up environment variables, applying any `ENDPOINT_URL` override, and validating the destination — the SSRF guard rejects private IP space and loopback by default.
 
-    - **HTTP (default)** — sends an HTTP POST to the resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
-    - **Worker (gRPC)** — matches a connected worker whose registered job slugs include the run's job, streams the run payload and SDK token over the bidirectional gRPC channel, and waits for the worker to stream the result back. Disconnected workers are detected by the heartbeat sweep and their in-flight runs are reclaimed.
+Dispatch then branches on the job's `execution_mode`:
 
-    Either way, the customer's own infrastructure runs the job code; Strait only orchestrates the dispatch.
-  </Step>
-  <Step title="Execution Tracing">
-    Strait captures a timing breakdown for each run: queue wait, dequeue, connection, time-to-first-byte, transfer, and total duration. Stored on the run for debugging and performance analysis.
-  </Step>
-  <Step title="Result Handling">
-    2xx response -> status=completed, store result. Non-2xx -> schedule retry using job's retry_strategy or mark failed. Timeout -> retry or timed_out. Adaptive timeout adjustment applied.
-  </Step>
-  <Step title="Review Queue">
-    If the run has exhausted all retry attempts, it moves to the review queue instead of staying as failed. You can replay these runs via the review queue endpoint.
-  </Step>
-  <Step title="Webhook">
-    Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/concepts/webhooks) for the full delivery lifecycle.
-  </Step>
-  <Step title="PubSub">
-    State change published to Redis channel `run:{runID}` for SSE streaming.
-  </Step>
-</Steps>
+- **HTTP (default)** — POST the payload to the resolved endpoint. The request carries `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token` headers and a JSON body with the job payload and metadata.
+- **Worker (gRPC)** — find a connected worker that has registered the run's job slug, push the payload and run token over the bidirectional gRPC channel, and wait for the worker to stream the result back. If the worker disconnects, the heartbeat sweep notices and reclaims its in-flight runs.
+
+In both modes, customer code runs on customer infrastructure. Strait only routes the dispatch and records the result.
+
+For each run, the executor captures a per-stage timing breakdown — queue wait, dequeue, connection, time-to-first-byte, transfer, total — and stores it on the run for debugging.
+
+A 2xx response transitions the run to `completed` and stores the result. Anything else schedules a retry using the job's retry strategy, or marks the run `failed` if attempts are exhausted. Timeouts are retried until they hit `max_attempts`, then transition to `timed_out`. Once `max_attempts` is reached, the run moves to the review queue rather than sitting as a permanent failure — you can inspect it and replay it from there.
+
+When a run reaches a terminal state, Strait fires the configured webhook. Job-run webhooks retry up to 3 times with exponential backoff. Event-trigger webhooks are durable: deliveries are persisted in `webhook_deliveries`, retried up to 5 times with exponential backoff, and survive process restarts. The full delivery lifecycle lives in [Webhooks](/concepts/webhooks). Every state change is also published on the Redis channel `run:{runID}` so SSE consumers see it immediately.
 
 ## Workflow Engine
 
@@ -182,29 +152,11 @@ Workflows support conditional branching, data flow between steps via template va
 
 For step types, conditions, data flow, and recovery controls, see [Workflows](/concepts/workflows). For scheduler behavior and explainability, see [DAG Runtime](/concepts/dag-runtime).
 
-## Graceful Shutdown
+## Graceful shutdown
 
-The shutdown sequence protects in-flight work:
+Strait catches SIGINT and SIGTERM and propagates cancellation everywhere. The worker polling loop exits but the pool blocks until in-flight runs complete. The scheduler stops the cron ticker, the delayed poller, and the reaper, so nothing new is enqueued. The HTTP server drains for up to ten seconds. Database and Redis connections close, metric exporters flush, and the process exits.
 
-<Steps>
-  <Step title="Signal Capture">
-    Strait captures SIGINT and SIGTERM. Cancellation propagates to all subsystems.
-  </Step>
-  <Step title="Worker Pool Shutdown">
-    The worker polling loop exits. The pool blocks until all in-flight jobs complete.
-  </Step>
-  <Step title="Scheduler Shutdown">
-    Cron ticker stops, delayed poller exits, reaper stops. No new jobs scheduled.
-  </Step>
-  <Step title="HTTP Server Shutdown">
-    Server shuts down with 10-second grace period to drain in-flight HTTP requests.
-  </Step>
-  <Step title="Resource Cleanup">
-    Database and Redis connections close. Metric exporters flush remaining data.
-  </Step>
-</Steps>
-
-Jobs already executing when shutdown begins are allowed to complete and record their results. This prevents partial execution and data loss during deployments.
+Runs that were already executing when shutdown started run to completion and record their results. That's what keeps deploys from corrupting in-flight work.
 
 ## Observability
 
@@ -241,40 +193,15 @@ Structured JSON logging via `log/slog` captures events with consistent fields:
 
 Logs are human-readable in development and machine-parseable in production for log aggregation systems.
 
-## Scheduler Background Tasks
+## Scheduler background tasks
 
-The scheduler runs several background processes:
+The scheduler runs five loops:
 
-<Tabs>
-  <Tab title="Cron Scheduler">
-    Every second, checks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Supports cron expressions, timezones, and execution windows.
-  </Tab>
-  <Tab title="Delayed Poller">
-    Polls every 5 seconds for delayed runs whose `scheduled_at` time has arrived and transitions them to `queued`. Use this for one-off delayed runs instead of cron schedules.
-  </Tab>
-  <Tab title="Stale Reaper">
-    Polls on the configured reaper interval and performs multiple stale-recovery passes:
-    - **Stale claimed runs**: re-queues runs stuck after claiming
-    - **Stale executing runs**: marks runs as `crashed` on heartbeat loss
-    - **Stalled workflow runs**: detects workflow runs with no progression for `WF_STALL_THRESHOLD` and applies `WF_STALL_ACTION` (`log_only`, `reconcile`, or `fail_workflow`)
-    - **Timed out workflow runs**: marks workflow run `timed_out`, cancels non-terminal steps/job runs, and cancels pending event triggers
-  </Tab>
-  <Tab title="Event Trigger Reaper">
-    Polls every 30 seconds for expired event triggers (still `waiting` past their `expires_at`). Transitions them to `timed_out` and triggers step failure. Also handles:
-    - **Sleep triggers**: Completes sleep steps when their duration expires
-    - **Inconsistent triggers**: Finds `received` triggers with still-`waiting` steps/runs (30s grace period) and re-resolves them
-    - **Expired approvals**: Fails approval steps past their timeout
-
-    In multi-instance deployments, only one instance runs the reaper at a time using database-level coordination. Other instances skip the cycle and try again on the next interval.
-  </Tab>
-  <Tab title="Retention Worker">
-    Every hour, deletes terminal runs based on retention policy:
-    - completed/failed/canceled/expired: 30 days
-    - timed_out/crashed/system_failed: 90 days
-    - event triggers: configurable via `EVENT_TRIGGER_RETENTION`
-    Deletes in batches for efficient cleanup.
-  </Tab>
-</Tabs>
+- **Cron** — every second, looks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Cron expressions, timezones, and execution windows are all evaluated here.
+- **Delayed poller** — every 5 seconds, picks up runs whose `scheduled_at` has passed and transitions them from `delayed` to `queued`. This is what powers one-off delayed runs.
+- **Stale reaper** — runs on a configurable interval and does several passes: re-queues runs stuck in `claimed`, marks runs `crashed` after heartbeat loss, detects workflow runs that haven't progressed for `WF_STALL_THRESHOLD` and applies `WF_STALL_ACTION` (`log_only`, `reconcile`, or `fail_workflow`), and times out workflow runs that have outlived their budget — cancelling their steps, job runs, and pending event triggers.
+- **Event trigger reaper** — every 30 seconds. Times out expired event triggers, completes sleep triggers when their duration is up, fails expired approvals, and re-resolves `received` triggers whose downstream steps are still `waiting` after a 30-second grace window. In multi-instance deployments, only one instance runs the reaper per cycle; the others skip via database-level coordination.
+- **Retention worker** — every hour, deletes terminal runs in batches: 30 days for `completed` / `failed` / `canceled` / `expired`, 90 days for `timed_out` / `crashed` / `system_failed`, and event triggers on the schedule set by `EVENT_TRIGGER_RETENTION`.
 
 ## Health Endpoints
 
