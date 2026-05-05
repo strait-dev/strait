@@ -1459,9 +1459,12 @@ func TestWithHTTPTransport_DefaultValues(t *testing.T) {
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default())
 
-	// Without WithHTTPTransport, client should have nil Transport (uses default).
-	if worker.client.Transport != nil {
-		t.Error("expected nil Transport (Go default) when WithHTTPTransport is not used")
+	transport, ok := worker.client.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatalf("expected default client to use SSRF-safe *http.Transport, got %T", worker.client.Transport)
+	}
+	if worker.client.CheckRedirect == nil {
+		t.Fatal("expected default client to reject redirects")
 	}
 }
 
@@ -3897,7 +3900,10 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 		t.Fatalf("create delivery: %v", err)
 	}
 
-	worker := NewDeliveryWorker(ms, slog.Default())
+	worker := NewDeliveryWorker(ms, slog.Default(),
+		WithAllowPrivateEndpoints(true),
+		WithHTTPTransport(5*time.Second, time.Second, 2, 2),
+	)
 	worker.processBatch(context.Background())
 
 	if receivedSigHeader == "" {

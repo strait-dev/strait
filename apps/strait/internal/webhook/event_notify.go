@@ -225,7 +225,7 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 	w := &DeliveryWorker{
 		// Per-request timeout via context; see attemptDelivery. Redirect
 		// following is disabled to keep the SSRF guard intact on every hop.
-		client:             &http.Client{CheckRedirect: noFollowRedirects},
+		client:             &http.Client{Transport: httputil.NewExternalTransport(false), CheckRedirect: noFollowRedirects},
 		store:              store,
 		logger:             logger,
 		concurrency:        defaultDeliveryConcurrency,
