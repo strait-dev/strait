@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -24,6 +25,7 @@ type fakeWorkerDispatcher struct {
 
 	statusOf map[any]string
 	errorOf  map[any]string
+	outputOf map[any]json.RawMessage
 }
 
 func (f *fakeWorkerDispatcher) WorkerDispatch(_ context.Context, _ *domain.JobRun, _ *domain.Job) (any, error) {
@@ -45,6 +47,13 @@ func (f *fakeWorkerDispatcher) ResultError(opaque any) string {
 	return f.errorOf[opaque]
 }
 
+func (f *fakeWorkerDispatcher) ResultOutput(opaque any) json.RawMessage {
+	if f.outputOf == nil {
+		return nil
+	}
+	return f.outputOf[opaque]
+}
+
 type blockingWorkerDispatcher struct {
 	started chan struct{}
 	release chan struct{}
@@ -59,6 +68,8 @@ func (b *blockingWorkerDispatcher) WorkerDispatch(_ context.Context, _ *domain.J
 func (b *blockingWorkerDispatcher) ResultStatus(any) string { return "success" }
 
 func (b *blockingWorkerDispatcher) ResultError(any) string { return "" }
+
+func (b *blockingWorkerDispatcher) ResultOutput(any) json.RawMessage { return nil }
 
 func newWorkerModeExecutor(t *testing.T, store *mockExecutorStore, dispatcher WorkerRunDispatcher) (*Executor, *mockWorkerPublisher, *mockWorkflowCallback) {
 	t.Helper()
@@ -125,6 +136,51 @@ func TestExecuteWorkerMode_SuccessRoutesToHandleSuccess(t *testing.T) {
 	if !gotCompleted {
 		t.Fatalf("expected transition to completed, got updates: %+v", updates)
 	}
+}
+
+func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
+	t.Parallel()
+	successOpaque := struct{ tag string }{tag: "output"}
+	wantOutput := json.RawMessage(`{"answer":42}`)
+	dispatcher := &fakeWorkerDispatcher{
+		opaque:   successOpaque,
+		statusOf: map[any]string{successOpaque: "success"},
+		outputOf: map[any]json.RawMessage{successOpaque: wantOutput},
+	}
+
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return workerModeJob(3), nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, dispatcher)
+
+	run := testRun(1)
+	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
+
+	waitForCondition(t, 2*time.Second, func() bool {
+		for _, u := range ms.statusUpdates() {
+			if u.to == domain.StatusCompleted {
+				return true
+			}
+		}
+		return false
+	}, "completed transition")
+
+	for _, u := range ms.statusUpdates() {
+		if u.to != domain.StatusCompleted {
+			continue
+		}
+		got, ok := u.fields["result"].(json.RawMessage)
+		if !ok {
+			t.Fatalf("completed fields missing json result: %+v", u.fields)
+		}
+		if string(got) != string(wantOutput) {
+			t.Fatalf("result = %s, want %s", got, wantOutput)
+		}
+		return
+	}
+	t.Fatal("completed transition not found")
 }
 
 // TestExecuteWorkerMode_FailedStatusRoutesToHandleFailure verifies that a

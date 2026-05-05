@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -309,6 +310,21 @@ func TaskResultError(opaque any) string {
 	return r.ErrorMessage
 }
 
+// TaskResultOutput returns output_json from an opaque TaskResult.
+// A copy is returned so callers can safely retain it after the proto object is reused.
+func TaskResultOutput(opaque any) json.RawMessage {
+	if opaque == nil {
+		return nil
+	}
+	r, ok := opaque.(*workerv1.TaskResult)
+	if !ok || len(r.OutputJson) == 0 {
+		return nil
+	}
+	out := make([]byte, len(r.OutputJson))
+	copy(out, r.OutputJson)
+	return json.RawMessage(out)
+}
+
 // ResultStatus implements worker.WorkerRunDispatcher by delegating to
 // TaskResultStatus. Defined as a method so the worker package can extract
 // the status from the opaque result without importing grpc proto types.
@@ -320,4 +336,10 @@ func (d *WorkerDispatcher) ResultStatus(opaque any) string {
 // TaskResultError.
 func (d *WorkerDispatcher) ResultError(opaque any) string {
 	return TaskResultError(opaque)
+}
+
+// ResultOutput implements worker.WorkerRunDispatcher by delegating to
+// TaskResultOutput.
+func (d *WorkerDispatcher) ResultOutput(opaque any) json.RawMessage {
+	return TaskResultOutput(opaque)
 }

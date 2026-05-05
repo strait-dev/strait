@@ -900,10 +900,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	// Also report to Stripe.
 	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
 
-	// Output extraction is not yet implemented: the worker SDK handles payload
-	// routing in-band and the dispatcher does not surface it. A nil result here
-	// produces an empty json.RawMessage which handleSuccess accepts.
-	var runResult json.RawMessage
+	runResult := e.workerDispatcher.ResultOutput(result)
 	e.handleSuccess(ctx, run, job, runResult, nil)
 }
 

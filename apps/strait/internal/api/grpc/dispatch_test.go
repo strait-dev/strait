@@ -165,6 +165,38 @@ func TestTaskResultError_Nil(t *testing.T) {
 	}
 }
 
+func TestTaskResultOutput_HappyPathCopiesPayload(t *testing.T) {
+	result := &workerv1.TaskResult{RunId: "r1", Status: "success", OutputJson: []byte(`{"ok":true}`)}
+	got := TaskResultOutput(result)
+	if string(got) != `{"ok":true}` {
+		t.Fatalf("TaskResultOutput() = %s, want output payload", got)
+	}
+
+	result.OutputJson[6] = 'f'
+	if string(got) != `{"ok":true}` {
+		t.Fatalf("TaskResultOutput returned aliased payload: %s", got)
+	}
+}
+
+func TestTaskResultOutput_NilWrongTypeAndEmpty(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+	}{
+		{name: "nil", input: nil},
+		{name: "wrong type", input: "not a TaskResult"},
+		{name: "empty output", input: &workerv1.TaskResult{RunId: "r1", Status: "success"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TaskResultOutput(tt.input); got != nil {
+				t.Fatalf("TaskResultOutput() = %s, want nil", got)
+			}
+		})
+	}
+}
+
 // TestWorkerDispatch_NoWorkerAvailable verifies ErrNoWorkerAvailable when registry is empty.
 func TestWorkerDispatch_NoWorkerAvailable(t *testing.T) {
 	registry := NewConnectionRegistry()

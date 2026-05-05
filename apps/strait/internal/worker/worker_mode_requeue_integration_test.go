@@ -4,6 +4,7 @@ package worker_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync/atomic"
@@ -27,6 +28,8 @@ func (noWorkerAvailableDispatcher) ResultStatus(any) string { return "" }
 
 func (noWorkerAvailableDispatcher) ResultError(any) string { return "" }
 
+func (noWorkerAvailableDispatcher) ResultOutput(any) json.RawMessage { return nil }
+
 type staticQueueSnapshotter struct {
 	queues []string
 }
@@ -47,6 +50,10 @@ func (d *successfulWorkerDispatcher) WorkerDispatch(context.Context, *domain.Job
 func (*successfulWorkerDispatcher) ResultStatus(any) string { return "success" }
 
 func (*successfulWorkerDispatcher) ResultError(any) string { return "" }
+
+func (*successfulWorkerDispatcher) ResultOutput(any) json.RawMessage {
+	return json.RawMessage(`{"ok":true}`)
+}
 
 func mustCreateWorkerModeJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
 	t.Helper()
@@ -131,6 +138,13 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 		}
 		if dispatcher.calls.Load() == 0 {
 			t.Fatal("worker dispatcher was not called")
+		}
+		var result map[string]bool
+		if err := json.Unmarshal(got.Result, &result); err != nil {
+			t.Fatalf("worker result is not valid JSON: %s: %v", got.Result, err)
+		}
+		if !result["ok"] {
+			t.Fatalf("worker result = %s, want persisted output_json", got.Result)
 		}
 		cancel()
 		return

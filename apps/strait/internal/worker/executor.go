@@ -91,6 +91,9 @@ type WorkerRunDispatcher interface {
 	// ResultError extracts the error message from a failed TaskResult.
 	// Returns "" for nil, wrong type, or empty error_message.
 	ResultError(opaque any) string
+	// ResultOutput extracts output_json from a successful TaskResult.
+	// Returns nil for nil, wrong type, or empty output_json.
+	ResultOutput(opaque any) json.RawMessage
 }
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
