@@ -193,7 +193,7 @@ func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID str
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
 		FROM audit_events_deadletter
-		WHERE id = $1 AND project_id = $2
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
 	`, id, projectID).Scan(
 		&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
 		&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
@@ -313,12 +313,15 @@ func (q *Queries) MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEv
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkAuditDeadletterReclaimed")
 	defer span.End()
 
-	_, err := q.db.Exec(ctx,
+	tag, err := q.db.Exec(ctx,
 		`UPDATE audit_events_deadletter SET reclaimed_event_id = $2 WHERE id = $1`,
 		dlqID, newEventID,
 	)
 	if err != nil {
 		return fmt.Errorf("mark audit deadletter reclaimed: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("mark audit deadletter reclaimed: no row matched id=%s", dlqID)
 	}
 	return nil
 }

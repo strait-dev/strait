@@ -214,12 +214,14 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 		return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
 	}
 	if markErr := s.store.MarkAuditDeadletterReclaimed(ctx, input.ID, newEvent.ID); markErr != nil {
-		slog.Warn("failed to mark deadletter as reclaimed",
+		slog.Error("failed to mark deadletter as reclaimed",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", markErr)
+		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
 	}
 	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		slog.Warn("audit deadletter delete failed after successful chain insert",
+		slog.Error("audit deadletter delete failed after successful chain insert",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", delErr)
+		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{

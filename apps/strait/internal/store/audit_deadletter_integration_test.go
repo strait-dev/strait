@@ -91,13 +91,13 @@ func TestAuditDeadletter_AttemptCountIncrement(t *testing.T) {
 	q := mustStore(t)
 
 	ev := &domain.AuditEvent{
-		ID:           "dlq-attempt-1",
-		ProjectID:    "proj-attempt",
-		ActorID:      "a", ActorType: "user",
+		ID:        "dlq-attempt-1",
+		ProjectID: "proj-attempt",
+		ActorID:   "a", ActorType: "user",
 		Action:       domain.AuditActionJobTriggered,
 		ResourceType: "job", ResourceID: "j1",
-		Details:      json.RawMessage(`{"run_id":"r1"}`),
-		CreatedAt:    time.Now().UTC(),
+		Details:   json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 3); err != nil {
 		t.Fatalf("CreateAuditEventDeadletter: %v", err)
@@ -136,19 +136,26 @@ func TestAuditDeadletter_MarkReclaimed_PersistsMarker(t *testing.T) {
 	q := mustStore(t)
 
 	ev := &domain.AuditEvent{
-		ID:           "dlq-marker-1",
-		ProjectID:    "proj-marker",
-		ActorID:      "a", ActorType: "user",
+		ID:        "dlq-marker-1",
+		ProjectID: "proj-marker",
+		ActorID:   "a", ActorType: "user",
 		Action:       domain.AuditActionJobTriggered,
 		ResourceType: "job", ResourceID: "j1",
-		Details:      json.RawMessage(`{"run_id":"r1"}`),
-		CreatedAt:    time.Now().UTC(),
+		Details:   json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
 		t.Fatalf("CreateAuditEventDeadletter: %v", err)
 	}
 	if err := q.MarkAuditDeadletterReclaimed(ctx, "dlq-marker-1", "ev-new-1"); err != nil {
 		t.Fatalf("Mark: %v", err)
+	}
+	got, err := q.GetAuditEventDeadletter(ctx, "dlq-marker-1", "proj-marker")
+	if err != nil {
+		t.Fatalf("GetAuditEventDeadletter after reclaim marker: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetAuditEventDeadletter returned reclaimed row %+v; replay fetch must hide it", got)
 	}
 
 	_, _, infos, err := q.ListAuditEventsDeadletterWithAttempts(ctx, 100)
