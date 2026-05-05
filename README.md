@@ -145,7 +145,6 @@ apps/
   strait/   Go service — API, worker, scheduler, all in one binary
   app/      TanStack Start dashboard (React 19, Vite)
   docs/     Mintlify docs
-  website/  Marketing site
 packages/   Shared TS packages (ui, billing, config, transactional, …)
 docker-compose.selfhost.yml   One-command self-host stack
 SELFHOST.md                   Self-host walkthrough
