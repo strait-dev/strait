@@ -882,7 +882,7 @@ type APIStoreMock struct {
 	AggregateCostStatsHourlyFunc func(ctx context.Context, hour time.Time) error
 
 	// ApproveDeviceCodeFunc mocks the ApproveDeviceCode method.
-	ApproveDeviceCodeFunc func(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string) error
+	ApproveDeviceCodeFunc func(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error
 
 	// AreAllDescendantsTerminalFunc mocks the AreAllDescendantsTerminal method.
 	AreAllDescendantsTerminalFunc func(ctx context.Context, parentRunID string) (bool, error)
@@ -1746,6 +1746,10 @@ type APIStoreMock struct {
 			ApiKeyID string
 			// RawAPIKey is the rawAPIKey argument value.
 			RawAPIKey string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Scopes is the scopes argument value.
+			Scopes []string
 		}
 		// AreAllDescendantsTerminal holds details about calls to the AreAllDescendantsTerminal method.
 		AreAllDescendantsTerminal []struct {
@@ -4616,17 +4620,21 @@ func (mock *APIStoreMock) AggregateCostStatsHourlyCalls() []struct {
 }
 
 // ApproveDeviceCode calls ApproveDeviceCodeFunc.
-func (mock *APIStoreMock) ApproveDeviceCode(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string) error {
+func (mock *APIStoreMock) ApproveDeviceCode(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error {
 	callInfo := struct {
 		Ctx        context.Context
 		DeviceCode string
 		ApiKeyID   string
 		RawAPIKey  string
+		ProjectID  string
+		Scopes     []string
 	}{
 		Ctx:        ctx,
 		DeviceCode: deviceCode,
 		ApiKeyID:   apiKeyID,
 		RawAPIKey:  rawAPIKey,
+		ProjectID:  projectID,
+		Scopes:     scopes,
 	}
 	mock.lockApproveDeviceCode.Lock()
 	mock.calls.ApproveDeviceCode = append(mock.calls.ApproveDeviceCode, callInfo)
@@ -4637,7 +4645,7 @@ func (mock *APIStoreMock) ApproveDeviceCode(ctx context.Context, deviceCode stri
 		)
 		return errOut
 	}
-	return mock.ApproveDeviceCodeFunc(ctx, deviceCode, apiKeyID, rawAPIKey)
+	return mock.ApproveDeviceCodeFunc(ctx, deviceCode, apiKeyID, rawAPIKey, projectID, scopes)
 }
 
 // ApproveDeviceCodeCalls gets all the calls that were made to ApproveDeviceCode.
@@ -4649,12 +4657,16 @@ func (mock *APIStoreMock) ApproveDeviceCodeCalls() []struct {
 	DeviceCode string
 	ApiKeyID   string
 	RawAPIKey  string
+	ProjectID  string
+	Scopes     []string
 } {
 	var calls []struct {
 		Ctx        context.Context
 		DeviceCode string
 		ApiKeyID   string
 		RawAPIKey  string
+		ProjectID  string
+		Scopes     []string
 	}
 	mock.lockApproveDeviceCode.RLock()
 	calls = mock.calls.ApproveDeviceCode

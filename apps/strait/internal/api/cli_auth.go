@@ -145,6 +145,12 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if time.Now().After(row.ExpiresAt) {
 		return nil, huma.Error400BadRequest("device code has expired")
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, domain.CLIDefaultScopes); err != nil {
+		return nil, err
+	}
 	rawKey, err := generateAPIKey()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
@@ -153,7 +159,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if err := s.store.CreateAPIKey(ctx, apiKey); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
-	if err := s.store.ApproveDeviceCode(ctx, req.DeviceCode, apiKey.ID, rawKey); err != nil {
+	if err := s.store.ApproveDeviceCode(ctx, req.DeviceCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
 		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
 	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))

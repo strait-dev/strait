@@ -72,16 +72,16 @@ func (q *Queries) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode stri
 
 // ApproveDeviceCode transitions a device code from pending to approved,
 // sets the api_key_id, and stores the raw API key for later retrieval.
-func (q *Queries) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error {
+func (q *Queries) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey, projectID string, scopes []string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ApproveDeviceCode")
 	defer span.End()
 
 	query := `
 		UPDATE cli_device_codes
-		SET status = 'approved', api_key_id = $2, raw_api_key = $3
+		SET status = 'approved', api_key_id = $2, raw_api_key = $3, project_id = $4, scopes = $5
 		WHERE device_code = $1 AND status = 'pending' AND expires_at > NOW()`
 
-	tag, err := q.db.Exec(ctx, query, deviceCode, apiKeyID, rawAPIKey)
+	tag, err := q.db.Exec(ctx, query, deviceCode, apiKeyID, rawAPIKey, projectID, scopes)
 	if err != nil {
 		return fmt.Errorf("approve device code: %w", err)
 	}

@@ -71,7 +71,7 @@ func TestApproveDeviceCode(t *testing.T) {
 
 	apiKeyID := newID()
 	rawAPIKey := "sk-test-raw-key"
-	if err := q.ApproveDeviceCode(ctx, deviceCode, apiKeyID, rawAPIKey); err != nil {
+	if err := q.ApproveDeviceCode(ctx, deviceCode, apiKeyID, rawAPIKey, "project-approve", []string{"read"}); err != nil {
 		t.Fatalf("ApproveDeviceCode() error = %v", err)
 	}
 
@@ -88,6 +88,12 @@ func TestApproveDeviceCode(t *testing.T) {
 	if got.RawAPIKey != rawAPIKey {
 		t.Fatalf("RawAPIKey = %q, want %q", got.RawAPIKey, rawAPIKey)
 	}
+	if got.ProjectID != "project-approve" {
+		t.Fatalf("ProjectID = %q, want project-approve", got.ProjectID)
+	}
+	if len(got.Scopes) != 1 || got.Scopes[0] != "read" {
+		t.Fatalf("Scopes = %#v, want [read]", got.Scopes)
+	}
 }
 
 func TestApproveDeviceCode_NotFound(t *testing.T) {
@@ -95,7 +101,7 @@ func TestApproveDeviceCode_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	err := q.ApproveDeviceCode(ctx, "nonexistent", newID(), "key")
+	err := q.ApproveDeviceCode(ctx, "nonexistent", newID(), "key", "project-missing", []string{"read"})
 	if !errors.Is(err, store.ErrDeviceCodeNotFound) {
 		t.Fatalf("ApproveDeviceCode(notfound) error = %v, want ErrDeviceCodeNotFound", err)
 	}
@@ -113,7 +119,7 @@ func TestExchangeDeviceCode(t *testing.T) {
 	}
 
 	apiKeyID := newID()
-	if err := q.ApproveDeviceCode(ctx, deviceCode, apiKeyID, "raw-key"); err != nil {
+	if err := q.ApproveDeviceCode(ctx, deviceCode, apiKeyID, "raw-key", "project-exchange", []string{"write"}); err != nil {
 		t.Fatalf("ApproveDeviceCode() error = %v", err)
 	}
 

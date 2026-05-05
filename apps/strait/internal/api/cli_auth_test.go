@@ -304,9 +304,15 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, deviceCode, apiKeyID, _ string) error {
+		ApproveDeviceCodeFunc: func(_ context.Context, deviceCode, apiKeyID, _ string, projectID string, scopes []string) error {
 			approvedDeviceCode = deviceCode
 			approvedAPIKeyID = apiKeyID
+			if projectID != "proj-1" {
+				t.Fatalf("approved project_id = %q, want proj-1", projectID)
+			}
+			if len(scopes) == 0 {
+				t.Fatal("approved scopes should not be empty")
+			}
 			return nil
 		},
 	}
@@ -356,5 +362,37 @@ func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+			return &store.DeviceCodeRow{
+				ID:         "dc-1",
+				DeviceCode: "test-device-code",
+				UserCode:   "USER-1234",
+				Status:     "pending",
+				ExpiresAt:  time.Now().Add(10 * time.Minute),
+			}, nil
+		},
+		CreateAPIKeyFunc: func(context.Context, *domain.APIKey) error {
+			t.Fatal("api key should not be created when caller cannot grant CLI scopes")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeAPIKeysManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+
+	_, err := srv.handleApproveDeviceCode(ctx, &ApproveDeviceCodeInput{Body: approveDeviceCodeRequest{
+		DeviceCode: "test-device-code",
+		ProjectID:  "proj-1",
+	}})
+	if err == nil {
+		t.Fatal("expected approval to fail when caller cannot grant CLI scopes")
 	}
 }

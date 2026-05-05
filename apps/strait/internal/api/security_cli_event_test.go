@@ -36,7 +36,7 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _ string) error {
+		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
@@ -88,7 +88,7 @@ func TestHandleApproveDeviceCode_ExcludesAdminScopes(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _ string) error {
+		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
@@ -142,7 +142,7 @@ func TestHandleApproveDeviceCode_ScopesMatchCLIDefaults(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _ string) error {
+		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
