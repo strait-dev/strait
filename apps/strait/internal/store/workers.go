@@ -211,30 +211,6 @@ func (q *Queries) GetWorkerTask(ctx context.Context, taskID string) (*domain.Wor
 	return &t, nil
 }
 
-// GetWorkerTaskByRunID fetches the worker_tasks row for a specific run, scoped
-// to the given workerID to prevent cross-worker ownership forgeries.
-// Returns (nil, nil) when no row matches, which callers treat as "not owned".
-func (q *Queries) GetWorkerTaskByRunID(ctx context.Context, workerID, runID string) (*domain.WorkerTask, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkerTaskByRunID")
-	defer span.End()
-
-	var t domain.WorkerTask
-	var status string
-	err := q.db.QueryRow(ctx,
-		`SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
-		 FROM worker_tasks WHERE worker_id = $1 AND run_id = $2`,
-		workerID, runID,
-	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil //nolint:nilnil // nil signals "not found"
-		}
-		return nil, fmt.Errorf("get worker task by run id: %w", err)
-	}
-	t.Status = domain.WorkerTaskStatus(status)
-	return &t, nil
-}
-
 // GetOpenWorkerTaskByRunID fetches the latest non-terminal worker_tasks row
 // for a run, scoped to both worker and project. This is the ownership check
 // used by worker streams: historical failed/completed assignments must not

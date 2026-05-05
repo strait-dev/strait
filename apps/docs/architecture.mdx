@@ -134,7 +134,7 @@ Before dispatching, the executor resolves the run's environment. For HTTP-mode j
 Dispatch then branches on the job's `execution_mode`:
 
 - **HTTP (default)** — POST the payload to the resolved endpoint. The request carries `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token` headers and a JSON body with the job payload and metadata.
-- **Worker (gRPC)** — find a connected worker that has registered the run's job slug, push the payload and run token over the bidirectional gRPC channel, and wait for the worker to stream the result back. If the worker disconnects, the heartbeat sweep notices and reclaims its in-flight runs.
+- **Worker (gRPC)** — find a connected worker that has registered the run's queue, push the payload and run token over the bidirectional gRPC channel, and wait for the worker to stream the result back. If the worker disconnects, Strait immediately reclaims that worker's open assignments; heartbeat sweeps remain as a backstop for stale processes.
 
 In both modes, customer code runs on customer infrastructure. Strait only routes the dispatch and records the result.
 

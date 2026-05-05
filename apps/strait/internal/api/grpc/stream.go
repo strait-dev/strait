@@ -321,14 +321,27 @@ func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, proje
 	case *workerv1.WorkerMessage_LogLine:
 		return s.handleLogLine(ctx, workerID, projectID, p.LogLine)
 	case *workerv1.WorkerMessage_Ack:
-		// No-op: acknowledgements are fire-and-forget.
-		return nil
+		return s.handleAck(ctx, workerID, projectID, p.Ack)
 	case *workerv1.WorkerMessage_Registration:
 		// Re-registration on an established stream is ignored (handled at connect).
 		return nil
 	default:
 		return nil
 	}
+}
+
+func (s *workerService) handleAck(ctx context.Context, workerID, projectID string, ack *workerv1.Acknowledged) error {
+	if ack == nil || ack.Id == "" {
+		return nil
+	}
+	task, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, ack.Id)
+	if err != nil {
+		return err
+	}
+	if task == nil || task.Status != domain.WorkerTaskStatusAssigned {
+		return nil
+	}
+	return s.queries.UpdateWorkerTaskStatus(ctx, task.ID, domain.WorkerTaskStatusAccepted)
 }
 
 // handleHeartbeat is a no-op on the DB. last_seen_at is refreshed by the

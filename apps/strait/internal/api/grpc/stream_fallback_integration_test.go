@@ -130,6 +130,42 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 	}
 }
 
+func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	msg := &workerv1.WorkerMessage{
+		Payload: &workerv1.WorkerMessage_Ack{
+			Ack: &workerv1.Acknowledged{Id: runID},
+		},
+	}
+	if err := svc.handleWorkerMessage(ctx, workerID, projectID, msg); err != nil {
+		t.Fatalf("handleWorkerMessage ack: %v", err)
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusAccepted {
+		t.Fatalf("task status = %q, want accepted", task.Status)
+	}
+	if task.AcceptedAt == nil {
+		t.Fatal("accepted_at is nil, want timestamp")
+	}
+}
+
 // TestIntegration_HandleTaskResult_Fallback_FailedUpdatesWorkerTask asserts the
 // failure variant of the fallback path transitions the worker_tasks row to
 // "failed".

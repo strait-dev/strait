@@ -52,10 +52,10 @@ In worker mode, Strait dispatches runs to a long-lived worker process that conne
 
 When Strait dequeues a worker run:
 
-1. **Match a worker.** Strait selects a connected worker whose registered job slugs include the run's job.
+1. **Match a worker.** Strait selects a connected worker whose registered queues include the job's `queue_name`.
 2. **Stream the run.** The run payload and an SDK token are streamed to the worker over the gRPC channel.
 3. **Wait for the result.** The worker executes your handler and streams the result back; Strait records duration and the final state on the run.
-4. **Heartbeat.** Disconnected workers are detected by the heartbeat sweep and their in-flight runs are reclaimed.
+4. **Recover.** Worker disconnect cleanup immediately reclaims open assignments; heartbeat sweeps also catch stale processes that stop making progress.
 
 ### When to use worker mode
 
@@ -73,7 +73,7 @@ When Strait dequeues a worker run:
 }
 ```
 
-Start a worker with the SDK and it will pick up runs for any registered slug. See the SDK integration guide for the connection and registration flow.
+Start a worker with the SDK and it will pick up runs for any registered queue. See the SDK integration guide for the connection and registration flow.
 
 ---
 
