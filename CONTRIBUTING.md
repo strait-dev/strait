@@ -101,7 +101,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 type(scope): summary
 
 feat(api): add bulk trigger endpoint
-fix(worker): prevent race in managed dispatch
+fix(worker): prevent race in gRPC worker dispatch
 test(store): add integration tests for job dependencies
 chore: update dependencies
 ```
