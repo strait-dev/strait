@@ -814,7 +814,7 @@ func TestEnqueueSubscriptionWebhooks_MatchingSubscription(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default())
 
 	subs := []domain.WebhookSubscription{{
-		ID: "sub-1", WebhookURL: "https://example.com/hook",
+		ID: "sub-1", ProjectID: "proj-1", WebhookURL: "https://example.com/hook",
 		Active: true, EventTypes: []string{"run.completed"},
 	}}
 
@@ -826,6 +826,15 @@ func TestEnqueueSubscriptionWebhooks_MatchingSubscription(t *testing.T) {
 	}
 	if deliveries[0].WebhookURL != "https://example.com/hook" {
 		t.Fatalf("expected webhook URL https://example.com/hook, got %s", deliveries[0].WebhookURL)
+	}
+	if deliveries[0].SubscriptionID != "sub-1" {
+		t.Fatalf("subscription_id = %q, want sub-1", deliveries[0].SubscriptionID)
+	}
+	if deliveries[0].ProjectID != "proj-1" {
+		t.Fatalf("project_id = %q, want proj-1", deliveries[0].ProjectID)
+	}
+	if string(deliveries[0].Payload) != `{"run_id":"r1"}` {
+		t.Fatalf("payload = %s, want original payload", deliveries[0].Payload)
 	}
 }
 
@@ -4060,8 +4069,15 @@ func TestAttemptDelivery_WithSubscriptionID_SecretsLookupError(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
 
-	if !requestReceived.Load() {
-		t.Fatal("expected delivery to still be attempted despite secrets lookup error")
+	if requestReceived.Load() {
+		t.Fatal("delivery should not be attempted without a subscription signing secret")
+	}
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("deliveries = %d, want 1", len(deliveries))
+	}
+	if deliveries[0].LastError != "webhook subscription signing secret unavailable" {
+		t.Fatalf("last_error = %q, want signing secret error", deliveries[0].LastError)
 	}
 }
 

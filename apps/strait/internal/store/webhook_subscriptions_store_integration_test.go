@@ -4,7 +4,9 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"strait/internal/domain"
@@ -62,6 +64,74 @@ func TestCreateWebhookSubscription(t *testing.T) {
 	if got.Active != sub.Active {
 		t.Fatalf("Active = %v, want %v", got.Active, sub.Active)
 	}
+}
+
+func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	sub := &domain.WebhookSubscription{
+		ProjectID:  "proj-wd-sub-" + newID(),
+		WebhookURL: "https://example.com/hook",
+		EventTypes: []string{"run.completed"},
+		Secret:     "whsec_test",
+		Active:     true,
+	}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	payload := json.RawMessage(`{"run_id":"run-1","status":"completed"}`)
+	delivery := &domain.WebhookDelivery{
+		SubscriptionID: sub.ID,
+		WebhookURL:     sub.WebhookURL,
+		Status:         domain.WebhookStatusPending,
+		Attempts:       0,
+		MaxAttempts:    3,
+		Payload:        payload,
+		LastError:      string(payload),
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	got, err := q.GetWebhookDelivery(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("GetWebhookDelivery() error = %v", err)
+	}
+	if got.SubscriptionID != sub.ID {
+		t.Fatalf("SubscriptionID = %q, want %q", got.SubscriptionID, sub.ID)
+	}
+	if got.ProjectID != sub.ProjectID {
+		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, sub.ProjectID)
+	}
+	if !jsonPayloadEqual(got.Payload, payload) {
+		t.Fatalf("Payload = %s, want %s", got.Payload, payload)
+	}
+
+	replay, err := q.ReplayWebhookDelivery(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("ReplayWebhookDelivery() error = %v", err)
+	}
+	if replay.SubscriptionID != sub.ID {
+		t.Fatalf("replay SubscriptionID = %q, want %q", replay.SubscriptionID, sub.ID)
+	}
+	if !jsonPayloadEqual(replay.Payload, payload) {
+		t.Fatalf("replay Payload = %s, want %s", replay.Payload, payload)
+	}
+}
+
+func jsonPayloadEqual(a, b json.RawMessage) bool {
+	var av any
+	var bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }
 
 func TestCreateWebhookSubscription_CustomID(t *testing.T) {

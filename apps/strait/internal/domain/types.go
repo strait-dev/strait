@@ -711,24 +711,25 @@ func (h *EndpointHealthScore) HealthLevel() string {
 }
 
 type WebhookDelivery struct {
-	ID             string     `json:"id"`
-	RunID          string     `json:"run_id,omitempty"`
-	JobID          string     `json:"job_id,omitempty"`
-	EventTriggerID string     `json:"event_trigger_id,omitempty"`
-	SubscriptionID string     `json:"subscription_id,omitempty"`
-	ProjectID      string     `json:"project_id,omitempty"`
-	OrgID          string     `json:"org_id,omitempty"`
-	WebhookURL     string     `json:"webhook_url"`
-	RetryPolicy    string     `json:"webhook_retry_policy,omitempty"`
-	Status         string     `json:"status"`
-	Attempts       int        `json:"attempts"`
-	MaxAttempts    int        `json:"max_attempts"`
-	LastStatusCode *int       `json:"last_status_code,omitempty"`
-	LastError      string     `json:"last_error,omitempty"`
-	NextRetryAt    *time.Time `json:"next_retry_at,omitempty"`
-	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID             string          `json:"id"`
+	RunID          string          `json:"run_id,omitempty"`
+	JobID          string          `json:"job_id,omitempty"`
+	EventTriggerID string          `json:"event_trigger_id,omitempty"`
+	SubscriptionID string          `json:"subscription_id,omitempty"`
+	ProjectID      string          `json:"project_id,omitempty"`
+	OrgID          string          `json:"org_id,omitempty"`
+	WebhookURL     string          `json:"webhook_url"`
+	Payload        json.RawMessage `json:"-"`
+	RetryPolicy    string          `json:"webhook_retry_policy,omitempty"`
+	Status         string          `json:"status"`
+	Attempts       int             `json:"attempts"`
+	MaxAttempts    int             `json:"max_attempts"`
+	LastStatusCode *int            `json:"last_status_code,omitempty"`
+	LastError      string          `json:"last_error,omitempty"`
+	NextRetryAt    *time.Time      `json:"next_retry_at,omitempty"`
+	DeliveredAt    *time.Time      `json:"delivered_at,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type WebhookSubscription struct {

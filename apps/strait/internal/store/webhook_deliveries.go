@@ -38,13 +38,19 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 	// The COALESCE mirrors the backfill precedence used by migration 000183.
 	// Rows with no resolvable parent get the '__orphaned__' sentinel so the
 	// RLS policy never sees a NULL and the reaper can find them later.
+	payload := webhookDeliveryPayload(d)
+	var payloadArg any
+	if len(payload) > 0 {
+		payloadArg = payload
+	}
 	query := `
-		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id, project_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id, subscription_id, payload, payload_size_bytes, project_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, COALESCE(octet_length($15::jsonb::text), 0),
 			COALESCE(
 				(SELECT jr.project_id FROM job_runs jr WHERE jr.id = $2),
 				(SELECT et.project_id FROM event_triggers et WHERE et.id = $13),
 				(SELECT j.project_id  FROM jobs j           WHERE j.id  = $3),
+				(SELECT ws.project_id FROM webhook_subscriptions ws WHERE ws.id = $14),
 				'__orphaned__'
 			))
 		RETURNING created_at, updated_at`
@@ -58,7 +64,26 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 		d.Status, d.Attempts, d.MaxAttempts,
 		d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError), d.NextRetryAt, d.DeliveredAt,
 		dbscan.NilIfEmptyString(d.EventTriggerID),
+		dbscan.NilIfEmptyString(d.SubscriptionID),
+		payloadArg,
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
+}
+
+func webhookDeliveryPayload(d *domain.WebhookDelivery) json.RawMessage {
+	if d == nil {
+		return nil
+	}
+	if len(d.Payload) > 0 {
+		return d.Payload
+	}
+	if d.LastError == "" {
+		return nil
+	}
+	var payload json.RawMessage
+	if json.Unmarshal([]byte(d.LastError), &payload) == nil {
+		return payload
+	}
+	return nil
 }
 
 func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun, maxAttempts int) (*domain.WebhookDelivery, error) {
@@ -170,7 +195,7 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.We
 
 	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
-					 event_trigger_id
+					 event_trigger_id, subscription_id, payload, COALESCE(project_id, '')
 			  FROM webhook_deliveries WHERE id = $1`
 
 	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, id))
@@ -213,10 +238,10 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 
 	baseQuery := `SELECT wd.id, wd.run_id, wd.job_id, wd.webhook_url, wd.webhook_retry_policy, wd.status, wd.attempts, wd.max_attempts,
 					 wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
-					 wd.event_trigger_id
+					 wd.event_trigger_id, wd.subscription_id, wd.payload, COALESCE(wd.project_id, '')
 				  FROM webhook_deliveries wd
 				  LEFT JOIN jobs j ON wd.job_id = j.id
-				  WHERE (j.project_id = $1 OR wd.job_id IS NULL)`
+				  WHERE (j.project_id = $1 OR wd.project_id = $1)`
 	args := []any{projectID}
 	param := 2
 
@@ -258,7 +283,7 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 
 	query := `SELECT wd.id, wd.run_id, wd.job_id, wd.webhook_url, wd.webhook_retry_policy, wd.status, wd.attempts, wd.max_attempts,
 					 wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
-					 wd.event_trigger_id,
+					 wd.event_trigger_id, wd.subscription_id, wd.payload, COALESCE(wd.project_id, ''),
 					 COALESCE(wd.project_id, ''), COALESCE(p.org_id, '')
 			  FROM webhook_deliveries wd
 			  LEFT JOIN projects p ON p.id = wd.project_id AND wd.project_id != '__orphaned__'
@@ -289,7 +314,7 @@ func (q *Queries) ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain
 
 	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
-					 event_trigger_id
+					 event_trigger_id, subscription_id, payload, COALESCE(project_id, '')
 			  FROM webhook_deliveries
 			  WHERE status = 'pending'
 			    AND next_retry_at IS NOT NULL
@@ -348,12 +373,14 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	var jobID *string
 	var retryPolicy *string
 	var eventTriggerID *string
+	var subscriptionID *string
+	var payload []byte
 
 	err := scanner.Scan(
 		&d.ID, &runID, &jobID, &d.WebhookURL, &retryPolicy, &d.Status,
 		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
 		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
-		&eventTriggerID,
+		&eventTriggerID, &subscriptionID, &payload, &d.ProjectID,
 	)
 	if err != nil {
 		return nil, err
@@ -373,6 +400,12 @@ func scanWebhookDelivery(scanner scanTarget) (*domain.WebhookDelivery, error) {
 	if eventTriggerID != nil {
 		d.EventTriggerID = *eventTriggerID
 	}
+	if subscriptionID != nil {
+		d.SubscriptionID = *subscriptionID
+	}
+	if len(payload) > 0 {
+		d.Payload = append(json.RawMessage(nil), payload...)
+	}
 	return &d, nil
 }
 
@@ -386,12 +419,14 @@ func scanWebhookDeliveryWithOrg(scanner scanTarget) (*domain.WebhookDelivery, er
 	var jobID *string
 	var retryPolicy *string
 	var eventTriggerID *string
+	var subscriptionID *string
+	var payload []byte
 
 	err := scanner.Scan(
 		&d.ID, &runID, &jobID, &d.WebhookURL, &retryPolicy, &d.Status,
 		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
 		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
-		&eventTriggerID,
+		&eventTriggerID, &subscriptionID, &payload, &d.ProjectID,
 		&d.ProjectID, &d.OrgID,
 	)
 	if err != nil {
@@ -412,6 +447,12 @@ func scanWebhookDeliveryWithOrg(scanner scanTarget) (*domain.WebhookDelivery, er
 	if eventTriggerID != nil {
 		d.EventTriggerID = *eventTriggerID
 	}
+	if subscriptionID != nil {
+		d.SubscriptionID = *subscriptionID
+	}
+	if len(payload) > 0 {
+		d.Payload = append(json.RawMessage(nil), payload...)
+	}
 	return &d, nil
 }
 
@@ -424,15 +465,15 @@ func (q *Queries) ReplayWebhookDelivery(ctx context.Context, id string) (*domain
 	query := `
 		INSERT INTO webhook_deliveries (
 			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
-			next_retry_at, webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, project_id
+			next_retry_at, webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, subscription_id, project_id
 		)
 		SELECT $1, run_id, job_id, webhook_url, webhook_retry_policy, 'pending', 0, max_attempts,
-		       NOW(), webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, project_id
+		       NOW(), webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, subscription_id, project_id
 		FROM webhook_deliveries
 		WHERE id = $2
 		RETURNING id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 		          last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
-		          event_trigger_id`
+		          event_trigger_id, subscription_id, payload, COALESCE(project_id, '')`
 
 	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, newID, id))
 	if err != nil {

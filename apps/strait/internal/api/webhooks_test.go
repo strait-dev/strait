@@ -146,6 +146,51 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 	}
 }
 
+func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", JobID: "job-1", ProjectID: "proj-1"}, nil
+		},
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			t.Fatal("ReplayWebhookDelivery should not be called for a mismatched environment")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "del-1"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for environment mismatch, got %v", err)
+	}
+}
+
+func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscopedSubscriptionDelivery(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", ProjectID: "proj-1", SubscriptionID: "sub-1"}, nil
+		},
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			t.Fatal("ReplayWebhookDelivery should not be called for an env-scoped caller without job environment")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "del-1"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for env-scoped subscription delivery replay, got %v", err)
+	}
+}
+
 func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

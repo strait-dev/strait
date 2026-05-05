@@ -91,6 +91,7 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 	store := &mockDeliveryStore{}
 	// Use a short HTTP client timeout so the test completes quickly.
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(2*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -144,6 +145,7 @@ func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(3*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -204,6 +206,7 @@ func TestWebhookResilience_ResponseBomb(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(10*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -255,6 +258,7 @@ func TestWebhookResilience_ConnectionCloseMidTransfer(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -321,6 +325,7 @@ func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -749,6 +754,7 @@ func TestWebhookResilience_SelfSignedTLS(t *testing.T) {
 	store := &mockDeliveryStore{}
 	// Use default transport (does not trust the self-signed cert).
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)

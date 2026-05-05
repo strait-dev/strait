@@ -305,6 +305,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 		Attempts:       0,
 		MaxAttempts:    5,
 		NextRetryAt:    &now,
+		Payload:        payload,
 	}
 
 	// Store the payload as the last_error field temporarily — the worker reads
@@ -313,7 +314,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 	// We need to stash the payload somewhere. Since the existing schema doesn't
 	// have a payload column, we'll reconstruct it from the trigger in the worker.
 	// For now, store a marker so the worker can look up the trigger.
-	d.LastError = string(payload) // stash payload in last_error temporarily on creation
+	d.LastError = string(payload) // backward-compatible stash for older rows.
 
 	createCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -323,7 +324,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 	}
 
 	// Clear the last_error now that we've stored it (the worker will use it as payload).
-	n.logger.Info("webhook delivery enqueued", "delivery_id", d.ID, "trigger_id", trigger.ID, "url", trigger.NotifyURL)
+	n.logger.Info("webhook delivery enqueued", "delivery_id", d.ID, "trigger_id", trigger.ID, "url_host", extractDomain(trigger.NotifyURL))
 }
 
 func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) error {
@@ -358,6 +359,7 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 		Attempts:    0,
 		MaxAttempts: 5,
 		NextRetryAt: &now,
+		Payload:     payload,
 		LastError:   string(payload),
 	}
 
@@ -494,7 +496,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	now := time.Now()
 
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptBatchDelivery", trace.WithAttributes(
-		attribute.String("webhook.url", webhookURL),
+		attribute.String("webhook.host", extractDomain(webhookURL)),
 		attribute.Int("batch.size", len(deliveries)),
 	))
 	defer span.End()
@@ -538,7 +540,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	// Check aggregate payload size; fall back to individual delivery if too large.
 	if n.maxPayloadBytes > 0 && int64(len(batchBody)) > n.maxPayloadBytes {
 		n.logger.Warn("batch payload too large, falling back to individual delivery",
-			"url", webhookURL, "batch_size", len(deliveries), "payload_bytes", len(batchBody))
+			"url_host", extractDomain(webhookURL), "batch_size", len(deliveries), "payload_bytes", len(batchBody))
 		// Reset attempts and restore payloads; attemptDelivery will re-increment
 		// attempts and re-extract from LastError.
 		for i := range deliveries {
@@ -609,7 +611,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	}
 
 	n.markBatchDelivered(ctx, webhookURL, deliveries, now, statusCode)
-	n.logger.Info("webhook batch delivered", "url", webhookURL, "batch_size", len(deliveries))
+	n.logger.Info("webhook batch delivered", "url_host", extractDomain(webhookURL), "batch_size", len(deliveries))
 }
 
 // checkBatchCircuitBreaker checks the circuit breaker for webhookURL and records failures
@@ -621,7 +623,7 @@ func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookUR
 	cbKey := breakerKey(batchOrgID(deliveries), webhookURL)
 	canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
 	if err != nil {
-		n.logger.Warn("webhook circuit breaker check failed", "url", webhookURL, "error", err)
+		n.logger.Warn("webhook circuit breaker check failed", "url_host", extractDomain(webhookURL), "error", err)
 		return false
 	}
 	if !canDeliver {
@@ -832,7 +834,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptDelivery", trace.WithAttributes(
 		attribute.String("delivery.id", d.ID),
-		attribute.String("webhook.url", d.WebhookURL),
+		attribute.String("webhook.host", extractDomain(d.WebhookURL)),
 		attribute.Int("attempt", d.Attempts),
 		attribute.Int("max_attempts", d.MaxAttempts),
 		attribute.Int("status_code", 0),
@@ -859,7 +861,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		cbKey := breakerKey(d.OrgID, d.WebhookURL)
 		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
 		if err != nil {
-			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url", d.WebhookURL, "error", err)
+			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "error", err)
 		} else if !canDeliver {
 			n.recordCircuitBreakerState(ctx, d.WebhookURL, "open")
 			n.recordFailure(ctx, d, now, true, "circuit breaker is open")
@@ -873,12 +875,13 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	// Reconstruct payload from last_error (where we stashed it on creation)
 	// or build a minimal payload from what we know.
 	var body []byte
-	if d.LastError != "" {
+	if len(d.Payload) > 0 {
+		body = d.Payload
+	} else if d.LastError != "" {
 		// Try to parse as JSON — if it is, it's our stashed payload.
 		var js json.RawMessage
 		if json.Unmarshal([]byte(d.LastError), &js) == nil {
 			body = []byte(d.LastError)
-			d.LastError = "" // clear so failed attempts use the error message
 		}
 	}
 	if len(body) == 0 {
@@ -953,6 +956,12 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 			subPrevSecret = n.maybeDecryptSecret(d.ID, "previous", prevSecret)
 			subGraceExpires = graceExpires
 		}
+	}
+	if d.SubscriptionID != "" && subSecret == "" {
+		errMsg := "webhook subscription signing secret unavailable"
+		n.recordFailure(ctx, d, now, true, errMsg)
+		span.SetStatus(codes.Error, errMsg)
+		return
 	}
 
 	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(subSecret), d.ID))
@@ -1037,7 +1046,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	if d.EventTriggerID != "" {
 		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
 	}
-	n.logger.Info("webhook delivered", "delivery_id", d.ID, "url", d.WebhookURL, "attempt", d.Attempts)
+	n.logger.Info("webhook delivered", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "attempt", d.Attempts)
 }
 
 // recordFailure handles a failed delivery attempt. For retryable errors, schedules
@@ -1082,7 +1091,7 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "failed")
 		}
 		n.logger.Error("webhook delivery dead-lettered",
-			"delivery_id", d.ID, "url", d.WebhookURL,
+			"delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL),
 			"attempts", d.Attempts, "max_attempts", d.MaxAttempts, "error", errMsg)
 		return
 	}
@@ -1097,7 +1106,7 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 	}
 
 	n.logger.Warn("webhook delivery failed, scheduled retry",
-		"delivery_id", d.ID, "url", d.WebhookURL,
+		"delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL),
 		"attempt", d.Attempts, "max_attempts", d.MaxAttempts,
 		"next_attempt", nextAttempt, "error", errMsg)
 }
@@ -1114,7 +1123,7 @@ func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url stri
 			value = 1
 		}
 		n.metrics.WebhookCircuitBreaker.Record(ctx, value, metric.WithAttributes(
-			attribute.String("url", url),
+			attribute.String("url_host", extractDomain(url)),
 			attribute.String("state", state),
 		))
 	}
@@ -1194,13 +1203,16 @@ func (n *DeliveryWorker) EnqueueSubscriptionWebhooks(ctx context.Context, subs [
 
 		now := time.Now()
 		delivery := &domain.WebhookDelivery{
-			WebhookURL:  sub.WebhookURL,
-			RetryPolicy: n.defaultRetryPolicy,
-			Status:      domain.WebhookStatusPending,
-			Attempts:    0,
-			MaxAttempts: 3,
-			NextRetryAt: &now,
-			LastError:   string(payload),
+			SubscriptionID: sub.ID,
+			ProjectID:      sub.ProjectID,
+			WebhookURL:     sub.WebhookURL,
+			RetryPolicy:    n.defaultRetryPolicy,
+			Status:         domain.WebhookStatusPending,
+			Attempts:       0,
+			MaxAttempts:    3,
+			NextRetryAt:    &now,
+			Payload:        payload,
+			LastError:      string(payload),
 		}
 
 		if err := n.store.CreateWebhookDelivery(ctx, delivery); err != nil {
