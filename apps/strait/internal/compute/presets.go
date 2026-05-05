@@ -46,7 +46,7 @@ type Preset struct {
 // InternalCostPerSecond returns the infrastructure cost based on the runtime.
 // When K8sCostPerSecond is configured (> 0) and runtime is "k8s", returns the
 // K8s-specific cost. Otherwise returns the user-facing cost (CostPerSecond).
-// K8s costs are loaded from Doppler at runtime, not hardcoded in source.
+// K8s costs are loaded from Infisical at runtime, not hardcoded in source.
 func (p Preset) InternalCostPerSecond(runtime string) int64 {
 	if runtime == "k8s" && p.K8sCostPerSecond > 0 {
 		return p.K8sCostPerSecond
@@ -55,7 +55,7 @@ func (p Preset) InternalCostPerSecond(runtime string) int64 {
 }
 
 // SetK8sCosts overrides K8s infrastructure costs for internal margin tracking.
-// Called at startup with values from Doppler/config. Not hardcoded in source.
+// Called at startup with values from Infisical/config. Not hardcoded in source.
 func SetK8sCosts(costs map[string]int64) {
 	for name, cost := range costs {
 		if p, ok := AllPresets[name]; ok {
@@ -66,7 +66,7 @@ func SetK8sCosts(costs map[string]int64) {
 }
 
 // K8sCostPerSecond defaults to 0 (same as user-facing cost). Override via
-// config at runtime for internal margin tracking (values stored in Doppler,
+// config at runtime for internal margin tracking (values stored in Infisical,
 // not in source code).
 var AllPresets = map[string]Preset{
 	"micro":     {Name: "micro", CPUs: 1, MemoryMB: 256, CostPerSecond: CostMicro, NodePool: NodePoolGeneral},
