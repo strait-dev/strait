@@ -2,9 +2,8 @@
 //
 // Lives alongside the app source (not at the repo root) because
 // Cloudflare's wrangler CLI walks up from cwd to auto-discover a
-// config, and a root-level wrangler.jsonc would conflict with
-// apps/website/wrangler.toml when CF Workers Builds runs from that
-// subdirectory.
+// config, and CF Workers Builds expects the config next to the
+// project it deploys.
 //
 // For the Deploy to Cloudflare button flow, the visitor will be
 // prompted to set the root directory to `apps/app` during the
