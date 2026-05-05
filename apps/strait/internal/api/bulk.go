@@ -13,7 +13,6 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -34,7 +33,6 @@ type BulkTriggerItem struct {
 type BulkTriggerResult struct {
 	ID             string `json:"id"`
 	Status         string `json:"status"`
-	RunToken       string `json:"run_token"`
 	IdempotencyHit bool   `json:"idempotency_hit"`
 }
 
@@ -232,7 +230,6 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 				results = append(results, BulkTriggerResult{
 					ID:             existingRun.ID,
 					Status:         string(existingRun.Status),
-					RunToken:       "",
 					IdempotencyHit: false,
 				})
 				continue
@@ -248,21 +245,6 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 			expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
 		} else {
 			expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-		}
-
-		claims := runTokenClaims{
-			Attempt: 1,
-			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    "strait:run-token",
-				Subject:   runID,
-				ExpiresAt: jwt.NewNumericDate(expiresAt),
-				IssuedAt:  jwt.NewNumericDate(now),
-			},
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
-		if err != nil {
-			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to sign run token for item %d", itemIdx))
 		}
 
 		scheduledAt := item.ScheduledAt
@@ -366,7 +348,6 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		results = append(results, BulkTriggerResult{
 			ID:             run.ID,
 			Status:         string(run.Status),
-			RunToken:       tokenString,
 			IdempotencyHit: false,
 		})
 		created++

@@ -741,8 +741,8 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 	if resp["id"] == nil || resp["id"] == "" {
 		t.Fatal("expected non-empty run id")
 	}
-	if resp["run_token"] == nil || resp["run_token"] == "" {
-		t.Fatal("expected non-empty run_token")
+	if _, ok := resp["run_token"]; ok {
+		t.Fatal("trigger response must not expose SDK run_token")
 	}
 	if resp["status"] != "queued" {
 		t.Fatalf("expected status=queued, got %v", resp["status"])

@@ -284,15 +284,15 @@ func TestIdempotency_MissResponseShape(t *testing.T) {
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 
-	// Miss response should have id, status, payload_hash, and run_token
+	// Miss response should have id, status, and payload_hash without exposing SDK run credentials.
 	if resp["id"] == nil || resp["id"] == "" {
 		t.Fatal("miss response should contain id")
 	}
 	if resp["status"] == nil {
 		t.Fatal("miss response should contain status")
 	}
-	if resp["run_token"] == nil || resp["run_token"] == "" {
-		t.Fatal("miss response should contain run_token")
+	if _, ok := resp["run_token"]; ok {
+		t.Fatal("miss response should not contain run_token")
 	}
 	if resp["payload_hash"] == nil || resp["payload_hash"] == "" {
 		t.Fatal("miss response should contain payload_hash")
@@ -400,8 +400,8 @@ func TestIdempotency_ScopedPerJob(t *testing.T) {
 	if resp2["id"] == "run-A" {
 		t.Fatal("expected job-B to create a different run, but got same as job-A")
 	}
-	if _, ok := resp2["run_token"]; !ok {
-		t.Fatal("expected job-B miss to include run_token")
+	if _, ok := resp2["run_token"]; ok {
+		t.Fatal("job-B miss should not expose run_token")
 	}
 }
 

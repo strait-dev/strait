@@ -57,12 +57,26 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 	if len(resp.Results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(resp.Results))
 	}
+	var rawResp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &rawResp); err != nil {
+		t.Fatalf("invalid raw JSON: %v", err)
+	}
+	rawResults, ok := rawResp["results"].([]any)
+	if !ok || len(rawResults) != 3 {
+		t.Fatalf("expected 3 raw results, got %#v", rawResp["results"])
+	}
+	for idx, rawResult := range rawResults {
+		result, ok := rawResult.(map[string]any)
+		if !ok {
+			t.Fatalf("result %d was not an object: %#v", idx, rawResult)
+		}
+		if _, ok := result["run_token"]; ok {
+			t.Fatalf("bulk trigger result %d must not expose SDK run_token", idx)
+		}
+	}
 	for _, r := range resp.Results {
 		if r.ID == "" {
 			t.Error("expected non-empty id")
-		}
-		if r.RunToken == "" {
-			t.Error("expected non-empty run_token")
 		}
 		if r.Status != string(domain.StatusQueued) {
 			t.Errorf("expected queued, got %s", r.Status)

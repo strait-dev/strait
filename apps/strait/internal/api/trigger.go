@@ -18,7 +18,6 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	otelattr "go.opentelemetry.io/otel/attribute"
@@ -346,21 +345,6 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}
 
-	claims := runTokenClaims{
-		Attempt: 1,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "strait:run-token",
-			Subject:   runID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(now),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to sign run token")
-	}
-
 	status := domain.StatusQueued
 	if scheduledAt != nil && scheduledAt.After(now) {
 		status = domain.StatusDelayed
@@ -466,7 +450,6 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				"id":              run.ID,
 				"status":          run.Status,
 				"payload_hash":    payloadHash,
-				"run_token":       tokenString,
 				"idempotency_hit": false,
 			}}, nil
 		}
@@ -519,7 +502,6 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		"id":              run.ID,
 		"status":          run.Status,
 		"payload_hash":    payloadHash,
-		"run_token":       tokenString,
 		"idempotency_hit": false,
 	}}, nil
 }
