@@ -3868,9 +3868,11 @@ func (m *errorDeliveryStore) getDeliveries() []*domain.WebhookDelivery {
 func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 	t.Parallel()
 
-	var receivedSigHeader string
+	var receivedSigHeader, receivedStraitSigHeader, receivedTimestamp string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedSigHeader = r.Header.Get("X-Webhook-Signature")
+		receivedStraitSigHeader = r.Header.Get("X-Strait-Signature")
+		receivedTimestamp = r.Header.Get("X-Strait-Timestamp")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -3901,13 +3903,22 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 	if receivedSigHeader == "" {
 		t.Fatal("expected X-Webhook-Signature header to be set")
 	}
-	if !strings.HasPrefix(receivedSigHeader, "sha256=") {
-		t.Fatalf("expected sha256= prefix, got %q", receivedSigHeader)
+	if receivedTimestamp == "" {
+		t.Fatal("expected X-Strait-Timestamp header to be set")
 	}
-
-	expectedSig := ComputeHMACSHA256(secret, []byte(`{"event":"run.completed"}`))
-	if receivedSigHeader != "sha256="+expectedSig {
-		t.Fatalf("signature mismatch: got %q, want sha256=%s", receivedSigHeader, expectedSig)
+	if !strings.HasPrefix(receivedSigHeader, "v1=") {
+		t.Fatalf("expected v1= prefix, got %q", receivedSigHeader)
+	}
+	if receivedStraitSigHeader != receivedSigHeader {
+		t.Fatalf("X-Strait-Signature mismatch: got %q, want %q", receivedStraitSigHeader, receivedSigHeader)
+	}
+	expectedSig := ComputeTimestampedHMACSHA256(secret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
+	if receivedSigHeader != "v1="+expectedSig {
+		t.Fatalf("signature mismatch: got %q, want v1=%s", receivedSigHeader, expectedSig)
+	}
+	bodyOnlySig := "v1=" + ComputeHMACSHA256(secret, []byte(`{"event":"run.completed"}`))
+	if receivedSigHeader == bodyOnlySig {
+		t.Fatal("signature must bind the timestamp, not only the body")
 	}
 }
 
@@ -3932,9 +3943,10 @@ func (f fakeSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testing.T) {
 	t.Parallel()
 
-	var receivedSigHeader string
+	var receivedSigHeader, receivedTimestamp string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedSigHeader = r.Header.Get("X-Webhook-Signature")
+		receivedTimestamp = r.Header.Get("X-Strait-Timestamp")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -3969,11 +3981,14 @@ func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testi
 	if receivedSigHeader == "" {
 		t.Fatal("expected X-Webhook-Signature header to be set")
 	}
-	expectedSig := "sha256=" + ComputeHMACSHA256(plaintextSecret, []byte(`{"event":"run.completed"}`))
+	if receivedTimestamp == "" {
+		t.Fatal("expected X-Strait-Timestamp header to be set")
+	}
+	expectedSig := "v1=" + ComputeTimestampedHMACSHA256(plaintextSecret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
 	if receivedSigHeader != expectedSig {
 		t.Fatalf("signature was not computed over plaintext secret\n  got:  %q\n  want: %q", receivedSigHeader, expectedSig)
 	}
-	ciphertextSig := "sha256=" + ComputeHMACSHA256(storedCiphertext, []byte(`{"event":"run.completed"}`))
+	ciphertextSig := "v1=" + ComputeTimestampedHMACSHA256(storedCiphertext, receivedTimestamp, []byte(`{"event":"run.completed"}`))
 	if receivedSigHeader == ciphertextSig {
 		t.Fatal("signature was computed over ciphertext regression")
 	}
@@ -3998,10 +4013,11 @@ func TestBreakerKey_PerTenantScoping(t *testing.T) {
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {
 	t.Parallel()
 
-	var receivedSig, receivedOldSig string
+	var receivedSig, receivedOldSig, receivedStraitOldSig string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedSig = r.Header.Get("X-Webhook-Signature")
 		receivedOldSig = r.Header.Get("X-Webhook-Signature-Old")
+		receivedStraitOldSig = r.Header.Get("X-Strait-Signature-Old")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -4037,8 +4053,11 @@ func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *
 	if receivedOldSig == "" {
 		t.Fatal("expected X-Webhook-Signature-Old header during active grace period")
 	}
-	if !strings.HasPrefix(receivedOldSig, "sha256=") {
-		t.Fatalf("expected sha256= prefix on old sig, got %q", receivedOldSig)
+	if !strings.HasPrefix(receivedOldSig, "v1=") {
+		t.Fatalf("expected v1= prefix on old sig, got %q", receivedOldSig)
+	}
+	if receivedStraitOldSig != receivedOldSig {
+		t.Fatalf("X-Strait-Signature-Old mismatch: got %q, want %q", receivedStraitOldSig, receivedOldSig)
 	}
 }
 

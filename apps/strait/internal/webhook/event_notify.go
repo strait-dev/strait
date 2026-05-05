@@ -946,6 +946,8 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
 	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
+	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
+	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
 
 	// Look up the subscription's HMAC secret up-front so we can both sign
 	// the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
@@ -981,11 +983,13 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(subSecret), d.ID))
 
 	if subSecret != "" {
-		sig := ComputeHMACSHA256(subSecret, body)
-		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
+		sig := ComputeTimestampedHMACSHA256(subSecret, signatureTimestamp, body)
+		req.Header.Set("X-Strait-Signature", "v1="+sig)
+		req.Header.Set("X-Webhook-Signature", "v1="+sig)
 		if subPrevSecret != "" && subGraceExpires != nil && time.Now().Before(*subGraceExpires) {
-			oldSig := ComputeHMACSHA256(subPrevSecret, body)
-			req.Header.Set("X-Webhook-Signature-Old", "sha256="+oldSig)
+			oldSig := ComputeTimestampedHMACSHA256(subPrevSecret, signatureTimestamp, body)
+			req.Header.Set("X-Strait-Signature-Old", "v1="+oldSig)
+			req.Header.Set("X-Webhook-Signature-Old", "v1="+oldSig)
 		}
 	}
 

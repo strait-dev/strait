@@ -101,3 +101,12 @@ func ComputeHMACSHA256(secret string, body []byte) string {
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
+// ComputeTimestampedHMACSHA256 signs "timestamp.body" so receivers can reject
+// stale replay attempts while still validating the exact delivered bytes.
+func ComputeTimestampedHMACSHA256(secret, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp + "."))
+	_, _ = mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
