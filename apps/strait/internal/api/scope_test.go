@@ -238,6 +238,60 @@ func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_User_OIDCScopesDoNotBypassProjectRBAC(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{domain.ScopeJobsWrite})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_User_OIDCScopesAndProjectRBACBothRequired(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsWrite}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{domain.ScopeJobsWrite})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 func TestRequirePermission_User_MissingPermission(t *testing.T) {
 	t.Parallel()
 
@@ -509,8 +563,13 @@ func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
 func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
 	t.Parallel()
 
-	// When the token scope includes the required permission, allow through.
-	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	// When the token scope and the project role both include the required
+	// permission, allow through.
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
 
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

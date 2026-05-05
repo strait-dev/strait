@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -347,6 +349,46 @@ func TestDoS_SSEConnectionLimitPerProject(t *testing.T) {
 	// Different project should still work.
 	if !srv.acquireSSEConn("proj-2") {
 		t.Fatal("acquire for different project should succeed")
+	}
+}
+
+func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:        "test-secret-value",
+		MaxBulkTriggerItems:   500,
+		JWTSigningKey:         testJWTSigningKey,
+		SSEMaxConns:           5000,
+		SSEMaxConnsPerProject: 1,
+	}
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	const contenders = 64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var acquired atomic.Int64
+	for range contenders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if srv.acquireSSEConn("proj-1") {
+				acquired.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := acquired.Load(); got != 1 {
+		t.Fatalf("acquired = %d, want exactly 1", got)
 	}
 }
 

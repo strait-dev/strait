@@ -604,17 +604,15 @@ func (s *Server) acquireSSEConn(projectID string) bool {
 		maxProject = 100
 	}
 
-	if s.sseGlobalConns.Load() >= maxGlobal {
+	if !atomicIncrementBelow(&s.sseGlobalConns, int64(maxGlobal)) {
 		return false
 	}
 
 	counter := s.projectSSECounter(projectID)
-	if counter.Load() >= maxProject {
+	if !atomicIncrementBelow(counter, int64(maxProject)) {
+		s.sseGlobalConns.Add(-1)
 		return false
 	}
-
-	s.sseGlobalConns.Add(1)
-	counter.Add(1)
 	return true
 }
 
@@ -630,6 +628,18 @@ func (s *Server) releaseSSEConn(projectID string) {
 func (s *Server) projectSSECounter(projectID string) *atomic.Int64 {
 	val, _ := s.sseProjectConns.LoadOrStore(projectID, &atomic.Int64{})
 	return val.(*atomic.Int64)
+}
+
+func atomicIncrementBelow(counter *atomic.Int64, max int64) bool {
+	for {
+		current := counter.Load()
+		if current >= max {
+			return false
+		}
+		if counter.CompareAndSwap(current, current+1) {
+			return true
+		}
+	}
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.

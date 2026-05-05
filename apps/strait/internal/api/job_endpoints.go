@@ -82,6 +82,9 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	secretBytes := make([]byte, 32)
 	if _, err := rand.Read(secretBytes); err != nil {
@@ -126,6 +129,9 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 	if job.EndpointURL == "" {

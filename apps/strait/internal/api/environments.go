@@ -100,6 +100,9 @@ func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironment
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
 
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
@@ -138,6 +141,15 @@ func (s *Server) handleListEnvironments(ctx context.Context, input *ListEnvironm
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list environments")
 	}
+	if environmentID := environmentIDFromContext(ctx); environmentID != "" {
+		filtered := envs[:0]
+		for _, env := range envs {
+			if env.ID == environmentID {
+				filtered = append(filtered, env)
+			}
+		}
+		envs = filtered
+	}
 
 	return &ListEnvironmentsOutput{Body: paginatedResult(envs, limit, func(e domain.Environment) string {
 		return e.CreatedAt.Format(time.RFC3339Nano)
@@ -165,6 +177,9 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 	}
 
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
@@ -228,6 +243,9 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvir
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
 
 	if err := s.store.DeleteEnvironment(ctx, input.EnvID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
@@ -267,6 +285,9 @@ func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResol
 	}
 
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
 

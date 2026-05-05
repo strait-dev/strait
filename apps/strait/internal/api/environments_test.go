@@ -103,6 +103,27 @@ func TestHandleGetEnvironment_CrossProject(t *testing.T) {
 	}
 }
 
+func TestHandleGetEnvironment_EnvironmentScopedCallerCannotReadOtherEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
+		},
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+			t.Fatal("resolved variables should not be loaded for a mismatched environment")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleGetEnvironment(ctx, &GetEnvironmentInput{EnvID: "env-staging"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for environment mismatch, got %v", err)
+	}
+}
+
 // ─── handleListEnvironments ──────────────────────────────────────────────────.
 
 func TestHandleListEnvironments_EmptyList(t *testing.T) {
@@ -167,6 +188,37 @@ func TestHandleListEnvironments_Pagination(t *testing.T) {
 	// Store returns limit+1 = 3 items so has_more should be true.
 	if !envelope.HasMore {
 		t.Fatal("expected has_more=true when store returns limit+1 items")
+	}
+}
+
+func TestHandleListEnvironments_EnvironmentScopedCallerOnlySeesOwnEnvironment(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	ms := &APIStoreMock{
+		ListEnvironmentsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Environment, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("projectID = %q, want proj-1", projectID)
+			}
+			return []domain.Environment{
+				{ID: "env-prod", ProjectID: "proj-1", Name: "Production", Slug: "production", CreatedAt: now, UpdatedAt: now},
+				{ID: "env-staging", ProjectID: "proj-1", Name: "Staging", Slug: "staging", CreatedAt: now, UpdatedAt: now},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	out, err := srv.handleListEnvironments(ctx, &ListEnvironmentsInput{Limit: "10"})
+	if err != nil {
+		t.Fatalf("handleListEnvironments returned error: %v", err)
+	}
+	items, ok := out.Body.Data.([]domain.Environment)
+	if !ok {
+		t.Fatalf("items type = %T, want []domain.Environment", out.Body.Data)
+	}
+	if len(items) != 1 || items[0].ID != "env-prod" {
+		t.Fatalf("items = %+v, want only env-prod", items)
 	}
 }
 
@@ -236,6 +288,31 @@ func TestHandleUpdateEnvironment_CrossProject(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateEnvironment_EnvironmentScopedCallerCannotMutateOtherEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
+		},
+		UpdateEnvironmentFunc: func(_ context.Context, _ *domain.Environment) error {
+			t.Fatal("UpdateEnvironment should not be called for a mismatched environment")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	name := "Hijack"
+
+	_, err := srv.handleUpdateEnvironment(ctx, &UpdateEnvironmentInput{
+		EnvID: "env-staging",
+		Body:  UpdateEnvironmentRequest{Name: &name},
+	})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for environment mismatch, got %v", err)
+	}
+}
+
 // ─── handleDeleteEnvironment ─────────────────────────────────────────────────.
 
 func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
@@ -267,6 +344,27 @@ func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteEnvironment_EnvironmentScopedCallerCannotDeleteOtherEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
+		},
+		DeleteEnvironmentFunc: func(_ context.Context, _ string) error {
+			t.Fatal("DeleteEnvironment should not be called for a mismatched environment")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleDeleteEnvironment(ctx, &DeleteEnvironmentInput{EnvID: "env-staging"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for environment mismatch, got %v", err)
+	}
+}
+
 // ─── handleGetResolvedVariables ──────────────────────────────────────────────.
 
 func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
@@ -283,6 +381,27 @@ func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetResolvedVariables_EnvironmentScopedCallerCannotReadOtherEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
+		},
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+			t.Fatal("resolved variables should not be loaded for a mismatched environment")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleGetResolvedVariables(ctx, &GetResolvedVariablesInput{EnvID: "env-staging"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for environment mismatch, got %v", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -816,9 +817,10 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 						respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
 						return
 					}
-					// Token has the required scope — proceed.
-					next.ServeHTTP(w, r)
-					return
+					// Token scopes are an upper bound, not a substitute for
+					// project RBAC. Continue into the normal user permission
+					// checks so a scoped OIDC token cannot grant access the
+					// user does not hold in this project.
 				}
 
 				perms, cached := s.permCache.Get(projectID, actorID)
@@ -1012,13 +1014,57 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			}
 		}()
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		bw := newBufferedResponseWriter()
+		next.ServeHTTP(bw, r.WithContext(ctx))
 
 		panicked = false
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
+			return
 		}
+		bw.FlushTo(w)
 	})
+}
+
+type bufferedResponseWriter struct {
+	header      http.Header
+	body        bytes.Buffer
+	status      int
+	wroteHeader bool
+}
+
+func newBufferedResponseWriter() *bufferedResponseWriter {
+	return &bufferedResponseWriter{header: make(http.Header), status: http.StatusOK}
+}
+
+func (w *bufferedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *bufferedResponseWriter) WriteHeader(statusCode int) {
+	if w.wroteHeader {
+		return
+	}
+	w.status = statusCode
+	w.wroteHeader = true
+}
+
+func (w *bufferedResponseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.body.Write(p)
+}
+
+func (w *bufferedResponseWriter) FlushTo(dst http.ResponseWriter) {
+	for key, values := range w.header {
+		for _, value := range values {
+			dst.Header().Add(key, value)
+		}
+	}
+	dst.WriteHeader(w.status)
+	_, _ = dst.Write(w.body.Bytes())
 }
 
 // apiVersionHeader injects X-API-Version into every response.
