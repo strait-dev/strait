@@ -250,11 +250,14 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 			expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 		}
 
-		claims := jwt.RegisteredClaims{
-			Issuer:    "strait:run-token",
-			Subject:   runID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(now),
+		claims := runTokenClaims{
+			Attempt: 1,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "strait:run-token",
+				Subject:   runID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(now),
+			},
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))

@@ -172,7 +172,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	defer d.resultChannels.Deregister(run.ID)
 
 	// Build and send the TaskAssignment.
-	assignment := d.buildAssignment(run, job)
+	assignment := d.buildAssignment(run, job, task.ID)
 	msg := &workerv1.ServerMessage{
 		Payload: &workerv1.ServerMessage_TaskAssignment{
 			TaskAssignment: assignment,
@@ -238,7 +238,7 @@ func (d *WorkerDispatcher) sendCancel(sendCh chan<- *workerv1.ServerMessage, run
 
 // buildAssignment constructs a TaskAssignment for the given run and job,
 // including JWT run-token and HMAC signature (matching the HTTP dispatch path).
-func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) *workerv1.TaskAssignment {
+func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, assignmentID string) *workerv1.TaskAssignment {
 	a := &workerv1.TaskAssignment{
 		RunId:       run.ID,
 		JobSlug:     job.Slug,
@@ -253,11 +253,19 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job) 
 		if run.ExpiresAt != nil {
 			expiresAt = *run.ExpiresAt
 		}
-		claims := jwt.RegisteredClaims{
-			Issuer:    "strait:run-token",
-			Subject:   run.ID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		claims := struct {
+			Attempt      int    `json:"attempt,omitempty"`
+			AssignmentID string `json:"assignment_id,omitempty"`
+			jwt.RegisteredClaims
+		}{
+			Attempt:      run.Attempt,
+			AssignmentID: assignmentID,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "strait:run-token",
+				Subject:   run.ID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, err := tok.SignedString([]byte(d.jwtSigningKey)); err == nil {

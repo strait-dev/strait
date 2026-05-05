@@ -469,11 +469,17 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		if run.ExpiresAt != nil {
 			expiresAt = *run.ExpiresAt
 		}
-		claims := jwt.RegisteredClaims{
-			Issuer:    "strait:run-token",
-			Subject:   run.ID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		claims := struct {
+			Attempt int `json:"attempt,omitempty"`
+			jwt.RegisteredClaims
+		}{
+			Attempt: run.Attempt,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "strait:run-token",
+				Subject:   run.ID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
@@ -552,11 +558,17 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		if run.ExpiresAt != nil {
 			expiresAt = *run.ExpiresAt
 		}
-		claims := jwt.RegisteredClaims{
-			Issuer:    "strait:run-token",
-			Subject:   run.ID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		claims := struct {
+			Attempt int `json:"attempt,omitempty"`
+			jwt.RegisteredClaims
+		}{
+			Attempt: run.Attempt,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "strait:run-token",
+				Subject:   run.ID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {

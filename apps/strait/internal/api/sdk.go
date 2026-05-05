@@ -32,6 +32,16 @@ type SDKCapabilities struct {
 	UsageReport bool
 }
 
+type runTokenClaims struct {
+	Attempt      int    `json:"attempt,omitempty"`
+	AssignmentID string `json:"assignment_id,omitempty"`
+	jwt.RegisteredClaims
+}
+
+type runTokenStateGetter interface {
+	GetRunTokenState(context.Context, string) (domain.RunStatus, int, string, error)
+}
+
 func sdkVersionFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxSDKVersionKey).(string)
 	return v
@@ -102,7 +112,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 		tokenString := strings.TrimPrefix(auth, "Bearer ")
-		claims := &jwt.RegisteredClaims{}
+		claims := &runTokenClaims{}
 		// jwt.WithExpirationRequired rejects tokens that omit `exp`. Without
 		// it the library silently treats a missing exp as valid forever, so
 		// a forged or accidentally-non-expiring token would never time out.
@@ -124,6 +134,10 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusUnauthorized, "missing run ID in token")
 			return
 		}
+		if claims.Attempt <= 0 {
+			respondError(w, r, http.StatusUnauthorized, "missing run attempt in token")
+			return
+		}
 		urlRunID := chi.URLParam(r, "runID")
 		if urlRunID != "" && subject != urlRunID {
 			respondError(w, r, http.StatusForbidden, "token does not match run ID")
@@ -136,7 +150,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		// (single indexed lookup) so this stays cheap on hot SDK paths like
 		// heartbeat. Read-only post-mortem fetches must use the regular API
 		// key plane, not the run-token plane.
-		status, statusErr := s.store.GetRunStatus(r.Context(), subject)
+		status, attempt, projectID, statusErr := s.getRunTokenState(r.Context(), subject)
 		if statusErr != nil {
 			if errors.Is(statusErr, store.ErrRunNotFound) {
 				respondError(w, r, http.StatusNotFound, "run not found")
@@ -149,6 +163,16 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusGone, "run has reached a terminal state")
 			return
 		}
+		if attempt > 0 && attempt != claims.Attempt {
+			respondError(w, r, http.StatusUnauthorized, "run token attempt is stale")
+			return
+		}
+		if claims.AssignmentID != "" {
+			if err := s.verifyRunTokenAssignment(r.Context(), subject, projectID, claims.AssignmentID); err != nil {
+				respondError(w, r, http.StatusUnauthorized, err.Error())
+				return
+			}
+		}
 		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
 		sdkCaps := resolveSDKCapabilities(sdkVersion)
 		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
@@ -156,6 +180,34 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxSDKCapabilitiesKey, sdkCaps)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) getRunTokenState(ctx context.Context, runID string) (domain.RunStatus, int, string, error) {
+	if getter, ok := s.store.(runTokenStateGetter); ok {
+		return getter.GetRunTokenState(ctx, runID)
+	}
+	status, err := s.store.GetRunStatus(ctx, runID)
+	return status, 0, "", err
+}
+
+func (s *Server) verifyRunTokenAssignment(ctx context.Context, runID, projectID, assignmentID string) error {
+	getter, ok := s.store.(interface {
+		GetWorkerTask(context.Context, string) (*domain.WorkerTask, error)
+	})
+	if !ok {
+		return errors.New("failed to verify run assignment")
+	}
+	task, err := getter.GetWorkerTask(ctx, assignmentID)
+	if err != nil || task == nil {
+		return errors.New("run assignment not found")
+	}
+	if task.RunID != runID || task.ProjectID != projectID {
+		return errors.New("run token assignment mismatch")
+	}
+	if task.Status != domain.WorkerTaskStatusAssigned && task.Status != domain.WorkerTaskStatusAccepted {
+		return errors.New("run assignment is no longer active")
+	}
+	return nil
 }
 
 type SDKRunIDInput struct {

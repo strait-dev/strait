@@ -165,17 +165,44 @@ func newAuthTestServer(t *testing.T) *Server {
 // is rejected as "invalid run token".
 func signToken(t *testing.T, key, subject string, expiry time.Time) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    "strait:run-token",
-		Subject:   subject,
-		ExpiresAt: jwt.NewNumericDate(expiry),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	return signTokenWithAttempt(t, key, subject, expiry, 1, "")
+}
+
+func signTokenWithAttempt(t *testing.T, key, subject string, expiry time.Time, attempt int, assignmentID string) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, runTokenClaims{
+		Attempt:      attempt,
+		AssignmentID: assignmentID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   subject,
+			ExpiresAt: jwt.NewNumericDate(expiry),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	})
 	signed, err := token.SignedString([]byte(key))
 	if err != nil {
 		t.Fatalf("failed to sign token: %v", err)
 	}
 	return signed
+}
+
+type workerTaskAPIStoreMock struct {
+	*APIStoreMock
+	status    domain.RunStatus
+	attempt   int
+	projectID string
+	stateErr  error
+	task      *domain.WorkerTask
+	err       error
+}
+
+func (m *workerTaskAPIStoreMock) GetRunTokenState(_ context.Context, _ string) (domain.RunStatus, int, string, error) {
+	return m.status, m.attempt, m.projectID, m.stateErr
+}
+
+func (m *workerTaskAPIStoreMock) GetWorkerTask(_ context.Context, _ string) (*domain.WorkerTask, error) {
+	return m.task, m.err
 }
 
 // authRequest builds a request with the given runID in the chi route context.
@@ -356,6 +383,120 @@ func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
 			}
 			if called.Load() {
 				t.Fatalf("status %s: next handler should not have been called", status)
+			}
+		})
+	}
+}
+
+func TestRunTokenAuth_StaleAttemptRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testSigningKey,
+	}
+	ms := &workerTaskAPIStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		status:       domain.StatusExecuting,
+		attempt:      2,
+		projectID:    "proj-1",
+	}
+	srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+	t.Cleanup(srv.Close)
+
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	tok := signTokenWithAttempt(t, testSigningKey, "run-1", time.Now().Add(time.Hour), 1, "")
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for stale attempt token, got %d: %s", w.Code, w.Body.String())
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called")
+	}
+}
+
+func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		task *domain.WorkerTask
+		want int
+	}{
+		{
+			name: "matching assigned task",
+			task: &domain.WorkerTask{
+				ID:        "task-1",
+				RunID:     "run-1",
+				ProjectID: "proj-1",
+				Status:    domain.WorkerTaskStatusAssigned,
+			},
+			want: http.StatusOK,
+		},
+		{
+			name: "wrong run",
+			task: &domain.WorkerTask{
+				ID:        "task-1",
+				RunID:     "run-other",
+				ProjectID: "proj-1",
+				Status:    domain.WorkerTaskStatusAssigned,
+			},
+			want: http.StatusUnauthorized,
+		},
+		{
+			name: "terminal task",
+			task: &domain.WorkerTask{
+				ID:        "task-1",
+				RunID:     "run-1",
+				ProjectID: "proj-1",
+				Status:    domain.WorkerTaskStatusCompleted,
+			},
+			want: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				InternalSecret:      "test-secret-value",
+				MaxBulkTriggerItems: 500,
+				JWTSigningKey:       testSigningKey,
+			}
+			base := &APIStoreMock{
+				GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+					return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting, Attempt: 1}, nil
+				},
+			}
+			ms := &workerTaskAPIStoreMock{
+				APIStoreMock: base,
+				status:       domain.StatusExecuting,
+				attempt:      1,
+				projectID:    "proj-1",
+				task:         tt.task,
+			}
+			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+			t.Cleanup(srv.Close)
+
+			handler := srv.runTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			tok := signTokenWithAttempt(t, testSigningKey, "run-1", time.Now().Add(time.Hour), 1, "task-1")
+			r := authRequest(t, "run-1")
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
 			}
 		})
 	}

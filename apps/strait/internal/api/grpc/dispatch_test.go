@@ -8,6 +8,8 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // TestResultChannelRegistry_SendAndReceive verifies basic send/receive semantics.
@@ -142,6 +144,38 @@ func TestDispatchHMAC_DifferentInputsDifferentSigs(t *testing.T) {
 	s2 := dispatchHMAC("secret2", "123", []byte("body"))
 	if s1 == s2 {
 		t.Error("expected different signatures for different secrets")
+	}
+}
+
+func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
+	dispatcher := &WorkerDispatcher{jwtSigningKey: "test-jwt-key"}
+	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Attempt: 3}
+	job := &domain.Job{ID: "job-1", Slug: "job", Queue: "q", TimeoutSecs: 30}
+
+	assignment := dispatcher.buildAssignment(run, job, "task-1")
+	if assignment.RunTokenJwt == "" {
+		t.Fatal("expected run token")
+	}
+
+	claims := struct {
+		Attempt      int    `json:"attempt,omitempty"`
+		AssignmentID string `json:"assignment_id,omitempty"`
+		jwt.RegisteredClaims
+	}{}
+	parsed, err := jwt.ParseWithClaims(assignment.RunTokenJwt, &claims, func(_ *jwt.Token) (any, error) {
+		return []byte("test-jwt-key"), nil
+	}, jwt.WithIssuer("strait:run-token"))
+	if err != nil || !parsed.Valid {
+		t.Fatalf("parse run token: %v", err)
+	}
+	if claims.Subject != "run-1" {
+		t.Fatalf("subject = %q, want run-1", claims.Subject)
+	}
+	if claims.Attempt != 3 {
+		t.Fatalf("attempt = %d, want 3", claims.Attempt)
+	}
+	if claims.AssignmentID != "task-1" {
+		t.Fatalf("assignment_id = %q, want task-1", claims.AssignmentID)
 	}
 }
 

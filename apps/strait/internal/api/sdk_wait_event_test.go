@@ -34,11 +34,14 @@ func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 
 func makeSDKRunToken(t *testing.T, runID string) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &jwt.RegisteredClaims{
-		Issuer:    "strait:run-token",
-		Subject:   runID,
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &runTokenClaims{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {

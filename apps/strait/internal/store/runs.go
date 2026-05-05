@@ -154,6 +154,30 @@ func (q *Queries) GetRunStatus(ctx context.Context, id string) (domain.RunStatus
 	return status, nil
 }
 
+func (q *Queries) GetRunTokenState(ctx context.Context, id string) (domain.RunStatus, int, string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunTokenState")
+	defer span.End()
+
+	var status domain.RunStatus
+	var attempt int
+	var projectID string
+	err := q.db.QueryRow(ctx, `SELECT status, attempt, project_id FROM job_runs WHERE id = $1`, id).Scan(&status, &attempt, &projectID)
+	if err == nil {
+		return status, attempt, projectID, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", 0, "", fmt.Errorf("get run token state: %w", err)
+	}
+	err = q.db.QueryRow(ctx, `SELECT status, attempt, project_id FROM job_runs_history WHERE id = $1`, id).Scan(&status, &attempt, &projectID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", 0, "", ErrRunNotFound
+		}
+		return "", 0, "", fmt.Errorf("get run token state: history fallback: %w", err)
+	}
+	return status, attempt, projectID, nil
+}
+
 func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRun")
 	defer span.End()

@@ -56,8 +56,11 @@ func assertRunTokenIssuer(t *testing.T, token, signingKey string) {
 		t.Fatal("expected X-Run-Token header")
 	}
 
-	claims := &jwt.RegisteredClaims{}
-	parsed, err := jwt.ParseWithClaims(token, claims, func(*jwt.Token) (any, error) {
+	claims := struct {
+		Attempt int `json:"attempt,omitempty"`
+		jwt.RegisteredClaims
+	}{}
+	parsed, err := jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) {
 		return []byte(signingKey), nil
 	})
 	if err != nil {
@@ -68,5 +71,8 @@ func assertRunTokenIssuer(t *testing.T, token, signingKey string) {
 	}
 	if claims.Issuer != "strait:run-token" {
 		t.Fatalf("claims.Issuer = %q, want %q", claims.Issuer, "strait:run-token")
+	}
+	if claims.Attempt != 1 {
+		t.Fatalf("claims.Attempt = %d, want 1", claims.Attempt)
 	}
 }
