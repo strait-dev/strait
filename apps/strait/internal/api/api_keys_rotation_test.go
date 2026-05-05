@@ -16,11 +16,14 @@ func TestHandleRotateAPIKey(t *testing.T) {
 
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
-		return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "prod key", Scopes: []string{"jobs:read"}}, nil
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
 		if key.ProjectID != "proj-1" {
 			t.Fatalf("project_id mismatch: %s", key.ProjectID)
+		}
+		if key.OrgID != "org-1" {
+			t.Fatalf("org_id mismatch: %s", key.OrgID)
 		}
 		key.ID = "key-2"
 		return nil
