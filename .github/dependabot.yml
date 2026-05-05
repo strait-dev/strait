@@ -32,22 +32,6 @@ updates:
       - "dependencies"
       - "npm"
 
-  - package-ecosystem: "npm"
-    directory: "/apps/website"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    groups:
-      website:
-        patterns:
-          - "*"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "npm"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

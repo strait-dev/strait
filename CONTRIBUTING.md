@@ -128,8 +128,9 @@ Key directories:
 - `apps/strait/` -- Go API server, worker, scheduler
 - `apps/app/` -- TanStack Start dashboard (React)
 - `apps/docs/` -- Documentation site
-- `apps/website/` -- Marketing website
 - `packages/` -- Shared packages (UI, utils, SDK, billing)
+
+The marketing website lives in its own repo: <https://github.com/strait-dev/website>
 
 ## Self-Hosting
 
