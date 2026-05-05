@@ -258,20 +258,18 @@ type AuditEvent struct {
 	TraceID       string          `json:"trace_id,omitempty" doc:"OpenTelemetry trace ID when available"`
 	SchemaVersion uint16          `json:"schema_version,omitempty" doc:"Signature schema version (1=original, 2=with forensic fields)"`
 	// IsAnchor marks the row as a chain-boundary anchor (e.g. signing key
-	// rotation). Anchors are out-of-band forensic markers: they are NOT
-	// part of the canonical HMAC form, but the verifier honors them as
-	// epoch boundaries so a rotation does not invalidate pre-rotation
-	// signatures.
+	// rotation). Schema v3+ signs this value as part of the canonical HMAC
+	// form so anchor markers cannot be toggled without detection.
 	IsAnchor bool `json:"is_anchor,omitempty"`
 	// RotationEpoch is the signing key epoch under which this row was
 	// written. Epoch 0 is the initial key. Monotonically increasing per
-	// project. Also not part of the canonical HMAC form.
+	// project. Schema v3+ signs this value as part of the canonical HMAC form.
 	RotationEpoch int `json:"rotation_epoch,omitempty"`
 }
 
 // AuditEventSchemaVersionCurrent is the schema version stamped on new
 // audit events. Bump whenever the canonical form changes.
-const AuditEventSchemaVersionCurrent uint16 = 2
+const AuditEventSchemaVersionCurrent uint16 = 3
 
 // AuditChainVerification is the result of verifying the HMAC chain
 // integrity for a project's audit event log.

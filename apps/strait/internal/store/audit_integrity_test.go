@@ -105,6 +105,47 @@ func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
 	}
 }
 
+func TestComputeAuditSignatureV3_LengthDelimitsPipeFields(t *testing.T) {
+	t.Parallel()
+
+	key, _ := DeriveAuditSigningKey("test-secret-value")
+	left := testAuditEvent("ev-1", "proj-1", "create")
+	left.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	left.ActorID = "actor|api"
+	left.ActorType = "key"
+
+	right := testAuditEvent("ev-1", "proj-1", "create")
+	right.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	right.ActorID = "actor"
+	right.ActorType = "api|key"
+
+	if sigLeft, sigRight := ComputeAuditSignature(left, key), ComputeAuditSignature(right, key); sigLeft == sigRight {
+		t.Fatal("v3 audit signatures collided for pipe-ambiguous adjacent fields")
+	}
+}
+
+func TestComputeAuditSignatureV3_BindsAnchorAndRotationEpoch(t *testing.T) {
+	t.Parallel()
+
+	key, _ := DeriveAuditSigningKey("test-secret-value")
+	base := testAuditEvent("ev-1", "proj-1", "create")
+	base.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	base.RotationEpoch = 7
+	baseSig := ComputeAuditSignature(base, key)
+
+	anchorChanged := *base
+	anchorChanged.IsAnchor = true
+	if sig := ComputeAuditSignature(&anchorChanged, key); sig == baseSig {
+		t.Fatal("v3 audit signature did not change when is_anchor changed")
+	}
+
+	epochChanged := *base
+	epochChanged.RotationEpoch = 8
+	if sig := ComputeAuditSignature(&epochChanged, key); sig == baseSig {
+		t.Fatal("v3 audit signature did not change when rotation_epoch changed")
+	}
+}
+
 func TestComputeAuditSignature_DifferentKeys(t *testing.T) {
 	t.Parallel()
 

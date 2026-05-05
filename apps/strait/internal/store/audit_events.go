@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -37,21 +39,25 @@ func DeriveAuditSigningKey(secret string) ([]byte, error) {
 }
 
 // ComputeAuditSignature computes the HMAC-SHA256 signature for an audit event.
-// The canonical form is pipe-separated fields including the previous_hash,
-// ensuring any modification to any field invalidates the signature.
+// The canonical form includes the previous_hash, ensuring any modification
+// to any signed field invalidates the signature.
 //
 // The canonical form branches on SchemaVersion:
 //   - v1 (default): original form, 10 fields. Used by events written before
 //     the forensic-columns migration.
 //   - v2: extends v1 with RemoteIP, UserAgent, RequestID, TraceID,
 //     SchemaVersion. Used by new events after migration 000185.
+//   - v3: length-delimited fields, extending v2 with IsAnchor and
+//     RotationEpoch so forensic metadata is HMAC-bound.
 //
 // Verify runs the same branching logic so both versions coexist in the same
 // chain without any bulk re-signing.
 func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	mac := hmac.New(sha256.New, key)
 	var canonical string
-	if ev.SchemaVersion >= 2 {
+	if ev.SchemaVersion >= 3 {
+		canonical = auditSignatureCanonicalV3(ev)
+	} else if ev.SchemaVersion >= 2 {
 		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d",
 			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
 			ev.Action, ev.ResourceType, ev.ResourceID,
@@ -72,6 +78,38 @@ func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	}
 	mac.Write([]byte(canonical))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func auditSignatureCanonicalV3(ev *domain.AuditEvent) string {
+	fields := []string{
+		ev.ID,
+		ev.ProjectID,
+		ev.ActorID,
+		ev.ActorType,
+		ev.Action,
+		ev.ResourceType,
+		ev.ResourceID,
+		string(ev.Details),
+		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ev.PreviousHash,
+		ev.RemoteIP,
+		ev.UserAgent,
+		ev.RequestID,
+		ev.TraceID,
+		strconv.FormatUint(uint64(ev.SchemaVersion), 10),
+		strconv.FormatBool(ev.IsAnchor),
+		strconv.Itoa(ev.RotationEpoch),
+	}
+
+	var b strings.Builder
+	b.WriteString("audit:v3\n")
+	for _, field := range fields {
+		b.WriteString(strconv.Itoa(len(field)))
+		b.WriteByte(':')
+		b.WriteString(field)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {
