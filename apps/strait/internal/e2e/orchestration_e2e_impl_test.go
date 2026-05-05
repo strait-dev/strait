@@ -247,8 +247,8 @@ func TestEndToEndWorkerMode(t *testing.T) {
 		ProjectID:      projectID,
 		APIKeyID:       "e2e-api-key",
 		Queues:         []string{queueName},
-		SlotsTotal:     int32(runCount),  //nolint:gosec
-		SlotsAvailable: int32(runCount),  //nolint:gosec
+		SlotsTotal:     int32(runCount), //nolint:gosec
+		SlotsAvailable: int32(runCount), //nolint:gosec
 		Status:         "active",
 		SendCh:         sendCh,
 	}
@@ -302,7 +302,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 				RunId:  assignment.RunId,
 				Status: "success",
 			}
-			resultChannels.Send(assignment.RunId, projectID, result)
+			resultChannels.Send(assignment.RunId, projectID, workerID, result)
 
 			// Update run to completed.
 			_ = runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()})

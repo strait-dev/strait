@@ -19,10 +19,11 @@ import (
 type grpcContextKey string
 
 const (
-	grpcCtxProjectIDKey grpcContextKey = "grpc_project_id"
-	grpcCtxOrgIDKey     grpcContextKey = "grpc_org_id"
-	grpcCtxAPIKeyIDKey  grpcContextKey = "grpc_api_key_id" //nolint:gosec // not a credential; context-key name
-	grpcCtxAPIKeyKey    grpcContextKey = "grpc_api_key"    //nolint:gosec // not a credential; context-key name
+	grpcCtxProjectIDKey     grpcContextKey = "grpc_project_id"
+	grpcCtxOrgIDKey         grpcContextKey = "grpc_org_id"
+	grpcCtxAPIKeyIDKey      grpcContextKey = "grpc_api_key_id" //nolint:gosec // not a credential; context-key name
+	grpcCtxAPIKeyKey        grpcContextKey = "grpc_api_key"    //nolint:gosec // not a credential; context-key name
+	grpcCtxEnvironmentIDKey grpcContextKey = "grpc_environment_id"
 )
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata
@@ -53,19 +54,32 @@ func resolveAPIKeyFromContext(ctx context.Context, q *store.Queries) (*domain.AP
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 
+	if err := validateWorkerAPIKey(apiKey); err != nil {
+		return nil, err
+	}
+
+	return apiKey, nil
+}
+
+func validateWorkerAPIKey(apiKey *domain.APIKey) error {
+	if apiKey == nil {
+		return status.Error(codes.Unauthenticated, "invalid api key")
+	}
 	if apiKey.RevokedAt != nil {
-		return nil, status.Error(codes.Unauthenticated, "api key has been revoked")
+		return status.Error(codes.Unauthenticated, "api key has been revoked")
 	}
 
 	now := time.Now()
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
-		return nil, status.Error(codes.Unauthenticated, "api key has expired")
+		return status.Error(codes.Unauthenticated, "api key has expired")
 	}
 	if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
-		return nil, status.Error(codes.Unauthenticated, "api key rotation grace period has ended")
+		return status.Error(codes.Unauthenticated, "api key rotation grace period has ended")
 	}
-
-	return apiKey, nil
+	if !domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect) {
+		return status.Error(codes.PermissionDenied, "api key does not allow worker connections")
+	}
+	return nil
 }
 
 // hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string.
@@ -83,6 +97,9 @@ func withAPIKeyContext(ctx context.Context, apiKey *domain.APIKey) context.Conte
 	if apiKey.OrgID != "" {
 		ctx = context.WithValue(ctx, grpcCtxOrgIDKey, apiKey.OrgID)
 	}
+	if apiKey.EnvironmentID != "" {
+		ctx = context.WithValue(ctx, grpcCtxEnvironmentIDKey, apiKey.EnvironmentID)
+	}
 	return ctx
 }
 
@@ -98,6 +115,12 @@ func ProjectIDFromContext(ctx context.Context) (string, error) {
 // OrgIDFromContext extracts the org ID set by withAPIKeyContext (may be empty).
 func OrgIDFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(grpcCtxOrgIDKey).(string)
+	return v
+}
+
+// EnvironmentIDFromContext extracts the environment ID set by withAPIKeyContext.
+func EnvironmentIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(grpcCtxEnvironmentIDKey).(string)
 	return v
 }
 

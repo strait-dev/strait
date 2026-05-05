@@ -13,6 +13,7 @@ import (
 type ConnectedWorker struct {
 	WorkerID       string
 	ProjectID      string
+	EnvironmentID  string
 	APIKeyID       string // ID of the API key that authenticated this stream
 	Name           string
 	Hostname       string
@@ -193,7 +194,7 @@ func (r *ConnectionRegistry) PickWorkerForQueue(projectID, queue string) (*Conne
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	best := r.pickLocked(projectID, queue)
+	best := r.pickLocked(projectID, queue, "")
 	if best == nil {
 		return nil, false
 	}
@@ -213,11 +214,11 @@ func (r *ConnectionRegistry) PickWorkerForQueue(projectID, queue string) (*Conne
 // stream's send loop exits on ctx.Done(), so receiving stops). On any
 // failure to actually deliver the work, the caller must call
 // IncrementSlots(workerID) to release the reservation.
-func (r *ConnectionRegistry) ReserveWorkerForQueue(projectID, queue string) (workerID string, sendCh chan<- *workerv1.ServerMessage, ok bool) {
+func (r *ConnectionRegistry) ReserveWorkerForQueue(projectID, queue, environmentID string) (workerID string, sendCh chan<- *workerv1.ServerMessage, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	best := r.pickLocked(projectID, queue)
+	best := r.pickLocked(projectID, queue, environmentID)
 	if best == nil {
 		return "", nil, false
 	}
@@ -227,10 +228,13 @@ func (r *ConnectionRegistry) ReserveWorkerForQueue(projectID, queue string) (wor
 
 // pickLocked returns the least-loaded active worker for the queue, or nil if
 // none qualify. Caller must hold r.mu (read or write).
-func (r *ConnectionRegistry) pickLocked(projectID, queue string) *ConnectedWorker {
+func (r *ConnectionRegistry) pickLocked(projectID, queue, environmentID string) *ConnectedWorker {
 	var best *ConnectedWorker
 	for _, w := range r.workers {
 		if w.ProjectID != projectID || w.Status != "active" || w.SlotsAvailable <= 0 {
+			continue
+		}
+		if w.EnvironmentID != "" && w.EnvironmentID != environmentID {
 			continue
 		}
 		if !workerHasQueue(w, queue) {

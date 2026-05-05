@@ -48,6 +48,7 @@ type ResultChannelRegistry struct {
 type resultChannelEntry struct {
 	ch        chan *workerv1.TaskResult
 	projectID string
+	workerID  string
 }
 
 // NewResultChannelRegistry creates an empty registry.
@@ -60,10 +61,10 @@ func NewResultChannelRegistry() *ResultChannelRegistry {
 // Register creates a buffered channel for the given run ID, scoped to the
 // run's project ID, and returns it. The dispatcher must pass the authoritative
 // project ID from the run row (not user input).
-func (r *ResultChannelRegistry) Register(runID, projectID string) chan *workerv1.TaskResult {
+func (r *ResultChannelRegistry) Register(runID, projectID, workerID string) chan *workerv1.TaskResult {
 	ch := make(chan *workerv1.TaskResult, 1)
 	r.mu.Lock()
-	r.channels[runID] = resultChannelEntry{ch: ch, projectID: projectID}
+	r.channels[runID] = resultChannelEntry{ch: ch, projectID: projectID, workerID: workerID}
 	r.mu.Unlock()
 	return ch
 }
@@ -80,11 +81,11 @@ func (r *ResultChannelRegistry) Deregister(runID string) {
 // caller's project ID matches the project ID the channel was registered with.
 // Returns true on successful delivery; false on missing channel, project
 // mismatch, or already-buffered duplicate.
-func (r *ResultChannelRegistry) Send(runID, projectID string, result *workerv1.TaskResult) bool {
+func (r *ResultChannelRegistry) Send(runID, projectID, workerID string, result *workerv1.TaskResult) bool {
 	r.mu.Lock()
 	entry, ok := r.channels[runID]
 	r.mu.Unlock()
-	if !ok || entry.projectID != projectID {
+	if !ok || entry.projectID != projectID || entry.workerID != workerID {
 		return false
 	}
 	select {
@@ -138,7 +139,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	// Atomic pick + slot reservation under the registry write lock. Without
 	// this, N concurrent dispatchers can all see SlotsAvailable=1 on the
 	// same worker, all decrement, and oversubscribe a single-slot worker.
-	workerID, sendCh, ok := d.registry.ReserveWorkerForQueue(run.ProjectID, job.Queue)
+	workerID, sendCh, ok := d.registry.ReserveWorkerForQueue(run.ProjectID, job.Queue, job.EnvironmentID)
 	if !ok {
 		return nil, ErrNoWorkerAvailable
 	}
@@ -167,7 +168,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	// never miss a TaskResult that arrives before we start waiting. The
 	// channel is bound to run.ProjectID so any TaskResult arriving from a
 	// worker authenticated to a different project is dropped on the floor.
-	resultCh := d.resultChannels.Register(run.ID, run.ProjectID)
+	resultCh := d.resultChannels.Register(run.ID, run.ProjectID, workerID)
 	defer d.resultChannels.Deregister(run.ID)
 
 	// Build and send the TaskAssignment.

@@ -123,6 +123,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	cw := &ConnectedWorker{
 		WorkerID:       reg.WorkerId,
 		ProjectID:      projectID,
+		EnvironmentID:  apiKey.EnvironmentID,
 		APIKeyID:       apiKey.ID,
 		Name:           reg.Name,
 		Hostname:       reg.Hostname,
@@ -385,7 +386,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// The result channel is project-scoped so a worker authenticated to a
 	// different project cannot deliver a forged TaskResult into another
 	// project's dispatch goroutine: Send drops the message on project mismatch.
-	if s.resultChannels != nil && s.resultChannels.Send(tr.RunId, projectID, tr) {
+	if s.resultChannels != nil && s.resultChannels.Send(tr.RunId, projectID, workerID, tr) {
 		// Successfully delivered to the waiting dispatcher — it owns the rest.
 		return nil
 	}

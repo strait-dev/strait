@@ -98,6 +98,15 @@ func TestAPIKeyFromContext_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEnvironmentIDFromContext_Present(t *testing.T) {
+	apiKey := &domain.APIKey{ID: "key-42", ProjectID: "proj-x", EnvironmentID: "env-prod"}
+	ctx := withAPIKeyContext(context.Background(), apiKey)
+
+	if got := EnvironmentIDFromContext(ctx); got != "env-prod" {
+		t.Fatalf("EnvironmentIDFromContext() = %q, want env-prod", got)
+	}
+}
+
 // TestAPIKeyFromContext_Missing verifies (nil, false) when context has no API key.
 func TestAPIKeyFromContext_Missing(t *testing.T) {
 	_, ok := APIKeyFromContext(context.Background())
@@ -165,15 +174,17 @@ func TestAPIKey_Expired(t *testing.T) {
 		ID:        "k",
 		ProjectID: "p",
 		ExpiresAt: &past,
+		Scopes:    []string{domain.ScopeWorkersConnect},
 	}
 
-	// Simulate what resolveAPIKeyFromContext does after retrieving the key.
-	now := time.Now()
-	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
-		// expected: key is expired
-		return
+	err := validateWorkerAPIKey(apiKey)
+	if err == nil {
+		t.Fatal("expected expired key to be rejected")
 	}
-	t.Error("expected key to be detected as expired")
+	s, _ := status.FromError(err)
+	if s.Code() != codes.Unauthenticated {
+		t.Fatalf("status = %s, want Unauthenticated", s.Code())
+	}
 }
 
 // TestAPIKey_GraceExpired verifies grace period expiry detection.
@@ -183,14 +194,17 @@ func TestAPIKey_GraceExpired(t *testing.T) {
 		ID:             "k",
 		ProjectID:      "p",
 		GraceExpiresAt: &past,
+		Scopes:         []string{domain.ScopeWorkersConnect},
 	}
 
-	now := time.Now()
-	if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
-		// expected
-		return
+	err := validateWorkerAPIKey(apiKey)
+	if err == nil {
+		t.Fatal("expected expired grace period to be rejected")
 	}
-	t.Error("expected grace period to be detected as expired")
+	s, _ := status.FromError(err)
+	if s.Code() != codes.Unauthenticated {
+		t.Fatalf("status = %s, want Unauthenticated", s.Code())
+	}
 }
 
 // TestAPIKey_Revoked verifies revocation detection.
@@ -207,4 +221,33 @@ func TestAPIKey_Revoked(t *testing.T) {
 		return
 	}
 	t.Error("expected key to be detected as revoked")
+}
+
+func TestValidateWorkerAPIKey_RequiresWorkersConnectScope(t *testing.T) {
+	apiKey := &domain.APIKey{
+		ID:        "k",
+		ProjectID: "p",
+		Scopes:    []string{domain.ScopeJobsRead},
+	}
+
+	err := validateWorkerAPIKey(apiKey)
+	if err == nil {
+		t.Fatal("expected missing workers:connect scope to be rejected")
+	}
+	s, _ := status.FromError(err)
+	if s.Code() != codes.PermissionDenied {
+		t.Fatalf("status = %s, want PermissionDenied", s.Code())
+	}
+}
+
+func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
+	apiKey := &domain.APIKey{
+		ID:        "k",
+		ProjectID: "p",
+		Scopes:    []string{domain.ScopeWorkersConnect},
+	}
+
+	if err := validateWorkerAPIKey(apiKey); err != nil {
+		t.Fatalf("validateWorkerAPIKey() error = %v, want nil", err)
+	}
 }

@@ -29,7 +29,7 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q")
+			id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q", "")
 			if ok {
 				wins.Add(1)
 				if id != "solo" {
@@ -67,7 +67,7 @@ func TestReserveWorkerForQueue_NoneAvailable(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q-none")
+	id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q-none", "")
 	if ok {
 		t.Fatalf("expected ok=false, got id=%q sendCh=%v", id, sendCh)
 	}
@@ -76,7 +76,7 @@ func TestReserveWorkerForQueue_NoneAvailable(t *testing.T) {
 	}
 
 	// Different project: also a miss.
-	if _, _, ok := r.ReserveWorkerForQueue("proj-other", "other"); ok {
+	if _, _, ok := r.ReserveWorkerForQueue("proj-other", "other", ""); ok {
 		t.Fatal("expected ok=false for cross-project pick")
 	}
 }
@@ -94,7 +94,7 @@ func TestReserveWorkerForQueue_PicksLeastLoaded(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	id, _, ok := r.ReserveWorkerForQueue("proj-a", "q")
+	id, _, ok := r.ReserveWorkerForQueue("proj-a", "q", "")
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -113,7 +113,43 @@ func TestReserveWorkerForQueue_DrainingExcluded(t *testing.T) {
 	}
 	r.MarkDraining("draining")
 
-	if _, _, ok := r.ReserveWorkerForQueue("proj-a", "q"); ok {
+	if _, _, ok := r.ReserveWorkerForQueue("proj-a", "q", ""); ok {
 		t.Fatal("expected draining worker to be excluded from reservations")
+	}
+}
+
+func TestReserveWorkerForQueue_EnvironmentScopedWorkerOnlyMatchesSameEnvironment(t *testing.T) {
+	t.Parallel()
+
+	r := NewConnectionRegistry()
+	prod := makeWorker("prod", "proj-a", "key-prod", []string{"q"}, 2)
+	prod.EnvironmentID = "env-prod"
+	staging := makeWorker("staging", "proj-a", "key-staging", []string{"q"}, 2)
+	staging.EnvironmentID = "env-staging"
+	projectWide := makeWorker("wide", "proj-a", "key-wide", []string{"q"}, 2)
+	if err := r.Register(prod); err != nil {
+		t.Fatalf("register prod: %v", err)
+	}
+	if err := r.Register(staging); err != nil {
+		t.Fatalf("register staging: %v", err)
+	}
+	if err := r.Register(projectWide); err != nil {
+		t.Fatalf("register wide: %v", err)
+	}
+
+	id, _, ok := r.ReserveWorkerForQueue("proj-a", "q", "env-prod")
+	if !ok {
+		t.Fatal("expected env-prod reservation")
+	}
+	if id == "staging" {
+		t.Fatal("env-staging worker must not receive env-prod job")
+	}
+
+	id, _, ok = r.ReserveWorkerForQueue("proj-a", "q", "env-dev")
+	if !ok {
+		t.Fatal("expected project-wide worker to cover unmatched environment")
+	}
+	if id != "wide" {
+		t.Fatalf("expected project-wide worker for unmatched environment, got %q", id)
 	}
 }

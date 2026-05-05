@@ -23,6 +23,7 @@ const (
 	ScopeProjectsRead     = "projects:read"
 	ScopeProjectsWrite    = "projects:write"
 	ScopeProjectsManage   = "projects:manage"
+	ScopeWorkersConnect   = "workers:connect"
 	// DLQ admin scopes used by the admin DLQ HTTP endpoints.
 	ScopeDLQRead     = "dlq:read"
 	ScopeDLQReplay   = "dlq:replay"
@@ -53,6 +54,7 @@ var ValidScopes = map[string]bool{
 	ScopeProjectsRead:     true,
 	ScopeProjectsWrite:    true,
 	ScopeProjectsManage:   true,
+	ScopeWorkersConnect:   true,
 	ScopeDLQRead:          true,
 	ScopeDLQReplay:        true,
 	ScopeDLQPurge:         true,
