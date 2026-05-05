@@ -955,6 +955,35 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 	return job
 }
 
+func markWorkerJobQueue(t *testing.T, ctx context.Context, job *domain.Job, queueName string) {
+	t.Helper()
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE jobs SET execution_mode = 'worker', queue_name = $2 WHERE id = $1`,
+		job.ID, queueName,
+	); err != nil {
+		t.Fatalf("mark worker job queue: %v", err)
+	}
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = queueName
+}
+
+func assertClaimRouting(t *testing.T, ctx context.Context, runID string, wantMode domain.ExecutionMode, wantQueue string) {
+	t.Helper()
+	var gotMode, gotQueue string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT execution_mode, queue_name FROM job_run_queue WHERE run_id = $1`,
+		runID,
+	).Scan(&gotMode, &gotQueue); err != nil {
+		t.Fatalf("query claim routing: %v", err)
+	}
+	if gotMode != string(wantMode) {
+		t.Fatalf("claim execution_mode = %q, want %q", gotMode, wantMode)
+	}
+	if gotQueue != wantQueue {
+		t.Fatalf("claim queue_name = %q, want %q", gotQueue, wantQueue)
+	}
+}
+
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
 }
@@ -1378,13 +1407,13 @@ func TestEnqueue_MetadataSpecialChars(t *testing.T) {
 
 	job := mustCreateJob(t, ctx, st, "project-queue-metadata-special")
 	meta := map[string]string{
-		"unicode_key_\u00e9\u00e8\u00ea":       "value with unicode \u2603\u2764",
-		"quotes_key_\"double\"":                 "value with 'single' and \"double\" quotes",
-		"backslash_key_\\\\":                    "back\\slash\\value",
-		"newline_key_\n":                        "value\nwith\nnewlines",
-		"tab_key_\t":                            "value\twith\ttabs",
-		"empty_value":                           "",
-		"json_like":                             `{"nested":"not really"}`,
+		"unicode_key_\u00e9\u00e8\u00ea": "value with unicode \u2603\u2764",
+		"quotes_key_\"double\"":          "value with 'single' and \"double\" quotes",
+		"backslash_key_\\\\":             "back\\slash\\value",
+		"newline_key_\n":                 "value\nwith\nnewlines",
+		"tab_key_\t":                     "value\twith\ttabs",
+		"empty_value":                    "",
+		"json_like":                      `{"nested":"not really"}`,
 	}
 	run := &domain.JobRun{
 		ID:        newID(),

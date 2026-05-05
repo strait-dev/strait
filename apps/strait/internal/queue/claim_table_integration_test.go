@@ -479,6 +479,154 @@ func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 	}
 }
 
+func TestClaimTable_DequeueNForWorker_RoutesNonDefaultWorkerQueue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-worker-claim-routing")
+	markWorkerJobQueue(t, ctx, job, "priority")
+	q := mustQueue(t)
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+
+	assertClaimRouting(t, ctx, run.ID, domain.ExecutionModeWorker, "priority")
+
+	batch, err := q.DequeueNForWorker(ctx, 1, []string{"priority"})
+	if err != nil {
+		t.Fatalf("DequeueNForWorker: %v", err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("DequeueNForWorker returned %d runs, want 1", len(batch))
+	}
+	if batch[0].ID != run.ID {
+		t.Fatalf("DequeueNForWorker run ID = %q, want %q", batch[0].ID, run.ID)
+	}
+	if batch[0].Status != domain.StatusExecuting {
+		t.Fatalf("DequeueNForWorker status = %q, want executing", batch[0].Status)
+	}
+}
+
+func TestClaimTable_DequeueNForWorker_IgnoresHTTPAndOtherQueues(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+
+	httpJob := mustCreateJob(t, ctx, st, "project-worker-claim-filter")
+	httpRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         httpJob.ID,
+		ProjectID:     httpJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeHTTP,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, httpRun); err != nil {
+		t.Fatalf("Enqueue HTTP run: %v", err)
+	}
+
+	otherQueueJob := mustCreateJob(t, ctx, st, "project-worker-claim-filter")
+	markWorkerJobQueue(t, ctx, otherQueueJob, "other")
+	otherQueueRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         otherQueueJob.ID,
+		ProjectID:     otherQueueJob.ProjectID,
+		Priority:      90,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "other",
+	}
+	if err := q.Enqueue(ctx, otherQueueRun); err != nil {
+		t.Fatalf("Enqueue other queue run: %v", err)
+	}
+
+	priorityJob := mustCreateJob(t, ctx, st, "project-worker-claim-filter")
+	markWorkerJobQueue(t, ctx, priorityJob, "priority")
+	priorityRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         priorityJob.ID,
+		ProjectID:     priorityJob.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, priorityRun); err != nil {
+		t.Fatalf("Enqueue priority worker run: %v", err)
+	}
+
+	batch, err := q.DequeueNForWorker(ctx, 10, []string{"priority"})
+	if err != nil {
+		t.Fatalf("DequeueNForWorker: %v", err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("DequeueNForWorker returned %d runs, want 1", len(batch))
+	}
+	if batch[0].ID != priorityRun.ID {
+		t.Fatalf("DequeueNForWorker run ID = %q, want %q", batch[0].ID, priorityRun.ID)
+	}
+}
+
+func TestClaimTable_RequeueRestoresWorkerRouting(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-worker-claim-requeue")
+	markWorkerJobQueue(t, ctx, job, "priority")
+	q := mustQueue(t)
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+	firstBatch, err := q.DequeueNForWorker(ctx, 1, []string{"priority"})
+	if err != nil {
+		t.Fatalf("first DequeueNForWorker: %v", err)
+	}
+	if len(firstBatch) != 1 || firstBatch[0].ID != run.ID {
+		t.Fatalf("first DequeueNForWorker = %+v, want run %s", firstBatch, run.ID)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_runs
+		 SET status = 'queued', started_at = NULL, heartbeat_at = NULL
+		 WHERE id = $1 AND status = 'executing'`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("requeue run: %v", err)
+	}
+	assertClaimRouting(t, ctx, run.ID, domain.ExecutionModeWorker, "priority")
+
+	secondBatch, err := q.DequeueNForWorker(ctx, 1, []string{"priority"})
+	if err != nil {
+		t.Fatalf("second DequeueNForWorker: %v", err)
+	}
+	if len(secondBatch) != 1 || secondBatch[0].ID != run.ID {
+		t.Fatalf("second DequeueNForWorker = %+v, want run %s", secondBatch, run.ID)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Reaper hot-partition avoidance
 // ---------------------------------------------------------------------------

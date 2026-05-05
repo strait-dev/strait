@@ -898,18 +898,18 @@ var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
 // claimInsertFromJobSQL inserts a claim row using a subquery against jobs
 // so enabled/paused/concurrency reflect the current job config.
 const claimInsertFromJobSQL = `
-	INSERT INTO job_run_queue (
-		run_id, job_id, project_id, priority, created_at,
-		scheduled_at, next_retry_at, concurrency_key,
-		job_max_concurrency, job_max_concurrency_per_key,
-		job_enabled, job_paused
-	)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8,
-		j.max_concurrency, j.max_concurrency_per_key,
-		j.enabled, j.paused
-	FROM jobs j
-	WHERE j.id = $2
-	ON CONFLICT (run_id) DO NOTHING`
+		INSERT INTO job_run_queue (
+			run_id, job_id, project_id, priority, created_at,
+			scheduled_at, next_retry_at, concurrency_key,
+			job_max_concurrency, job_max_concurrency_per_key,
+			job_enabled, job_paused, execution_mode, queue_name
+		)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8,
+			j.max_concurrency, j.max_concurrency_per_key,
+			j.enabled, j.paused, j.execution_mode, j.queue_name
+		FROM jobs j
+		WHERE j.id = $2
+		ON CONFLICT (run_id) DO NOTHING`
 
 // InsertClaimRow inserts a claim row into job_run_queue for the given run.
 func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
