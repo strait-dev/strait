@@ -45,14 +45,14 @@ func TestUnknownStatusError_Error(t *testing.T) {
 
 func TestEndpointError_Error(t *testing.T) {
 	t.Parallel()
-	err := &EndpointError{StatusCode: 503, Body: "service unavailable"}
+	err := &EndpointError{StatusCode: 503, Body: "service unavailable with tenant secret"}
 	got := err.Error()
 
 	if !strings.Contains(got, "503") {
 		t.Errorf("error should contain status code, got %q", got)
 	}
-	if !strings.Contains(got, "service unavailable") {
-		t.Errorf("error should contain body, got %q", got)
+	if strings.Contains(got, "tenant secret") || strings.Contains(got, "service unavailable") {
+		t.Errorf("error should not contain endpoint response body, got %q", got)
 	}
 }
 

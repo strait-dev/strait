@@ -41,7 +41,7 @@ type EndpointError struct {
 }
 
 func (e *EndpointError) Error() string {
-	return fmt.Sprintf("endpoint returned %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("endpoint returned %d", e.StatusCode)
 }
 
 // FieldError is returned when an unsupported field is used in an update operation.
