@@ -48,22 +48,12 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 		req.Environment = "production"
 	}
 
-	encryptedValue := req.Value
-	if s.encryptor != nil {
-		enc, encErr := s.encryptor.Encrypt([]byte(req.Value))
-		if encErr != nil {
-			slog.Error("failed to encrypt secret value", "error", encErr)
-			return nil, huma.Error500InternalServerError("failed to encrypt secret")
-		}
-		encryptedValue = string(enc)
-	}
-
 	secret := &domain.JobSecret{
 		ProjectID:      req.ProjectID,
 		JobID:          req.JobID,
 		Environment:    req.Environment,
 		SecretKey:      req.SecretKey,
-		EncryptedValue: encryptedValue,
+		EncryptedValue: req.Value,
 	}
 
 	if err := s.store.CreateJobSecret(ctx, secret); err != nil {
