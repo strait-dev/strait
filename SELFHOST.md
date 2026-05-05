@@ -207,7 +207,7 @@ The OpenAPI 3.0 spec is served at `/reference/openapi.json`.
 
 ## Audit tamper-evidence hardening
 
-Strait's audit log is HMAC-signed (each entry includes a keyed hash that proves it has not been altered), so any tampering is forensically detectable out of the box. For additional defense-in-depth, you can restrict the application database role to insert-only access on the `audit_events` table. This prevents a compromised process from modifying or deleting audit history.
+Strait's audit log is HMAC-signed — each entry carries a keyed hash that proves it has not been altered, so tampering is forensically detectable. For defense-in-depth, restrict the application's database role to insert-only access on the `audit_events` table. That prevents a compromised process from modifying or deleting audit history.
 
 See migration `000187_audit_events_dml_restrictions` for the exact setup, or check the [Mintlify docs](https://docs.strait.dev) for a step-by-step walkthrough. The `/health/ready` endpoint reports `audit_dml_guard: ok` once enforced.
 

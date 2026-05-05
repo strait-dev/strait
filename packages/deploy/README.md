@@ -1,6 +1,6 @@
 # packages/deploy
 
-Self-host deployment infrastructure for the Strait stack. Contains Prometheus and Grafana configurations used by `docker-compose.selfhost.yml` to provide observability out of the box.
+Self-host deployment infrastructure for the Strait stack. Prometheus and Grafana configurations used by `docker-compose.selfhost.yml` so a fresh self-host install ships with metrics and a dashboard.
 
 ## Structure
 

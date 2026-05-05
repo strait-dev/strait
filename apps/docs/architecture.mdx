@@ -57,7 +57,7 @@ Strait is a single Go binary that runs your jobs and workflows. It needs Postgre
                     │  Job Execution:                    │
                     │  - Resolve ─> Env + URL validation │
                     │  - Execute ─> HTTP POST to endpt   │
-                    │  - Retry ─> Smart strategy select  │
+                    │  - Retry ─> Strategy + jitter      │
                     │  - Trace ─> Execution timing       │
                     │  - Review queue on exhaust         │
                     └──────────┬───────────────────────┘
