@@ -7,12 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +26,12 @@ import (
 	"strait/internal/httputil"
 	"strait/internal/telemetry"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 // mockDeliveryStore implements DeliveryStore for testing.
 type mockDeliveryStore struct {
@@ -1504,6 +1512,45 @@ func TestWithHTTPTransport_BlocksPrivateDNSAtDeliveryTime(t *testing.T) {
 	}
 	if !strings.Contains(got.LastError, "resolves to private") {
 		t.Fatalf("last_error = %q, want private DNS rejection", got.LastError)
+	}
+}
+
+func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:password@example.com/hook/token-123?api_key=secret-value"
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-redact-url",
+		WebhookURL:  rawURL,
+		Status:      domain.WebhookStatusPending,
+		MaxAttempts: 3,
+		NextRetryAt: &now,
+		LastError:   `{"event":"run.failed"}`,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.client = &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return nil, &url.Error{
+			Op:  "Post",
+			URL: rawURL,
+			Err: errors.New("dial tcp: connection refused"),
+		}
+	})}
+	worker.processBatch(context.Background())
+
+	got := ms.getDeliveries()[0]
+	for _, leaked := range []string{"password", "token-123", "secret-value", "api_key"} {
+		if strings.Contains(got.LastError, leaked) {
+			t.Fatalf("last_error leaked URL secret %q: %s", leaked, got.LastError)
+		}
+	}
+	if !strings.Contains(got.LastError, "connection refused") {
+		t.Fatalf("last_error omitted sanitized transport reason: %s", got.LastError)
 	}
 }
 

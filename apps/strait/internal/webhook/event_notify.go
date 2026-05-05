@@ -605,7 +605,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
 		}
-		errMsg := fmt.Sprintf("http request: %v", err)
+		errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
 		for i := range deliveries {
 			n.recordFailure(ctx, &deliveries[i], now, true, errMsg)
 		}
@@ -998,7 +998,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
 		}
-		errMsg := fmt.Sprintf("http request: %v", err)
+		errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
 		n.recordFailure(ctx, d, now, true, errMsg)
 		span.SetStatus(codes.Error, errMsg)
 		return
@@ -1145,6 +1145,21 @@ func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url stri
 			attribute.String("state", state),
 		))
 	}
+}
+
+func sanitizeHTTPClientError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			var nested *url.Error
+			if errors.As(urlErr.Err, &nested) {
+				return sanitizeHTTPClientError(urlErr.Err)
+			}
+			return fmt.Sprintf("%s: %v", urlErr.Op, urlErr.Err)
+		}
+		return urlErr.Op
+	}
+	return err.Error()
 }
 
 // pow computes base^exp for small positive integers.
