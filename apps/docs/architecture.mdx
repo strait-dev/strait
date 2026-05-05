@@ -147,10 +147,15 @@ Strait uses two authentication schemes:
     The run is submitted to the worker pool. In-flight jobs continue to completion even if Strait is shutting down. A background process sends heartbeats so the system can detect stalled runs.
   </Step>
   <Step title="Resolve Environment">
-    If your job has an `environment_id`, the executor resolves environment variables. It checks for `ENDPOINT_URL` overrides and validates URLs to block requests to private or loopback networks.
+    If your job has an `environment_id`, the executor resolves environment variables. For HTTP-mode jobs it checks for `ENDPOINT_URL` overrides and validates URLs to block requests to private or loopback networks.
   </Step>
   <Step title="Dispatch">
-    Executor sends HTTP POST to resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
+    The executor branches on the job's `execution_mode`:
+
+    - **HTTP (default)** — sends an HTTP POST to the resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
+    - **Worker (gRPC)** — matches a connected worker whose registered job slugs include the run's job, streams the run payload and SDK token over the bidirectional gRPC channel, and waits for the worker to stream the result back. Disconnected workers are detected by the heartbeat sweep and their in-flight runs are reclaimed.
+
+    Either way, the customer's own infrastructure runs the job code; Strait only orchestrates the dispatch.
   </Step>
   <Step title="Execution Tracing">
     Strait captures a timing breakdown for each run: queue wait, dequeue, connection, time-to-first-byte, transfer, and total duration. Stored on the run for debugging and performance analysis.
