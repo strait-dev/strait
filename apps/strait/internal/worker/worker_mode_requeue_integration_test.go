@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,27 @@ func (noWorkerAvailableDispatcher) ResultStatus(any) string { return "" }
 
 func (noWorkerAvailableDispatcher) ResultError(any) string { return "" }
 
+type staticQueueSnapshotter struct {
+	queues []string
+}
+
+func (s staticQueueSnapshotter) SnapshotQueues() []string {
+	return s.queues
+}
+
+type successfulWorkerDispatcher struct {
+	calls atomic.Int32
+}
+
+func (d *successfulWorkerDispatcher) WorkerDispatch(context.Context, *domain.JobRun, *domain.Job) (any, error) {
+	d.calls.Add(1)
+	return "ok", nil
+}
+
+func (*successfulWorkerDispatcher) ResultStatus(any) string { return "success" }
+
+func (*successfulWorkerDispatcher) ResultError(any) string { return "" }
+
 func mustCreateWorkerModeJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
 	t.Helper()
 
@@ -44,6 +66,75 @@ func mustCreateWorkerModeJob(t *testing.T, ctx context.Context, st *store.Querie
 		t.Fatalf("CreateJob() error = %v", err)
 	}
 	return job
+}
+
+func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t)
+	mustCleanEnv(t, ctx)
+
+	st := store.New(env.DB.Pool)
+	q := queue.NewPostgresQueue(env.DB.Pool)
+	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-dispatch")
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "default",
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dispatcher := &successfulWorkerDispatcher{}
+	pool := worker.NewPool(1)
+	exec := worker.NewExecutor(worker.ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               st,
+		TxPool:              env.DB.Pool,
+		HTTPClient:          &http.Client{Timeout: 5 * time.Second},
+		PollInterval:        50 * time.Millisecond,
+		HeartbeatInterval:   50 * time.Millisecond,
+		WebhookMaxAttempts:  1,
+		MaxDequeueBatchSize: 1,
+		QueueSnapshotter:    staticQueueSnapshotter{queues: []string{"default"}},
+		WorkerDispatcher:    dispatcher,
+	})
+	t.Cleanup(func() {
+		exec.CloseCache()
+		_ = pool.Shutdown(context.Background())
+	})
+
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go exec.Run(execCtx)
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for worker-mode run to complete")
+		default:
+		}
+
+		got, err := st.GetRun(ctx, run.ID)
+		if err != nil {
+			t.Fatalf("GetRun() error = %v", err)
+		}
+		if got.Status != domain.StatusCompleted {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		if dispatcher.calls.Load() == 0 {
+			t.Fatal("worker dispatcher was not called")
+		}
+		cancel()
+		return
+	}
 }
 
 func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) {

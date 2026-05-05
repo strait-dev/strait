@@ -541,24 +541,24 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) error {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
-		return nil
+		return nil, nil
 	}
 	if !cfg.GRPCEnabled {
-		return nil
+		return nil, nil
 	}
 	if pub == nil {
 		// Refuse to boot rather than serve a worker stream that will panic
 		// the first time a worker connects (subscribe / publish on a nil
 		// publisher). Operators see a clear cause instead of a recovered
 		// internal error after the fact.
-		return fmt.Errorf("grpc worker plane is enabled but no pubsub publisher is configured: set REDIS_URL or disable GRPC_ENABLED")
+		return nil, fmt.Errorf("grpc worker plane is enabled but no pubsub publisher is configured: set REDIS_URL or disable GRPC_ENABLED")
 	}
 
 	srv, err := grpcserver.NewServer(cfg, queries, pub)
 	if err != nil {
-		return fmt.Errorf("grpc server: %w", err)
+		return nil, fmt.Errorf("grpc server: %w", err)
 	}
 	g.Go(func(ctx context.Context) error {
 		if err := srv.Serve(ctx); err != nil {
@@ -566,11 +566,11 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 		}
 		return nil
 	})
-	return nil
+	return srv, nil
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -629,6 +629,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		DefaultRegion:           cfg.DefaultRegion,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
+	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 
 	// Only wire billing enforcement in the executor when explicitly enabled.
 	// The enforcer may exist for webhook cache invalidation without executor enforcement.
@@ -901,6 +902,14 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		sched.Stop()
 		return nil
 	})
+}
+
+func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {
+	if execCfg == nil || workerPlane == nil {
+		return
+	}
+	execCfg.QueueSnapshotter = workerPlane.Registry()
+	execCfg.WorkerDispatcher = workerPlane.WorkerDispatcher(jwtSigningKey)
 }
 
 func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
