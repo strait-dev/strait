@@ -164,6 +164,25 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 	}
 }
 
+func TestReaperMaintenanceCycleRunsAutoRotate(t *testing.T) {
+	t.Parallel()
+
+	var listed atomic.Int32
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			listed.Add(1)
+			return nil, nil
+		},
+	}
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+
+	r.runMaintenanceCycle(context.Background())
+
+	if listed.Load() != 1 {
+		t.Fatalf("auto-rotation listed due keys %d times, want 1", listed.Load())
+	}
+}
+
 func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
 	t.Parallel()
 	var created atomic.Int32

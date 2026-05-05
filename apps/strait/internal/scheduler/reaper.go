@@ -310,25 +310,7 @@ func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun)
 
 // ReapOnce runs all reaper passes exactly once. Exported for integration tests.
 func (r *Reaper) ReapOnce(ctx context.Context) {
-	r.reapStaleDequeued(ctx)
-	r.reapStale(ctx)
-	r.reapExpired(ctx)
-	r.reapTimedOutWorkflows(ctx)
-	r.reapExpiredApprovals(ctx)
-	r.reapApprovalReminders(ctx)
-	r.reapExpiredEventTriggers(ctx)
-	r.reapInconsistentEventTriggers(ctx)
-	r.reapStalledWorkflows(ctx)
-	r.reapOldWorkflowRuns(ctx)
-	r.reapOldEventTriggers(ctx)
-	r.monitorDLQDepth(ctx)
-	r.reapOrphanedStepRuns(ctx)
-	r.reapStuckWebhookDeliveries(ctx)
-	r.monitorQueueDepth(ctx)
-	r.autoRotateAPIKeys(ctx)
-	r.reapAuditEvents(ctx)
-	r.reclaimAuditDeadletter(ctx)
-	r.reapDeadletter(ctx)
+	r.runMaintenanceCycle(ctx)
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -351,26 +333,35 @@ func (r *Reaper) Run(ctx context.Context) {
 			}()
 		}
 
-		r.reapStaleDequeued(loopCtx)
-		r.reapStale(loopCtx)
-		r.reapExpired(loopCtx)
-		r.reapTimedOutWorkflows(loopCtx)
-		r.reapExpiredApprovals(loopCtx)
-		r.reapApprovalReminders(loopCtx)
-		r.reapExpiredEventTriggers(loopCtx)
-		r.reapInconsistentEventTriggers(loopCtx)
-		r.reapStalledWorkflows(loopCtx)
-		r.reapOldWorkflowRuns(loopCtx)
-		r.reapOldEventTriggers(loopCtx)
+		r.runMaintenanceCycle(loopCtx)
 		if r.retentionEnabled {
 			r.reapTerminalRetention(loopCtx)
 			r.reapPerOrgRetention(loopCtx)
 		}
-		r.reapAuditEvents(loopCtx)
-		r.reclaimAuditDeadletter(loopCtx)
-		r.reapDeadletter(loopCtx)
 	})
 	loop.Run(ctx)
+}
+
+func (r *Reaper) runMaintenanceCycle(ctx context.Context) {
+	r.reapStaleDequeued(ctx)
+	r.reapStale(ctx)
+	r.reapExpired(ctx)
+	r.reapTimedOutWorkflows(ctx)
+	r.reapExpiredApprovals(ctx)
+	r.reapApprovalReminders(ctx)
+	r.reapExpiredEventTriggers(ctx)
+	r.reapInconsistentEventTriggers(ctx)
+	r.reapStalledWorkflows(ctx)
+	r.reapOldWorkflowRuns(ctx)
+	r.reapOldEventTriggers(ctx)
+	r.monitorDLQDepth(ctx)
+	r.reapOrphanedStepRuns(ctx)
+	r.reapStuckWebhookDeliveries(ctx)
+	r.monitorQueueDepth(ctx)
+	r.autoRotateAPIKeys(ctx)
+	r.reapAuditEvents(ctx)
+	r.reclaimAuditDeadletter(ctx)
+	r.reapDeadletter(ctx)
 }
 
 func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
