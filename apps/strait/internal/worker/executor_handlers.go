@@ -216,6 +216,14 @@ func errorHash(errMsg string) string {
 	return hex.EncodeToString(h[:8])
 }
 
+func errorHashForError(err error) string {
+	var endpointErr *domain.EndpointError
+	if errors.As(err, &endpointErr) {
+		return errorHash(fmt.Sprintf("endpoint returned %d: %s", endpointErr.StatusCode, endpointErr.Body))
+	}
+	return errorHash(err.Error())
+}
+
 // boostPriority adds boost to current priority, capping at 10 and
 // guarding against integer overflow.
 func boostPriority(current, boost int) int {
@@ -284,7 +292,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	// wasting retries and risking circuit breaker trips.
 	var metadataModified bool
 	if shouldRetry && job.PoisonPillThreshold != nil && *job.PoisonPillThreshold > 0 {
-		hash := errorHash(errMsg)
+		hash := errorHashForError(err)
 		prevHash := run.Metadata["_error_hash"]
 		count := 1
 		if prevHash == hash {
