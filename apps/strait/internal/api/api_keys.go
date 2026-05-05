@@ -212,19 +212,22 @@ type RevokeAPIKeyOutput struct{ Body map[string]string }
 func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
 	key, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
 	if err != nil || key == nil {
-		return nil, huma.Error404NotFound("api key not found or already revoked")
+		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("api key not found or already revoked")
+		return nil, huma.Error404NotFound("api key not found")
 	}
 	if s.config != nil && s.config.GRPCEnabled && s.pubsub == nil {
 		return nil, huma.Error503ServiceUnavailable("api key revocation unavailable: pubsub not configured")
 	}
-	if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
-		return nil, huma.Error404NotFound("api key not found or already revoked")
+	alreadyRevoked := key.RevokedAt != nil
+	if !alreadyRevoked {
+		if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
+			return nil, huma.Error404NotFound("api key not found or already revoked")
+		}
+		slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
+		s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
 	}
-	slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
 
 	// Broadcast revocation to all gRPC replicas so any worker streams authenticated
 	// with this key are closed immediately.

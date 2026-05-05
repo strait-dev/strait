@@ -336,6 +336,59 @@ func TestHandleRevokeAPIKey_GRPCEnabledPublishFailureReturnsUnavailable(t *testi
 	}
 }
 
+func TestHandleRevokeAPIKey_AlreadyRevokedRetriesBroadcast(t *testing.T) {
+	t.Parallel()
+
+	revokedAt := time.Now().Add(-time.Minute)
+	revokeCalled := false
+	published := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test", RevokedAt: &revokedAt}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			revokeCalled = true
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store: ms,
+		Queue: &mockQueue{},
+		PubSub: &mockPublisher{publishFn: func(_ context.Context, channel string, data []byte) error {
+			published = true
+			if channel != "apikey:revoked:key-123" {
+				t.Fatalf("publish channel = %q, want apikey:revoked:key-123", channel)
+			}
+			if string(data) != "key-123" {
+				t.Fatalf("publish data = %q, want key-123", string(data))
+			}
+			return nil
+		}},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-123", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if revokeCalled {
+		t.Fatal("already revoked key should not be revoked again")
+	}
+	if !published {
+		t.Fatal("already revoked key should retry worker-stream broadcast")
+	}
+}
+
 func TestHandleRevokeAPIKey_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
