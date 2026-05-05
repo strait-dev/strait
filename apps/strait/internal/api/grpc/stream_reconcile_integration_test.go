@@ -28,11 +28,11 @@ func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	_, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed"}}
-	svc.reconcileInFlightTasks(ctx, workerID, "", tasks)
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
 	if err != nil {
@@ -65,11 +65,11 @@ func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	_, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "failed", ErrorMessage: "boom"}}
-	svc.reconcileInFlightTasks(ctx, workerID, "", tasks)
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
 	if err != nil {
@@ -95,12 +95,12 @@ func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	_, _, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	projectID, _, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed"}}
 	// Use a worker ID that has no worker_tasks row for runID.
-	svc.reconcileInFlightTasks(ctx, "impostor-worker", "", tasks)
+	svc.reconcileInFlightTasks(ctx, "impostor-worker", projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
 	if err != nil {
@@ -133,11 +133,11 @@ func TestIntegration_Reconcile_UnknownStatusIgnored(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	_, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "zombie"}}
-	svc.reconcileInFlightTasks(ctx, workerID, "", tasks)
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
 	if err != nil {
@@ -162,14 +162,14 @@ func TestIntegration_Reconcile_NilAndEmptyEntries(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	_, workerID, _, taskID := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, _, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
 	tasks := []*workerv1.InFlightTask{
 		nil,
 		{RunId: "", Status: "completed"},
 	}
-	svc.reconcileInFlightTasks(ctx, workerID, "", tasks)
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
 	if err != nil {

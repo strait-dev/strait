@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -45,6 +46,11 @@ const (
 	maxSDKVersionBytes  = 64
 	maxSDKLanguageBytes = 32
 	maxNameBytes        = 128
+)
+
+var (
+	errForceDisconnected = errors.New("force disconnected by API request")
+	errAPIKeyRevoked     = errors.New("api key revoked")
 )
 
 // workerService implements workerv1.WorkerServiceServer.
@@ -167,8 +173,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// same WorkerID after a reconnect race.
 	myToken := cw.regToken
 	defer func() {
-		s.registry.Deregister(reg.WorkerId, myToken)
-		s.finalizeDisconnect(projectID, reg.WorkerId)
+		s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	}()
 
 	// Subscribe to the cross-replica force-disconnect channel for this worker.
@@ -215,7 +220,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 					"worker_id", reg.WorkerId,
 					"project_id", projectID,
 				)
-				streamErr <- fmt.Errorf("force disconnected by API request")
+				streamErr <- errForceDisconnected
 			}
 		})
 	}
@@ -235,14 +240,14 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 				)
 				// Also close via registry so co-located streams for the same key are notified.
 				s.registry.CloseByAPIKey(apiKey.ID)
-				streamErr <- fmt.Errorf("api key revoked")
+				streamErr <- errAPIKeyRevoked
 			case <-cw.revokeCh:
 				// Triggered locally by registry.CloseByAPIKey from another goroutine.
 				slog.Info("grpc worker api key revoked (local signal), closing stream",
 					"worker_id", reg.WorkerId,
 					"api_key_id", apiKey.ID,
 				)
-				streamErr <- fmt.Errorf("api key revoked")
+				streamErr <- errAPIKeyRevoked
 			}
 		})
 	}
@@ -284,19 +289,26 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 	})
 
-	// Wait for first error. We deregister synchronously *before* wg.Wait so
-	// no new ReserveWorkerForQueue call can hand out our sendCh. We do NOT
-	// close(sendCh): a concurrent WorkerDispatch that picked us before the
-	// Deregister still holds a reference and would panic on send-to-closed.
-	// Stale, in-flight sends fill the 32-slot buffer and then unblock when
-	// the dispatcher's ctx times out; sendCh is GC'd once the last reference
-	// drops. The deferred Deregister below remains as a safety net for
-	// early-exit paths and is a no-op once this synchronous call removes
-	// the entry.
+	// Wait for the first stream-ending signal. We deregister synchronously so
+	// no new ReserveWorkerForQueue call can hand out our sendCh, but we do not
+	// wait for the recv goroutine here: on server-initiated disconnect/revoke it
+	// may be blocked in stream.Recv until this handler returns and gRPC closes
+	// the RPC. We also do not close(sendCh): a concurrent WorkerDispatch that
+	// picked us before Deregister still holds a reference and would panic on
+	// send-to-closed.
 	firstErr := <-streamErr
-	s.registry.Deregister(reg.WorkerId, myToken)
-	wg.Wait()
+	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+// cleanupRegistration performs stream-exit cleanup only for the connection
+// that still owns the live registry entry. Stale streams from same-ID
+// reconnect races must not mark a replacement worker offline or requeue its
+// assignments.
+func (s *workerService) cleanupRegistration(projectID, workerID string, token uint64) {
+	if s.registry.Deregister(workerID, token) {
+		s.finalizeDisconnect(projectID, workerID)
+	}
 }
 
 // handleWorkerMessage dispatches an incoming WorkerMessage to the appropriate handler.
@@ -307,7 +319,7 @@ func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, proje
 	case *workerv1.WorkerMessage_TaskResult:
 		return s.handleTaskResult(ctx, workerID, projectID, p.TaskResult)
 	case *workerv1.WorkerMessage_LogLine:
-		return s.handleLogLine(ctx, workerID, p.LogLine)
+		return s.handleLogLine(ctx, workerID, projectID, p.LogLine)
 	case *workerv1.WorkerMessage_Ack:
 		// No-op: acknowledgements are fire-and-forget.
 		return nil
@@ -387,7 +399,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// worker. This mirrors handleLogLine so a worker cannot mark runs it was
 	// never assigned. The row also gives us the task ID needed to drive the
 	// worker_tasks transition below.
-	taskRow, taskErr := s.queries.GetWorkerTaskByRunID(ctx, workerID, tr.RunId)
+	taskRow, taskErr := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, tr.RunId)
 	if taskErr != nil {
 		slog.Warn("grpc task result fallback: ownership lookup failed",
 			"worker_id", workerID, "run_id", tr.RunId, "error", taskErr)
@@ -470,7 +482,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 // via worker_tasks (the same row written by WorkerDispatch). Without this
 // check, a worker authenticated to project A could publish forged log lines
 // to any run in any project — visible via the SSE log stream.
-func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *workerv1.LogLine) error {
+func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID string, ll *workerv1.LogLine) error {
 	if ll == nil || ll.RunId == "" {
 		return nil
 	}
@@ -479,7 +491,7 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *
 			"worker_id", workerID, "run_id_len", len(ll.RunId))
 		return nil
 	}
-	taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, ll.RunId)
+	taskRow, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, ll.RunId)
 	if err != nil {
 		slog.Warn("grpc log line: ownership lookup failed",
 			"worker_id", workerID, "run_id", ll.RunId, "error", err)
@@ -526,7 +538,7 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID string, ll *
 // worker_tasks to confirm it was actually assigned to this worker. Mismatches
 // are logged and skipped — this prevents a malicious or buggy worker from
 // marking runs it doesn't own.
-func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ string, tasks []*workerv1.InFlightTask) {
+func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, projectID string, tasks []*workerv1.InFlightTask) {
 	for _, t := range tasks {
 		if t == nil || t.RunId == "" {
 			continue
@@ -541,7 +553,7 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, _ 
 		}
 
 		// Adversarial guard: verify ownership via worker_tasks.
-		taskRow, err := s.queries.GetWorkerTaskByRunID(ctx, workerID, t.RunId)
+		taskRow, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, t.RunId)
 		if err != nil {
 			slog.Warn("grpc reconcile: ownership lookup failed",
 				"worker_id", workerID,

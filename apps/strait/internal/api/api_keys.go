@@ -217,6 +217,9 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("api key not found or already revoked")
 	}
+	if s.config != nil && s.config.GRPCEnabled && s.pubsub == nil {
+		return nil, huma.Error503ServiceUnavailable("api key revocation unavailable: pubsub not configured")
+	}
 	if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
 		return nil, huma.Error404NotFound("api key not found or already revoked")
 	}
@@ -228,10 +231,13 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 	if s.pubsub != nil {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", input.KeyID)
 		if pubErr := s.pubsub.Publish(ctx, revokeChannel, []byte(input.KeyID)); pubErr != nil {
-			slog.Warn("api key revoke: broadcast publish failed",
+			slog.Error("api key revoke: broadcast publish failed",
 				"key_id", input.KeyID,
 				"error", pubErr,
 			)
+			if s.config != nil && s.config.GRPCEnabled {
+				return nil, huma.Error503ServiceUnavailable("api key revoked but active worker stream broadcast failed")
+			}
 		}
 	}
 

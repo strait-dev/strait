@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -255,6 +256,83 @@ func TestHandleRevokeAPIKey_Success(t *testing.T) {
 	}
 	if resp["status"] != "revoked" {
 		t.Fatalf("expected status=revoked, got %q", resp["status"])
+	}
+}
+
+func TestHandleRevokeAPIKey_GRPCEnabledRequiresPubSubBeforeRevoking(t *testing.T) {
+	t.Parallel()
+	revoked := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test"}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			revoked = true
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store:   ms,
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-123", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	if revoked {
+		t.Fatal("api key was revoked even though worker-stream revocation broadcast was unavailable")
+	}
+}
+
+func TestHandleRevokeAPIKey_GRPCEnabledPublishFailureReturnsUnavailable(t *testing.T) {
+	t.Parallel()
+	revoked := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test"}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			revoked = true
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store: ms,
+		Queue: &mockQueue{},
+		PubSub: &mockPublisher{publishFn: func(context.Context, string, []byte) error {
+			return errors.New("redis down")
+		}},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-123", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	if !revoked {
+		t.Fatal("api key should be revoked before reporting broadcast failure")
 	}
 }
 

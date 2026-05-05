@@ -1092,6 +1092,38 @@ func (s *Server) listRunsWithFilters(
 	limit int,
 	cursor *time.Time,
 ) ([]domain.JobRun, error) {
+	if lister, ok := s.store.(interface {
+		ListRunsByProjectFiltered(context.Context, string, *domain.RunStatus, []domain.RunStatus, string, string, *string, *string, *string, *string, *string, json.RawMessage, *domain.ExecutionMode, *string, int, *time.Time) ([]domain.JobRun, error)
+	}); ok {
+		statusList := make([]domain.RunStatus, 0, len(statuses))
+		for status := range statuses {
+			statusList = append(statusList, status)
+		}
+		envID := environmentIDFromContext(ctx)
+		var envFilter *string
+		if envID != "" {
+			envFilter = &envID
+		}
+		return lister.ListRunsByProjectFiltered(
+			ctx,
+			projectID,
+			statusQuery,
+			statusList,
+			tagKey,
+			tagValue,
+			envFilter,
+			metadataKey,
+			metadataValue,
+			triggeredBy,
+			batchID,
+			payloadContains,
+			executionMode,
+			errorClass,
+			limit,
+			cursor,
+		)
+	}
+
 	jobEnvCache := make(map[string]bool)
 	filtered := make([]domain.JobRun, 0, limit)
 	pageCursor := cursor

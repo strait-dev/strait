@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
@@ -139,5 +140,74 @@ func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 	}
 	if task.FinishedAt == nil || task.FinishedAt.Before(time.Now().Add(-time.Minute)) {
 		t.Fatalf("worker task FinishedAt = %v, want recent timestamp", task.FinishedAt)
+	}
+}
+
+// TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue verifies
+// that a stale stream from a same-ID reconnect cannot run disconnect cleanup
+// for the replacement connection.
+func TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+
+	reg := NewConnectionRegistry()
+	oldWorker := registerWorkerInRegistry(t, reg, workerID, projectID, 1)
+	oldToken := oldWorker.regToken
+	newWorker := &ConnectedWorker{
+		WorkerID:       workerID,
+		ProjectID:      projectID,
+		APIKeyID:       oldWorker.APIKeyID,
+		Queues:         []string{"default"},
+		SlotsTotal:     1,
+		SlotsAvailable: 1,
+		Status:         "active",
+		SendCh:         make(chan *workerv1.ServerMessage, 1),
+		revokeCh:       make(chan struct{}),
+	}
+	if err := reg.Register(newWorker); err != nil {
+		t.Fatalf("reconnect register: %v", err)
+	}
+
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       reg,
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	svc.cleanupRegistration(projectID, workerID, oldToken)
+
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("stale cleanup changed run status to %q, want executing", run.Status)
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("stale cleanup changed task status to %q, want assigned", task.Status)
+	}
+
+	worker, err := q.GetWorker(ctx, workerID, projectID)
+	if err != nil {
+		t.Fatalf("GetWorker: %v", err)
+	}
+	if worker.Status != domain.WorkerStatusActive {
+		t.Fatalf("stale cleanup changed worker status to %q, want active", worker.Status)
 	}
 }

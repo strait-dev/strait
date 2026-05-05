@@ -963,6 +963,133 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	return runs, nil
 }
 
+// ListRunsByProjectFiltered applies the full /runs filter set in SQL. This
+// avoids page-by-page post-filtering and per-job environment lookups in the API
+// layer for real stores.
+func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID string, status *domain.RunStatus, statuses []domain.RunStatus, tagKey, tagValue string, environmentID *string, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByProjectFiltered")
+	defer span.End()
+
+	baseQuery := `
+		SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		       jr.triggered_by, jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
+		       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, jr.concurrency_key, jr.execution_mode, jr.is_rollback, jr.replayed_run_id
+		FROM job_runs jr`
+
+	args := []any{projectID}
+	param := 2
+
+	if environmentID != nil && *environmentID != "" {
+		baseQuery += " JOIN jobs j ON j.id = jr.job_id"
+	}
+
+	baseQuery += " WHERE jr.project_id = $1"
+
+	if status != nil {
+		baseQuery += fmt.Sprintf(" AND jr.status = $%d", param)
+		args = append(args, string(*status))
+		param++
+	} else if len(statuses) > 0 {
+		statusVals := make([]string, 0, len(statuses))
+		for _, s := range statuses {
+			statusVals = append(statusVals, string(s))
+		}
+		baseQuery += fmt.Sprintf(" AND jr.status = ANY($%d)", param)
+		args = append(args, statusVals)
+		param++
+	}
+
+	if tagKey != "" {
+		if tagValue == "" {
+			baseQuery += fmt.Sprintf(" AND jr.tags ? $%d", param)
+			args = append(args, tagKey)
+			param++
+		} else {
+			baseQuery += fmt.Sprintf(" AND jr.tags ->> $%d = $%d", param, param+1)
+			args = append(args, tagKey, tagValue)
+			param += 2
+		}
+	}
+
+	if environmentID != nil && *environmentID != "" {
+		baseQuery += fmt.Sprintf(" AND j.environment_id = $%d", param)
+		args = append(args, *environmentID)
+		param++
+	}
+
+	if metadataKey != nil {
+		if metadataValue == nil {
+			baseQuery += fmt.Sprintf(" AND jr.metadata ? $%d", param)
+			args = append(args, *metadataKey)
+			param++
+		} else {
+			baseQuery += fmt.Sprintf(" AND jr.metadata ->> $%d = $%d", param, param+1)
+			args = append(args, *metadataKey, *metadataValue)
+			param += 2
+		}
+	}
+
+	if triggeredBy != nil {
+		baseQuery += fmt.Sprintf(" AND jr.triggered_by = $%d", param)
+		args = append(args, *triggeredBy)
+		param++
+	}
+
+	if batchID != nil {
+		baseQuery += fmt.Sprintf(" AND jr.batch_id = $%d", param)
+		args = append(args, *batchID)
+		param++
+	}
+
+	if len(payloadContains) > 0 {
+		baseQuery += fmt.Sprintf(" AND jr.payload @> $%d::jsonb", param)
+		args = append(args, payloadContains)
+		param++
+	}
+
+	if executionMode != nil {
+		baseQuery += fmt.Sprintf(" AND jr.execution_mode = $%d", param)
+		args = append(args, string(*executionMode))
+		param++
+	}
+
+	if errorClass != nil {
+		baseQuery += fmt.Sprintf(" AND jr.error_class = $%d", param)
+		args = append(args, *errorClass)
+		param++
+	}
+
+	if cursor != nil {
+		baseQuery += fmt.Sprintf(" AND jr.created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY jr.created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list runs by project filtered: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, limit)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list runs by project filtered scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list runs by project filtered rows: %w", err)
+	}
+
+	return runs, nil
+}
+
 func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListFinishedRunsSince")
 	defer span.End()

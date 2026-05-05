@@ -122,21 +122,22 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 // This prevents a stale stream's deferred cleanup from evicting a live
 // replacement that registered after a reconnect race. A token of 0 is always
 // rejected (Register never assigns 0), making accidental zero-token calls
-// safe no-ops.
-func (r *ConnectionRegistry) Deregister(workerID string, token uint64) {
+// safe no-ops. It returns true only when this call removed the current live
+// registration.
+func (r *ConnectionRegistry) Deregister(workerID string, token uint64) bool {
 	if token == 0 {
-		return
+		return false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	w, ok := r.workers[workerID]
 	if !ok {
-		return
+		return false
 	}
 	if w.regToken != token {
 		// The current registration belongs to a newer connection; the caller
 		// is a stale goroutine cleaning up its own (already-superseded) entry.
-		return
+		return false
 	}
 	delete(r.workers, workerID)
 	if w.APIKeyID != "" {
@@ -153,6 +154,7 @@ func (r *ConnectionRegistry) Deregister(workerID string, token uint64) {
 			r.byAPIKey[w.APIKeyID] = filtered
 		}
 	}
+	return true
 }
 
 // CloseByAPIKey signals all streams authenticated with the given API key to

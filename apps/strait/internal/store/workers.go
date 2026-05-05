@@ -235,6 +235,37 @@ func (q *Queries) GetWorkerTaskByRunID(ctx context.Context, workerID, runID stri
 	return &t, nil
 }
 
+// GetOpenWorkerTaskByRunID fetches the latest non-terminal worker_tasks row
+// for a run, scoped to both worker and project. This is the ownership check
+// used by worker streams: historical failed/completed assignments must not
+// authorize late results or logs after a run has been requeued.
+func (q *Queries) GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projectID, runID string) (*domain.WorkerTask, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetOpenWorkerTaskByRunID")
+	defer span.End()
+
+	var t domain.WorkerTask
+	var status string
+	err := q.db.QueryRow(ctx,
+		`SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+		 FROM worker_tasks
+		 WHERE worker_id = $1
+		   AND project_id = $2
+		   AND run_id = $3
+		   AND status IN ('assigned', 'accepted')
+		 ORDER BY assigned_at DESC
+		 LIMIT 1`,
+		workerID, projectID, runID,
+	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil //nolint:nilnil // nil signals "not found"
+		}
+		return nil, fmt.Errorf("get open worker task by run id: %w", err)
+	}
+	t.Status = domain.WorkerTaskStatus(status)
+	return &t, nil
+}
+
 // ListWorkerTasksByWorker lists tasks assigned to a worker, scoped to a
 // project, optionally filtered by status. The project filter is defense in
 // depth: callers should already have verified the worker belongs to the

@@ -243,6 +243,51 @@ func TestIntegration_HandleTaskResult_Fallback_OwnershipMismatchRejects(t *testi
 	}
 }
 
+// TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects verifies
+// that historical worker_tasks rows do not grant ownership after a disconnect
+// requeue. A stale worker result must not complete a run now owned by another
+// live assignment.
+func TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusFailed); err != nil {
+		t.Fatalf("UpdateWorkerTaskStatus: %v", err)
+	}
+
+	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
+		t.Fatalf("handleTaskResult: %v", err)
+	}
+
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("closed assignment result changed run status to %q, want executing", run.Status)
+	}
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("closed assignment result changed task status to %q, want failed", got.Status)
+	}
+}
+
 // TestIntegration_HandleTaskResult_Fallback_IdempotentOnRepeat asserts that
 // repeating the fallback path (e.g. a duplicate late result) does not produce
 // inconsistent state.
