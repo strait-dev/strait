@@ -57,7 +57,7 @@ Jobs support a `cron_overlap_policy` field that controls what happens when a cro
 | :--- | :--- |
 | `allow` (default) | Always create a new queued run, regardless of active runs. |
 | `skip` | If any run is in an active state (queued, claimed, executing, waiting, or delayed), skip the cron tick entirely. |
-| `cancel_running` | Cancel all active runs for the job, then create a new queued run. Managed containers are stopped and child runs are also canceled. |
+| `cancel_running` | Cancel all active runs for the job, then create a new queued run. Strait signals cancellation through the dispatch path (HTTP context cancellation or gRPC stream cancel) and child runs are also canceled. |
 
 <CodeGroup>
 ```json Skip overlapping runs
