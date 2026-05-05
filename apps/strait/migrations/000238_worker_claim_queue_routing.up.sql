@@ -1,19 +1,10 @@
 -- Keep the thin claim table routable for worker-mode runs.
 
 ALTER TABLE job_run_queue
-    ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'http';
+    ADD COLUMN IF NOT EXISTS execution_mode TEXT;
 
-CREATE INDEX IF NOT EXISTS idx_job_run_queue_worker_routing
-    ON job_run_queue (queue_name, priority DESC, created_at ASC)
-    WHERE execution_mode = 'worker';
-
-UPDATE job_run_queue q
-SET execution_mode = jr.execution_mode,
-    queue_name = jr.queue_name
-FROM job_runs jr
-WHERE jr.id = q.run_id
-  AND (q.execution_mode IS DISTINCT FROM jr.execution_mode
-       OR q.queue_name IS DISTINCT FROM jr.queue_name);
+ALTER TABLE job_run_queue
+    ALTER COLUMN execution_mode SET DEFAULT 'http';
 
 CREATE OR REPLACE FUNCTION trg_job_runs_sync_claim_queue()
 RETURNS trigger
@@ -77,3 +68,18 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+UPDATE job_run_queue q
+SET execution_mode = jr.execution_mode,
+    queue_name = jr.queue_name
+FROM job_runs jr
+WHERE jr.id = q.run_id
+  AND (q.execution_mode IS DISTINCT FROM jr.execution_mode
+       OR q.queue_name IS DISTINCT FROM jr.queue_name);
+
+-- safety-ok: job_run_queue contains only pending claim rows, so the brief
+-- transactional CREATE INDEX lock is acceptable and keeps this migration
+-- compatible with the migration runner.
+CREATE INDEX IF NOT EXISTS idx_job_run_queue_worker_routing
+    ON job_run_queue (queue_name, priority DESC, created_at ASC)
+    WHERE execution_mode = 'worker';
