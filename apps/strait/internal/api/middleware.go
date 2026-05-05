@@ -193,8 +193,8 @@ func parseTrustedProxies(entries []string) []net.IPNet {
 
 // sseTokenAuth extracts auth token from ?token= query param for SSE endpoints
 // where browsers cannot set custom headers (EventSource API limitation).
-// It first tries to parse the token as a short-lived SSE JWT (recommended).
-// If that fails, it falls back to treating it as a raw API key (backward compatible).
+// Query tokens must be short-lived SSE JWTs. Long-lived API keys must be sent
+// in the Authorization header so they do not leak through URLs or access logs.
 func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Internal-Secret") != "" {
@@ -217,8 +217,6 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// Fall back to raw API key in query param (backward compatible).
-		r.Header.Set("Authorization", "Bearer "+token)
 		next.ServeHTTP(w, r)
 	})
 }
