@@ -100,7 +100,7 @@ Important rules:
 | Built-in observability (tracing, metrics, logs) | ✓ | ✓ |
 | Interactive API reference at `/reference` | ✓ | ✓ |
 | Billing, metering, usage limits, Stripe | — | ✓ |
-| Managed multi-region execution | — | ✓ |
+| Multi-region hosted orchestration | — | ✓ |
 | Advanced analytics (ClickHouse) | — | ✓ |
 | SLA + 24/7 support | — | ✓ |
 
