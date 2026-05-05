@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -8,6 +9,13 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 )
+
+const (
+	defaultMaxWorkerStreamsPerProject = 1000
+	defaultMaxWorkerStreamsPerAPIKey  = 100
+)
+
+var ErrWorkerStreamQuotaExceeded = errors.New("worker stream quota exceeded")
 
 // ConnectedWorker holds in-memory state for a single connected worker stream.
 type ConnectedWorker struct {
@@ -49,9 +57,11 @@ type ConnectedWorker struct {
 // this replica. It is the authoritative source for slot accounting.
 // Workers are keyed by worker ID; project isolation is enforced at registration.
 type ConnectionRegistry struct {
-	mu       sync.RWMutex
-	workers  map[string]*ConnectedWorker   // keyed by worker_id
-	byAPIKey map[string][]*ConnectedWorker // keyed by api_key_id
+	mu                   sync.RWMutex
+	workers              map[string]*ConnectedWorker   // keyed by worker_id
+	byAPIKey             map[string][]*ConnectedWorker // keyed by api_key_id
+	maxStreamsPerProject int
+	maxStreamsPerAPIKey  int
 	// nextToken issues monotonically increasing registration tokens. Any value
 	// > 0 is valid; a zero token signals "unassigned" and is rejected on
 	// Deregister to keep test fixtures and accidental zero-valued callers from
@@ -62,8 +72,10 @@ type ConnectionRegistry struct {
 // NewConnectionRegistry creates an empty ConnectionRegistry.
 func NewConnectionRegistry() *ConnectionRegistry {
 	return &ConnectionRegistry{
-		workers:  make(map[string]*ConnectedWorker),
-		byAPIKey: make(map[string][]*ConnectedWorker),
+		workers:              make(map[string]*ConnectedWorker),
+		byAPIKey:             make(map[string][]*ConnectedWorker),
+		maxStreamsPerProject: defaultMaxWorkerStreamsPerProject,
+		maxStreamsPerAPIKey:  defaultMaxWorkerStreamsPerAPIKey,
 	}
 }
 
@@ -95,6 +107,7 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 		if existing.revokeCh != nil {
 			existing.revokeOnce.Do(func() { close(existing.revokeCh) })
 		}
+		delete(r.workers, existing.WorkerID)
 		if existing.APIKeyID != "" {
 			list := r.byAPIKey[existing.APIKeyID]
 			filtered := list[:0]
@@ -110,12 +123,28 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 			}
 		}
 	}
+	if r.maxStreamsPerProject > 0 && r.countProjectLocked(w.ProjectID) >= r.maxStreamsPerProject {
+		return fmt.Errorf("%w: project %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, w.ProjectID, r.maxStreamsPerProject)
+	}
+	if w.APIKeyID != "" && r.maxStreamsPerAPIKey > 0 && len(r.byAPIKey[w.APIKeyID]) >= r.maxStreamsPerAPIKey {
+		return fmt.Errorf("%w: api key %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, w.APIKeyID, r.maxStreamsPerAPIKey)
+	}
 	w.regToken = r.nextToken.Add(1)
 	r.workers[w.WorkerID] = w
 	if w.APIKeyID != "" {
 		r.byAPIKey[w.APIKeyID] = append(r.byAPIKey[w.APIKeyID], w)
 	}
 	return nil
+}
+
+func (r *ConnectionRegistry) countProjectLocked(projectID string) int {
+	count := 0
+	for _, worker := range r.workers {
+		if worker.ProjectID == projectID {
+			count++
+		}
+	}
+	return count
 }
 
 // Deregister removes a worker from the registry and cleans up the API key

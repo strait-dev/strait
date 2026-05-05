@@ -137,6 +137,9 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		revokeCh:       make(chan struct{}),
 	}
 	if err := s.registry.Register(cw); err != nil {
+		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
+			return status.Errorf(codes.ResourceExhausted, "register worker: %v", err)
+		}
 		return status.Errorf(codes.AlreadyExists, "register worker: %v", err)
 	}
 
