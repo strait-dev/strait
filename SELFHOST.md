@@ -129,7 +129,7 @@ The self-hosted version runs the **community edition** which includes:
 - Run lifecycle management (cancel, replay, pause, resume)
 - Review queue for failed deliveries
 
-Cloud-only features (managed container execution, advanced analytics, multi-region) are available on [strait.dev](https://strait.dev).
+Cloud-only features (multi-region hosted orchestration, advanced analytics, Stripe-backed metering) are available on [strait.dev](https://strait.dev). Your job code still runs on your own infrastructure on either edition.
 
 ## Real-Time Updates (CDC)
 
