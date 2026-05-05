@@ -1,6 +1,6 @@
-# Self-Hosting Strait
+# Self-hosting Strait
 
-Strait offers two self-hosting paths. Pick whichever matches how you want to run the dashboard.
+There are two ways to self-host. Pick the one that matches how you want to run the dashboard.
 
 | | Option 1 — Cloudflare dashboard | Option 2 — Full Docker stack |
 |---|---|---|
@@ -10,7 +10,7 @@ Strait offers two self-hosting paths. Pick whichever matches how you want to run
 | Postgres | Neon / Supabase / any managed or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
 | Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
 
-Both options run the community edition with all open-source features.
+Both run the community edition. Every open-source feature is available on either path.
 
 ---
 
@@ -63,20 +63,15 @@ make selfhost-reset
 
 ---
 
-## Creating Your First Job
+## Creating your first job
 
-> The steps below apply regardless of which option you chose above.
+These steps work the same regardless of which option you picked.
 
-1. Open **http://localhost:3000** and sign up
-2. A workspace is created automatically for you
-3. Click **Create project** in the getting-started wizard
-4. Follow the on-screen instructions to create and trigger your first job
+Open `http://localhost:3000`, sign up — a workspace is created for you on first login — and click **Create project** in the getting-started wizard. The wizard walks you through installing an SDK and triggering your first run.
 
-The dashboard guides you through installing the SDK, deploying a job, and triggering your first run.
+### API-only setup
 
-### Advanced: API-only usage
-
-If you prefer working with the API directly instead of the dashboard, here's a complete example that creates a project, generates an API key, and triggers a job.
+If you'd rather skip the dashboard, this script creates a project, an API key, and a job, then triggers it:
 
 ```bash
 SECRET="<your INTERNAL_SECRET from .env.selfhost>"
@@ -115,48 +110,25 @@ curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
 | `redis` | `redis:8-alpine` | 6379 | Pub/sub, caching |
 | `sequin` | `sequin/sequin:latest` | 7376 | CDC (Change Data Capture) |
 
-## Community Edition
+## Community edition
 
-The self-hosted version runs the **community edition** which includes:
+Self-hosting runs the community edition. It includes job creation and scheduling, HTTP and gRPC worker dispatch, cron with overlap policies, retry strategies (exponential, linear, fixed, custom), workflow DAGs with dependencies, webhook subscriptions and delivery, SSE streaming, API keys and RBAC, full run-lifecycle management (cancel, replay, pause, resume), and the review queue for runs that exhaust their retries.
 
-- Job creation, scheduling, and HTTP dispatch
-- Cron scheduling with overlap policies
-- Retry strategies (exponential, linear, fixed, custom)
-- Workflow DAG orchestration with dependencies
-- Webhook subscriptions and delivery
-- SSE real-time streaming
-- API key management and RBAC
-- Run lifecycle management (cancel, replay, pause, resume)
-- Review queue for failed deliveries
+The hosted orchestrator at [strait.dev](https://strait.dev) adds multi-region orchestration, advanced analytics, and Stripe-backed metering. Your job code still runs on your own infrastructure on either edition.
 
-Cloud-only features (multi-region hosted orchestration, advanced analytics, Stripe-backed metering) are available on [strait.dev](https://strait.dev). Your job code still runs on your own infrastructure on either edition.
+## Real-time updates (CDC)
 
-## Real-Time Updates (CDC)
+Strait uses [Sequin](https://sequinstream.com) for change data capture. Sequin watches four PostgreSQL tables — `job_runs`, `workflow_runs`, `workflow_step_runs`, and `event_triggers` — and pushes changes back to Strait through an HTTP pull consumer. That's what powers the SSE stream at `GET /v1/runs/{runID}/stream` and the live dashboard.
 
-Strait uses [Sequin](https://sequinstream.com) for Change Data Capture. Sequin monitors four Postgres tables and pushes changes to Strait via an HTTP Pull Consumer:
+The consumer is provisioned by `packages/configs/sequin.yml`, mounted into the Sequin container at boot. Nothing to configure by hand. Verify with:
 
-| Table | Purpose |
-|---|---|
-| `job_runs` | Job execution status changes |
-| `workflow_runs` | Workflow orchestration updates |
-| `workflow_step_runs` | Individual step completions |
-| `event_triggers` | Event-driven trigger status |
-
-CDC is **auto-configured** -- the Sequin consumer is provisioned via `packages/configs/sequin.yml` which is mounted into the Sequin container. No manual setup needed.
-
-To verify CDC is working:
 ```bash
 curl http://localhost:7376/health
-# Should return healthy
 ```
 
-CDC enables SSE real-time streaming (`GET /v1/runs/{runID}/stream`) and instant dashboard updates.
+## Environment overrides
 
-## Environment Overrides
-
-Override any default by adding variables to `.env.selfhost` or passing them in the `environment` section of `docker-compose.selfhost.yml`.
-
-Common overrides:
+Override defaults by editing `.env.selfhost` or by adding entries to the `environment:` section of `docker-compose.selfhost.yml`. The most common ones:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -278,23 +250,12 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 
 ## Troubleshooting
 
-**Strait API won't start:**
-```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
-```
-Common causes: Postgres not ready (wait and retry), invalid secrets in `.env.selfhost` (run `--reset`). Check if Postgres is healthy with `docker ps`. If secrets look wrong, run `make selfhost-reset` followed by `make selfhost` to regenerate.
+**Strait API won't start.** Check the logs first: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait`. Usual culprits are PostgreSQL not yet ready (give it a moment, then retry) or bad secrets in `.env.selfhost`. Run `docker ps` to confirm Postgres is healthy. If the secrets look corrupted, regenerate them with `make selfhost-reset` followed by `make selfhost`.
 
-**Dashboard can't reach the API:**
-Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. Restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`
+**Dashboard can't reach the API.** Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. After fixing it, restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`.
 
-**Sequin not starting:**
-```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs sequin
-```
-Sequin needs Postgres to be fully ready with logical replication enabled. The Alpine Postgres image enables it by default.
+**Sequin won't start.** Logs: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs sequin`. Sequin needs PostgreSQL with logical replication enabled — the Alpine Postgres image enables it by default, so the usual fix is just waiting for Postgres to finish coming up.
 
-**Migrations failing:**
-Migrations run automatically on startup. Check logs: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep migration`
+**Migrations failed.** They run automatically on startup. Look at `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep migration` to see which one and why.
 
-**Contributing:**
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
