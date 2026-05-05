@@ -579,6 +579,64 @@ func TestClaimTable_DequeueNForWorker_IgnoresHTTPAndOtherQueues(t *testing.T) {
 	}
 }
 
+func TestClaimTable_DequeueNClaim_IgnoresWorkerModeRuns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+
+	httpJob := mustCreateJob(t, ctx, st, "project-http-claim-filter")
+	httpRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         httpJob.ID,
+		ProjectID:     httpJob.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeHTTP,
+		QueueName:     "default",
+	}
+	if err := q.Enqueue(ctx, httpRun); err != nil {
+		t.Fatalf("Enqueue HTTP run: %v", err)
+	}
+
+	workerJob := mustCreateJob(t, ctx, st, "project-http-claim-filter")
+	markWorkerJobQueue(t, ctx, workerJob, "priority")
+	workerRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         workerJob.ID,
+		ProjectID:     workerJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, workerRun); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+
+	httpBatch, err := q.DequeueNClaim(ctx, 10)
+	if err != nil {
+		t.Fatalf("DequeueNClaim: %v", err)
+	}
+	if len(httpBatch) != 1 {
+		t.Fatalf("DequeueNClaim returned %d runs, want only the HTTP run", len(httpBatch))
+	}
+	if httpBatch[0].ID != httpRun.ID {
+		t.Fatalf("DequeueNClaim run ID = %q, want HTTP run %q", httpBatch[0].ID, httpRun.ID)
+	}
+
+	workerBatch, err := q.DequeueNForWorker(ctx, 10, []string{"priority"})
+	if err != nil {
+		t.Fatalf("DequeueNForWorker: %v", err)
+	}
+	if len(workerBatch) != 1 {
+		t.Fatalf("DequeueNForWorker returned %d runs, want worker run left for worker pass", len(workerBatch))
+	}
+	if workerBatch[0].ID != workerRun.ID {
+		t.Fatalf("DequeueNForWorker run ID = %q, want worker run %q", workerBatch[0].ID, workerRun.ID)
+	}
+}
+
 func TestClaimTable_RequeueRestoresWorkerRouting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
