@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,6 +164,43 @@ func TestResolveAPIKey_InvalidAuthorizationFormat(t *testing.T) {
 	s, _ := status.FromError(err)
 	if s.Code() != codes.Unauthenticated {
 		t.Errorf("expected Unauthenticated, got %s", s.Code())
+	}
+}
+
+func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"",
+		"not-a-strait-key",
+		"strait_",
+		"strait_with spaces",
+		"strait_" + strings.Repeat("a", grpcAPIKeyMaxLength),
+	}
+
+	for _, rawKey := range tests {
+		t.Run(rawKey, func(t *testing.T) {
+			md := metadata.Pairs("authorization", "Bearer "+rawKey)
+			ctx := metadata.NewIncomingContext(context.Background(), md)
+
+			_, err := resolveAPIKeyFromContext(ctx, nil)
+			if err == nil {
+				t.Fatal("expected malformed api key to be rejected")
+			}
+			s, _ := status.FromError(err)
+			if s.Code() != codes.Unauthenticated {
+				t.Errorf("expected Unauthenticated, got %s", s.Code())
+			}
+		})
+	}
+}
+
+func TestValidGRPCAPIKeyFormat_AllowsExpectedShape(t *testing.T) {
+	t.Parallel()
+
+	rawKey := "strait_" + strings.Repeat("a", 64)
+	if !validGRPCAPIKeyFormat(rawKey) {
+		t.Fatalf("expected valid api key format for %q", rawKey)
 	}
 }
 

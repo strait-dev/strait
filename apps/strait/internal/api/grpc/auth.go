@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,12 +20,16 @@ import (
 type grpcContextKey string
 
 const (
+	grpcAPIKeyMaxLength = 128
+
 	grpcCtxProjectIDKey     grpcContextKey = "grpc_project_id"
 	grpcCtxOrgIDKey         grpcContextKey = "grpc_org_id"
 	grpcCtxAPIKeyIDKey      grpcContextKey = "grpc_api_key_id" //nolint:gosec // not a credential; context-key name
 	grpcCtxAPIKeyKey        grpcContextKey = "grpc_api_key"    //nolint:gosec // not a credential; context-key name
 	grpcCtxEnvironmentIDKey grpcContextKey = "grpc_environment_id"
 )
+
+var grpcAPIKeyPattern = regexp.MustCompile(`^strait_[A-Za-z0-9]+$`)
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata
 // attached to ctx, resolves it against the API key store, validates its
@@ -47,6 +52,9 @@ func resolveAPIKeyFromContext(ctx context.Context, q *store.Queries) (*domain.AP
 	}
 
 	rawKey := strings.TrimPrefix(authHeader, "Bearer ")
+	if !validGRPCAPIKeyFormat(rawKey) {
+		return nil, status.Error(codes.Unauthenticated, "invalid api key")
+	}
 	keyHash := hashGRPCAPIKey(rawKey)
 
 	apiKey, err := q.GetAPIKeyByHash(ctx, keyHash)
@@ -59,6 +67,13 @@ func resolveAPIKeyFromContext(ctx context.Context, q *store.Queries) (*domain.AP
 	}
 
 	return apiKey, nil
+}
+
+func validGRPCAPIKeyFormat(rawKey string) bool {
+	if rawKey == "" || len(rawKey) > grpcAPIKeyMaxLength {
+		return false
+	}
+	return grpcAPIKeyPattern.MatchString(rawKey)
 }
 
 func validateWorkerAPIKey(apiKey *domain.APIKey) error {
