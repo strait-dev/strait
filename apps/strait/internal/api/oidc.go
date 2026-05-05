@@ -90,6 +90,7 @@ func (v *oidcVerifier) verify(token string) (*oidcClaims, error) {
 	},
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAudience(v.audience),
+		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(30*time.Second),
 	)
 	if err != nil {
