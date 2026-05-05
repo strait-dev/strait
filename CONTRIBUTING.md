@@ -1,6 +1,8 @@
 # Contributing to Strait
 
-Thanks for considering a contribution to Strait. Whether you're fixing a bug, improving documentation, or building a new feature, your help makes the project better for everyone. This guide will get you set up and oriented quickly.
+Thanks for sending a patch. This guide gets a development environment running and explains how PRs land.
+
+If you only want to run Strait, not develop on it, follow [SELFHOST.md](SELFHOST.md) instead.
 
 ## Prerequisites
 
@@ -8,13 +10,9 @@ Thanks for considering a contribution to Strait. Whether you're fixing a bug, im
 - [Bun](https://bun.sh/) 1.3+
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2
 - [golangci-lint](https://golangci-lint.run/welcome/install/)
-- [lefthook](https://github.com/evilmartians/lefthook) (git hooks)
+- [lefthook](https://github.com/evilmartians/lefthook) for git hooks
 
 ## Setup
-
-If you just want to try Strait before diving into the code, [SELFHOST.md](SELFHOST.md) is the fastest way to get the full stack running.
-
-To set up a development environment:
 
 ```bash
 # Clone the repo.
@@ -110,15 +108,11 @@ Types: `feat`, `fix`, `test`, `chore`, `refactor`, `docs`, `perf`.
 
 Do not add AI attribution or "Co-Authored-By" lines. Do not skip git hooks (`--no-verify`).
 
-## Pull Requests
+## Pull requests
 
-1. Create a branch from `master`
-2. Make your changes
-3. Ensure all checks pass: `lefthook run pre-commit`
-4. Open a PR with a clear title and description
-5. CI runs Test, Lint, and Security checks automatically
+Branch from `master`, make your changes, run `lefthook run pre-commit`, and open a PR with a clear description. CI runs the test, lint, and security suites for you.
 
-If your change is large or touches multiple subsystems, consider opening an issue first to discuss the approach.
+If the change is large or touches multiple subsystems, open an issue first so we can agree on the approach before you write the code.
 
 ## Architecture
 
