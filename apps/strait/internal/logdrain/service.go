@@ -33,6 +33,10 @@ var jsonMarshal = json.Marshal
 // validateEndpointURL is the SSRF validation function, replaceable in tests.
 var validateEndpointURL = httputil.ValidateExternalURL
 
+// newServiceTransport returns the HTTP transport for log drain delivery,
+// replaceable in tests that need local httptest endpoints.
+var newServiceTransport = httputil.NewExternalTransport
+
 // Service dispatches run events to log drain endpoints.
 type Service struct {
 	client *http.Client
@@ -42,7 +46,7 @@ func NewService() *Service {
 	return &Service{
 		client: &http.Client{
 			Timeout:   10 * time.Second,
-			Transport: httputil.NewExternalTransport(false),
+			Transport: newServiceTransport(false),
 			// Refuse to follow redirects: the drain endpoint URL was
 			// validated against the SSRF allowlist, but a redirect
 			// target has not been. Following would let a compromised

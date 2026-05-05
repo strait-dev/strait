@@ -12,6 +12,9 @@ import (
 // validate URLs at creation/update time as defense in depth.
 func init() {
 	validateEndpointURL = func(_ string) error { return nil }
+	newServiceTransport = func(bool) *http.Transport {
+		return httputil.NewExternalTransport(true)
+	}
 	newAuditSIEMTransport = func(bool) *http.Transport {
 		return httputil.NewExternalTransport(true)
 	}

@@ -25,6 +25,12 @@ func TestNewService_ClientTimeout(t *testing.T) {
 }
 
 func TestDrainRunEvents_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
+	previousTransport := newServiceTransport
+	newServiceTransport = httputil.NewExternalTransport
+	t.Cleanup(func() {
+		newServiceTransport = previousTransport
+	})
+
 	var lookups atomic.Int32
 	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
 		if host != "rebind.test" {
