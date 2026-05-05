@@ -199,13 +199,14 @@ func TestAutoRotate_ConcurrentRotation(t *testing.T) {
 	t.Parallel()
 
 	rotationDays := 7
+	webhookURL := rotationWebhookURLForTest(t)
 	var rotated atomic.Int32
 
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays},
-				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &rotationDays},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays, RotationWebhookURL: webhookURL},
+				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &rotationDays, RotationWebhookURL: webhookURL},
 			}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, _ *domain.APIKey) error {

@@ -1268,6 +1268,11 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 	}
 
 	for _, oldKey := range keys {
+		if oldKey.RotationWebhookURL == "" {
+			r.logger.Warn("skipping api key auto-rotation without rotation webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID)
+			continue
+		}
+
 		// Generate new key material.
 		rawBytes := make([]byte, 32)
 		if _, err := rand.Read(rawBytes); err != nil {
@@ -1323,18 +1328,16 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			Details:      details,
 		})
 
-		// Notify rotation webhook if configured.
-		if oldKey.RotationWebhookURL != "" {
-			r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, newKey.KeyPrefix, oldKey.ProjectID)
-		}
+		r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID)
 	}
 }
 
-func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKeyPrefix, projectID string) {
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) {
 	payload, _ := json.Marshal(map[string]any{
 		"event":          "api_key.auto_rotated",
 		"old_key_id":     oldKeyID,
 		"new_key_id":     newKeyID,
+		"new_key":        newKey,
 		"new_key_prefix": newKeyPrefix,
 		"project_id":     projectID,
 		"rotated_at":     time.Now().UTC(),

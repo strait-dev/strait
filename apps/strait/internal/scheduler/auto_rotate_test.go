@@ -2,6 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -52,6 +55,14 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	var markedOldID string
 	var markedNewID string
 	var auditAction string
+	var webhookPayload map[string]any
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&webhookPayload); err != nil {
+			t.Fatalf("decode webhook payload: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer webhookServer.Close()
 
 	rotationDays30 := 30
 	ms := &mockAutoRotateStore{
@@ -64,7 +75,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 					Scopes:               []string{"jobs:read", "jobs:write"},
 					EnvironmentID:        "env-prod",
 					RotationIntervalDays: &rotationDays30,
-					RotationWebhookURL:   "", // no webhook
+					RotationWebhookURL:   webhookServer.URL,
 				},
 			}, nil
 		},
@@ -117,6 +128,40 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	if auditAction != "api_key.auto_rotated" {
 		t.Fatalf("audit action = %q, want api_key.auto_rotated", auditAction)
 	}
+	if webhookPayload["new_key"] == "" {
+		t.Fatalf("rotation webhook payload did not include new_key: %+v", webhookPayload)
+	}
+	if webhookPayload["new_key_prefix"] != createdKey.KeyPrefix {
+		t.Fatalf("webhook prefix = %v, want %s", webhookPayload["new_key_prefix"], createdKey.KeyPrefix)
+	}
+}
+
+func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
+	t.Parallel()
+
+	var created atomic.Int32
+	rotationDays := 30
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			return []domain.APIKey{{
+				ID:                   "old-key-1",
+				ProjectID:            "proj-1",
+				Name:                 "My Key",
+				RotationIntervalDays: &rotationDays,
+			}}, nil
+		},
+		createAPIKeyFn: func(context.Context, *domain.APIKey) error {
+			created.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.autoRotateAPIKeys(context.Background())
+
+	if created.Load() != 0 {
+		t.Fatalf("created keys = %d, want 0 without rotation webhook", created.Load())
+	}
 }
 
 func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
@@ -143,11 +188,12 @@ func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
 func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 	t.Parallel()
 	rotationDays7 := 7
+	webhookURL := rotationWebhookURLForTest(t)
 	var markCalled atomic.Int32
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays7},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays7, RotationWebhookURL: webhookURL},
 			}, nil
 		},
 		createAPIKeyFn: func(context.Context, *domain.APIKey) error {
@@ -170,14 +216,15 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 	t.Parallel()
 	days7, days14, days30 := 7, 14, 30
+	webhookURL := rotationWebhookURLForTest(t)
 	var created atomic.Int32
 	var marked atomic.Int32
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &days7},
-				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &days14},
-				{ID: "key-3", ProjectID: "proj-1", RotationIntervalDays: &days30},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &days7, RotationWebhookURL: webhookURL},
+				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &days14, RotationWebhookURL: webhookURL},
+				{ID: "key-3", ProjectID: "proj-1", RotationIntervalDays: &days30, RotationWebhookURL: webhookURL},
 			}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
@@ -206,10 +253,11 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 	t.Parallel()
 	var createdKey *domain.APIKey
+	webhookURL := rotationWebhookURLForTest(t)
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: nil},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: nil, RotationWebhookURL: webhookURL},
 			}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
@@ -227,6 +275,15 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 	if createdKey.NextRotationAt != nil {
 		t.Fatal("NextRotationAt should be nil when RotationIntervalDays is nil")
 	}
+}
+
+func rotationWebhookURLForTest(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
 }
 
 func TestAutoRotateAPIKeys_StoreNotImplemented_Noop(t *testing.T) {
