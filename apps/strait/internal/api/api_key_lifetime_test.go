@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -136,6 +137,31 @@ func TestCreateAPIKey_NoMaxLifetime_LongExpiry_Accepted(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAPIKey_QuotaLookupFailureFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	createCalled := false
+	ms := &APIStoreMock{
+		GetProjectQuotaFunc: func(context.Context, string) (*store.ProjectQuota, error) {
+			return nil, errors.New("quota store unavailable")
+		},
+		CreateAPIKeyFunc: func(context.Context, *domain.APIKey) error {
+			createCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":365}`)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", w.Code, w.Body.String())
+	}
+	if createCalled {
+		t.Fatal("api key should not be created when quota lookup fails")
 	}
 }
 

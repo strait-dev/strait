@@ -82,7 +82,12 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	}
 
 	// Enforce project-level max key lifetime if configured.
-	quota, _ := s.store.GetProjectQuota(ctx, req.ProjectID)
+	quota, err := s.store.GetProjectQuota(ctx, req.ProjectID)
+	if err != nil {
+		slog.Warn("failed to load project quota while creating api key",
+			"project_id", req.ProjectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load project quota")
+	}
 	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
 		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
 		if expiresAt == nil {
