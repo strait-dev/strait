@@ -311,14 +311,17 @@ func TestExecuteWorkerMode_DispatchErrorRequeuesOnNoWorker(t *testing.T) {
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
 	gotRequeued := false
+	var requeueFields map[string]any
 	for _, u := range ms.statusUpdates() {
 		if u.from == domain.StatusExecuting && u.to == domain.StatusQueued {
 			gotRequeued = true
+			requeueFields = u.fields
 		}
 	}
 	if !gotRequeued {
 		t.Fatalf("expected requeue from executing to queued, got: %+v", ms.statusUpdates())
 	}
+	assertQueuedResetFields(t, requeueFields)
 }
 
 // TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight verifies that
@@ -366,6 +369,30 @@ func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T)
 	}
 }
 
+func TestExecuteWorkerMode_NilDispatcherRequeuesWithCleanQueuedFields(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockExecutorStore{}
+	exec, _, _ := newWorkerModeExecutor(t, ms, nil)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
+
+	gotRequeued := false
+	var requeueFields map[string]any
+	for _, u := range ms.statusUpdates() {
+		if u.from == domain.StatusExecuting && u.to == domain.StatusQueued {
+			gotRequeued = true
+			requeueFields = u.fields
+		}
+	}
+	if !gotRequeued {
+		t.Fatalf("expected requeue from executing to queued, got: %+v", ms.statusUpdates())
+	}
+	assertQueuedResetFields(t, requeueFields)
+}
+
 // TestExecuteWorkerMode_TrustsExplicitFailureOverErrorField is an adversarial
 // guard: a worker reporting status="success" but with a non-empty error
 // message should be trusted as success (the explicit status wins). This
@@ -399,4 +426,30 @@ func TestExecuteWorkerMode_TrustsExplicitFailureOverErrorField(t *testing.T) {
 		}
 		return false
 	}, "completed transition")
+}
+
+func assertQueuedResetFields(t *testing.T, fields map[string]any) {
+	t.Helper()
+
+	if fields == nil {
+		t.Fatal("expected queued reset fields, got nil")
+	}
+
+	wantNil := []string{
+		"error",
+		"error_class",
+		"finished_at",
+		"heartbeat_at",
+		"next_retry_at",
+		"started_at",
+	}
+	for _, key := range wantNil {
+		value, ok := fields[key]
+		if !ok {
+			t.Fatalf("expected field %q in queued reset fields: %+v", key, fields)
+		}
+		if value != nil {
+			t.Fatalf("expected field %q to be cleared, got %#v", key, value)
+		}
+	}
 }

@@ -792,7 +792,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"job_id", run.JobID,
 		)
 		// Transition back to queued so the next tick can retry.
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, nil); err != nil {
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, queuedRunResetFields()); err != nil {
 			e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", err)
 		}
 		return
@@ -838,7 +838,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"error", err,
 		)
 		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
-			if requeueErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, nil); requeueErr != nil {
+			if requeueErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, queuedRunResetFields()); requeueErr != nil {
 				e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", requeueErr)
 			}
 			return
@@ -905,6 +905,17 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	// produces an empty json.RawMessage which handleSuccess accepts.
 	var runResult json.RawMessage
 	e.handleSuccess(ctx, run, job, runResult, nil)
+}
+
+func queuedRunResetFields() map[string]any {
+	return map[string]any{
+		"error":         nil,
+		"error_class":   nil,
+		"finished_at":   nil,
+		"heartbeat_at":  nil,
+		"next_retry_at": nil,
+		"started_at":    nil,
+	}
 }
 
 // ingestStripeUsageEvent sends a usage event to Stripe for metered billing.

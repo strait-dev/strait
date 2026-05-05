@@ -63,22 +63,9 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	var status *domain.RunStatus
-	if input.Status != "" {
-		parsed := domain.RunStatus(input.Status)
-		if !parsed.IsValid() {
-			return nil, huma.Error400BadRequest("status is invalid")
-		}
-		status = &parsed
-	}
-
-	// Support statuses[] multi-value param: use first valid status for the single-status store query.
-	if status == nil && len(input.Statuses) > 0 {
-		parsed := domain.RunStatus(input.Statuses[0])
-		if !parsed.IsValid() {
-			return nil, huma.Error400BadRequest("status is invalid")
-		}
-		status = &parsed
+	statuses, statusQuery, err := buildRunStatusFilter(input.Status, input.Statuses)
+	if err != nil {
+		return nil, err
 	}
 
 	tagKey := input.TagKey
@@ -158,12 +145,26 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		runs    []domain.JobRun
 		listErr error
 	)
-	if environmentIDFromContext(ctx) != "" {
-		runs, listErr = s.listRunsForEnvironment(ctx, projectID, tagKey, tagValue, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
-	} else if tagKey != "" {
-		runs, listErr = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, limit+1, cursor)
+	if environmentIDFromContext(ctx) != "" || tagKey != "" || len(statuses) > 1 {
+		runs, listErr = s.listRunsWithFilters(
+			ctx,
+			projectID,
+			statusQuery,
+			statuses,
+			tagKey,
+			tagValue,
+			metadataKey,
+			metadataValue,
+			triggeredBy,
+			batchID,
+			payloadContains,
+			executionMode,
+			errorClass,
+			limit+1,
+			cursor,
+		)
 	} else {
-		runs, listErr = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+		runs, listErr = s.store.ListRunsByProject(ctx, projectID, statusQuery, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
 	}
 	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list runs")
@@ -174,6 +175,42 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 			return run.CreatedAt.Format(time.RFC3339Nano)
 		}),
 	}, nil
+}
+
+func buildRunStatusFilter(status string, statuses []string) (map[domain.RunStatus]struct{}, *domain.RunStatus, error) {
+	if status == "" && len(statuses) == 0 {
+		return nil, nil, nil
+	}
+
+	filter := make(map[domain.RunStatus]struct{}, 1+len(statuses))
+	addStatus := func(raw string) error {
+		parsed := domain.RunStatus(raw)
+		if !parsed.IsValid() {
+			return huma.Error400BadRequest("status is invalid")
+		}
+		filter[parsed] = struct{}{}
+		return nil
+	}
+
+	if status != "" {
+		if err := addStatus(status); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, raw := range statuses {
+		if err := addStatus(raw); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if len(filter) == 1 {
+		for parsed := range filter {
+			single := parsed
+			return filter, &single, nil
+		}
+	}
+
+	return filter, nil, nil
 }
 
 // CancelRunInput is the typed input for canceling a run.
@@ -1042,10 +1079,12 @@ func parseBracketParam(param, prefix string) (string, bool) {
 	return key, true
 }
 
-func (s *Server) listRunsForEnvironment(
+func (s *Server) listRunsWithFilters(
 	ctx context.Context,
-	projectID, tagKey, tagValue string,
-	status *domain.RunStatus,
+	projectID string,
+	statusQuery *domain.RunStatus,
+	statuses map[domain.RunStatus]struct{},
+	tagKey, tagValue string,
 	metadataKey, metadataValue, triggeredBy, batchID *string,
 	payloadContains json.RawMessage,
 	executionMode *domain.ExecutionMode,
@@ -1063,11 +1102,20 @@ func (s *Server) listRunsForEnvironment(
 			page []domain.JobRun
 			err  error
 		)
-		if tagKey != "" {
-			page, err = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, fetchLimit, pageCursor)
-		} else {
-			page, err = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, fetchLimit, pageCursor)
-		}
+		page, err = s.store.ListRunsByProject(
+			ctx,
+			projectID,
+			statusQuery,
+			metadataKey,
+			metadataValue,
+			triggeredBy,
+			batchID,
+			payloadContains,
+			executionMode,
+			errorClass,
+			fetchLimit,
+			pageCursor,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1076,15 +1124,21 @@ func (s *Server) listRunsForEnvironment(
 		}
 
 		for _, run := range page {
-			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
-			if err != nil {
-				return nil, err
+			if !runMatchesTagFilter(run, tagKey, tagValue) || !runMatchesStatusFilter(run, statuses) {
+				continue
 			}
-			if allowed {
-				filtered = append(filtered, run)
-				if len(filtered) >= limit {
-					return filtered, nil
+			if environmentIDFromContext(ctx) != "" {
+				allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+				if err != nil {
+					return nil, err
 				}
+				if !allowed {
+					continue
+				}
+			}
+			filtered = append(filtered, run)
+			if len(filtered) >= limit {
+				return filtered, nil
 			}
 		}
 
@@ -1094,6 +1148,31 @@ func (s *Server) listRunsForEnvironment(
 		lastCreatedAt := page[len(page)-1].CreatedAt
 		pageCursor = &lastCreatedAt
 	}
+}
+
+func runMatchesStatusFilter(run domain.JobRun, statuses map[domain.RunStatus]struct{}) bool {
+	if len(statuses) == 0 {
+		return true
+	}
+	_, ok := statuses[run.Status]
+	return ok
+}
+
+func runMatchesTagFilter(run domain.JobRun, tagKey, tagValue string) bool {
+	if tagKey == "" {
+		return true
+	}
+	if len(run.Tags) == 0 {
+		return false
+	}
+	value, ok := run.Tags[tagKey]
+	if !ok {
+		return false
+	}
+	if tagValue == "" {
+		return true
+	}
+	return value == tagValue
 }
 
 func (s *Server) runMatchesEnvironment(ctx context.Context, run domain.JobRun, jobEnvCache map[string]bool) (bool, error) {

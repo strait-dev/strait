@@ -237,6 +237,87 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 	}
 }
 
+func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
+	t.Parallel()
+
+	var capturedStatus *domain.RunStatus
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedStatus = status
+			return []domain.JobRun{
+				{ID: "run-failed", Status: domain.StatusFailed, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-timed-out", Status: domain.StatusTimedOut, CreatedAt: time.Now().Add(-2 * time.Minute)},
+				{ID: "run-completed", Status: domain.StatusCompleted, CreatedAt: time.Now().Add(-3 * time.Minute)},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?statuses[]=failed&statuses[]=timed_out", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if capturedStatus != nil {
+		t.Fatalf("expected no single-status store filter for multi-status query, got %v", *capturedStatus)
+	}
+	if len(ms.ListRunsByTagCalls()) != 0 {
+		t.Fatalf("expected ListRunsByTag not to be used, got %d calls", len(ms.ListRunsByTagCalls()))
+	}
+
+	var resp struct {
+		Data []domain.JobRun `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("len(resp.Data) = %d, want 2", len(resp.Data))
+	}
+	if resp.Data[0].ID != "run-failed" || resp.Data[1].ID != "run-timed-out" {
+		t.Fatalf("unexpected filtered runs: %+v", resp.Data)
+	}
+}
+
+func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	var capturedMode *domain.ExecutionMode
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, executionMode *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedMode = executionMode
+			return []domain.JobRun{
+				{ID: "run-infra", Status: domain.StatusFailed, Tags: map[string]string{"team": "infra"}, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-app", Status: domain.StatusFailed, Tags: map[string]string{"team": "app"}, CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?tag_key=team&tag_value=infra&execution_mode=worker", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedMode == nil || *capturedMode != domain.ExecutionModeWorker {
+		t.Fatalf("expected worker execution mode to be passed through, got %v", capturedMode)
+	}
+	if len(ms.ListRunsByTagCalls()) != 0 {
+		t.Fatalf("expected ListRunsByTag not to be used, got %d calls", len(ms.ListRunsByTagCalls()))
+	}
+
+	var resp struct {
+		Data []domain.JobRun `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "run-infra" {
+		t.Fatalf("unexpected filtered runs: %+v", resp.Data)
+	}
+}
+
 func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
 	t.Parallel()
 
