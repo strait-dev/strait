@@ -43,7 +43,6 @@ func (s *Server) routes() chi.Router {
 	r.Use(securityHeaders)
 
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
 	r.Use(s.attachAuditContext)
 	r.Use(s.requestLogger)
