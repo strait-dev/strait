@@ -17,10 +17,8 @@
       "!tanstack",
       "!dist",
       "!build",
-      "!**/.astro",
       "!**/_generated",
       "!**/routeTree.gen.ts",
-      "!**/basehub-types.d.ts",
       "!**/.agents/skills"
     ]
   },
@@ -61,38 +59,9 @@
   },
   "overrides": [
     {
-      "includes": [
-        "**/routeTree.gen.ts",
-        "**/_generated/**",
-        "**/basehub-types.d.ts"
-      ],
+      "includes": ["**/routeTree.gen.ts", "**/_generated/**"],
       "linter": {
         "enabled": false
-      }
-    },
-    {
-      "includes": ["**/components/landing-page/**/*.tsx"],
-      "linter": {
-        "rules": {
-          "a11y": {
-            "useAnchorContent": "off",
-            "noRedundantAlt": "off"
-          },
-          "correctness": {
-            "useImageSize": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["**/*.astro"],
-      "linter": {
-        "rules": {
-          "correctness": {
-            "noUnusedVariables": "off",
-            "noUnusedImports": "off"
-          }
-        }
       }
     },
     {

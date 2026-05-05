@@ -128,9 +128,9 @@ src/
 
 ## Environment Variables
 
-Secrets are managed via Doppler (project: `strait`, configs: `dev`/`stg`/`prd`).
+Secrets are managed via Infisical (project: `strait`, environments: `dev`/`stg`/`prd`).
 
-For local development: `doppler run -- bun dev`
+For local development: `infisical run --env=dev -- bun dev`
 
 | Variable | Purpose |
 |---|---|

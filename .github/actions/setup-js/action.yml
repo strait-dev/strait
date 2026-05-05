@@ -3,7 +3,7 @@ description: Install Bun (optionally Node), cache the bun install cache, and run
 
 inputs:
   node:
-    description: When "true", also install Node.js. Needed for projects that shell out to Node (Astro, tsc).
+    description: When "true", also install Node.js. Needed for projects that shell out to Node (e.g. tsc).
     required: false
     default: "false"
   node-version:

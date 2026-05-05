@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - "apps/app/**"
-      - "apps/website/**"
       - "apps/docs/**"
       - "packages/**"
       - "biome.json"

@@ -18,7 +18,6 @@ paths = [
     '''Makefile$''',
     '''\.next/''',
     '''\.github/workflows/''',
-    '''apps/website/''',
     '''apps/app/src/hooks/api/''',
     # Generated JS bundles embedded in the Go binary. These files are produced by
     # the build pipeline and contain third-party library Symbol keys (e.g.

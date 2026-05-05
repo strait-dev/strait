@@ -75,7 +75,7 @@ unless something actually fails.
 Important rules:
 - Use `SELFHOST.md` as the source of truth for any command I did not spell out
   above.
-- Do not install billing, Stripe, or Doppler. Strait's self-host edition has
+- Do not install billing, Stripe, or Infisical. Strait's self-host edition has
   billing compiled out — do not try to set up a paid plan or prompt me for a
   payment provider.
 - Do not commit or push anything. Do not touch my global git config.
@@ -145,7 +145,6 @@ apps/
   strait/   Go service — API, worker, scheduler, all in one binary
   app/      TanStack Start dashboard (React 19, Vite)
   docs/     Mintlify docs
-  website/  Marketing site
 packages/   Shared TS packages (ui, billing, config, transactional, …)
 docker-compose.selfhost.yml   One-command self-host stack
 SELFHOST.md                   Self-host walkthrough

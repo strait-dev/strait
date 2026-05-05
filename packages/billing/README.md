@@ -22,4 +22,4 @@ Plan definitions include monthly/yearly pricing (in cents), trial eligibility, f
 
 ## Used by
 
-- `apps/website` -- pricing page, pricing comparison tables, structured data
+- The marketing site (<https://github.com/strait-dev/website>) -- pricing page, pricing comparison tables, structured data
