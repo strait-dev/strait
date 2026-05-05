@@ -37,7 +37,6 @@ COPY package.json bun.lock turbo.json ./
 COPY apps/app/package.json apps/app/
 COPY apps/docs/package.json apps/docs/
 COPY apps/strait/package.json apps/strait/
-COPY apps/website/package.json apps/website/
 COPY packages/billing/package.json packages/billing/
 COPY packages/config/package.json packages/config/
 COPY packages/transactional/package.json packages/transactional/

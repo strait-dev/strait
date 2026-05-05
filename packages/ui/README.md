@@ -34,7 +34,7 @@ Additional exports:
 ## Used by
 
 - `apps/app` -- primary consumer (dashboard, settings, auth flows)
-- `apps/website` -- marketing site
+- The marketing site (<https://github.com/strait-dev/website>) -- via published package or vendoring
 
 ## Development
 
