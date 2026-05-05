@@ -1,7 +1,7 @@
 import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
 import sitemap from "@astrojs/sitemap";
-import { defineConfig } from "astro/config";
+import { defineConfig, svgoOptimizer } from "astro/config";
 
 export default defineConfig({
   site: "https://strait.dev",
@@ -37,7 +37,7 @@ export default defineConfig({
   },
 
   experimental: {
-    svgo: true,
+    svgOptimizer: svgoOptimizer(),
   },
 
   integrations: [
