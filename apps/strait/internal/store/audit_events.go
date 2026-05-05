@@ -800,6 +800,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	var expectedPrevHash string
 	first := true
+	hasRetentionTombstone := false
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -812,6 +813,9 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			result.FirstEventID = ev.ID
 		}
 		result.LastEventID = ev.ID
+		if ev.Action == domain.AuditActionRetentionTrimmed && ev.IsAnchor {
+			hasRetentionTombstone = true
+		}
 
 		if first {
 			expectedPrevHash = ev.PreviousHash
@@ -845,6 +849,11 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("verify audit chain rows: %w", err)
+	}
+	if result.EventsChecked > 0 && result.ChainStart != ZeroHash && !hasRetentionTombstone {
+		result.Valid = false
+		result.BrokenAtID = result.FirstEventID
+		result.Error = fmt.Sprintf("chain starts from non-zero previous_hash %s without a signed retention tombstone", result.ChainStart)
 	}
 
 	return result, nil

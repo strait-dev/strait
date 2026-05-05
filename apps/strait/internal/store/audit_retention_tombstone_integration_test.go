@@ -221,6 +221,44 @@ func TestVerifyAuditChain_AcceptsTombstoneAnchor(t *testing.T) {
 	}
 }
 
+// TestVerifyAuditChain_RejectsDeletedPrefixWithoutTombstone asserts that an
+// attacker cannot delete the oldest rows and have the verifier silently accept
+// the first surviving row as a new chain head. Legitimate retention trims must
+// leave a signed audit.retention_trimmed anchor.
+func TestVerifyAuditChain_RejectsDeletedPrefixWithoutTombstone(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	key, _ := store.DeriveAuditSigningKey("tombstone-prefix-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-prefix-delete"
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
+	ids := seedDatedChain(ctx, t, q, projectID, 5, base, key)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		DELETE FROM audit_events
+		WHERE id = ANY($1::text[])
+	`, ids[:2]); err != nil {
+		t.Fatalf("delete prefix rows: %v", err)
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected deleted prefix without tombstone to invalidate chain")
+	}
+	if result.BrokenAtID != ids[2] {
+		t.Fatalf("BrokenAtID = %q, want first surviving event %q", result.BrokenAtID, ids[2])
+	}
+	if result.ChainStart == store.ZeroHash {
+		t.Fatal("expected first surviving row to retain non-zero previous_hash")
+	}
+}
+
 // TestDeleteAuditEventsBeforeExcluding_EmitsTombstonePerAffectedProject —
 // when two projects are trimmed by the default sweep, exactly one tombstone
 // is written per affected project.
