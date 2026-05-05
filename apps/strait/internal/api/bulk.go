@@ -189,7 +189,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 			if existingRun != nil {
 				slog.Info("idempotency hit",
 					"job_id", job.ID,
-					"idempotency_key", item.IdempotencyKey,
+					"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
 					"existing_run_id", existingRun.ID,
 					"existing_run_status", existingRun.Status,
 					"item_index", itemIdx)
@@ -330,7 +330,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 					if retryErr != nil {
 						slog.Error("idempotency conflict retry failed",
 							"job_id", job.ID,
-							"idempotency_key", item.IdempotencyKey,
+							"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
 							"item_index", itemIdx,
 							"error", retryErr)
 						return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
@@ -338,7 +338,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 					if existingRun != nil {
 						slog.Warn("idempotency conflict resolved",
 							"job_id", job.ID,
-							"idempotency_key", item.IdempotencyKey,
+							"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
 							"winning_run_id", existingRun.ID,
 							"item_index", itemIdx)
 						results = append(results, BulkTriggerResult{
@@ -350,7 +350,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 					}
 					slog.Error("idempotency conflict retry returned nil",
 						"job_id", job.ID,
-						"idempotency_key", item.IdempotencyKey,
+						"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
 						"item_index", itemIdx)
 				}
 				if apiErr := enqueueAPIError(err); apiErr != nil {

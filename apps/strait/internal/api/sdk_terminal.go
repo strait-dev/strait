@@ -180,6 +180,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		return nil, huma.Error404NotFound("parent run not found")
 	}
 	isCrossProject := req.ProjectID != parentRun.ProjectID
+	var targetAPIKey *domain.APIKey
 	if isCrossProject {
 		if req.TargetAPIKey == "" {
 			return nil, huma.Error400BadRequest("target_api_key is required for cross-project spawn")
@@ -189,6 +190,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		if keyErr != nil {
 			return nil, huma.Error401Unauthorized("invalid target api key")
 		}
+		targetAPIKey = apiKey
 		if apiKey.RevokedAt != nil {
 			return nil, huma.Error401Unauthorized("target api key has been revoked")
 		}
@@ -199,10 +201,18 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		if apiKey.ProjectID != req.ProjectID {
 			return nil, huma.Error403Forbidden("target api key does not belong to the specified project")
 		}
+		if !domain.HasScope(apiKey.Scopes, domain.ScopeJobsTrigger) {
+			return nil, huma.Error403Forbidden("target api key cannot trigger jobs")
+		}
 	}
 	job, err := s.store.GetJobBySlug(ctx, req.ProjectID, req.JobSlug)
 	if err != nil || job == nil {
 		return nil, huma.Error404NotFound("job not found")
+	}
+	if isCrossProject {
+		if err := requireAPIKeyEnvironmentMatch(targetAPIKey, job.EnvironmentID); err != nil {
+			return nil, huma.Error404NotFound("job not found")
+		}
 	}
 	if err := validateRunCreationJobID(job.ID); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -246,6 +256,16 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		resp["await_event_key"] = fmt.Sprintf("spawn-await:%s", run.ID)
 	}
 	return &SDKSpawnOutput{Body: resp}, nil
+}
+
+func requireAPIKeyEnvironmentMatch(apiKey *domain.APIKey, resourceEnvironmentID string) error {
+	if apiKey == nil || apiKey.EnvironmentID == "" {
+		return nil
+	}
+	if apiKey.EnvironmentID != resourceEnvironmentID {
+		return errEnvironmentMismatch
+	}
+	return nil
 }
 
 type SDKContinueRequest struct {

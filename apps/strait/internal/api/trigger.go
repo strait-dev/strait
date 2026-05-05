@@ -1,12 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -136,9 +138,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			return nil, huma.Error500InternalServerError("failed to check idempotency key")
 		}
 		if existingRun != nil {
+			idempotencyKeyHash := hashIdempotencyKey(idempotencyKey)
 			slog.Info("idempotency hit",
 				"job_id", job.ID,
-				"idempotency_key", idempotencyKey,
+				"idempotency_key_hash", idempotencyKeyHash,
 				"existing_run_id", existingRun.ID,
 				"existing_run_status", existingRun.Status)
 			return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
@@ -438,14 +441,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					if retryErr != nil {
 						slog.Error("idempotency conflict retry failed",
 							"job_id", job.ID,
-							"idempotency_key", idempotencyKey,
+							"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
 							"error", retryErr)
 						return nil, huma.Error500InternalServerError("failed to check idempotency key after conflict")
 					}
 					if existingRun != nil {
 						slog.Warn("idempotency conflict resolved",
 							"job_id", job.ID,
-							"idempotency_key", idempotencyKey,
+							"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
 							"winning_run_id", existingRun.ID)
 						return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
 							"id":              existingRun.ID,
@@ -455,7 +458,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					}
 					slog.Error("idempotency conflict retry returned nil",
 						"job_id", job.ID,
-						"idempotency_key", idempotencyKey)
+						"idempotency_key_hash", hashIdempotencyKey(idempotencyKey))
 				}
 				return nil, huma.Error500InternalServerError("failed to create waiting run")
 			}
@@ -478,14 +481,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			if retryErr != nil {
 				slog.Error("idempotency conflict retry failed",
 					"job_id", job.ID,
-					"idempotency_key", idempotencyKey,
+					"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
 					"error", retryErr)
 				return nil, huma.Error500InternalServerError("failed to check idempotency key after conflict")
 			}
 			if existingRun != nil {
 				slog.Warn("idempotency conflict resolved",
 					"job_id", job.ID,
-					"idempotency_key", idempotencyKey,
+					"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
 					"winning_run_id", existingRun.ID)
 				return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
 					"id":              existingRun.ID,
@@ -495,7 +498,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			}
 			slog.Error("idempotency conflict retry returned nil",
 				"job_id", job.ID,
-				"idempotency_key", idempotencyKey)
+				"idempotency_key_hash", hashIdempotencyKey(idempotencyKey))
 		}
 		if apiErr := enqueueAPIError(err); apiErr != nil {
 			return nil, apiErr
@@ -550,8 +553,14 @@ func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, erro
 	}
 
 	var v any
-	if err := json.Unmarshal(payload, &v); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&v); err != nil {
 		return nil, "", err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, "", errors.New("payload must contain a single JSON value")
 	}
 
 	canonical, err := json.Marshal(v)
@@ -620,12 +629,24 @@ func cronMatchesInstant(schedule cron.Schedule, ts time.Time) bool {
 
 // DryRunValidationResult contains the result of trigger validation for dry-run mode.
 type DryRunValidationResult struct {
-	Job                *domain.Job     `json:"job"`
+	Job                *DryRunJobInfo  `json:"job"`
 	PayloadHash        string          `json:"payload_hash"`
 	Payload            json.RawMessage `json:"payload,omitempty"`
 	ScheduledAt        *time.Time      `json:"scheduled_at,omitempty"`
 	ExpiresAt          time.Time       `json:"expires_at"`
 	ValidationWarnings []string        `json:"validation_warnings,omitempty"`
+}
+
+type DryRunJobInfo struct {
+	ID            string               `json:"id"`
+	Name          string               `json:"name"`
+	Slug          string               `json:"slug"`
+	ExecutionMode domain.ExecutionMode `json:"execution_mode"`
+	Queue         string               `json:"queue,omitempty"`
+	TimeoutSecs   int                  `json:"timeout_secs"`
+	MaxAttempts   int                  `json:"max_attempts"`
+	Version       int                  `json:"version"`
+	VersionID     string               `json:"version_id,omitempty"`
 }
 
 //nolint:nestif
@@ -736,11 +757,28 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 	}
 
 	return &DryRunValidationResult{
-		Job:                job,
+		Job:                dryRunJobInfo(job),
 		PayloadHash:        payloadHash,
 		Payload:            payload,
 		ScheduledAt:        scheduledAt,
 		ExpiresAt:          expiresAt,
 		ValidationWarnings: warnings,
 	}, nil
+}
+
+func dryRunJobInfo(job *domain.Job) *DryRunJobInfo {
+	if job == nil {
+		return nil
+	}
+	return &DryRunJobInfo{
+		ID:            job.ID,
+		Name:          job.Name,
+		Slug:          job.Slug,
+		ExecutionMode: job.ExecutionMode,
+		Queue:         job.Queue,
+		TimeoutSecs:   job.TimeoutSecs,
+		MaxAttempts:   job.MaxAttempts,
+		Version:       job.Version,
+		VersionID:     job.VersionID,
+	}
 }
