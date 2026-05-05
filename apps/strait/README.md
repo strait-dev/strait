@@ -1,6 +1,6 @@
 # Strait — Go Service
 
-The core backend for Strait. This service handles the REST API, job execution, workflow orchestration, code deployments, and observability. If you're contributing to the Go backend, this is where you work.
+The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and observability. If you're contributing to the Go backend, this is where you work.
 
 ## Table of contents
 
@@ -33,10 +33,18 @@ Client -> chi router -> Huma middleware (auth, rate limit, idempotency)
     -> handler -> store -> PostgreSQL
                 -> pub/sub -> subscribers
 ```
-**Job execution path:**
+**Job execution path (HTTP mode, default):**
 ```
-POST /v1/jobs/{id}/runs -> enqueue -> worker/executor
-    -> compute runtime (Docker / Kubernetes / HTTP)
+POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
+    -> HTTP POST to job's endpoint_url (customer infra)
+    -> run result -> store -> webhook delivery
+```
+**Job execution path (worker mode, gRPC):**
+```
+POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
+    -> match a connected worker (registered slugs)
+    -> stream the run over the bidirectional gRPC channel
+    -> worker executes the handler, streams result back
     -> run result -> store -> webhook delivery
 ```
 **Workflow path:**
@@ -45,12 +53,10 @@ POST /v1/workflows/{id}/trigger -> WorkflowEngine
     -> step execution (worker) -> StepCallback -> next step
     -> rollback workflows on failure
 ```
-**Code deployment path:**
-```
-POST /v1/code-deployments -> tarball upload (object store)
-    -> build orchestrator -> BuildKit -> push to registry
-    -> K8s job pods pick up new image
-```
+
+Strait does not build, push, or run customer code itself. It dispatches to
+infrastructure the customer already operates: an HTTP endpoint they expose,
+or a long-lived worker process that connects to the API over gRPC.
 
 All service wiring happens in `cmd/strait/services.go`. Start there to understand how everything connects.
 
@@ -62,8 +68,8 @@ Two editions compile from the same codebase, controlled at compile time by a bui
 
 | Edition | Build command | Description |
 |---|---|---|
-| Community | `go build ./...` | Self-hosted, open-source. Docker and K8s compute, no billing. |
-| Cloud | `go build -tags cloud ./...` | SaaS at strait.dev. Managed execution, multi-region, billing, advanced analytics. |
+| Community | `go build ./...` | Self-hosted, open-source. No billing. |
+| Cloud | `go build -tags cloud ./...` | Hosted orchestrator at strait.dev (API + Postgres + Redis + scheduler + gRPC worker plane). Multi-region, Stripe billing, advanced analytics. Customer code runs on customer infra in both editions. |
 
 `internal/domain/edition_community.go` and `internal/domain/edition_cloud.go` each implement `ParseEdition()` and feature gate constants. Only one compiles per build.
 
@@ -104,21 +110,17 @@ See `internal/config/config.go` for every supported env var and its default valu
 
 | Package | Purpose |
 |---|---|
-| `api` | HTTP API layer (Huma v2 + chi). Handlers, middleware, routing. |
+| `api` | HTTP API layer (Huma v2 + chi). Handlers, middleware, routing. The `api/grpc/` subpackage hosts the gRPC worker-plane server (registration, dispatch, heartbeats). |
 | `store` | All database access via `pgx/v5`. Typed methods per table, custom error types. |
-| `domain` | Core types, enums, and status transitions shared across all packages. Zero external dependencies. |
-| `worker` | Claims and executes job runs. Manages concurrency, retries, and graceful drain. |
+| `domain` | Core types, enums, execution modes (`http`, `worker`), and status transitions shared across all packages. Zero external dependencies. |
+| `worker` | Claims and dispatches job runs. HTTP-mode dispatch posts to the job's endpoint URL; worker-mode dispatch streams the run to a connected worker over gRPC. Manages concurrency, retries, and graceful drain. |
 | `workflow` | Durable multi-step workflow engine. Sequential, conditional, loop, and compensation steps. |
-| `compute` | Container execution abstraction. Docker, Kubernetes, and HTTP backends. |
-| `build` | Code deployment pipeline: source tarball to Docker image to registry. |
-| `registry` | Container registry abstraction. ECR and generic Docker Registry v2. |
-| `pubsub` | In-process event broadcasting (run status, workflow steps, build logs for SSE). |
+| `pubsub` | In-process event broadcasting (run status, workflow steps for SSE). |
 | `webhook` | Durable webhook delivery with retries. Failed deliveries are sent to a review queue for inspection. |
 | `billing` | Usage-based quota enforcement and Stripe integration (cloud edition only). |
 | `clickhouse` | Optional analytics backend. Batched event export with Postgres fallback. |
 | `telemetry` | Initializes traces, metrics, profiling, and error reporting. |
 | `config` | Single config struct loaded from environment variables via `aconfig`. |
-| `objectstore` | S3-compatible storage (AWS S3 / Cloudflare R2) for tarballs and log archives. |
 | `scheduler` | Cron-style job triggering with timezone support. |
 | `cdc` | Change data capture via Sequin. Propagates Postgres row changes to pub/sub topics. |
 | `cache` | In-memory TTL cache (Otter) for hot-path reads like quota snapshots. |
