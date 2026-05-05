@@ -84,6 +84,7 @@ var webhookRand = func() *rand.Rand {
 }()
 
 var webhookRandMu sync.Mutex
+var newDefaultDeliveryTransport = httputil.NewExternalTransport
 
 type DeliveryWorker struct {
 	client *http.Client
@@ -225,7 +226,7 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 	w := &DeliveryWorker{
 		// Per-request timeout via context; see attemptDelivery. Redirect
 		// following is disabled to keep the SSRF guard intact on every hop.
-		client:             &http.Client{Transport: httputil.NewExternalTransport(false), CheckRedirect: noFollowRedirects},
+		client:             &http.Client{Transport: newDefaultDeliveryTransport(false), CheckRedirect: noFollowRedirects},
 		store:              store,
 		logger:             logger,
 		concurrency:        defaultDeliveryConcurrency,

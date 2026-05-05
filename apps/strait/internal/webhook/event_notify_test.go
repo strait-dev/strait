@@ -33,6 +33,12 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+func init() {
+	newDefaultDeliveryTransport = func(bool) *http.Transport {
+		return httputil.NewExternalTransport(true)
+	}
+}
+
 // mockDeliveryStore implements DeliveryStore for testing.
 type mockDeliveryStore struct {
 	mu            sync.Mutex
