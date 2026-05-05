@@ -526,6 +526,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 // The run must be in StatusExecuting when this is called.
 func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) error {
 	from := domain.StatusExecuting
+	webhookRun := runForTerminalWebhook(run, to, fields)
 	if e.txPool != nil && job.WebhookURL != "" {
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
@@ -536,7 +537,7 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 					return err
 				}
 			}
-			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
+			_, err := q.EnqueueRunWebhook(ctx, job, webhookRun, e.webhookMaxRetry)
 			return err
 		})
 	}
@@ -545,6 +546,21 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 			"run_id", run.ID, "job_id", job.ID, "webhook_url", job.WebhookURL)
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
+}
+
+func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields map[string]any) *domain.JobRun {
+	webhookRun := *run
+	webhookRun.Status = status
+	if result, ok := fields["result"].(json.RawMessage); ok {
+		webhookRun.Result = result
+	}
+	if errMsg, ok := fields["error"].(string); ok {
+		webhookRun.Error = errMsg
+	}
+	if finishedAt, ok := fields["finished_at"].(time.Time); ok {
+		webhookRun.FinishedAt = &finishedAt
+	}
+	return &webhookRun
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
