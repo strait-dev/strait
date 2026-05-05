@@ -5,6 +5,7 @@ package grpc
 import (
 	"context"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -80,5 +81,63 @@ func TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits(t *testing.T) {
 	}
 	if auditCount != 1 {
 		t.Errorf("expected 1 worker.disconnected audit event, got %d", auditCount)
+	}
+}
+
+// TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns verifies that
+// disconnect cleanup requeues in-flight worker-mode runs and closes out their
+// worker_tasks rows instead of waiting for the generic stale-run reaper.
+func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	svc.finalizeDisconnect(projectID, workerID)
+
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusQueued {
+		t.Fatalf("run status = %q, want queued", run.Status)
+	}
+	if run.StartedAt != nil {
+		t.Fatalf("run.StartedAt = %v, want nil after requeue", run.StartedAt)
+	}
+	if run.FinishedAt != nil {
+		t.Fatalf("run.FinishedAt = %v, want nil after requeue", run.FinishedAt)
+	}
+	if run.HeartbeatAt != nil {
+		t.Fatalf("run.HeartbeatAt = %v, want nil after requeue", run.HeartbeatAt)
+	}
+	if run.Error != "worker disconnected before reporting result" {
+		t.Fatalf("run.Error = %q, want disconnect reason", run.Error)
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+	if task.FinishedAt == nil || task.FinishedAt.Before(time.Now().Add(-time.Minute)) {
+		t.Fatalf("worker task FinishedAt = %v, want recent timestamp", task.FinishedAt)
 	}
 }

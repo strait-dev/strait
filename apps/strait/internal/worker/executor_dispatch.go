@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	workergrpc "strait/internal/api/grpc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -469,6 +470,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 			expiresAt = *run.ExpiresAt
 		}
 		claims := jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
 			Subject:   run.ID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -551,6 +553,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 			expiresAt = *run.ExpiresAt
 		}
 		claims := jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
 			Subject:   run.ID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -810,6 +813,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		run.Status = domain.StatusExecuting
 	}
 	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+	e.heartbeat.Register(run.ID)
+	defer e.heartbeat.Deregister(run.ID)
 
 	result, err := e.workerDispatcher.WorkerDispatch(ctx, run, job)
 	if err != nil {
@@ -832,7 +837,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"job_id", run.JobID,
 			"error", err,
 		)
-		if err.Error() == "no worker available for queue" {
+		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
 			if requeueErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, nil); requeueErr != nil {
 				e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", requeueErr)
 			}

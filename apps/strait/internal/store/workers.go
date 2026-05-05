@@ -277,3 +277,56 @@ func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID, project
 	}
 	return tasks, rows.Err()
 }
+
+// RequeueOpenWorkerTasks marks a disconnected worker's open assignments as
+// failed and requeues any still-executing runs they owned.
+func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectID, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RequeueOpenWorkerTasks")
+	defer span.End()
+
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		return 0, fmt.Errorf("requeue open worker tasks requires transaction support")
+	}
+
+	var affected int64
+	err := WithTx(ctx, txb, func(txQ *Queries) error {
+		const query = `
+			WITH open_tasks AS (
+				SELECT id, run_id
+				FROM worker_tasks
+				WHERE worker_id = $1
+				  AND project_id = $2
+				  AND status IN ('assigned', 'accepted')
+			),
+			requeued_runs AS (
+				UPDATE job_runs
+				SET status = 'queued',
+				    started_at = NULL,
+				    finished_at = NULL,
+				    heartbeat_at = NULL,
+				    next_retry_at = NULL,
+				    error = $3,
+				    error_class = 'transient'
+				WHERE id IN (SELECT run_id FROM open_tasks)
+				  AND status = 'executing'
+				RETURNING id
+			)
+			UPDATE worker_tasks
+			SET status = 'failed',
+			    finished_at = NOW()
+			WHERE id IN (SELECT id FROM open_tasks)`
+
+		tag, err := txQ.db.Exec(ctx, query, workerID, projectID, reason)
+		if err != nil {
+			return fmt.Errorf("requeue open worker tasks: %w", err)
+		}
+		affected = tag.RowsAffected()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return affected, nil
+}

@@ -774,6 +774,20 @@ func (s *workerService) dbUpsertWorker(ctx context.Context, cw *ConnectedWorker)
 func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	reason := "worker disconnected before reporting result"
+	if count, err := s.queries.RequeueOpenWorkerTasks(ctx, workerID, projectID, reason); err != nil {
+		slog.Warn("grpc worker disconnect: failed to requeue open tasks",
+			"worker_id", workerID,
+			"project_id", projectID,
+			"error", err,
+		)
+	} else if count > 0 {
+		slog.Info("grpc worker disconnect: requeued open tasks",
+			"worker_id", workerID,
+			"project_id", projectID,
+			"task_count", count,
+		)
+	}
 	if err := s.queries.SetWorkerStatus(ctx, workerID, domain.WorkerStatusOffline); err != nil {
 		slog.Warn("grpc worker disconnect: failed to mark offline",
 			"worker_id", workerID, "error", err)

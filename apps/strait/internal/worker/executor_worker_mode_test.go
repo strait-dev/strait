@@ -2,12 +2,13 @@ package worker
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	workergrpc "strait/internal/api/grpc"
 	"strait/internal/domain"
 )
 
@@ -43,6 +44,21 @@ func (f *fakeWorkerDispatcher) ResultError(opaque any) string {
 	}
 	return f.errorOf[opaque]
 }
+
+type blockingWorkerDispatcher struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingWorkerDispatcher) WorkerDispatch(_ context.Context, _ *domain.JobRun, _ *domain.Job) (any, error) {
+	close(b.started)
+	<-b.release
+	return struct{}{}, nil
+}
+
+func (b *blockingWorkerDispatcher) ResultStatus(any) string { return "success" }
+
+func (b *blockingWorkerDispatcher) ResultError(any) string { return "" }
 
 func newWorkerModeExecutor(t *testing.T, store *mockExecutorStore, dispatcher WorkerRunDispatcher) (*Executor, *mockWorkerPublisher, *mockWorkflowCallback) {
 	t.Helper()
@@ -280,7 +296,7 @@ func TestExecuteWorkerMode_UnknownStatusTreatedAsFailure(t *testing.T) {
 func TestExecuteWorkerMode_DispatchErrorRequeuesOnNoWorker(t *testing.T) {
 	t.Parallel()
 	dispatcher := &fakeWorkerDispatcher{
-		err: errors.New("no worker available for queue"),
+		err: fmt.Errorf("dispatcher busy: %w", workergrpc.ErrNoWorkerAvailable),
 	}
 
 	ms := &mockExecutorStore{
@@ -302,6 +318,51 @@ func TestExecuteWorkerMode_DispatchErrorRequeuesOnNoWorker(t *testing.T) {
 	}
 	if !gotRequeued {
 		t.Fatalf("expected requeue from executing to queued, got: %+v", ms.statusUpdates())
+	}
+}
+
+// TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight verifies that
+// worker-mode runs participate in the executor heartbeat loop for the full
+// duration of the remote task. Without this, long-running worker-mode runs
+// appear stale to the reaper and get crashed mid-execution.
+func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &blockingWorkerDispatcher{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	ms := &mockExecutorStore{}
+	exec, _, _ := newWorkerModeExecutor(t, ms, dispatcher)
+	run := testRun(1)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
+	}()
+
+	select {
+	case <-dispatcher.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for worker dispatch to start")
+	}
+
+	waitForCondition(t, 2*time.Second, func() bool {
+		return exec.heartbeat.ActiveCount() == 1
+	}, "worker heartbeat registration")
+
+	close(dispatcher.release)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for worker dispatch to finish")
+	}
+
+	if got := exec.heartbeat.ActiveCount(); got != 0 {
+		t.Fatalf("heartbeat active count = %d, want 0 after worker completion", got)
 	}
 }
 
