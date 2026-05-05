@@ -3385,7 +3385,7 @@ func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
 	errBody := "fail"
 	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3, Metadata: map[string]string{
-		"_error_hash":       errorHash(endpointErr.Error()),
+		"_error_hash":       errorHashForError(endpointErr),
 		"_error_hash_count": "2",
 	}}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, PoisonPillThreshold: &threshold}
@@ -4367,7 +4367,7 @@ func TestHandleFailure_PoisonPillDetected(t *testing.T) {
 	errBody := "fail"
 	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
-		"_error_hash":       errorHash(endpointErr.Error()),
+		"_error_hash":       errorHashForError(endpointErr),
 		"_error_hash_count": "2",
 	}}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", PoisonPillThreshold: &threshold}
