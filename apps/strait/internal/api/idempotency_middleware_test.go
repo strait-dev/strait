@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
 )
 
 func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
@@ -129,6 +131,75 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 	}
 	if body["id"] != "job-123" {
 		t.Fatalf("expected id=job-123, got %v", body["id"])
+	}
+}
+
+func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+			t.Fatal("idempotency store must not be consulted before permission checks")
+			return "", 0, nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	inner := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler must not run when caller lacks the route permission")
+	})
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(srv.idempotencyMiddleware(inner))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(`{}`))
+	req.Header.Set("Idempotency-Key", "cached-create-job")
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:read-only")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 before idempotency replay, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(ms.TryAcquireIdempotencyKeyCalls()) != 0 {
+		t.Fatal("idempotency store was consulted before authorization")
+	}
+}
+
+func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
+	t.Parallel()
+
+	createCalls := 0
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+			t.Fatal("api key creation responses contain raw secrets and must not be idempotency-cached")
+			return "", 0, nil, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			createCalls++
+			key.ID = "key-created"
+			key.CreatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedProjectRequest(http.MethodPost, "/v1/api-keys", `{"project_id":"proj-1","name":"deploy","scopes":["jobs:read"]}`, "proj-1")
+	req.Header.Set("Idempotency-Key", "create-api-key")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if createCalls != 1 {
+		t.Fatalf("expected api key creation to run once, got %d", createCalls)
+	}
+	if len(ms.TryAcquireIdempotencyKeyCalls()) != 0 {
+		t.Fatal("api key creation unexpectedly used idempotency cache")
 	}
 }
 
