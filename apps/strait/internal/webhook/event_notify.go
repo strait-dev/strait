@@ -12,7 +12,6 @@ import (
 	"crypto/hmac"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -21,7 +20,6 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,6 +30,7 @@ import (
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
@@ -91,22 +90,23 @@ type DeliveryWorker struct {
 	store  DeliveryStore
 	logger *slog.Logger
 
-	concurrency        int
-	defaultRetryPolicy string
-	circuitBreaker     WebhookCircuitBreaker
-	metrics            *telemetry.Metrics
-	chExporter         *clickhouse.Exporter
-	costRecorder       *billing.RunCostRecorder
-	secretDecryptor    SecretDecryptor
-	maxPayloadBytes    int64
-	batchByURL         bool
-	maxBatchSize       int
-	stop               chan struct{}
-	done               chan struct{}
-	stopOnce           sync.Once
-	pollWG             sync.WaitGroup
-	pollInFlight       atomic.Int64
-	runStarted         atomic.Bool
+	concurrency           int
+	defaultRetryPolicy    string
+	circuitBreaker        WebhookCircuitBreaker
+	metrics               *telemetry.Metrics
+	chExporter            *clickhouse.Exporter
+	costRecorder          *billing.RunCostRecorder
+	secretDecryptor       SecretDecryptor
+	maxPayloadBytes       int64
+	batchByURL            bool
+	maxBatchSize          int
+	allowPrivateEndpoints bool
+	stop                  chan struct{}
+	done                  chan struct{}
+	stopOnce              sync.Once
+	pollWG                sync.WaitGroup
+	pollInFlight          atomic.Int64
+	runStarted            atomic.Bool
 }
 
 type EventNotifier = DeliveryWorker
@@ -168,21 +168,21 @@ func WithMaxPayloadBytes(maxPayloadBytes int64) DeliveryWorkerOption {
 
 func WithHTTPTransport(timeout, idleConnTimeout time.Duration, maxIdleConns, maxIdleConnsPerHost int) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
+		transport := httputil.NewExternalTransport(w.allowPrivateEndpoints)
+		transport.IdleConnTimeout = idleConnTimeout
+		transport.MaxIdleConns = maxIdleConns
+		transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
 		w.client = &http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-				TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
-				MaxIdleConns:        maxIdleConns,
-				MaxIdleConnsPerHost: maxIdleConnsPerHost,
-				IdleConnTimeout:     idleConnTimeout,
-				ForceAttemptHTTP2:   true,
-			},
+			Timeout:       timeout,
+			Transport:     transport,
 			CheckRedirect: noFollowRedirects,
 		}
+	}
+}
+
+func WithAllowPrivateEndpoints(allow bool) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.allowPrivateEndpoints = allow
 	}
 }
 

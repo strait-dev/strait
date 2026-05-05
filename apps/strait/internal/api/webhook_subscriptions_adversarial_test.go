@@ -90,6 +90,36 @@ func TestWebhookSub_MetadataURL(t *testing.T) {
 	}
 }
 
+func TestWebhookSub_DNSPrivateURL(t *testing.T) {
+	t.Parallel()
+
+	w := postWebhookSub(t, `{
+		"project_id": "proj-1",
+		"webhook_url": "https://internal.example.com/hook",
+		"event_types": ["run.completed"],
+		"secret": "s3cret"
+	}`)
+
+	if w.Code < 400 {
+		t.Fatalf("expected 4xx for hostname resolving to private IP, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookSub_RequireTLSRejectsHTTP(t *testing.T) {
+	t.Parallel()
+
+	store := webhookSubStore()
+	srv := newTestServer(t, store, &mockQueue{}, nil)
+	srv.config.WebhookRequireTLS = true
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","webhook_url":"http://example.com/hook","event_types":["run.completed"],"secret":"s3cret"}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+
+	if w.Code < 400 {
+		t.Fatalf("expected 4xx when WEBHOOK_REQUIRE_TLS rejects HTTP subscription, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestWebhookSub_FileScheme verifies that non-HTTP schemes like file:// are
 // rejected.
 func TestWebhookSub_FileScheme(t *testing.T) {

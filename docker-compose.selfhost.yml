@@ -66,7 +66,7 @@ services:
       LOG_LEVEL: info
       LOG_FORMAT: json
       MIGRATION_MODE: auto
-      ALLOW_PRIVATE_ENDPOINTS: "true"
+      ALLOW_PRIVATE_ENDPOINTS: "false"
       WORKER_CONCURRENCY: "25"
       SEQUIN_BASE_URL: http://sequin:7376
       SEQUIN_CONSUMER_NAME: strait-cdc

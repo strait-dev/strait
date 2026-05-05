@@ -175,6 +175,35 @@ func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {
 	}
 }
 
+func TestSafeDialContext_BlocksPrivateResolvedAddresses(t *testing.T) {
+	// Not parallel: modifies package-level lookupHost.
+	origLookup := lookupHost
+	t.Cleanup(func() { lookupHost = origLookup })
+	lookupHost = mockLookupHost
+
+	dial := SafeDialContext(false)
+	_, err := dial(t.Context(), "tcp", "internal.example.com:80")
+	if err == nil {
+		t.Fatal("SafeDialContext resolved private DNS address without error")
+	}
+	if !strings.Contains(err.Error(), "resolves to private") {
+		t.Fatalf("error %q does not mention private DNS answer", err)
+	}
+}
+
+func TestSafeDialContext_BlocksPrivateLiteralAddresses(t *testing.T) {
+	t.Parallel()
+
+	dial := SafeDialContext(false)
+	_, err := dial(t.Context(), "tcp", "169.254.169.254:80")
+	if err == nil {
+		t.Fatal("SafeDialContext dialed private IP literal without error")
+	}
+	if !strings.Contains(err.Error(), "blocked private") {
+		t.Fatalf("error %q does not mention blocked private address", err)
+	}
+}
+
 func TestIsPrivateIP(t *testing.T) {
 	t.Parallel()
 

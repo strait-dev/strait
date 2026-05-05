@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
 	"strait/internal/worker"
 
@@ -62,11 +63,11 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, newValidationError(err)
 	}
 
-	if err := worker.ValidateEndpointURL(input.Body.EndpointURL); err != nil {
+	if err := validateURL(input.Body.EndpointURL); err != nil {
 		return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 	}
 	if input.Body.FallbackEndpointURL != "" {
-		if err := worker.ValidateEndpointURL(input.Body.FallbackEndpointURL); err != nil {
+		if err := validateURL(input.Body.FallbackEndpointURL); err != nil {
 			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
@@ -152,12 +153,13 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 	// first hop; this one covers redirect targets.
 	start := time.Now()
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
+		Transport: httputil.NewExternalTransport(s.config != nil && s.config.AllowPrivateEndpoints),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")
 			}
-			if err := worker.ValidateEndpointURL(req.URL.String()); err != nil {
+			if err := validateURL(req.URL.String()); err != nil {
 				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
 			}
 			return nil

@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -66,9 +67,10 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 	// to http://169.254.169.254/ (cloud metadata) and exfiltrate IAM creds.
 	// The SSRF guard at the entry point only covers the first hop; this
 	// hook covers every redirect target.
-	requireTLS := s.config.WebhookRequireTLS
+	requireTLS := s.config != nil && s.config.WebhookRequireTLS
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
+		Transport: httputil.NewExternalTransport(s.config != nil && s.config.AllowPrivateEndpoints),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")

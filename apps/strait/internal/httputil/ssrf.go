@@ -1,10 +1,14 @@
 package httputil
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // privateRanges contains CIDR blocks that must be blocked to prevent SSRF.
@@ -48,6 +52,78 @@ func SetLookupHostForTest(fn func(string) ([]string, error)) func() {
 	orig := lookupHost
 	lookupHost = fn
 	return func() { lookupHost = orig }
+}
+
+// SafeDialContext returns a DialContext that prevents DNS rebinding SSRF by
+// resolving the target host itself, rejecting every private/internal answer,
+// and dialing the vetted IP literal. When allowPrivate is true, it falls back
+// to the standard net.Dialer behavior for local/self-host deployments.
+func SafeDialContext(allowPrivate bool) func(context.Context, string, string) (net.Conn, error) {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	if allowPrivate {
+		return dialer.DialContext
+	}
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("ssrf: invalid dial address %q: %w", address, err)
+		}
+		if host == "" || port == "" {
+			return nil, fmt.Errorf("ssrf: invalid dial address %q", address)
+		}
+		for _, blocked := range blockedHosts {
+			if strings.EqualFold(host, blocked) {
+				return nil, fmt.Errorf("ssrf: blocked internal host %q", blocked)
+			}
+		}
+		if looksLikeNonStandardIP(host) {
+			return nil, fmt.Errorf("ssrf: host %q uses non-standard IP notation", host)
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			if isPrivateIP(ip) {
+				return nil, fmt.Errorf("ssrf: blocked private dial address %s", ip)
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		}
+		addrs, lookupErr := lookupHost(host)
+		if lookupErr != nil {
+			return nil, fmt.Errorf("ssrf: DNS lookup failed for %q: %w", host, lookupErr)
+		}
+		var firstPublic net.IP
+		for _, addr := range addrs {
+			ip := net.ParseIP(addr)
+			if ip == nil {
+				continue
+			}
+			if isPrivateIP(ip) {
+				return nil, fmt.Errorf("ssrf: host %q resolves to private address %s", host, ip)
+			}
+			if firstPublic == nil {
+				firstPublic = ip
+			}
+		}
+		if firstPublic == nil {
+			return nil, fmt.Errorf("ssrf: DNS lookup for %q returned no usable IP addresses", host)
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(firstPublic.String(), port))
+	}
+}
+
+// NewExternalTransport returns an HTTP transport for untrusted, user-supplied
+// URLs. It validates resolved addresses at dial time, which closes the gap
+// between registration-time URL validation and delivery-time DNS answers.
+func NewExternalTransport(allowPrivate bool) *http.Transport {
+	return &http.Transport{
+		DialContext:         SafeDialContext(allowPrivate),
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		ForceAttemptHTTP2:   true,
+	}
 }
 
 // isPrivateIP reports whether ip belongs to a private, loopback, link-local,

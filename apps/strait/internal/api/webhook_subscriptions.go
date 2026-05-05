@@ -60,7 +60,8 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := s.checkWebhookEventTypes(ctx, req.ProjectID, req.EventTypes); err != nil {
 		return nil, err
 	}
-	if err := validateURL(req.WebhookURL); err != nil {
+	requireTLS := s.config != nil && s.config.WebhookRequireTLS
+	if err := validateURLWithTLS(req.WebhookURL, requireTLS); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	active := true

@@ -21,6 +21,7 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/telemetry"
 )
 
@@ -1452,6 +1453,45 @@ func TestWithHTTPTransport_DefaultValues(t *testing.T) {
 	// Without WithHTTPTransport, client should have nil Transport (uses default).
 	if worker.client.Transport != nil {
 		t.Error("expected nil Transport (Go default) when WithHTTPTransport is not used")
+	}
+}
+
+func TestWithHTTPTransport_BlocksPrivateDNSAtDeliveryTime(t *testing.T) {
+	// Not parallel: replaces package-level DNS resolver used by httputil.
+	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
+		if host == "internal.example.com" {
+			return []string{"10.0.0.5"}, nil
+		}
+		return []string{"93.184.216.34"}, nil
+	})
+	t.Cleanup(restore)
+
+	ms := &mockDeliveryStore{}
+	now := time.Now()
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-private-dns",
+		WebhookURL:  "https://internal.example.com/hook",
+		Status:      domain.WebhookStatusPending,
+		MaxAttempts: 3,
+		NextRetryAt: &now,
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+	worker := NewDeliveryWorker(ms, slog.Default(), WithHTTPTransport(500*time.Millisecond, time.Second, 2, 2))
+
+	worker.processBatch(context.Background())
+
+	deliveries := ms.getDeliveries()
+	if len(deliveries) != 1 {
+		t.Fatalf("deliveries = %d, want 1", len(deliveries))
+	}
+	got := deliveries[0]
+	if got.Status != domain.WebhookStatusPending {
+		t.Fatalf("status = %s, want pending retry", got.Status)
+	}
+	if !strings.Contains(got.LastError, "resolves to private") {
+		t.Fatalf("last_error = %q, want private DNS rejection", got.LastError)
 	}
 }
 
