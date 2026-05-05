@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -119,6 +121,39 @@ func TestWebhookSender_NetworkError(t *testing.T) {
 	err := sender.Send(ctx, ch, del)
 	if err == nil {
 		t.Fatal("expected error for network failure")
+	}
+}
+
+func TestWebhookSender_NetworkErrorRedactsSecretURL(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	rawURL := "https://user:password@example.com/hooks/token-123?api_key=secret-value"
+	transport.RegisterResponder("POST", rawURL,
+		httpmock.NewErrorResponder(&url.Error{
+			Op:  "Post",
+			URL: rawURL,
+			Err: errors.New("dial tcp: connection refused"),
+		}))
+
+	sender := NewWebhookSender(client)
+	ch := newTestChannel(rawURL, "")
+	del := newTestDelivery("run.failed", json.RawMessage(`{}`))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := sender.Send(ctx, ch, del)
+	if err == nil {
+		t.Fatal("expected error for network failure")
+	}
+	errText := err.Error()
+	for _, leaked := range []string{"password", "token-123", "secret-value", "api_key"} {
+		if strings.Contains(errText, leaked) {
+			t.Fatalf("error leaked URL secret %q: %s", leaked, errText)
+		}
+	}
+	if !strings.Contains(errText, "connection refused") {
+		t.Fatalf("error omitted sanitized transport reason: %s", errText)
 	}
 }
 

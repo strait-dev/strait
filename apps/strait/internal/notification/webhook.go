@@ -7,9 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"strait/internal/domain"
@@ -125,7 +127,7 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 	}
 
 	if err != nil {
-		return fmt.Errorf("send webhook notification: %w", err)
+		return fmt.Errorf("send webhook notification: %s", sanitizeWebhookError(err))
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -135,4 +137,19 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 	}
 
 	return nil
+}
+
+func sanitizeWebhookError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			var nested *url.Error
+			if errors.As(urlErr.Err, &nested) {
+				return sanitizeWebhookError(urlErr.Err)
+			}
+			return fmt.Sprintf("%s: %v", urlErr.Op, urlErr.Err)
+		}
+		return urlErr.Op
+	}
+	return err.Error()
 }
