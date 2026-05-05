@@ -61,7 +61,7 @@ func TestCreateAPIKey_MaxLifetime_AutoCaps(t *testing.T) {
 	t.Parallel()
 
 	srv := newAPIKeyTestServer(t, 90)
-	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key"}`)
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"]}`)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
@@ -85,7 +85,7 @@ func TestCreateAPIKey_MaxLifetime_AcceptsWithinLimit(t *testing.T) {
 	t.Parallel()
 
 	srv := newAPIKeyTestServer(t, 90)
-	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","expires_in_days":30}`)
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":30}`)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
@@ -96,7 +96,7 @@ func TestCreateAPIKey_MaxLifetime_RejectsExceeding(t *testing.T) {
 	t.Parallel()
 
 	srv := newAPIKeyTestServer(t, 90)
-	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","expires_in_days":120}`)
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":120}`)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -112,7 +112,7 @@ func TestCreateAPIKey_NoMaxLifetime_BackwardCompatible(t *testing.T) {
 	t.Parallel()
 
 	srv := newAPIKeyTestServer(t, 0) // no limit
-	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key"}`)
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"]}`)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
@@ -132,7 +132,7 @@ func TestCreateAPIKey_NoMaxLifetime_LongExpiry_Accepted(t *testing.T) {
 	t.Parallel()
 
 	srv := newAPIKeyTestServer(t, 0) // no limit
-	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","expires_in_days":365}`)
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":365}`)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
@@ -144,7 +144,7 @@ func TestCreateAPIKey_Adversarial_ExpiresZero_WithMaxLifetime(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 90)
 	// expires_in_days=0 should be treated as "no expiry" and auto-capped.
-	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","expires_in_days":0}`)
+	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":0}`)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())

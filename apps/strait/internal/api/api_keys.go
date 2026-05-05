@@ -57,22 +57,23 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if err := requireAPIKeyCreationScope(ctx, req); err != nil {
+		return nil, err
+	}
 	rawKey, err := generateAPIKey()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	if req.Scopes == nil {
-		req.Scopes = []string{}
+	if len(req.Scopes) == 0 {
+		return nil, huma.Error400BadRequest("scopes must contain at least one explicit permission")
 	}
-	if len(req.Scopes) > 0 {
-		if err := domain.ValidateScopes(req.Scopes); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		// Prevent scope escalation: the caller cannot create a key with
-		// scopes broader than their own effective permissions.
-		if err := s.validateCallerCanGrantPermissions(ctx, req.Scopes); err != nil {
-			return nil, err
-		}
+	if err := domain.ValidateScopes(req.Scopes); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	// Prevent scope escalation: the caller cannot create a key with
+	// scopes broader than their own effective permissions.
+	if err := s.validateCallerCanGrantPermissions(ctx, req.Scopes); err != nil {
+		return nil, err
 	}
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
@@ -142,6 +143,7 @@ func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list api keys")
 	}
+	keys = filterAPIKeysForEnvironment(ctx, keys)
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyListRead, "api_key", "", map[string]any{
 		"count":  len(keys),
 		"org_id": input.OrgID,
@@ -182,6 +184,7 @@ func (s *Server) handleListExpiringKeys(ctx context.Context, input *ListExpiring
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list expiring keys")
 	}
+	keys = filterAPIKeysForEnvironment(ctx, keys)
 
 	now := time.Now()
 	result := make([]ExpiringKeyInfo, 0, len(keys))
@@ -215,6 +218,9 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if err := requireEnvironmentMatch(ctx, key.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if s.config != nil && s.config.GRPCEnabled && s.pubsub == nil {
@@ -268,6 +274,12 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err := requireProjectMatch(ctx, oldKey.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
+	if err := requireEnvironmentMatch(ctx, oldKey.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, apiKeyScopesForGrant(oldKey.Scopes)); err != nil {
+		return nil, err
+	}
 	if oldKey.RevokedAt != nil {
 		return nil, huma.Error409Conflict("api key is already revoked")
 	}
@@ -289,4 +301,38 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
 	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
+}
+
+func requireAPIKeyCreationScope(ctx context.Context, req CreateAPIKeyRequest) error {
+	if callerEnv := environmentIDFromContext(ctx); callerEnv != "" && req.EnvironmentID != callerEnv {
+		return huma.Error404NotFound("environment not found")
+	}
+	if req.OrgID == "" || isInternalCaller(ctx) {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != req.OrgID {
+		return huma.Error403Forbidden("org_id does not match authenticated organization")
+	}
+	return nil
+}
+
+func filterAPIKeysForEnvironment(ctx context.Context, keys []domain.APIKey) []domain.APIKey {
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv == "" {
+		return keys
+	}
+	filtered := keys[:0]
+	for _, key := range keys {
+		if key.EnvironmentID == callerEnv {
+			filtered = append(filtered, key)
+		}
+	}
+	return filtered
+}
+
+func apiKeyScopesForGrant(scopes []string) []string {
+	if len(scopes) == 0 {
+		return []string{domain.ScopeAll}
+	}
+	return scopes
 }

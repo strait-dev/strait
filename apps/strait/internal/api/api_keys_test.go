@@ -103,7 +103,7 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"expiring","expires_in_days":30}`
+	body := `{"project_id":"proj-1","name":"expiring","scopes":["jobs:read"],"expires_in_days":30}`
 	now := time.Now()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
@@ -155,7 +155,7 @@ func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"failing key"}`
+	body := `{"project_id":"proj-1","name":"failing key","scopes":["jobs:read"]}`
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 
