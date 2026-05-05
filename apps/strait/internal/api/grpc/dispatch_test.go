@@ -409,3 +409,13 @@ func TestWorkerDispatch_SendCancel_NilChannel(t *testing.T) {
 	d := &WorkerDispatcher{}
 	d.sendCancel(nil, "run-1") // must not panic
 }
+
+func TestWorkerDispatch_MarkTaskFailedAfterAbort_NilQueriesSafe(t *testing.T) {
+	t.Parallel()
+
+	d := &WorkerDispatcher{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	d.markWorkerTaskFailedAfterAbort(ctx, "task-1", "run-1")
+}

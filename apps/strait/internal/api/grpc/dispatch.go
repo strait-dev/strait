@@ -182,6 +182,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	select {
 	case sendCh <- msg:
 	case <-ctx.Done():
+		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
 		d.registry.IncrementSlots(workerID)
 		return nil, ctx.Err()
 	}
@@ -211,8 +212,24 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	case <-ctx.Done():
 		// Best-effort cancellation: notify the worker.
 		d.sendCancel(sendCh, run.ID)
+		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
 		d.registry.IncrementSlots(workerID)
 		return nil, ctx.Err()
+	}
+}
+
+func (d *WorkerDispatcher) markWorkerTaskFailedAfterAbort(ctx context.Context, taskID, runID string) {
+	if d.queries == nil || taskID == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := d.queries.UpdateWorkerTaskStatus(cleanupCtx, taskID, domain.WorkerTaskStatusFailed); err != nil {
+		slog.Warn("worker dispatch: mark aborted task failed",
+			"task_id", taskID,
+			"run_id", runID,
+			"error", err,
+		)
 	}
 }
 
