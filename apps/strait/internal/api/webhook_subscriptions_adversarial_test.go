@@ -10,6 +10,63 @@ import (
 	"strait/internal/domain"
 )
 
+func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-runs", ProjectID: "proj-1", Scopes: []string{domain.ScopeRunsWrite}}, nil
+		},
+		CreateWebhookSubscriptionFunc: func(_ context.Context, _ *domain.WebhookSubscription) error {
+			t.Fatal("runs:write must not authorize webhook subscription creation")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer strait_runs_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-webhooks", ProjectID: "proj-1", Scopes: []string{domain.ScopeWebhooksWrite}}, nil
+		},
+		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
+			called = true
+			sub.ID = "sub-1"
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer strait_webhooks_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("CreateWebhookSubscription was not called")
+	}
+}
+
 // webhookSubStore returns an APIStoreMock suitable for webhook subscription
 // creation tests. It records the created subscription.
 func webhookSubStore() *APIStoreMock {

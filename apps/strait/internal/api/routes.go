@@ -369,10 +369,10 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/replay", TypedHandler(s, http.StatusCreated, s.handleReplayWebhookDelivery))
 			})
 			r.Route("/subscriptions", func(r chi.Router) {
-				r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeRunsWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateWebhookSubscription))
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookSubscriptions))
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Delete("/{id}", TypedHandler(s, http.StatusNoContent, s.handleDeleteWebhookSubscription))
-				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/rotate-secret", TypedHandler(s, http.StatusOK, s.handleRotateWebhookSecret))
+				r.With(s.idempotencyMiddleware, s.requirePermission(domain.ScopeWebhooksWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateWebhookSubscription))
+				r.With(s.requirePermission(domain.ScopeWebhooksRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookSubscriptions))
+				r.With(s.requirePermission(domain.ScopeWebhooksWrite)).Delete("/{id}", TypedHandler(s, http.StatusNoContent, s.handleDeleteWebhookSubscription))
+				r.With(s.requirePermission(domain.ScopeWebhooksWrite)).Post("/{id}/rotate-secret", TypedHandler(s, http.StatusOK, s.handleRotateWebhookSecret))
 			})
 		})
 

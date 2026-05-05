@@ -1697,6 +1697,57 @@ func TestProcessBatch_BatchByURL_SingleDeliveryNotBatched(t *testing.T) {
 	}
 }
 
+func TestProcessBatch_BatchByURL_SubscriptionDeliveriesStaySignedAndUnbatched(t *testing.T) {
+	var requestCount atomic.Int32
+	var sawBatchHeader atomic.Bool
+	var sawUnsigned atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		if r.Header.Get("X-Strait-Batch") != "" {
+			sawBatchHeader.Store(true)
+		}
+		if r.Header.Get("X-Webhook-Signature") == "" {
+			sawUnsigned.Store(true)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{subSecret: "whsec_test"}
+	now := time.Now().Add(-time.Second)
+	for i := range 2 {
+		d := &domain.WebhookDelivery{
+			ID:             fmt.Sprintf("sub-batch-%d", i),
+			SubscriptionID: "sub-1",
+			ProjectID:      "proj-1",
+			WebhookURL:     ts.URL,
+			Status:         domain.WebhookStatusPending,
+			MaxAttempts:    5,
+			NextRetryAt:    &now,
+			Payload:        json.RawMessage(fmt.Sprintf(`{"i":%d}`, i)),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("expected subscription deliveries to use individual signed requests, got %d requests", got)
+	}
+	if sawBatchHeader.Load() {
+		t.Fatal("subscription delivery used batch headers")
+	}
+	if sawUnsigned.Load() {
+		t.Fatal("subscription delivery was sent without HMAC signature")
+	}
+	for _, d := range ms.getDeliveries() {
+		if d.Status != domain.WebhookStatusDelivered {
+			t.Fatalf("expected delivered, got %s for %s", d.Status, d.ID)
+		}
+	}
+}
+
 func TestProcessBatch_BatchByURL_MaxBatchSize(t *testing.T) {
 	t.Parallel()
 

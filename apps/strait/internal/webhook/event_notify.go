@@ -458,12 +458,17 @@ func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain
 
 	p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
 	for _, group := range groups {
-		if len(group) == 1 {
-			delivery := group[0]
-			p.Go(func(ctx context.Context) error {
-				n.attemptDelivery(ctx, &delivery)
-				return nil
-			})
+		if len(group) == 1 || hasSubscriptionDelivery(group) {
+			// Subscription webhooks require per-subscription HMAC headers and
+			// replay keys, so they must stay on the individual delivery path.
+			// Batching is safe only for unsigned legacy run/event deliveries.
+			for i := range group {
+				delivery := group[i]
+				p.Go(func(ctx context.Context) error {
+					n.attemptDelivery(ctx, &delivery)
+					return nil
+				})
+			}
 			continue
 		}
 
@@ -482,6 +487,15 @@ func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain
 	if err := p.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		n.logger.Error("webhook batched delivery failed", "error", err)
 	}
+}
+
+func hasSubscriptionDelivery(deliveries []domain.WebhookDelivery) bool {
+	for i := range deliveries {
+		if deliveries[i].SubscriptionID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // batchPayloadItem is a single entry in a batch webhook POST.
