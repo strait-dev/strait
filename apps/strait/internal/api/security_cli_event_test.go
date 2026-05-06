@@ -58,6 +58,12 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 	if len(createdKey.Scopes) == 0 {
 		t.Fatal("CLI key must have explicit scopes, got empty (wildcard)")
 	}
+	if createdKey.ExpiresAt == nil {
+		t.Fatal("CLI key must expire")
+	}
+	if createdKey.ExpiresAt.After(time.Now().Add(time.Duration(defaultCLIKeyLifetimeDays+1) * 24 * time.Hour)) {
+		t.Fatalf("CLI key expiry = %v, want default lifetime cap", createdKey.ExpiresAt)
+	}
 
 	// Verify all scopes are valid.
 	for _, s := range createdKey.Scopes {

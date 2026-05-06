@@ -187,7 +187,7 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	req := authedProjectRequest(http.MethodPost, "/v1/api-keys", `{"project_id":"proj-1","name":"deploy","scopes":["jobs:read"]}`, "proj-1")
+	req := authedProjectRequest(http.MethodPost, "/v1/api-keys", `{"project_id":"proj-1","name":"deploy","scopes":["jobs:read"],"expires_in_days":30}`, "proj-1")
 	req.Header.Set("Idempotency-Key", "create-api-key")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

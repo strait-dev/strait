@@ -32,7 +32,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	body := `{"project_id":"proj-1","name":"CLI key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","name":"CLI key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
@@ -57,6 +57,9 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	}
 	if captured.KeyHash == "" {
 		t.Fatal("expected non-empty key hash")
+	}
+	if captured.ExpiresAt == nil {
+		t.Fatal("expected expires_at to be set")
 	}
 	if !strings.HasPrefix(captured.KeyPrefix, "strait_") {
 		t.Fatalf("expected key prefix to start with strait_, got %q", captured.KeyPrefix)
@@ -155,7 +158,7 @@ func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"failing key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","name":"failing key","scopes":["jobs:read"],"expires_in_days":30}`
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 
@@ -733,7 +736,7 @@ func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	body := `{"project_id":"proj-1","org_id":"org-1","name":"Org key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","org_id":"org-1","name":"Org key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 

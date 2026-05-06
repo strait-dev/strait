@@ -218,7 +218,7 @@ func TestRBAC_CreateAPIKey(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/api-keys/", func() []byte {
 		return []byte(fmt.Sprintf(
-			`{"project_id":"%s","name":"load-key-%s","scopes":["jobs:read","runs:read"]}`,
+			`{"project_id":"%s","name":"load-key-%s","scopes":["jobs:read","runs:read"],"expires_in_days":30}`,
 			projectID, newID(),
 		))
 	})

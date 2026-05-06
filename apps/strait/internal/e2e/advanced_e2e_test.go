@@ -216,7 +216,7 @@ func TestE2E_APIKey_CreateAndList(t *testing.T) {
 	mustCleanAdv(t)
 	projectID := advUnique("proj-api-key")
 
-	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"My Key","scopes":["%s"]}`, projectID, domain.ScopeJobsRead))
+	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"My Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
 	if cw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
 	}
@@ -251,7 +251,7 @@ func TestE2E_APIKey_Authenticate(t *testing.T) {
 	projectID := advUnique("proj-api-auth")
 	advCreateJob(t, projectID, advUnique("job-api-auth"), "API Auth Job", "", 0)
 
-	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Auth Key","scopes":["%s"]}`, projectID, domain.ScopeJobsRead))
+	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Auth Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
 	if cw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
 	}
@@ -272,7 +272,7 @@ func TestE2E_APIKey_Revoke(t *testing.T) {
 	mustCleanAdv(t)
 	projectID := advUnique("proj-api-revoke")
 
-	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Revoke Key","scopes":["%s"]}`, projectID, domain.ScopeJobsRead))
+	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Revoke Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
 	if cw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
 	}

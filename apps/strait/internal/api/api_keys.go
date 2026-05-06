@@ -75,8 +75,12 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := s.validateCallerCanGrantPermissions(ctx, req.Scopes); err != nil {
 		return nil, err
 	}
+	if req.ExpiresIn != nil && *req.ExpiresIn <= 0 {
+		return nil, huma.Error400BadRequest("expires_in_days must be greater than 0")
+	}
+
 	var expiresAt *time.Time
-	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
+	if req.ExpiresIn != nil {
 		t := time.Now().Add(time.Duration(*req.ExpiresIn) * 24 * time.Hour)
 		expiresAt = &t
 	}
@@ -93,10 +97,6 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	}
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
-	}
-	if expiresAt == nil {
-		slog.Warn("api key created without expiration; consider setting expires_in_days for security",
-			"key_id", key.ID, "project_id", key.ProjectID, "actor", actorFromContext(ctx))
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
 		"name":                   key.Name,
@@ -127,6 +127,9 @@ func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID st
 			return nil, huma.Error400BadRequest(
 				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
 		}
+	}
+	if expiresAt == nil {
+		return nil, huma.Error400BadRequest("expires_in_days is required when project max_key_lifetime_days is not configured")
 	}
 	return expiresAt, nil
 }

@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	deviceCodeExpiresIn    = 900
-	deviceCodePollInterval = 5
+	deviceCodeExpiresIn           = 900
+	deviceCodePollInterval        = 5
+	defaultCLIKeyLifetimeDays int = 90
 )
 const userCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -155,7 +156,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	expiresAt, err := s.apiKeyExpiryFromProjectPolicy(ctx, req.ProjectID, nil)
+	expiresAt, err := s.cliAPIKeyExpiry(ctx, req.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,4 +184,19 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	})
 
 	return &ApproveDeviceCodeOutput{Body: map[string]string{"status": "approved"}}, nil
+}
+
+func (s *Server) cliAPIKeyExpiry(ctx context.Context, projectID string) (*time.Time, error) {
+	lifetimeDays := defaultCLIKeyLifetimeDays
+	quota, err := s.store.GetProjectQuota(ctx, projectID)
+	if err != nil {
+		slog.Warn("failed to load project quota while approving device code",
+			"project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load project quota")
+	}
+	if quota != nil && quota.MaxKeyLifetimeDays > 0 && quota.MaxKeyLifetimeDays < lifetimeDays {
+		lifetimeDays = quota.MaxKeyLifetimeDays
+	}
+	expiresAt := time.Now().Add(time.Duration(lifetimeDays) * 24 * time.Hour)
+	return &expiresAt, nil
 }

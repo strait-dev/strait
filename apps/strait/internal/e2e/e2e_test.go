@@ -845,7 +845,7 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-api-key-" + newID()
-	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read","stats:read"]}`, projectID)
+	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read","stats:read"],"expires_in_days":30}`, projectID)
 	w := doRequest(t, http.MethodPost, "/v1/api-keys/", createBody)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", w.Code, w.Body.String())
@@ -890,7 +890,7 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	jobID := asString(t, created, "id")
 
 	// Create API key with ONLY jobs:read (no write, no trigger).
-	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"read-only","scopes":["jobs:read"]}`, projectID)
+	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"read-only","scopes":["jobs:read"],"expires_in_days":30}`, projectID)
 	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
 	if kw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", kw.Code, kw.Body.String())
@@ -1302,7 +1302,7 @@ func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-analytics-metrics-" + newID()
-	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-metrics-key","scopes":["%s"]}`, projectID, domain.ScopeStatsRead))
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-metrics-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
 	if keyW.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
 	}
@@ -1364,7 +1364,7 @@ func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-analytics-period-" + newID()
-	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-period-key","scopes":["%s"]}`, projectID, domain.ScopeStatsRead))
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-period-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
 	if keyW.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
 	}
@@ -1401,7 +1401,7 @@ func TestAnalyticsEndpoint_EmptyData(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-analytics-empty-" + newID()
-	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-empty-key","scopes":["%s"]}`, projectID, domain.ScopeStatsRead))
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-empty-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
 	if keyW.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
 	}

@@ -570,7 +570,7 @@ func seedAPIKey(t *testing.T, projectID string, scopes []string) (keyID, rawKey 
 	t.Helper()
 	scopesJSON, _ := json.Marshal(scopes)
 	body := fmt.Sprintf(
-		`{"project_id":"%s","name":"load-key-%s","scopes":%s}`,
+		`{"project_id":"%s","name":"load-key-%s","scopes":%s,"expires_in_days":30}`,
 		projectID, newID(), scopesJSON,
 	)
 	resp := httpDo(t, "POST", "/v1/api-keys/", body, nil)

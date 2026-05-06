@@ -528,12 +528,14 @@ func TestHandleCreateAPIKey_WildcardScopeAllowedWithWildcard(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{"*"})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	expiresIn := 30
 
 	input := &CreateAPIKeyInput{
 		Body: CreateAPIKeyRequest{
 			ProjectID: "proj-1",
 			Name:      "admin key",
 			Scopes:    []string{"*"},
+			ExpiresIn: &expiresIn,
 		},
 	}
 
@@ -588,12 +590,14 @@ func TestHandleCreateAPIKey_SubsetScopesAllowed(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage, domain.ScopeJobsRead})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	expiresIn := 30
 
 	input := &CreateAPIKeyInput{
 		Body: CreateAPIKeyRequest{
 			ProjectID: "proj-1",
 			Name:      "subset key",
 			Scopes:    []string{domain.ScopeJobsRead},
+			ExpiresIn: &expiresIn,
 		},
 	}
 
@@ -619,12 +623,14 @@ func TestHandleCreateAPIKey_InternalSecretBypassesEscalationCheck(t *testing.T) 
 
 	// Internal secret: no scopes in context (nil).
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	expiresIn := 30
 
 	input := &CreateAPIKeyInput{
 		Body: CreateAPIKeyRequest{
 			ProjectID: "proj-1",
 			Name:      "internal key",
 			Scopes:    []string{"*"},
+			ExpiresIn: &expiresIn,
 		},
 	}
 

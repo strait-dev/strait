@@ -482,7 +482,7 @@ func TestCreateAPIKey_SameProjectAllowed(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"project_id":"proj-A","name":"my key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-A","name":"my key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys", body, "proj-A"))
 

@@ -373,7 +373,7 @@ func TestAPIKey_InvalidRotationInterval(t *testing.T) {
 			}
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-			body := fmt.Sprintf(`{"project_id":"proj-1","name":"interval-test","scopes":["jobs:read"],"rotation_interval_days":%d}`, interval)
+			body := fmt.Sprintf(`{"project_id":"proj-1","name":"interval-test","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":%d}`, interval)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 

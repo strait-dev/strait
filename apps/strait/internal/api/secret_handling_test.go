@@ -89,7 +89,7 @@ func TestSecrets_APIKeyHashNeverInLog(t *testing.T) {
 	srv := newTestServer(t, mockStore, &mockQueue{}, nil)
 
 	// Create an API key to trigger logging paths.
-	body := `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys", body))
 	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
@@ -209,7 +209,7 @@ func TestSecrets_APIKeyPrefixOnlyInLog(t *testing.T) {
 	srv := newTestServer(t, mockStore, &mockQueue{}, nil)
 
 	// Create API key.
-	body := `{"project_id":"proj-1","name":"prefix-test","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","name":"prefix-test","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys", body))
 
