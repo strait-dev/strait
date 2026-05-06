@@ -518,6 +518,44 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 	return nil
 }
 
+func (q *Queries) WithTx(ctx context.Context, fn func(context.Context, DBTX) error) error {
+	if q == nil {
+		return fmt.Errorf("with transaction: queries is nil")
+	}
+	if fn == nil {
+		return fmt.Errorf("with transaction: fn is nil")
+	}
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("with transaction: underlying db does not support transactions")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("failed to rollback transaction", "error", rbErr)
+		}
+	}()
+
+	txCtx := ContextWithTx(ctx, tx)
+	if err := fn(txCtx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	committed = true
+	return nil
+}
+
 // WithTxOptions runs fn inside a transaction opened with the given TxOptions.
 // Use this when the caller needs to pin an isolation level (e.g.
 // pgx.RepeatableRead for per-project retention trims so the DISTINCT
