@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -71,6 +72,133 @@ func TestValidateRegistration(t *testing.T) {
 			wantErr:    true,
 			wantSubstr: "too many queues",
 			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "empty queue",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Queues = []string{""} },
+			wantErr:    true,
+			wantSubstr: "queue must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "blank queue",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Queues = []string{" \t"} },
+			wantErr:    true,
+			wantSubstr: "queue must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "oversized queue",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Queues = []string{strings.Repeat("q", maxQueueNameBytes+1)} },
+			wantErr:    true,
+			wantSubstr: "queue exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "boundary queue (=max)",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Queues = []string{strings.Repeat("q", maxQueueNameBytes)} },
+			isAccepted: true,
+		},
+		{
+			name: "too many job_slugs",
+			mutate: func(r *workerv1.WorkerRegistration) {
+				r.JobSlugs = make([]string, maxJobSlugsPerWorker+1)
+				for i := range r.JobSlugs {
+					r.JobSlugs[i] = "job"
+				}
+			},
+			wantErr:    true,
+			wantSubstr: "too many job_slugs",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "empty job_slug",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.JobSlugs = []string{""} },
+			wantErr:    true,
+			wantSubstr: "job_slug must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "blank job_slug",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.JobSlugs = []string{" \t"} },
+			wantErr:    true,
+			wantSubstr: "job_slug must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "oversized job_slug",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.JobSlugs = []string{strings.Repeat("s", maxJobSlugBytes+1)} },
+			wantErr:    true,
+			wantSubstr: "job_slug exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "boundary job_slug (=max)",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.JobSlugs = []string{strings.Repeat("s", maxJobSlugBytes)} },
+			isAccepted: true,
+		},
+		{
+			name: "boundary job_slug count (=max)",
+			mutate: func(r *workerv1.WorkerRegistration) {
+				r.JobSlugs = make([]string, maxJobSlugsPerWorker)
+				for i := range r.JobSlugs {
+					r.JobSlugs[i] = "job"
+				}
+			},
+			isAccepted: true,
+		},
+		{
+			name: "too many metadata entries",
+			mutate: func(r *workerv1.WorkerRegistration) {
+				r.Metadata = make(map[string]string, maxRegistrationMetadataEntries+1)
+				for i := range maxRegistrationMetadataEntries + 1 {
+					r.Metadata[fmt.Sprintf("k%d", i)] = "v"
+				}
+			},
+			wantErr:    true,
+			wantSubstr: "too many metadata entries",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "empty metadata key",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Metadata = map[string]string{"": "v"} },
+			wantErr:    true,
+			wantSubstr: "metadata key must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name:       "blank metadata key",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.Metadata = map[string]string{" \t": "v"} },
+			wantErr:    true,
+			wantSubstr: "metadata key must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name: "oversized metadata key",
+			mutate: func(r *workerv1.WorkerRegistration) {
+				r.Metadata = map[string]string{strings.Repeat("k", maxRegistrationMetadataKeyBytes+1): "v"}
+			},
+			wantErr:    true,
+			wantSubstr: "metadata key exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name: "oversized metadata value",
+			mutate: func(r *workerv1.WorkerRegistration) {
+				r.Metadata = map[string]string{"k": strings.Repeat("v", maxRegistrationMetadataValueBytes+1)}
+			},
+			wantErr:    true,
+			wantSubstr: "metadata value exceeds",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name: "boundary metadata (=max)",
+			mutate: func(r *workerv1.WorkerRegistration) {
+				r.Metadata = map[string]string{
+					strings.Repeat("k", maxRegistrationMetadataKeyBytes): strings.Repeat("v", maxRegistrationMetadataValueBytes),
+				}
+			},
+			isAccepted: true,
 		},
 		{
 			name: "too many in-flight tasks",

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -24,13 +25,16 @@ import (
 // buggy worker can register with millions of queues / in-flight tasks /
 // log lines and exhaust server memory or DB capacity.
 const (
-	maxWorkerIDLen     = 128
-	maxQueuesPerWorker = 64
-	maxInFlightTasks   = 256
-	maxLogMessageBytes = 4096
-	maxLogLevelBytes   = 32
-	maxRunIDLen        = 128
-	maxErrorMsgBytes   = 8192
+	maxWorkerIDLen       = 128
+	maxQueuesPerWorker   = 64
+	maxQueueNameBytes    = 128
+	maxJobSlugsPerWorker = 256
+	maxJobSlugBytes      = 128
+	maxInFlightTasks     = 256
+	maxLogMessageBytes   = 4096
+	maxLogLevelBytes     = 32
+	maxRunIDLen          = 128
+	maxErrorMsgBytes     = 8192
 	// maxSlotsPerWorker bounds the slots count a worker can advertise on
 	// registration. PickWorkerForQueue ranks by SlotsAvailable, so an
 	// unbounded value lets a buggy or malicious worker monopolize dispatch
@@ -43,10 +47,13 @@ const (
 	// the dbSync UPSERT, and any audit row that captures the registration.
 	// Limits are generous against typical real values (POSIX HOST_NAME_MAX is
 	// 255; SDK versions and language tokens are short identifiers).
-	maxHostnameBytes    = 255
-	maxSDKVersionBytes  = 64
-	maxSDKLanguageBytes = 32
-	maxNameBytes        = 128
+	maxHostnameBytes                  = 255
+	maxSDKVersionBytes                = 64
+	maxSDKLanguageBytes               = 32
+	maxNameBytes                      = 128
+	maxRegistrationMetadataEntries    = 64
+	maxRegistrationMetadataKeyBytes   = 64
+	maxRegistrationMetadataValueBytes = 512
 )
 
 var (
@@ -809,6 +816,39 @@ func validateRegistration(reg *workerv1.WorkerRegistration) error {
 	}
 	if len(reg.Queues) > maxQueuesPerWorker {
 		return status.Errorf(codes.InvalidArgument, "too many queues: max %d", maxQueuesPerWorker)
+	}
+	for _, queue := range reg.Queues {
+		if strings.TrimSpace(queue) == "" {
+			return status.Error(codes.InvalidArgument, "queue must be non-empty")
+		}
+		if len(queue) > maxQueueNameBytes {
+			return status.Errorf(codes.InvalidArgument, "queue exceeds %d bytes", maxQueueNameBytes)
+		}
+	}
+	if len(reg.JobSlugs) > maxJobSlugsPerWorker {
+		return status.Errorf(codes.InvalidArgument, "too many job_slugs: max %d", maxJobSlugsPerWorker)
+	}
+	for _, slug := range reg.JobSlugs {
+		if strings.TrimSpace(slug) == "" {
+			return status.Error(codes.InvalidArgument, "job_slug must be non-empty")
+		}
+		if len(slug) > maxJobSlugBytes {
+			return status.Errorf(codes.InvalidArgument, "job_slug exceeds %d bytes", maxJobSlugBytes)
+		}
+	}
+	if len(reg.Metadata) > maxRegistrationMetadataEntries {
+		return status.Errorf(codes.InvalidArgument, "too many metadata entries: max %d", maxRegistrationMetadataEntries)
+	}
+	for key, value := range reg.Metadata {
+		if strings.TrimSpace(key) == "" {
+			return status.Error(codes.InvalidArgument, "metadata key must be non-empty")
+		}
+		if len(key) > maxRegistrationMetadataKeyBytes {
+			return status.Errorf(codes.InvalidArgument, "metadata key exceeds %d bytes", maxRegistrationMetadataKeyBytes)
+		}
+		if len(value) > maxRegistrationMetadataValueBytes {
+			return status.Errorf(codes.InvalidArgument, "metadata value exceeds %d bytes", maxRegistrationMetadataValueBytes)
+		}
 	}
 	if len(reg.InFlightTasks) > maxInFlightTasks {
 		return status.Errorf(codes.InvalidArgument, "too many in-flight tasks: max %d", maxInFlightTasks)

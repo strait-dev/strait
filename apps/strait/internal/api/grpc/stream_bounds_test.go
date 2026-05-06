@@ -17,6 +17,9 @@ func TestBounds_Constants(t *testing.T) {
 	}{
 		{"maxWorkerIDLen", maxWorkerIDLen, 128},
 		{"maxQueuesPerWorker", maxQueuesPerWorker, 64},
+		{"maxQueueNameBytes", maxQueueNameBytes, 128},
+		{"maxJobSlugsPerWorker", maxJobSlugsPerWorker, 256},
+		{"maxJobSlugBytes", maxJobSlugBytes, 128},
 		{"maxInFlightTasks", maxInFlightTasks, 256},
 		{"maxLogMessageBytes", maxLogMessageBytes, 4096},
 		{"maxLogLevelBytes", maxLogLevelBytes, 32},
@@ -27,6 +30,9 @@ func TestBounds_Constants(t *testing.T) {
 		{"maxSDKVersionBytes", maxSDKVersionBytes, 64},
 		{"maxSDKLanguageBytes", maxSDKLanguageBytes, 32},
 		{"maxNameBytes", maxNameBytes, 128},
+		{"maxRegistrationMetadataEntries", maxRegistrationMetadataEntries, 64},
+		{"maxRegistrationMetadataKeyBytes", maxRegistrationMetadataKeyBytes, 64},
+		{"maxRegistrationMetadataValueBytes", maxRegistrationMetadataValueBytes, 512},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {

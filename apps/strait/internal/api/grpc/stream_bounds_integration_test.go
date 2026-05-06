@@ -4,8 +4,12 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
@@ -81,5 +85,97 @@ func TestIntegration_HandleTaskResult_OversizedErrorTruncated(t *testing.T) {
 	}
 	if len(got.Error) > maxErrorMsgBytes {
 		t.Fatalf("error message not truncated: got %d bytes, want <= %d", len(got.Error), maxErrorMsgBytes)
+	}
+}
+
+// TestIntegration_StreamTasks_InvalidRegistrationBoundsRejectedBeforeRegistry
+// verifies registration-size checks run before the stream mutates in-memory
+// worker state. These fields are SDK-controlled and otherwise persist in the
+// registry, audit payloads, and DB sync path.
+func TestIntegration_StreamTasks_InvalidRegistrationBoundsRejectedBeforeRegistry(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const projectID = "proj-registration-bounds"
+
+	cases := []struct {
+		name   string
+		mutate func(*workerv1.WorkerRegistration)
+	}{
+		{
+			name: "oversized queue name",
+			mutate: func(reg *workerv1.WorkerRegistration) {
+				reg.Queues = []string{strings.Repeat("q", maxQueueNameBytes+1)}
+			},
+		},
+		{
+			name: "oversized job slug",
+			mutate: func(reg *workerv1.WorkerRegistration) {
+				reg.JobSlugs = []string{strings.Repeat("s", maxJobSlugBytes+1)}
+			},
+		},
+		{
+			name: "oversized metadata value",
+			mutate: func(reg *workerv1.WorkerRegistration) {
+				reg.Metadata = map[string]string{"sdk": strings.Repeat("m", maxRegistrationMetadataValueBytes+1)}
+			},
+		},
+		{
+			name:   "blank queue name",
+			mutate: func(reg *workerv1.WorkerRegistration) { reg.Queues = []string{" "} },
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workerID := fmt.Sprintf("worker-registration-bounds-%d", i)
+			apiKeyID := fmt.Sprintf("key-registration-bounds-%d", i)
+			rawKey := fmt.Sprintf("strait_registrationBoundsKey%d", i)
+			seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
+
+			reg := &workerv1.WorkerRegistration{
+				WorkerId:       workerID,
+				Name:           "bounds worker",
+				Hostname:       "host",
+				SdkVersion:     "1.0.0",
+				SdkLanguage:    "go",
+				Queues:         []string{"default"},
+				SlotsTotal:     1,
+				SlotsAvailable: 1,
+			}
+			tc.mutate(reg)
+
+			stream := newBlockingWorkerStream(ctx, rawKey)
+			stream.recvCh <- &workerv1.WorkerMessage{
+				Payload: &workerv1.WorkerMessage_Registration{Registration: reg},
+			}
+			svc := &workerService{
+				queries:        q,
+				pub:            &noopPublisher{},
+				registry:       NewConnectionRegistry(),
+				resultChannels: NewResultChannelRegistry(),
+			}
+
+			err := svc.StreamTasks(stream)
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("StreamTasks error = %v, want InvalidArgument", err)
+			}
+			if got := svc.registry.Snapshot(); len(got) != 0 {
+				t.Fatalf("invalid registration mutated registry: got %d workers", len(got))
+			}
+			select {
+			case msg := <-stream.sentCh:
+				t.Fatalf("invalid registration sent server message: %T", msg.Payload)
+			default:
+			}
+		})
 	}
 }
