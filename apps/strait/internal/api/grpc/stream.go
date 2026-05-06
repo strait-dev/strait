@@ -81,6 +81,8 @@ type workerService struct {
 //  4. Client sends TaskResult when a run completes or fails.
 //  5. Client sends LogLine for in-flight run logs.
 //  6. On disconnect: server deregisters the worker and emits an audit event.
+//
+//nolint:gocyclo,cyclop
 func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error {
 	ctx := stream.Context()
 
@@ -94,17 +96,13 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	pendingProjectID := projectID
 	pendingAPIKeyID := apiKey.ID
 
-	pendingReserved := false
-	if err := s.registry.ReservePendingStream(pendingProjectID, pendingAPIKeyID); err != nil {
-		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
-			return status.Errorf(codes.ResourceExhausted, "reserve worker stream: %v", err)
-		}
-		return status.Errorf(codes.Internal, "reserve worker stream: %v", err)
+	releasePending, err := s.reservePendingWorkerStream(pendingProjectID, pendingAPIKeyID)
+	if err != nil {
+		return err
 	}
-	pendingReserved = true
 	defer func() {
-		if pendingReserved {
-			s.registry.ReleasePendingStream(pendingProjectID, pendingAPIKeyID)
+		if releasePending != nil {
+			releasePending()
 		}
 	}()
 
@@ -188,7 +186,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		revokeCh:       make(chan struct{}),
 	}
 	s.registry.ReleasePendingStream(pendingProjectID, pendingAPIKeyID)
-	pendingReserved = false
+	releasePending = nil
 	if err := s.registry.Register(cw); err != nil {
 		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
 			return status.Errorf(codes.ResourceExhausted, "register worker: %v", err)
@@ -348,6 +346,19 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	firstErr := <-streamErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (func(), error) {
+	if err := s.registry.ReservePendingStream(projectID, apiKeyID); err != nil {
+		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
+			return nil, status.Errorf(codes.ResourceExhausted, "reserve worker stream: %v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "reserve worker stream: %v", err)
+	}
+
+	return func() {
+		s.registry.ReleasePendingStream(projectID, apiKeyID)
+	}, nil
 }
 
 func recvWorkerRegistrationMessage(ctx context.Context, stream workerv1.WorkerService_StreamTasksServer, revokeKeySub *pubsub.Subscription, apiKeyID string) (*workerv1.WorkerMessage, error) {

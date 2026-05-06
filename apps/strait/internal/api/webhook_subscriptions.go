@@ -94,24 +94,8 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 		Secret:     secret,
 		Active:     active,
 	}
-	if orgID != "" && maxEndpoints >= 0 {
-		if limitedStore, ok := s.store.(webhookSubscriptionLimitCreator); ok {
-			if err := limitedStore.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints); err != nil {
-				if errors.Is(err, store.ErrWebhookEndpointLimitExceeded) {
-					return nil, huma.Error400BadRequest("webhook endpoint limit exceeded")
-				}
-				return nil, huma.Error500InternalServerError("failed to create webhook subscription")
-			}
-		} else {
-			if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
-				return nil, err
-			}
-			if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
-				return nil, huma.Error500InternalServerError("failed to create webhook subscription")
-			}
-		}
-	} else if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
-		return nil, huma.Error500InternalServerError("failed to create webhook subscription")
+	if err := s.createWebhookSubscriptionWithLimit(ctx, sub, req.ProjectID, orgID, maxEndpoints); err != nil {
+		return nil, err
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionWebhookSubscriptionCreated, "webhook_subscription", sub.ID, map[string]any{
 		"url_host":    urlHost(req.WebhookURL),
@@ -119,6 +103,34 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 		"active":      active,
 	})
 	return &CreateWebhookSubscriptionOutput{Body: sub}, nil
+}
+
+func (s *Server) createWebhookSubscriptionWithLimit(ctx context.Context, sub *domain.WebhookSubscription, projectID, orgID string, maxEndpoints int) error {
+	if orgID == "" || maxEndpoints < 0 {
+		if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+			return huma.Error500InternalServerError("failed to create webhook subscription")
+		}
+		return nil
+	}
+
+	limitedStore, ok := s.store.(webhookSubscriptionLimitCreator)
+	if !ok {
+		if err := s.checkWebhookEndpointLimit(ctx, projectID); err != nil {
+			return err
+		}
+		if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+			return huma.Error500InternalServerError("failed to create webhook subscription")
+		}
+		return nil
+	}
+
+	if err := limitedStore.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints); err != nil {
+		if errors.Is(err, store.ErrWebhookEndpointLimitExceeded) {
+			return huma.Error400BadRequest("webhook endpoint limit exceeded")
+		}
+		return huma.Error500InternalServerError("failed to create webhook subscription")
+	}
+	return nil
 }
 
 type ListWebhookSubscriptionsInput struct{}
