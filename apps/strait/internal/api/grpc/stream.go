@@ -458,6 +458,11 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	if tr.ErrorMessage != "" {
 		fields["error"] = tr.ErrorMessage
 	}
+	if tr.Status == "success" && len(tr.OutputJson) > 0 {
+		out := make([]byte, len(tr.OutputJson))
+		copy(out, tr.OutputJson)
+		fields["result"] = json.RawMessage(out)
+	}
 	if err := s.queries.UpdateRunStatus(ctx, tr.RunId, domain.StatusExecuting, newStatus, fields); err != nil {
 		slog.Warn("grpc task result: update run status failed",
 			"run_id", tr.RunId,

@@ -4,6 +4,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -115,7 +116,7 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 
 	svc := fallbackService(q)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":"result"}`)}
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -127,6 +128,17 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 	}
 	if got.Status != domain.WorkerTaskStatusCompleted {
 		t.Fatalf("worker_tasks not transitioned: got %q, want completed", got.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	var result map[string]string
+	if err := json.Unmarshal(run.Result, &result); err != nil {
+		t.Fatalf("unmarshal run result: %v", err)
+	}
+	if result["worker"] != "result" {
+		t.Fatalf("run result = %s, want worker output_json", string(run.Result))
 	}
 }
 
