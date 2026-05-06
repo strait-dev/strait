@@ -251,6 +251,63 @@ func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
 	}
 }
 
+func TestReplayAuditEventDeadletter_ContextRoutedStoreUsesAmbientTx(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := store.NewWithContextRouting(testDB.Pool)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-context-routed-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	ev := &domain.AuditEvent{
+		ID:           "dlq-context-routed-1",
+		ProjectID:    "proj-dlq-context",
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Details:      json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin ambient tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	txCtx := store.ContextWithTx(ctx, tx)
+
+	replayedEvent, replayed, err := q.ReplayAuditEventDeadletter(txCtx, ev.ID, ev.ProjectID, "audit-context-routed-1")
+	if err != nil {
+		t.Fatalf("ReplayAuditEventDeadletter: %v", err)
+	}
+	if !replayed || replayedEvent == nil || replayedEvent.ID != "audit-context-routed-1" {
+		t.Fatalf("replayedEvent=%+v replayed=%v, want replay into ambient tx", replayedEvent, replayed)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit ambient tx: %v", err)
+	}
+
+	var chainRows, dlqRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events WHERE id = $1 AND project_id = $2),
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $3 AND project_id = $2)
+	`, "audit-context-routed-1", ev.ProjectID, ev.ID).Scan(&chainRows, &dlqRows); err != nil {
+		t.Fatalf("count replay results: %v", err)
+	}
+	if chainRows != 1 || dlqRows != 0 {
+		t.Fatalf("chain/deadletter rows = %d/%d, want 1/0", chainRows, dlqRows)
+	}
+}
+
 // TestAuditDeadletter_DeleteOlderThan_PerProjectCounts asserts the
 // retention reaper removes only old rows and returns counts grouped by
 // project.

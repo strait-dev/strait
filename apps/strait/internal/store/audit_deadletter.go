@@ -220,6 +220,10 @@ func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID,
 		return nil, false, fmt.Errorf("id, project_id, and new_event_id are required")
 	}
 
+	if tx, ok := TxFromContext(ctx); ok {
+		return q.replayAuditEventDeadletterTx(ctx, tx, id, projectID, newEventID)
+	}
+
 	beginner, ok := q.db.(TxBeginner)
 	if !ok {
 		return nil, false, fmt.Errorf("replay audit deadletter: db does not support transactions")
@@ -230,9 +234,21 @@ func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	ev, replayed, err := q.replayAuditEventDeadletterTx(ctx, tx, id, projectID, newEventID)
+	if err != nil || !replayed {
+		return ev, replayed, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: commit tx: %w", err)
+	}
+	return ev, true, nil
+}
+
+func (q *Queries) replayAuditEventDeadletterTx(ctx context.Context, tx pgx.Tx, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
 	txq := q.withDB(tx)
 	var ev domain.AuditEvent
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
 		FROM audit_events_deadletter
@@ -271,9 +287,6 @@ func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID,
 		return nil, false, fmt.Errorf("replay audit deadletter: delete matched no row")
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, false, fmt.Errorf("replay audit deadletter: commit tx: %w", err)
-	}
 	return &ev, true, nil
 }
 
