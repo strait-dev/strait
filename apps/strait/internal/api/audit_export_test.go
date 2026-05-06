@@ -188,6 +188,55 @@ func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
 	}
 }
 
+func TestSanitizeCSVCell_EscapesFormulaAfterLeadingWhitespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "plain formula",
+			value: "=HYPERLINK(\"https://attacker.test\",\"x\")",
+			want:  "'=HYPERLINK(\"https://attacker.test\",\"x\")",
+		},
+		{
+			name:  "leading space",
+			value: " =HYPERLINK(\"https://attacker.test\",\"x\")",
+			want:  "' =HYPERLINK(\"https://attacker.test\",\"x\")",
+		},
+		{
+			name:  "leading unicode bom",
+			value: "\ufeff=HYPERLINK(\"https://attacker.test\",\"x\")",
+			want:  "'\ufeff=HYPERLINK(\"https://attacker.test\",\"x\")",
+		},
+		{
+			name:  "leading tab and newline",
+			value: "\t\n@SUM(1,1)",
+			want:  "'\t\n@SUM(1,1)",
+		},
+		{
+			name:  "safe leading whitespace text",
+			value: " safe",
+			want:  " safe",
+		},
+		{
+			name:  "only whitespace",
+			value: " \t\n",
+			want:  " \t\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeCSVCell(tt.value); got != tt.want {
+				t.Fatalf("sanitizeCSVCell(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAuditExport_SignatureVerifies(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)

@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"unicode"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -345,12 +346,24 @@ func sanitizeCSVCell(value string) string {
 	if value == "" {
 		return value
 	}
-	switch value[0] {
-	case '=', '+', '-', '@', '\t', '\r', '\n':
-		return "'" + value
-	default:
-		return value
+	for i, r := range value {
+		if i == 0 {
+			switch r {
+			case '\t', '\r', '\n':
+				return "'" + value
+			}
+		}
+		if r == '\ufeff' || unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		switch r {
+		case '=', '+', '-', '@':
+			return "'" + value
+		default:
+			return value
+		}
 	}
+	return value
 }
 
 func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {
