@@ -74,6 +74,9 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	if environmentIDFromContext(ctx) != "" {
+		return nil, huma.Error403Forbidden("audit export requires a project-wide key")
+	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
 		return nil, err

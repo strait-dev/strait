@@ -100,6 +100,38 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 	}
 }
 
+func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		StreamAuditEventsFunc: func(context.Context, string, string, string, time.Time, time.Time, func(*domain.AuditEvent) error) error {
+			t.Fatal("environment-scoped audit export must be rejected before streaming")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	rawReq := httptest.NewRequest(http.MethodGet,
+		"/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", nil)
+	ctx := context.WithValue(rawReq.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+	ctx = context.WithValue(ctx, ctxKeyResponseWriter, w)
+	ctx = context.WithValue(ctx, ctxKeyRequest, rawReq.WithContext(ctx))
+
+	_, err := srv.handleExportAuditEvents(ctx, &ExportAuditEventsInput{
+		From:   "2026-01-01T00:00:00Z",
+		To:     "2026-02-01T00:00:00Z",
+		Format: "ndjson",
+	})
+	if err == nil {
+		t.Fatal("expected environment-scoped audit export to fail")
+	}
+	if !strings.Contains(err.Error(), "project-wide key") {
+		t.Fatalf("error = %q, want project-wide key message", err.Error())
+	}
+}
+
 func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
 	t.Parallel()
 
