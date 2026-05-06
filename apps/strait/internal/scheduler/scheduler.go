@@ -274,6 +274,14 @@ func WithIndexMaintainerAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
 	}
 }
 
+// WithReaperAdvisoryLocker enables single-leader execution of side-effectful
+// reaper maintenance across scheduler replicas.
+func WithReaperAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithAdvisoryLocker(locker)
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)

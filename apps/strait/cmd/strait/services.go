@@ -789,6 +789,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
+			scheduler.WithReaperAdvisoryLocker(queries),
 			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
 			scheduler.WithPriorityPromoter(
 				scheduler.NewPriorityPromoter(dbPool, scheduler.PriorityPromoterConfig{
