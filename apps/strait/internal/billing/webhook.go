@@ -93,6 +93,8 @@ var (
 	errEmptyCustomerID     = errors.New("customer ID is empty")
 )
 
+const webhookProcessingClaimStaleAfter = 10 * time.Minute
+
 // validateStripeSubscription checks that required fields are present on a Stripe subscription.
 func validateStripeSubscription(sub *stripe.Subscription) error {
 	if sub.ID == "" {
@@ -245,6 +247,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Deduplicate webhook deliveries by event ID to prevent replay attacks.
 	eventID := event.ID
+	claimedWebhook := false
 	if eventID != "" {
 		now := time.Now().UnixNano()
 		if prev, loaded := h.replayCache.LoadOrStore(eventID, now); loaded {
@@ -257,13 +260,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.replayCache.Store(eventID, now)
 		}
 
-		// DB-level idempotency check (survives server restarts).
-		processed, dbErr := h.store.IsWebhookProcessed(r.Context(), eventID)
-		if dbErr == nil && processed {
-			h.logger.Info("webhook already processed (DB)", "event_id", eventID)
+		claimed, claimErr := h.store.ClaimWebhookForProcessing(r.Context(), eventID, webhookProcessingClaimStaleAfter)
+		if claimErr != nil {
+			h.replayCache.Delete(eventID)
+			h.logger.Error("failed to claim stripe webhook", "event_id", eventID, "error", claimErr)
+			http.Error(w, "webhook idempotency unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !claimed {
+			h.logger.Info("webhook already processed or in progress", "event_id", eventID)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		claimedWebhook = true
 	}
 
 	ctx := r.Context()
@@ -294,6 +303,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
 	default:
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
+		if claimedWebhook {
+			if markErr := h.store.MarkWebhookProcessed(r.Context(), eventID); markErr != nil {
+				h.replayCache.Delete(eventID)
+				h.logger.Warn("failed to mark ignored webhook processed", "event_id", eventID, "error", markErr)
+			}
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -304,16 +319,21 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// by the replay cache even though it was never fully processed.
 		if eventID != "" {
 			h.replayCache.Delete(eventID)
+			if claimedWebhook {
+				if releaseErr := h.store.ReleaseWebhookClaim(r.Context(), eventID); releaseErr != nil {
+					h.logger.Warn("failed to release stripe webhook claim", "event_id", eventID, "error", releaseErr)
+				}
+			}
 		}
 		h.logger.Error("failed to handle stripe webhook", "type", event.Type, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// Record successful webhook processing in DB for cross-restart idempotency.
-	if eventID != "" {
-		if recordErr := h.store.RecordProcessedWebhook(r.Context(), eventID); recordErr != nil {
-			h.logger.Warn("failed to record processed webhook", "event_id", eventID, "error", recordErr)
+	if eventID != "" && claimedWebhook {
+		if recordErr := h.store.MarkWebhookProcessed(r.Context(), eventID); recordErr != nil {
+			h.replayCache.Delete(eventID)
+			h.logger.Warn("failed to mark processed webhook", "event_id", eventID, "error", recordErr)
 		}
 	}
 

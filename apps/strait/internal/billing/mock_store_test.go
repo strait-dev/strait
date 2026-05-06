@@ -52,6 +52,9 @@ type mockBillingStore struct {
 	periodSpendByOrg           map[string]int64
 	sumSpendErr                error
 	recordWebhookErr           error
+	claimWebhookErr            error
+	claimWebhookResult         *bool
+	releasedWebhookIDs         []string
 	recordedWebhookIDs         []string
 	getOrgSubscriptionFn       func(ctx context.Context, orgID string) (*OrgSubscription, error)
 	getProjectOrgIDFn          func(ctx context.Context, projectID string) (string, error)
@@ -388,6 +391,26 @@ func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, _ string, 
 func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, msgID string) error {
 	m.recordedWebhookIDs = append(m.recordedWebhookIDs, msgID)
 	return m.recordWebhookErr
+}
+
+func (m *mockBillingStore) ClaimWebhookForProcessing(_ context.Context, _ string, _ time.Duration) (bool, error) {
+	if m.claimWebhookErr != nil {
+		return false, m.claimWebhookErr
+	}
+	if m.claimWebhookResult != nil {
+		return *m.claimWebhookResult, nil
+	}
+	return true, nil
+}
+
+func (m *mockBillingStore) MarkWebhookProcessed(_ context.Context, msgID string) error {
+	m.recordedWebhookIDs = append(m.recordedWebhookIDs, msgID)
+	return m.recordWebhookErr
+}
+
+func (m *mockBillingStore) ReleaseWebhookClaim(_ context.Context, msgID string) error {
+	m.releasedWebhookIDs = append(m.releasedWebhookIDs, msgID)
+	return nil
 }
 
 func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {

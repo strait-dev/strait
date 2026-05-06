@@ -98,3 +98,26 @@ func TestWebhook_DBIdempotencyPreventsReprocessing(t *testing.T) {
 		t.Logf("first request returned %d, checking if it was processed", rec1.Code)
 	}
 }
+
+func TestWebhook_DBClaimPreventsConcurrentReprocessing(t *testing.T) {
+	t.Parallel()
+
+	claim := false
+	store := &mockBillingStore{claimWebhookResult: &claim}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil,
+		WithDevBypassSignatureCheck(), WithEdition("community"))
+
+	body := `{"id":"evt-idem-claimed","type":"customer.subscription.created","data":{"object":{"id":"sub_claimed","status":"active","items":{"data":[{"price":{"id":"starter-id"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust_1","email":"test@example.com","metadata":{"org_id":"550e8400-e29b-41d4-a716-446655440000"}}}}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected duplicate claim to return 200, got %d", rec.Code)
+	}
+	if store.lastUpserted != nil {
+		t.Fatal("duplicate claim should not execute subscription side effects")
+	}
+}

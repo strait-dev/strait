@@ -1094,10 +1094,72 @@ func (s *PgStore) CountActiveAddonsByType(ctx context.Context, orgID string, add
 // RecordProcessedWebhook records a webhook message ID as processed for idempotency.
 func (s *PgStore) RecordProcessedWebhook(ctx context.Context, msgID string) error {
 	_, err := s.pool.Exec(ctx,
-		"INSERT INTO processed_webhook_messages (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO NOTHING",
+		"INSERT INTO processed_webhook_messages (msg_id, status) VALUES ($1, 'processed') ON CONFLICT (msg_id) DO UPDATE SET status = 'processed', processed_at = NOW()",
 		msgID)
 	if err != nil {
 		return fmt.Errorf("record processed webhook: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) ClaimWebhookForProcessing(ctx context.Context, msgID string, staleAfter time.Duration) (bool, error) {
+	if msgID == "" {
+		return true, nil
+	}
+	if staleAfter <= 0 {
+		staleAfter = 10 * time.Minute
+	}
+	cutoff := time.Now().UTC().Add(-staleAfter)
+	var claimed bool
+	err := s.pool.QueryRow(ctx, `
+		WITH inserted AS (
+			INSERT INTO processed_webhook_messages (msg_id, status, processed_at)
+			VALUES ($1, 'processing', NOW())
+			ON CONFLICT (msg_id) DO NOTHING
+			RETURNING 1
+		),
+		reclaimed AS (
+			UPDATE processed_webhook_messages
+			SET status = 'processing', processed_at = NOW()
+			WHERE msg_id = $1
+			  AND status = 'processing'
+			  AND processed_at < $2
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			RETURNING 1
+		)
+		SELECT EXISTS (SELECT 1 FROM inserted UNION ALL SELECT 1 FROM reclaimed)
+	`, msgID, cutoff).Scan(&claimed)
+	if err != nil {
+		return false, fmt.Errorf("claim webhook for processing: %w", err)
+	}
+	return claimed, nil
+}
+
+func (s *PgStore) MarkWebhookProcessed(ctx context.Context, msgID string) error {
+	if msgID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE processed_webhook_messages
+		SET status = 'processed', processed_at = NOW()
+		WHERE msg_id = $1
+	`, msgID)
+	if err != nil {
+		return fmt.Errorf("mark webhook processed: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) ReleaseWebhookClaim(ctx context.Context, msgID string) error {
+	if msgID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM processed_webhook_messages
+		WHERE msg_id = $1 AND status = 'processing'
+	`, msgID)
+	if err != nil {
+		return fmt.Errorf("release webhook claim: %w", err)
 	}
 	return nil
 }
@@ -1106,7 +1168,7 @@ func (s *PgStore) RecordProcessedWebhook(ctx context.Context, msgID string) erro
 func (s *PgStore) IsWebhookProcessed(ctx context.Context, msgID string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM processed_webhook_messages WHERE msg_id = $1)",
+		"SELECT EXISTS(SELECT 1 FROM processed_webhook_messages WHERE msg_id = $1 AND status = 'processed')",
 		msgID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check webhook processed: %w", err)

@@ -129,6 +129,9 @@ type Store interface {
 	CountActiveAddonsByType(ctx context.Context, orgID string, addonType AddonType) (int, error)
 
 	// Webhook idempotency
+	ClaimWebhookForProcessing(ctx context.Context, msgID string, staleAfter time.Duration) (bool, error)
+	MarkWebhookProcessed(ctx context.Context, msgID string) error
+	ReleaseWebhookClaim(ctx context.Context, msgID string) error
 	RecordProcessedWebhook(ctx context.Context, msgID string) error
 	IsWebhookProcessed(ctx context.Context, msgID string) (bool, error)
 

@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -484,8 +485,8 @@ func TestPgStore_UpsertOrgSubscription(t *testing.T) {
 		ID:                    newID(),
 		OrgID:                 orgID,
 		PlanTier:              "pro",
-		StripeSubscriptionID:   ptr("stripe-sub"),  //nolint:modernize
-		StripeCustomerID:       ptr("stripe-cust"), //nolint:modernize
+		StripeSubscriptionID:  ptr("stripe-sub"),  //nolint:modernize
+		StripeCustomerID:      ptr("stripe-cust"), //nolint:modernize
 		Status:                "active",
 		CurrentPeriodStart:    &ps,
 		CurrentPeriodEnd:      &pe,
@@ -1806,6 +1807,79 @@ func TestPgStore_WebhookIdempotency(t *testing.T) {
 	}
 }
 
+func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	msgID := "msg-claim-" + newID()
+	start := make(chan struct{})
+	results := make(chan bool, 2)
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			claimed, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- claimed
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("ClaimWebhookForProcessing concurrent error: %v", err)
+	}
+	var claimed, skipped int
+	for result := range results {
+		if result {
+			claimed++
+		} else {
+			skipped++
+		}
+	}
+	if claimed != 1 || skipped != 1 {
+		t.Fatalf("claimed/skipped = %d/%d, want 1/1", claimed, skipped)
+	}
+
+	processed, err := pgStore.IsWebhookProcessed(ctx, msgID)
+	if err != nil {
+		t.Fatalf("IsWebhookProcessed(processing) error = %v", err)
+	}
+	if processed {
+		t.Fatal("processing claim must not count as processed")
+	}
+
+	if err := pgStore.ReleaseWebhookClaim(ctx, msgID); err != nil {
+		t.Fatalf("ReleaseWebhookClaim error = %v", err)
+	}
+	reclaimed, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimWebhookForProcessing(after release) error = %v", err)
+	}
+	if !reclaimed {
+		t.Fatal("claim after release = false, want true")
+	}
+	if err := pgStore.MarkWebhookProcessed(ctx, msgID); err != nil {
+		t.Fatalf("MarkWebhookProcessed error = %v", err)
+	}
+	again, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimWebhookForProcessing(after processed) error = %v", err)
+	}
+	if again {
+		t.Fatal("claim after processed = true, want false")
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 47: DeleteOldWebhookMessages
 // --------------------------------------------------------------------------.
@@ -3029,14 +3103,14 @@ func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
 	}
 
 	sub := &billing.OrgSubscription{
-		ID:                   newID(),
-		OrgID:                orgID,
-		PlanTier:             "enterprise",
-		Status:               "active",
+		ID:                    newID(),
+		OrgID:                 orgID,
+		PlanTier:              "enterprise",
+		Status:                "active",
 		SpendingLimitMicrousd: 999,
-		LimitAction:          "notify",
-		CreatedAt:            time.Now().UTC(),
-		UpdatedAt:            time.Now().UTC(),
+		LimitAction:           "notify",
+		CreatedAt:             time.Now().UTC(),
+		UpdatedAt:             time.Now().UTC(),
 	}
 	if err := pgStore.UpsertOrgSubscription(ctx, sub); err != nil {
 		t.Fatalf("UpsertOrgSubscription: %v", err)
