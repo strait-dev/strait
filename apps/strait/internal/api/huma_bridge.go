@@ -266,7 +266,13 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 	// Check for huma status errors (e.g., huma.Error404NotFound).
 	var se huma.StatusError
 	if errors.As(err, &se) {
-		respondError(w, r, se.GetStatus(), se.Error())
+		status := se.GetStatus()
+		if status >= http.StatusInternalServerError {
+			slog.Error("typed handler returned 5xx status error", "status", status, "error", err, "path", r.URL.Path)
+			respondError(w, r, status, "internal server error")
+			return
+		}
+		respondError(w, r, status, se.Error())
 		return
 	}
 	// Check for billing limit errors.
