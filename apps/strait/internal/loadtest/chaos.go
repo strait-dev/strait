@@ -81,6 +81,10 @@ func (ce *ChaosEngine) findRedisContainer() (string, error) {
 	return findContainer("redis")
 }
 
+func (ce *ChaosEngine) findStraitContainer() (string, error) {
+	return findContainer("strait")
+}
+
 // AllChaosScenarios returns the defined chaos scenarios.
 func AllChaosScenarios() []ChaosScenario {
 	return []ChaosScenario{
@@ -230,24 +234,22 @@ func (ce *ChaosEngine) waitForQueueDrain(ctx context.Context, timeout time.Durat
 // and returns an error only if recovery failed.
 
 func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
-	// Find and kill the strait worker process
-	cmd := exec.CommandContext(ctx, "pkill", "-9", "-f", "strait.*--mode.*worker")
-	if err := cmd.Run(); err != nil {
-		// Process might not exist separately in "all" mode
-		cmd = exec.CommandContext(ctx, "pkill", "-9", "-f", "strait.*--mode.*all")
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to kill worker: %w", err)
-		}
+	container, err := ce.findStraitContainer()
+	if err != nil {
+		return fmt.Errorf("failed to find strait container: %w", err)
+	}
+
+	kill := exec.CommandContext(ctx, "docker", "kill", container)
+	if err := kill.Run(); err != nil {
+		return fmt.Errorf("failed to kill strait container %s: %w", container, err)
 	}
 
 	// Wait 30 seconds
 	time.Sleep(30 * time.Second)
 
-	// Restart worker (assumes docker-compose or similar)
-	restart := exec.CommandContext(ctx, "docker", "compose", "restart", "strait")
-	if err := restart.Run(); err != nil {
-		// Try direct restart
-		return fmt.Errorf("failed to restart worker: %w", err)
+	start := exec.CommandContext(ctx, "docker", "start", container)
+	if err := start.Run(); err != nil {
+		return fmt.Errorf("failed to restart strait container %s: %w", container, err)
 	}
 
 	// Wait for recovery
@@ -330,19 +332,58 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		return fmt.Errorf("no database pool available")
 	}
 
-	// Insert a large number of rows to create disk pressure
-	// Use a batch insert to be efficient
-	_, err := ce.harness.Pool.Exec(ctx,
-		"INSERT INTO run_events (id, run_id, project_id, event_type, created_at) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'loadtest_pressure', NOW() FROM generate_series(1, 100000)")
+	tag, err := ce.harness.Pool.Exec(ctx, `
+		WITH target_job AS (
+			SELECT id, project_id
+			FROM jobs
+			WHERE project_id = $1 AND (slug = $2 OR id = $2)
+			LIMIT 1
+		),
+		pressure_run AS (
+			INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)
+			SELECT 'loadtest-pressure-' || gen_random_uuid()::text,
+			       id,
+			       project_id,
+			       'completed',
+			       '{}'::jsonb,
+			       'loadtest',
+			       NOW(),
+			       NOW()
+			FROM target_job
+			RETURNING id
+		)
+		INSERT INTO run_events (id, run_id, type, level, message, data, created_at)
+		SELECT gen_random_uuid()::text,
+		       pressure_run.id,
+		       'loadtest_pressure',
+		       'info',
+		       'loadtest disk pressure',
+		       jsonb_build_object('source', 'loadtest', 'scenario', 'disk_pressure'),
+		       NOW()
+		FROM pressure_run, generate_series(1, 100000)`,
+		ce.projectID,
+		ce.jobSlug,
+	)
 	if err != nil {
-		// Table might not exist or have different schema - that's OK for the chaos test
 		return fmt.Errorf("inserting pressure rows: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("no loadtest job found for project %s and job %s", ce.projectID, ce.jobSlug)
 	}
 
 	time.Sleep(10 * time.Second)
 
 	// Clean up
-	_, _ = ce.harness.Pool.Exec(ctx, "DELETE FROM run_events WHERE event_type = 'loadtest_pressure'")
+	_, _ = ce.harness.Pool.Exec(ctx, `
+		DELETE FROM run_events
+		WHERE type = 'loadtest_pressure'
+		  AND data @> '{"source":"loadtest","scenario":"disk_pressure"}'::jsonb`)
+	_, _ = ce.harness.Pool.Exec(ctx, `
+		DELETE FROM job_runs
+		WHERE id LIKE 'loadtest-pressure-%'
+		  AND project_id = $1`,
+		ce.projectID,
+	)
 	return nil
 }
 
@@ -356,13 +397,25 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		return fmt.Errorf("no database pool available for clock skew simulation")
 	}
 
-	// Insert rows with future timestamps to simulate forward clock skew
 	_, err := ce.harness.Pool.Exec(ctx,
-		`INSERT INTO job_runs (id, job_id, project_id, status, created_at, updated_at)
-		 SELECT gen_random_uuid(), gen_random_uuid(), $1, 'pending',
-		        NOW() + INTERVAL '24 hours', NOW() + INTERVAL '24 hours'
-		 FROM generate_series(1, 100)`,
+		`WITH target_job AS (
+			SELECT id, project_id
+			FROM jobs
+			WHERE project_id = $1 AND (slug = $2 OR id = $2)
+			LIMIT 1
+		)
+		INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)
+		SELECT 'loadtest-clock-skew-' || gen_random_uuid()::text,
+		       id,
+		       project_id,
+		       'pending',
+		       jsonb_build_object('source', 'loadtest', 'scenario', 'clock_skew'),
+		       'loadtest',
+		       NOW() + INTERVAL '24 hours',
+		       NOW() + INTERVAL '24 hours'
+		FROM target_job, generate_series(1, 100)`,
 		ce.projectID,
+		ce.jobSlug,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert future-timestamped rows: %w", err)
@@ -386,7 +439,9 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 	// Clean up the skewed rows
 	_, _ = ce.harness.Pool.Exec(ctx,
 		`DELETE FROM job_runs
-		 WHERE project_id = $1 AND created_at > NOW() + INTERVAL '23 hours'`,
+		 WHERE project_id = $1
+		   AND id LIKE 'loadtest-clock-skew-%'
+		   AND created_at > NOW() + INTERVAL '23 hours'`,
 		ce.projectID,
 	)
 
@@ -395,6 +450,7 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 
 func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	redisContainer, redisErr := ce.findRedisContainer()
+	straitContainer, straitErr := ce.findStraitContainer()
 
 	var cascadeErr atomic.Value
 
@@ -435,8 +491,12 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	// Kill worker after 5s
 	wg.Go(func() {
 		time.Sleep(5 * time.Second)
-		if err := exec.CommandContext(ctx, "pkill", "-9", "-f", "strait").Run(); err != nil {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing worker: %w", err))
+		if straitErr != nil {
+			cascadeErr.CompareAndSwap(nil, fmt.Errorf("finding strait container: %w", straitErr))
+			return
+		}
+		if err := exec.CommandContext(ctx, "docker", "kill", straitContainer).Run(); err != nil {
+			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing strait container: %w", err))
 		}
 	})
 
@@ -449,6 +509,11 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	if redisErr == nil {
 		if err := exec.CommandContext(ctx, "docker", "start", redisContainer).Run(); err != nil {
 			return fmt.Errorf("restarting redis: %w", err)
+		}
+	}
+	if straitErr == nil {
+		if err := exec.CommandContext(ctx, "docker", "start", straitContainer).Run(); err != nil {
+			return fmt.Errorf("restarting strait: %w", err)
 		}
 	}
 	time.Sleep(10 * time.Second)
