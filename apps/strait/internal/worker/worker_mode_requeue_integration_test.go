@@ -31,10 +31,10 @@ func (noWorkerAvailableDispatcher) ResultError(any) string { return "" }
 func (noWorkerAvailableDispatcher) ResultOutput(any) json.RawMessage { return nil }
 
 type staticQueueSnapshotter struct {
-	queues []string
+	queues []domain.WorkerQueueRef
 }
 
-func (s staticQueueSnapshotter) SnapshotQueues() []string {
+func (s staticQueueSnapshotter) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 	return s.queues
 }
 
@@ -108,7 +108,7 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 		HeartbeatInterval:   50 * time.Millisecond,
 		WebhookMaxAttempts:  1,
 		MaxDequeueBatchSize: 1,
-		QueueSnapshotter:    staticQueueSnapshotter{queues: []string{"default"}},
+		QueueSnapshotter:    staticQueueSnapshotter{queues: []domain.WorkerQueueRef{{QueueName: "default"}}},
 		WorkerDispatcher:    dispatcher,
 	})
 	t.Cleanup(func() {

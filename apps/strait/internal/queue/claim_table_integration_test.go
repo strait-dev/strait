@@ -518,6 +518,109 @@ func TestClaimTable_DequeueNForWorker_RoutesNonDefaultWorkerQueue(t *testing.T) 
 	}
 }
 
+func TestClaimTable_DequeueNForWorkerQueues_FiltersByEnvironment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+	projectID := "project-worker-claim-env"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+
+	prodJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, prodJob, "priority", prodEnvID)
+	prodRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         prodJob.ID,
+		ProjectID:     prodJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, prodRun); err != nil {
+		t.Fatalf("Enqueue prod worker run: %v", err)
+	}
+
+	stagingJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, stagingJob, "priority", stagingEnvID)
+	stagingRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         stagingJob.ID,
+		ProjectID:     stagingJob.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, stagingRun); err != nil {
+		t.Fatalf("Enqueue staging worker run: %v", err)
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{QueueName: "priority", EnvironmentID: stagingEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
+	}
+	if len(batch) != 1 || batch[0].ID != stagingRun.ID {
+		t.Fatalf("staging-scoped dequeue = %+v, want only staging run %s", batch, stagingRun.ID)
+	}
+
+	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{QueueName: "priority", EnvironmentID: prodEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
+	}
+	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
+		t.Fatalf("prod-scoped dequeue = %+v, want remaining prod run %s", prodBatch, prodRun.ID)
+	}
+}
+
+func TestClaimTable_DequeueNForWorkerQueues_ProjectWideScopeMatchesAnyEnvironment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+	projectID := "project-worker-claim-wide"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+
+	wantIDs := map[string]struct{}{}
+	for _, envID := range []string{prodEnvID, stagingEnvID} {
+		job := mustCreateJob(t, ctx, st, projectID)
+		markWorkerJobQueueEnvironment(t, ctx, job, "priority", envID)
+		run := &domain.JobRun{
+			ID:            newID(),
+			JobID:         job.ID,
+			ProjectID:     job.ProjectID,
+			Priority:      10,
+			ExecutionMode: domain.ExecutionModeWorker,
+			QueueName:     "priority",
+		}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue worker run for env %s: %v", envID, err)
+		}
+		wantIDs[run.ID] = struct{}{}
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 2, []domain.WorkerQueueRef{{QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(project-wide): %v", err)
+	}
+	if len(batch) != len(wantIDs) {
+		t.Fatalf("project-wide dequeue returned %d runs, want %d: %+v", len(batch), len(wantIDs), batch)
+	}
+	for _, run := range batch {
+		if _, ok := wantIDs[run.ID]; !ok {
+			t.Fatalf("project-wide dequeue returned unexpected run %s", run.ID)
+		}
+		delete(wantIDs, run.ID)
+	}
+	if len(wantIDs) != 0 {
+		t.Fatalf("project-wide dequeue missed runs: %+v", wantIDs)
+	}
+}
+
 func TestClaimTable_DequeueNForWorker_IgnoresHTTPAndOtherQueues(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

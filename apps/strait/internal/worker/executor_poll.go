@@ -27,14 +27,14 @@ type claimTableDequeuer interface {
 
 // workerQueueDequeuer claims worker-mode runs for specific queues.
 type workerQueueDequeuer interface {
-	DequeueNForWorker(ctx context.Context, n int, queues []string) ([]domain.JobRun, error)
+	DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error)
 }
 
-// QueueSnapshotter returns the set of queue names that have active workers
-// connected to this replica. Implemented by grpc.ConnectionRegistry via
+// QueueSnapshotter returns the environment-qualified queues that have active
+// workers connected to this replica. Implemented by grpc.ConnectionRegistry via
 // an adapter to avoid a circular import.
 type QueueSnapshotter interface {
-	SnapshotQueues() []string
+	SnapshotWorkerQueues() []domain.WorkerQueueRef
 }
 
 func (e *Executor) poll(ctx context.Context) {
@@ -198,7 +198,7 @@ func (e *Executor) appendWorkerRuns(ctx context.Context, runs []domain.JobRun, c
 	if e.queueSnapshotter == nil {
 		return runs
 	}
-	workerQueues := e.queueSnapshotter.SnapshotQueues()
+	workerQueues := e.queueSnapshotter.SnapshotWorkerQueues()
 	if len(workerQueues) == 0 {
 		return runs
 	}
@@ -210,7 +210,7 @@ func (e *Executor) appendWorkerRuns(ctx context.Context, runs []domain.JobRun, c
 	if !ok {
 		return runs
 	}
-	workerRuns, wErr := wq.DequeueNForWorker(ctx, remaining, workerQueues)
+	workerRuns, wErr := wq.DequeueNForWorkerQueues(ctx, remaining, workerQueues)
 	if wErr != nil {
 		// Log but don't block the HTTP pass result.
 		e.logger.Warn("worker dequeue failed", "error", wErr)

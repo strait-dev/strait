@@ -967,6 +967,32 @@ func markWorkerJobQueue(t *testing.T, ctx context.Context, job *domain.Job, queu
 	job.Queue = queueName
 }
 
+func mustCreateEnvironment(t *testing.T, ctx context.Context, st *store.Queries, projectID, slug string) string {
+	t.Helper()
+	env := &domain.Environment{
+		ProjectID: projectID,
+		Name:      slug,
+		Slug:      slug,
+	}
+	if err := st.CreateEnvironment(ctx, env); err != nil {
+		t.Fatalf("CreateEnvironment(%s): %v", slug, err)
+	}
+	return env.ID
+}
+
+func markWorkerJobQueueEnvironment(t *testing.T, ctx context.Context, job *domain.Job, queueName, environmentID string) {
+	t.Helper()
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE jobs SET execution_mode = 'worker', queue_name = $2, environment_id = $3 WHERE id = $1`,
+		job.ID, queueName, environmentID,
+	); err != nil {
+		t.Fatalf("mark worker job queue environment: %v", err)
+	}
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = queueName
+	job.EnvironmentID = environmentID
+}
+
 func assertClaimRouting(t *testing.T, ctx context.Context, runID string, wantMode domain.ExecutionMode, wantQueue string) {
 	t.Helper()
 	var gotMode, gotQueue string

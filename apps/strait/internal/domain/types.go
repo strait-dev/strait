@@ -1088,6 +1088,13 @@ const (
 	ExecutionModeWorker ExecutionMode = "worker"
 )
 
+// WorkerQueueRef identifies a connected worker queue scope. Empty
+// EnvironmentID means the worker is project-wide for that queue.
+type WorkerQueueRef struct {
+	QueueName     string
+	EnvironmentID string
+}
+
 // IsValid returns true if the execution mode is a known value.
 func (m ExecutionMode) IsValid() bool {
 	switch m {

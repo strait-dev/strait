@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/domain"
 )
 
 // makeWorker builds a ConnectedWorker for test use.
@@ -227,6 +228,46 @@ func TestRegistry_SnapshotQueues_Empty(t *testing.T) {
 	queues := r.SnapshotQueues()
 	if queues != nil {
 		t.Errorf("expected nil from empty registry, got %v", queues)
+	}
+}
+
+func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
+	r := NewConnectionRegistry()
+	projectWide := makeWorker("wide", "proj-a", "key-wide", []string{"q1", "q2"}, 4)
+	staging := makeWorker("staging", "proj-a", "key-staging", []string{"q1"}, 4)
+	staging.EnvironmentID = "env-staging"
+	stagingDup := makeWorker("staging-dup", "proj-a", "key-staging-dup", []string{"q1"}, 4)
+	stagingDup.EnvironmentID = "env-staging"
+	draining := makeWorker("draining", "proj-a", "key-draining", []string{"q3"}, 4)
+	draining.EnvironmentID = "env-prod"
+	draining.Status = "draining"
+
+	for _, w := range []*ConnectedWorker{projectWide, staging, stagingDup, draining} {
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register %s: %v", w.WorkerID, err)
+		}
+	}
+
+	got := r.SnapshotWorkerQueues()
+	seen := make(map[domain.WorkerQueueRef]struct{}, len(got))
+	for _, ref := range got {
+		seen[ref] = struct{}{}
+	}
+	want := []domain.WorkerQueueRef{
+		{QueueName: "q1"},
+		{QueueName: "q2"},
+		{QueueName: "q1", EnvironmentID: "env-staging"},
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("snapshot refs = %+v, want %d unique refs", got, len(want))
+	}
+	for _, ref := range want {
+		if _, ok := seen[ref]; !ok {
+			t.Fatalf("missing worker queue ref %+v from %+v", ref, got)
+		}
+	}
+	if _, ok := seen[domain.WorkerQueueRef{QueueName: "q3", EnvironmentID: "env-prod"}]; ok {
+		t.Fatalf("draining worker ref leaked into snapshot: %+v", got)
 	}
 }
 

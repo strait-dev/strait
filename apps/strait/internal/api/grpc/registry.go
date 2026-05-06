@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/domain"
 )
 
 const (
@@ -330,6 +331,35 @@ func (r *ConnectionRegistry) SnapshotQueues() []string {
 	out := make([]string, 0, len(seen))
 	for q := range seen {
 		out = append(out, q)
+	}
+	return out
+}
+
+// SnapshotWorkerQueues returns the deduplicated set of queue/environment
+// scopes across all active workers on this replica. Empty EnvironmentID means
+// a project-wide worker can accept runs from any environment.
+func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	seen := make(map[domain.WorkerQueueRef]struct{})
+	for _, w := range r.workers {
+		if w.Status != "active" {
+			continue
+		}
+		for _, q := range w.Queues {
+			seen[domain.WorkerQueueRef{
+				QueueName:     q,
+				EnvironmentID: w.EnvironmentID,
+			}] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]domain.WorkerQueueRef, 0, len(seen))
+	for ref := range seen {
+		out = append(out, ref)
 	}
 	return out
 }
