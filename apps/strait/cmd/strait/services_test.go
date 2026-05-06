@@ -136,8 +136,8 @@ func TestApplyWorkerPlaneToExecutorConfig_WiresDispatcherAndSnapshotter(t *testi
 	if execCfg.WorkerDispatcher == nil {
 		t.Fatal("WorkerDispatcher was not wired")
 	}
-	if got := execCfg.QueueSnapshotter.SnapshotQueues(); got != nil {
-		t.Fatalf("SnapshotQueues on empty registry = %v, want nil", got)
+	if got := execCfg.QueueSnapshotter.SnapshotWorkerQueues(); got != nil {
+		t.Fatalf("SnapshotWorkerQueues on empty registry = %v, want nil", got)
 	}
 }
 

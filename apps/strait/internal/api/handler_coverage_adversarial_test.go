@@ -18,7 +18,6 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 )
 
 // ---------------------------------------------------------------------------.
@@ -551,7 +550,7 @@ func TestHandlerRunLLMStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
-			return nil, pgx.ErrNoRows
+			return nil, store.ErrRunNotFound
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
