@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
@@ -66,6 +69,84 @@ func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 	}
 	if len(subs) != 1 {
 		t.Fatalf("len(subs) = %d, want 1", len(subs))
+	}
+}
+
+func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	srv := newTestServer(t, &APIStoreMock{
+		CreateWebhookSubscriptionFunc: func(context.Context, *domain.WebhookSubscription) error {
+			t.Fatal("CreateWebhookSubscription must not be called for environment-scoped caller")
+			return nil
+		},
+		ListWebhookSubscriptionsFunc: func(context.Context, string) ([]domain.WebhookSubscription, error) {
+			t.Fatal("ListWebhookSubscriptions must not be called for environment-scoped caller")
+			return nil, nil
+		},
+		GetWebhookSubscriptionFunc: func(context.Context, string) (*domain.WebhookSubscription, error) {
+			t.Fatal("GetWebhookSubscription must not be called for environment-scoped caller")
+			return nil, nil
+		},
+		RotateWebhookSecretFunc: func(context.Context, string, string, time.Time) error {
+			t.Fatal("RotateWebhookSecret must not be called for environment-scoped caller")
+			return nil
+		},
+	}, &mockQueue{}, nil)
+
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "create",
+			call: func() error {
+				_, err := srv.handleCreateWebhookSubscription(ctx, &CreateWebhookSubscriptionInput{Body: CreateWebhookSubscriptionRequest{
+					ProjectID:  "proj-1",
+					WebhookURL: "https://example.com/hook",
+					EventTypes: []string{"run.completed"},
+					Secret:     "secret",
+				}})
+				return err
+			},
+		},
+		{
+			name: "list",
+			call: func() error {
+				_, err := srv.handleListWebhookSubscriptions(ctx, &ListWebhookSubscriptionsInput{})
+				return err
+			},
+		},
+		{
+			name: "delete",
+			call: func() error {
+				_, err := srv.handleDeleteWebhookSubscription(ctx, &DeleteWebhookSubscriptionInput{ID: "sub-1"})
+				return err
+			},
+		},
+		{
+			name: "rotate",
+			call: func() error {
+				_, err := srv.handleRotateWebhookSecret(ctx, &RotateWebhookSecretInput{ID: "sub-1"})
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			var statusErr huma.StatusError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
+			}
+			if statusErr.GetStatus() != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403", statusErr.GetStatus())
+			}
+		})
 	}
 }
 

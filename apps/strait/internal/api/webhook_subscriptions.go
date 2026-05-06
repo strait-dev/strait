@@ -52,6 +52,9 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
 		return nil, err
 	}
@@ -104,6 +107,9 @@ type ListWebhookSubscriptionsOutput struct {
 }
 
 func (s *Server) handleListWebhookSubscriptions(ctx context.Context, _ *ListWebhookSubscriptionsInput) (*ListWebhookSubscriptionsOutput, error) {
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
+	}
 	projectID := projectIDFromContext(ctx)
 	subs, err := s.store.ListWebhookSubscriptions(ctx, projectID)
 	if err != nil {
@@ -119,6 +125,9 @@ type DeleteWebhookSubscriptionInput struct {
 func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *DeleteWebhookSubscriptionInput) (*struct{}, error) {
 	if input.ID == "" {
 		return nil, huma.Error400BadRequest("subscription id is required")
+	}
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
 	}
 
 	sub, err := s.store.GetWebhookSubscription(ctx, input.ID)
@@ -168,6 +177,9 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 	if graceMins > 10080 { // 7 days
 		return nil, huma.Error400BadRequest("grace_period_minutes must be <= 10080")
 	}
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
+	}
 
 	sub, err := s.store.GetWebhookSubscription(ctx, input.ID)
 	if err != nil {
@@ -214,4 +226,11 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 		"grace_expires_at":     graceExpiresAt,
 		"grace_period_minutes": graceMins,
 	}}, nil
+}
+
+func requireProjectWideWebhookAccess(ctx context.Context) error {
+	if environmentIDFromContext(ctx) != "" {
+		return huma.Error403Forbidden("webhook subscriptions require a project-wide key")
+	}
+	return nil
 }
