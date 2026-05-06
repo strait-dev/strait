@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 func TestCreateDeviceCode(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
 	mustClean(t, ctx)
 
 	deviceCode := newID()
@@ -61,6 +63,7 @@ func TestGetDeviceCodeByDeviceCode_NotFound(t *testing.T) {
 func TestApproveDeviceCode(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
 	mustClean(t, ctx)
 
 	deviceCode := newID()
@@ -88,6 +91,16 @@ func TestApproveDeviceCode(t *testing.T) {
 	if got.RawAPIKey != rawAPIKey {
 		t.Fatalf("RawAPIKey = %q, want %q", got.RawAPIKey, rawAPIKey)
 	}
+	var storedRawAPIKey string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE device_code = $1`, deviceCode).Scan(&storedRawAPIKey); err != nil {
+		t.Fatalf("query stored raw_api_key: %v", err)
+	}
+	if storedRawAPIKey == rawAPIKey {
+		t.Fatal("raw_api_key was stored in plaintext")
+	}
+	if !strings.HasPrefix(storedRawAPIKey, "enc:v1:") {
+		t.Fatalf("stored raw_api_key prefix = %q, want enc:v1", storedRawAPIKey)
+	}
 	if got.ProjectID != "project-approve" {
 		t.Fatalf("ProjectID = %q, want project-approve", got.ProjectID)
 	}
@@ -99,6 +112,7 @@ func TestApproveDeviceCode(t *testing.T) {
 func TestApproveDeviceCode_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
 	mustClean(t, ctx)
 
 	err := q.ApproveDeviceCode(ctx, "nonexistent", newID(), "key", "project-missing", []string{"read"})
@@ -110,6 +124,7 @@ func TestApproveDeviceCode_NotFound(t *testing.T) {
 func TestExchangeDeviceCode(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
 	mustClean(t, ctx)
 
 	deviceCode := newID()
@@ -142,16 +157,71 @@ func TestExchangeDeviceCode(t *testing.T) {
 	if got.RawAPIKey != "" {
 		t.Fatalf("RawAPIKey = %q, want empty", got.RawAPIKey)
 	}
+	var storedRawAPIKey *string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE device_code = $1`, deviceCode).Scan(&storedRawAPIKey); err != nil {
+		t.Fatalf("query stored raw_api_key after exchange: %v", err)
+	}
+	if storedRawAPIKey != nil {
+		t.Fatalf("stored raw_api_key after exchange = %q, want NULL", *storedRawAPIKey)
+	}
 }
 
 func TestExchangeDeviceCode_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
 	mustClean(t, ctx)
 
 	_, err := q.ExchangeDeviceCode(ctx, "nonexistent")
 	if !errors.Is(err, store.ErrDeviceCodeNotFound) {
 		t.Fatalf("ExchangeDeviceCode(notfound) error = %v, want ErrDeviceCodeNotFound", err)
+	}
+}
+
+func TestGetDeviceCodeByDeviceCode_RejectsPlaintextRawAPIKey(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
+	mustClean(t, ctx)
+
+	deviceCode := newID()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO cli_device_codes (device_code, user_code, project_id, api_key_id, raw_api_key, status, scopes, expires_at)
+		VALUES ($1, $2, $3, $4, $5, 'approved', $6, $7)`,
+		deviceCode, "USER-PLAIN", "project-plaintext", newID(), "plaintext-live-key", []string{"read"}, time.Now().UTC().Add(10*time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("insert plaintext device code: %v", err)
+	}
+
+	_, err = q.GetDeviceCodeByDeviceCode(ctx, deviceCode)
+	if err == nil || !strings.Contains(err.Error(), "not encrypted") {
+		t.Fatalf("GetDeviceCodeByDeviceCode() error = %v, want not encrypted", err)
+	}
+}
+
+func TestApproveDeviceCode_RequiresSecretEncryptionKey(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	deviceCode := newID()
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	if err := q.CreateDeviceCode(ctx, deviceCode, "USER-NOKEY", "project-no-key", []string{"read"}, expiresAt); err != nil {
+		t.Fatalf("CreateDeviceCode() error = %v", err)
+	}
+
+	err := q.ApproveDeviceCode(ctx, deviceCode, newID(), "raw-key", "project-no-key", []string{"read"})
+	if err == nil || !strings.Contains(err.Error(), "secret encryption key is not configured") {
+		t.Fatalf("ApproveDeviceCode() error = %v, want missing encryption key", err)
+	}
+
+	var storedRawAPIKey *string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE device_code = $1`, deviceCode).Scan(&storedRawAPIKey); err != nil {
+		t.Fatalf("query stored raw_api_key: %v", err)
+	}
+	if storedRawAPIKey != nil {
+		t.Fatalf("stored raw_api_key = %q, want NULL when approval fails", *storedRawAPIKey)
 	}
 }
 

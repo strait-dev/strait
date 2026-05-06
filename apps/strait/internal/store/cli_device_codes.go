@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,8 @@ import (
 
 // ErrDeviceCodeNotFound is returned when a device code lookup finds no rows.
 var ErrDeviceCodeNotFound = errors.New("device code not found")
+
+const encryptedDeviceAPIKeyPrefix = "enc:v1:"
 
 // DeviceCodeRow represents a row from the cli_device_codes table.
 type DeviceCodeRow struct {
@@ -67,6 +70,13 @@ func (q *Queries) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode stri
 		}
 		return nil, fmt.Errorf("get device code: %w", err)
 	}
+	if row.RawAPIKey != "" {
+		rawAPIKey, decryptErr := q.decryptDeviceAPIKey(row.RawAPIKey)
+		if decryptErr != nil {
+			return nil, fmt.Errorf("get device code: %w", decryptErr)
+		}
+		row.RawAPIKey = rawAPIKey
+	}
 	return row, nil
 }
 
@@ -76,12 +86,17 @@ func (q *Queries) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, r
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ApproveDeviceCode")
 	defer span.End()
 
+	encryptedAPIKey, err := q.encryptDeviceAPIKey(rawAPIKey)
+	if err != nil {
+		return err
+	}
+
 	query := `
 		UPDATE cli_device_codes
 		SET status = 'approved', api_key_id = $2, raw_api_key = $3, project_id = $4, scopes = $5
 		WHERE device_code = $1 AND status = 'pending' AND expires_at > NOW()`
 
-	tag, err := q.db.Exec(ctx, query, deviceCode, apiKeyID, rawAPIKey, projectID, scopes)
+	tag, err := q.db.Exec(ctx, query, deviceCode, apiKeyID, encryptedAPIKey, projectID, scopes)
 	if err != nil {
 		return fmt.Errorf("approve device code: %w", err)
 	}
@@ -89,6 +104,36 @@ func (q *Queries) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, r
 		return ErrDeviceCodeNotFound
 	}
 	return nil
+}
+
+func (q *Queries) encryptDeviceAPIKey(rawAPIKey string) (string, error) {
+	if rawAPIKey == "" {
+		return "", nil
+	}
+	key, err := q.secretKey()
+	if err != nil {
+		return "", fmt.Errorf("encrypt device api key: %w", err)
+	}
+	ciphertext, err := encryptSecret(rawAPIKey, key)
+	if err != nil {
+		return "", fmt.Errorf("encrypt device api key: %w", err)
+	}
+	return encryptedDeviceAPIKeyPrefix + ciphertext, nil
+}
+
+func (q *Queries) decryptDeviceAPIKey(storedAPIKey string) (string, error) {
+	if storedAPIKey == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(storedAPIKey, encryptedDeviceAPIKeyPrefix) {
+		return "", fmt.Errorf("stored device api key is not encrypted")
+	}
+	ciphertext := strings.TrimPrefix(storedAPIKey, encryptedDeviceAPIKeyPrefix)
+	plaintext, err := q.decryptSecretWithFallback(ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("decrypt device api key: %w", err)
+	}
+	return plaintext, nil
 }
 
 // ExchangeDeviceCode atomically transitions an approved device code to used
