@@ -654,6 +654,9 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	if err := requireProjectWideAuditAccess(ctx); err != nil {
+		return nil, err
+	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
 		return nil, err
@@ -725,6 +728,9 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, input *VerifyAuditC
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if err := requireProjectWideAuditAccess(ctx); err != nil {
+		return nil, err
 	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
