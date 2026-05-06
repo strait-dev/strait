@@ -106,7 +106,7 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 	// Epoch 1: 5 more events. CreateAuditEvent must assign the current
 	// rotation epoch automatically; callers should not need to know the
 	// current per-project signing epoch.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",
@@ -376,7 +376,7 @@ func TestVerifyAuditChain_RealPerEpochKeys(t *testing.T) {
 	}
 	q.SetAuditSigningKey(epochKey)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ev := &domain.AuditEvent{
 			ProjectID:     projectID,
 			ActorID:       "actor",
@@ -462,7 +462,7 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 	projectID := "proj-distinct"
 	insertTestChain(ctx, t, q, projectID, 1)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
 			t.Fatalf("rotate %d: %v", i, err)
 		}

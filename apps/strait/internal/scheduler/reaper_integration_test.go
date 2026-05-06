@@ -18,7 +18,7 @@ import (
 // Mock stores for reaper optional-interface tests.
 // These embed a base mock that satisfies scheduler.ReaperStore, plus
 // optional interfaces that the reaper discovers via type assertions.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // baseReaperStore provides stub implementations for all ReaperStore methods.
 type baseReaperStore struct{}
@@ -143,7 +143,7 @@ func (baseReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.J
 
 // ---------------------------------------------------------------------------
 // 1. monitorQueueDepth
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // qdStore satisfies ReaperStore + QueueDepthMonitorStore.
 type qdStore struct {
@@ -206,7 +206,7 @@ func TestIntegration_MonitorQueueDepth_StoreError(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 2. monitorDLQDepth
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // dlqStore satisfies ReaperStore + DLQMonitorStore.
 type dlqStore struct {
@@ -267,13 +267,13 @@ func TestIntegration_MonitorDLQDepth_StoreError(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 3. reapOrphanedStepRuns
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // reconciliationStore satisfies ReaperStore + ReconciliationStore.
 type reconciliationStore struct {
 	baseReaperStore
-	listOrphansFn       func(ctx context.Context) ([]store.OrphanedStepRun, error)
-	resetWebhooksFn     func(ctx context.Context) (int64, error)
+	listOrphansFn   func(ctx context.Context) ([]store.OrphanedStepRun, error)
+	resetWebhooksFn func(ctx context.Context) (int64, error)
 }
 
 func (s *reconciliationStore) ListOrphanedStepRuns(ctx context.Context) ([]store.OrphanedStepRun, error) {
@@ -373,7 +373,7 @@ func TestIntegration_ReapOrphanedStepRuns_NoOrphans(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 4. reapStuckWebhookDeliveries
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_ReapStuckWebhookDeliveries_ResetsStuck(t *testing.T) {
 	ctx := context.Background()
@@ -420,7 +420,7 @@ func TestIntegration_ReapStuckWebhookDeliveries_StoreError(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 5. StatsAggregator.Run
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // intMockStatsStore implements scheduler.StatsAggregatorStore.
 type intMockStatsStore struct {
@@ -462,7 +462,7 @@ func TestIntegration_StatsAggregator_ContextCancellation(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 6. recordCronDrift
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_RecordCronDrift_NilMetrics(t *testing.T) {
 	ctx := context.Background()
@@ -503,7 +503,7 @@ func TestIntegration_RecordCronDrift_ValidCronExpr(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 7. checkRunLimitWarnings
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // intMockRunLimitStore implements scheduler.RunLimitStore.
 type intMockRunLimitStore struct {
@@ -575,7 +575,7 @@ func TestIntegration_CheckRunLimitWarnings_NilEnforcer(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Shared helpers and mocks
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 var errSimulated = errSentinel("simulated store error")
 

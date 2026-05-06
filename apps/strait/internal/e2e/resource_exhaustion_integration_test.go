@@ -41,7 +41,7 @@ func TestDoS_ConnectionPoolSaturation(t *testing.T) {
 		tx interface{ Rollback(context.Context) error }
 	}
 	holders := make([]held, 0, holdCount)
-	for i := 0; i < holdCount; i++ {
+	for i := range holdCount {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			t.Logf("could only acquire %d/%d connections: %v", i, holdCount, err)
@@ -78,7 +78,7 @@ func TestDoS_RedisMemoryPressure(t *testing.T) {
 
 	// Publish 1000 messages of ~10KB each.
 	largePayload := strings.Repeat("A", 10*1024)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		key := fmt.Sprintf("test:pressure:%d", i)
 		if err := client.Set(ctx, key, largePayload, 30*time.Second).Err(); err != nil {
 			t.Fatalf("set key %d: %v", i, err)
@@ -91,7 +91,7 @@ func TestDoS_RedisMemoryPressure(t *testing.T) {
 	}
 
 	// Clean up.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		client.Del(ctx, fmt.Sprintf("test:pressure:%d", i))
 	}
 }
@@ -106,7 +106,7 @@ func TestDoS_AdvisoryLockExhaustion(t *testing.T) {
 
 	// Acquire many advisory locks.
 	acquired := make([]int64, 0, lockCount)
-	for i := 0; i < lockCount; i++ {
+	for i := range lockCount {
 		lockID := int64(800000 + i)
 		ok, err := testStore.TryAdvisoryLock(ctx, lockID)
 		if err != nil {
@@ -143,7 +143,7 @@ func TestDoS_ConcurrentSSEConnections(t *testing.T) {
 
 	// Create a few runs to stream.
 	runIDs := make([]string, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		run := triggerJob(t, jobID, fmt.Sprintf(`{"payload":{"sse":%d}}`, i), "")
 		runIDs[i] = asString(t, run, "id")
 	}
@@ -154,7 +154,7 @@ func TestDoS_ConcurrentSSEConnections(t *testing.T) {
 	// Create 50 concurrent requests to the stream endpoint.
 	const count = 50
 	var wg conc.WaitGroup
-	for i := 0; i < count; i++ {
+	for i := range count {
 		idx := i
 		wg.Go(func() {
 			runID := runIDs[idx%len(runIDs)]
@@ -198,7 +198,7 @@ func TestDoS_CacheEvictionStorm(t *testing.T) {
 	var wg conc.WaitGroup
 	var errors atomic.Int32
 
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		idx := i
 		wg.Go(func() {
 			key := fmt.Sprintf("test:evict:%d", idx)
@@ -243,7 +243,7 @@ func TestDoS_WebhookDeliveryQueueOverflow(t *testing.T) {
 
 	// Create 100 pending webhook deliveries.
 	const deliveryCount = 100
-	for i := 0; i < deliveryCount; i++ {
+	for i := range deliveryCount {
 		retryAt := time.Now().UTC().Add(-time.Second)
 		delivery := &domain.WebhookDelivery{
 			RunID:       runID,

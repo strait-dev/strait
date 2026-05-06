@@ -250,7 +250,7 @@ func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
 	}
 
 	archiveCols := make(map[string]bool)
-	for _, raw := range strings.Split(store.HistoryArchiveColumnsForTest, ",") {
+	for raw := range strings.SplitSeq(store.HistoryArchiveColumnsForTest, ",") {
 		col := strings.TrimSpace(raw)
 		if col != "" {
 			archiveCols[col] = true

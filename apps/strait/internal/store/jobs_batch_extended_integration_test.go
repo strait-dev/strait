@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -171,13 +172,7 @@ func TestJobs_ListOrgsWithExecutingRuns_HappyPath(t *testing.T) {
 		t.Fatalf("ListOrgsWithExecutingRuns() error = %v", err)
 	}
 
-	found := false
-	for _, o := range orgs {
-		if o == orgID {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(orgs, orgID)
 	if !found {
 		t.Fatalf("org %q not in result %v", orgID, orgs)
 	}

@@ -33,7 +33,7 @@ func TestRace_DoubleDequeue(t *testing.T) {
 	var wg conc.WaitGroup
 	var gotRun atomic.Int32
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		wg.Go(func() {
 			runs, err := testQueue.DequeueN(ctx, 1)
 			if err != nil {
@@ -64,14 +64,14 @@ func TestRace_ConcurrentEnqueueDequeueInterleaving(t *testing.T) {
 	var dequeuedTotal atomic.Int32
 
 	// Start enqueue goroutines.
-	for i := 0; i < half; i++ {
+	for range half {
 		wg.Go(func() {
 			_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
 		})
 	}
 
 	// Start dequeue goroutines.
-	for i := 0; i < half; i++ {
+	for range half {
 		wg.Go(func() {
 			runs, err := testQueue.DequeueN(ctx, 1)
 			if err == nil && len(runs) > 0 {
@@ -137,7 +137,7 @@ func TestRace_AdvisoryLockContention(t *testing.T) {
 	var wg conc.WaitGroup
 	var errCount atomic.Int32
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		idx := i
 		wg.Go(func() {
 			mem := &domain.JobMemory{
@@ -184,7 +184,7 @@ func TestRace_PubSubSubscribeUnsubscribe(t *testing.T) {
 	var wg conc.WaitGroup
 
 	// Subscribers.
-	for i := 0; i < goroutines/2; i++ {
+	for range goroutines / 2 {
 		wg.Go(func() {
 			sub := client.Subscribe(ctx, channel)
 			defer sub.Close()
@@ -198,7 +198,7 @@ func TestRace_PubSubSubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Publishers.
-	for i := 0; i < goroutines/2; i++ {
+	for i := range goroutines / 2 {
 		idx := i
 		wg.Go(func() {
 			client.Publish(ctx, channel, fmt.Sprintf("msg-%d", idx))
@@ -222,7 +222,7 @@ func TestRace_CacheInvalidationDuringRead(t *testing.T) {
 
 	// Writer goroutine: update the job description.
 	wg.Go(func() {
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			job, err := testStore.GetJob(ctx, jobID)
 			if err != nil {
 				continue
@@ -234,7 +234,7 @@ func TestRace_CacheInvalidationDuringRead(t *testing.T) {
 
 	// Reader goroutines: read the job via API.
 	const readers = 5
-	for i := 0; i < readers; i++ {
+	for range readers {
 		wg.Go(func() {
 			w := doRequest(t, http.MethodGet, "/v1/jobs/"+jobID, "")
 			if w.Code >= 500 {
@@ -281,7 +281,7 @@ func TestRace_ConcurrentAPIKeyRotation(t *testing.T) {
 
 	// Concurrently make requests using the key.
 	const requestors = 5
-	for i := 0; i < requestors; i++ {
+	for range requestors {
 		wg.Go(func() {
 			w := doSDKRequest(t, http.MethodGet, "/v1/jobs/", rawKey, "")
 			if w.Code >= 500 {
@@ -304,7 +304,7 @@ func TestRace_StatsAggregationDuringCompletions(t *testing.T) {
 	// Create several executing runs.
 	const runCount = 5
 	runs := make([]*domain.JobRun, runCount)
-	for i := 0; i < runCount; i++ {
+	for i := range runCount {
 		status := domain.StatusExecuting
 		runs[i] = testutil.MustCreateRun(t, ctx, testStore, job, &testutil.RunOpts{
 			Status: &status,
@@ -314,7 +314,7 @@ func TestRace_StatsAggregationDuringCompletions(t *testing.T) {
 	var wg conc.WaitGroup
 
 	// Complete runs concurrently.
-	for i := 0; i < runCount; i++ {
+	for i := range runCount {
 		idx := i
 		wg.Go(func() {
 			_ = testStore.UpdateRunStatus(ctx, runs[idx].ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
@@ -325,7 +325,7 @@ func TestRace_StatsAggregationDuringCompletions(t *testing.T) {
 
 	// Read stats concurrently.
 	const statReaders = 5
-	for i := 0; i < statReaders; i++ {
+	for range statReaders {
 		wg.Go(func() {
 			_, err := testStore.GetJobHealthStats(ctx, job.ID, time.Now().Add(-1*time.Hour))
 			if err != nil {
@@ -374,7 +374,7 @@ func TestRace_WebhookDeliveryRetryAndNew(t *testing.T) {
 
 	// Create new deliveries concurrently.
 	const newDeliveries = 3
-	for i := 0; i < newDeliveries; i++ {
+	for range newDeliveries {
 		wg.Go(func() {
 			d := &domain.WebhookDelivery{
 				ID:          uuid.Must(uuid.NewV7()).String(),
@@ -403,7 +403,7 @@ func TestRace_CircuitBreakerStateFlip(t *testing.T) {
 	const goroutines = 10
 	var wg conc.WaitGroup
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		idx := i
 		wg.Go(func() {
 			if idx%2 == 0 {

@@ -14,7 +14,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // DequeueNTwoPhase
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestTwoPhaseDequeue_ReturnsCorrectRuns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -111,7 +111,7 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-twophase-nodup")
 	q := mustQueue(t)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -119,10 +119,8 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 	var wg sync.WaitGroup
 	var dupes int64
 
-	for g := 0; g < 4; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			batch, err := q.DequeueNTwoPhase(ctx, 10)
 			if err != nil {
 				t.Errorf("dequeue: %v", err)
@@ -134,7 +132,7 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 					dupes++
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -148,7 +146,7 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // DequeueNClaim (claim table path)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_DequeueNClaim_ReturnsCorrectRuns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -235,7 +233,7 @@ func TestClaimTable_DequeueNClaim_NegativeN_ReturnsNil(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Dual-write: Enqueue inserts both job_runs and job_run_queue
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_DualWrite_EnqueueInsertsBothTables(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -279,7 +277,7 @@ func TestClaimTable_DualWrite_EnqueueInsertsBothTables(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Fan-out trigger: pausing a job updates claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_FanOutTrigger_PauseJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -290,7 +288,7 @@ func TestClaimTable_FanOutTrigger_PauseJob(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fanout-pause")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -326,7 +324,7 @@ func TestClaimTable_FanOutTrigger_PauseJob(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Fan-out trigger: disabling a job updates claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_FanOutTrigger_DisableJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -337,7 +335,7 @@ func TestClaimTable_FanOutTrigger_DisableJob(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fanout-disable")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -373,7 +371,7 @@ func TestClaimTable_FanOutTrigger_DisableJob(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Fan-out trigger: concurrency change propagates to claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_FanOutTrigger_ConcurrencyChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -399,7 +397,7 @@ func TestClaimTable_FanOutTrigger_ConcurrencyChange(t *testing.T) {
 	}
 
 	q := mustQueue(t)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -436,7 +434,7 @@ func TestClaimTable_FanOutTrigger_ConcurrencyChange(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // DequeueNClaim: no duplicates under concurrency
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -447,17 +445,15 @@ func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-claim-nodup")
 	q := mustQueue(t)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
 	var seen sync.Map
 	var wg sync.WaitGroup
 
-	for g := 0; g < 4; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			batch, err := q.DequeueNClaim(ctx, 10)
 			if err != nil {
 				t.Errorf("DequeueNClaim: %v", err)
@@ -468,7 +464,7 @@ func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 					t.Errorf("duplicate run ID: %s", r.ID)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -790,7 +786,7 @@ func TestClaimTable_RequeueRestoresWorkerRouting(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reaper hot-partition avoidance
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestReaper_HotPartitionAvoidance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -805,11 +801,11 @@ func TestReaper_HotPartitionAvoidance(t *testing.T) {
 	hotIDs := make([]string, 3)
 	coldIDs := make([]string, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		r := mustEnqueueRun(t, ctx, q, job)
 		hotIDs[i] = r.ID
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		r := mustEnqueueRun(t, ctx, q, job)
 		coldIDs[i] = r.ID
 	}
@@ -876,7 +872,7 @@ func TestReaper_HotPartitionAvoidance(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SQLCommenter tag presence in dequeue queries
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSQLCommenter_DequeueTagPresent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -989,7 +985,7 @@ func TestDequeueVariants_StatusContract(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reliability: reconciler repairs missing claims
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimReconciler_RepairsMissingClaims(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1066,7 +1062,7 @@ func TestClaimReconciler_RepairsMissingClaims(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reliability: reconciler removes stale / orphan claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimReconciler_RemovesStaleClaims(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1131,7 +1127,7 @@ func TestClaimReconciler_RemovesStaleClaims(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reliability: retry exhaustion transitions to terminal failure
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -28,7 +28,7 @@ func TestDLQCounts_TriggerMaintainsCounter(t *testing.T) {
 
 	// Transition 3 runs straight to dead_letter.
 	var ids []string
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		r := baseRun(job, newID())
 		r.Status = domain.StatusDeadLetter
 		if err := q.CreateRun(ctx, r); err != nil {

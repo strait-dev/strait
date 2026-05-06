@@ -216,7 +216,7 @@ func TestEdge_LargePayload(t *testing.T) {
 	// 100KB payload
 	largeData := strings.Repeat("x", 100*1024)
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"data":"%s"}}`, largeData))
+		return fmt.Appendf(nil, `{"payload":{"data":"%s"}}`, largeData)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -276,10 +276,10 @@ func TestEdge_DuplicateSlug(t *testing.T) {
 	), nil)
 
 	tgt := newTargeter("POST", "/v1/jobs/", func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","name":"duplicate","slug":"%s","endpoint_url":"https://example.com/dup","max_attempts":1,"timeout_secs":30}`,
 			projectID, slug,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -328,10 +328,10 @@ func TestEdge_RapidCreateDelete(t *testing.T) {
 			slug := "rcd-" + newID()
 			tgt.Method = "POST"
 			tgt.URL = baseURL + "/v1/jobs/"
-			tgt.Body = []byte(fmt.Sprintf(
+			tgt.Body = fmt.Appendf(nil,
 				`{"project_id":"%s","name":"rcd-%s","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":1,"timeout_secs":30}`,
 				projectID, slug, slug, slug,
-			))
+			)
 		} else {
 			tgt.Method = "GET"
 			tgt.URL = baseURL + "/v1/jobs/?project_id=" + projectID

@@ -125,7 +125,7 @@ func TestIntegration_Fallback_RepeatedLateResultsStaySlot(t *testing.T) {
 	svc := fallbackServiceWithRegistry(q, reg)
 	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 			t.Fatalf("handleTaskResult #%d: %v", i, err)
 		}

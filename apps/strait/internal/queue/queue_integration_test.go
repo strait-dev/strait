@@ -1165,7 +1165,7 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		runs := make([]*domain.JobRun, 500)
 		for j := range runs {
 			runs[j] = &domain.JobRun{
@@ -1189,7 +1189,7 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 	}
 }
 
-// --- Metadata round-trip integration tests ---
+// --- Metadata round-trip integration tests ---.
 
 func TestEnqueue_MetadataRoundTrip(t *testing.T) {
 	ctx := context.Background()
@@ -1359,7 +1359,7 @@ func TestEnqueueBatch_MetadataRoundTrip(t *testing.T) {
 	}
 }
 
-// --- Metadata adversarial integration tests ---
+// --- Metadata adversarial integration tests ---.
 
 func TestEnqueue_MetadataLargeValue(t *testing.T) {
 	ctx := context.Background()
@@ -1608,7 +1608,7 @@ func BenchmarkPostgresQueueDequeueN(b *testing.B) {
 	}
 
 	const preload = 512
-	for i := 0; i < preload; i++ {
+	for i := range preload {
 		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
 		if err := q.Enqueue(ctx, run); err != nil {
 			b.Fatalf("Enqueue() error = %v", err)
@@ -1616,7 +1616,7 @@ func BenchmarkPostgresQueueDequeueN(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		runs, err := q.DequeueN(ctx, 32)
 		if err != nil {
 			b.Fatalf("DequeueN() error = %v", err)

@@ -17,10 +17,10 @@ func TestWorkflows_CreateWorkflow(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/workflows/", func() []byte {
 		slug := "wf-" + newID()
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","name":"load-%s","slug":"%s","enabled":true}`,
 			projectID, slug, slug,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestWorkflows_UpdateWorkflow(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newTargeter("PATCH", "/v1/workflows/"+wfID+"/", func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"name":"updated-wf-%d"}`, n))
+		return fmt.Appendf(nil, `{"name":"updated-wf-%d"}`, n)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -130,7 +130,7 @@ func TestWorkflows_DeleteWorkflow(t *testing.T) {
 	var idx atomic.Int64
 	tgt := func(tgt *vegeta.Target) error {
 		i := idx.Add(1) - 1
-		i = i % int64(len(wfIDs))
+		i %= int64(len(wfIDs))
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/workflows/" + wfIDs[i] + "/"
 		tgt.Header = http.Header{
@@ -207,7 +207,7 @@ func TestWorkflows_CloneWorkflow(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/workflows/"+wfID+"/clone", func() []byte {
 		slug := "clone-wf-" + newID()
-		return []byte(fmt.Sprintf(`{"slug":"%s","name":"clone-%s"}`, slug, slug))
+		return fmt.Appendf(nil, `{"slug":"%s","name":"clone-%s"}`, slug, slug)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestWorkflows_TriggerWorkflow(t *testing.T) {
 	wfID := seedWorkflow(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/workflows/"+wfID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"id":"%s"}}`, newID()))
+		return fmt.Appendf(nil, `{"payload":{"id":"%s"}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {

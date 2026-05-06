@@ -13,7 +13,7 @@ import (
 	"strait/internal/domain"
 )
 
-// ========== 2.23 Run DLQ ==========
+// ========== 2.23 Run DLQ ==========.
 
 func TestE2E_DLQ_ListDeadLetterRuns(t *testing.T) {
 	mustClean(t)
@@ -123,7 +123,7 @@ func TestE2E_DLQ_FeatureFlag_Disabled(t *testing.T) {
 	}
 }
 
-// ========== 2.45 Execution Replay/Debug ==========
+// ========== 2.45 Execution Replay/Debug ==========.
 
 func TestE2E_DebugBundle_GetBundle(t *testing.T) {
 	mustClean(t)
@@ -204,7 +204,7 @@ func TestE2E_Debug_SetDebugMode(t *testing.T) {
 	}
 }
 
-// ========== 2.11 Run Continuation ==========
+// ========== 2.11 Run Continuation ==========.
 
 func TestE2E_RunContinuation_SDKContinue(t *testing.T) {
 	mustClean(t)
@@ -348,7 +348,7 @@ func TestE2E_RunContinuation_Lineage(t *testing.T) {
 	}
 }
 
-// ========== 2.18 Adaptive Timeout ==========
+// ========== 2.18 Adaptive Timeout ==========.
 
 func TestE2E_AdaptiveTimeout_FeatureFlagEnabled(t *testing.T) {
 	// Adaptive timeout is a worker-side feature. The E2E test verifies

@@ -147,7 +147,7 @@ func TestListProjectsByOrg_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProjectsByOrg() error = %v", err)
 	}
-	if got != nil && len(got) != 0 {
+	if len(got) != 0 {
 		t.Fatalf("expected empty slice, got %d items", len(got))
 	}
 }
@@ -241,7 +241,7 @@ func TestCountProjectsByOrg(t *testing.T) {
 	st := mustStore(t)
 
 	org := "org-count"
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		p := &domain.Project{ID: newID(), OrgID: org, Name: "P"}
 		if err := st.CreateProject(ctx, p); err != nil {
 			t.Fatalf("CreateProject(%d) error = %v", i, err)

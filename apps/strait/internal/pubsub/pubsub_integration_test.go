@@ -190,7 +190,7 @@ func TestSubscribe_SlowConsumer(t *testing.T) {
 
 	// Block the consumer so the buffer fills and drops occur.
 	time.Sleep(50 * time.Millisecond)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		msg := fmt.Sprintf("msg-%03d", i)
 		if err := pub.Publish(ctx, "test:slow-consumer", []byte(msg)); err != nil {
 			t.Fatalf("Publish(%q) error = %v", msg, err)

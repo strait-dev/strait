@@ -17,10 +17,10 @@ func TestJobGroups_Create(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/job-groups/", func() []byte {
 		slug := "grp-" + newID()
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","name":"load-group-%s","slug":"%s","description":"load test group"}`,
 			projectID, slug, slug,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -102,7 +102,7 @@ func TestJobGroups_Update(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newTargeter("PATCH", "/v1/job-groups/"+groupID+"/", func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"description":"updated group %d"}`, n))
+		return fmt.Appendf(nil, `{"description":"updated group %d"}`, n)
 	})
 
 	t.Run("baseline", func(t *testing.T) {

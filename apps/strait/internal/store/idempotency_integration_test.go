@@ -301,13 +301,13 @@ func TestIdempotency_CleanExpired_DeletesOnlyExpired(t *testing.T) {
 	projectID := "proj-idem-cleanup-" + newID()
 
 	// 25 expired rows.
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "expired-"+newID(), -time.Minute); err != nil {
 			t.Fatalf("insert expired %d: %v", i, err)
 		}
 	}
 	// 10 non-expired rows.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "fresh-"+newID(), time.Hour); err != nil {
 			t.Fatalf("insert fresh %d: %v", i, err)
 		}

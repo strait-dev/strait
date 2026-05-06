@@ -389,7 +389,7 @@ func TestAdversarial_MemberDedupAcrossProjects(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A11: Concurrent enterprise contract upserts must not lose data
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 	ctx := context.Background()
@@ -454,7 +454,7 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A12: Enterprise contract UNIQUE(org_id) enforced -- only one per org
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	ctx := context.Background()
@@ -465,13 +465,13 @@ func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	subID := "sub_u1"
 	c1 := &billing.EnterpriseContract{
 		ID: "contract_u1", OrgID: orgID,
-		EnterpriseTier: billing.EnterpriseTierStarter,
+		EnterpriseTier:        billing.EnterpriseTierStarter,
 		AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
 		ComputeDiscountPct: 10,
-		ContractStartDate: time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
+		ContractStartDate:  time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
 		AutoRenew: true, BillingCadence: "annual",
 		StripeSubscriptionID: &subID,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt:            time.Now(), UpdatedAt: time.Now(),
 	}
 
 	if err := pgStore.UpsertEnterpriseContract(ctx, c1); err != nil {
@@ -502,7 +502,7 @@ func TestAdversarial_OneContractPerOrg(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A13: ListExpiringContracts excludes already-expired and far-future
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 	ctx := context.Background()
@@ -515,27 +515,27 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 		orgID := "org-boundary-" + orgSuffix + "-" + newID()
 		c := &billing.EnterpriseContract{
 			ID: "contract_" + orgSuffix, OrgID: orgID,
-			EnterpriseTier: billing.EnterpriseTierStarter,
+			EnterpriseTier:        billing.EnterpriseTierStarter,
 			AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
 			ComputeDiscountPct: 10,
-			ContractStartDate: time.Now().Add(-365 * 24 * time.Hour),
-			ContractEndDate:   time.Now().Add(endOffset),
-			AutoRenew: true, BillingCadence: "annual",
+			ContractStartDate:  time.Now().Add(-365 * 24 * time.Hour),
+			ContractEndDate:    time.Now().Add(endOffset),
+			AutoRenew:          true, BillingCadence: "annual",
 			StripeSubscriptionID: &subID,
-			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			CreatedAt:            time.Now(), UpdatedAt: time.Now(),
 		}
 		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
 			t.Fatalf("create %s: %v", orgSuffix, err)
 		}
 	}
 
-	mkContract("expired-1h", -1*time.Hour)         // already expired
-	mkContract("expired-30d", -30*24*time.Hour)     // long expired
-	mkContract("expiring-1h", 1*time.Hour)          // about to expire
-	mkContract("expiring-6d", 6*24*time.Hour)       // 6 days out
-	mkContract("expiring-29d", 29*24*time.Hour)     // 29 days out
-	mkContract("expiring-31d", 31*24*time.Hour)     // 31 days out
-	mkContract("future-365d", 365*24*time.Hour)     // way out
+	mkContract("expired-1h", -1*time.Hour)      // already expired
+	mkContract("expired-30d", -30*24*time.Hour) // long expired
+	mkContract("expiring-1h", 1*time.Hour)      // about to expire
+	mkContract("expiring-6d", 6*24*time.Hour)   // 6 days out
+	mkContract("expiring-29d", 29*24*time.Hour) // 29 days out
+	mkContract("expiring-31d", 31*24*time.Hour) // 31 days out
+	mkContract("future-365d", 365*24*time.Hour) // way out
 
 	within30, err := pgStore.ListExpiringContracts(ctx, 30)
 	if err != nil {
@@ -571,7 +571,7 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A14: Empty org ID returns not-found, not a cross-org leak
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 	ctx := context.Background()
@@ -586,7 +586,7 @@ func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H5: DeactivateExcessCronJobs keeps the newest by updated_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -634,7 +634,7 @@ func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H6: DeactivateExcessEnvironments keeps the newest by created_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -682,7 +682,7 @@ func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H7: DeactivateExcessWebhookSubscriptions keeps the newest by created_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -729,7 +729,7 @@ func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing
 
 // --------------------------------------------------------------------------
 // H4: SuspendExcessProjects determinism with tied created_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_SuspendExcessProjects_TiedCreatedAt(t *testing.T) {
 	ctx := context.Background()

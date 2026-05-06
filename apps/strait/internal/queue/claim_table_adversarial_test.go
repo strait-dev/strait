@@ -14,7 +14,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // Adversarial tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_SQLInjection_RunID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -260,7 +260,7 @@ func TestClaimTable_MaxConcurrencyZero_MeansUnlimited(t *testing.T) {
 	q := mustQueue(t)
 
 	// Enqueue 3 runs. All should be dequeued since 0 = unlimited.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		run := &domain.JobRun{
 			ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
 		}
@@ -280,7 +280,7 @@ func TestClaimTable_MaxConcurrencyZero_MeansUnlimited(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Chaos tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_CrashBetweenDeleteAndUpdate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -384,9 +384,7 @@ func TestClaimTable_ConcurrentEnqueueDequeue(t *testing.T) {
 	// Producers: enqueue runs.
 	var prodWG sync.WaitGroup
 	for range numProducers {
-		prodWG.Add(1)
-		go func() {
-			defer prodWG.Done()
+		prodWG.Go(func() {
 			for i := range runsPerProducer {
 				_ = i
 				select {
@@ -403,16 +401,14 @@ func TestClaimTable_ConcurrentEnqueueDequeue(t *testing.T) {
 				}
 				enqueued.Add(1)
 			}
-		}()
+		})
 	}
 
 	// Consumers: dequeue runs for `duration`.
 	deadline := time.After(duration)
 	var consWG sync.WaitGroup
 	for range numConsumers {
-		consWG.Add(1)
-		go func() {
-			defer consWG.Done()
+		consWG.Go(func() {
 			for {
 				select {
 				case <-deadline:
@@ -434,7 +430,7 @@ func TestClaimTable_ConcurrentEnqueueDequeue(t *testing.T) {
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	prodWG.Wait()

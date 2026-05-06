@@ -19,7 +19,7 @@ func TestDequeueNDenormalized_HappyPath(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-denorm-happy")
 	q := mustQueue(t)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -63,7 +63,7 @@ func TestJobActiveCounts_TriggerMaintainsCounter(t *testing.T) {
 	}
 
 	// Enqueue 5 -> all queued, counter still 0.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 	if getCount() != 0 {

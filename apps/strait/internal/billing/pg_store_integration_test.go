@@ -1818,9 +1818,7 @@ func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			claimed, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
 			if err != nil {
@@ -1828,7 +1826,7 @@ func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
 				return
 			}
 			results <- claimed
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -2071,7 +2069,7 @@ func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 
 // ============================================================
 // Enterprise contract integration tests
-// ============================================================
+// ============================================================.
 
 func makeContract(orgID string, tier billing.EnterpriseTier, endDate time.Time) *billing.EnterpriseContract {
 	subID := "sub_" + orgID
@@ -2325,7 +2323,7 @@ func TestPgStore_UpsertEnterpriseContract_NilStripeSubscriptionID(t *testing.T) 
 
 // ============================================================
 // HTTP job downgrade lifecycle integration tests
-// ============================================================
+// ============================================================.
 
 func createHTTPJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
 	t.Helper()
@@ -2532,7 +2530,7 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H1 regression: ListOrgsInGracePeriod must include MonthlyUsageEmail
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListOrgsInGracePeriod_MonthlyUsageEmail(t *testing.T) {
 	ctx := context.Background()
@@ -2569,7 +2567,7 @@ func TestPgStore_ListOrgsInGracePeriod_MonthlyUsageEmail(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H1 regression: ListStaleSubscriptions must include MonthlyUsageEmail
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	ctx := context.Background()
@@ -2687,7 +2685,7 @@ func TestPgStore_UpsertOrgSubscription_PreservesPendingPlanTier(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M2: UpdateOrgSubscriptionFull with nil period preserves existing
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_UpdateOrgSubscriptionFull_NilPeriodPreservesExisting(t *testing.T) {
 	ctx := context.Background()
@@ -2721,7 +2719,7 @@ func TestPgStore_UpdateOrgSubscriptionFull_NilPeriodPreservesExisting(t *testing
 
 // --------------------------------------------------------------------------
 // M3: BulkCountExecutingRunsByOrg -- zero-run org absent from map
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_BulkCountExecutingRunsByOrg_ZeroRunOrgAbsent(t *testing.T) {
 	ctx := context.Background()
@@ -2740,7 +2738,7 @@ func TestPgStore_BulkCountExecutingRunsByOrg_ZeroRunOrgAbsent(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M4: ListOrgsWithPendingDowngrade near boundary
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListOrgsWithPendingDowngrade_NearBoundary(t *testing.T) {
 	ctx := context.Background()
@@ -2787,7 +2785,7 @@ func TestPgStore_ListOrgsWithPendingDowngrade_NearBoundary(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M5: ListStaleSubscriptions one-day boundary
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListStaleSubscriptions_OneDayBoundary(t *testing.T) {
 	ctx := context.Background()
@@ -2834,7 +2832,7 @@ func TestPgStore_ListStaleSubscriptions_OneDayBoundary(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M6: GetProjectOrgID not found
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_GetProjectOrgID_NotFound(t *testing.T) {
 	ctx := context.Background()
@@ -2873,7 +2871,7 @@ func TestPgStore_ListOrgAdminEmails_DedupsAcrossProjects(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M9: GetOrgUsageForPeriod single day (from == to)
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_GetOrgUsageForPeriod_SingleDay(t *testing.T) {
 	ctx := context.Background()
@@ -2912,7 +2910,7 @@ func TestPgStore_GetOrgUsageForPeriod_SingleDay(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L1: ApplyPendingDowngrade same tier (noop)
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ApplyPendingDowngrade_SameTier(t *testing.T) {
 	ctx := context.Background()
@@ -2944,7 +2942,7 @@ func TestPgStore_ApplyPendingDowngrade_SameTier(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L2: Usage report dedup -- time truncation
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
 	ctx := context.Background()
@@ -2970,7 +2968,7 @@ func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L3: CountMembersByOrg includes soft-deleted project members
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_CountMembersByOrg_IncludesDeletedProjectMembers(t *testing.T) {
 	ctx := context.Background()
@@ -2998,7 +2996,7 @@ func TestPgStore_CountMembersByOrg_IncludesDeletedProjectMembers(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L4: DeleteOldWebhookMessages with future cutoff
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
 	ctx := context.Background()
@@ -3022,7 +3020,7 @@ func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L5: CountAIModelCallsByOrg multiple rows per run
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
 	ctx := context.Background()
@@ -3059,7 +3057,7 @@ func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L6: SuspendExcessProjects with maxProjects=0 suspends all
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_SuspendExcessProjects_ZeroMax(t *testing.T) {
 	ctx := context.Background()
@@ -3088,7 +3086,7 @@ func TestPgStore_SuspendExcessProjects_ZeroMax(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L7: UpsertOrgSubscription preserves spending_limit
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
 	ctx := context.Background()
@@ -3127,7 +3125,7 @@ func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L8: IsProjectSuspended non-existent project
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_IsProjectSuspended_NonExistent(t *testing.T) {
 	ctx := context.Background()

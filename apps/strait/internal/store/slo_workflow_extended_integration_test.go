@@ -441,15 +441,15 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_HappyPath(t *testing.T) {
 
 	projectID := "project-wf-bootstrap-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   testutil.Ptr(stepJob.ID),
-		StepRef: testutil.Ptr("step-a"),
+		JobID:   new(stepJob.ID),
+		StepRef: new("step-a"),
 	})
 
-	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	stepRuns := []domain.WorkflowStepRun{
 		{
 			ID:             newID(),
@@ -484,19 +484,19 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_MultipleSteps(t *testing.T) {
 
 	projectID := "project-wf-bootstrap-multi-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	stepA := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   testutil.Ptr(stepJob.ID),
-		StepRef: testutil.Ptr("step-a"),
+		JobID:   new(stepJob.ID),
+		StepRef: new("step-a"),
 	})
 	stepB := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   testutil.Ptr(stepJob.ID),
-		StepRef: testutil.Ptr("step-b"),
+		JobID:   new(stepJob.ID),
+		StepRef: new("step-b"),
 	})
 
-	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	stepRuns := []domain.WorkflowStepRun{
 		{ID: newID(), WorkflowRunID: run.ID, WorkflowStepID: stepA.ID, StepRef: "step-a", Status: domain.StepPending},
 		{ID: newID(), WorkflowRunID: run.ID, WorkflowStepID: stepB.ID, StepRef: "step-b", Status: domain.StepPending},
@@ -522,10 +522,10 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_NoSteps(t *testing.T) {
 
 	projectID := "project-wf-bootstrap-no-steps-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
-	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	if err := q.CreateWorkflowRunBootstrap(ctx, run, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
 	}
@@ -550,11 +550,11 @@ func TestWorkflowRun_ListStalledWorkflowRuns_HappyPath(t *testing.T) {
 
 	projectID := "project-wf-stalled-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Create a running workflow run with started_at in the past.
-	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	if err := q.CreateWorkflowRun(ctx, run); err != nil {
 		t.Fatalf("CreateWorkflowRun() error = %v", err)
 	}
@@ -586,11 +586,11 @@ func TestWorkflowRun_ListStalledWorkflowRuns_ExcludesRecentRuns(t *testing.T) {
 
 	projectID := "project-wf-stalled-recent-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Create a recently started running workflow.
-	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	if err := q.CreateWorkflowRun(ctx, run); err != nil {
 		t.Fatalf("CreateWorkflowRun() error = %v", err)
 	}
@@ -634,13 +634,13 @@ func TestWorkflowRun_CountActiveWorkflowRunsByVersion_HappyPath(t *testing.T) {
 
 	projectID := "project-wf-count-ver-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	versionID := "v-" + newID()
 
 	// Create 2 active runs with this version.
 	for range 2 {
-		run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+		run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 		run.WorkflowVersionID = versionID
 		if err := q.CreateWorkflowRun(ctx, run); err != nil {
 			t.Fatalf("CreateWorkflowRun() error = %v", err)
@@ -663,19 +663,19 @@ func TestWorkflowRun_CountActiveWorkflowRunsByVersion_ExcludesTerminal(t *testin
 
 	projectID := "project-wf-count-terminal-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	versionID := "v-" + newID()
 
 	// One pending, one completed.
-	pending := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	pending := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	pending.WorkflowVersionID = versionID
 	if err := q.CreateWorkflowRun(ctx, pending); err != nil {
 		t.Fatalf("CreateWorkflowRun(pending) error = %v", err)
 	}
 
 	completed := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 		Status:    testutil.Ptr(domain.WfStatusCompleted),
 	})
 	completed.WorkflowVersionID = versionID
@@ -717,13 +717,13 @@ func TestWorkflowRun_ListActiveWorkflowVersions_HappyPath(t *testing.T) {
 
 	projectID := "project-wf-active-ver-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	vID1 := "v1-" + newID()
 	vID2 := "v2-" + newID()
 
 	for _, vid := range []string{vID1, vID2} {
-		run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+		run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 		run.WorkflowVersionID = vid
 		if err := q.CreateWorkflowRun(ctx, run); err != nil {
 			t.Fatalf("CreateWorkflowRun() error = %v", err)
@@ -760,18 +760,18 @@ func TestWorkflowRun_ListActiveWorkflowVersions_StatusCounts(t *testing.T) {
 
 	projectID := "project-wf-ver-counts-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	vid := "v-counts-" + newID()
 
 	// 1 pending, 1 running.
-	pending := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	pending := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	pending.WorkflowVersionID = vid
 	if err := q.CreateWorkflowRun(ctx, pending); err != nil {
 		t.Fatalf("CreateWorkflowRun(pending) error = %v", err)
 	}
 
-	running := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	running := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	running.WorkflowVersionID = vid
 	if err := q.CreateWorkflowRun(ctx, running); err != nil {
 		t.Fatalf("CreateWorkflowRun(running) error = %v", err)
@@ -817,7 +817,7 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_HappyPath(t *testing.T) {
 
 	projectID := "project-wf-snapshot-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	snapshot, err := q.GetOrCreateWorkflowSnapshot(ctx, &domain.Workflow{
@@ -871,7 +871,7 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_Dedup(t *testing.T) {
 	projectID := "project-wf-snapshot-dedup-" + newID()
 	versionID := "vid-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	wfObj := &domain.Workflow{

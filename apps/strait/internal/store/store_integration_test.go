@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -4076,7 +4077,6 @@ func assertRunEqual(t *testing.T, want, got *domain.JobRun) {
 	assertTimePtrEqual(t, "heartbeat_at", want.HeartbeatAt, got.HeartbeatAt)
 	assertTimePtrEqual(t, "next_retry_at", want.NextRetryAt, got.NextRetryAt)
 	assertTimePtrEqual(t, "expires_at", want.ExpiresAt, got.ExpiresAt)
-
 }
 
 func assertTimePtrEqual(t *testing.T, field string, want, got *time.Time) {
@@ -4645,7 +4645,7 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 }
 
-// ============ Tests for previously untested store methods ============
+// ============ Tests for previously untested store methods ============.
 
 func TestWorkflowRunLabels_CRUD(t *testing.T) {
 	ctx := context.Background()
@@ -5445,7 +5445,7 @@ func TestListRunLineage(t *testing.T) {
 
 // ============================================================================
 // Store integration tests for untested methods + edge cases
-// ============================================================================
+// ============================================================================.
 
 func TestGetDebugBundle(t *testing.T) {
 	ctx := context.Background()
@@ -5821,7 +5821,7 @@ func TestRunUsage_Pagination(t *testing.T) {
 	run := mustCreateRun(t, ctx, q, job)
 
 	// Create 5 usage records
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		u := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "openai", Model: "gpt-4", PromptTokens: i + 1, CompletionTokens: 1, TotalTokens: i + 2, CostMicrousd: int64((i + 1) * 100)}
 		if err := q.CreateRunUsage(ctx, u); err != nil {
 			t.Fatalf("CreateRunUsage(%d) error = %v", i, err)
@@ -6153,17 +6153,18 @@ func TestRunOutput_LargeValue(t *testing.T) {
 	for i := range items {
 		items[i] = `"item-` + strconv.Itoa(i) + `"`
 	}
-	largeJSON := `[` + items[0]
+	var largeJSON strings.Builder
+	largeJSON.WriteString(`[` + items[0])
 	for i := 1; i < len(items); i++ {
-		largeJSON += `,` + items[i]
+		largeJSON.WriteString(`,` + items[i])
 	}
-	largeJSON += `]`
+	largeJSON.WriteString(`]`)
 
 	out := &domain.RunOutput{
 		ID:        newID(),
 		RunID:     run.ID,
 		OutputKey: "large-output",
-		Value:     json.RawMessage(largeJSON),
+		Value:     json.RawMessage(largeJSON.String()),
 	}
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
 		t.Fatalf("UpsertRunOutput(large) error = %v", err)
@@ -6176,8 +6177,8 @@ func TestRunOutput_LargeValue(t *testing.T) {
 	if len(outputs) != 1 {
 		t.Fatalf("len = %d, want 1", len(outputs))
 	}
-	if !jsonEqual(outputs[0].Value, json.RawMessage(largeJSON)) {
-		t.Fatalf("large value mismatch: got %d bytes, want %d bytes", len(outputs[0].Value), len(largeJSON))
+	if !jsonEqual(outputs[0].Value, json.RawMessage(largeJSON.String())) {
+		t.Fatalf("large value mismatch: got %d bytes, want %d bytes", len(outputs[0].Value), len(largeJSON.String()))
 	}
 }
 
@@ -6195,7 +6196,7 @@ func TestListJobsByGroup(t *testing.T) {
 	}
 
 	// Create 3 jobs and assign them to the group
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		job := baseJob(newID(), projectID)
 		job.Name = "group-job-" + strconv.Itoa(i)
 		job.Slug = "group-job-slug-" + strconv.Itoa(i)
@@ -6247,7 +6248,7 @@ func TestListJobsByGroup_Pagination(t *testing.T) {
 	}
 
 	// Create 5 jobs in the group
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		job := baseJob(newID(), projectID)
 		job.Name = "pg-job-" + strconv.Itoa(i)
 		job.Slug = "pg-job-slug-" + strconv.Itoa(i)
@@ -6575,7 +6576,7 @@ func TestListTimedOutWorkflowRuns(t *testing.T) {
 	}
 }
 
-// --- RBAC integration tests ---
+// --- RBAC integration tests ---.
 
 func TestCreateProjectRole(t *testing.T) {
 	ctx := context.Background()
@@ -6817,7 +6818,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 	}
 }
 
-// --- Actor integration tests ---
+// --- Actor integration tests ---.
 
 func TestUpsertKnownActor(t *testing.T) {
 	ctx := context.Background()
@@ -6883,7 +6884,7 @@ func TestGetKnownActor_NotFound(t *testing.T) {
 	}
 }
 
-// --- Version ID + created_by integration tests ---
+// --- Version ID + created_by integration tests ---.
 
 func TestCreateJob_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
@@ -6940,7 +6941,7 @@ func TestUpdateJob_GeneratesNewVersionID(t *testing.T) {
 	}
 }
 
-// --- Workflow version ID + created_by tests ---
+// --- Workflow version ID + created_by tests ---.
 
 func TestCreateWorkflow_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
@@ -7028,7 +7029,7 @@ func TestCreateJob_DefaultVersionPolicy(t *testing.T) {
 	}
 }
 
-// --- DeleteResourcePolicy sentinel test ---
+// --- DeleteResourcePolicy sentinel test ---.
 
 func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	ctx := context.Background()
@@ -7041,7 +7042,7 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	}
 }
 
-// --- RemoveMemberRole sentinel test ---
+// --- RemoveMemberRole sentinel test ---.
 
 func TestRemoveMemberRole_NotFound(t *testing.T) {
 	ctx := context.Background()
@@ -7054,7 +7055,7 @@ func TestRemoveMemberRole_NotFound(t *testing.T) {
 	}
 }
 
-// --- UpdateProjectRole integration test ---
+// --- UpdateProjectRole integration test ---.
 
 func TestUpdateProjectRole(t *testing.T) {
 	ctx := context.Background()
@@ -7112,7 +7113,7 @@ func TestUpdateProjectRole_SystemRoleBlocked(t *testing.T) {
 	}
 }
 
-// --- ListProjectMembers test ---
+// --- ListProjectMembers test ---.
 
 func TestListProjectMembers(t *testing.T) {
 	ctx := context.Background()
@@ -7148,7 +7149,7 @@ func TestListProjectMembers(t *testing.T) {
 	}
 }
 
-// --- Tags query tests ---
+// --- Tags query tests ---.
 
 func TestListJobsByTag_KeyOnly(t *testing.T) {
 	ctx := context.Background()
@@ -7265,7 +7266,7 @@ func TestJobEmptyTags(t *testing.T) {
 
 // ====================================================================
 // Test hardening: RBAC store
-// ====================================================================
+// ====================================================================.
 
 func TestDeleteProjectRole_CustomRole(t *testing.T) {
 	ctx := context.Background()
@@ -7594,7 +7595,7 @@ func TestUpdateProjectRole_NameChange(t *testing.T) {
 
 // ====================================================================
 // Test hardening: Actors
-// ====================================================================
+// ====================================================================.
 
 func TestUpsertKnownActor_UpdateEmail(t *testing.T) {
 	ctx := context.Background()
@@ -7709,7 +7710,7 @@ func TestGetKnownActor_AllFields(t *testing.T) {
 
 // ====================================================================
 // Test hardening: Jobs with new fields
-// ====================================================================
+// ====================================================================.
 
 func TestCreateJob_VersionIDPrefix(t *testing.T) {
 	ctx := context.Background()
@@ -7978,7 +7979,7 @@ func TestGetJobBySlug_IncludesNewFields(t *testing.T) {
 
 // ====================================================================
 // Test hardening: Workflows with new fields
-// ====================================================================
+// ====================================================================.
 
 func TestCreateWorkflow_TagsPersisted(t *testing.T) {
 	ctx := context.Background()
@@ -8074,7 +8075,7 @@ func TestUpdateWorkflow_SetsUpdatedBy(t *testing.T) {
 
 // ====================================================================
 // Test hardening: Tags queries
-// ====================================================================
+// ====================================================================.
 
 func TestListJobsByTag_MultipleTagsOnJob(t *testing.T) {
 	ctx := context.Background()
@@ -8209,7 +8210,7 @@ func TestListWorkflowsByTag_KeyOnly(t *testing.T) {
 	}
 }
 
-// --- Tag query integration tests (runs and workflow runs) ---
+// --- Tag query integration tests (runs and workflow runs) ---.
 
 func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()
@@ -8405,7 +8406,7 @@ func TestAuditEvents_PaginationAndTimeRange(t *testing.T) {
 	base := time.Now().UTC().Add(-20 * time.Minute).Truncate(time.Microsecond)
 
 	ids := make([]string, 0, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor-page",
@@ -8669,10 +8670,10 @@ func TestGetJobAtVersion(t *testing.T) {
 
 	projectID := "project-job-at-version-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
-		ProjectID:   testutil.Ptr(projectID),
-		Name:        testutil.Ptr("job-v1"),
-		Slug:        testutil.Ptr("job-at-version-" + newID()),
-		EndpointURL: testutil.Ptr("https://example.com/v1"),
+		ProjectID:   new(projectID),
+		Name:        new("job-v1"),
+		Slug:        new("job-at-version-" + newID()),
+		EndpointURL: new("https://example.com/v1"),
 	})
 	jobV1Name := job.Name
 	jobV1Endpoint := job.EndpointURL
@@ -8708,10 +8709,10 @@ func TestGetJobVersionByVersionID(t *testing.T) {
 
 	projectID := "project-job-version-id-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
-		ProjectID:   testutil.Ptr(projectID),
-		Name:        testutil.Ptr("job-version-id-v1"),
-		Slug:        testutil.Ptr("job-version-id-" + newID()),
-		EndpointURL: testutil.Ptr("https://example.com/version-id-v1"),
+		ProjectID:   new(projectID),
+		Name:        new("job-version-id-v1"),
+		Slug:        new("job-version-id-" + newID()),
+		EndpointURL: new("https://example.com/version-id-v1"),
 	})
 
 	job.Name = "job-version-id-v2"
@@ -8745,12 +8746,12 @@ func TestListWorkflowVersions(t *testing.T) {
 	mustClean(t, ctx)
 
 	projectID := "project-workflow-versions-" + newID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID:   testutil.Ptr(projectID),
-		Name:        testutil.Ptr("wf-versions"),
-		Slug:        testutil.Ptr("wf-versions-" + newID()),
-		Description: testutil.Ptr("workflow versions test"),
+		ProjectID:   new(projectID),
+		Name:        new("wf-versions"),
+		Slug:        new("wf-versions-" + newID()),
+		Description: new("workflow versions test"),
 	})
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $2, cron_timezone = $3 WHERE id = $1`, wf.ID, "*/5 * * * *", "UTC"); err != nil {
 		t.Fatalf("set workflow cron fields error = %v", err)
@@ -8801,10 +8802,10 @@ func TestGetWorkflowVersionByVersionID(t *testing.T) {
 
 	projectID := "project-workflow-version-id-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID:   testutil.Ptr(projectID),
-		Name:        testutil.Ptr("wf-version-id"),
-		Slug:        testutil.Ptr("wf-version-id-" + newID()),
-		Description: testutil.Ptr("workflow version id test"),
+		ProjectID:   new(projectID),
+		Name:        new("wf-version-id"),
+		Slug:        new("wf-version-id-" + newID()),
+		Description: new("workflow version id test"),
 	})
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $2, cron_timezone = $3 WHERE id = $1`, wf.ID, "*/10 * * * *", "UTC"); err != nil {
 		t.Fatalf("set workflow cron fields error = %v", err)
@@ -8845,9 +8846,9 @@ func TestRetryWebhookDelivery(t *testing.T) {
 
 	projectID := "project-webhook-retry-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
-		ProjectID:     testutil.Ptr(projectID),
-		WebhookURL:    testutil.Ptr("https://example.com/webhook-retry"),
-		WebhookSecret: testutil.Ptr("whsec-retry"),
+		ProjectID:     new(projectID),
+		WebhookURL:    new("https://example.com/webhook-retry"),
+		WebhookSecret: new("whsec-retry"),
 	})
 	run := testutil.MustCreateRun(t, ctx, q, job, nil)
 
@@ -8894,9 +8895,9 @@ func TestListPendingWebhookRetries(t *testing.T) {
 
 	projectID := "project-webhook-pending-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
-		ProjectID:     testutil.Ptr(projectID),
-		WebhookURL:    testutil.Ptr("https://example.com/webhook-pending"),
-		WebhookSecret: testutil.Ptr("whsec-pending"),
+		ProjectID:     new(projectID),
+		WebhookURL:    new("https://example.com/webhook-pending"),
+		WebhookSecret: new("whsec-pending"),
 	})
 	run := testutil.MustCreateRun(t, ctx, q, job, nil)
 
@@ -8932,8 +8933,8 @@ func TestClaimPendingWebhookRetries_LeaseAndTokenBoundUpdate(t *testing.T) {
 
 	projectID := "project-webhook-claim-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
-		ProjectID:  testutil.Ptr(projectID),
-		WebhookURL: testutil.Ptr("https://example.com/webhook-claim"),
+		ProjectID:  new(projectID),
+		WebhookURL: new("https://example.com/webhook-claim"),
 	})
 	run := testutil.MustCreateRun(t, ctx, q, job, nil)
 
@@ -9042,9 +9043,9 @@ func TestDeleteOldWebhookDeliveries(t *testing.T) {
 
 	projectID := "project-webhook-cleanup-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
-		ProjectID:     testutil.Ptr(projectID),
-		WebhookURL:    testutil.Ptr("https://example.com/webhook-cleanup"),
-		WebhookSecret: testutil.Ptr("whsec-cleanup"),
+		ProjectID:     new(projectID),
+		WebhookURL:    new("https://example.com/webhook-cleanup"),
+		WebhookSecret: new("whsec-cleanup"),
 	})
 	run := testutil.MustCreateRun(t, ctx, q, job, nil)
 
@@ -9111,9 +9112,9 @@ func TestPauseJobsByGroup(t *testing.T) {
 		t.Fatalf("CreateJobGroup() error = %v", err)
 	}
 
-	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
-	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
-	outside := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
+	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Enabled: new(true)})
+	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Enabled: new(true)})
+	outside := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Enabled: new(true)})
 	for i, jobID := range []string{inGroupA.ID, inGroupB.ID} {
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, jobID); err != nil {
 			t.Fatalf("assign group (%d) error = %v", i, err)
@@ -9155,8 +9156,8 @@ func TestResumeJobsByGroup(t *testing.T) {
 		t.Fatalf("CreateJobGroup() error = %v", err)
 	}
 
-	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
-	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Enabled: testutil.Ptr(true)})
+	inGroupA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Enabled: new(true)})
+	inGroupB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Enabled: new(true)})
 	for i, jobID := range []string{inGroupA.ID, inGroupB.ID} {
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET group_id = $1 WHERE id = $2`, group.ID, jobID); err != nil {
 			t.Fatalf("assign group (%d) error = %v", i, err)
@@ -9192,7 +9193,7 @@ func TestGetPerformanceAnalytics(t *testing.T) {
 	pq := queue.NewPostgresQueue(testDB.Pool)
 
 	projectID := "project-analytics-" + newID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID), Slug: testutil.Ptr("analytics-job-" + newID())})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Slug: new("analytics-job-" + newID())})
 
 	statuses := []domain.RunStatus{
 		domain.StatusCompleted,
@@ -9252,7 +9253,7 @@ func TestGetJobHealthStats_RecentWindow(t *testing.T) {
 	pq := queue.NewPostgresQueue(testDB.Pool)
 
 	projectID := "project-health-window-" + newID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 
 	now := time.Now().UTC()
 	runRecentCompleted := testutil.BuildRun(job, nil)
@@ -9515,7 +9516,7 @@ func TestListEventTriggersByProject_Filters(t *testing.T) {
 
 	now := time.Now().UTC()
 	mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-wf-waiting-"+newID(), now.Add(-30*time.Second), nil)
-	mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusReceived, "evt-list-proj-wf-received-"+newID(), now.Add(-20*time.Second), testutil.Ptr(now.Add(-10*time.Second)))
+	mustCreateWorkflowStepEventTrigger(t, ctx, q, projectID, wfRun.ID, stepRun.ID, domain.EventTriggerStatusReceived, "evt-list-proj-wf-received-"+newID(), now.Add(-20*time.Second), new(now.Add(-10*time.Second)))
 	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-job-waiting-"+newID(), now.Add(-10*time.Second), nil, nil)
 	mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runOther.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-other-"+newID(), now.Add(-5*time.Second), nil, nil)
 
@@ -9560,7 +9561,7 @@ func TestListEventTriggersByKeyPrefix_ProjectScoping(t *testing.T) {
 	prefix := "batch.prefix."
 	now := time.Now().UTC()
 	matchA := mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, prefix+"one", now.Add(-3*time.Second), nil, nil)
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusReceived, prefix+"received", now.Add(-2*time.Second), testutil.Ptr(now.Add(-time.Second)), nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusReceived, prefix+"received", now.Add(-2*time.Second), new(now.Add(-time.Second)), nil)
 	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, "other.prefix."+newID(), now.Add(-time.Second), nil, nil)
 	matchOtherProject := mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runB.ID, domain.EventTriggerStatusWaiting, prefix+"two", now, nil, nil)
 
@@ -9603,7 +9604,7 @@ func TestListEventTriggersByProject_Cursor(t *testing.T) {
 	middle := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-middle-"+newID(), now.Add(-2*time.Minute), nil, nil)
 	old := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-old-"+newID(), now.Add(-3*time.Minute), nil, nil)
 
-	list, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "", 10, testutil.Ptr(middle.RequestedAt))
+	list, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "", 10, new(middle.RequestedAt))
 	if err != nil {
 		t.Fatalf("ListEventTriggersByProject(cursor) error = %v", err)
 	}
@@ -9623,9 +9624,9 @@ func TestListEventTriggersExpired(t *testing.T) {
 	projectID := "proj-event-trigger-list-expired-" + newID()
 	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
 	now := time.Now().UTC()
-	expired := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-expired-old-"+newID(), now.Add(-2*time.Hour), nil, testutil.Ptr(now.Add(-time.Minute)))
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-expired-future-"+newID(), now.Add(-2*time.Hour), nil, testutil.Ptr(now.Add(2*time.Hour)))
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-expired-received-"+newID(), now.Add(-2*time.Hour), testutil.Ptr(now.Add(-time.Minute)), testutil.Ptr(now.Add(-time.Minute)))
+	expired := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-expired-old-"+newID(), now.Add(-2*time.Hour), nil, new(now.Add(-time.Minute)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-expired-future-"+newID(), now.Add(-2*time.Hour), nil, new(now.Add(2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-expired-received-"+newID(), now.Add(-2*time.Hour), new(now.Add(-time.Minute)), new(now.Add(-time.Minute)))
 
 	list, err := q.ListExpiredEventTriggers(ctx)
 	if err != nil {
@@ -9768,10 +9769,10 @@ func TestCountEventTriggersFinishedBefore(t *testing.T) {
 	now := time.Now().UTC()
 	oldReceived := now.Add(-3 * time.Hour)
 	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-count-finished-received-"+newID(), now.Add(-4*time.Hour), &oldReceived, nil)
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusTimedOut, "evt-count-finished-timeout-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-count-finished-canceled-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-count-finished-waiting-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-count-finished-recent-"+newID(), now.Add(-time.Hour), testutil.Ptr(now.Add(-time.Minute)), nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusTimedOut, "evt-count-finished-timeout-"+newID(), now.Add(-4*time.Hour), nil, new(now.Add(-2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-count-finished-canceled-"+newID(), now.Add(-4*time.Hour), nil, new(now.Add(-2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-count-finished-waiting-"+newID(), now.Add(-4*time.Hour), nil, new(now.Add(-2*time.Hour)))
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-count-finished-recent-"+newID(), now.Add(-time.Hour), new(now.Add(-time.Minute)), nil)
 
 	count, err := q.CountEventTriggersFinishedBefore(ctx, now.Add(-time.Hour))
 	if err != nil {
@@ -9793,9 +9794,9 @@ func TestDeleteEventTriggersFinishedBefore(t *testing.T) {
 	now := time.Now().UTC()
 	oldReceived := now.Add(-3 * time.Hour)
 	oldA := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-delete-finished-a-"+newID(), now.Add(-4*time.Hour), &oldReceived, nil)
-	oldB := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusTimedOut, "evt-delete-finished-b-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
-	recent := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-delete-finished-recent-"+newID(), now.Add(-time.Hour), nil, testutil.Ptr(now.Add(-time.Minute)))
-	waiting := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-delete-finished-waiting-"+newID(), now.Add(-4*time.Hour), nil, testutil.Ptr(now.Add(-2*time.Hour)))
+	oldB := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusTimedOut, "evt-delete-finished-b-"+newID(), now.Add(-4*time.Hour), nil, new(now.Add(-2*time.Hour)))
+	recent := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-delete-finished-recent-"+newID(), now.Add(-time.Hour), nil, new(now.Add(-time.Minute)))
+	waiting := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-delete-finished-waiting-"+newID(), now.Add(-4*time.Hour), nil, new(now.Add(-2*time.Hour)))
 
 	deleted, err := q.DeleteEventTriggersFinishedBefore(ctx, now.Add(-time.Hour), 1)
 	if err != nil {
@@ -9903,8 +9904,8 @@ func TestReceiveEventAndRequeueRun(t *testing.T) {
 
 	projectID := "proj-event-trigger-requeue-run-" + newID()
 	runStatus := domain.StatusWaiting
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
-	run := testutil.MustCreateRun(t, ctx, q, job, &testutil.RunOpts{Status: testutil.Ptr(runStatus)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	run := testutil.MustCreateRun(t, ctx, q, job, &testutil.RunOpts{Status: new(runStatus)})
 	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-requeue-"+newID(), time.Now().UTC().Add(-time.Minute), nil, nil)
 
 	payload := json.RawMessage(`{"checkpoint":"resume"}`)
@@ -9949,7 +9950,7 @@ func TestCountActiveEventTriggersByProject(t *testing.T) {
 
 	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, "evt-count-active-a-"+newID(), now, nil, nil)
 	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusWaiting, "evt-count-active-b-"+newID(), now.Add(time.Second), nil, nil)
-	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusReceived, "evt-count-active-received-"+newID(), now.Add(2*time.Second), testutil.Ptr(now.Add(3*time.Second)), nil)
+	mustCreateJobRunEventTrigger(t, ctx, q, projectID, runA.ID, domain.EventTriggerStatusReceived, "evt-count-active-received-"+newID(), now.Add(2*time.Second), new(now.Add(3*time.Second)), nil)
 	mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runB.ID, domain.EventTriggerStatusWaiting, "evt-count-active-other-"+newID(), now.Add(4*time.Second), nil, nil)
 
 	count, err := q.CountActiveEventTriggersByProject(ctx, projectID)
@@ -10071,18 +10072,18 @@ func mustCreateJobRunWithBuildFactory(t *testing.T, ctx context.Context, q *stor
 	t.Helper()
 
 	job := testutil.BuildJob(&testutil.JobOpts{
-		ID:        testutil.Ptr(newID()),
-		ProjectID: testutil.Ptr(projectID),
-		Name:      testutil.Ptr("job-" + newID()),
-		Slug:      testutil.Ptr("job-slug-" + newID()),
+		ID:        new(newID()),
+		ProjectID: new(projectID),
+		Name:      new("job-" + newID()),
+		Slug:      new("job-slug-" + newID()),
 	})
 	if err := q.CreateJob(ctx, job); err != nil {
 		t.Fatalf("CreateJob() error = %v", err)
 	}
 
 	run := testutil.BuildRun(job, &testutil.RunOpts{
-		ID:     testutil.Ptr(newID()),
-		Status: testutil.Ptr(status),
+		ID:     new(newID()),
+		Status: new(status),
 	})
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
@@ -10095,14 +10096,14 @@ func mustCreateWorkflowStepFixture(t *testing.T, ctx context.Context, q *store.Q
 	t.Helper()
 
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
-		Name:      testutil.Ptr("workflow-" + newID()),
-		Slug:      testutil.Ptr("workflow-slug-" + newID()),
+		ProjectID: new(projectID),
+		Name:      new("workflow-" + newID()),
+		Slug:      new("workflow-slug-" + newID()),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: testutil.Ptr(stepJob.ID), StepRef: testutil.Ptr("step-" + newID())})
-	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
-	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{Status: testutil.Ptr(stepStatus), StepRef: testutil.Ptr(step.StepRef)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: new(stepJob.ID), StepRef: new("step-" + newID())})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
+	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{Status: new(stepStatus), StepRef: new(step.StepRef)})
 
 	return wf, wfRun, stepRun
 }

@@ -465,14 +465,14 @@ func TestRuns_CancelJobRunsByWorkflowRun_HappyPath(t *testing.T) {
 
 	// Create workflow, step, run, step run linked to a job run.
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
+		JobID: new(stepJob.ID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Create a job run and link it via workflow_step_run.
@@ -482,7 +482,7 @@ func TestRuns_CancelJobRunsByWorkflowRun_HappyPath(t *testing.T) {
 		t.Fatalf("CreateRun error = %v", err)
 	}
 	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
+		JobRunID: new(jobRun.ID),
 	})
 
 	now := time.Now().UTC()
@@ -510,14 +510,14 @@ func TestRuns_CancelJobRunsByWorkflowRun_SkipsAlreadyTerminal(t *testing.T) {
 
 	projectID := "project-cancel-wf-terminal"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
+		JobID: new(stepJob.ID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Create already-completed job run.
@@ -532,7 +532,7 @@ func TestRuns_CancelJobRunsByWorkflowRun_SkipsAlreadyTerminal(t *testing.T) {
 		t.Fatalf("UpdateRunStatus error = %v", err)
 	}
 	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
+		JobRunID: new(jobRun.ID),
 	})
 
 	count, err := q.CancelJobRunsByWorkflowRun(ctx, wfRun.ID, time.Now().UTC(), "cancel")
@@ -586,14 +586,14 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_HappyPath(t *testing.T) {
 
 	projectID := "project-pause-wf-runs"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
+		JobID: new(stepJob.ID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	jobRun := baseRun(stepJob, newID())
@@ -602,7 +602,7 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_HappyPath(t *testing.T) {
 		t.Fatalf("CreateRun error = %v", err)
 	}
 	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
+		JobRunID: new(jobRun.ID),
 	})
 
 	count, err := q.MarkJobRunsPausedByWorkflowRun(ctx, wfRun.ID)
@@ -629,14 +629,14 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_SkipsNonExecuting(t *testing.T) {
 
 	projectID := "project-pause-wf-skip"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
+		JobID: new(stepJob.ID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Queued run should not be paused.
@@ -646,7 +646,7 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_SkipsNonExecuting(t *testing.T) {
 		t.Fatalf("CreateRun error = %v", err)
 	}
 	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
+		JobRunID: new(jobRun.ID),
 	})
 
 	count, err := q.MarkJobRunsPausedByWorkflowRun(ctx, wfRun.ID)
@@ -681,14 +681,14 @@ func TestRuns_RequeuePausedJobRuns_HappyPath(t *testing.T) {
 
 	projectID := "project-requeue-paused"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID: testutil.Ptr(stepJob.ID),
+		JobID: new(stepJob.ID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Create executing run, pause it, then requeue.
@@ -698,7 +698,7 @@ func TestRuns_RequeuePausedJobRuns_HappyPath(t *testing.T) {
 		t.Fatalf("CreateRun error = %v", err)
 	}
 	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
-		JobRunID: testutil.Ptr(jobRun.ID),
+		JobRunID: new(jobRun.ID),
 	})
 
 	_, err := q.MarkJobRunsPausedByWorkflowRun(ctx, wfRun.ID)
@@ -1786,7 +1786,6 @@ func TestRunState_CopyRunState_EmptySource(t *testing.T) {
 		t.Fatalf("len = %d, want 0", len(items))
 	}
 }
-
 
 // CreateRunResourceSnapshot.
 

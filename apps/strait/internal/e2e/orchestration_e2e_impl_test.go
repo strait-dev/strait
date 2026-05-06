@@ -247,8 +247,8 @@ func TestEndToEndWorkerMode(t *testing.T) {
 		ProjectID:      projectID,
 		APIKeyID:       "e2e-api-key",
 		Queues:         []string{queueName},
-		SlotsTotal:     int32(runCount), //nolint:gosec
-		SlotsAvailable: int32(runCount), //nolint:gosec
+		SlotsTotal:     int32(runCount),
+		SlotsAvailable: int32(runCount),
 		Status:         "active",
 		SendCh:         sendCh,
 	}
@@ -281,9 +281,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 
 	// Worker goroutine: drain assignments from sendCh, send back results.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for msg := range sendCh {
 			ta, ok := msg.Payload.(*workerv1.ServerMessage_TaskAssignment)
 			if !ok {
@@ -312,7 +310,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 				t.Logf("cost recording error for run %s: %v", assignment.RunId, costErr)
 			}
 		}
-	}()
+	})
 
 	// Dispatch all runs through the WorkerDispatcher (mirrors what the executor does).
 	dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

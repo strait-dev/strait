@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,7 +30,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // Globals
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 var (
 	testEnv   *testutil.TestEnv
@@ -45,7 +46,7 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // ---------------------------------------------------------------------------
 // Configuration (overridable via env vars)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 type loadCfg struct {
 	// Baseline mode: fixed-rate SLA validation.
@@ -86,7 +87,7 @@ func loadCfgFromEnv() loadCfg {
 
 // ---------------------------------------------------------------------------
 // TestMain
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestMain(m *testing.M) {
 	cfg = loadCfgFromEnv()
@@ -130,7 +131,7 @@ func TestMain(m *testing.M) {
 
 // ---------------------------------------------------------------------------
 // Attack mode helpers
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 type attackOption func(*attackSettings)
 
@@ -207,7 +208,7 @@ func doAttack(t *testing.T, name string, tgt vegeta.Targeter, pacer vegeta.Pacer
 
 // ---------------------------------------------------------------------------
 // Assertions
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // assertLatencySLA checks p95 and p99 against configured SLA thresholds.
 func assertLatencySLA(t *testing.T, m vegeta.Metrics) {
@@ -217,17 +218,6 @@ func assertLatencySLA(t *testing.T, m vegeta.Metrics) {
 	}
 	if m.Latencies.P99 > cfg.MaxP99 {
 		t.Errorf("p99 latency %v exceeds SLA %v", m.Latencies.P99, cfg.MaxP99)
-	}
-}
-
-// assertLatency checks custom p95 and p99 thresholds.
-func assertLatency(t *testing.T, m vegeta.Metrics, maxP95, maxP99 time.Duration) {
-	t.Helper()
-	if m.Latencies.P95 > maxP95 {
-		t.Errorf("p95 latency %v exceeds threshold %v", m.Latencies.P95, maxP95)
-	}
-	if m.Latencies.P99 > maxP99 {
-		t.Errorf("p99 latency %v exceeds threshold %v", m.Latencies.P99, maxP99)
 	}
 }
 
@@ -250,14 +240,6 @@ func assertStatusCodes(t *testing.T, m vegeta.Metrics, allowed ...string) {
 		if !allowedSet[code] {
 			t.Errorf("unexpected status code %s (%d occurrences)", code, count)
 		}
-	}
-}
-
-// assertMinThroughput checks that throughput exceeds a minimum RPS.
-func assertMinThroughput(t *testing.T, m vegeta.Metrics, minRPS float64) {
-	t.Helper()
-	if m.Throughput < minRPS {
-		t.Errorf("throughput %.2f rps below minimum %.2f rps", m.Throughput, minRPS)
 	}
 }
 
@@ -291,10 +273,7 @@ func logMetrics(t *testing.T, name string, m vegeta.Metrics) {
 	}
 
 	if len(m.Errors) > 0 {
-		maxShow := 5
-		if len(m.Errors) < maxShow {
-			maxShow = len(m.Errors)
-		}
+		maxShow := min(len(m.Errors), 5)
 		for _, e := range m.Errors[:maxShow] {
 			t.Logf("  error:      %s", e)
 		}
@@ -306,7 +285,7 @@ func logMetrics(t *testing.T, name string, m vegeta.Metrics) {
 
 // ---------------------------------------------------------------------------
 // Targeter factories
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // newTargeter creates a Vegeta targeter for authenticated API requests.
 func newTargeter(method, path string, bodyFn func() []byte) vegeta.Targeter {
@@ -332,22 +311,6 @@ func newProjectTargeter(method, path, projectID string, bodyFn func() []byte) ve
 		tgt.Header = http.Header{
 			"X-Internal-Secret": []string{"test-secret-value"},
 			"X-Project-Id":      []string{projectID},
-			"Content-Type":      []string{"application/json"},
-		}
-		if bodyFn != nil {
-			tgt.Body = bodyFn()
-		}
-		return nil
-	}
-}
-
-// newDynamicTargeter creates a targeter where path varies per request.
-func newDynamicTargeter(method string, pathFn func() string, bodyFn func() []byte) vegeta.Targeter {
-	return func(tgt *vegeta.Target) error {
-		tgt.Method = method
-		tgt.URL = baseURL + pathFn()
-		tgt.Header = http.Header{
-			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
 		if bodyFn != nil {
@@ -389,21 +352,9 @@ func newAPIKeyTargeter(method, path, apiKey string, bodyFn func() []byte) vegeta
 	}
 }
 
-// newUnauthTargeter creates a targeter with no authentication.
-func newUnauthTargeter(method, path string) vegeta.Targeter {
-	return func(tgt *vegeta.Target) error {
-		tgt.Method = method
-		tgt.URL = baseURL + path
-		tgt.Header = http.Header{
-			"Content-Type": []string{"application/json"},
-		}
-		return nil
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Data seeding (via HTTP to test server)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // seedJob creates a job and returns its ID.
 func seedJob(t *testing.T, projectID string) string {
@@ -415,17 +366,6 @@ func seedJob(t *testing.T, projectID string) string {
 	)
 	resp := httpDo(t, "POST", "/v1/jobs/", body, nil)
 	return resp["id"].(string)
-}
-
-// seedJobFull creates a job and returns the full response.
-func seedJobFull(t *testing.T, projectID string) map[string]any {
-	t.Helper()
-	slug := "load-" + newID()
-	body := fmt.Sprintf(
-		`{"project_id":"%s","name":"load-%s","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"cron":"*/5 * * * *","payload_schema":{"type":"object"},"run_ttl_secs":600}`,
-		projectID, slug, slug, slug,
-	)
-	return httpDo(t, "POST", "/v1/jobs/", body, nil)
 }
 
 // seedJobWithTags creates a job with tags and returns its ID.
@@ -646,7 +586,7 @@ func seedMember(t *testing.T) (roleID, userID string) {
 
 // ---------------------------------------------------------------------------
 // HTTP helper
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // httpDo performs an authenticated HTTP request and returns the decoded JSON body.
 func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) map[string]any {
@@ -662,9 +602,7 @@ func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) m
 	}
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
-	for k, v := range extraHeaders {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, extraHeaders)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -686,34 +624,9 @@ func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) m
 	return result
 }
 
-// httpDoStatus performs an HTTP request and returns (statusCode, body).
-func httpDoStatus(t *testing.T, method, path, body string) (int, []byte) {
-	t.Helper()
-	var r io.Reader
-	if body != "" {
-		r = strings.NewReader(body)
-	}
-
-	req, err := http.NewRequest(method, baseURL+path, r)
-	if err != nil {
-		t.Fatalf("httpDoStatus new request: %v", err)
-	}
-	req.Header.Set("X-Internal-Secret", "test-secret-value")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		t.Fatalf("httpDoStatus %s %s: %v", method, path, err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, respBody
-}
-
 // ---------------------------------------------------------------------------
 // Utilities
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()

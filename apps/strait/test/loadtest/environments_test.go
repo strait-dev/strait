@@ -17,10 +17,10 @@ func TestEnvironments_Create(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/environments/", func() []byte {
 		slug := "env-" + newID()
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","name":"load-env-%s","slug":"%s","variables":{"KEY":"value","DB_HOST":"localhost"}}`,
 			projectID, slug, slug,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestEnvironments_Update(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newTargeter("PATCH", "/v1/environments/"+envID+"/", func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"name":"updated-env-%d"}`, n))
+		return fmt.Appendf(nil, `{"name":"updated-env-%d"}`, n)
 	})
 
 	t.Run("baseline", func(t *testing.T) {

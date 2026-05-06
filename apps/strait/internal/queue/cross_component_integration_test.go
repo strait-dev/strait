@@ -73,7 +73,7 @@ func TestCrossPhase_ReconcilerAndPromoterCoexist(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-cross-lock")
 	q := mustQueue(t)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 	// Backdate so the promoter considers them aged.
@@ -154,7 +154,7 @@ func TestCrossPhase_FanoutDuringActiveDequeue(t *testing.T) {
 	q := mustQueue(t)
 
 	// Enqueue a batch.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 	// Pause mid-stream after claiming 5.

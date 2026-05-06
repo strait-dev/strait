@@ -80,7 +80,6 @@ func TestAuditDeadletter_RoundTrip(t *testing.T) {
 	if vc.EventsChecked != 0 {
 		t.Errorf("events_checked = %d, want 0 (deadletter is separate)", vc.EventsChecked)
 	}
-
 }
 
 // TestAuditDeadletter_AttemptCountIncrement asserts the per-row attempt

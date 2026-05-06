@@ -4,6 +4,7 @@ package queue_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -36,12 +37,7 @@ func isValidTransition(from, to domain.RunStatus) bool {
 	if !ok {
 		return false
 	}
-	for _, t := range targets {
-		if t == to {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(targets, to)
 }
 
 func TestFSM_AllValidTransitionsSucceed(t *testing.T) {

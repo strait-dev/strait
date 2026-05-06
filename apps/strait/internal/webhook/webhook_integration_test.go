@@ -340,7 +340,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 
 	// Manually poll so we can control timing and update next_retry_at
 	// to bypass the backoff delay.
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		workerCtx, cancel := context.WithCancel(ctx)
 		go func() {
 			_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
@@ -419,7 +419,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 	}
 
 	// Run the worker repeatedly, resetting next_retry_at each time.
-	for attempt := 0; attempt < maxAttempts+1; attempt++ {
+	for range maxAttempts + 1 {
 		worker := webhook.NewDeliveryWorker(st, slog.Default(),
 			webhook.WithConcurrency(1),
 			webhook.WithRetryPolicy(domain.WebhookRetryPolicyFixed),
@@ -513,10 +513,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 	}()
 
 	deadline := time.After(30 * time.Second)
-	for {
-		if int(totalRequests.Load()) >= deliveryCount {
-			break
-		}
+	for int(totalRequests.Load()) < deliveryCount {
 		select {
 		case <-deadline:
 			t.Fatalf("timed out: received %d/%d deliveries", totalRequests.Load(), deliveryCount)

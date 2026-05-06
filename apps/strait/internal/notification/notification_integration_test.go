@@ -5,6 +5,7 @@ package notification_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -78,7 +79,7 @@ func makeDelivery(channelID, projectID, eventType string, payload json.RawMessag
 	}
 }
 
-// -- Channel CRUD tests --
+// -- Channel CRUD tests --.
 
 func TestCreateAndGetNotificationChannel(t *testing.T) {
 	ctx := context.Background()
@@ -121,7 +122,7 @@ func TestGetNotificationChannel_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent channel, got nil")
 	}
-	if err != store.ErrNotificationChannelNotFound {
+	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
 		t.Fatalf("error = %v, want ErrNotificationChannelNotFound", err)
 	}
 }
@@ -224,7 +225,7 @@ func TestDeleteNotificationChannel(t *testing.T) {
 	}
 
 	_, err := st.GetNotificationChannel(ctx, ch.ID, ch.ProjectID)
-	if err != store.ErrNotificationChannelNotFound {
+	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
 		t.Fatalf("expected ErrNotificationChannelNotFound after delete, got %v", err)
 	}
 }
@@ -235,12 +236,12 @@ func TestDeleteNotificationChannel_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := st.DeleteNotificationChannel(ctx, newID(), "proj-nope")
-	if err != store.ErrNotificationChannelNotFound {
+	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
 		t.Fatalf("error = %v, want ErrNotificationChannelNotFound", err)
 	}
 }
 
-// -- Delivery storage tests --
+// -- Delivery storage tests --.
 
 func TestCreateAndListNotificationDeliveries(t *testing.T) {
 	ctx := context.Background()
@@ -320,7 +321,7 @@ func TestListNotificationDeliveries_Cursor(t *testing.T) {
 	}
 }
 
-// -- Claim and processing tests --
+// -- Claim and processing tests --.
 
 func TestClaimPendingNotificationDeliveries(t *testing.T) {
 	ctx := context.Background()
@@ -496,7 +497,7 @@ func TestUpdateClaimedNotificationDelivery_WrongToken(t *testing.T) {
 	}
 }
 
-// -- Status lifecycle tests --
+// -- Status lifecycle tests --.
 
 func TestDeliveryStatusLifecycle_PendingToDelivered(t *testing.T) {
 	ctx := context.Background()
@@ -596,7 +597,7 @@ func TestDeliveryStatusLifecycle_PendingToFailed(t *testing.T) {
 	}
 }
 
-// -- Retry flow tests --
+// -- Retry flow tests --.
 
 func TestDeliveryRetryFlow(t *testing.T) {
 	ctx := context.Background()
@@ -687,7 +688,7 @@ func TestDeliveryRetryNotClaimableBeforeNextRetryAt(t *testing.T) {
 	}
 }
 
-// -- Worker integration with real DB --
+// -- Worker integration with real DB --.
 
 // fakeSender records calls and optionally returns an error.
 type fakeSender struct {

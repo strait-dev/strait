@@ -83,7 +83,7 @@ func TestOutbox_IdempotentOnIDConflict(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-outbox-idem")
 
 	fixedID := newID()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		tx, err := testDB.Pool.Begin(ctx)
 		if err != nil {
 			t.Fatalf("begin: %v", err)

@@ -21,7 +21,7 @@ import (
 func seedDatedChain(ctx context.Context, t *testing.T, q *store.Queries, projectID string, n int, base time.Time, signingKey []byte) []string {
 	t.Helper()
 	ids := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",
@@ -219,7 +219,7 @@ func TestVerifyAuditChain_AcceptsTombstoneAnchor(t *testing.T) {
 
 	// Add a few post-trim events to ensure the chain continues past the
 	// tombstone cleanly.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",
@@ -650,7 +650,7 @@ func TestTombstoneDoesNotRaceWithRotation(t *testing.T) {
 	}()
 	close(start)
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		o := <-results
 		if o.err != nil {
 			t.Fatalf("%s: %v", o.who, o.err)

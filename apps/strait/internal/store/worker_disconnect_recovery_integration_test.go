@@ -51,7 +51,7 @@ func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) 
 
 	executing := domain.StatusExecuting
 	run := testutil.BuildRun(job, &testutil.RunOpts{
-		ID:     ptrString("run-disconnect-recovery"),
+		ID:     new("run-disconnect-recovery"),
 		Status: &executing,
 	})
 	run.ExecutionMode = domain.ExecutionModeWorker
@@ -101,5 +101,3 @@ func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) 
 		t.Fatal("worker task finished_at = nil, want timestamp")
 	}
 }
-
-func ptrString(s string) *string { return &s }

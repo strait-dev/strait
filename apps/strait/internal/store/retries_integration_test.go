@@ -128,7 +128,7 @@ func TestRetries_HOTUpdateOnScheduleDoesNotChurnJobRuns(t *testing.T) {
 	`).Scan(&updBefore)
 
 	// Schedule 100 retries via the side table.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_ = q.ScheduleRetry(ctx, "churn-"+newID(), time.Now().UTC().Add(1*time.Hour), 1)
 	}
 

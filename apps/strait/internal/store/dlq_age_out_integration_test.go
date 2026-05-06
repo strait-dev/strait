@@ -136,7 +136,7 @@ func TestMaskOldDLQRows_RespectsLimit(t *testing.T) {
 	job := baseJob(newID(), projectID)
 	_ = q.CreateJob(ctx, job)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_, _ = testDB.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW(), NOW() - INTERVAL '48 hours')

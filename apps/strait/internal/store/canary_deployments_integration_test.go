@@ -20,7 +20,7 @@ func TestCreateCanaryDeployment(t *testing.T) {
 
 	projectID := "project-canary-create"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	canary := &domain.CanaryDeployment{
@@ -50,7 +50,7 @@ func TestCreateCanaryDeployment_DuplicateActive(t *testing.T) {
 
 	projectID := "project-canary-dup"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	canary := &domain.CanaryDeployment{
@@ -86,7 +86,7 @@ func TestGetActiveCanaryDeployment(t *testing.T) {
 
 	projectID := "project-canary-get"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	canary := &domain.CanaryDeployment{
@@ -126,7 +126,7 @@ func TestUpdateCanaryDeploymentTraffic(t *testing.T) {
 
 	projectID := "project-canary-traffic"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	canary := &domain.CanaryDeployment{
@@ -167,7 +167,7 @@ func TestCompleteCanaryDeployment(t *testing.T) {
 
 	projectID := "project-canary-complete"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	canary := &domain.CanaryDeployment{

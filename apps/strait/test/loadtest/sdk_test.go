@@ -17,7 +17,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // SDK seeding helpers
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 // seedExecutingRun creates a run and transitions it to executing status,
 // returning (runID, runToken). SDK endpoints typically require executing runs.
@@ -57,7 +57,7 @@ func seedManyExecutingRuns(t *testing.T, jobID string, n int) ([]string, []strin
 
 // ---------------------------------------------------------------------------
 // SDK Log
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Log(t *testing.T) {
 	mustClean(t)
@@ -66,7 +66,7 @@ func TestSDK_Log(t *testing.T) {
 	runID, runToken := seedExecutingRun(t, jobID)
 
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/log", runToken, func() []byte {
-		return []byte(fmt.Sprintf(`{"message":"load test log %s","level":"info","data":{"iter":true}}`, newID()))
+		return fmt.Appendf(nil, `{"message":"load test log %s","level":"info","data":{"iter":true}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestSDK_Log(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Progress
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Progress(t *testing.T) {
 	mustClean(t)
@@ -100,8 +100,8 @@ func TestSDK_Progress(t *testing.T) {
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/progress", runToken, func() []byte {
 		n := counter.Add(1)
 		pct := float64(n%100) + 0.5
-		return []byte(fmt.Sprintf(`{"percent":%.1f,"message":"step %d","step":"phase-%d","eta_seconds":%d}`,
-			pct, n, n%5, 60-n%60))
+		return fmt.Appendf(nil, `{"percent":%.1f,"message":"step %d","step":"phase-%d","eta_seconds":%d}`,
+			pct, n, n%5, 60-n%60)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -123,7 +123,7 @@ func TestSDK_Progress(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Annotate
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Annotate(t *testing.T) {
 	mustClean(t)
@@ -134,7 +134,7 @@ func TestSDK_Annotate(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/annotate", runToken, func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"annotations":{"env":"prod","region":"us-east-%d","version":"v%d"}}`, n%4, n))
+		return fmt.Appendf(nil, `{"annotations":{"env":"prod","region":"us-east-%d","version":"v%d"}}`, n%4, n)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestSDK_Annotate(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Heartbeat
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Heartbeat(t *testing.T) {
 	mustClean(t)
@@ -185,7 +185,7 @@ func TestSDK_Heartbeat(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Checkpoint
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Checkpoint(t *testing.T) {
 	mustClean(t)
@@ -196,7 +196,7 @@ func TestSDK_Checkpoint(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/checkpoint", runToken, func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"state":{"cursor":%d,"batch_size":100,"offset":%d}}`, n, n*100))
+		return fmt.Appendf(nil, `{"state":{"cursor":%d,"batch_size":100,"offset":%d}}`, n, n*100)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestSDK_Checkpoint(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Usage
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Usage(t *testing.T) {
 	mustClean(t)
@@ -229,10 +229,10 @@ func TestSDK_Usage(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/usage", runToken, func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"provider":"openai","model":"gpt-4","prompt_tokens":%d,"completion_tokens":%d,"cost_microusd":%d}`,
 			100+n%500, 50+n%200, 10+n%100,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -254,7 +254,7 @@ func TestSDK_Usage(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Tool Call
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_ToolCall(t *testing.T) {
 	mustClean(t)
@@ -265,10 +265,10 @@ func TestSDK_ToolCall(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/tool-call", runToken, func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"tool_name":"search-%d","input":{"query":"test %d"},"output":{"results":%d},"duration_ms":%d,"status":"success"}`,
 			n%10, n, n%100, 50+n%500,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -290,7 +290,7 @@ func TestSDK_ToolCall(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Output
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Output(t *testing.T) {
 	mustClean(t)
@@ -301,10 +301,10 @@ func TestSDK_Output(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/output", runToken, func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"output_key":"result-%d","value":{"score":%d,"label":"output-%d"}}`,
 			n, n%100, n,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -326,7 +326,7 @@ func TestSDK_Output(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Complete
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Complete(t *testing.T) {
 	mustClean(t)
@@ -363,7 +363,7 @@ func TestSDK_Complete(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Fail
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Fail(t *testing.T) {
 	mustClean(t)
@@ -383,7 +383,7 @@ func TestSDK_Fail(t *testing.T) {
 			"Authorization": []string{"Bearer " + runTokens[pos]},
 			"Content-Type":  []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"error":"load test failure %d"}`, i))
+		tgt.Body = fmt.Appendf(nil, `{"error":"load test failure %d"}`, i)
 		return nil
 	}
 
@@ -395,7 +395,7 @@ func TestSDK_Fail(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Spawn
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Spawn(t *testing.T) {
 	mustClean(t)
@@ -412,10 +412,10 @@ func TestSDK_Spawn(t *testing.T) {
 	runID, runToken := seedExecutingRun(t, parentJobID)
 
 	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/spawn", runToken, func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"job_slug":"%s","project_id":"%s","payload":{"spawned":"%s"}}`,
 			childSlug, projectID, newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -431,7 +431,7 @@ func TestSDK_Spawn(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Continue
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_Continue(t *testing.T) {
 	mustClean(t)
@@ -453,7 +453,7 @@ func TestSDK_Continue(t *testing.T) {
 			"Authorization": []string{"Bearer " + runTokens[pos]},
 			"Content-Type":  []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"payload":{"step":%d}}`, i))
+		tgt.Body = fmt.Appendf(nil, `{"payload":{"step":%d}}`, i)
 		return nil
 	}
 
@@ -465,7 +465,7 @@ func TestSDK_Continue(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK WaitForEvent
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_WaitForEvent(t *testing.T) {
 	mustClean(t)
@@ -488,7 +488,7 @@ func TestSDK_WaitForEvent(t *testing.T) {
 			"Content-Type":  []string{"application/json"},
 		}
 		// Each event key must be unique to avoid conflicts.
-		tgt.Body = []byte(fmt.Sprintf(`{"event_key":"load:%s","timeout_secs":3600}`, newID()))
+		tgt.Body = fmt.Appendf(nil, `{"event_key":"load:%s","timeout_secs":3600}`, newID())
 		return nil
 	}
 
@@ -500,7 +500,7 @@ func TestSDK_WaitForEvent(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Concurrent Multi-Endpoint (mixed workload)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_ConcurrentMixedOperations(t *testing.T) {
 	mustClean(t)
@@ -558,7 +558,7 @@ func TestSDK_ConcurrentMixedOperations(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Rapid Heartbeat (high-frequency single-endpoint)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_RapidHeartbeat(t *testing.T) {
 	mustClean(t)
@@ -583,7 +583,7 @@ func TestSDK_RapidHeartbeat(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SDK Multi-Run Log Fan-Out (many runs logging concurrently)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSDK_MultiRunLogFanOut(t *testing.T) {
 	mustClean(t)
@@ -603,7 +603,7 @@ func TestSDK_MultiRunLogFanOut(t *testing.T) {
 			"Authorization": []string{"Bearer " + runTokens[pos]},
 			"Content-Type":  []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"message":"fan-out log %d from run %d"}`, i, pos))
+		tgt.Body = fmt.Appendf(nil, `{"message":"fan-out log %d from run %d"}`, i, pos)
 		return nil
 	}
 
