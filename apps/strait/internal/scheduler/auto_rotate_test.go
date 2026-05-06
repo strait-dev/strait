@@ -79,6 +79,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 				{
 					ID:                   "old-key-1",
 					ProjectID:            "proj-1",
+					OrgID:                "org-1",
 					Name:                 "My Key",
 					Scopes:               []string{"jobs:read", "jobs:write"},
 					EnvironmentID:        "env-prod",
@@ -111,6 +112,9 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	}
 	if createdKey.ProjectID != "proj-1" {
 		t.Fatalf("new key project = %q, want proj-1", createdKey.ProjectID)
+	}
+	if createdKey.OrgID != "org-1" {
+		t.Fatalf("new key org = %q, want org-1", createdKey.OrgID)
 	}
 	if createdKey.EnvironmentID != "env-prod" {
 		t.Fatalf("new key env = %q, want env-prod", createdKey.EnvironmentID)
@@ -164,7 +168,7 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
 	r.autoRotateAPIKeys(context.Background())
 
 	if created.Load() != 0 {
@@ -244,6 +248,7 @@ func TestAutoRotateAPIKeys_MarkFailsRevokesNewKey(t *testing.T) {
 	t.Parallel()
 
 	rotationDays := 30
+	webhookURL := rotationWebhookURLForTest(t)
 	var revokedID string
 	var auditCalled atomic.Int32
 	ms := &mockAutoRotateStore{
@@ -253,7 +258,7 @@ func TestAutoRotateAPIKeys_MarkFailsRevokesNewKey(t *testing.T) {
 				ProjectID:            "proj-1",
 				Name:                 "My Key",
 				RotationIntervalDays: &rotationDays,
-				RotationWebhookURL:   "https://example.com/rotation",
+				RotationWebhookURL:   webhookURL,
 			}}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
@@ -273,7 +278,7 @@ func TestAutoRotateAPIKeys_MarkFailsRevokesNewKey(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
 	r.autoRotateAPIKeys(context.Background())
 
 	if revokedID != "new-key-orphan" {
@@ -310,7 +315,7 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 		createAuditEventFn: func(context.Context, *domain.AuditEvent) error { return nil },
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
 	r.autoRotateAPIKeys(context.Background())
 
 	if created.Load() != 3 {
@@ -340,7 +345,7 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 		createAuditEventFn: func(context.Context, *domain.AuditEvent) error { return nil },
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
 	r.autoRotateAPIKeys(context.Background())
 
 	if createdKey.NextRotationAt != nil {
@@ -376,9 +381,120 @@ func TestNotifyRotationWebhook_BlocksPrivateURL(t *testing.T) {
 	defer server.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
-	r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+		t.Fatal("expected private plaintext rotation webhook to be blocked")
+	}
 
 	if called.Load() != 0 {
 		t.Fatalf("private rotation webhook was called %d times, want 0", called.Load())
+	}
+}
+
+func TestNotifyRotationWebhook_AllowsHTTPOnlyWithPrivateEndpoints(t *testing.T) {
+	t.Parallel()
+
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
+		t.Fatalf("notifyRotationWebhook returned error: %v", err)
+	}
+
+	if called.Load() != 1 {
+		t.Fatalf("rotation webhook was called %d times, want 1", called.Load())
+	}
+}
+
+func TestAutoRotateAPIKeys_WebhookFailureKeepsOldKeyActive(t *testing.T) {
+	t.Parallel()
+
+	rotationDays := 30
+	var marked atomic.Int32
+	var revokedID string
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			return []domain.APIKey{{
+				ID:                   "old-key-1",
+				ProjectID:            "proj-1",
+				OrgID:                "org-1",
+				Name:                 "My Key",
+				RotationIntervalDays: &rotationDays,
+				RotationWebhookURL:   "http://rotation.example.test/hook",
+			}}, nil
+		},
+		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+			if key.OrgID != "org-1" {
+				t.Fatalf("new key org = %q, want org-1", key.OrgID)
+			}
+			key.ID = "new-undelivered-key"
+			return nil
+		},
+		markRotatedFn: func(context.Context, string, string, time.Time) error {
+			marked.Add(1)
+			return nil
+		},
+		revokeAPIKeyFn: func(_ context.Context, id string) error {
+			revokedID = id
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.autoRotateAPIKeys(context.Background())
+
+	if marked.Load() != 0 {
+		t.Fatalf("marked old key rotated %d times, want 0 when delivery fails", marked.Load())
+	}
+	if revokedID != "new-undelivered-key" {
+		t.Fatalf("revokedID = %q, want new-undelivered-key", revokedID)
+	}
+}
+
+func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
+	t.Parallel()
+
+	var delivered atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		delivered.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	rotationDays := 30
+	var marked atomic.Int32
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			return []domain.APIKey{{
+				ID:                   "old-key-1",
+				ProjectID:            "proj-1",
+				Name:                 "My Key",
+				RotationIntervalDays: &rotationDays,
+				RotationWebhookURL:   server.URL,
+			}}, nil
+		},
+		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+			key.ID = "new-key-1"
+			return nil
+		},
+		markRotatedFn: func(context.Context, string, string, time.Time) error {
+			if delivered.Load() != 1 {
+				t.Fatal("old key was marked rotated before webhook delivery")
+			}
+			marked.Add(1)
+			return nil
+		},
+		createAuditEventFn: func(context.Context, *domain.AuditEvent) error { return nil },
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.autoRotateAPIKeys(context.Background())
+
+	if marked.Load() != 1 {
+		t.Fatalf("marked old key rotated %d times, want 1", marked.Load())
 	}
 }

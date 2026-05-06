@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -1286,6 +1287,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 
 		newKey := &domain.APIKey{
 			ProjectID:            oldKey.ProjectID,
+			OrgID:                oldKey.OrgID,
 			Name:                 oldKey.Name + " (auto-rotated)",
 			KeyHash:              hex.EncodeToString(keyHash[:]),
 			KeyPrefix:            rawKey[:12],
@@ -1303,6 +1305,16 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 
 		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
 			r.logger.Error("failed to create rotated api key", "key_id", oldKey.ID, "error", err)
+			continue
+		}
+
+		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
+			r.logger.Warn("rotation webhook notification failed; keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if newKey.ID != "" {
+				if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+					r.logger.Warn("failed to revoke undelivered rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+				}
+			}
 			continue
 		}
 
@@ -1332,16 +1344,14 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			ResourceID:   oldKey.ID,
 			Details:      details,
 		})
-
-		r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID)
 	}
 }
 
-func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) {
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
 	logURL := httputil.RedactURLForLog(webhookURL)
-	if err := httputil.ValidateExternalURL(webhookURL); err != nil && !r.allowPrivateEndpoints {
-		r.logger.Warn("rotation webhook URL blocked by ssrf guard", "url", logURL, "error", err)
-		return
+	if err := validateRotationWebhookURL(webhookURL, r.allowPrivateEndpoints); err != nil {
+		r.logger.Warn("rotation webhook URL blocked", "url", logURL, "error", err)
+		return err
 	}
 
 	payload, _ := json.Marshal(map[string]any{
@@ -1357,7 +1367,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
 		r.logger.Error("failed to create rotation webhook request", "url", logURL, "error", err)
-		return
+		return fmt.Errorf("create rotation webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
@@ -1369,8 +1379,8 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")
 			}
-			if err := httputil.ValidateExternalURL(req.URL.String()); err != nil && !r.allowPrivateEndpoints {
-				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
+			if err := validateRotationWebhookURL(req.URL.String(), r.allowPrivateEndpoints); err != nil {
+				return fmt.Errorf("redirect blocked: %w", err)
 			}
 			return nil
 		},
@@ -1378,13 +1388,33 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 	resp, err := client.Do(req)
 	if err != nil {
 		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", err)
-		return
+		return fmt.Errorf("send rotation webhook: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
 		r.logger.Warn("rotation webhook returned non-success", "url", logURL, "status", resp.StatusCode)
+		return fmt.Errorf("rotation webhook returned status %d", resp.StatusCode)
 	}
+
+	return nil
+}
+
+func validateRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse rotation webhook url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("rotation webhook url must use http or https")
+	}
+	if parsed.Scheme != "https" && !allowPrivateEndpoints {
+		return fmt.Errorf("rotation webhook must use https unless private endpoints are explicitly enabled")
+	}
+	if err := httputil.ValidateExternalURL(rawURL); err != nil && !allowPrivateEndpoints {
+		return fmt.Errorf("ssrf guard rejected rotation webhook url: %w", err)
+	}
+	return nil
 }
 
 func (r *Reaper) monitorQueueDepth(ctx context.Context) {
