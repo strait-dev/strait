@@ -41,6 +41,12 @@ type webhookProcessingStore interface {
 	ReleaseWebhookClaim(ctx context.Context, msgID string) error
 }
 
+type webhookClaimState struct {
+	eventID         string
+	claimed         bool
+	processingStore webhookProcessingStore
+}
+
 // WebhookHandler handles incoming Stripe webhook events.
 type WebhookHandler struct {
 	store             Store
@@ -251,81 +257,21 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Deduplicate webhook deliveries by event ID to prevent replay attacks.
 	eventID := event.ID
-	claimedWebhook := false
-	var processingStore webhookProcessingStore
-	if eventID != "" {
-		now := time.Now().UnixNano()
-		if prev, loaded := h.replayCache.LoadOrStore(eventID, now); loaded {
-			prevTime := prev.(int64)
-			if time.Duration(now-prevTime) < 10*time.Minute {
-				h.logger.Warn("duplicate stripe event ID", "event_id", eventID)
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			h.replayCache.Store(eventID, now)
-		}
-
-		if ps, ok := h.store.(webhookProcessingStore); ok {
-			processingStore = ps
-			claimed, claimErr := ps.ClaimWebhookForProcessing(r.Context(), eventID, webhookProcessingClaimStaleAfter)
-			if claimErr != nil {
-				h.replayCache.Delete(eventID)
-				h.logger.Error("failed to claim stripe webhook", "event_id", eventID, "error", claimErr)
-				http.Error(w, "webhook idempotency unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			if !claimed {
-				h.logger.Info("webhook already processed or in progress", "event_id", eventID)
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			claimedWebhook = true
-		} else {
-			processed, dbErr := h.store.IsWebhookProcessed(r.Context(), eventID)
-			if dbErr == nil && processed {
-				h.logger.Info("webhook already processed (DB)", "event_id", eventID)
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-		}
+	claim, duplicate, claimErr := h.claimWebhookForProcessing(r.Context(), eventID)
+	if claimErr != nil {
+		http.Error(w, "webhook idempotency unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if duplicate {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
-	ctx := r.Context()
-	switch event.Type {
-	case stripe.EventTypeCustomerSubscriptionCreated:
-		err = h.handleSubscriptionCreated(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionUpdated:
-		err = h.handleSubscriptionUpdated(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionDeleted:
-		err = h.handleSubscriptionDeleted(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoicePaid:
-		err = h.handlePaymentSucceeded(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoicePaymentFailed:
-		err = h.handlePaymentFailed(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionPaused:
-		err = h.handleSubscriptionPaused(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionResumed:
-		err = h.handleSubscriptionResumed(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionTrialWillEnd:
-		err = h.handleTrialWillEnd(ctx, event.Data.Raw)
-	case stripe.EventTypeChargeDisputeCreated:
-		err = h.handleChargeDisputeCreated(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoiceUpcoming:
-		err = h.handleInvoiceUpcoming(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoiceMarkedUncollectible:
-		err = h.handleInvoiceUncollectible(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoiceFinalizationFailed:
-		err = h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
-	default:
+	err = h.dispatchStripeEvent(r.Context(), event)
+	if errors.Is(err, errUnhandledStripeEvent) {
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
-		if claimedWebhook && processingStore != nil {
-			if markErr := processingStore.MarkWebhookProcessed(r.Context(), eventID); markErr != nil {
-				h.replayCache.Delete(eventID)
-				h.logger.Warn("failed to mark ignored webhook processed", "event_id", eventID, "error", markErr)
-			}
-		}
+		h.markIgnoredWebhookProcessed(r.Context(), claim)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -334,31 +280,126 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Clear the in-memory replay cache so Stripe's retry can be processed.
 		// Without this, a partially-failed webhook would be permanently rejected
 		// by the replay cache even though it was never fully processed.
-		if eventID != "" {
-			h.replayCache.Delete(eventID)
-			if claimedWebhook && processingStore != nil {
-				if releaseErr := processingStore.ReleaseWebhookClaim(r.Context(), eventID); releaseErr != nil {
-					h.logger.Warn("failed to release stripe webhook claim", "event_id", eventID, "error", releaseErr)
-				}
-			}
-		}
+		h.releaseWebhookClaim(r.Context(), claim)
 		h.logger.Error("failed to handle stripe webhook", "type", event.Type, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	if eventID != "" && claimedWebhook && processingStore != nil {
-		if recordErr := processingStore.MarkWebhookProcessed(r.Context(), eventID); recordErr != nil {
-			h.replayCache.Delete(eventID)
-			h.logger.Warn("failed to mark processed webhook", "event_id", eventID, "error", recordErr)
-		}
-	} else if eventID != "" {
-		if recordErr := h.store.RecordProcessedWebhook(r.Context(), eventID); recordErr != nil {
-			h.logger.Warn("failed to record processed webhook", "event_id", eventID, "error", recordErr)
-		}
-	}
+	h.markWebhookProcessed(r.Context(), claim)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+var errUnhandledStripeEvent = errors.New("unhandled stripe event")
+
+func (h *WebhookHandler) claimWebhookForProcessing(ctx context.Context, eventID string) (webhookClaimState, bool, error) {
+	claim := webhookClaimState{eventID: eventID}
+	if eventID == "" {
+		return claim, false, nil
+	}
+
+	now := time.Now().UnixNano()
+	if prev, loaded := h.replayCache.LoadOrStore(eventID, now); loaded {
+		prevTime := prev.(int64)
+		if time.Duration(now-prevTime) < 10*time.Minute {
+			h.logger.Warn("duplicate stripe event ID", "event_id", eventID)
+			return claim, true, nil
+		}
+		h.replayCache.Store(eventID, now)
+	}
+
+	ps, ok := h.store.(webhookProcessingStore)
+	if !ok {
+		processed, dbErr := h.store.IsWebhookProcessed(ctx, eventID)
+		if dbErr == nil && processed {
+			h.logger.Info("webhook already processed (DB)", "event_id", eventID)
+			return claim, true, nil
+		}
+		return claim, false, nil
+	}
+
+	claim.processingStore = ps
+	claimed, err := ps.ClaimWebhookForProcessing(ctx, eventID, webhookProcessingClaimStaleAfter)
+	if err != nil {
+		h.replayCache.Delete(eventID)
+		h.logger.Error("failed to claim stripe webhook", "event_id", eventID, "error", err)
+		return claim, false, err
+	}
+	if !claimed {
+		h.logger.Info("webhook already processed or in progress", "event_id", eventID)
+		return claim, true, nil
+	}
+	claim.claimed = true
+	return claim, false, nil
+}
+
+func (h *WebhookHandler) dispatchStripeEvent(ctx context.Context, event stripe.Event) error {
+	switch event.Type {
+	case stripe.EventTypeCustomerSubscriptionCreated:
+		return h.handleSubscriptionCreated(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionUpdated:
+		return h.handleSubscriptionUpdated(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionDeleted:
+		return h.handleSubscriptionDeleted(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoicePaid:
+		return h.handlePaymentSucceeded(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoicePaymentFailed:
+		return h.handlePaymentFailed(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionPaused:
+		return h.handleSubscriptionPaused(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionResumed:
+		return h.handleSubscriptionResumed(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionTrialWillEnd:
+		return h.handleTrialWillEnd(ctx, event.Data.Raw)
+	case stripe.EventTypeChargeDisputeCreated:
+		return h.handleChargeDisputeCreated(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceUpcoming:
+		return h.handleInvoiceUpcoming(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceMarkedUncollectible:
+		return h.handleInvoiceUncollectible(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceFinalizationFailed:
+		return h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
+	default:
+		return errUnhandledStripeEvent
+	}
+}
+
+func (h *WebhookHandler) markIgnoredWebhookProcessed(ctx context.Context, claim webhookClaimState) {
+	if claim.claimed && claim.processingStore != nil {
+		if err := claim.processingStore.MarkWebhookProcessed(ctx, claim.eventID); err != nil {
+			h.replayCache.Delete(claim.eventID)
+			h.logger.Warn("failed to mark ignored webhook processed", "event_id", claim.eventID, "error", err)
+		}
+	}
+}
+
+func (h *WebhookHandler) releaseWebhookClaim(ctx context.Context, claim webhookClaimState) {
+	if claim.eventID == "" {
+		return
+	}
+	h.replayCache.Delete(claim.eventID)
+	if claim.claimed && claim.processingStore != nil {
+		if err := claim.processingStore.ReleaseWebhookClaim(ctx, claim.eventID); err != nil {
+			h.logger.Warn("failed to release stripe webhook claim", "event_id", claim.eventID, "error", err)
+		}
+	}
+}
+
+func (h *WebhookHandler) markWebhookProcessed(ctx context.Context, claim webhookClaimState) {
+	if claim.eventID == "" {
+		return
+	}
+	if claim.claimed && claim.processingStore != nil {
+		if err := claim.processingStore.MarkWebhookProcessed(ctx, claim.eventID); err != nil {
+			h.replayCache.Delete(claim.eventID)
+			h.logger.Warn("failed to mark processed webhook", "event_id", claim.eventID, "error", err)
+		}
+		return
+	}
+	if err := h.store.RecordProcessedWebhook(ctx, claim.eventID); err != nil {
+		h.logger.Warn("failed to record processed webhook", "event_id", claim.eventID, "error", err)
+	}
 }
 
 func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data json.RawMessage) error {

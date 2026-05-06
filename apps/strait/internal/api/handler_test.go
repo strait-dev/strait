@@ -1653,7 +1653,7 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 	if resp.Job == nil || resp.Job.ID != "job-123" {
 		t.Fatal("expected non-nil job with id=job-123")
 	}
-	if raw := string(w.Body.Bytes()); strings.Contains(raw, "endpoint_url") || strings.Contains(raw, "https://example.com/callback") {
+	if raw := w.Body.String(); strings.Contains(raw, "endpoint_url") || strings.Contains(raw, "https://example.com/callback") {
 		t.Fatalf("dry-run response leaked endpoint details: %s", raw)
 	}
 	if resp.PayloadHash == "" {

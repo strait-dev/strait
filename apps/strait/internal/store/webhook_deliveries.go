@@ -331,7 +331,8 @@ func (q *Queries) RetryWebhookDelivery(ctx context.Context, id string) (*domain.
 			next_retry_at = $1, delivered_at = NULL, updated_at = NOW()
 		WHERE id = $2 AND status IN ('failed', 'dead')
 		RETURNING id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
-			last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at, event_trigger_id`
+			last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
+			event_trigger_id, subscription_id, payload, COALESCE(project_id, '')`
 
 	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, now, id))
 	if err != nil {

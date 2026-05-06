@@ -51,25 +51,8 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	if err != nil {
 		return nil, err
 	}
-	if req.JobID != "" {
-		job, jobErr := s.store.GetJob(ctx, req.JobID)
-		if jobErr != nil {
-			if errors.Is(jobErr, store.ErrJobNotFound) {
-				return nil, huma.Error404NotFound("job not found")
-			}
-			return nil, huma.Error500InternalServerError("failed to verify job")
-		}
-		if job != nil {
-			if job.ProjectID != req.ProjectID {
-				return nil, huma.Error404NotFound("job not found")
-			}
-			if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
-				return nil, huma.Error404NotFound("job not found")
-			}
-			if job.EnvironmentID != "" && environmentID != job.EnvironmentID {
-				return nil, huma.Error403Forbidden("secret environment does not match job environment")
-			}
-		}
+	if err := s.verifySecretJobEnvironment(ctx, req.ProjectID, req.JobID, environmentID); err != nil {
+		return nil, err
 	}
 
 	secret := &domain.JobSecret{
@@ -92,6 +75,32 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	})
 
 	return &CreateSecretOutput{Body: secret}, nil
+}
+
+func (s *Server) verifySecretJobEnvironment(ctx context.Context, projectID, jobID, environmentID string) error {
+	if jobID == "" {
+		return nil
+	}
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return huma.Error404NotFound("job not found")
+		}
+		return huma.Error500InternalServerError("failed to verify job")
+	}
+	if job == nil {
+		return nil
+	}
+	if job.ProjectID != projectID {
+		return huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return huma.Error404NotFound("job not found")
+	}
+	if job.EnvironmentID != "" && environmentID != job.EnvironmentID {
+		return huma.Error403Forbidden("secret environment does not match job environment")
+	}
+	return nil
 }
 
 // ListSecretsInput is the typed input for listing secrets.

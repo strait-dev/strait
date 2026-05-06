@@ -5,9 +5,6 @@ ALTER TABLE resource_policies
     ADD CONSTRAINT resource_policies_project_resource_user_key
     UNIQUE (project_id, resource_type, resource_id, user_id);
 
-CREATE INDEX IF NOT EXISTS idx_resource_policies_project_resource
-    ON resource_policies(project_id, resource_type, resource_id);
-
 ALTER TABLE resource_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resource_policies FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON resource_policies;

@@ -375,14 +375,12 @@ func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	var acquired atomic.Int64
 	for range contenders {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			if srv.acquireSSEConn("proj-1") {
 				acquired.Add(1)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

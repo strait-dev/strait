@@ -604,12 +604,12 @@ func (s *Server) acquireSSEConn(projectID string) bool {
 		maxProject = 100
 	}
 
-	if !atomicIncrementBelow(&s.sseGlobalConns, int64(maxGlobal)) {
+	if !atomicIncrementBelow(&s.sseGlobalConns, maxGlobal) {
 		return false
 	}
 
 	counter := s.projectSSECounter(projectID)
-	if !atomicIncrementBelow(counter, int64(maxProject)) {
+	if !atomicIncrementBelow(counter, maxProject) {
 		s.sseGlobalConns.Add(-1)
 		return false
 	}
@@ -630,10 +630,10 @@ func (s *Server) projectSSECounter(projectID string) *atomic.Int64 {
 	return val.(*atomic.Int64)
 }
 
-func atomicIncrementBelow(counter *atomic.Int64, max int64) bool {
+func atomicIncrementBelow(counter *atomic.Int64, limit int64) bool {
 	for {
 		current := counter.Load()
-		if current >= max {
+		if current >= limit {
 			return false
 		}
 		if counter.CompareAndSwap(current, current+1) {
