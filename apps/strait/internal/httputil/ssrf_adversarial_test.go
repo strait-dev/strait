@@ -47,6 +47,14 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"cgnat", "http://100.64.0.1/"},
 		{"cgnat high", "http://100.127.255.255/"},
 		{"unspecified", "http://0.0.0.0/"},
+		{"benchmark net", "http://198.18.0.1/"},
+		{"benchmark net high", "http://198.19.255.255/"},
+		{"documentation 192.0.2", "http://192.0.2.10/"},
+		{"documentation 198.51.100", "http://198.51.100.10/"},
+		{"documentation 203.0.113", "http://203.0.113.10/"},
+		{"multicast", "http://224.0.0.1/"},
+		{"reserved", "http://240.0.0.1/"},
+		{"broadcast", "http://255.255.255.255/"},
 
 		// === IPv6 private addresses ===
 		{"ipv6 loopback", "http://[::1]/"},
@@ -54,6 +62,10 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"ipv6 unique local fc", "http://[fc00::1]/"},
 		{"ipv6 unique local fd", "http://[fd00::1]/"},
 		{"ipv6 link-local", "http://[fe80::1]/"},
+		{"ipv6 site-local", "http://[fec0::1]/"},
+		{"ipv6 multicast", "http://[ff00::1]/"},
+		{"ipv6 documentation", "http://[2001:db8::1]/"},
+		{"ipv6 benchmark", "http://[2001:2::1]/"},
 		{"ipv6 mapped v4 loopback", "http://[::ffff:127.0.0.1]/"},
 		{"ipv6 mapped v4 private", "http://[::ffff:10.0.0.1]/"},
 		{"ipv6 mapped v4 link-local", "http://[::ffff:169.254.169.254]/"},
@@ -215,6 +227,17 @@ func TestSSRF_BoundaryIPs(t *testing.T) {
 		{"127.0.0.1", true},
 		{"127.255.255.255", true},
 		{"128.0.0.0", false},
+
+		// Special-use ranges that are not globally routable.
+		{"198.17.255.255", false},
+		{"198.18.0.0", true},
+		{"198.19.255.255", true},
+		{"198.20.0.0", false},
+		{"223.255.255.255", false},
+		{"224.0.0.0", true},
+		{"239.255.255.255", true},
+		{"240.0.0.0", true},
+		{"255.255.255.255", true},
 	}
 
 	for _, tt := range tests {

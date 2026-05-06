@@ -16,16 +16,30 @@ var privateRanges []*net.IPNet
 
 func init() {
 	cidrs := []string{
-		"127.0.0.0/8",    // loopback
-		"10.0.0.0/8",     // RFC 1918
-		"172.16.0.0/12",  // RFC 1918
-		"192.168.0.0/16", // RFC 1918
-		"169.254.0.0/16", // link-local
-		"100.64.0.0/10",  // CGNAT (RFC 6598)
-		"0.0.0.0/8",      // unspecified
-		"::1/128",        // IPv6 loopback
-		"fc00::/7",       // IPv6 unique local
-		"fe80::/10",      // IPv6 link-local
+		"127.0.0.0/8",        // loopback
+		"10.0.0.0/8",         // RFC 1918
+		"172.16.0.0/12",      // RFC 1918
+		"192.168.0.0/16",     // RFC 1918
+		"169.254.0.0/16",     // link-local
+		"100.64.0.0/10",      // CGNAT (RFC 6598)
+		"0.0.0.0/8",          // unspecified
+		"192.0.0.0/24",       // IETF protocol assignments
+		"192.0.2.0/24",       // documentation
+		"192.88.99.0/24",     // deprecated 6to4 relay anycast
+		"198.18.0.0/15",      // benchmarking
+		"198.51.100.0/24",    // documentation
+		"203.0.113.0/24",     // documentation
+		"224.0.0.0/4",        // multicast
+		"240.0.0.0/4",        // reserved
+		"255.255.255.255/32", // limited broadcast
+		"::1/128",            // IPv6 loopback
+		"fc00::/7",           // IPv6 unique local
+		"fe80::/10",          // IPv6 link-local
+		"fec0::/10",          // deprecated IPv6 site-local
+		"ff00::/8",           // IPv6 multicast
+		"2001:db8::/32",      // documentation
+		"2001:2::/48",        // benchmarking
+		"2001:10::/28",       // deprecated ORCHID
 	}
 	for _, cidr := range cidrs {
 		_, network, err := net.ParseCIDR(cidr)
@@ -129,7 +143,7 @@ func NewExternalTransport(allowPrivate bool) *http.Transport {
 // isPrivateIP reports whether ip belongs to a private, loopback, link-local,
 // CGNAT, or otherwise internal network range.
 func isPrivateIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 		return true
 	}
