@@ -203,7 +203,6 @@ func TestConcurrencyCeiling(t *testing.T) {
 			t.Errorf("writing result: %v", err)
 		}
 	})
-
 }
 
 // TestProductionSimulation runs a multi-tenant production simulation.

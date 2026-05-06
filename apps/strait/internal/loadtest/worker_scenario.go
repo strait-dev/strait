@@ -454,7 +454,7 @@ const replayWindow = 5 * time.Minute
 //
 // Signed payload: "<timestamp>.<body>". Header format:
 // X-Strait-Timestamp: <unix>
-// X-Strait-Signature: v1=<hmac-sha256-hex>
+// X-Strait-Signature: v1=<hmac-sha256-hex>.
 func VerifyStraitDispatchSignature(secret string, body []byte, r *http.Request) error {
 	ts := r.Header.Get(straitTimestampHeader)
 	if ts == "" {
