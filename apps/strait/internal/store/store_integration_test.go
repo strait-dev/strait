@@ -10039,6 +10039,103 @@ func TestAdvisoryLockConcurrentAcrossConnections(t *testing.T) {
 	}
 }
 
+func TestRunWithAdvisoryLockPinsAndReleasesConnection(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	lockID := int64(334455)
+	fnStarted := make(chan struct{})
+	releaseFn := make(chan struct{})
+	fnDone := make(chan error, 1)
+
+	go func() {
+		_, err := q.RunWithAdvisoryLock(ctx, lockID, func(context.Context) error {
+			close(fnStarted)
+			<-releaseFn
+			return nil
+		})
+		fnDone <- err
+	}()
+
+	select {
+	case <-fnStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunWithAdvisoryLock did not start fn")
+	}
+
+	acquiredWhileHeld, err := q.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock(while held) error = %v", err)
+	}
+	if acquiredWhileHeld {
+		t.Fatal("TryAdvisoryLock(while held) = true, want false")
+	}
+
+	close(releaseFn)
+	select {
+	case err := <-fnDone:
+		if err != nil {
+			t.Fatalf("RunWithAdvisoryLock() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunWithAdvisoryLock did not finish")
+	}
+
+	acquiredAfterRelease, err := q.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock(after release) error = %v", err)
+	}
+	if !acquiredAfterRelease {
+		t.Fatal("TryAdvisoryLock(after release) = false, want true")
+	}
+	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock(after release) error = %v", err)
+	}
+}
+
+func TestRunWithAdvisoryLockReportsNotAcquired(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	lockID := int64(334456)
+	conn, err := testDB.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Acquire() error = %v", err)
+	}
+	defer conn.Release()
+
+	heldByConn := store.New(conn)
+	acquired, err := heldByConn.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock() error = %v", err)
+	}
+	if !acquired {
+		t.Fatal("TryAdvisoryLock() = false, want true")
+	}
+	defer func() {
+		if err := heldByConn.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+			t.Fatalf("ReleaseAdvisoryLock() error = %v", err)
+		}
+	}()
+
+	ran := false
+	acquired, err = q.RunWithAdvisoryLock(ctx, lockID, func(context.Context) error {
+		ran = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunWithAdvisoryLock() error = %v", err)
+	}
+	if acquired {
+		t.Fatal("RunWithAdvisoryLock() acquired = true, want false")
+	}
+	if ran {
+		t.Fatal("RunWithAdvisoryLock ran fn when lock was held")
+	}
+}
+
 func TestAdvisoryLockXactLockWithinTransaction(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

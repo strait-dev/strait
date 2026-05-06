@@ -3,6 +3,7 @@ package httputil
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -304,4 +305,25 @@ func RedactURLForLog(rawURL string) string {
 		return "[invalid-url]"
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// SanitizeHTTPClientError removes request URLs from net/http client errors.
+// url.Error includes the full URL, and webhook/callback URLs often carry query
+// tokens, userinfo, or path secrets.
+func SanitizeHTTPClientError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			var nested *url.Error
+			if errors.As(urlErr.Err, &nested) {
+				return SanitizeHTTPClientError(urlErr.Err)
+			}
+			return fmt.Sprintf("%s: %v", urlErr.Op, urlErr.Err)
+		}
+		return urlErr.Op
+	}
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

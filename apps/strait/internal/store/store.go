@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -485,6 +486,10 @@ type TxBeginnerOptions interface {
 	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 }
 
+type connAcquirer interface {
+	Acquire(ctx context.Context) (*pgxpool.Conn, error)
+}
+
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -563,6 +568,60 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 		return fmt.Errorf("pg_advisory_unlock: %w", err)
 	}
 	return nil
+}
+
+// RunWithAdvisoryLock keeps a session-level advisory lock pinned to the same
+// PostgreSQL connection for the full duration of fn. Use this for long-running
+// leader-election sections; TryAdvisoryLock/ReleaseAdvisoryLock can acquire and
+// release on different pooled connections when the underlying DBTX is a pool.
+func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error) {
+	if q == nil {
+		return false, fmt.Errorf("run with advisory lock: queries is nil")
+	}
+	if fn == nil {
+		return false, fmt.Errorf("run with advisory lock: fn is nil")
+	}
+
+	acquirer, ok := advisoryConnAcquirer(q.db)
+	if !ok {
+		return false, fmt.Errorf("run with advisory lock: underlying db does not support pinned connections")
+	}
+
+	conn, err := acquirer.Acquire(ctx)
+	if err != nil {
+		return false, fmt.Errorf("acquire advisory lock connection: %w", err)
+	}
+	defer conn.Release()
+
+	var acquired bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
+		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
+	}
+	if !acquired {
+		return false, nil
+	}
+
+	runErr := fn(ctx)
+
+	var released bool
+	if err := conn.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", lockID).Scan(&released); err != nil {
+		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: %w", err))
+	}
+	if !released {
+		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: lock %d was not held by pinned connection", lockID))
+	}
+
+	return true, runErr
+}
+
+func advisoryConnAcquirer(db DBTX) (connAcquirer, bool) {
+	if c, ok := db.(connAcquirer); ok {
+		return c, true
+	}
+	if routed, ok := db.(*ctxAwareDBTX); ok {
+		return advisoryConnAcquirer(routed.pool)
+	}
+	return nil, false
 }
 
 // SetProjectContext sets the app.current_project_id session variable for RLS policies.

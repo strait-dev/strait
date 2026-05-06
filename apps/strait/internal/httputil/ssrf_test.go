@@ -3,6 +3,7 @@ package httputil
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -156,6 +157,52 @@ func TestRedactURLForLog(t *testing.T) {
 				t.Fatalf("RedactURLForLog(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSanitizeHTTPClientError_RemovesURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	err := &url.Error{
+		Op:  "Post",
+		URL: "https://user:pass@hooks.example.com/private/path?token=secret#frag",
+		Err: fmt.Errorf("dial tcp: lookup failed"),
+	}
+
+	got := SanitizeHTTPClientError(err)
+	if strings.Contains(got, "token=secret") ||
+		strings.Contains(got, "user:pass") ||
+		strings.Contains(got, "/private/path") ||
+		strings.Contains(got, "hooks.example.com") {
+		t.Fatalf("SanitizeHTTPClientError leaked URL data: %q", got)
+	}
+	if !strings.Contains(got, "Post") || !strings.Contains(got, "lookup failed") {
+		t.Fatalf("SanitizeHTTPClientError() = %q, want operation and root error", got)
+	}
+}
+
+func TestSanitizeHTTPClientError_RemovesNestedURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	err := &url.Error{
+		Op:  "Post",
+		URL: "https://safe.example.com/hook?outer=secret",
+		Err: &url.Error{
+			Op:  "Get",
+			URL: "https://user:pass@internal.example.com/redirect?inner=secret",
+			Err: fmt.Errorf("redirect blocked"),
+		},
+	}
+
+	got := SanitizeHTTPClientError(err)
+	if strings.Contains(got, "outer=secret") ||
+		strings.Contains(got, "inner=secret") ||
+		strings.Contains(got, "user:pass") ||
+		strings.Contains(got, "internal.example.com") {
+		t.Fatalf("SanitizeHTTPClientError leaked nested URL data: %q", got)
+	}
+	if !strings.Contains(got, "Get") || !strings.Contains(got, "redirect blocked") {
+		t.Fatalf("SanitizeHTTPClientError() = %q, want nested operation and root error", got)
 	}
 }
 

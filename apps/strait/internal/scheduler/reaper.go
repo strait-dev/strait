@@ -136,6 +136,10 @@ type AdvisoryLocker interface {
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) error
 }
 
+type AdvisoryLockRunner interface {
+	RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error)
+}
+
 // reaperAdvisoryLockID is the pg_advisory_lock key for single-leader reaper.
 const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
 
@@ -329,7 +333,28 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 func (r *Reaper) Run(ctx context.Context) {
 	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
 	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
+		runCycle := func(ctx context.Context) error {
+			r.runMaintenanceCycle(ctx)
+			if r.retentionEnabled {
+				r.reapTerminalRetention(ctx)
+				r.reapPerOrgRetention(ctx)
+			}
+			return nil
+		}
+
 		if r.advisoryLocker != nil {
+			if runner, ok := r.advisoryLocker.(AdvisoryLockRunner); ok {
+				acquired, err := runner.RunWithAdvisoryLock(loopCtx, reaperAdvisoryLockID, runCycle)
+				if err != nil {
+					r.logger.Error("advisory locked reaper cycle failed", "error", err)
+					return
+				}
+				if !acquired {
+					r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
+				}
+				return
+			}
+
 			acquired, err := r.advisoryLocker.TryAdvisoryLock(loopCtx, reaperAdvisoryLockID)
 			if err != nil {
 				r.logger.Error("advisory lock check failed, skipping cycle", "error", err)
@@ -346,11 +371,7 @@ func (r *Reaper) Run(ctx context.Context) {
 			}()
 		}
 
-		r.runMaintenanceCycle(loopCtx)
-		if r.retentionEnabled {
-			r.reapTerminalRetention(loopCtx)
-			r.reapPerOrgRetention(loopCtx)
-		}
+		_ = runCycle(loopCtx)
 	})
 	loop.Run(ctx)
 }
@@ -1391,8 +1412,9 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", err)
-		return fmt.Errorf("send rotation webhook: %w", err)
+		safeErr := httputil.SanitizeHTTPClientError(err)
+		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", safeErr)
+		return fmt.Errorf("send rotation webhook: %s", safeErr)
 	}
 	defer resp.Body.Close()
 
