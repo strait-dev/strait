@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
@@ -30,6 +31,7 @@ type Server struct {
 	pub            pubsub.Publisher
 	registry       *ConnectionRegistry
 	resultChannels *ResultChannelRegistry
+	runFinalizer   atomic.Value
 	gs             *grpc.Server
 }
 
@@ -71,6 +73,14 @@ func (s *Server) Registry() *ConnectionRegistry {
 // and result channel registry. Used by the executor to dispatch worker-mode runs.
 func (s *Server) WorkerDispatcher(jwtSigningKey string) *WorkerDispatcher {
 	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels)
+}
+
+// SetRunResultFinalizer wires the executor-owned completion path for worker
+// results that arrive after the normal dispatch goroutine is gone.
+func (s *Server) SetRunResultFinalizer(finalizer WorkerRunResultFinalizer) {
+	if finalizer != nil {
+		s.runFinalizer.Store(finalizer)
+	}
 }
 
 func (s *Server) buildServer() (*grpc.Server, error) {
@@ -125,6 +135,7 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 		registry:       s.registry,
 		cfg:            s.cfg,
 		resultChannels: s.resultChannels,
+		runFinalizer:   &s.runFinalizer,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)
 

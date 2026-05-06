@@ -899,6 +899,56 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	}
 
 	// Successful result — record cost and complete the run.
+	e.recordWorkerModeCost(ctx, run, job)
+
+	runResult := e.workerDispatcher.ResultOutput(result)
+	if e.handleSuccess(ctx, run, job, runResult, nil) {
+		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
+	}
+}
+
+// FinalizeWorkerRunResult applies worker-mode completion semantics for a result
+// received outside the normal WorkerDispatch wait path, such as a late fallback
+// TaskResult or reconnect-reported in-flight task.
+func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, errorMessage string, output json.RawMessage) (domain.WorkerTaskStatus, error) {
+	run, err := e.store.GetRun(ctx, runID)
+	if err != nil {
+		return "", fmt.Errorf("load run for worker finalization: %w", err)
+	}
+	job, err := e.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return "", fmt.Errorf("load job for worker finalization: %w", err)
+	}
+
+	policy := executionPolicy{
+		maxAttempts:      job.MaxAttempts,
+		timeoutSecs:      job.TimeoutSecs,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     3600,
+	}
+	if status != "success" {
+		if errorMessage == "" {
+			if status == "" {
+				errorMessage = "worker returned malformed or empty result"
+			} else {
+				errorMessage = fmt.Sprintf("worker reported terminal status %q without error message", status)
+			}
+		}
+		if !e.handleFailure(ctx, run, job, policy, errors.New(errorMessage), nil) {
+			return "", fmt.Errorf("worker failure finalization did not transition run")
+		}
+		return domain.WorkerTaskStatusFailed, nil
+	}
+
+	e.recordWorkerModeCost(ctx, run, job)
+	if !e.handleSuccess(ctx, run, job, output, nil) {
+		return "", fmt.Errorf("worker success finalization did not transition run")
+	}
+	return domain.WorkerTaskStatusCompleted, nil
+}
+
+func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
 	if e.runCostRecorder != nil && e.billingEnforcer != nil {
 		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 		if orgErr == nil && orgID != "" {
@@ -914,13 +964,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			})
 		}
 	}
-	// Also report to Stripe.
 	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
-
-	runResult := e.workerDispatcher.ResultOutput(result)
-	if e.handleSuccess(ctx, run, job, runResult, nil) {
-		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
-	}
 }
 
 func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {

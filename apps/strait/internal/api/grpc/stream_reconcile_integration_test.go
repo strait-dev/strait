@@ -88,6 +88,90 @@ func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
 	}
 }
 
+func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "success" || string(call.output) != `{"recovered":true}` {
+		t.Fatalf("unexpected finalizer call: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusCompleted {
+		t.Fatalf("worker task status = %q, want completed", task.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("reconcile should let finalizer own run transition, got %q", run.Status)
+	}
+}
+
+func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "failed", ErrorMessage: "boom"}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "failed" || call.errorMessage != "boom" {
+		t.Fatalf("unexpected finalizer call: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("reconcile should let finalizer own run transition, got %q", run.Status)
+	}
+}
+
 // TestIntegration_Reconcile_OwnershipMismatchSkips guards the adversarial path:
 // a worker reporting an in-flight run it doesn't own (no matching worker_tasks
 // row) must NOT touch either the run or any worker_tasks row.

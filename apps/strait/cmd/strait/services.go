@@ -656,6 +656,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	}
 
 	exec := worker.NewExecutor(execCfg)
+	if workerPlane != nil {
+		workerPlane.SetRunResultFinalizer(exec)
+	}
 
 	exec.Use(worker.TracingMiddleware())
 	if metrics != nil {

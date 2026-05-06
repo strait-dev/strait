@@ -5,6 +5,8 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,6 +97,50 @@ func fallbackService(q *store.Queries) *workerService {
 	}
 }
 
+type finalizerCall struct {
+	runID        string
+	status       string
+	errorMessage string
+	output       json.RawMessage
+}
+
+type recordingRunFinalizer struct {
+	calls      []finalizerCall
+	taskStatus domain.WorkerTaskStatus
+	err        error
+}
+
+func (f *recordingRunFinalizer) FinalizeWorkerRunResult(_ context.Context, runID, status, errorMessage string, output json.RawMessage) (domain.WorkerTaskStatus, error) {
+	copied := json.RawMessage(nil)
+	if len(output) > 0 {
+		copied = append(json.RawMessage(nil), output...)
+	}
+	f.calls = append(f.calls, finalizerCall{
+		runID:        runID,
+		status:       status,
+		errorMessage: errorMessage,
+		output:       copied,
+	})
+	if f.err != nil {
+		return "", f.err
+	}
+	if f.taskStatus != "" {
+		return f.taskStatus, nil
+	}
+	if status == "success" {
+		return domain.WorkerTaskStatusCompleted, nil
+	}
+	return domain.WorkerTaskStatusFailed, nil
+}
+
+func fallbackServiceWithFinalizer(q *store.Queries, finalizer WorkerRunResultFinalizer) *workerService {
+	var value atomic.Value
+	value.Store(finalizer)
+	svc := fallbackService(q)
+	svc.runFinalizer = &value
+	return svc
+}
+
 // TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask asserts
 // that a late TaskResult arriving when no dispatcher is waiting transitions
 // the worker_tasks row to "completed", not just the run row. Regression for
@@ -175,6 +221,79 @@ func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateF
 	}
 	if got.Status != domain.WorkerTaskStatusAssigned {
 		t.Fatalf("worker task status = %q, want assigned when run update fails", got.Status)
+	}
+}
+
+func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":"result"}`)}
+	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
+		t.Fatalf("handleTaskResult: %v", err)
+	}
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "success" || string(call.output) != `{"worker":"result"}` {
+		t.Fatalf("unexpected finalizer call: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusCompleted {
+		t.Fatalf("worker task status = %q, want completed", task.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("fallback should let finalizer own run transition, got run status %q", run.Status)
+	}
+}
+
+func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackServiceWithFinalizer(q, &recordingRunFinalizer{err: errors.New("finalizer failed")})
+
+	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
+		t.Fatalf("handleTaskResult: %v", err)
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("worker task status = %q, want assigned when finalizer fails", task.Status)
 	}
 }
 

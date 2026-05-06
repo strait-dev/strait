@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
@@ -60,6 +61,7 @@ type workerService struct {
 	registry       *ConnectionRegistry
 	cfg            *config.Config
 	resultChannels *ResultChannelRegistry
+	runFinalizer   *atomic.Value
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -428,6 +430,27 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 		return nil
 	}
 
+	if finalizer := s.finalizer(); finalizer != nil {
+		taskStatus, finalizerErr := finalizer.FinalizeWorkerRunResult(ctx, tr.RunId, tr.Status, tr.ErrorMessage, copyJSONBytes(tr.OutputJson))
+		if finalizerErr != nil {
+			slog.Warn("grpc task result fallback: finalizer failed",
+				"worker_id", workerID,
+				"run_id", tr.RunId,
+				"error", finalizerErr,
+			)
+			return nil
+		}
+		if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, taskStatus); err != nil {
+			slog.Warn("grpc task result fallback: update worker_task status failed",
+				"task_id", taskRow.ID,
+				"run_id", tr.RunId,
+				"status", taskStatus,
+				"error", err,
+			)
+		}
+		return nil
+	}
+
 	// Fall back: update the run status directly. Do NOT restore the slot
 	// here — if a WorkerDispatch goroutine ever held this run, it has
 	// already restored the slot on its ctx.Done() / result branch
@@ -596,20 +619,31 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 
 		switch t.Status {
 		case "completed":
-			reconcileFields := map[string]any{"finished_at": time.Now()}
-			if len(t.OutputJson) > 0 {
-				out := make([]byte, len(t.OutputJson))
-				copy(out, t.OutputJson)
-				reconcileFields["result"] = json.RawMessage(out)
+			taskStatus := domain.WorkerTaskStatusCompleted
+			if finalizer := s.finalizer(); finalizer != nil {
+				var finalizerErr error
+				taskStatus, finalizerErr = finalizer.FinalizeWorkerRunResult(ctx, t.RunId, "success", "", copyJSONBytes(t.OutputJson))
+				if finalizerErr != nil {
+					slog.Warn("grpc reconcile: finalizer failed",
+						"run_id", t.RunId,
+						"error", finalizerErr,
+					)
+					continue
+				}
+			} else {
+				reconcileFields := map[string]any{"finished_at": time.Now()}
+				if len(t.OutputJson) > 0 {
+					reconcileFields["result"] = copyJSONBytes(t.OutputJson)
+				}
+				if err := s.queries.UpdateRunStatus(ctx, t.RunId, domain.StatusExecuting, domain.StatusCompleted, reconcileFields); err != nil {
+					slog.Warn("grpc reconcile: mark completed failed",
+						"run_id", t.RunId,
+						"error", err,
+					)
+					continue
+				}
 			}
-			if err := s.queries.UpdateRunStatus(ctx, t.RunId, domain.StatusExecuting, domain.StatusCompleted, reconcileFields); err != nil {
-				slog.Warn("grpc reconcile: mark completed failed",
-					"run_id", t.RunId,
-					"error", err,
-				)
-				continue
-			}
-			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, domain.WorkerTaskStatusCompleted); err != nil {
+			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, taskStatus); err != nil {
 				slog.Warn("grpc reconcile: update worker_task status failed",
 					"task_id", taskRow.ID,
 					"run_id", t.RunId,
@@ -618,13 +652,26 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 			}
 
 		case "failed", "abandoned":
-			// For failed/abandoned: attempt a retry if the job allows it,
-			// otherwise mark as dead-letter.
-			s.reconcileFailedTask(ctx, t)
+			taskStatus := domain.WorkerTaskStatusFailed
+			if finalizer := s.finalizer(); finalizer != nil {
+				var finalizerErr error
+				taskStatus, finalizerErr = finalizer.FinalizeWorkerRunResult(ctx, t.RunId, "failed", t.ErrorMessage, nil)
+				if finalizerErr != nil {
+					slog.Warn("grpc reconcile: finalizer failed",
+						"run_id", t.RunId,
+						"error", finalizerErr,
+					)
+					continue
+				}
+			} else {
+				// For failed/abandoned: attempt a retry if the job allows it,
+				// otherwise mark as dead-letter.
+				s.reconcileFailedTask(ctx, t)
+			}
 			// Whether the run gets requeued or dead-lettered, the worker_task
 			// row that recorded this assignment is done — mark it failed so it
 			// doesn't linger in "assigned" forever.
-			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, domain.WorkerTaskStatusFailed); err != nil {
+			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, taskStatus); err != nil {
 				slog.Warn("grpc reconcile: update worker_task status failed",
 					"task_id", taskRow.ID,
 					"run_id", t.RunId,
@@ -640,6 +687,27 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 			)
 		}
 	}
+}
+
+func (s *workerService) finalizer() WorkerRunResultFinalizer {
+	if s.runFinalizer == nil {
+		return nil
+	}
+	v := s.runFinalizer.Load()
+	if v == nil {
+		return nil
+	}
+	finalizer, _ := v.(WorkerRunResultFinalizer)
+	return finalizer
+}
+
+func copyJSONBytes(in []byte) json.RawMessage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]byte, len(in))
+	copy(out, in)
+	return json.RawMessage(out)
 }
 
 // reconcileFailedTask applies retry-or-fail logic for a failed/abandoned run

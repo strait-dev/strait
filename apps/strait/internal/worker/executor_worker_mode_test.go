@@ -117,6 +117,97 @@ func workerModeJob(maxAttempts int) *domain.Job {
 	}
 }
 
+func TestFinalizeWorkerRunResult_SuccessUsesExecutorCompletionPath(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-time.Second)
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Status:    domain.StatusExecuting,
+		Attempt:   1,
+		StartedAt: &startedAt,
+	}
+	job := workerModeJob(3)
+	ms := &mockExecutorStore{
+		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id != run.ID {
+				t.Fatalf("GetRun id = %q, want %q", id, run.ID)
+			}
+			return run, nil
+		},
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != job.ID {
+				t.Fatalf("GetJob id = %q, want %q", id, job.ID)
+			}
+			return job, nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, &fakeWorkerDispatcher{})
+
+	taskStatus, err := exec.FinalizeWorkerRunResult(context.Background(), run.ID, "success", "", json.RawMessage(`{"ok":true}`))
+	if err != nil {
+		t.Fatalf("FinalizeWorkerRunResult: %v", err)
+	}
+	if taskStatus != domain.WorkerTaskStatusCompleted {
+		t.Fatalf("task status = %q, want completed", taskStatus)
+	}
+	if len(ms.statusCalls) != 1 {
+		t.Fatalf("status calls = %d, want 1", len(ms.statusCalls))
+	}
+	call := ms.statusCalls[0]
+	if call.from != domain.StatusExecuting || call.to != domain.StatusCompleted {
+		t.Fatalf("transition = %s -> %s, want executing -> completed", call.from, call.to)
+	}
+	if string(call.fields["result"].(json.RawMessage)) != `{"ok":true}` {
+		t.Fatalf("result field = %v, want worker output", call.fields["result"])
+	}
+}
+
+func TestFinalizeWorkerRunResult_FailureUsesExecutorRetryPath(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-time.Second)
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+		Status:    domain.StatusExecuting,
+		Attempt:   1,
+		StartedAt: &startedAt,
+	}
+	job := workerModeJob(3)
+	ms := &mockExecutorStore{
+		getRunFn: func(context.Context, string) (*domain.JobRun, error) {
+			return run, nil
+		},
+		getJobFn: func(context.Context, string) (*domain.Job, error) {
+			return job, nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, &fakeWorkerDispatcher{})
+
+	taskStatus, err := exec.FinalizeWorkerRunResult(context.Background(), run.ID, "failed", "boom", nil)
+	if err != nil {
+		t.Fatalf("FinalizeWorkerRunResult: %v", err)
+	}
+	if taskStatus != domain.WorkerTaskStatusFailed {
+		t.Fatalf("task status = %q, want failed", taskStatus)
+	}
+	if len(ms.statusCalls) != 1 {
+		t.Fatalf("status calls = %d, want 1", len(ms.statusCalls))
+	}
+	call := ms.statusCalls[0]
+	if call.from != domain.StatusExecuting || call.to != domain.StatusQueued {
+		t.Fatalf("transition = %s -> %s, want executing -> queued", call.from, call.to)
+	}
+	if call.fields["attempt"] != 2 {
+		t.Fatalf("attempt field = %v, want 2", call.fields["attempt"])
+	}
+	if call.fields["error"] != "boom" {
+		t.Fatalf("error field = %v, want boom", call.fields["error"])
+	}
+}
+
 // TestExecuteWorkerMode_SuccessRoutesToHandleSuccess verifies that a worker
 // returning Status="success" transitions the run to completed.
 func TestExecuteWorkerMode_SuccessRoutesToHandleSuccess(t *testing.T) {
