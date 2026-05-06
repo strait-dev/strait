@@ -68,6 +68,31 @@ func TestHandleTestWebhook_InvalidURL(t *testing.T) {
 	}
 }
 
+func TestHandleTestWebhook_URLValidationErrorIsGeneric(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	body, _ := json.Marshal(map[string]string{"url": "https://127.0.0.1:8443/hook?token=secret"})
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(string(body)))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	response := w.Body.String()
+	if !strings.Contains(response, "invalid webhook URL") {
+		t.Fatalf("response = %q, want generic invalid webhook URL message", response)
+	}
+	for _, leaked := range []string{"127.0.0.1", "token=secret", "private", "loopback"} {
+		if strings.Contains(response, leaked) {
+			t.Fatalf("response leaked validation detail %q: %s", leaked, response)
+		}
+	}
+}
+
 func TestHandleTestWebhook_MissingURL(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)

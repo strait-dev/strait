@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,7 +41,8 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 		return nil, newValidationError(err)
 	}
 	if err := validateURLWithTLS(req.URL, s.config.WebhookRequireTLS); err != nil {
-		return nil, huma.Error400BadRequest("invalid url: " + err.Error())
+		slog.Warn("webhook test URL rejected", "url", httputil.RedactURLForLog(req.URL), "error", err)
+		return nil, huma.Error400BadRequest("invalid webhook URL")
 	}
 	testPayload, _ := json.Marshal(map[string]any{
 		"type":      "webhook.test",
