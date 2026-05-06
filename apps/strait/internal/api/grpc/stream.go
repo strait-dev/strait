@@ -92,6 +92,20 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx = withAPIKeyContext(ctx, apiKey)
 	projectID := apiKey.ProjectID
 
+	pendingReserved := false
+	if err := s.registry.ReservePendingStream(projectID, apiKey.ID); err != nil {
+		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
+			return status.Errorf(codes.ResourceExhausted, "reserve worker stream: %v", err)
+		}
+		return status.Errorf(codes.Internal, "reserve worker stream: %v", err)
+	}
+	pendingReserved = true
+	defer func() {
+		if pendingReserved {
+			s.registry.ReleasePendingStream(projectID, apiKey.ID)
+		}
+	}()
+
 	var revokeKeySub *pubsub.Subscription
 	closeRevokeSubOnEarlyReturn := true
 	defer func() {
@@ -171,6 +185,8 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		SendCh:         sendCh,
 		revokeCh:       make(chan struct{}),
 	}
+	s.registry.ReleasePendingStream(projectID, apiKey.ID)
+	pendingReserved = false
 	if err := s.registry.Register(cw); err != nil {
 		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
 			return status.Errorf(codes.ResourceExhausted, "register worker: %v", err)

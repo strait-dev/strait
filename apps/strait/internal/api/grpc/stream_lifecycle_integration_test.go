@@ -381,3 +381,65 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 		t.Fatalf("stale registration mutated registry: got %d workers", len(got))
 	}
 }
+
+func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-pre-registration-quota"
+		apiKeyID  = "key-pre-registration-quota"
+		rawKey    = "strait_preRegistrationQuotaKey"
+	)
+	seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
+
+	registry := NewConnectionRegistry()
+	registry.maxStreamsPerProject = 10
+	registry.maxStreamsPerAPIKey = 1
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       registry,
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	firstCtx, firstCancel := context.WithCancel(ctx)
+	defer firstCancel()
+	firstStream := newBlockingWorkerStream(firstCtx, rawKey)
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- svc.StreamTasks(firstStream)
+	}()
+	select {
+	case <-firstStream.recvWait:
+	case err := <-firstDone:
+		t.Fatalf("first StreamTasks returned before registration wait: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first pre-registration recv")
+	}
+
+	secondStream := newBlockingWorkerStream(ctx, rawKey)
+	err = svc.StreamTasks(secondStream)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("second StreamTasks error = %v, want ResourceExhausted", err)
+	}
+
+	firstCancel()
+	select {
+	case <-firstDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first pre-registration stream did not exit after cancellation")
+	}
+	if err := svc.registry.ReservePendingStream(projectID, apiKeyID); err != nil {
+		t.Fatalf("pending quota was not released after canceled stream: %v", err)
+	}
+	svc.registry.ReleasePendingStream(projectID, apiKeyID)
+}

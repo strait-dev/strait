@@ -61,6 +61,8 @@ type ConnectionRegistry struct {
 	mu                   sync.RWMutex
 	workers              map[string]*ConnectedWorker   // keyed by worker_id
 	byAPIKey             map[string][]*ConnectedWorker // keyed by api_key_id
+	pendingByProject     map[string]int
+	pendingByAPIKey      map[string]int
 	maxStreamsPerProject int
 	maxStreamsPerAPIKey  int
 	// nextToken issues monotonically increasing registration tokens. Any value
@@ -75,8 +77,43 @@ func NewConnectionRegistry() *ConnectionRegistry {
 	return &ConnectionRegistry{
 		workers:              make(map[string]*ConnectedWorker),
 		byAPIKey:             make(map[string][]*ConnectedWorker),
+		pendingByProject:     make(map[string]int),
+		pendingByAPIKey:      make(map[string]int),
 		maxStreamsPerProject: defaultMaxWorkerStreamsPerProject,
 		maxStreamsPerAPIKey:  defaultMaxWorkerStreamsPerAPIKey,
+	}
+}
+
+func (r *ConnectionRegistry) ReservePendingStream(projectID, apiKeyID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.maxStreamsPerProject > 0 && r.countProjectLocked(projectID)+r.pendingByProject[projectID] >= r.maxStreamsPerProject {
+		return fmt.Errorf("%w: project %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, projectID, r.maxStreamsPerProject)
+	}
+	if apiKeyID != "" && r.maxStreamsPerAPIKey > 0 && len(r.byAPIKey[apiKeyID])+r.pendingByAPIKey[apiKeyID] >= r.maxStreamsPerAPIKey {
+		return fmt.Errorf("%w: api key %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, apiKeyID, r.maxStreamsPerAPIKey)
+	}
+	r.pendingByProject[projectID]++
+	if apiKeyID != "" {
+		r.pendingByAPIKey[apiKeyID]++
+	}
+	return nil
+}
+
+func (r *ConnectionRegistry) ReleasePendingStream(projectID, apiKeyID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pendingByProject[projectID] > 1 {
+		r.pendingByProject[projectID]--
+	} else {
+		delete(r.pendingByProject, projectID)
+	}
+	if apiKeyID != "" {
+		if r.pendingByAPIKey[apiKeyID] > 1 {
+			r.pendingByAPIKey[apiKeyID]--
+		} else {
+			delete(r.pendingByAPIKey, apiKeyID)
+		}
 	}
 }
 
