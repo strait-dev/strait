@@ -20,6 +20,7 @@ var (
 	ErrJobNotFound                  = errors.New("job not found")
 	ErrJobGroupNotFound             = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
+	ErrWebhookEndpointLimitExceeded = errors.New("webhook endpoint limit exceeded")
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
 	ErrAuditEventNotFound           = errors.New("audit event not found")

@@ -44,6 +44,10 @@ type CreateWebhookSubscriptionOutput struct {
 	Body *domain.WebhookSubscription
 }
 
+type webhookSubscriptionLimitCreator interface {
+	CreateWebhookSubscriptionWithOrgLimit(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints int) error
+}
+
 func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *CreateWebhookSubscriptionInput) (*CreateWebhookSubscriptionOutput, error) {
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -55,7 +59,8 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := requireProjectWideWebhookAccess(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
+	orgID, maxEndpoints, _, err := s.resolveWebhookEndpointCreateLimit(ctx, req.ProjectID)
+	if err != nil {
 		return nil, err
 	}
 	for _, et := range req.EventTypes {
@@ -89,7 +94,23 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 		Secret:     secret,
 		Active:     active,
 	}
-	if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+	if orgID != "" && maxEndpoints >= 0 {
+		if limitedStore, ok := s.store.(webhookSubscriptionLimitCreator); ok {
+			if err := limitedStore.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints); err != nil {
+				if errors.Is(err, store.ErrWebhookEndpointLimitExceeded) {
+					return nil, huma.Error400BadRequest("webhook endpoint limit exceeded")
+				}
+				return nil, huma.Error500InternalServerError("failed to create webhook subscription")
+			}
+		} else {
+			if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
+				return nil, err
+			}
+			if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+				return nil, huma.Error500InternalServerError("failed to create webhook subscription")
+			}
+		}
+	} else if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create webhook subscription")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionWebhookSubscriptionCreated, "webhook_subscription", sub.ID, map[string]any{

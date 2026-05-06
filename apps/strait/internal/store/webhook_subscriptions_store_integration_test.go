@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 
 	"strait/internal/domain"
@@ -63,6 +64,73 @@ func TestCreateWebhookSubscription(t *testing.T) {
 	}
 	if got.Active != sub.Active {
 		t.Fatalf("Active = %v, want %v", got.Active, sub.Active)
+	}
+}
+
+func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-webhook-limit-" + newID()
+	projectID := "proj-webhook-limit-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "Webhook Limit"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	const maxEndpoints = 3
+	const attempts = 16
+
+	start := make(chan struct{})
+	errs := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := range attempts {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			sub := &domain.WebhookSubscription{
+				ID:         "sub-webhook-limit-" + newID(),
+				ProjectID:  projectID,
+				WebhookURL: "https://example.com/hook/" + newID(),
+				EventTypes: []string{"run.completed"},
+				Secret:     "whsec_test",
+				Active:     true,
+			}
+			if i%2 == 0 {
+				sub.EventTypes = []string{"run.failed"}
+			}
+			errs <- q.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	var created, limited int
+	for err := range errs {
+		switch {
+		case err == nil:
+			created++
+		case errors.Is(err, store.ErrWebhookEndpointLimitExceeded):
+			limited++
+		default:
+			t.Fatalf("unexpected create error: %v", err)
+		}
+	}
+	if created != maxEndpoints {
+		t.Fatalf("created = %d, want %d", created, maxEndpoints)
+	}
+	if limited != attempts-maxEndpoints {
+		t.Fatalf("limited = %d, want %d", limited, attempts-maxEndpoints)
+	}
+
+	count, err := q.CountWebhookSubscriptionsByOrg(ctx, orgID)
+	if err != nil {
+		t.Fatalf("CountWebhookSubscriptionsByOrg() error = %v", err)
+	}
+	if count != maxEndpoints {
+		t.Fatalf("stored active webhook endpoints = %d, want %d", count, maxEndpoints)
 	}
 }
 
