@@ -284,19 +284,21 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 					batchNow := time.Now()
 					batchExpiresAt := batchNow.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 					batchRun := &domain.JobRun{
-						ID:           uuid.Must(uuid.NewV7()).String(),
-						JobID:        job.ID,
-						ProjectID:    job.ProjectID,
-						Status:       domain.StatusQueued,
-						Attempt:      1,
-						Payload:      batchPayload,
-						TriggeredBy:  "batch",
-						Priority:     req.Priority,
-						JobVersion:   job.Version,
-						JobVersionID: job.VersionID,
-						ExpiresAt:    &batchExpiresAt,
-						CreatedBy:    actorFromContext(ctx),
-						IsRollback:   false,
+						ID:            uuid.Must(uuid.NewV7()).String(),
+						JobID:         job.ID,
+						ProjectID:     job.ProjectID,
+						Status:        domain.StatusQueued,
+						Attempt:       1,
+						Payload:       batchPayload,
+						TriggeredBy:   "batch",
+						Priority:      req.Priority,
+						JobVersion:    job.Version,
+						JobVersionID:  job.VersionID,
+						ExpiresAt:     &batchExpiresAt,
+						CreatedBy:     actorFromContext(ctx),
+						ExecutionMode: job.ExecutionMode,
+						QueueName:     job.Queue,
+						IsRollback:    false,
 					}
 					if enqErr := s.queue.Enqueue(ctx, batchRun); enqErr != nil {
 						slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)

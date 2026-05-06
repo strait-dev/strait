@@ -606,6 +606,61 @@ func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing.T) {
+	t.Parallel()
+	var enqueued *domain.JobRun
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:              id,
+				ProjectID:       "proj-1",
+				Enabled:         true,
+				TimeoutSecs:     120,
+				BatchWindowSecs: 60,
+				BatchMaxSize:    2,
+				ExecutionMode:   domain.ExecutionModeWorker,
+				Queue:           "critical-workers",
+			}, nil
+		},
+		InsertBatchBufferItemFunc: func(_ context.Context, _ *domain.BatchBufferItem) error {
+			return nil
+		},
+		CountBatchBufferItemsFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 2, nil
+		},
+		DrainBatchBufferFunc: func(_ context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
+			if jobID != "job-123" || batchKey != "batch-a" || limit != 2 {
+				t.Fatalf("unexpected drain args: job=%q batch=%q limit=%d", jobID, batchKey, limit)
+			}
+			return []domain.BatchBufferItem{
+				{Payload: json.RawMessage(`{"n":1}`)},
+				{Payload: json.RawMessage(`{"n":2}`)},
+			}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		enqueued = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"batch_key":"batch-a","payload":{"n":2}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued == nil {
+		t.Fatal("expected immediate batch run to be enqueued")
+	}
+	if enqueued.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("execution mode = %q, want worker", enqueued.ExecutionMode)
+	}
+	if enqueued.QueueName != "critical-workers" {
+		t.Fatalf("queue = %q, want critical-workers", enqueued.QueueName)
+	}
+}
+
 func TestValidateURL_ValidHTTPS(t *testing.T) {
 	t.Parallel()
 	if err := validateURL("https://example.com"); err != nil {
