@@ -177,6 +177,7 @@ type Reaper struct {
 	auditDLQMaxReclaimAttempts int
 	archiveEnabled             bool
 	allowPrivateEndpoints      bool
+	rotationWebhookClient      *http.Client
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -1372,18 +1373,21 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
 
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return fmt.Errorf("too many redirects")
-			}
-			if err := validateRotationWebhookURL(req.URL.String(), r.allowPrivateEndpoints); err != nil {
-				return fmt.Errorf("redirect blocked: %w", err)
-			}
-			return nil
-		},
+	client := r.rotationWebhookClient
+	if client == nil {
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
+		}
+	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return fmt.Errorf("too many redirects")
+		}
+		if err := validateRotationWebhookURL(req.URL.String(), r.allowPrivateEndpoints); err != nil {
+			return fmt.Errorf("redirect blocked: %w", err)
+		}
+		return nil
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1405,11 +1409,8 @@ func validateRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error
 	if err != nil {
 		return fmt.Errorf("parse rotation webhook url: %w", err)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("rotation webhook url must use http or https")
-	}
-	if parsed.Scheme != "https" && !allowPrivateEndpoints {
-		return fmt.Errorf("rotation webhook must use https unless private endpoints are explicitly enabled")
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("rotation webhook must use https")
 	}
 	if err := httputil.ValidateExternalURL(rawURL); err != nil && !allowPrivateEndpoints {
 		return fmt.Errorf("ssrf guard rejected rotation webhook url: %w", err)

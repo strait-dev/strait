@@ -390,7 +390,7 @@ func TestNotifyRotationWebhook_BlocksPrivateURL(t *testing.T) {
 	}
 }
 
-func TestNotifyRotationWebhook_AllowsHTTPOnlyWithPrivateEndpoints(t *testing.T) {
+func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testing.T) {
 	t.Parallel()
 
 	var called atomic.Int32
@@ -401,12 +401,12 @@ func TestNotifyRotationWebhook_AllowsHTTPOnlyWithPrivateEndpoints(t *testing.T) 
 	defer server.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
-		t.Fatalf("notifyRotationWebhook returned error: %v", err)
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+		t.Fatal("expected plaintext rotation webhook to be blocked")
 	}
 
-	if called.Load() != 1 {
-		t.Fatalf("rotation webhook was called %d times, want 1", called.Load())
+	if called.Load() != 0 {
+		t.Fatalf("rotation webhook was called %d times, want 0", called.Load())
 	}
 }
 
@@ -459,7 +459,7 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 	t.Parallel()
 
 	var delivered atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		delivered.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -492,6 +492,7 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = server.Client()
 	r.autoRotateAPIKeys(context.Background())
 
 	if marked.Load() != 1 {
