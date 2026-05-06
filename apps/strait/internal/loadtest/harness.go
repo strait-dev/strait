@@ -10,9 +10,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -248,6 +251,10 @@ func (h *Harness) TriggerJob(ctx context.Context, projectID, jobID string, paylo
 
 // CreateJob creates a job via the Strait API for load testing.
 func (h *Harness) CreateJob(ctx context.Context, projectID string, job JobConfig) (string, error) {
+	if err := validateLoadTestEndpointURL(job.EndpointURL); err != nil {
+		return "", err
+	}
+
 	body, err := json.Marshal(job)
 	if err != nil {
 		return "", fmt.Errorf("marshaling job config: %w", err)
@@ -282,6 +289,30 @@ func (h *Harness) CreateJob(ctx context.Context, projectID string, job JobConfig
 	}
 
 	return result.ID, nil
+}
+
+func validateLoadTestEndpointURL(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid load test endpoint URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid load test endpoint URL scheme %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("invalid load test endpoint URL: missing host")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+		return fmt.Errorf("load test endpoint URL must not advertise wildcard host %q", host)
+	}
+	return nil
 }
 
 // GetQueueStats fetches current queue statistics from the Strait API.

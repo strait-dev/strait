@@ -88,3 +88,36 @@ func TestTestServer_BindsLoopbackAndRequiresSignature(t *testing.T) {
 		t.Fatalf("signed status = %d, want 200", signedResp.StatusCode)
 	}
 }
+
+func TestValidateLoadTestEndpointURLRejectsWildcardHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"http://0.0.0.0:8080/fast-echo",
+		"http://[::]:8080/fast-echo",
+	}
+	for _, endpointURL := range tests {
+		t.Run(endpointURL, func(t *testing.T) {
+			if err := validateLoadTestEndpointURL(endpointURL); err == nil {
+				t.Fatal("expected wildcard endpoint URL to be rejected")
+			}
+		})
+	}
+}
+
+func TestValidateLoadTestEndpointURLAllowsLoopbackAndRemoteHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"http://127.0.0.1:8080/fast-echo",
+		"http://localhost:8080/fast-echo",
+		"https://loadtest-target.example.com/fast-echo",
+	}
+	for _, endpointURL := range tests {
+		t.Run(endpointURL, func(t *testing.T) {
+			if err := validateLoadTestEndpointURL(endpointURL); err != nil {
+				t.Fatalf("expected endpoint URL to be allowed: %v", err)
+			}
+		})
+	}
+}
