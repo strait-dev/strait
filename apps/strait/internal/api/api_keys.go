@@ -81,23 +81,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		expiresAt = &t
 	}
 
-	// Enforce project-level max key lifetime if configured.
-	quota, err := s.store.GetProjectQuota(ctx, req.ProjectID)
+	expiresAt, err = s.apiKeyExpiryFromProjectPolicy(ctx, req.ProjectID, expiresAt)
 	if err != nil {
-		slog.Warn("failed to load project quota while creating api key",
-			"project_id", req.ProjectID, "error", err)
-		return nil, huma.Error500InternalServerError("failed to load project quota")
-	}
-	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
-		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
-		if expiresAt == nil {
-			expiresAt = &maxExpiry
-			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
-				"project_id", req.ProjectID, "max_days", quota.MaxKeyLifetimeDays)
-		} else if expiresAt.After(maxExpiry) {
-			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
-		}
+		return nil, err
 	}
 
 	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
@@ -121,6 +107,28 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		"rotation_interval_days": req.RotationIntervalDays,
 	})
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
+}
+
+func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {
+	expiresAt := requested
+	quota, err := s.store.GetProjectQuota(ctx, projectID)
+	if err != nil {
+		slog.Warn("failed to load project quota while creating api key",
+			"project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load project quota")
+	}
+	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
+		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
+		if expiresAt == nil {
+			expiresAt = &maxExpiry
+			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
+				"project_id", projectID, "max_days", quota.MaxKeyLifetimeDays)
+		} else if expiresAt.After(maxExpiry) {
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
+		}
+	}
+	return expiresAt, nil
 }
 
 type ListAPIKeysInput struct {

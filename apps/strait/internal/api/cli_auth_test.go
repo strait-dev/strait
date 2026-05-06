@@ -343,6 +343,102 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	}
 }
 
+func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScopedCLIKey(t *testing.T) {
+	t.Parallel()
+
+	var createdKey *domain.APIKey
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+			return &store.DeviceCodeRow{
+				ID:         "dc-env",
+				DeviceCode: "test-device-code",
+				UserCode:   "ENV12345",
+				Status:     "pending",
+				ExpiresAt:  time.Now().Add(10 * time.Minute),
+			}, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("quota project_id = %q, want proj-1", projectID)
+			}
+			return &store.ProjectQuota{ProjectID: projectID}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			key.ID = "key-env"
+			key.CreatedAt = time.Now()
+			createdKey = key
+			return nil
+		},
+		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+	ctx = context.WithValue(ctx, ctxScopesKey, domain.CLIDefaultScopes)
+
+	_, err := srv.handleApproveDeviceCode(ctx, &ApproveDeviceCodeInput{Body: approveDeviceCodeRequest{
+		DeviceCode: "test-device-code",
+		ProjectID:  "proj-1",
+	}})
+	if err != nil {
+		t.Fatalf("handleApproveDeviceCode() error = %v", err)
+	}
+	if createdKey == nil {
+		t.Fatal("expected API key to be created")
+	}
+	if createdKey.EnvironmentID != "env-staging" {
+		t.Fatalf("created key environment_id = %q, want env-staging", createdKey.EnvironmentID)
+	}
+}
+
+func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
+	t.Parallel()
+
+	var createdKey *domain.APIKey
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+			return &store.DeviceCodeRow{
+				ID:         "dc-lifetime",
+				DeviceCode: "test-device-code",
+				UserCode:   "LIFE1234",
+				Status:     "pending",
+				ExpiresAt:  time.Now().Add(10 * time.Minute),
+			}, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxKeyLifetimeDays: 7}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			key.ID = "key-lifetime"
+			key.CreatedAt = time.Now()
+			createdKey = key
+			return nil
+		},
+		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, domain.CLIDefaultScopes)
+
+	_, err := srv.handleApproveDeviceCode(ctx, &ApproveDeviceCodeInput{Body: approveDeviceCodeRequest{
+		DeviceCode: "test-device-code",
+		ProjectID:  "proj-1",
+	}})
+	if err != nil {
+		t.Fatalf("handleApproveDeviceCode() error = %v", err)
+	}
+	if createdKey == nil || createdKey.ExpiresAt == nil {
+		t.Fatal("expected CLI key to be created with an expiry")
+	}
+	if createdKey.ExpiresAt.After(time.Now().Add(8 * 24 * time.Hour)) {
+		t.Fatalf("created key expiry = %v, want capped near 7 days", createdKey.ExpiresAt)
+	}
+}
+
 func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 	t.Parallel()
 
