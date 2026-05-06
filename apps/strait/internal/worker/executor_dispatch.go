@@ -815,10 +815,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"run_id", run.ID,
 			"job_id", run.JobID,
 		)
-		// Transition back to queued so the next tick can retry.
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, queuedRunResetFields()); err != nil {
-			e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", err)
-		}
+		e.requeueWorkerModeRun(ctx, run, "worker dispatcher not configured")
 		return
 	}
 
@@ -846,9 +843,13 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 
 	result, err := e.workerDispatcher.WorkerDispatch(execCtx, run, job)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.DeadlineExceeded) {
 			// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
 			e.handleTimeout(ctx, run, job, policy, nil)
+			return
+		}
+		if errors.Is(err, context.Canceled) {
+			e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
 			return
 		}
 		// ErrNoWorkerAvailable: leave queued, next tick retries.
@@ -859,9 +860,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"error", err,
 		)
 		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
-			if requeueErr := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, queuedRunResetFields()); requeueErr != nil {
-				e.logger.Warn("executeWorkerMode: requeue failed", "run_id", run.ID, "error", requeueErr)
-			}
+			e.requeueWorkerModeRun(ctx, run, "no worker available")
 			return
 		}
 		policy := executionPolicy{
@@ -977,6 +976,29 @@ func (e *Executor) completeWorkerTask(ctx context.Context, result any, status do
 			"error", err,
 		)
 	}
+}
+
+func (e *Executor) requeueWorkerModeRun(ctx context.Context, run *domain.JobRun, reason string) {
+	from := run.Status
+	if from == "" {
+		from = domain.StatusExecuting
+	}
+	requeueCtx := ctx
+	var cancel context.CancelFunc
+	if ctx.Err() != nil {
+		requeueCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+	}
+	if err := e.store.UpdateRunStatus(requeueCtx, run.ID, from, domain.StatusQueued, queuedRunResetFields()); err != nil {
+		e.logger.Warn("executeWorkerMode: requeue failed",
+			"run_id", run.ID,
+			"from", from,
+			"reason", reason,
+			"error", err,
+		)
+		return
+	}
+	run.Status = domain.StatusQueued
 }
 
 func queuedRunResetFields() map[string]any {

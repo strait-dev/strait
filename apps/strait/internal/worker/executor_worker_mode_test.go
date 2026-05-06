@@ -328,6 +328,67 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 	}
 }
 
+func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &contextDeadlineWorkerDispatcher{started: make(chan struct{})}
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return workerModeJob(3), nil
+		},
+		updateRunStatusFn: func(ctx context.Context, _ string, _, to domain.RunStatus, _ map[string]any) error {
+			if to == domain.StatusQueued && ctx.Err() != nil {
+				t.Fatalf("requeue used cancelled context: %v", ctx.Err())
+			}
+			return nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, dispatcher)
+
+	run := testRun(1)
+	job := workerModeJob(3)
+	policy := defaultExecutionPolicy(job)
+	policy.timeoutSecs = 30
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		exec.executeWorkerMode(ctx, run, job, policy)
+		close(done)
+	}()
+
+	select {
+	case <-dispatcher.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker dispatch did not start")
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker-mode dispatch did not return after parent cancellation")
+	}
+
+	var requeueUpdate *statusUpdateCall
+	for _, update := range ms.statusUpdates() {
+		if update.from == domain.StatusExecuting && update.to == domain.StatusQueued {
+			u := update
+			requeueUpdate = &u
+			break
+		}
+	}
+	if requeueUpdate == nil {
+		t.Fatalf("expected cancellation requeue, got updates: %+v", ms.statusUpdates())
+	}
+	if _, ok := requeueUpdate.fields["attempt"]; ok {
+		t.Fatalf("cancellation requeue should not increment attempt: %+v", requeueUpdate.fields)
+	}
+	if requeueUpdate.fields["error"] != nil {
+		t.Fatalf("cancellation requeue should clear error, got: %+v", requeueUpdate.fields)
+	}
+}
+
 func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
 	t.Parallel()
 	successOpaque := struct{ tag string }{tag: "output"}
@@ -704,6 +765,30 @@ func TestExecuteWorkerMode_NilDispatcherRequeuesWithCleanQueuedFields(t *testing
 	}
 	if !gotRequeued {
 		t.Fatalf("expected requeue from executing to queued, got: %+v", ms.statusUpdates())
+	}
+	assertQueuedResetFields(t, requeueFields)
+}
+
+func TestExecuteWorkerMode_NilDispatcherRequeuesDequeuedRun(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockExecutorStore{}
+	exec, _, _ := newWorkerModeExecutor(t, ms, nil)
+
+	run := testRun(1)
+	run.Status = domain.StatusDequeued
+	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
+
+	gotRequeued := false
+	var requeueFields map[string]any
+	for _, u := range ms.statusUpdates() {
+		if u.from == domain.StatusDequeued && u.to == domain.StatusQueued {
+			gotRequeued = true
+			requeueFields = u.fields
+		}
+	}
+	if !gotRequeued {
+		t.Fatalf("expected requeue from dequeued to queued, got: %+v", ms.statusUpdates())
 	}
 	assertQueuedResetFields(t, requeueFields)
 }
