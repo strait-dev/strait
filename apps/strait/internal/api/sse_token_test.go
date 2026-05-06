@@ -278,6 +278,74 @@ func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_SSETokenEmptyScopesRejected(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/key/stream", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "sse:proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_SSETokenNilScopesRejected(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/key/stream", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "sse:proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_SSETokenExplicitScopeAllowed(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/key/stream", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "sse:proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsRead})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 func FuzzParseSSEToken(f *testing.F) {
 	f.Add("valid-looking.jwt.token")
 	f.Add("")
