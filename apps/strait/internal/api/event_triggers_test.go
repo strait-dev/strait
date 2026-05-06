@@ -1111,6 +1111,62 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	}
 }
 
+func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-no-generic-timeout",
+				EventKey:  "no-generic-timeout",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				ch <- []byte(`{"id":"evt-no-generic-timeout","status":"received"}`)
+			}()
+			return sub, nil
+		},
+	}
+
+	cfg := &config.Config{
+		InternalSecret:       "test-secret-value",
+		MaxBulkTriggerItems:  500,
+		JWTSigningKey:        testJWTSigningKey,
+		RequestTimeout:       10 * time.Millisecond,
+		SSEMaxConnDuration:   time.Second,
+		SSEKeepaliveInterval: time.Second,
+	}
+	srv := NewServer(ServerDeps{
+		Config: cfg,
+		Store:  ms,
+		Queue:  &mockQueue{},
+		PubSub: pub,
+	})
+	t.Cleanup(srv.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/no-generic-timeout/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"status":"received"`) {
+		t.Fatalf("stream was cut off before terminal event; body: %s", rr.Body.String())
+	}
+}
+
 // SSE stream: context cancellation closes cleanly.
 func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
 	t.Parallel()
