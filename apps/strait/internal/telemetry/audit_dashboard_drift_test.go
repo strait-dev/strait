@@ -67,7 +67,7 @@ func dashboardAuditMetricRefs(t *testing.T) map[string]struct{} {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	dashPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "k8s", "grafana", "audit-events.json")
+	dashPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "monitoring", "grafana", "audit-events.json")
 	raw, err := os.ReadFile(dashPath)
 	if err != nil {
 		t.Fatalf("read audit-events.json: %v", err)

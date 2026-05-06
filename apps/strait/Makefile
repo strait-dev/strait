@@ -1,9 +1,8 @@
 .PHONY: build test lint vet preflight deploy deploy-staging
-.PHONY: dev dev-up dev-down dev-http dev-docker dev-status dev-logs dev-clean
+.PHONY: dev dev-up dev-down dev-status dev-logs dev-clean
 .PHONY: loadtest-server loadtest-quick loadtest-throughput
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
 .PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
-.PHONY: test-k8s-unit test-k8s-integration
 .PHONY: proto
 
 proto: ## Regenerate gRPC Go code from .proto sources (requires buf, protoc-gen-go, protoc-gen-go-grpc)
@@ -35,29 +34,29 @@ vulncheck:
 
 preflight: vet lint build test
 
-deploy: preflight ## Deploy (see strait-dev/infra repo for K8s manifests)
+deploy: preflight ## Deploy using the infra repo
 	@echo "Deploy via the infra repo: https://github.com/strait-dev/infra"
-	@echo "Or trigger the deploy-k8s workflow from that repo."
+	@echo "Trigger the appropriate deploy workflow from that repo."
 
 # ──────────────────────────────────────────────
 # Local Development
 # ──────────────────────────────────────────────
 #
-# Quick start (one command, full managed mode):
+# Quick start (one command, local orchestration stack):
 #
 #   make dev
 #
-# This starts Postgres, Redis, Sequin, a local Kubernetes cluster (kind),
-# and the Strait server with managed mode enabled. Job containers run on
-# the kind cluster on your machine.
+# This starts Postgres, Redis, Sequin, and the Strait server. Strait is
+# orchestration-only: job code runs in customer HTTP endpoints or connected
+# worker-mode clients.
 #
-# Other modes:
-#   make dev-http     Start Strait in HTTP mode (no container runtime)
-#   make dev-docker   Start Strait with Docker runtime (simpler, no K8s)
-#   make dev-status   Show status of all infrastructure
-#   make dev-logs     Show logs of the most recent K8s job
-#   make dev-clean    Delete all K8s jobs and pods
-#   make dev-down     Stop everything (Postgres, Redis, Sequin, kind)
+# Commands:
+#   make dev          Start dependencies and run Strait in all mode
+#   make dev-up       Start Postgres, Redis, and Sequin
+#   make dev-status   Show Docker Compose service status
+#   make dev-logs     Show Docker Compose service logs
+#   make dev-clean    Stop dependencies and remove local volumes
+#   make dev-down     Stop dependencies
 
 DEV_ENV = \
 	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
@@ -69,85 +68,34 @@ DEV_ENV = \
 	PORT=8080
 
 dev: dev-up
-	$(DEV_ENV) \
-	COMPUTE_RUNTIME=k8s \
-	K8S_KUBECONFIG="$$HOME/.kube/config" \
-	K8S_NAMESPACE=default \
-	EXTERNAL_API_URL="http://host.docker.internal:8080" \
-	ALLOWED_IMAGE_REGISTRIES="docker.io,ghcr.io,registry.k8s.io" \
-	go run ./cmd/strait
+	$(DEV_ENV) go run ./cmd/strait --mode all
 
 dev-up:
 	@echo "Starting Strait infrastructure..."
 	@docker compose up -d
-	@# Create kind cluster named "strait" if it doesn't exist.
-	@kind get clusters 2>/dev/null | grep -q "^strait$$" || ( \
-		echo "Creating Kubernetes cluster..." && \
-		kind create cluster --name strait && \
-		kubectl apply -f k8s/priority-classes.yaml --context kind-strait && \
-		kubectl apply -f k8s/service-account.yaml --context kind-strait && \
-		kubectl apply -f k8s/resource-quota.yaml --context kind-strait \
-	)
 	@echo ""
 	@echo "Infrastructure ready:"
 	@echo "  Postgres:    localhost:15432 (strait/strait)"
 	@echo "  Redis:       localhost:16379"
 	@echo "  Sequin:      localhost:7376"
-	@echo "  Kubernetes:  kind-strait (kubectl --context kind-strait)"
 	@echo ""
 	@echo "Run Strait:"
-	@echo "  make dev           Managed mode (K8s)"
-	@echo "  make dev-http      HTTP mode (no containers)"
-	@echo "  make dev-docker    Managed mode (Docker)"
+	@echo "  make dev"
 
 dev-down:
 	@docker compose down
-	@kind delete cluster --name strait 2>/dev/null || true
 	@echo "All infrastructure stopped."
-
-dev-http:
-	$(DEV_ENV) COMPUTE_RUNTIME=none go run ./cmd/strait
-
-dev-docker:
-	$(DEV_ENV) \
-	COMPUTE_RUNTIME=docker \
-	EXTERNAL_API_URL="http://host.docker.internal:8080" \
-	ALLOWED_IMAGE_REGISTRIES="docker.io,ghcr.io" \
-	go run ./cmd/strait
 
 dev-status:
 	@echo "=== Docker Compose ==="
 	@docker compose ps 2>/dev/null || echo "Not running. Run: make dev-up"
-	@echo ""
-	@echo "=== Kubernetes ==="
-	@kubectl cluster-info --context kind-strait 2>/dev/null || echo "No cluster. Run: make dev-up"
-	@echo ""
-	@echo "=== K8s Jobs ==="
-	@kubectl get jobs --context kind-strait -n default 2>/dev/null || true
-	@echo ""
-	@echo "=== K8s Pods ==="
-	@kubectl get pods --context kind-strait -n default 2>/dev/null || true
 
 dev-logs:
-	@kubectl get pods --context kind-strait -n default --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1 | xargs -I{} kubectl logs --context kind-strait -n default {} 2>/dev/null || echo "No pods found."
+	@docker compose logs --tail=200
 
 dev-clean:
-	@kubectl delete jobs --all --context kind-strait -n default 2>/dev/null || true
-	@kubectl delete pods --all --context kind-strait -n default 2>/dev/null || true
-	@echo "All jobs and pods cleaned up."
-
-# ──────────────────────────────────────────────
-# Tests
-# ──────────────────────────────────────────────
-
-test-k8s-unit:
-	go test -race -short ./internal/compute/... -v
-
-test-k8s-integration:
-	go test -race ./internal/compute/ -run Integration -v -timeout 5m
-
-test-k8s-stress:
-	go test -race ./internal/compute/ -run "TestStress_|TestK8sStress_" -v -timeout 30m
+	@docker compose down -v
+	@echo "Local development infrastructure cleaned up."
 
 # ──────────────────────────────────────────────
 # Load Testing

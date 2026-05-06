@@ -15,7 +15,7 @@ import (
 // from this test file's working directory (apps/strait/internal/telemetry).
 func artifactPath(t *testing.T, name string) string {
 	t.Helper()
-	p := filepath.Join("..", "..", "k8s", "grafana", name)
+	p := filepath.Join("..", "..", "monitoring", "grafana", name)
 	if _, err := os.Stat(p); err != nil {
 		t.Fatalf("artifact %s not found: %v", p, err)
 	}

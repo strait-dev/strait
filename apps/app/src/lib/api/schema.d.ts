@@ -6865,11 +6865,6 @@ export type components = {
       /** Format: int64 */
       compute_credit_microusd: number;
       display_name: string;
-      /** Format: int64 */
-      free_managed_max_timeout?: number;
-      free_managed_preset?: string;
-      /** Format: int64 */
-      free_managed_runs_per_month: number;
       has_audit_logs: boolean;
       has_custom_rbac: boolean;
       has_data_residency: boolean;

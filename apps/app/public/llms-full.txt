@@ -140,10 +140,10 @@ Gradual rollout of new job versions with automatic health monitoring:
 
 Learn more: https://docs.strait.dev/concepts/canary-deployments
 
-### Managed Execution
-Strait can execute job code directly using Kubernetes or Docker runtimes, instead of calling external HTTP endpoints. Useful for running user-provided code in isolated containers.
+### Execution Modes
+Strait is orchestration-only. It dispatches work to customer-owned HTTP endpoints or connected worker-mode clients; it does not run job code in a built-in container runtime.
 
-Learn more: https://docs.strait.dev/concepts/managed-execution
+Learn more: https://docs.strait.dev/concepts/execution-modes
 
 ### Batch Operations
 Bulk trigger and batch management for jobs:

@@ -1,10 +1,10 @@
 ---
 title: "Deployment"
-description: "Deploy and scale Strait in production with Docker or Kubernetes."
+description: "Deploy and scale Strait in production with Docker or any container platform."
 icon: "cloud-arrow-up"
 ---
 
-Strait ships as a single Go binary. Deploy it with Docker, Kubernetes, or any platform that runs containers.
+Strait ships as a single Go binary. Deploy it with Docker or any platform that runs long-lived services.
 
 ## What You Need
 
@@ -16,15 +16,15 @@ Strait ships as a single Go binary. Deploy it with Docker, Kubernetes, or any pl
 
 See [Architecture](/concepts/architecture) for how these services interact.
 
-### Managed Service Options
+### Hosted Dependency Options
 
 - **PostgreSQL**: RDS, Cloud SQL, or Supabase
 - **Redis**: Upstash, ElastiCache, or Memorystore
-- **Sequin**: Self-hosted Docker image (no managed offering)
+- **Sequin**: Self-hosted Docker image
 
 ## Secrets Management
 
-Store secrets in your platform's secret manager: AWS Secrets Manager, GCP Secret Manager, Kubernetes Secrets, or environment variables.
+Store secrets in your platform's secret manager or inject them as environment variables.
 
 ### Required Environment Variables
 
@@ -97,26 +97,11 @@ make deploy
 bun run deploy
 ```
 
-## Kubernetes Deployment
+## Process Deployment
 
-Deploy the Strait image as a Deployment with separate `api` and `worker` Deployments for independent scaling. Pass `--mode api` or `--mode worker` as the container command argument.
-
-Store secrets in a Kubernetes Secret and mount them as environment variables:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: strait-secrets
-type: Opaque
-stringData:
-  DATABASE_URL: "postgres://..."
-  REDIS_URL: "redis://..."
-  INTERNAL_SECRET: "..."
-  JWT_SIGNING_KEY: "..."
-  ENCRYPTION_KEY: "..."
-  SECRET_ENCRYPTION_KEY: "..."
-```
+Run Strait as one or more long-lived processes. For small deployments, run a
+single `--mode all` process. For higher throughput, split API and worker
+capacity into separate processes by passing `--mode api` or `--mode worker`.
 
 ## Sequin Deployment
 
@@ -161,7 +146,7 @@ Strait handles shutdown cleanly in both modes:
 - **Worker**: Stops claiming new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
 
 <Tip>
-  Always use a process manager or orchestrator (like Kubernetes or Docker Compose) that respects SIGTERM signals so in-flight jobs finish before the process exits.
+  Always use a process manager or container platform that respects SIGTERM signals so in-flight jobs finish before the process exits.
 </Tip>
 
 ## CI/CD

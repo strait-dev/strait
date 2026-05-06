@@ -1,6 +1,6 @@
 # Prometheus alert rules for the Strait audit subsystem.
 #
-# Load via Prometheus `rule_files:` or a PrometheusRule CRD in Kubernetes.
+# Load via Prometheus `rule_files:`.
 groups:
   - name: strait-audit
     interval: 30s

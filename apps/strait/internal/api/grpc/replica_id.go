@@ -13,7 +13,7 @@ var (
 )
 
 // ReplicaID returns a stable identifier for this server replica.
-// It prefers the HOSTNAME env var (set by Kubernetes as the pod name) and
+// It prefers the HOSTNAME env var (commonly set by container platforms) and
 // falls back to a process-local UUID generated once at startup.
 func ReplicaID() string {
 	replicaIDOnce.Do(func() {

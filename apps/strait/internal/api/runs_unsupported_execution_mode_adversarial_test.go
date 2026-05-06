@@ -10,10 +10,9 @@ import (
 	"strait/internal/domain"
 )
 
-// TestCreateJob_ManagedExecutionMode_Rejected asserts that any attempt to create
-// a job with execution_mode="managed" returns HTTP 400. Managed execution is no
-// longer supported; clients must use http or worker mode instead.
-func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
+// TestCreateJob_UnsupportedExecutionMode_Rejected asserts that unsupported
+// execution modes are rejected; clients must use http or worker mode.
+func TestCreateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -23,8 +22,8 @@ func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 
 	body := `{
 		"project_id":     "proj-1",
-		"name":           "managed-job",
-		"slug":           "managed-job",
+		"name":           "unsupported-mode-job",
+		"slug":           "unsupported-mode-job",
 		"endpoint_url":   "https://example.com/run",
 		"execution_mode": "managed",
 		"timeout_secs":   60,
@@ -35,7 +34,7 @@ func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", body))
 
 	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for managed execution_mode, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected 422 for unsupported execution_mode, got %d: %s", w.Code, w.Body.String())
 	}
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
 	if !strings.Contains(w.Body.String(), "ExecutionMode") {
@@ -43,9 +42,9 @@ func TestCreateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	}
 }
 
-// TestUpdateJob_ManagedExecutionMode_Rejected asserts that updating a job to
-// execution_mode="managed" is rejected with HTTP 400.
-func TestUpdateJob_ManagedExecutionMode_Rejected(t *testing.T) {
+// TestUpdateJob_UnsupportedExecutionMode_Rejected asserts that unsupported
+// execution-mode updates are rejected.
+func TestUpdateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -71,7 +70,7 @@ func TestUpdateJob_ManagedExecutionMode_Rejected(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", body))
 
 	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for managed execution_mode on update, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected 422 for unsupported execution_mode on update, got %d: %s", w.Code, w.Body.String())
 	}
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
 	if !strings.Contains(w.Body.String(), "ExecutionMode") {

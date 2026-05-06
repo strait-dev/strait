@@ -452,10 +452,10 @@ func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string
 }
 
 // resolveInstanceID returns a stable per-process identifier suitable
-// for use as a metric attribute. Prefers the OS hostname (matches K8s
-// pod name in standard deployments); falls back to a process-scoped
-// UUID if Hostname errors or returns empty. Resolution happens at most
-// once per Executor; subsequent calls return the cached value.
+// for use as a metric attribute. It prefers the OS hostname, which commonly
+// matches the container or instance identity, and falls back to a process-scoped
+// UUID if Hostname errors or returns empty. Resolution happens at most once per
+// Executor; subsequent calls return the cached value.
 func (e *Executor) resolveInstanceID() string {
 	e.instanceIDOnce.Do(func() {
 		host, err := os.Hostname()

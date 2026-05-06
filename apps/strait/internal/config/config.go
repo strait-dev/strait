@@ -357,8 +357,7 @@ func Load() (*Config, error) {
 // validateLoaded runs the post-load validation gauntlet on a populated
 // Config: required fields, enumerated values, URL parsing, edition gating,
 // CORS policy, and audit subsystem invariants. It mutates cfg in two
-// well-defined cases (community-edition ComputeRuntime override; no other
-// assignments) to match the pre-refactor behavior of Load. Returns a
+// well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
 //
 //nolint:gocyclo,cyclop

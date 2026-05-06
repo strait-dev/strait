@@ -69,7 +69,7 @@ func TestReplicaID_NonEmptyAlways(t *testing.T) {
 	replicaID = ""
 
 	// Test with HOSTNAME set.
-	t.Setenv("HOSTNAME", "k8s-node-1")
+	t.Setenv("HOSTNAME", "container-node-1")
 	id := ReplicaID()
 	if id == "" {
 		t.Error("ReplicaID must never return empty string")

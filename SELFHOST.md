@@ -7,7 +7,7 @@ There are two ways to self-host. Pick the one that matches how you want to run t
 | Setup | One click | `make selfhost` |
 | Dashboard runs on | Your own Cloudflare account | Your own hardware |
 | API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
-| Postgres | Neon / Supabase / any managed or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
+| Postgres | Neon / Supabase / any hosted or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
 | Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
 
 Both run the community edition. Every open-source feature is available on either path.
@@ -22,7 +22,7 @@ Click the button to fork the repo and start a Cloudflare Workers Builds import. 
 
 See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detailed walkthrough, including the exact build command string and the list of secrets you must set in the Cloudflare dashboard after the first deploy.
 
-**The dashboard needs the Strait API server to function.** Run it locally with Option 2 below, on a VPS, or on Kubernetes -- then point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables. The easiest way to expose a local API is via `cloudflared tunnel` or a public hostname.
+**The dashboard needs the Strait API server to function.** Run it locally with Option 2 below, on a VPS, or on any service host reachable by Cloudflare -- then point `STRAIT_API_URL` at it in the Cloudflare Worker's Variables. The easiest way to expose a local API is via `cloudflared tunnel` or a public hostname.
 
 ---
 

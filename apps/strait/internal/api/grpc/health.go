@@ -7,7 +7,7 @@ package grpc
 //
 // Two services are registered:
 //   - "" (empty string) — overall server health, always SERVING while the
-//     process is up. Used by NLB / k8s liveness probes.
+//     process is up. Used by load balancer and process liveness checks.
 //   - "strait.worker.v1.WorkerService" — mirrors the overall status.
 //
 // When the server begins shutting down (GracefulStop called), the health

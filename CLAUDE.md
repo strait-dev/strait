@@ -63,7 +63,7 @@ Inside `apps/strait/`:
 - `cmd/strait/` — entrypoint, server wiring, migration runner (`main.go`, `server.go`, `services.go`, `migrate.go`)
 - `migrations/` — embedded SQL migrations
 - `schemas/strait.json` — generated OpenAPI spec
-- `k8s/` — example manifests + Grafana dashboards
+- `monitoring/` — Prometheus rules and Grafana dashboards
 - `internal/` — application code:
 
 | Package | Purpose |

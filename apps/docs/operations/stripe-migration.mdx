@@ -40,10 +40,10 @@ Run these steps in the Stripe **test** (sandbox) dashboard or via the
 - Stripe sandbox API key (`sk_test_...`) set in your local environment or CI secret.
 - `stripe` CLI authenticated: `stripe login` (uses test mode by default).
 
-### Step 1 — Archive obsolete managed/compute-credit products
+### Step 1 — Archive obsolete container-execution products
 
-If any legacy "Managed Execution" or "Compute Credit" products exist in
-sandbox, archive them to keep the catalog clean:
+If any legacy container-execution or compute-credit products exist in sandbox,
+archive them to keep the catalog clean:
 
 ```bash
 # List products to identify legacy IDs
@@ -276,7 +276,7 @@ endpoint's signing secret.
 
 ### Customer migration plan
 
-There are **no existing production managed-execution customers** at the time
+There are **no existing production container-execution customers** at the time
 of this migration. The live cutover is a clean-slate deployment. If that
 changes before go-live, a migration plan must be drafted separately.
 

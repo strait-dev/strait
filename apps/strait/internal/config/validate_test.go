@@ -375,14 +375,3 @@ func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
 		t.Fatal("expected error for negative DLQ reclaim batch")
 	}
 }
-
-func TestValidate_K8sRuntimeWithNamespace(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "k8s")
-	t.Setenv("K8S_NAMESPACE", "default")
-
-	_, err := Load()
-	if err != nil {
-		t.Fatalf("k8s runtime with namespace should be valid: %v", err)
-	}
-}

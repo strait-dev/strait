@@ -31,7 +31,7 @@ Strait handles the hard parts of background job execution: scheduling, retries w
 - Webhooks: https://docs.strait.dev/concepts/webhooks -- Outbound webhook notifications for run state changes
 - Webhook Subscriptions: https://docs.strait.dev/concepts/webhook-subscriptions -- Subscribe to webhook events with filtering and delivery tracking
 - Environments: https://docs.strait.dev/concepts/environments -- Isolated execution environments for dev, staging, and production
-- Managed Execution: https://docs.strait.dev/concepts/managed-execution -- Strait-managed job execution without external endpoints
+- Execution Modes: https://docs.strait.dev/concepts/execution-modes -- Run jobs through HTTP callbacks or connected worker-mode clients
 - CDC: https://docs.strait.dev/concepts/cdc -- Change data capture for real-time event streaming from PostgreSQL
 - ClickHouse Analytics: https://docs.strait.dev/concepts/clickhouse-analytics -- Custom analytics exporter with historical run and event data
 - Cost Budgets: https://docs.strait.dev/concepts/cost-budgets -- Spending limits and cost tracking for AI agent workflows

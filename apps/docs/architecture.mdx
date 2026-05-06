@@ -207,8 +207,8 @@ The scheduler runs five loops:
 
 Strait exposes health and readiness endpoints for infrastructure orchestration:
 
-- **`GET /health`** (liveness): Returns 200 if the process is alive. Used by Kubernetes liveness probes.
-- **`GET /health/ready`** (readiness): Returns 200 when all dependencies are ready (database, Redis, worker pool). Returns 503 with a JSON body detailing which component is not ready. Used by Kubernetes readiness probes to prevent routing traffic to uninitialized instances.
+- **`GET /health`** (liveness): Returns 200 if the process is alive. Use this for process-manager or load-balancer liveness checks.
+- **`GET /health/ready`** (readiness): Returns 200 when all dependencies are ready (database, Redis, worker pool). Returns 503 with a JSON body detailing which component is not ready. Use this to prevent routing traffic to uninitialized instances.
 
 Each subsystem registers its own health check function, so you can extend readiness verification without modifying the health endpoint itself.
 

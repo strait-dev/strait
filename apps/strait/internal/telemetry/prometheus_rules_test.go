@@ -13,7 +13,7 @@ import (
 )
 
 // TestPrometheusRules_MetricsExist guards against alert-rule / metric
-// drift: every metric name referenced in k8s/prometheus-rules.yaml must
+// drift: every metric name referenced in monitoring/prometheus-rules.yaml must
 // appear somewhere in the telemetry source tree. If a metric is renamed
 // or removed without updating the rules file, this test fails.
 func TestPrometheusRules_MetricsExist(t *testing.T) {
@@ -24,14 +24,12 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 	}
 
 	type ruleDoc struct {
-		Spec struct {
-			Groups []struct {
-				Rules []struct {
-					Alert string `yaml:"alert"`
-					Expr  string `yaml:"expr"`
-				} `yaml:"rules"`
-			} `yaml:"groups"`
-		} `yaml:"spec"`
+		Groups []struct {
+			Rules []struct {
+				Alert string `yaml:"alert"`
+				Expr  string `yaml:"expr"`
+			} `yaml:"rules"`
+		} `yaml:"groups"`
 	}
 	var doc ruleDoc
 	if err := yaml.Unmarshal(rulesBytes, &doc); err != nil {
@@ -65,7 +63,7 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 	suffixes := []string{"_bucket", "_count", "_sum"}
 
 	var alerts, checked int
-	for _, g := range doc.Spec.Groups {
+	for _, g := range doc.Groups {
 		for _, r := range g.Rules {
 			if r.Alert == "" {
 				continue
@@ -126,35 +124,15 @@ func TestPrometheusRules_Promtool(t *testing.T) {
 		t.Skip("promtool not installed; skipping syntactic rule check")
 	}
 	rulesPath := locateRulesFile(t)
-	// PrometheusRule CRDs wrap rule groups under spec.groups; promtool
-	// expects the bare rule-file format. We translate on the fly.
-	raw, err := os.ReadFile(rulesPath)
-	if err != nil {
-		t.Fatalf("read rules: %v", err)
-	}
-	var crd struct {
-		Spec struct {
-			Groups yaml.Node `yaml:"groups"`
-		} `yaml:"spec"`
-	}
-	if err := yaml.Unmarshal(raw, &crd); err != nil {
-		t.Fatalf("parse rules: %v", err)
-	}
-	groupsOnly := map[string]any{"groups": nil}
-	var groupsDecoded any
-	if err := crd.Spec.Groups.Decode(&groupsDecoded); err != nil {
-		t.Fatalf("decode groups: %v", err)
-	}
-	groupsOnly["groups"] = groupsDecoded
-	translated, err := yaml.Marshal(groupsOnly)
-	if err != nil {
-		t.Fatalf("marshal translated rules: %v", err)
-	}
 	tmp, err := os.CreateTemp(t.TempDir(), "strait-rules-*.yaml")
 	if err != nil {
 		t.Fatalf("tmp file: %v", err)
 	}
-	if _, err := tmp.Write(translated); err != nil {
+	raw, err := os.ReadFile(rulesPath)
+	if err != nil {
+		t.Fatalf("read rules: %v", err)
+	}
+	if _, err := tmp.Write(raw); err != nil {
 		t.Fatalf("write tmp rules: %v", err)
 	}
 	_ = tmp.Close()
@@ -167,7 +145,7 @@ func TestPrometheusRules_Promtool(t *testing.T) {
 
 func locateRulesFile(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(moduleRoot(t), "k8s", "prometheus-rules.yaml")
+	return filepath.Join(moduleRoot(t), "monitoring", "prometheus-rules.yaml")
 }
 
 // moduleRoot walks up from the test binary's working directory until it
