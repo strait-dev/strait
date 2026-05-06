@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -395,5 +398,40 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 	}
 	if capturedKeys[1] != "/v1/jobs/job-1/clone:env:env-staging:clone-key" {
 		t.Fatalf("staging key = %q", capturedKeys[1])
+	}
+}
+
+func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
+	rawKey := "raw-client-supplied-key"
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+			return "acquired", 0, nil, nil
+		},
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+			return errors.New("forced complete failure")
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	req.Header.Set("Idempotency-Key", rawKey)
+	req = req.WithContext(context.WithValue(req.Context(), ctxProjectIDKey, "proj-1"))
+	wrapped.ServeHTTP(httptest.NewRecorder(), req)
+
+	logText := logs.String()
+	if strings.Contains(logText, rawKey) {
+		t.Fatalf("log output leaked raw idempotency key: %s", logText)
+	}
+	if !strings.Contains(logText, "idempotency_key_hash") {
+		t.Fatalf("log output did not include idempotency hash: %s", logText)
 	}
 }
