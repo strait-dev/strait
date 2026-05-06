@@ -43,22 +43,16 @@ Strait handles the hard parts of background job execution: scheduling, retries w
 
 ### Guides
 - Authentication: https://docs.strait.dev/guides/authentication -- API key and token-based authentication
-- OIDC: https://docs.strait.dev/guides/oidc -- OpenID Connect integration for SSO
 - RBAC: https://docs.strait.dev/guides/rbac -- Role-based access control and permission management
 - Security: https://docs.strait.dev/guides/security -- Security best practices and hardening
-- API Key Rotation: https://docs.strait.dev/guides/api-key-rotation -- Rotate API keys without downtime
 - Audit Events: https://docs.strait.dev/guides/audit-events -- Understanding and querying the audit log
 - SDK Integration: https://docs.strait.dev/guides/sdk-integration -- Connect your application using any SDK
 - Idempotency: https://docs.strait.dev/guides/idempotency -- Ensure exactly-once execution with idempotency keys
-- Job Dependencies: https://docs.strait.dev/guides/job-dependencies -- Define and manage step dependencies in workflows
-- Job Groups: https://docs.strait.dev/guides/job-groups -- Organize jobs into logical groups
 - DAG Operations Playbook: https://docs.strait.dev/guides/dag-operations-playbook -- Operational guide for managing DAG workflows
 - Event Triggers: https://docs.strait.dev/guides/event-triggers -- Set up event-driven job and workflow execution
 - Workflow Approvals: https://docs.strait.dev/guides/workflow-approvals -- Human-in-the-loop approval gates for workflow steps
 - Deployment: https://docs.strait.dev/guides/deployment -- Deploy Strait to your infrastructure
-- Capacity Planning: https://docs.strait.dev/guides/capacity-planning -- Size your deployment for expected workloads
-- Performance Tuning: https://docs.strait.dev/guides/performance-tuning -- Optimize throughput and latency
-- Debug Bundles: https://docs.strait.dev/guides/debug-bundles -- Export diagnostic data for troubleshooting
+- Debug Bundles: https://docs.strait.dev/concepts/debug-bundles -- Export diagnostic data for troubleshooting
 
 ### SDKs
 - Overview: https://docs.strait.dev/sdks/overview -- SDK architecture and common patterns
@@ -70,17 +64,12 @@ Strait handles the hard parts of background job execution: scheduling, retries w
 - Rust: https://docs.strait.dev/sdks/rust -- Async/await with builder pattern
 
 ### Operations
-- API Key Rotation Rollout: https://docs.strait.dev/operations/api-key-rotation-rollout -- Step-by-step API key rotation procedure
-- Audit Runbook: https://docs.strait.dev/operations/audit-runbook -- Operational procedures for audit log management
-- Incident Response (AuthZ): https://docs.strait.dev/operations/incident-response-authz -- Authorization incident response playbook
-- Monitoring and Alerts: https://docs.strait.dev/operations/monitoring-and-alerts -- Set up monitoring, dashboards, and alert rules
-- OIDC Rollout: https://docs.strait.dev/operations/oidc-rollout -- Roll out OIDC authentication to your organization
-- RBAC Policy Rollout: https://docs.strait.dev/operations/rbac-policy-rollout -- Deploy and validate RBAC policies
+- Alert Runbooks: https://docs.strait.dev/operations/alert-runbooks -- On-call diagnosis and resolution steps for Strait alerts
+- DLQ Recovery: https://docs.strait.dev/operations/dlq-recovery -- Recover quarantined outbox rows safely
 
 ### API Reference
-- REST API: https://docs.strait.dev/api-reference -- OpenAPI specification for all endpoints
+- REST API: https://docs.strait.dev/api-reference/overview -- OpenAPI specification for all endpoints
 - Configuration: https://docs.strait.dev/configuration/environment-variables -- Environment variables reference
-- Migrations: https://docs.strait.dev/migrations -- Database migration guide
 
 ## How Concepts Relate
 

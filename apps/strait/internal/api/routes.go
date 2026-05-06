@@ -224,6 +224,7 @@ func (s *Server) routes() chi.Router {
 		})
 
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/plans", TypedHandler(s, http.StatusOK, s.handleGetPlans))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/regions", TypedHandler(s, http.StatusOK, s.handleGetRegions))
 
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", TypedHandler(s, http.StatusOK, s.handleGetCurrentUsage))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/history", TypedHandler(s, http.StatusOK, s.handleGetUsageHistory))

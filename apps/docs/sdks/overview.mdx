@@ -26,7 +26,7 @@ All five SDKs implement the same capabilities:
 
 | Feature | TypeScript | Python | Go | Ruby | Rust |
 |---|---|---|---|---|---|
-| **API operations** (186 endpoints) | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` | `jobs.list` | `jobs.list().await` |
+| **API operations** | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` | `jobs.list` | `jobs.list().await` |
 | **Config from `strait.json`** | `createClientFromConfigFile()` | `Client.from_file()` | `NewClientFromFile()` | `Client.from_file` | `Client::from_file()` |
 | **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` | `Client.from_env` | `Client::from_env()` |
 | **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` | `define_job` / `define_workflow` | `define_job()` / `define_workflow()` |
@@ -93,9 +93,9 @@ Each SDK is organized into the same five layers:
 +-------------------------------------------+
 |  Authoring DSL                            |  defineJob() / defineWorkflow()
 +-------------------------------------------+
-|  Composition Helpers                      |  retry, wait, paginate, deploy
+|  Composition Helpers                      |  retry, wait, paginate
 +-------------------------------------------+
-|  Domain Operations (19 services)          |  jobs, runs, workflows, ...
+|  Domain Operations                        |  jobs, runs, workflows, ...
 +-------------------------------------------+
 |  HTTP Client + Middleware                 |  auth, headers, error mapping
 +-------------------------------------------+
@@ -157,4 +157,3 @@ All 186 API operations are organized into typed service classes:
     Now in its own repository at github.com/strait-dev/strait-rust.
   </Card>
 </CardGroup>
-

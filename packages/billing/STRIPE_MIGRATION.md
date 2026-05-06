@@ -1,7 +1,4 @@
----
-title: "Stripe Sandbox to Live Cutover Playbook"
-description: "Step-by-step runbook for creating the orchestration-tier Stripe products in sandbox, verifying them, and cutting over to live mode."
----
+# Stripe Sandbox to Live Cutover Playbook
 
 This playbook covers the full lifecycle of Stripe product management for the
 orchestration-only pricing model:

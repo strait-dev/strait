@@ -135,3 +135,28 @@ func TestHandleStraitJSONSchema_NoAuthRequired(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
+
+func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/schemas/v1/strait.json", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	for _, stale := range []string{
+		"container image",
+		"managed container",
+		"COMPUTE_RUNTIME",
+		"strait build",
+	} {
+		if strings.Contains(body, stale) {
+			t.Fatalf("strait.json schema contains removed runtime/build wording %q", stale)
+		}
+	}
+}

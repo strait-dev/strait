@@ -5,12 +5,49 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
+
+func TestHandleGetRegions(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Regions []RegionResponse `json:"regions"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Regions) == 0 {
+		t.Fatal("expected at least one region")
+	}
+	if !sort.SliceIsSorted(resp.Regions, func(i, j int) bool {
+		return resp.Regions[i].Code < resp.Regions[j].Code
+	}) {
+		t.Fatalf("expected regions sorted by code, got %#v", resp.Regions)
+	}
+
+	for _, region := range resp.Regions {
+		if region.Code == "" || region.Label == "" || region.City == "" || region.Country == "" || region.Continent == "" {
+			t.Fatalf("expected complete region metadata, got %#v", region)
+		}
+		if len(region.Availability) != len(domain.AllPlanTiers()) {
+			t.Fatalf("expected availability for every plan tier, got %#v", region)
+		}
+	}
+}
 
 func TestHandleGetProjectSettings(t *testing.T) {
 	t.Parallel()

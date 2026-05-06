@@ -74,6 +74,13 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Plans"}, Security: bearerSecurity, Errors: []int{401, 500},
 	}, s.handleGetPlans)
 
+	// -- Regions --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-regions", Method: http.MethodGet, Path: "/v1/regions",
+		Summary: "List available regions", Description: "Returns all supported execution regions with display metadata.",
+		Tags: []string{"Regions"}, Security: bearerSecurity, Errors: []int{401, 500},
+	}, s.handleGetRegions)
+
 	// -- Billing --
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-current-usage", Method: http.MethodGet, Path: "/v1/usage/current",

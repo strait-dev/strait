@@ -17,7 +17,7 @@ Or create one manually:
 
 ```json
 {
-  "$schema": "https://strait.dev/schema.json",
+  "$schema": "https://api.strait.dev/schemas/v1/strait.json",
   "project": {
     "id": "proj_abc123",
     "name": "My Project"
@@ -27,12 +27,12 @@ Or create one manually:
     "auth_type": "apiKey",
     "timeout_ms": 30000
   },
-  "src": "src",
-  "runtime": "node",
-  "build": {
-    "out_dir": ".strait"
+  "dirs": ["src"],
+  "worker": {
+    "concurrency": 10,
+    "queue_name": "default"
   },
-  "deploy": {
+  "cli": {
     "default_environment": "production"
   }
 }
@@ -67,10 +67,11 @@ These fields are read by the CLI only. SDKs ignore them.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `src` | string | `"src"` | Source directory scanned for `*.job.ts` and `*.workflow.ts` definitions. |
-| `runtime` | `"node"` \| `"bun"` | `"node"` | Hosted runtime used by `strait build`. |
-| `build.out_dir` | string | `".strait"` | Compiled build output directory. |
-| `deploy.default_environment` | string | — | Default deployment target environment. |
+| `dirs` | string[] | `["src"]` | Directories scanned for job, workflow, and worker definitions. |
+| `worker.concurrency` | integer | SDK default | Number of runs a local worker process may execute concurrently. |
+| `worker.grpc_url` | string | Derived from `sdk.base_url` | gRPC endpoint used by worker-mode clients. |
+| `worker.queue_name` | string | `default` | Queue drained by the worker process. |
+| `cli.default_environment` | string | — | Default environment used by CLI commands. |
 
 ## Environment Variable Overrides
 
@@ -185,11 +186,9 @@ strait init
 It prompts for:
 1. Project ID
 2. Project name (optional)
-3. Source directory (default: `src`)
-4. Runtime — Node.js or Bun (default: Node.js)
+3. Source directories (default: `src`)
+4. Worker queue name (optional)
 5. Base URL (optional)
-
-It also checks your `.gitignore` and offers to add `.strait` (the build output directory).
 
 ### Non-interactive mode
 

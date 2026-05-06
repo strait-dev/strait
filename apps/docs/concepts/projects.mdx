@@ -84,17 +84,19 @@ Each API key is scoped to a project and carries a set of permission scopes. Assi
 | Category | Scopes |
 |---|---|
 | **Jobs** | `jobs:read`, `jobs:write`, `jobs:trigger` |
-| **Runs** | `runs:read`, `runs:write`, `runs:cancel` |
+| **Runs** | `runs:read`, `runs:write` |
 | **Workflows** | `workflows:read`, `workflows:write`, `workflows:trigger` |
 | **Environments** | `environments:read`, `environments:write` |
 | **Secrets** | `secrets:read`, `secrets:write` |
-| **API Keys** | `apikeys:read`, `apikeys:write` |
+| **API Keys** | `api-keys:manage` |
 | **Webhooks** | `webhooks:read`, `webhooks:write` |
 | **Review Queue** | `dlq:read`, `dlq:replay`, `dlq:purge` |
 | **Analytics** | `analytics:read` |
 | **Audit** | `audit:read` |
-| **RBAC** | `rbac:read`, `rbac:write` |
-| **Deployments** | `deployments:write` |
+| **RBAC** | `rbac:manage` |
+| **Workers** | `workers:connect` |
+| **Projects** | `projects:read`, `projects:write`, `projects:manage` |
+| **Outbox** | `outbox:read`, `outbox:retry`, `outbox:purge` |
 
 ---
 
