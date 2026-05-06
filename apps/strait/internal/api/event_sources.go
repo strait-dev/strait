@@ -226,6 +226,19 @@ func (s *Server) handleSubscribeToEventSource(ctx context.Context, input *Subscr
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
+		if errors.Is(err, store.ErrEventSourceNotFound) {
+			return nil, huma.Error404NotFound("event source not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get event source")
+	}
+	if err := s.validateEventSubscriptionTarget(ctx, req.TargetType, req.TargetID, projectID); err != nil {
+		return nil, err
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -244,6 +257,36 @@ func (s *Server) handleSubscribeToEventSource(ctx context.Context, input *Subscr
 		"enabled":         enabled,
 	})
 	return &SubscribeToEventSourceOutput{Body: sub}, nil
+}
+
+func (s *Server) validateEventSubscriptionTarget(ctx context.Context, targetType, targetID, projectID string) error {
+	switch targetType {
+	case "job":
+		job, err := s.store.GetJob(ctx, targetID)
+		if err != nil {
+			if errors.Is(err, store.ErrJobNotFound) {
+				return huma.Error404NotFound("event subscription target not found")
+			}
+			return huma.Error500InternalServerError("failed to get event subscription target")
+		}
+		if job == nil || job.ProjectID != projectID {
+			return huma.Error404NotFound("event subscription target not found")
+		}
+	case "workflow":
+		wf, err := s.store.GetWorkflow(ctx, targetID)
+		if err != nil {
+			if errors.Is(err, store.ErrWorkflowNotFound) {
+				return huma.Error404NotFound("event subscription target not found")
+			}
+			return huma.Error500InternalServerError("failed to get event subscription target")
+		}
+		if wf == nil || wf.ProjectID != projectID {
+			return huma.Error404NotFound("event subscription target not found")
+		}
+	default:
+		return huma.Error400BadRequest("invalid event subscription target type")
+	}
+	return nil
 }
 
 type ListEventSourceSubscriptionsInput struct {
@@ -376,6 +419,10 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
+			if job.ProjectID != source.ProjectID {
+				slog.Warn("event dispatch: target job project mismatch", "target_id", sub.TargetID, "subscription_id", sub.ID, "source_project_id", source.ProjectID, "target_project_id", job.ProjectID)
+				continue
+			}
 			if job.Paused {
 				slog.Info("event dispatch: target job is paused, skipping", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
@@ -391,6 +438,19 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 			}
 			dispatched++
 		case "workflow":
+			wf, wfErr := s.store.GetWorkflow(ctx, sub.TargetID)
+			if wfErr != nil {
+				slog.Error("event dispatch: target workflow not found", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", wfErr)
+				continue
+			}
+			if wf == nil || wf.ProjectID != source.ProjectID {
+				targetProjectID := ""
+				if wf != nil {
+					targetProjectID = wf.ProjectID
+				}
+				slog.Warn("event dispatch: target workflow project mismatch", "target_id", sub.TargetID, "subscription_id", sub.ID, "source_project_id", source.ProjectID, "target_project_id", targetProjectID)
+				continue
+			}
 			if s.workflowEngine != nil {
 				_, wfErr := s.workflowEngine.TriggerWorkflow(ctx, sub.TargetID, source.ProjectID, req.Payload, "event", nil, nil)
 				if wfErr != nil {

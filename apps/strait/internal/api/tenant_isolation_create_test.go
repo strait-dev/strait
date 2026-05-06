@@ -293,6 +293,134 @@ func TestDeleteEventSubscription_NotFoundReturns404(t *testing.T) {
 	}
 }
 
+func TestSubscribeToEventSource_CrossProjectSourceBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			if sourceID != "source-a" {
+				t.Fatalf("sourceID = %q, want source-a", sourceID)
+			}
+			if projectID != projectB {
+				t.Fatalf("projectID = %q, want %q", projectID, projectB)
+			}
+			return nil, store.ErrEventSourceNotFound
+		},
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			t.Fatal("GetJob must not be called for cross-project source")
+			return nil, nil
+		},
+		CreateEventSubscriptionFunc: func(_ context.Context, _ *domain.EventSubscription) error {
+			t.Fatal("CreateEventSubscription must not be called for cross-project source")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"target_type":"job","target_id":"job-b"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectB))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeToEventSource_CrossProjectJobTargetBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID, Name: "Source A", Enabled: true}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != "job-b" {
+				t.Fatalf("id = %q, want job-b", id)
+			}
+			return &domain.Job{ID: "job-b", ProjectID: projectB, Enabled: true}, nil
+		},
+		CreateEventSubscriptionFunc: func(_ context.Context, _ *domain.EventSubscription) error {
+			t.Fatal("CreateEventSubscription must not be called for cross-project job target")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"target_type":"job","target_id":"job-b"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectA))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeToEventSource_CrossProjectWorkflowTargetBlocked(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID, Name: "Source A", Enabled: true}, nil
+		},
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			if id != "wf-b" {
+				t.Fatalf("id = %q, want wf-b", id)
+			}
+			return &domain.Workflow{ID: "wf-b", ProjectID: projectB, Enabled: true}, nil
+		},
+		CreateEventSubscriptionFunc: func(_ context.Context, _ *domain.EventSubscription) error {
+			t.Fatal("CreateEventSubscription must not be called for cross-project workflow target")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"target_type":"workflow","target_id":"wf-b"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectA))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeToEventSource_OwnProjectWorkflowTargetAllowed(t *testing.T) {
+	t.Parallel()
+
+	created := false
+	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID, Name: "Source A", Enabled: true}, nil
+		},
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: projectA, Enabled: true}, nil
+		},
+		CreateEventSubscriptionFunc: func(_ context.Context, sub *domain.EventSubscription) error {
+			created = true
+			if sub.SourceID != "source-a" {
+				t.Fatalf("SourceID = %q, want source-a", sub.SourceID)
+			}
+			if sub.TargetID != "wf-a" {
+				t.Fatalf("TargetID = %q, want wf-a", sub.TargetID)
+			}
+			sub.ID = "sub-a"
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"target_type":"workflow","target_id":"wf-a"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectA))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !created {
+		t.Fatal("expected own-project subscription to be created")
+	}
+}
+
 // TestDeleteJobDependency_WrongJobBlocked verifies that deleting a job
 // dependency under the wrong job ID returns 404.
 func TestDeleteJobDependency_WrongJobBlocked(t *testing.T) {
