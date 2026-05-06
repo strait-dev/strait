@@ -15,6 +15,7 @@ import (
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/billing"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -264,7 +265,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			"circuit breaker check failed",
 			"run_id", run.ID,
 			"job_id", run.JobID,
-			"endpoint", job.EndpointURL,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
 			"error", circuitErr,
 		)
 		e.handleSystemFailureWithJob(ctx, run, job, "circuit breaker unavailable")
@@ -281,7 +282,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		e.logger.Warn(
 			"health score check failed, proceeding with dispatch",
 			"run_id", run.ID,
-			"endpoint", job.EndpointURL,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
 			"error", healthErr,
 		)
 	} else if !healthAllowed {
@@ -289,7 +290,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		e.logger.Info(
 			"endpoint unhealthy, snoozing run",
 			"run_id", run.ID,
-			"endpoint", job.EndpointURL,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
 			"health_score", healthScore.HealthScore,
 		)
 		e.snoozeRun(ctx, run, "endpoint health score below threshold", &healthRetryAt)

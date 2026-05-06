@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/queue"
 	"strait/internal/store"
 
@@ -62,7 +63,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	}
 	if e.txPool == nil && job.EndpointURL != "" {
 		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
-			e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 		}
 	}
 
@@ -78,7 +79,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		LatencyMs:    float64(execDur.Milliseconds()),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score success", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Info(
@@ -259,7 +260,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	errMsg := err.Error()
 	errClass := classifyError(err)
 	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
-		e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
+		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
 	}
 
 	// Record health score for failed dispatch.
@@ -269,7 +270,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		LatencyMs:    0,
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score failure", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -423,7 +424,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	defer span.End()
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
+		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 	}
 
 	// Record health score for timeout (counts as failure with timeout flag).
@@ -434,7 +435,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		LatencyMs:    float64(job.TimeoutSecs * 1000),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score timeout", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -551,7 +552,7 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 	}
 	if e.txPool == nil && job.WebhookURL != "" {
 		e.logger.Warn("txPool not configured, webhook delivery skipped for completed run",
-			"run_id", run.ID, "job_id", job.ID, "webhook_url", job.WebhookURL)
+			"run_id", run.ID, "job_id", job.ID, "webhook_url", httputil.RedactURLForLog(job.WebhookURL))
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
 }

@@ -79,7 +79,8 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithAuditDLQReclaimBatch(cfg.AuditDLQReclaimBatch).
 			WithAuditDLQMaxAgeDays(cfg.AuditDLQMaxAgeDays).
 			WithAuditDLQMaxReclaimAttempts(cfg.AuditDLQMaxReclaimAttempts).
-			WithArchiveEnabled(cfg.TerminalArchiveEnabled),
+			WithArchiveEnabled(cfg.TerminalArchiveEnabled).
+			WithAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
 		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),

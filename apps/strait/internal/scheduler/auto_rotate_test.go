@@ -95,7 +95,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
 	r.autoRotateAPIKeys(context.Background())
 
 	if createdKey == nil {
@@ -311,4 +311,22 @@ func TestAutoRotateAPIKeys_StoreNotImplemented_Noop(t *testing.T) {
 	ms := &mockReaperStore{}
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.autoRotateAPIKeys(context.Background()) // should not panic
+}
+
+func TestNotifyRotationWebhook_BlocksPrivateURL(t *testing.T) {
+	t.Parallel()
+
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
+
+	if called.Load() != 0 {
+		t.Fatalf("private rotation webhook was called %d times, want 0", called.Load())
+	}
 }

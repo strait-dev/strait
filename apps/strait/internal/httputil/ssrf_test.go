@@ -120,6 +120,45 @@ func TestValidateExternalURL(t *testing.T) {
 	}
 }
 
+func TestRedactURLForLog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "drops path query and fragment",
+			in:   "https://hooks.example.com/services/T00/B00/token?secret=value#frag",
+			want: "https://hooks.example.com",
+		},
+		{
+			name: "drops userinfo",
+			in:   "https://user:pass@example.com:8443/path?token=abc",
+			want: "https://example.com:8443",
+		},
+		{
+			name: "invalid",
+			in:   "/relative/path?token=abc",
+			want: "[invalid-url]",
+		},
+		{
+			name: "empty",
+			in:   "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RedactURLForLog(tt.in); got != tt.want {
+				t.Fatalf("RedactURLForLog(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost

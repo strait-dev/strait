@@ -15,6 +15,7 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
@@ -173,6 +174,7 @@ type Reaper struct {
 	auditDLQMaxAgeDays         int
 	auditDLQMaxReclaimAttempts int
 	archiveEnabled             bool
+	allowPrivateEndpoints      bool
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -223,6 +225,14 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 // WithMetrics sets the telemetry metrics for the reaper.
 func (r *Reaper) WithMetrics(m *telemetry.Metrics) *Reaper {
 	r.metrics = m
+	return r
+}
+
+// WithAllowPrivateEndpoints allows scheduler-originated webhooks to target
+// private addresses. It is intended for explicitly configured self-hosted
+// deployments and tests; production defaults to the SSRF-safe external policy.
+func (r *Reaper) WithAllowPrivateEndpoints(allow bool) *Reaper {
+	r.allowPrivateEndpoints = allow
 	return r
 }
 
@@ -1324,6 +1334,12 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 }
 
 func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) {
+	logURL := httputil.RedactURLForLog(webhookURL)
+	if err := httputil.ValidateExternalURL(webhookURL); err != nil && !r.allowPrivateEndpoints {
+		r.logger.Warn("rotation webhook URL blocked by ssrf guard", "url", logURL, "error", err)
+		return
+	}
+
 	payload, _ := json.Marshal(map[string]any{
 		"event":          "api_key.auto_rotated",
 		"old_key_id":     oldKeyID,
@@ -1336,22 +1352,34 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
-		r.logger.Error("failed to create rotation webhook request", "url", webhookURL, "error", err)
+		r.logger.Error("failed to create rotation webhook request", "url", logURL, "error", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := httputil.ValidateExternalURL(req.URL.String()); err != nil && !r.allowPrivateEndpoints {
+				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		r.logger.Warn("rotation webhook notification failed", "url", webhookURL, "error", err)
+		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		r.logger.Warn("rotation webhook returned non-success", "url", webhookURL, "status", resp.StatusCode)
+		r.logger.Warn("rotation webhook returned non-success", "url", logURL, "status", resp.StatusCode)
 	}
 }
 

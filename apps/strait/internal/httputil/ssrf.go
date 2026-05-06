@@ -274,3 +274,20 @@ func ValidateExternalURL(rawURL string) error {
 
 	return nil
 }
+
+// RedactURLForLog returns a URL shape that is useful for operations but does
+// not expose path segments, query strings, userinfo, or fragments. Those often
+// carry tokens in webhook and callback URLs.
+func RedactURLForLog(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "[invalid-url]"
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "[invalid-url]"
+	}
+	return u.Scheme + "://" + u.Host
+}
