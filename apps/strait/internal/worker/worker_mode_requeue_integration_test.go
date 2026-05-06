@@ -55,6 +55,24 @@ func (*successfulWorkerDispatcher) ResultOutput(any) json.RawMessage {
 	return json.RawMessage(`{"ok":true}`)
 }
 
+type timeoutWorkerDispatcher struct {
+	calls         atomic.Int32
+	cancellations atomic.Int32
+}
+
+func (d *timeoutWorkerDispatcher) WorkerDispatch(ctx context.Context, _ *domain.JobRun, _ *domain.Job) (any, error) {
+	d.calls.Add(1)
+	<-ctx.Done()
+	d.cancellations.Add(1)
+	return nil, ctx.Err()
+}
+
+func (*timeoutWorkerDispatcher) ResultStatus(any) string { return "" }
+
+func (*timeoutWorkerDispatcher) ResultError(any) string { return "" }
+
+func (*timeoutWorkerDispatcher) ResultOutput(any) json.RawMessage { return nil }
+
 func mustCreateWorkerModeJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
 	t.Helper()
 
@@ -218,5 +236,86 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 		}
 		cancel()
 		return
+	}
+}
+
+func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t)
+	mustCleanEnv(t, ctx)
+
+	st := store.New(env.DB.Pool)
+	q := queue.NewPostgresQueue(env.DB.Pool)
+	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-timeout")
+	job.TimeoutSecs = 1
+	if err := st.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob(timeout_secs) error = %v", err)
+	}
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "default",
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dispatcher := &timeoutWorkerDispatcher{}
+	pool := worker.NewPool(1)
+	exec := worker.NewExecutor(worker.ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               st,
+		TxPool:              env.DB.Pool,
+		HTTPClient:          &http.Client{Timeout: 5 * time.Second},
+		PollInterval:        50 * time.Millisecond,
+		HeartbeatInterval:   50 * time.Millisecond,
+		WebhookMaxAttempts:  1,
+		MaxDequeueBatchSize: 1,
+		QueueSnapshotter:    staticQueueSnapshotter{queues: []domain.WorkerQueueRef{{QueueName: "default"}}},
+		WorkerDispatcher:    dispatcher,
+	})
+	t.Cleanup(func() {
+		exec.CloseCache()
+		_ = pool.Shutdown(context.Background())
+	})
+
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go exec.Run(execCtx)
+
+	deadline := time.After(8 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for worker-mode timeout requeue")
+		default:
+		}
+
+		got, err := st.GetRun(ctx, run.ID)
+		if err != nil {
+			t.Fatalf("GetRun() error = %v", err)
+		}
+		if got.Status == domain.StatusQueued && got.Attempt == 2 {
+			if dispatcher.calls.Load() == 0 {
+				t.Fatal("worker dispatcher was not called")
+			}
+			if dispatcher.cancellations.Load() == 0 {
+				t.Fatal("worker dispatch context was not cancelled by timeout")
+			}
+			if got.Error != "execution timed out" {
+				t.Fatalf("run error = %q, want execution timed out", got.Error)
+			}
+			if got.NextRetryAt == nil {
+				t.Fatal("timed-out worker run was requeued without next_retry_at")
+			}
+			cancel()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

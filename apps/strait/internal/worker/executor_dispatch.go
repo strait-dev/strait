@@ -132,13 +132,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	ec.Job = job
 
-	policy := executionPolicy{
-		maxAttempts:      job.MaxAttempts,
-		timeoutSecs:      job.TimeoutSecs,
-		retryBackoff:     domain.RetryBackoffExponential,
-		retryInitialSecs: 1,
-		retryMaxSecs:     3600,
-	}
+	policy := defaultExecutionPolicy(job)
 	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
 	if policyErr != nil {
 		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
@@ -206,7 +200,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	case domain.ExecutionModeHTTP, "":
 		// HTTP dispatch continues below.
 	case domain.ExecutionModeWorker:
-		e.executeWorkerMode(ctx, run, job)
+		e.executeWorkerMode(ctx, run, job, policy)
 		return
 	default:
 		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
@@ -405,6 +399,16 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 
 	e.handleSuccess(ctx, run, job, result, execTrace)
+}
+
+func defaultExecutionPolicy(job *domain.Job) executionPolicy {
+	return executionPolicy{
+		maxAttempts:      job.MaxAttempts,
+		timeoutSecs:      job.TimeoutSecs,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     3600,
+	}
 }
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
@@ -800,7 +804,12 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 // in its current state so it can be re-claimed on the next poll tick.
 //
 // On a successful result, cost is recorded via RecordWorkerRunCost.
-func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job, policies ...executionPolicy) {
+	policy := defaultExecutionPolicy(job)
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+
 	if e.workerDispatcher == nil {
 		e.logger.Warn("worker dispatcher not configured; leaving run queued",
 			"run_id", run.ID,
@@ -831,17 +840,14 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	e.heartbeat.Register(run.ID)
 	defer e.heartbeat.Deregister(run.ID)
 
-	result, err := e.workerDispatcher.WorkerDispatch(ctx, run, job)
+	timeout := time.Duration(policy.timeoutSecs) * time.Second
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err := e.workerDispatcher.WorkerDispatch(execCtx, run, job)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			// Context cancelled — treat as a timeout.
-			policy := executionPolicy{
-				maxAttempts:      job.MaxAttempts,
-				timeoutSecs:      job.TimeoutSecs,
-				retryBackoff:     domain.RetryBackoffExponential,
-				retryInitialSecs: 1,
-				retryMaxSecs:     3600,
-			}
+			// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
 			e.handleTimeout(ctx, run, job, policy, nil)
 			return
 		}
@@ -876,13 +882,6 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	// policies kick in. This avoids silently recording worker failures as
 	// successes and bypassing the executor's retry path.
 	status := e.workerDispatcher.ResultStatus(result)
-	policy := executionPolicy{
-		maxAttempts:      job.MaxAttempts,
-		timeoutSecs:      job.TimeoutSecs,
-		retryBackoff:     domain.RetryBackoffExponential,
-		retryInitialSecs: 1,
-		retryMaxSecs:     3600,
-	}
 	if status != "success" {
 		errMsg := e.workerDispatcher.ResultError(result)
 		if errMsg == "" {

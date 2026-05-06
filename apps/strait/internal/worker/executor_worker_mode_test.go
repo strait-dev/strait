@@ -84,6 +84,32 @@ func (b *blockingWorkerDispatcher) CompleteWorkerTask(context.Context, any, doma
 	return nil
 }
 
+type contextDeadlineWorkerDispatcher struct {
+	started     chan struct{}
+	hasDeadline atomic.Bool
+	calls       atomic.Int32
+}
+
+func (d *contextDeadlineWorkerDispatcher) WorkerDispatch(ctx context.Context, _ *domain.JobRun, _ *domain.Job) (any, error) {
+	d.calls.Add(1)
+	if _, ok := ctx.Deadline(); ok {
+		d.hasDeadline.Store(true)
+	}
+	close(d.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (d *contextDeadlineWorkerDispatcher) ResultStatus(any) string { return "" }
+
+func (d *contextDeadlineWorkerDispatcher) ResultError(any) string { return "" }
+
+func (d *contextDeadlineWorkerDispatcher) ResultOutput(any) json.RawMessage { return nil }
+
+func (d *contextDeadlineWorkerDispatcher) CompleteWorkerTask(context.Context, any, domain.WorkerTaskStatus) error {
+	return nil
+}
+
 func newWorkerModeExecutor(t *testing.T, store *mockExecutorStore, dispatcher WorkerRunDispatcher) (*Executor, *mockWorkerPublisher, *mockWorkflowCallback) {
 	t.Helper()
 	pub := &mockWorkerPublisher{}
@@ -239,6 +265,66 @@ func TestExecuteWorkerMode_SuccessRoutesToHandleSuccess(t *testing.T) {
 	}
 	if !gotCompleted {
 		t.Fatalf("expected transition to completed, got updates: %+v", updates)
+	}
+}
+
+func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &contextDeadlineWorkerDispatcher{started: make(chan struct{})}
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return workerModeJob(3), nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, dispatcher)
+
+	run := testRun(1)
+	job := workerModeJob(3)
+	policy := defaultExecutionPolicy(job)
+	policy.timeoutSecs = 1
+
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		exec.executeWorkerMode(context.Background(), run, job, policy)
+		close(done)
+	}()
+
+	select {
+	case <-dispatcher.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker dispatch did not start")
+	}
+	if !dispatcher.hasDeadline.Load() {
+		t.Fatal("worker dispatch context did not include a deadline")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker-mode dispatch did not return after policy timeout")
+	}
+	if elapsed := time.Since(start); elapsed < time.Second || elapsed > 2500*time.Millisecond {
+		t.Fatalf("worker-mode timeout elapsed = %s, want about 1s", elapsed)
+	}
+
+	var timeoutUpdate *statusUpdateCall
+	updates := ms.statusUpdates()
+	for i := range updates {
+		if updates[i].from == domain.StatusExecuting && updates[i].to == domain.StatusQueued {
+			timeoutUpdate = &updates[i]
+			break
+		}
+	}
+	if timeoutUpdate == nil {
+		t.Fatalf("expected timeout requeue update, got: %+v", updates)
+	}
+	if timeoutUpdate.fields["attempt"] != 2 {
+		t.Fatalf("attempt field = %v, want 2", timeoutUpdate.fields["attempt"])
+	}
+	if timeoutUpdate.fields["error"] != "execution timed out" {
+		t.Fatalf("error field = %v, want execution timed out", timeoutUpdate.fields["error"])
 	}
 }
 
