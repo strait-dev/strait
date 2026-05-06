@@ -268,7 +268,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetJob))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateJob))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteJob))
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", TypedHandler(s, http.StatusCreated, s.handleTriggerJob))
+				r.With(s.requirePermission(domain.ScopeJobsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/trigger", TypedHandler(s, http.StatusCreated, s.handleTriggerJob))
 				r.With(s.requirePermission(domain.ScopeJobsTrigger), rateLimit(5, time.Minute)).Post("/trigger/bulk", TypedHandler(s, http.StatusCreated, s.handleBulkTriggerJob))
 				r.With(s.requirePermission(domain.ScopeJobsWrite), s.idempotencyMiddleware).Post("/dependencies", TypedHandler(s, http.StatusCreated, s.handleCreateJobDependency))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/dependencies", TypedHandler(s, http.StatusOK, s.handleListJobDependencies))

@@ -435,3 +435,63 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 		t.Fatalf("log output did not include idempotency hash: %s", logText)
 	}
 }
+
+func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+			return "completed", http.StatusCreated, []byte(`{"debounced":true,"idempotency_hit":true}`), nil
+		},
+		UpsertDebouncePendingFunc: func(context.Context, *domain.DebouncePending) error {
+			t.Fatal("debounce mutation must not run for idempotency replay")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"a":1}}`, "proj-1")
+	req.Header.Set("Idempotency-Key", "debounce-key")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected cached 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatal("expected replay header")
+	}
+	if len(ms.TryAcquireIdempotencyKeyCalls()) != 1 {
+		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 1", len(ms.TryAcquireIdempotencyKeyCalls()))
+	}
+}
+
+func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+			return "completed", http.StatusCreated, []byte(`{"buffered":true,"idempotency_hit":true}`), nil
+		},
+		InsertBatchBufferItemFunc: func(context.Context, *domain.BatchBufferItem) error {
+			t.Fatal("batch buffer mutation must not run for idempotency replay")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"a":1}}`, "proj-1")
+	req.Header.Set("Idempotency-Key", "batch-key")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected cached 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatal("expected replay header")
+	}
+	if len(ms.TryAcquireIdempotencyKeyCalls()) != 1 {
+		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 1", len(ms.TryAcquireIdempotencyKeyCalls()))
+	}
+}
