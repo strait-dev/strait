@@ -21,8 +21,9 @@ type oidcClaims struct {
 
 // Scopes returns the parsed scope claim as a string slice, filtered to only
 // recognized Strait API scopes. Unrecognized scopes (typos, OIDC-only scopes
-// like "openid", or injected values) are silently dropped. Returns nil if no
-// recognized scopes are present (meaning no scope restriction).
+// like "openid", or injected values) are silently dropped. Returns nil only
+// when the scope claim is absent. If a token supplied scopes but every scope is
+// stripped, the empty non-nil slice is an explicit deny-all upper bound.
 func (c *oidcClaims) Scopes() []string {
 	if c.Scope == "" {
 		return nil
@@ -43,7 +44,7 @@ func (c *oidcClaims) Scopes() []string {
 		}
 	}
 	if len(valid) == 0 {
-		return nil
+		return []string{}
 	}
 	return valid
 }

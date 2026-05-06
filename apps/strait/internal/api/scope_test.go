@@ -624,6 +624,38 @@ func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_User_EmptyTokenScopesDenyEvenWithProjectRBAC(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxScopesKey, []string{})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+	if len(ms.GetUserPermissionsCalls()) != 0 {
+		t.Fatal("explicit empty OIDC scopes must deny before project RBAC lookup")
+	}
+}
+
 func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
 	t.Parallel()
 

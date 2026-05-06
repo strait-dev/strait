@@ -35,6 +35,7 @@ const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
+const ctxOIDCScopeClaimPresentKey contextKey = "oidc_scope_claim_present"
 
 // ctxInternalCallerKey is set to true by internalSecretAuth after the
 // X-Internal-Secret header passes constant-time comparison. It is the
@@ -564,6 +565,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		// from the OAuth consent screen.
 		if tokenScopes := claims.Scopes(); tokenScopes != nil {
 			ctx = context.WithValue(ctx, ctxScopesKey, tokenScopes)
+			ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
 		} else {
 			ctx = context.WithValue(ctx, ctxScopesKey, []string{})
 		}
@@ -815,6 +817,10 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				// least privilege from the OAuth consent screen — the token
 				// scopes restrict what the user can do, even if their
 				// database role would allow more.
+				if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+					respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
+					return
+				}
 				if len(scopes) > 0 {
 					if !domain.HasScope(scopes, permission) {
 						respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
