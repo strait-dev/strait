@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestCreateAPIKey(t *testing.T) {
@@ -259,6 +260,67 @@ func TestListAPIKeysByOrg(t *testing.T) {
 		if k.OrgID != orgID {
 			t.Fatalf("OrgID = %q, want %q", k.OrgID, orgID)
 		}
+	}
+}
+
+func TestListAPIKeysByOrg_CanRunWithClearedProjectRLSContext(t *testing.T) {
+	ctx := context.Background()
+	admin := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-rls-apikeys-" + newID()
+	key1 := &domain.APIKey{
+		ProjectID: "proj-orgkeys-rls-1-" + newID(),
+		OrgID:     orgID,
+		Name:      "k1",
+		KeyHash:   "hash-" + newID(),
+		KeyPrefix: "sk_1",
+		Scopes:    []string{"api-keys:manage"},
+	}
+	key2 := &domain.APIKey{
+		ProjectID: "proj-orgkeys-rls-2-" + newID(),
+		OrgID:     orgID,
+		Name:      "k2",
+		KeyHash:   "hash-" + newID(),
+		KeyPrefix: "sk_2",
+		Scopes:    []string{"api-keys:manage"},
+	}
+	for _, key := range []*domain.APIKey{key1, key2} {
+		if err := admin.CreateAPIKey(ctx, key); err != nil {
+			t.Fatalf("CreateAPIKey(%s) error = %v", key.Name, err)
+		}
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", key1.ProjectID); err != nil {
+		t.Fatalf("set project context: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
+		t.Fatalf("set local role strait_app: %v", err)
+	}
+	routed := store.New(tx)
+	projectScoped, err := routed.ListAPIKeysByOrg(ctx, orgID, 100, nil)
+	if err != nil {
+		t.Fatalf("project-scoped ListAPIKeysByOrg() error = %v", err)
+	}
+	if len(projectScoped) != 1 || projectScoped[0].ProjectID != key1.ProjectID {
+		t.Fatalf("project-scoped keys = %+v, want only %s", projectScoped, key1.ProjectID)
+	}
+
+	if err := routed.ClearProjectContext(ctx); err != nil {
+		t.Fatalf("ClearProjectContext() error = %v", err)
+	}
+	orgScoped, err := routed.ListAPIKeysByOrg(ctx, orgID, 100, nil)
+	if err != nil {
+		t.Fatalf("org-scoped ListAPIKeysByOrg() error = %v", err)
+	}
+	if len(orgScoped) != 2 {
+		t.Fatalf("org-scoped keys = %d, want 2", len(orgScoped))
 	}
 }
 

@@ -148,6 +148,14 @@ func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput)
 	}
 	var keys []domain.APIKey
 	if input.OrgID != "" {
+		if err := requireOrgAPIKeyListAccess(ctx, input.OrgID); err != nil {
+			return nil, err
+		}
+		restoreRLS, rlsErr := s.useOrgWideAPIKeyListContext(ctx)
+		if rlsErr != nil {
+			return nil, huma.Error500InternalServerError("failed to initialize org api key list context")
+		}
+		defer restoreRLS()
 		keys, err = s.store.ListAPIKeysByOrg(ctx, input.OrgID, limit+1, cursor)
 	} else {
 		projectID := projectIDFromContext(ctx)
@@ -339,6 +347,37 @@ func requireAPIKeyCreationScope(ctx context.Context, req CreateAPIKeyRequest) er
 		return huma.Error403Forbidden("org_id does not match authenticated organization")
 	}
 	return nil
+}
+
+func requireOrgAPIKeyListAccess(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+	if isInternalCaller(ctx) {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
+		return huma.Error403Forbidden("org_id does not match authenticated organization")
+	}
+	return nil
+}
+
+func (s *Server) useOrgWideAPIKeyListContext(ctx context.Context) (func(), error) {
+	setter, ok := s.store.(ProjectContextSetter)
+	if !ok {
+		return func() {}, nil
+	}
+	projectID := projectIDFromContext(ctx)
+	if err := setter.ClearProjectContext(ctx); err != nil {
+		return nil, err
+	}
+	return func() {
+		if projectID != "" {
+			if err := setter.SetProjectContext(ctx, projectID); err != nil {
+				slog.Warn("failed to restore project RLS context after org api key list", "project_id", projectID, "error", err)
+			}
+		}
+	}, nil
 }
 
 func filterAPIKeysForEnvironment(ctx context.Context, keys []domain.APIKey) []domain.APIKey {

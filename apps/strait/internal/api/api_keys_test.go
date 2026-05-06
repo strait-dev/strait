@@ -837,7 +837,21 @@ func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
 func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
+	rawKey := "strait_" + strings.Repeat("ee", 32)
+	wantHash := hashAPIKey(rawKey)
 	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+			if keyHash != wantHash {
+				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
+			}
+			return &domain.APIKey{
+				ID:        "key-org-1",
+				ProjectID: "proj-anchor",
+				OrgID:     "org-1",
+				Scopes:    []string{domain.ScopeAPIKeysManage},
+			}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(context.Context, string) error { return nil },
 		ListAPIKeysByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			if orgID != "org-1" {
 				t.Fatalf("expected org-1, got %q", orgID)
@@ -851,8 +865,10 @@ func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
 
-	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", "", "proj-1"))
+	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -865,6 +881,86 @@ func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 	}
 	if resp[0].OrgID != "org-1" {
 		t.Fatalf("expected org_id org-1 on key, got %q", resp[0].OrgID)
+	}
+}
+
+func TestOrgScopedKey_ListRejectsProjectScopedCaller(t *testing.T) {
+	t.Parallel()
+	rawKey := "strait_" + strings.Repeat("fa", 32)
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-project-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeAPIKeysManage},
+			}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(context.Context, string) error { return nil },
+		ListAPIKeysByOrgFunc: func(context.Context, string, int, *time.Time) ([]domain.APIKey, error) {
+			t.Fatal("project-scoped caller must not reach org-wide key list")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+type apiKeyListContextStore struct {
+	APIStore
+	setProjects []string
+	clearCalls  int
+}
+
+func (s *apiKeyListContextStore) SetProjectContext(_ context.Context, projectID string) error {
+	s.setProjects = append(s.setProjects, projectID)
+	return nil
+}
+
+func (s *apiKeyListContextStore) ClearProjectContext(context.Context) error {
+	s.clearCalls++
+	return nil
+}
+
+func TestOrgScopedKey_ListClearsAndRestoresProjectRLSContext(t *testing.T) {
+	rawKey := "strait_" + strings.Repeat("ef", 32)
+	base := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-org-1",
+				ProjectID: "proj-anchor",
+				OrgID:     "org-1",
+				Scopes:    []string{domain.ScopeAPIKeysManage},
+			}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(context.Context, string) error { return nil },
+		ListAPIKeysByOrgFunc: func(context.Context, string, int, *time.Time) ([]domain.APIKey, error) {
+			return []domain.APIKey{{ID: "key-1", ProjectID: "proj-other", OrgID: "org-1", CreatedAt: time.Now().UTC()}}, nil
+		},
+	}
+	wrappedStore := &apiKeyListContextStore{APIStore: base}
+	srv := newTestServer(t, wrappedStore, &mockQueue{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if wrappedStore.clearCalls != 2 {
+		t.Fatalf("expected legacy middleware clear plus org-list clear, got %d", wrappedStore.clearCalls)
+	}
+	if len(wrappedStore.setProjects) != 2 || wrappedStore.setProjects[0] != "proj-anchor" || wrappedStore.setProjects[1] != "proj-anchor" {
+		t.Fatalf("expected project context set then restored to anchor project, got %#v", wrappedStore.setProjects)
 	}
 }
 
