@@ -97,6 +97,10 @@ type WorkerRunDispatcher interface {
 	ResultOutput(opaque any) json.RawMessage
 }
 
+type workerTaskCompletionDispatcher interface {
+	CompleteWorkerTask(ctx context.Context, opaque any, status domain.WorkerTaskStatus) error
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool

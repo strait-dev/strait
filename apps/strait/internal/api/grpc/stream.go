@@ -469,6 +469,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 			"status", newStatus,
 			"error", err,
 		)
+		return nil
 	}
 
 	// Transition the worker_tasks row to its terminal state. The normal dispatch
@@ -596,11 +597,17 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 		switch t.Status {
 		case "completed":
 			reconcileFields := map[string]any{"finished_at": time.Now()}
+			if len(t.OutputJson) > 0 {
+				out := make([]byte, len(t.OutputJson))
+				copy(out, t.OutputJson)
+				reconcileFields["result"] = json.RawMessage(out)
+			}
 			if err := s.queries.UpdateRunStatus(ctx, t.RunId, domain.StatusExecuting, domain.StatusCompleted, reconcileFields); err != nil {
 				slog.Warn("grpc reconcile: mark completed failed",
 					"run_id", t.RunId,
 					"error", err,
 				)
+				continue
 			}
 			if err := s.queries.UpdateWorkerTaskStatus(ctx, taskRow.ID, domain.WorkerTaskStatusCompleted); err != nil {
 				slog.Warn("grpc reconcile: update worker_task status failed",

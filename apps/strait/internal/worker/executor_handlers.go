@@ -34,7 +34,7 @@ func recordRetryAttempt(ctx context.Context, attempt int) {
 	qm.RetryAttempts.Record(ctx, float64(attempt))
 }
 
-func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) {
+func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
 
@@ -59,7 +59,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", err,
 		)
-		return
+		return false
 	}
 	if e.txPool == nil && job.EndpointURL != "" {
 		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
@@ -118,6 +118,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 			}
 		}
 	}
+	return true
 }
 
 func classifyError(err error) string {
@@ -253,7 +254,7 @@ func shouldUseFallbackForClass(errClass string) bool {
 	}
 }
 
-func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) {
+func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
@@ -343,23 +344,23 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"job_id", run.JobID,
 				"error", err,
 			)
-		} else {
-			e.logger.Info(
-				"run re-enqueued for retry",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"attempt", run.Attempt+1,
-				"next_retry_at", retryAt,
-			)
-			recordRetryAttempt(ctx, run.Attempt+1)
-			e.emit(ctx, RunLifecycleEvent{
-				Type: EventRetried, Run: run, Job: job,
-				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-				ExecTrace: execTrace, Attempt: run.Attempt + 1,
-				QueueWait: queueWait(run),
-			})
+			return false
 		}
-		return
+		e.logger.Info(
+			"run re-enqueued for retry",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"attempt", run.Attempt+1,
+			"next_retry_at", retryAt,
+		)
+		recordRetryAttempt(ctx, run.Attempt+1)
+		e.emit(ctx, RunLifecycleEvent{
+			Type: EventRetried, Run: run, Job: job,
+			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+			ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			QueueWait: queueWait(run),
+		})
+		return true
 	}
 
 	now := time.Now()
@@ -403,7 +404,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", updateErr,
 		)
-		return
+		return false
 	}
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventDeadLettered, Run: run, Job: job,
@@ -417,6 +418,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	if e.onCompleteTrigger != nil {
 		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, errMsg)
 	}
+	return true
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {

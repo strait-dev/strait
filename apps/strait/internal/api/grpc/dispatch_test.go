@@ -234,6 +234,28 @@ func TestTaskResultOutput_HappyPathCopiesPayload(t *testing.T) {
 	}
 }
 
+func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
+	wrapped := &WorkerTaskResult{
+		TaskID: "task-1",
+		Result: &workerv1.TaskResult{
+			RunId:        "r1",
+			Status:       "success",
+			ErrorMessage: "ignored",
+			OutputJson:   []byte(`{"ok":true}`),
+		},
+	}
+
+	if got := TaskResultStatus(wrapped); got != "success" {
+		t.Fatalf("TaskResultStatus() = %q, want success", got)
+	}
+	if got := TaskResultError(wrapped); got != "ignored" {
+		t.Fatalf("TaskResultError() = %q, want ignored", got)
+	}
+	if got := TaskResultOutput(wrapped); string(got) != `{"ok":true}` {
+		t.Fatalf("TaskResultOutput() = %s, want output payload", got)
+	}
+}
+
 func TestTaskResultOutput_NilWrongTypeAndEmpty(t *testing.T) {
 	tests := []struct {
 		name  string

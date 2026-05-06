@@ -26,6 +26,9 @@ type fakeWorkerDispatcher struct {
 	statusOf map[any]string
 	errorOf  map[any]string
 	outputOf map[any]json.RawMessage
+
+	completeCalls  atomic.Int32
+	completeStatus domain.WorkerTaskStatus
 }
 
 func (f *fakeWorkerDispatcher) WorkerDispatch(_ context.Context, _ *domain.JobRun, _ *domain.Job) (any, error) {
@@ -54,6 +57,12 @@ func (f *fakeWorkerDispatcher) ResultOutput(opaque any) json.RawMessage {
 	return f.outputOf[opaque]
 }
 
+func (f *fakeWorkerDispatcher) CompleteWorkerTask(_ context.Context, _ any, status domain.WorkerTaskStatus) error {
+	f.completeStatus = status
+	f.completeCalls.Add(1)
+	return nil
+}
+
 type blockingWorkerDispatcher struct {
 	started chan struct{}
 	release chan struct{}
@@ -70,6 +79,10 @@ func (b *blockingWorkerDispatcher) ResultStatus(any) string { return "success" }
 func (b *blockingWorkerDispatcher) ResultError(any) string { return "" }
 
 func (b *blockingWorkerDispatcher) ResultOutput(any) json.RawMessage { return nil }
+
+func (b *blockingWorkerDispatcher) CompleteWorkerTask(context.Context, any, domain.WorkerTaskStatus) error {
+	return nil
+}
 
 func newWorkerModeExecutor(t *testing.T, store *mockExecutorStore, dispatcher WorkerRunDispatcher) (*Executor, *mockWorkerPublisher, *mockWorkflowCallback) {
 	t.Helper()
@@ -181,6 +194,75 @@ func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
 		return
 	}
 	t.Fatal("completed transition not found")
+}
+
+func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.T) {
+	t.Parallel()
+	successOpaque := struct{ tag string }{tag: "complete-after-persist"}
+	dispatcher := &fakeWorkerDispatcher{
+		opaque:   successOpaque,
+		statusOf: map[any]string{successOpaque: "success"},
+		outputOf: map[any]json.RawMessage{successOpaque: json.RawMessage(`{"ok":true}`)},
+	}
+
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return workerModeJob(3), nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
+			if to == domain.StatusCompleted {
+				if dispatcher.completeCalls.Load() != 0 {
+					t.Fatal("worker task completed before run result persistence")
+				}
+				if got, ok := fields["result"].(json.RawMessage); !ok || string(got) != `{"ok":true}` {
+					t.Fatalf("completed run fields result = %v, want worker output", fields["result"])
+				}
+			}
+			return nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, dispatcher)
+
+	run := testRun(1)
+	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
+
+	waitForCondition(t, 2*time.Second, func() bool {
+		return dispatcher.completeCalls.Load() == 1
+	}, "worker task completion")
+	if dispatcher.completeStatus != domain.WorkerTaskStatusCompleted {
+		t.Fatalf("worker task status = %q, want completed", dispatcher.completeStatus)
+	}
+}
+
+func TestExecuteWorkerMode_DoesNotCompleteWorkerTaskWhenRunPersistenceFails(t *testing.T) {
+	t.Parallel()
+	successOpaque := struct{ tag string }{tag: "persist-fails"}
+	dispatcher := &fakeWorkerDispatcher{
+		opaque:   successOpaque,
+		statusOf: map[any]string{successOpaque: "success"},
+		outputOf: map[any]json.RawMessage{successOpaque: json.RawMessage(`{"ok":true}`)},
+	}
+
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return workerModeJob(3), nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, _ map[string]any) error {
+			if to == domain.StatusCompleted {
+				return fmt.Errorf("persist failed")
+			}
+			return nil
+		},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, ms, dispatcher)
+
+	run := testRun(1)
+	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
+
+	time.Sleep(50 * time.Millisecond)
+	if dispatcher.completeCalls.Load() != 0 {
+		t.Fatalf("worker task completed %d times despite failed run persistence", dispatcher.completeCalls.Load())
+	}
 }
 
 // TestExecuteWorkerMode_FailedStatusRoutesToHandleFailure verifies that a

@@ -33,6 +33,11 @@ type WorkerDispatcher struct {
 	resultChannels *ResultChannelRegistry
 }
 
+type WorkerTaskResult struct {
+	TaskID string
+	Result *workerv1.TaskResult
+}
+
 // ResultChannelRegistry manages per-run result channels shared between the
 // stream recv loop (which writes) and WorkerDispatch (which reads).
 //
@@ -194,20 +199,10 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		if !open || result == nil {
 			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
 		}
-		// Update the worker_tasks row.
-		taskStatus := domain.WorkerTaskStatusFailed
-		if result.Status == "success" {
-			taskStatus = domain.WorkerTaskStatusCompleted
-		}
-		if err := d.queries.UpdateWorkerTaskStatus(ctx, task.ID, taskStatus); err != nil {
-			slog.Warn("worker dispatch: update task status",
-				"task_id", task.ID,
-				"run_id", run.ID,
-				"error", err,
-			)
-		}
-		// Return as interface{} so callers in worker package don't need to import workerv1.
-		return result, nil
+		// Return as interface{} so callers in worker package don't need to
+		// import workerv1. The task ID stays attached so the executor marks
+		// worker_tasks terminal only after run result persistence succeeds.
+		return &WorkerTaskResult{TaskID: task.ID, Result: result}, nil
 
 	case <-ctx.Done():
 		// Best-effort cancellation: notify the worker.
@@ -314,11 +309,8 @@ func dispatchHMAC(secret, timestamp string, body []byte) string {
 // TaskResultStatus returns the status string from an opaque TaskResult
 // returned by WorkerDispatch. Returns "" on nil or wrong type.
 func TaskResultStatus(opaque any) string {
-	if opaque == nil {
-		return ""
-	}
-	r, ok := opaque.(*workerv1.TaskResult)
-	if !ok {
+	r, ok := unwrapTaskResult(opaque)
+	if !ok || r == nil {
 		return ""
 	}
 	return r.Status
@@ -326,11 +318,8 @@ func TaskResultStatus(opaque any) string {
 
 // TaskResultError returns the error message from an opaque TaskResult.
 func TaskResultError(opaque any) string {
-	if opaque == nil {
-		return ""
-	}
-	r, ok := opaque.(*workerv1.TaskResult)
-	if !ok {
+	r, ok := unwrapTaskResult(opaque)
+	if !ok || r == nil {
 		return ""
 	}
 	return r.ErrorMessage
@@ -339,16 +328,38 @@ func TaskResultError(opaque any) string {
 // TaskResultOutput returns output_json from an opaque TaskResult.
 // A copy is returned so callers can safely retain it after the proto object is reused.
 func TaskResultOutput(opaque any) json.RawMessage {
-	if opaque == nil {
-		return nil
-	}
-	r, ok := opaque.(*workerv1.TaskResult)
-	if !ok || len(r.OutputJson) == 0 {
+	r, ok := unwrapTaskResult(opaque)
+	if !ok || r == nil || len(r.OutputJson) == 0 {
 		return nil
 	}
 	out := make([]byte, len(r.OutputJson))
 	copy(out, r.OutputJson)
 	return json.RawMessage(out)
+}
+
+func unwrapTaskResult(opaque any) (*workerv1.TaskResult, bool) {
+	switch r := opaque.(type) {
+	case *workerv1.TaskResult:
+		return r, true
+	case *WorkerTaskResult:
+		if r == nil {
+			return nil, false
+		}
+		return r.Result, true
+	default:
+		return nil, false
+	}
+}
+
+func (d *WorkerDispatcher) CompleteWorkerTask(ctx context.Context, opaque any, status domain.WorkerTaskStatus) error {
+	wrapped, ok := opaque.(*WorkerTaskResult)
+	if !ok || wrapped == nil || wrapped.TaskID == "" || d.queries == nil {
+		return nil
+	}
+	if status != domain.WorkerTaskStatusCompleted && status != domain.WorkerTaskStatusFailed {
+		return fmt.Errorf("worker dispatch: unsupported terminal worker task status %q", status)
+	}
+	return d.queries.UpdateWorkerTaskStatus(ctx, wrapped.TaskID, status)
 }
 
 // ResultStatus implements worker.WorkerRunDispatcher by delegating to

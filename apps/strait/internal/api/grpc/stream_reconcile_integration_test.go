@@ -4,6 +4,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
@@ -31,7 +32,7 @@ func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed"}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
@@ -47,6 +48,13 @@ func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 	}
 	if run.Status != domain.StatusCompleted {
 		t.Fatalf("run not transitioned: got %q, want completed", run.Status)
+	}
+	var result map[string]bool
+	if err := json.Unmarshal(run.Result, &result); err != nil {
+		t.Fatalf("unmarshal run result: %v", err)
+	}
+	if !result["recovered"] {
+		t.Fatalf("run result = %s, want in-flight output_json", string(run.Result))
 	}
 }
 

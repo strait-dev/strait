@@ -892,7 +892,9 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 				errMsg = fmt.Sprintf("worker reported terminal status %q without error message", status)
 			}
 		}
-		e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil)
+		if e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil) {
+			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
+		}
 		return
 	}
 
@@ -916,7 +918,22 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
 
 	runResult := e.workerDispatcher.ResultOutput(result)
-	e.handleSuccess(ctx, run, job, runResult, nil)
+	if e.handleSuccess(ctx, run, job, runResult, nil) {
+		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
+	}
+}
+
+func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {
+	completer, ok := e.workerDispatcher.(workerTaskCompletionDispatcher)
+	if !ok {
+		return
+	}
+	if err := completer.CompleteWorkerTask(ctx, result, status); err != nil {
+		e.logger.Warn("executeWorkerMode: complete worker task failed",
+			"status", status,
+			"error", err,
+		)
+	}
 }
 
 func queuedRunResetFields() map[string]any {

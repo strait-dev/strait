@@ -142,6 +142,42 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 	}
 }
 
+func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateFails(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	if _, err := env.DB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = $1, finished_at = NOW(), result = $2::jsonb
+		WHERE id = $3
+	`, domain.StatusCanceled, json.RawMessage(`{"already":true}`), runID); err != nil {
+		t.Fatalf("force run terminal: %v", err)
+	}
+
+	svc := fallbackService(q)
+	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":"late"}`)}
+	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
+		t.Fatalf("handleTaskResult: %v", err)
+	}
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("worker task status = %q, want assigned when run update fails", got.Status)
+	}
+}
+
 func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
