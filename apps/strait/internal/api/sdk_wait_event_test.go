@@ -196,6 +196,34 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
+			t.Fatal("timeout must be rejected before loading run")
+			return nil, nil
+		},
+		CreateEventTriggerFunc: func(context.Context, *domain.EventTrigger) error {
+			t.Fatal("timeout above maximum must not create an event trigger")
+			return nil
+		},
+	}
+	srv := newSDKWaitEventTestServer(t, ms)
+
+	body := `{"event_key":"some-key","timeout_secs":2592001}`
+	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+makeSDKRunToken(t, "run-1"))
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
 func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
 	t.Parallel()
 

@@ -33,6 +33,16 @@ type SDKWaitForEventInput struct {
 }
 type SDKWaitForEventOutput struct{ Body any }
 
+func normalizeSDKEventTimeoutSecs(timeoutSecs int) (int, error) {
+	if timeoutSecs <= 0 {
+		return domain.DefaultEventTimeoutSecs, nil
+	}
+	if timeoutSecs > domain.MaxEventTimeoutSecs {
+		return 0, fmt.Errorf("timeout_secs must be %d seconds or fewer", domain.MaxEventTimeoutSecs)
+	}
+	return timeoutSecs, nil
+}
+
 func (s *Server) handleSDKWaitForEvent(ctx context.Context, input *SDKWaitForEventInput) (*SDKWaitForEventOutput, error) {
 	runID := input.RunID
 	req := input.Body
@@ -47,6 +57,10 @@ func (s *Server) handleSDKWaitForEvent(ctx context.Context, input *SDKWaitForEve
 			return nil, huma.Error400BadRequest(fmt.Sprintf("notify_url rejected: %s", err.Error()))
 		}
 	}
+	timeoutSecs, timeoutErr := normalizeSDKEventTimeoutSecs(req.TimeoutSec)
+	if timeoutErr != nil {
+		return nil, huma.Error400BadRequest(timeoutErr.Error())
+	}
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get run")
@@ -56,10 +70,6 @@ func (s *Server) handleSDKWaitForEvent(ctx context.Context, input *SDKWaitForEve
 	}
 	if run.Status != domain.StatusExecuting {
 		return nil, huma.Error409Conflict(fmt.Sprintf("run must be executing to wait for event, current status: %s", run.Status))
-	}
-	timeoutSecs := req.TimeoutSec
-	if timeoutSecs <= 0 {
-		timeoutSecs = domain.DefaultEventTimeoutSecs
 	}
 	now := time.Now()
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)

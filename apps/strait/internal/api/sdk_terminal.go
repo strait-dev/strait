@@ -218,6 +218,14 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	_ = isCrossProject
+	awaitTimeoutSecs := 0
+	if req.AwaitCompletion {
+		var timeoutErr error
+		awaitTimeoutSecs, timeoutErr = normalizeSDKEventTimeoutSecs(req.AwaitTimeoutSecs)
+		if timeoutErr != nil {
+			return nil, huma.Error400BadRequest("await_" + timeoutErr.Error())
+		}
+	}
 	if req.AwaitCompletion && parentRun.Status == domain.StatusExecuting {
 		if err := s.store.UpdateRunStatus(ctx, parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
 			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err)
@@ -237,13 +245,9 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 	}
 	if req.AwaitCompletion {
 		eventKey := fmt.Sprintf("spawn-await:%s", run.ID)
-		timeoutSecs := req.AwaitTimeoutSecs
-		if timeoutSecs <= 0 {
-			timeoutSecs = domain.DefaultEventTimeoutSecs
-		}
 		now := time.Now()
-		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
-		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: timeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
+		expiresAt := now.Add(time.Duration(awaitTimeoutSecs) * time.Second)
+		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: awaitTimeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
 		if err := s.store.CreateEventTrigger(ctx, trigger); err != nil {
 			slog.Warn("failed to create await event trigger", "parent_run_id", parentRun.ID, "child_run_id", run.ID, "event_key", eventKey, "error", err)
 		} else if s.metrics != nil {
