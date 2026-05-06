@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,12 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return
 	}
+
+	if !s.acquireSSEConn(run.ProjectID) {
+		respondError(w, r, http.StatusServiceUnavailable, "too many SSE connections")
+		return
+	}
+	defer s.releaseSSEConn(run.ProjectID)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -45,8 +52,15 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maxDuration := s.config.SSEMaxConnDuration
+	if maxDuration <= 0 {
+		maxDuration = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
+	defer cancel()
+
 	channel := fmt.Sprintf("run:%s", runID)
-	sub, err := s.pubsub.Subscribe(r.Context(), channel)
+	sub, err := s.pubsub.Subscribe(ctx, channel)
 	if err != nil {
 		slog.Error("failed to subscribe", "run_id", runID, "error", err)
 		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
@@ -66,7 +80,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case msg, ok := <-sub.Ch:
 			if !ok {
@@ -94,10 +108,17 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
-	if _, err := s.getRunForAccess(r.Context(), runID); err != nil {
+	run, err := s.getRunForAccess(r.Context(), runID)
+	if err != nil {
 		writeTypedError(w, r, err)
 		return
 	}
+
+	if !s.acquireSSEConn(run.ProjectID) {
+		respondError(w, r, http.StatusServiceUnavailable, "too many SSE connections")
+		return
+	}
+	defer s.releaseSSEConn(run.ProjectID)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -121,8 +142,15 @@ func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maxDuration := s.config.SSEMaxConnDuration
+	if maxDuration <= 0 {
+		maxDuration = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
+	defer cancel()
+
 	channel := fmt.Sprintf("worker:log:%s", runID)
-	sub, err := s.pubsub.Subscribe(r.Context(), channel)
+	sub, err := s.pubsub.Subscribe(ctx, channel)
 	if err != nil {
 		slog.Error("failed to subscribe to log channel", "run_id", runID, "error", err)
 		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
@@ -142,7 +170,7 @@ func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case msg, ok := <-sub.Ch:
 			if !ok {

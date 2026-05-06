@@ -229,6 +229,78 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 	}
 }
 
+func TestHandleRunStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        id,
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusExecuting,
+				Attempt:   1,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("must reject before subscribing when SSE connection cap is exhausted")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	srv.config.SSEMaxConnsPerProject = 1
+	if !srv.acquireSSEConn("proj-1") {
+		t.Fatal("failed to reserve test SSE connection")
+	}
+	defer srv.releaseSSEConn("proj-1")
+
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-123/stream", "run-123", "proj-1", "")
+	srv.handleRunStream(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunLogStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        id,
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusExecuting,
+				Attempt:   1,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("must reject log stream before subscribing when SSE connection cap is exhausted")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	srv.config.SSEMaxConnsPerProject = 1
+	if !srv.acquireSSEConn("proj-1") {
+		t.Fatal("failed to reserve test SSE connection")
+	}
+	defer srv.releaseSSEConn("proj-1")
+
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-123/stream/logs", "run-123", "proj-1", "")
+	srv.handleRunLogStream(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleRunStream_SubscribeError(t *testing.T) {
 	t.Parallel()
 
