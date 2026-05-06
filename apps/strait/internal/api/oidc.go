@@ -73,6 +73,9 @@ func newOIDCVerifier(cfg *config.Config) (*oidcVerifier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse oidc public key: %w", err)
 	}
+	if pk.N.BitLen() < 2048 {
+		return nil, fmt.Errorf("oidc public key must be at least 2048 bits")
+	}
 	v.publicKey = pk
 	return v, nil
 }
