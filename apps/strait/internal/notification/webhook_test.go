@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -165,9 +166,15 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	payload := json.RawMessage(`{"run_id":"r-1","status":"completed"}`)
 
 	var capturedSig string
+	var capturedStraitSig string
+	var capturedTimestamp string
+	var capturedDeliveryID string
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
 			capturedSig = req.Header.Get("X-Signature-256")
+			capturedStraitSig = req.Header.Get("X-Strait-Signature")
+			capturedTimestamp = req.Header.Get("X-Strait-Timestamp")
+			capturedDeliveryID = req.Header.Get("X-Strait-Delivery-ID")
 			return httpmock.NewStringResponse(200, "ok"), nil
 		})
 
@@ -181,13 +188,62 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
+	if capturedTimestamp == "" {
+		t.Fatal("expected X-Strait-Timestamp header")
+	}
+	if _, parseErr := time.Parse(time.RFC3339, capturedTimestamp); parseErr != nil {
+		t.Fatalf("timestamp header is not RFC3339: %v", parseErr)
+	}
+	if capturedDeliveryID != del.ID {
+		t.Fatalf("delivery id header = %q, want %q", capturedDeliveryID, del.ID)
+	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(capturedTimestamp))
+	mac.Write([]byte("."))
+	mac.Write([]byte(del.ID))
+	mac.Write([]byte("."))
 	mac.Write(payload)
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
 	if capturedSig != expected {
 		t.Fatalf("signature mismatch:\n  got:  %s\n  want: %s", capturedSig, expected)
+	}
+	if capturedStraitSig == "" || !strings.Contains(capturedStraitSig, "t="+capturedTimestamp) || !strings.Contains(capturedStraitSig, "d="+del.ID) {
+		t.Fatalf("structured Strait signature missing timestamp/delivery id: %q", capturedStraitSig)
+	}
+}
+
+func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
+	t.Parallel()
+	client, transport := newMockClient(t)
+
+	secret := "my-webhook-secret"
+	payload := json.RawMessage(`{"run_id":"r-1","status":"completed"}`)
+	var signatures []string
+	transport.RegisterResponder("POST", "https://example.com/hook",
+		func(req *http.Request) (*http.Response, error) {
+			signatures = append(signatures, req.Header.Get("X-Signature-256"))
+			return httpmock.NewStringResponse(200, "ok"), nil
+		})
+
+	sender := NewWebhookSender(client)
+	ch := newTestChannel("https://example.com/hook", secret)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sender.Send(ctx, ch, &domain.NotificationDelivery{ID: "del-1", EventType: "run.completed", Payload: payload}); err != nil {
+		t.Fatalf("first Send failed: %v", err)
+	}
+	if err := sender.Send(ctx, ch, &domain.NotificationDelivery{ID: "del-2", EventType: "run.completed", Payload: payload}); err != nil {
+		t.Fatalf("second Send failed: %v", err)
+	}
+
+	if len(signatures) != 2 {
+		t.Fatalf("captured signatures = %d, want 2", len(signatures))
+	}
+	if signatures[0] == signatures[1] {
+		t.Fatal("signatures for different delivery ids should differ")
 	}
 }
 
@@ -761,5 +817,54 @@ func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
 	}
 	if lookups.Load() < 2 {
 		t.Fatalf("expected validation and dial-time DNS lookups, got %d", lookups.Load())
+	}
+}
+
+func TestWebhookSender_BlocksPrivateEndpointByDefault(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sender := NewWebhookSender(nil, WithWebhookRetryPolicy(nil))
+	ch := newTestChannel(server.URL, "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{"ok":true}`))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := sender.Send(ctx, ch, del)
+	if err == nil {
+		t.Fatal("expected private webhook endpoint to be blocked")
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("private webhook endpoint received %d requests, want 0", hits.Load())
+	}
+}
+
+func TestWebhookSender_AllowsPrivateEndpointWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sender := NewWebhookSender(nil, WithWebhookRetryPolicy(nil), WithWebhookAllowPrivateEndpoints(true))
+	ch := newTestChannel(server.URL, "")
+	del := newTestDelivery("run.completed", json.RawMessage(`{"ok":true}`))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := sender.Send(ctx, ch, del); err != nil {
+		t.Fatalf("Send with private endpoints enabled failed: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("private webhook endpoint received %d requests, want 1", hits.Load())
 	}
 }

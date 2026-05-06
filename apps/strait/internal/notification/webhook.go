@@ -23,8 +23,9 @@ import (
 
 // WebhookSender sends notifications via generic HTTP webhooks with HMAC-SHA256 signing.
 type WebhookSender struct {
-	client      *http.Client
-	retryPolicy failsafe.Policy[*http.Response]
+	client                *http.Client
+	retryPolicy           failsafe.Policy[*http.Response]
+	allowPrivateEndpoints bool
 }
 
 // WebhookSenderOption configures a WebhookSender.
@@ -35,20 +36,16 @@ func WithWebhookRetryPolicy(p failsafe.Policy[*http.Response]) WebhookSenderOpti
 	return func(w *WebhookSender) { w.retryPolicy = p }
 }
 
+// WithWebhookAllowPrivateEndpoints allows notification webhooks to target
+// private endpoints. This should only be enabled for explicit private
+// deployments or local development.
+func WithWebhookAllowPrivateEndpoints(allow bool) WebhookSenderOption {
+	return func(w *WebhookSender) { w.allowPrivateEndpoints = allow }
+}
+
 // NewWebhookSender creates a new WebhookSender with the given HTTP client.
 func NewWebhookSender(client *http.Client, opts ...WebhookSenderOption) *WebhookSender {
-	if client == nil {
-		client = &http.Client{
-			Timeout:   10 * time.Second,
-			Transport: httputil.NewExternalTransport(false),
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
-	}
-
 	w := &WebhookSender{
-		client: client,
 		retryPolicy: retrypolicy.NewBuilder[*http.Response]().
 			WithMaxRetries(2).
 			WithBackoff(time.Second, 4*time.Second).
@@ -64,6 +61,17 @@ func NewWebhookSender(client *http.Client, opts ...WebhookSenderOption) *Webhook
 	for _, opt := range opts {
 		opt(w)
 	}
+
+	if client == nil {
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(w.allowPrivateEndpoints),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+	}
+	w.client = client
 
 	return w
 }
@@ -81,7 +89,7 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 	if cfg.URL == "" {
 		return fmt.Errorf("webhook url is empty")
 	}
-	if err := httputil.ValidateExternalURL(cfg.URL); err != nil {
+	if err := httputil.ValidateExternalURL(cfg.URL); err != nil && !w.allowPrivateEndpoints {
 		return fmt.Errorf("webhook url rejected: %w", err)
 	}
 
@@ -99,9 +107,18 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 		req.Header.Set("X-Event-Type", delivery.EventType)
 
 		if cfg.Secret != "" {
+			timestamp := time.Now().UTC().Format(time.RFC3339)
+			deliveryID := delivery.ID
 			mac := hmac.New(sha256.New, []byte(cfg.Secret))
+			mac.Write([]byte(timestamp))
+			mac.Write([]byte("."))
+			mac.Write([]byte(deliveryID))
+			mac.Write([]byte("."))
 			mac.Write(body)
 			sig := hex.EncodeToString(mac.Sum(nil))
+			req.Header.Set("X-Strait-Timestamp", timestamp)
+			req.Header.Set("X-Strait-Delivery-ID", deliveryID)
+			req.Header.Set("X-Strait-Signature", "t="+timestamp+",d="+deliveryID+",v1="+sig)
 			req.Header.Set("X-Signature-256", "sha256="+sig)
 		}
 
