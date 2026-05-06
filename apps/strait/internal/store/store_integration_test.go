@@ -1832,6 +1832,79 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 	}
 }
 
+func TestSecret_GlobalSecretUniqueness(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	mustClean(t, ctx)
+
+	projectID := "project-global-secret-" + newID()
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	globalSecret := &domain.JobSecret{
+		ProjectID:      projectID,
+		Environment:    "prod",
+		SecretKey:      "SHARED_TOKEN",
+		EncryptedValue: "first",
+	}
+	if err := q.CreateJobSecret(ctx, globalSecret); err != nil {
+		t.Fatalf("CreateJobSecret(global) error = %v", err)
+	}
+
+	duplicateGlobal := &domain.JobSecret{
+		ProjectID:      projectID,
+		Environment:    "prod",
+		SecretKey:      "SHARED_TOKEN",
+		EncryptedValue: "duplicate",
+	}
+	if err := q.CreateJobSecret(ctx, duplicateGlobal); err == nil {
+		t.Fatal("CreateJobSecret(duplicate global) error = nil, want unique violation")
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_secrets
+		WHERE project_id = $1 AND job_id IS NULL AND environment = 'prod' AND secret_key = 'SHARED_TOKEN'
+	`, projectID).Scan(&count); err != nil {
+		t.Fatalf("count global secrets: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("global secret count = %d, want 1", count)
+	}
+
+	sameKeyDifferentEnv := &domain.JobSecret{
+		ProjectID:      projectID,
+		Environment:    "staging",
+		SecretKey:      "SHARED_TOKEN",
+		EncryptedValue: "staging",
+	}
+	if err := q.CreateJobSecret(ctx, sameKeyDifferentEnv); err != nil {
+		t.Fatalf("CreateJobSecret(same key different env) error = %v", err)
+	}
+
+	otherProjectSecret := &domain.JobSecret{
+		ProjectID:      "other-project-" + newID(),
+		Environment:    "prod",
+		SecretKey:      "SHARED_TOKEN",
+		EncryptedValue: "other-project",
+	}
+	if err := q.CreateJobSecret(ctx, otherProjectSecret); err != nil {
+		t.Fatalf("CreateJobSecret(same key different project) error = %v", err)
+	}
+
+	jobScopedSecret := &domain.JobSecret{
+		ProjectID:      projectID,
+		JobID:          job.ID,
+		Environment:    "prod",
+		SecretKey:      "SHARED_TOKEN",
+		EncryptedValue: "job-scoped",
+	}
+	if err := q.CreateJobSecret(ctx, jobScopedSecret); err != nil {
+		t.Fatalf("CreateJobSecret(job-scoped same key) error = %v", err)
+	}
+}
+
 func TestSecret_ListJobSecretsByJobUsesJobEnvironment(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
