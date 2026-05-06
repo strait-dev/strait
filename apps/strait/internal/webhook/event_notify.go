@@ -112,6 +112,11 @@ type DeliveryWorker struct {
 	batchByURL            bool
 	maxBatchSize          int
 	allowPrivateEndpoints bool
+	httpTimeout           time.Duration
+	httpIdleConnTimeout   time.Duration
+	httpMaxIdleConns      int
+	httpMaxIdleConnsHost  int
+	httpTransportTuned    bool
 	stop                  chan struct{}
 	done                  chan struct{}
 	stopOnce              sync.Once
@@ -179,21 +184,19 @@ func WithMaxPayloadBytes(maxPayloadBytes int64) DeliveryWorkerOption {
 
 func WithHTTPTransport(timeout, idleConnTimeout time.Duration, maxIdleConns, maxIdleConnsPerHost int) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
-		transport := httputil.NewExternalTransport(w.allowPrivateEndpoints)
-		transport.IdleConnTimeout = idleConnTimeout
-		transport.MaxIdleConns = maxIdleConns
-		transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
-		w.client = &http.Client{
-			Timeout:       timeout,
-			Transport:     transport,
-			CheckRedirect: noFollowRedirects,
-		}
+		w.httpTimeout = timeout
+		w.httpIdleConnTimeout = idleConnTimeout
+		w.httpMaxIdleConns = maxIdleConns
+		w.httpMaxIdleConnsHost = maxIdleConnsPerHost
+		w.httpTransportTuned = true
+		w.rebuildHTTPClient()
 	}
 }
 
 func WithAllowPrivateEndpoints(allow bool) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
 		w.allowPrivateEndpoints = allow
+		w.rebuildHTTPClient()
 	}
 }
 
@@ -234,9 +237,6 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		logger = slog.Default()
 	}
 	w := &DeliveryWorker{
-		// Per-request timeout via context; see attemptDelivery. Redirect
-		// following is disabled to keep the SSRF guard intact on every hop.
-		client:             &http.Client{Transport: newDefaultDeliveryTransport(false), CheckRedirect: noFollowRedirects},
 		store:              store,
 		logger:             logger,
 		concurrency:        defaultDeliveryConcurrency,
@@ -246,10 +246,34 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		stop:               make(chan struct{}),
 		done:               make(chan struct{}),
 	}
+	w.rebuildHTTPClient()
 	for _, opt := range opts {
 		opt(w)
 	}
 	return w
+}
+
+func (n *DeliveryWorker) rebuildHTTPClient() {
+	// Per-request timeout via context; see attemptDelivery. Redirect following
+	// is disabled to keep the SSRF guard intact on every hop.
+	transport := newDefaultDeliveryTransport(n.allowPrivateEndpoints)
+	if n.httpTransportTuned {
+		transport = httputil.NewExternalTransport(n.allowPrivateEndpoints)
+	}
+	if n.httpIdleConnTimeout > 0 {
+		transport.IdleConnTimeout = n.httpIdleConnTimeout
+	}
+	if n.httpMaxIdleConns > 0 {
+		transport.MaxIdleConns = n.httpMaxIdleConns
+	}
+	if n.httpMaxIdleConnsHost > 0 {
+		transport.MaxIdleConnsPerHost = n.httpMaxIdleConnsHost
+	}
+	n.client = &http.Client{
+		Timeout:       n.httpTimeout,
+		Transport:     transport,
+		CheckRedirect: noFollowRedirects,
+	}
 }
 
 // NewEventNotifier creates a new event notifier.
