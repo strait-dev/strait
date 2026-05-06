@@ -23,6 +23,7 @@ import (
 type contextKey string
 
 const ctxRunIDKey contextKey = "run_id"
+const ctxRunAttemptKey contextKey = "run_attempt"
 const ctxSDKVersionKey contextKey = "sdk_version"
 const ctxSDKCapabilitiesKey contextKey = "sdk_capabilities"
 
@@ -176,10 +177,33 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
 		sdkCaps := resolveSDKCapabilities(sdkVersion)
 		ctx := context.WithValue(r.Context(), ctxRunIDKey, subject)
+		ctx = context.WithValue(ctx, ctxRunAttemptKey, claims.Attempt)
 		ctx = context.WithValue(ctx, ctxSDKVersionKey, sdkVersion)
 		ctx = context.WithValue(ctx, ctxSDKCapabilitiesKey, sdkCaps)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) revalidateRunTokenState(ctx context.Context) error {
+	runID, _ := ctx.Value(ctxRunIDKey).(string)
+	if runID == "" {
+		return nil
+	}
+	status, attempt, _, err := s.getRunTokenState(ctx, runID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return huma.Error404NotFound("run not found")
+		}
+		return huma.Error500InternalServerError("failed to verify run status")
+	}
+	if status.IsTerminal() {
+		return huma.Error410Gone("run has reached a terminal state")
+	}
+	tokenAttempt, _ := ctx.Value(ctxRunAttemptKey).(int)
+	if attempt > 0 && tokenAttempt > 0 && attempt != tokenAttempt {
+		return huma.Error401Unauthorized("run token attempt is stale")
+	}
+	return nil
 }
 
 func (s *Server) getRunTokenState(ctx context.Context, runID string) (domain.RunStatus, int, string, error) {

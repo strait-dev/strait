@@ -70,6 +70,12 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 		// Store w and r in context for streaming/export handlers that need raw access.
 		ctx := context.WithValue(r.Context(), ctxKeyResponseWriter, w)
 		ctx = context.WithValue(ctx, ctxKeyRequest, r)
+		if strings.HasPrefix(r.URL.Path, "/sdk/") {
+			if err := s.revalidateRunTokenState(ctx); err != nil {
+				writeTypedError(w, r, err)
+				return
+			}
+		}
 
 		output, err := handler(ctx, &input)
 		if err != nil {

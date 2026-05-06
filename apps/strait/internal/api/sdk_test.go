@@ -494,6 +494,35 @@ func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
 	}
 }
 
+func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
+	t.Parallel()
+	var statusCalls atomic.Int32
+	ms := &APIStoreMock{
+		GetRunStatusFunc: func(context.Context, string) (domain.RunStatus, error) {
+			if statusCalls.Add(1) == 1 {
+				return domain.StatusExecuting, nil
+			}
+			return domain.StatusCompleted, nil
+		},
+		UpdateHeartbeatFunc: func(context.Context, string) error {
+			t.Fatal("heartbeat mutation must not run after post-decode terminal revalidation")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
+	}
+	if statusCalls.Load() != 2 {
+		t.Fatalf("expected pre-auth and post-decode status checks, got %d", statusCalls.Load())
+	}
+}
+
 func TestHandleSDKComplete_Success(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
