@@ -208,6 +208,75 @@ func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID str
 	return &ev, nil
 }
 
+// ReplayAuditEventDeadletter atomically moves one deadletter row into the
+// signed audit chain and removes the DLQ row. The deadletter row is locked with
+// FOR UPDATE before insertion so concurrent admin/reaper attempts cannot insert
+// duplicate audit-chain events for the same DLQ id.
+func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayAuditEventDeadletter")
+	defer span.End()
+
+	if id == "" || projectID == "" || newEventID == "" {
+		return nil, false, fmt.Errorf("id, project_id, and new_event_id are required")
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, false, fmt.Errorf("replay audit deadletter: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	txq := q.withDB(tx)
+	var ev domain.AuditEvent
+	err = tx.QueryRow(ctx, `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
+		FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+		FOR UPDATE
+	`, id, projectID).Scan(
+		&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
+		&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
+		&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("replay audit deadletter: lock row: %w", err)
+	}
+
+	ev.ID = newEventID
+	if err := txq.CreateAuditEvent(ctx, &ev); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: create audit event: %w", err)
+	}
+
+	if tag, err := tx.Exec(ctx, `
+		UPDATE audit_events_deadletter
+		SET reclaimed_event_id = $3
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+	`, id, projectID, newEventID); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: mark reclaimed: %w", err)
+	} else if tag.RowsAffected() == 0 {
+		return nil, false, fmt.Errorf("replay audit deadletter: lost deadletter row after lock")
+	}
+
+	if tag, err := tx.Exec(ctx, `DELETE FROM audit_events_deadletter WHERE id = $1 AND project_id = $2`, id, projectID); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: delete dlq row: %w", err)
+	} else if tag.RowsAffected() == 0 {
+		return nil, false, fmt.Errorf("replay audit deadletter: delete matched no row")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: commit tx: %w", err)
+	}
+	return &ev, true, nil
+}
+
 // DeleteAuditEventDeadletter removes a single row from the deadletter
 // after successful reclamation into the primary audit_events table.
 // projectID is required for tenant isolation: the DELETE is scoped to

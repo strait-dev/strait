@@ -443,6 +443,18 @@ func New(db DBTX) *Queries {
 	return &Queries{db: db}
 }
 
+func (q *Queries) withDB(db DBTX) *Queries {
+	return &Queries{
+		db:                       db,
+		secretEncryptionKey:      q.secretEncryptionKey,
+		auditSigningKey:          q.auditSigningKey,
+		maxSLOWindowHours:        q.maxSLOWindowHours,
+		chDB:                     q.chDB,
+		tombstoneInsertHook:      q.tombstoneInsertHook,
+		auditEventPostInsertHook: q.auditEventPostInsertHook,
+	}
+}
+
 func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 	q.secretEncryptionKey = secretEncryptionKey
 }

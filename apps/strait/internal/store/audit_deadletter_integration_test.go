@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,6 +165,90 @@ func TestAuditDeadletter_MarkReclaimed_PersistsMarker(t *testing.T) {
 	}
 	if len(infos) != 1 || infos[0].ReclaimedEventID == nil || *infos[0].ReclaimedEventID != "ev-new-1" {
 		t.Fatalf("reclaimed_event_id = %+v, want ptr to ev-new-1", infos[0].ReclaimedEventID)
+	}
+}
+
+func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-atomic-replay-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	ev := &domain.AuditEvent{
+		ID:           "dlq-atomic-1",
+		ProjectID:    "proj-dlq-atomic",
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Details:      json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	type outcome struct {
+		replayed bool
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	for _, newID := range []string{"audit-replayed-1", "audit-replayed-2"} {
+		wg.Add(1)
+		go func(newID string) {
+			defer wg.Done()
+			<-start
+			_, replayed, replayErr := q.ReplayAuditEventDeadletter(ctx, ev.ID, ev.ProjectID, newID)
+			results <- outcome{replayed: replayed, err: replayErr}
+		}(newID)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var replayed, skipped int
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("ReplayAuditEventDeadletter concurrent error: %v", result.err)
+		}
+		if result.replayed {
+			replayed++
+		} else {
+			skipped++
+		}
+	}
+	if replayed != 1 || skipped != 1 {
+		t.Fatalf("replayed/skipped = %d/%d, want 1/1", replayed, skipped)
+	}
+
+	var chainRows, dlqRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND action = $2),
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE project_id = $1)
+	`, ev.ProjectID, ev.Action).Scan(&chainRows, &dlqRows); err != nil {
+		t.Fatalf("count replay results: %v", err)
+	}
+	if chainRows != 1 {
+		t.Fatalf("audit_events replayed rows = %d, want 1", chainRows)
+	}
+	if dlqRows != 0 {
+		t.Fatalf("audit_events_deadletter rows = %d, want 0", dlqRows)
+	}
+
+	vc, err := q.VerifyAuditChain(ctx, ev.ProjectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !vc.Valid {
+		t.Fatalf("chain invalid after atomic replay: %s", vc.Error)
 	}
 }
 
