@@ -926,6 +926,84 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 	}
 }
 
+// TestTenantIsolation_DispatchEvent_CrossProject verifies that a project-scoped
+// caller cannot dispatch events for a different project by supplying a forged
+// project_id in the request body.
+func TestTenantIsolation_DispatchEvent_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, _, _ string) (*domain.EventSource, error) {
+		t.Fatal("GetEventSourceByName must not be called for mismatched project_id")
+		return nil, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+		t.Fatal("ListEventSubscriptionsBySource must not be called for mismatched project_id")
+		return nil, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("queue.Enqueue must not be called for mismatched project_id")
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectB))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+		if projectID != projectB {
+			t.Fatalf("projectID = %q, want %q", projectID, projectB)
+		}
+		if name != "source-b" {
+			t.Fatalf("name = %q, want source-b", name)
+		}
+		return &domain.EventSource{ID: "src-b", ProjectID: projectB, Name: "source-b", Enabled: true}, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		if sourceID != "src-b" {
+			t.Fatalf("sourceID = %q, want src-b", sourceID)
+		}
+		return []domain.EventSubscription{
+			{ID: "sub-b", SourceID: "src-b", TargetType: "job", TargetID: "job-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+		}, nil
+	}
+	enqueued := false
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = true
+			if run.ProjectID != projectB {
+				t.Fatalf("run.ProjectID = %q, want %q", run.ProjectID, projectB)
+			}
+			if run.JobID != "job-b" {
+				t.Fatalf("run.JobID = %q, want job-b", run.JobID)
+			}
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-b","project_id":"` + projectB + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectB))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueued {
+		t.Fatal("expected own-project dispatch to enqueue one run")
+	}
+}
+
 // TestTenantIsolation_GetWebhookDelivery_CrossProject verifies that getting a
 // webhook delivery whose job belongs to another project returns 404.
 func TestTenantIsolation_GetWebhookDelivery_CrossProject(t *testing.T) {

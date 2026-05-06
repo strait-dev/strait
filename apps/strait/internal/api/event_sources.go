@@ -322,6 +322,9 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("event source not found")
+	}
 	source, err := s.store.GetEventSourceByName(ctx, req.ProjectID, req.Source)
 	if err != nil {
 		return nil, huma.Error404NotFound("event source not found")
