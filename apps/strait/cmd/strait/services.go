@@ -23,6 +23,7 @@ import (
 	"strait/internal/notification"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
+	"strait/internal/ratelimit"
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -548,7 +549,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -563,7 +564,9 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 		return nil, fmt.Errorf("grpc worker plane is enabled but no pubsub publisher is configured: set REDIS_URL or disable GRPC_ENABLED")
 	}
 
-	srv, err := grpcserver.NewServer(cfg, queries, pub)
+	srv, err := grpcserver.NewServer(cfg, queries, pub,
+		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("grpc server: %w", err)
 	}

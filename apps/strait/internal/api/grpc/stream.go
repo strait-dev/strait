@@ -69,6 +69,7 @@ type workerService struct {
 	cfg            *config.Config
 	resultChannels *ResultChannelRegistry
 	runFinalizer   *atomic.Value
+	authLimiter    grpcAuthLimiter
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -84,7 +85,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
-	apiKey, err := resolveAPIKeyFromContext(ctx, s.queries)
+	apiKey, err := resolveAPIKeyFromContextWithLimit(ctx, s.queries, s.authLimiter)
 	if err != nil {
 		return err
 	}

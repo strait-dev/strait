@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -192,6 +194,73 @@ func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
 				t.Errorf("expected Unauthenticated, got %s", s.Code())
 			}
 		})
+	}
+}
+
+type fakeGRPCAuthLimiter struct {
+	blocked     bool
+	retryAfter  time.Duration
+	blockChecks []string
+	failures    []string
+	resets      []string
+}
+
+func (f *fakeGRPCAuthLimiter) IsBlocked(_ context.Context, ip string) (bool, time.Duration) {
+	f.blockChecks = append(f.blockChecks, ip)
+	return f.blocked, f.retryAfter
+}
+
+func (f *fakeGRPCAuthLimiter) RecordFailure(_ context.Context, ip string) {
+	f.failures = append(f.failures, ip)
+}
+
+func (f *fakeGRPCAuthLimiter) Reset(_ context.Context, ip string) {
+	f.resets = append(f.resets, ip)
+}
+
+func TestResolveAPIKeyFromContextWithLimit_BlockedBeforeStoreLookup(t *testing.T) {
+	t.Parallel()
+
+	limiter := &fakeGRPCAuthLimiter{blocked: true, retryAfter: 30 * time.Second}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer strait_invalid"))
+	ctx = peer.NewContext(ctx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.10"), Port: 443}})
+
+	_, err := resolveAPIKeyFromContextWithLimit(ctx, nil, limiter)
+	if err == nil {
+		t.Fatal("expected blocked auth error")
+	}
+	s, _ := status.FromError(err)
+	if s.Code() != codes.ResourceExhausted {
+		t.Fatalf("code = %s, want ResourceExhausted", s.Code())
+	}
+	if len(limiter.blockChecks) != 1 || limiter.blockChecks[0] != "203.0.113.10" {
+		t.Fatalf("block checks = %+v, want peer IP", limiter.blockChecks)
+	}
+	if len(limiter.failures) != 0 || len(limiter.resets) != 0 {
+		t.Fatalf("failures/resets = %+v/%+v, want none when already blocked", limiter.failures, limiter.resets)
+	}
+}
+
+func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testing.T) {
+	t.Parallel()
+
+	limiter := &fakeGRPCAuthLimiter{}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer not-a-strait-key"))
+	ctx = peer.NewContext(ctx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("198.51.100.7"), Port: 443}})
+
+	_, err := resolveAPIKeyFromContextWithLimit(ctx, nil, limiter)
+	if err == nil {
+		t.Fatal("expected malformed auth error")
+	}
+	s, _ := status.FromError(err)
+	if s.Code() != codes.Unauthenticated {
+		t.Fatalf("code = %s, want Unauthenticated", s.Code())
+	}
+	if len(limiter.failures) != 1 || limiter.failures[0] != "198.51.100.7" {
+		t.Fatalf("failures = %+v, want peer IP", limiter.failures)
+	}
+	if len(limiter.resets) != 0 {
+		t.Fatalf("resets = %+v, want none on failure", limiter.resets)
 	}
 }
 

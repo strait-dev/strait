@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -30,6 +32,47 @@ const (
 )
 
 var grpcAPIKeyPattern = regexp.MustCompile(`^strait_[A-Za-z0-9]+$`)
+
+type grpcAuthLimiter interface {
+	IsBlocked(ctx context.Context, ip string) (bool, time.Duration)
+	RecordFailure(ctx context.Context, ip string)
+	Reset(ctx context.Context, ip string)
+}
+
+func resolveAPIKeyFromContextWithLimit(ctx context.Context, q *store.Queries, limiter grpcAuthLimiter) (*domain.APIKey, error) {
+	if limiter == nil {
+		return resolveAPIKeyFromContext(ctx, q)
+	}
+
+	ip := grpcPeerIP(ctx)
+	if blocked, retryAfter := limiter.IsBlocked(ctx, ip); blocked {
+		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts; retry after %s", retryAfter.Truncate(time.Second))
+	}
+
+	apiKey, err := resolveAPIKeyFromContext(ctx, q)
+	if err != nil {
+		limiter.RecordFailure(ctx, ip)
+		return nil, err
+	}
+	limiter.Reset(ctx, ip)
+	return apiKey, nil
+}
+
+func grpcPeerIP(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p == nil || p.Addr == nil {
+		return "unknown"
+	}
+	addr := p.Addr.String()
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil && host != "" {
+		return host
+	}
+	if addr != "" {
+		return addr
+	}
+	return "unknown"
+}
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata
 // attached to ctx, resolves it against the API key store, validates its

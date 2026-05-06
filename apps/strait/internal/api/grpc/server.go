@@ -32,7 +32,16 @@ type Server struct {
 	registry       *ConnectionRegistry
 	resultChannels *ResultChannelRegistry
 	runFinalizer   atomic.Value
+	authLimiter    grpcAuthLimiter
 	gs             *grpc.Server
+}
+
+type ServerOption func(*Server)
+
+func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
+	return func(s *Server) {
+		s.authLimiter = limiter
+	}
 }
 
 // NewServer creates a new gRPC Server. It does not start listening.
@@ -45,7 +54,7 @@ type Server struct {
 //     to boot rather than serve a half-functional stream.
 //   - Returns an error if TLS is configured but cert/key cannot be loaded —
 //     silent fallback to plaintext would leak API keys in transit.
-func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher) (*Server, error) {
+func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, opts ...ServerOption) (*Server, error) {
 	if pub == nil {
 		return nil, fmt.Errorf("grpc server: pubsub publisher is required (set REDIS_URL or disable GRPC_ENABLED)")
 	}
@@ -55,6 +64,11 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher)
 		pub:            pub,
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
 	}
 	gs, err := s.buildServer()
 	if err != nil {
@@ -136,6 +150,7 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 		cfg:            s.cfg,
 		resultChannels: s.resultChannels,
 		runFinalizer:   &s.runFinalizer,
+		authLimiter:    s.authLimiter,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)
 
