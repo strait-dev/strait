@@ -41,6 +41,41 @@ func TestHandleCreateJob_WorkerModeDefaultsQueueName(t *testing.T) {
 	}
 }
 
+func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.Job
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			cp := *job
+			captured = &cp
+			job.ID = "job-http"
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
+		ProjectID:             "proj-1",
+		Name:                  "Signed HTTP Job",
+		Slug:                  "signed-http-job",
+		EndpointURL:           "https://example.com/hook",
+		EndpointSigningSecret: "loadtest-secret-32-bytes-long",
+		ExecutionMode:         string(domain.ExecutionModeHTTP),
+	}})
+	if err != nil {
+		t.Fatalf("handleCreateJob: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected CreateJob to be called")
+	}
+	if captured.EndpointSigningSecret != "loadtest-secret-32-bytes-long" {
+		t.Fatalf("captured.EndpointSigningSecret = %q", captured.EndpointSigningSecret)
+	}
+}
+
 func TestHandleUpdateJob_HTTPModeRequiresEndpoint(t *testing.T) {
 	t.Parallel()
 

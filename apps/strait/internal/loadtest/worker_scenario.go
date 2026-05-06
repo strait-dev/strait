@@ -6,10 +6,12 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,6 +22,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -32,6 +35,10 @@ type WorkerConfig struct {
 	// GRPCAddr is the host:port of the Strait gRPC endpoint.
 	// Default: localhost:50051
 	GRPCAddr string
+
+	// GRPCPlaintext permits plaintext gRPC for non-loopback targets. Loopback
+	// addresses are allowed automatically for local smoke tests.
+	GRPCPlaintext bool
 
 	// APIKey is the Bearer token sent in gRPC metadata.
 	APIKey string
@@ -231,10 +238,9 @@ func connectAndStream(
 	workerID string,
 	dispatched, succeeded, failed *atomic.Int64,
 ) error {
-	// gRPC dial — plaintext; TLS termination is handled upstream in production.
 	conn, err := grpc.NewClient(
 		cfg.GRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(grpcTransportCredentials(cfg)),
 	)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", cfg.GRPCAddr, err)
@@ -433,42 +439,34 @@ func isStreamClosedErr(err error) bool {
 	return false
 }
 
-// straitV1SignatureHeader is the header name the Strait server sets on HTTP-mode
-// dispatch requests. Its format mirrors the Stripe V1 convention:
-// "t=<unix_timestamp>,v1=<hmac_sha256_hex>".
-const straitV1SignatureHeader = "X-Strait-Signature"
+const (
+	// straitTimestampHeader carries the unix timestamp covered by the HMAC.
+	straitTimestampHeader = "X-Strait-Timestamp"
+	// straitV1SignatureHeader carries the Strait v1 HMAC value as "v1=<hex>".
+	straitV1SignatureHeader = "X-Strait-Signature"
+)
 
 // replayWindow is the maximum age of a valid signature.
 const replayWindow = 5 * time.Minute
 
-// VerifyStraitDispatchSignature validates the X-Strait-Signature header on an
-// inbound HTTP dispatch request using the same algorithm as validateStripeV1 in
-// internal/webhook/signature.go but with the Strait-specific header name and
-// a 5-minute replay window.
+// VerifyStraitDispatchSignature validates the Strait dispatch signature headers
+// on an inbound HTTP dispatch request.
 //
-// Signed payload: "<timestamp>.<body>". Header format: "t=<unix>,v1=<hmac-sha256-hex>".
+// Signed payload: "<timestamp>.<body>". Header format:
+// X-Strait-Timestamp: <unix>
+// X-Strait-Signature: v1=<hmac-sha256-hex>
 func VerifyStraitDispatchSignature(secret string, body []byte, r *http.Request) error {
-	headerValue := r.Header.Get(straitV1SignatureHeader)
-	if headerValue == "" {
+	ts := r.Header.Get(straitTimestampHeader)
+	if ts == "" {
+		return fmt.Errorf("missing %s header", straitTimestampHeader)
+	}
+	sigHeader := r.Header.Get(straitV1SignatureHeader)
+	if sigHeader == "" {
 		return fmt.Errorf("missing %s header", straitV1SignatureHeader)
 	}
-
-	var ts, sig string
-	for part := range strings.SplitSeq(headerValue, ",") {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		switch kv[0] {
-		case "t":
-			ts = kv[1]
-		case "v1":
-			sig = kv[1]
-		}
-	}
-
-	if ts == "" || sig == "" {
-		return fmt.Errorf("invalid %s header: missing t or v1", straitV1SignatureHeader)
+	sig := strings.TrimPrefix(sigHeader, "v1=")
+	if sig == sigHeader || sig == "" {
+		return fmt.Errorf("invalid %s header: missing v1 signature", straitV1SignatureHeader)
 	}
 
 	// Parse timestamp and enforce replay window.
@@ -493,14 +491,34 @@ func VerifyStraitDispatchSignature(secret string, body []byte, r *http.Request) 
 	return nil
 }
 
-// SignStraitDispatch produces an X-Strait-Signature header value for the given
-// body. Used by the HTTP-mode test harness to sign outgoing dispatch requests
-// and by tests to produce valid signatures for VerifyStraitDispatchSignature.
-func SignStraitDispatch(secret string, body []byte) string {
+// SignStraitDispatch produces Strait dispatch signature header values for the
+// given body. The returned values must be sent as X-Strait-Timestamp and
+// X-Strait-Signature respectively.
+func SignStraitDispatch(secret string, body []byte) (string, string) {
 	ts := fmt.Sprintf("%d", time.Now().Unix())
 	payload := append([]byte(ts+"."), body...)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	sig := hex.EncodeToString(mac.Sum(nil))
-	return fmt.Sprintf("t=%s,v1=%s", ts, sig)
+	return ts, "v1=" + sig
+}
+
+func grpcTransportCredentials(cfg WorkerConfig) credentials.TransportCredentials {
+	if cfg.GRPCPlaintext || isLoopbackGRPCAddr(cfg.GRPCAddr) {
+		return insecure.NewCredentials()
+	}
+	return credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+}
+
+func isLoopbackGRPCAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

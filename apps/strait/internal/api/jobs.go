@@ -30,6 +30,7 @@ type CreateJobRequest struct {
 	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                      map[string]string `json:"tags,omitempty"`
 	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
+	EndpointSigningSecret     string            `json:"endpoint_signing_secret,omitempty" validate:"omitempty,min=16,max=4096"`
 	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
 	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
@@ -153,6 +154,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		PayloadSchema:             req.PayloadSchema,
 		Tags:                      req.Tags,
 		EndpointURL:               req.EndpointURL,
+		EndpointSigningSecret:     req.EndpointSigningSecret,
 		FallbackEndpointURL:       req.FallbackEndpointURL,
 		MaxAttempts:               req.MaxAttempts,
 		TimeoutSecs:               req.TimeoutSecs,

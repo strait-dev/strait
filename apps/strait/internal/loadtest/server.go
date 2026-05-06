@@ -3,8 +3,10 @@
 package loadtest
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -16,10 +18,22 @@ import (
 // It runs on localhost during load tests and serves as the endpoint_url
 // for HTTP-mode jobs.
 type TestServer struct {
-	srv     *http.Server
-	addr    string
-	stats   ServerStats
-	started time.Time
+	srv          *http.Server
+	addr         string
+	hmacSecret   string
+	maxBodyBytes int64
+	stats        ServerStats
+	started      time.Time
+}
+
+type TestServerOption func(*TestServer)
+
+// WithTestServerHMACSecret requires signed POST dispatches using the same
+// Strait HMAC headers used by production HTTP-mode jobs.
+func WithTestServerHMACSecret(secret string) TestServerOption {
+	return func(ts *TestServer) {
+		ts.hmacSecret = secret
+	}
 }
 
 // ServerStats tracks request counts across all endpoints.
@@ -44,20 +58,24 @@ type ServerStatsSnapshot struct {
 	Total        int64 `json:"total"`
 }
 
-// NewTestServer creates a test HTTP server on the given port.
-func NewTestServer(port int) *TestServer {
+// NewTestServer creates a test HTTP server on localhost for the given port.
+func NewTestServer(port int, opts ...TestServerOption) *TestServer {
 	ts := &TestServer{
-		addr:    fmt.Sprintf(":%d", port),
-		started: time.Now(),
+		addr:         fmt.Sprintf("127.0.0.1:%d", port),
+		maxBodyBytes: 1 << 20,
+		started:      time.Now(),
+	}
+	for _, opt := range opts {
+		opt(ts)
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /fast-echo", ts.handleFastEcho)
-	mux.HandleFunc("POST /slow-process", ts.handleSlowProcess)
-	mux.HandleFunc("POST /variable-load", ts.handleVariableLoad)
-	mux.HandleFunc("POST /flaky", ts.handleFlaky)
-	mux.HandleFunc("POST /memory-heavy", ts.handleMemoryHeavy)
-	mux.HandleFunc("POST /cost-reporter", ts.handleCostReporter)
+	mux.Handle("POST /fast-echo", ts.requireDispatchSignature(http.HandlerFunc(ts.handleFastEcho)))
+	mux.Handle("POST /slow-process", ts.requireDispatchSignature(http.HandlerFunc(ts.handleSlowProcess)))
+	mux.Handle("POST /variable-load", ts.requireDispatchSignature(http.HandlerFunc(ts.handleVariableLoad)))
+	mux.Handle("POST /flaky", ts.requireDispatchSignature(http.HandlerFunc(ts.handleFlaky)))
+	mux.Handle("POST /memory-heavy", ts.requireDispatchSignature(http.HandlerFunc(ts.handleMemoryHeavy)))
+	mux.Handle("POST /cost-reporter", ts.requireDispatchSignature(http.HandlerFunc(ts.handleCostReporter)))
 	mux.HandleFunc("GET /health", ts.handleHealth)
 	mux.HandleFunc("GET /stats", ts.handleStats)
 
@@ -76,7 +94,7 @@ func (ts *TestServer) Start() error {
 	ln, err := net.Listen("tcp", ts.addr)
 	if err != nil {
 		// Port in use - try OS-assigned port
-		ln, err = net.Listen("tcp", ":0") //nolint:gosec // test server intentionally binds to all interfaces
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			return fmt.Errorf("test server failed to listen: %w", err)
 		}
@@ -106,6 +124,26 @@ func (ts *TestServer) Addr() string {
 // URL returns the full URL for the given endpoint path.
 func (ts *TestServer) URL(path string) string {
 	return fmt.Sprintf("http://%s%s", ts.addr, path)
+}
+
+func (ts *TestServer) requireDispatchSignature(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ts.hmacSecret == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, ts.maxBodyBytes))
+		if err != nil {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if err := VerifyStraitDispatchSignature(ts.hmacSecret, body, r); err != nil {
+			http.Error(w, "invalid dispatch signature", http.StatusUnauthorized)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Snapshot returns a point-in-time copy of server stats.

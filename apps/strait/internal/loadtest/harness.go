@@ -5,6 +5,8 @@ package loadtest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,9 +23,9 @@ import (
 type ExecutionMode string
 
 const (
-	// ModeHTTP creates only HTTP endpoint jobs. The harness signs each dispatch
-	// payload with HMAC-SHA256 (X-Strait-Signature header) and the target
-	// server verifies the signature before accepting the request.
+	// ModeHTTP creates only HTTP endpoint jobs. The harness configures each
+	// job with an endpoint signing secret, so Strait signs dispatch payloads
+	// and the target server verifies them before accepting the request.
 	ModeHTTP ExecutionMode = "http"
 
 	// ModeWorker creates worker-mode jobs and drives load via the gRPC
@@ -75,6 +77,10 @@ type HarnessConfig struct {
 	// WorkerConfig holds gRPC worker scenario parameters for ModeWorker runs.
 	// When nil, DefaultWorkerConfig() is used.
 	WorkerConfig *WorkerConfig
+
+	// EndpointSigningSecret signs HTTP dispatches sent to the load-test
+	// receiver. When empty, NewHarness generates a per-run secret.
+	EndpointSigningSecret string
 }
 
 // NewHarness creates a test harness with the given configuration.
@@ -87,6 +93,9 @@ func NewHarness(cfg HarnessConfig) *Harness {
 	}
 	if cfg.MetricsInterval == 0 {
 		cfg.MetricsInterval = 10 * time.Second
+	}
+	if cfg.EndpointSigningSecret == "" {
+		cfg.EndpointSigningSecret = generateLoadTestSecret()
 	}
 
 	return &Harness{
@@ -103,6 +112,14 @@ func NewHarness(cfg HarnessConfig) *Harness {
 			},
 		},
 	}
+}
+
+func generateLoadTestSecret() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("loadtest-secret-%d", time.Now().UnixNano())
+	}
+	return "loadtest_" + hex.EncodeToString(b[:])
 }
 
 // Setup initializes all infrastructure: DB pool, Redis, test server, metrics.
@@ -133,7 +150,7 @@ func (h *Harness) Setup(ctx context.Context) error {
 	}
 
 	// Start test HTTP server
-	h.TestServer = NewTestServer(h.Config.TestServerPort)
+	h.TestServer = NewTestServer(h.Config.TestServerPort, WithTestServerHMACSecret(h.Config.EndpointSigningSecret))
 	if err := h.TestServer.Start(); err != nil {
 		return fmt.Errorf("starting test server: %w", err)
 	}
@@ -304,13 +321,14 @@ func (h *Harness) WriteResult(filename string, result any) error {
 
 // JobConfig defines a job for load testing.
 type JobConfig struct {
-	ProjectID     string `json:"project_id"`
-	Name          string `json:"name"`
-	Slug          string `json:"slug"`
-	EndpointURL   string `json:"endpoint_url,omitempty"`
-	ExecutionMode string `json:"execution_mode"`
-	MaxAttempts   int    `json:"max_attempts,omitempty"`
-	TimeoutSecs   int    `json:"timeout_secs,omitempty"`
+	ProjectID             string `json:"project_id"`
+	Name                  string `json:"name"`
+	Slug                  string `json:"slug"`
+	EndpointURL           string `json:"endpoint_url,omitempty"`
+	EndpointSigningSecret string `json:"endpoint_signing_secret,omitempty"`
+	ExecutionMode         string `json:"execution_mode"`
+	MaxAttempts           int    `json:"max_attempts,omitempty"`
+	TimeoutSecs           int    `json:"timeout_secs,omitempty"`
 }
 
 // QueueStats represents queue statistics from the API.
@@ -332,43 +350,48 @@ func (qs *QueueStats) QueueDepth() int64 {
 func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[string]string, error) {
 	testServerURL := fmt.Sprintf("http://%s", h.TestServer.Addr())
 	jobs := map[string]string{}
+	signingSecret := h.Config.EndpointSigningSecret
 
 	httpConfigs := []JobConfig{
 		{
-			ProjectID:     projectID,
-			Name:          "Load Test Fast Echo",
-			Slug:          "loadtest-fast-echo",
-			EndpointURL:   testServerURL + "/fast-echo",
-			ExecutionMode: "http",
-			MaxAttempts:   1,
-			TimeoutSecs:   30,
+			ProjectID:             projectID,
+			Name:                  "Load Test Fast Echo",
+			Slug:                  "loadtest-fast-echo",
+			EndpointURL:           testServerURL + "/fast-echo",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           30,
 		},
 		{
-			ProjectID:     projectID,
-			Name:          "Load Test Slow Process",
-			Slug:          "loadtest-slow-process",
-			EndpointURL:   testServerURL + "/slow-process",
-			ExecutionMode: "http",
-			MaxAttempts:   1,
-			TimeoutSecs:   60,
+			ProjectID:             projectID,
+			Name:                  "Load Test Slow Process",
+			Slug:                  "loadtest-slow-process",
+			EndpointURL:           testServerURL + "/slow-process",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           60,
 		},
 		{
-			ProjectID:     projectID,
-			Name:          "Load Test Variable Load",
-			Slug:          "loadtest-variable-load",
-			EndpointURL:   testServerURL + "/variable-load",
-			ExecutionMode: "http",
-			MaxAttempts:   1,
-			TimeoutSecs:   30,
+			ProjectID:             projectID,
+			Name:                  "Load Test Variable Load",
+			Slug:                  "loadtest-variable-load",
+			EndpointURL:           testServerURL + "/variable-load",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           30,
 		},
 		{
-			ProjectID:     projectID,
-			Name:          "Load Test Flaky",
-			Slug:          "loadtest-flaky",
-			EndpointURL:   testServerURL + "/flaky",
-			ExecutionMode: "http",
-			MaxAttempts:   3,
-			TimeoutSecs:   30,
+			ProjectID:             projectID,
+			Name:                  "Load Test Flaky",
+			Slug:                  "loadtest-flaky",
+			EndpointURL:           testServerURL + "/flaky",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           3,
+			TimeoutSecs:           30,
 		},
 	}
 

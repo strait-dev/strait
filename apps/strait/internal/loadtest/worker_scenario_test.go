@@ -191,10 +191,11 @@ func TestVerifyStraitDispatchSignature_Valid(t *testing.T) {
 	secret := "test-secret-32-bytes-long-enough"
 	body := []byte(`{"run_id":"abc","payload":"hello"}`)
 
-	headerValue := loadtest.SignStraitDispatch(secret, body)
+	ts, sig := loadtest.SignStraitDispatch(secret, body)
 
 	req := httptest.NewRequest(http.MethodPost, "/dispatch", strings.NewReader(string(body)))
-	req.Header.Set("X-Strait-Signature", headerValue)
+	req.Header.Set("X-Strait-Timestamp", ts)
+	req.Header.Set("X-Strait-Signature", sig)
 
 	if err := loadtest.VerifyStraitDispatchSignature(secret, body, req); err != nil {
 		t.Fatalf("expected valid signature, got error: %v", err)
@@ -204,10 +205,11 @@ func TestVerifyStraitDispatchSignature_Valid(t *testing.T) {
 // TestVerifyStraitDispatchSignature_WrongSecret checks that a mismatched secret fails.
 func TestVerifyStraitDispatchSignature_WrongSecret(t *testing.T) {
 	body := []byte(`{"run_id":"abc"}`)
-	headerValue := loadtest.SignStraitDispatch("correct-secret", body)
+	ts, sig := loadtest.SignStraitDispatch("correct-secret", body)
 
 	req := httptest.NewRequest(http.MethodPost, "/dispatch", strings.NewReader(string(body)))
-	req.Header.Set("X-Strait-Signature", headerValue)
+	req.Header.Set("X-Strait-Timestamp", ts)
+	req.Header.Set("X-Strait-Signature", sig)
 
 	if err := loadtest.VerifyStraitDispatchSignature("wrong-secret", body, req); err == nil {
 		t.Fatal("expected signature mismatch error, got nil")
@@ -225,10 +227,9 @@ func TestVerifyStraitDispatchSignature_Replay(t *testing.T) {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	sig := hex.EncodeToString(mac.Sum(nil))
-	headerValue := fmt.Sprintf("t=%s,v1=%s", oldTS, sig)
-
 	req := httptest.NewRequest(http.MethodPost, "/dispatch", strings.NewReader(string(body)))
-	req.Header.Set("X-Strait-Signature", headerValue)
+	req.Header.Set("X-Strait-Timestamp", oldTS)
+	req.Header.Set("X-Strait-Signature", "v1="+sig)
 
 	err := loadtest.VerifyStraitDispatchSignature(secret, body, req)
 	if err == nil {
@@ -277,12 +278,13 @@ func TestVerifyStraitDispatchSignature_IntegrationReceiver(t *testing.T) {
 	defer ts.Close()
 
 	body := []byte(`{"run_id":"integration-run","job":"smoke-job"}`)
-	sig := loadtest.SignStraitDispatch(secret, body)
+	tsValue, sig := loadtest.SignStraitDispatch(secret, body)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/dispatch", strings.NewReader(string(body)))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
+	req.Header.Set("X-Strait-Timestamp", tsValue)
 	req.Header.Set("X-Strait-Signature", sig)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -300,8 +302,9 @@ func TestVerifyStraitDispatchSignature_IntegrationReceiver(t *testing.T) {
 	}
 
 	// Now send with wrong secret — must get 401.
-	badSig := loadtest.SignStraitDispatch("wrong-secret", body)
+	badTS, badSig := loadtest.SignStraitDispatch("wrong-secret", body)
 	req2, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/dispatch", strings.NewReader(string(body)))
+	req2.Header.Set("X-Strait-Timestamp", badTS)
 	req2.Header.Set("X-Strait-Signature", badSig)
 	resp2, err := http.DefaultClient.Do(req2)
 	if err != nil {
