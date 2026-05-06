@@ -313,6 +313,15 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	}
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
 	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
+		if newKey.ID != "" {
+			if revokeErr := s.store.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				slog.Error("api key rotation cleanup failed",
+					"old_key_id", oldKey.ID,
+					"new_key_id", newKey.ID,
+					"error", revokeErr,
+				)
+			}
+		}
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
