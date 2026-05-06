@@ -8846,6 +8846,112 @@ func TestListPendingWebhookRetries(t *testing.T) {
 	}
 }
 
+func TestClaimPendingWebhookRetries_LeaseAndTokenBoundUpdate(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-webhook-claim-" + newID()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
+		ProjectID:  testutil.Ptr(projectID),
+		WebhookURL: testutil.Ptr("https://example.com/webhook-claim"),
+	})
+	run := testutil.MustCreateRun(t, ctx, q, job, nil)
+
+	past := time.Now().UTC().Add(-2 * time.Minute)
+	due := &domain.WebhookDelivery{
+		RunID:       run.ID,
+		JobID:       job.ID,
+		WebhookURL:  job.WebhookURL,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    1,
+		MaxAttempts: 5,
+		NextRetryAt: &past,
+	}
+	if err := q.CreateWebhookDelivery(ctx, due); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	claimed, err := q.ClaimPendingWebhookRetries(ctx, 10, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingWebhookRetries(first) error = %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != due.ID {
+		t.Fatalf("ClaimPendingWebhookRetries(first) = %+v, want only %q", claimed, due.ID)
+	}
+	if claimed[0].ClaimToken == "" || claimed[0].LeaseExpiresAt == nil {
+		t.Fatalf("claimed delivery missing lease fields: %+v", claimed[0])
+	}
+
+	claimedAgain, err := q.ClaimPendingWebhookRetries(ctx, 10, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingWebhookRetries(second) error = %v", err)
+	}
+	if len(claimedAgain) != 0 {
+		t.Fatalf("ClaimPendingWebhookRetries(second) len = %d, want 0", len(claimedAgain))
+	}
+
+	listed, err := q.ListPendingWebhookRetries(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingWebhookRetries(claimed) error = %v", err)
+	}
+	if len(listed) != 0 {
+		t.Fatalf("ListPendingWebhookRetries(claimed) len = %d, want 0", len(listed))
+	}
+
+	wrongToken := claimed[0]
+	wrongToken.ClaimToken = "wrong-token"
+	wrongToken.Status = domain.WebhookStatusDelivered
+	now := time.Now().UTC()
+	wrongToken.DeliveredAt = &now
+	updated, err := q.UpdateClaimedWebhookDelivery(ctx, &wrongToken)
+	if err != nil {
+		t.Fatalf("UpdateClaimedWebhookDelivery(wrong token) error = %v", err)
+	}
+	if updated {
+		t.Fatal("UpdateClaimedWebhookDelivery(wrong token) updated = true, want false")
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE webhook_deliveries
+		SET lease_expires_at = NOW() - INTERVAL '1 second'
+		WHERE id = $1`, due.ID); err != nil {
+		t.Fatalf("expire webhook claim lease: %v", err)
+	}
+
+	reclaimed, err := q.ClaimPendingWebhookRetries(ctx, 10, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimPendingWebhookRetries(after lease expiry) error = %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].ID != due.ID {
+		t.Fatalf("ClaimPendingWebhookRetries(after lease expiry) = %+v, want only %q", reclaimed, due.ID)
+	}
+	if reclaimed[0].ClaimToken == claimed[0].ClaimToken {
+		t.Fatal("ClaimPendingWebhookRetries(after lease expiry) reused stale claim token")
+	}
+
+	statusCode := 200
+	reclaimed[0].Status = domain.WebhookStatusDelivered
+	reclaimed[0].DeliveredAt = &now
+	reclaimed[0].NextRetryAt = nil
+	reclaimed[0].LastStatusCode = &statusCode
+	updated, err = q.UpdateClaimedWebhookDelivery(ctx, &reclaimed[0])
+	if err != nil {
+		t.Fatalf("UpdateClaimedWebhookDelivery(correct token) error = %v", err)
+	}
+	if !updated {
+		t.Fatal("UpdateClaimedWebhookDelivery(correct token) updated = false, want true")
+	}
+
+	got, err := q.GetWebhookDelivery(ctx, due.ID)
+	if err != nil {
+		t.Fatalf("GetWebhookDelivery(after claimed update) error = %v", err)
+	}
+	if got.Status != domain.WebhookStatusDelivered || got.DeliveredAt == nil || got.NextRetryAt != nil {
+		t.Fatalf("GetWebhookDelivery(after claimed update) = %+v, want delivered with no retry", *got)
+	}
+}
+
 func TestDeleteOldWebhookDeliveries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -178,7 +178,7 @@ func (q *Queries) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 	query := `
 		UPDATE webhook_deliveries
 		SET webhook_retry_policy = $1, status = $2, attempts = $3, last_status_code = $4, last_error = $5,
-			next_retry_at = $6, delivered_at = $7, updated_at = NOW()
+			next_retry_at = $6, delivered_at = $7, claim_token = NULL, lease_expires_at = NULL, updated_at = NOW()
 		WHERE id = $8
 		RETURNING updated_at`
 
@@ -187,6 +187,118 @@ func (q *Queries) UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 		d.Status, d.Attempts, d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError),
 		d.NextRetryAt, d.DeliveredAt, d.ID,
 	).Scan(&d.UpdatedAt)
+}
+
+func (q *Queries) ClaimPendingWebhookRetries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.WebhookDelivery, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimPendingWebhookRetries")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	if leaseDuration <= 0 {
+		leaseDuration = 2 * time.Minute
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("claim pending webhook retries: db does not support transactions")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("claim pending webhook retries: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	leaseExpiry := time.Now().UTC().Add(leaseDuration)
+	query := `
+		WITH claimable AS (
+			SELECT wd.id
+			FROM webhook_deliveries wd
+			WHERE wd.status = 'pending'
+			  AND wd.next_retry_at IS NOT NULL
+			  AND wd.next_retry_at <= NOW()
+			  AND (
+				wd.claim_token IS NULL
+				OR wd.lease_expires_at IS NULL
+				OR wd.lease_expires_at <= NOW()
+			  )
+			ORDER BY wd.next_retry_at ASC, wd.created_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $1
+		),
+		claimed AS (
+		UPDATE webhook_deliveries wd
+		SET claim_token = $2,
+		    lease_expires_at = $3,
+		    updated_at = NOW()
+		FROM claimable
+		WHERE wd.id = claimable.id
+		RETURNING wd.id, wd.run_id, wd.job_id, wd.webhook_url, wd.webhook_retry_policy, wd.status, wd.attempts, wd.max_attempts,
+		          wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
+		          wd.event_trigger_id, wd.subscription_id, wd.payload, COALESCE(wd.project_id, '') AS project_id,
+		          wd.claim_token, wd.lease_expires_at
+		)
+		SELECT claimed.id, claimed.run_id, claimed.job_id, claimed.webhook_url, claimed.webhook_retry_policy, claimed.status,
+		       claimed.attempts, claimed.max_attempts, claimed.last_status_code, claimed.last_error, claimed.next_retry_at,
+		       claimed.delivered_at, claimed.created_at, claimed.updated_at, claimed.event_trigger_id, claimed.subscription_id,
+		       claimed.payload, claimed.project_id, claimed.project_id, COALESCE(p.org_id, ''), claimed.claim_token, claimed.lease_expires_at
+		FROM claimed
+		LEFT JOIN projects p ON p.id = claimed.project_id AND claimed.project_id != '__orphaned__'`
+
+	rows, err := tx.Query(ctx, query, limit, claimToken, leaseExpiry)
+	if err != nil {
+		return nil, fmt.Errorf("claim pending webhook retries: %w", err)
+	}
+	defer rows.Close()
+
+	deliveries := make([]domain.WebhookDelivery, 0, limit)
+	for rows.Next() {
+		d, err := scanClaimedWebhookDeliveryWithOrg(rows)
+		if err != nil {
+			return nil, fmt.Errorf("claim pending webhook retries scan: %w", err)
+		}
+		deliveries = append(deliveries, *d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("claim pending webhook retries rows: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("claim pending webhook retries: commit tx: %w", err)
+	}
+
+	return deliveries, nil
+}
+
+func (q *Queries) UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateClaimedWebhookDelivery")
+	defer span.End()
+
+	query := `
+		UPDATE webhook_deliveries
+		SET webhook_retry_policy = $3, status = $4, attempts = $5, last_status_code = $6, last_error = $7,
+		    next_retry_at = $8, delivered_at = $9, claim_token = NULL, lease_expires_at = NULL, updated_at = NOW()
+		WHERE id = $1 AND claim_token = $2
+		RETURNING updated_at`
+
+	err := q.db.QueryRow(ctx, query,
+		d.ID, d.ClaimToken,
+		dbscan.NilIfEmptyString(d.RetryPolicy),
+		d.Status, d.Attempts, d.LastStatusCode, dbscan.NilIfEmptyString(d.LastError),
+		d.NextRetryAt, d.DeliveredAt,
+	).Scan(&d.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("update claimed webhook delivery: %w", err)
+	}
+
+	d.ClaimToken = ""
+	d.LeaseExpiresAt = nil
+	return true, nil
 }
 
 func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
@@ -288,6 +400,7 @@ func (q *Queries) ListPendingWebhookRetries(ctx context.Context) ([]domain.Webho
 			  FROM webhook_deliveries wd
 			  LEFT JOIN projects p ON p.id = wd.project_id AND wd.project_id != '__orphaned__'
 			  WHERE wd.status = 'pending' AND wd.next_retry_at IS NOT NULL AND wd.next_retry_at <= NOW()
+			    AND (wd.claim_token IS NULL OR wd.lease_expires_at IS NULL OR wd.lease_expires_at <= NOW())
 			  ORDER BY wd.next_retry_at ASC
 			  LIMIT 100`
 
@@ -321,6 +434,7 @@ func (q *Queries) ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain
 			    AND next_retry_at <= NOW()
 			    AND run_id IS NOT NULL
 			    AND event_trigger_id IS NULL
+			    AND (claim_token IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= NOW())
 			  ORDER BY next_retry_at ASC
 			  LIMIT 100`
 
@@ -452,6 +566,62 @@ func scanWebhookDeliveryWithOrg(scanner scanTarget) (*domain.WebhookDelivery, er
 	}
 	if len(payload) > 0 {
 		d.Payload = append(json.RawMessage(nil), payload...)
+	}
+	return &d, nil
+}
+
+func scanClaimedWebhookDeliveryWithOrg(scanner scanTarget) (*domain.WebhookDelivery, error) {
+	d, err := scanWebhookDeliveryWithOrgAndClaim(scanner)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+func scanWebhookDeliveryWithOrgAndClaim(scanner scanTarget) (*domain.WebhookDelivery, error) {
+	var d domain.WebhookDelivery
+	var lastError *string
+	var runID *string
+	var jobID *string
+	var retryPolicy *string
+	var eventTriggerID *string
+	var subscriptionID *string
+	var payload []byte
+	var claimToken *string
+
+	err := scanner.Scan(
+		&d.ID, &runID, &jobID, &d.WebhookURL, &retryPolicy, &d.Status,
+		&d.Attempts, &d.MaxAttempts, &d.LastStatusCode, &lastError,
+		&d.NextRetryAt, &d.DeliveredAt, &d.CreatedAt, &d.UpdatedAt,
+		&eventTriggerID, &subscriptionID, &payload, &d.ProjectID,
+		&d.ProjectID, &d.OrgID, &claimToken, &d.LeaseExpiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if lastError != nil {
+		d.LastError = *lastError
+	}
+	if runID != nil {
+		d.RunID = *runID
+	}
+	if jobID != nil {
+		d.JobID = *jobID
+	}
+	if retryPolicy != nil {
+		d.RetryPolicy = *retryPolicy
+	}
+	if eventTriggerID != nil {
+		d.EventTriggerID = *eventTriggerID
+	}
+	if subscriptionID != nil {
+		d.SubscriptionID = *subscriptionID
+	}
+	if len(payload) > 0 {
+		d.Payload = append(json.RawMessage(nil), payload...)
+	}
+	if claimToken != nil {
+		d.ClaimToken = *claimToken
 	}
 	return &d, nil
 }

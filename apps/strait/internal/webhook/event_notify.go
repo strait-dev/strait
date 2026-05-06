@@ -63,6 +63,8 @@ const (
 	defaultDeliveryConcurrency    = 50
 	defaultWebhookMaxPayloadBytes = 1 << 20 // 1 MB
 	defaultMaxBatchSize           = 50
+	defaultDeliveryClaimLimit     = 100
+	defaultDeliveryClaimLease     = 2 * time.Minute
 	maxResponseBodyDrainBytes     = 1 << 20 // 1 MB — cap response body drain to prevent memory exhaustion
 )
 
@@ -85,6 +87,14 @@ var webhookRand = func() *rand.Rand {
 
 var webhookRandMu sync.Mutex
 var newDefaultDeliveryTransport = httputil.NewExternalTransport
+
+type webhookDeliveryClaimer interface {
+	ClaimPendingWebhookRetries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.WebhookDelivery, error)
+}
+
+type claimedWebhookDeliveryUpdater interface {
+	UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error)
+}
 
 type DeliveryWorker struct {
 	client *http.Client
@@ -423,7 +433,7 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.ProcessBatch")
 	defer span.End()
 
-	deliveries, err := n.store.ListPendingWebhookRetries(ctx)
+	deliveries, err := n.claimPendingDeliveries(ctx)
 	if err != nil {
 		n.logger.Error("failed to list pending webhook deliveries", "error", err)
 		return
@@ -435,6 +445,13 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	}
 
 	n.processBatched(ctx, deliveries)
+}
+
+func (n *DeliveryWorker) claimPendingDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error) {
+	if claimer, ok := n.store.(webhookDeliveryClaimer); ok {
+		return claimer.ClaimPendingWebhookRetries(ctx, defaultDeliveryClaimLimit, defaultDeliveryClaimLease)
+	}
+	return n.store.ListPendingWebhookRetries(ctx)
 }
 
 // processIndividual dispatches each delivery as a separate HTTP request.
@@ -709,8 +726,14 @@ func (n *DeliveryWorker) markSingleDelivered(ctx context.Context, d *domain.Webh
 	d.DeliveredAt = &now
 	d.LastError = ""
 	d.LastStatusCode = &statusCode
-	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
 		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
+		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook delivered update after lost claim", "delivery_id", d.ID)
+		return
 	}
 	if n.costRecorder != nil && d.OrgID != "" && d.ProjectID != "" {
 		if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, d.OrgID, d.ProjectID, d.ID); err != nil {
@@ -1046,9 +1069,15 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	d.Status = domain.WebhookStatusDelivered
 	d.DeliveredAt = &now
 	d.LastError = ""
-	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
 		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
 		span.SetStatus(codes.Error, "failed to persist delivered webhook")
+		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook delivered update after lost claim", "delivery_id", d.ID)
+		span.SetStatus(codes.Error, "webhook delivery claim lost before success update")
 		return
 	}
 	if n.costRecorder != nil && d.OrgID != "" && d.ProjectID != "" {
@@ -1103,8 +1132,14 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 			scope.SetFingerprint([]string{"webhook_dead_lettered"})
 			sentry.CaptureMessage(fmt.Sprintf("webhook delivery dead-lettered: %s", errMsg))
 		})
-		if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+		updated, err := n.updateWebhookDelivery(ctx, d)
+		if err != nil {
 			n.logger.Error("failed to dead-letter webhook", "delivery_id", d.ID, "error", err)
+			return
+		}
+		if !updated {
+			n.logger.Warn("skipped webhook dead-letter update after lost claim", "delivery_id", d.ID)
+			return
 		}
 		if d.EventTriggerID != "" {
 			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "failed")
@@ -1120,14 +1155,32 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 	d.NextRetryAt = &nextAttempt
 	d.Status = domain.WebhookStatusPending
 
-	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
 		n.logger.Error("failed to schedule webhook retry", "delivery_id", d.ID, "error", err)
+		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook retry update after lost claim", "delivery_id", d.ID)
+		return
 	}
 
 	n.logger.Warn("webhook delivery failed, scheduled retry",
 		"delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL),
 		"attempt", d.Attempts, "max_attempts", d.MaxAttempts,
 		"next_attempt", nextAttempt, "error", errMsg)
+}
+
+func (n *DeliveryWorker) updateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error) {
+	if d.ClaimToken != "" {
+		if updater, ok := n.store.(claimedWebhookDeliveryUpdater); ok {
+			return updater.UpdateClaimedWebhookDelivery(ctx, d)
+		}
+	}
+	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url string, currentState string) {
