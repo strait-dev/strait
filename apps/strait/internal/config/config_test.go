@@ -105,6 +105,8 @@ func TestLoad_Defaults(t *testing.T) {
 		{"Edition", cfg.Edition, "community"},
 		{"SequinBatchSize", cfg.SequinBatchSize, 10},
 		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
+		{"GRPCBindAddr", cfg.GRPCBindAddr, "127.0.0.1"},
+		{"GRPCPort", cfg.GRPCPort, 50051},
 	}
 
 	for _, tt := range tests {
@@ -133,6 +135,7 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
+		{"GRPCAllowPlaintext", cfg.GRPCAllowPlaintext},
 		{"EnforceRegionGating", cfg.EnforceRegionGating},
 		{"ClickHouseEnabled", cfg.ClickHouseEnabled},
 		{"ClickHouseExportEnabled", cfg.ClickHouseExportEnabled},
@@ -446,6 +449,7 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("DB_PGBOUNCER_MODE", "true")
 	t.Setenv("WEBHOOK_REQUIRE_TLS", "true")
 	t.Setenv("ALLOW_PRIVATE_ENDPOINTS", "true")
+	t.Setenv("GRPC_ALLOW_PLAINTEXT", "true")
 	t.Setenv("ENFORCE_REGION_GATING", "true")
 	t.Setenv("OTLP_METRIC_ENABLED", "true")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
@@ -463,6 +467,9 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	}
 	if !cfg.AllowPrivateEndpoints {
 		t.Fatal("AllowPrivateEndpoints = false, want true")
+	}
+	if !cfg.GRPCAllowPlaintext {
+		t.Fatal("GRPCAllowPlaintext = false, want true")
 	}
 	if !cfg.EnforceRegionGating {
 		t.Fatal("EnforceRegionGating = false, want true")
@@ -796,6 +803,7 @@ func TestLoad_StringOverrides(t *testing.T) {
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
 	t.Setenv("RESEND_API_KEY", "re_123")
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
+	t.Setenv("GRPC_BIND_ADDR", "0.0.0.0")
 	skipIfCommunity(t)
 	t.Setenv("STRAIT_EDITION", "cloud")
 	t.Setenv("WORKER_PARTITION_WEIGHTS", "critical:3,default:1")
@@ -816,6 +824,9 @@ func TestLoad_StringOverrides(t *testing.T) {
 	}
 	if cfg.ResendFromEmail != "support@strait.dev" {
 		t.Fatalf("ResendFromEmail = %q, want support@strait.dev", cfg.ResendFromEmail)
+	}
+	if cfg.GRPCBindAddr != "0.0.0.0" {
+		t.Fatalf("GRPCBindAddr = %q, want 0.0.0.0", cfg.GRPCBindAddr)
 	}
 	if cfg.Edition != "cloud" {
 		t.Fatalf("Edition = %q, want cloud", cfg.Edition)

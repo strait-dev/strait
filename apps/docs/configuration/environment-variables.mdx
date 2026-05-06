@@ -194,7 +194,9 @@ Strait is orchestration-only. Workers connect via gRPC streaming and execute job
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `GRPC_ENABLED` | Boolean | `true` | Enable the gRPC streaming server for worker connections. |
+| `GRPC_BIND_ADDR` | String | `127.0.0.1` | Address the gRPC server binds to. Non-loopback plaintext listeners require TLS or explicit `GRPC_ALLOW_PLAINTEXT=true`. |
 | `GRPC_PORT` | Integer | `50051` | Port the gRPC server listens on. |
+| `GRPC_ALLOW_PLAINTEXT` | Boolean | `false` | Permit plaintext gRPC on non-loopback bind addresses. Use only behind a trusted TLS-terminating proxy. |
 | `GRPC_TLS_CERT_PATH` | String | - | Path to TLS certificate file. Optional; cloud deployments terminate TLS at the load balancer. |
 | `GRPC_TLS_KEY_PATH` | String | - | Path to TLS private key file. |
 | `GRPC_KEEPALIVE_TIME` | Duration | `30s` | How often the server sends keepalive pings to connected workers. |

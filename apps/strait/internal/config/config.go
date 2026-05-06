@@ -289,7 +289,9 @@ type Config struct {
 
 	// gRPC server settings.
 	GRPCEnabled          bool          `env:"GRPC_ENABLED" default:"true"`
+	GRPCBindAddr         string        `env:"GRPC_BIND_ADDR" default:"127.0.0.1"`
 	GRPCPort             int           `env:"GRPC_PORT" default:"50051"`
+	GRPCAllowPlaintext   bool          `env:"GRPC_ALLOW_PLAINTEXT" default:"false"`
 	GRPCTLSCertPath      string        `env:"GRPC_TLS_CERT_PATH"`
 	GRPCTLSKeyPath       string        `env:"GRPC_TLS_KEY_PATH"`
 	GRPCKeepaliveTime    time.Duration `env:"GRPC_KEEPALIVE_TIME" default:"30s"`

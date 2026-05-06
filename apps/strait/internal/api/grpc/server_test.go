@@ -55,6 +55,68 @@ func TestBuildServer_Plaintext(t *testing.T) {
 	gs.Stop()
 }
 
+func TestGRPCListenAddress_DefaultsToLoopback(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.GRPCPort = 50051
+
+	if got := grpcListenAddress(cfg); got != "127.0.0.1:50051" {
+		t.Fatalf("grpcListenAddress = %q, want 127.0.0.1:50051", got)
+	}
+}
+
+func TestValidateGRPCPlaintextExposure_BlocksPublicBind(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.GRPCBindAddr = "0.0.0.0"
+
+	if err := validateGRPCPlaintextExposure(cfg); err == nil {
+		t.Fatal("expected public plaintext bind to be rejected")
+	}
+}
+
+func TestValidateGRPCPlaintextExposure_AllowsPublicBindWithExplicitOverride(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.GRPCBindAddr = "0.0.0.0"
+	cfg.GRPCAllowPlaintext = true
+
+	if err := validateGRPCPlaintextExposure(cfg); err != nil {
+		t.Fatalf("expected explicit plaintext override to pass, got %v", err)
+	}
+}
+
+func TestValidateGRPCPlaintextExposure_AllowsLoopback(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{"127.0.0.1", "::1", "localhost"}
+	for _, bind := range tests {
+		t.Run(bind, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.GRPCBindAddr = bind
+			if err := validateGRPCPlaintextExposure(cfg); err != nil {
+				t.Fatalf("loopback bind %q rejected: %v", bind, err)
+			}
+		})
+	}
+}
+
+func TestValidateGRPCPlaintextExposure_AllowsTLSOnPublicBind(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.GRPCBindAddr = "0.0.0.0"
+	cfg.GRPCTLSCertPath = "/tmp/cert.pem"
+	cfg.GRPCTLSKeyPath = "/tmp/key.pem"
+
+	if err := validateGRPCPlaintextExposure(cfg); err != nil {
+		t.Fatalf("expected TLS-configured public bind to pass, got %v", err)
+	}
+}
+
 // TestBuildServer_OnlyCertPath_Error verifies that setting only cert path (not key) returns error.
 func TestBuildServer_OnlyCertPath_Error(t *testing.T) {
 	cfg := testConfig()

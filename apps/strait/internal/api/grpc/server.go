@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
@@ -95,8 +97,8 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 	}
 
 	// TLS is mutually exclusive: either both paths are set and both must load,
-	// or both are empty and the server runs plaintext (cloud terminates at the
-	// LB). Partial config or load failure is a hard error so an operator who
+	// or both are empty and Serve enforces the plaintext exposure policy.
+	// Partial config or load failure is a hard error so an operator who
 	// configured TLS never silently runs cleartext.
 	switch {
 	case s.cfg.GRPCTLSCertPath != "" && s.cfg.GRPCTLSKeyPath != "":
@@ -144,7 +146,11 @@ func (s *Server) Serve(ctx context.Context) error {
 		return nil
 	}
 
-	addr := fmt.Sprintf(":%d", s.cfg.GRPCPort)
+	if err := validateGRPCPlaintextExposure(s.cfg); err != nil {
+		return err
+	}
+
+	addr := grpcListenAddress(s.cfg)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("grpc listen %s: %w", addr, err)
@@ -182,4 +188,41 @@ func (s *Server) Serve(ctx context.Context) error {
 // GracefulStop stops the gRPC server gracefully.
 func (s *Server) GracefulStop() {
 	s.gs.GracefulStop()
+}
+
+func grpcListenAddress(cfg *config.Config) string {
+	host := grpcBindAddr(cfg)
+	return net.JoinHostPort(host, strconv.Itoa(cfg.GRPCPort))
+}
+
+func grpcBindAddr(cfg *config.Config) string {
+	if cfg == nil || cfg.GRPCBindAddr == "" {
+		return "127.0.0.1"
+	}
+	return cfg.GRPCBindAddr
+}
+
+func validateGRPCPlaintextExposure(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("grpc config is required")
+	}
+	if cfg.GRPCTLSCertPath != "" && cfg.GRPCTLSKeyPath != "" {
+		return nil
+	}
+	if cfg.GRPCAllowPlaintext {
+		return nil
+	}
+	if isLoopbackBindAddr(grpcBindAddr(cfg)) {
+		return nil
+	}
+	return fmt.Errorf("grpc plaintext listener refused on non-loopback bind address %q; configure GRPC_TLS_CERT_PATH/GRPC_TLS_KEY_PATH or set GRPC_ALLOW_PLAINTEXT=true", grpcBindAddr(cfg))
+}
+
+func isLoopbackBindAddr(addr string) bool {
+	host := strings.Trim(strings.TrimSpace(addr), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
