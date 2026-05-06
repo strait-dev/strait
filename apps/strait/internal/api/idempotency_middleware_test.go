@@ -346,7 +346,54 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 
 	wrapped.ServeHTTP(w, r)
 
-	if capturedKey != "/v1/jobs:same-key" {
-		t.Fatalf("expected composite key '/v1/jobs:same-key', got %q", capturedKey)
+	if capturedKey != "/v1/jobs:env::same-key" {
+		t.Fatalf("expected composite key '/v1/jobs:env::same-key', got %q", capturedKey)
+	}
+}
+
+func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
+	t.Parallel()
+
+	var capturedKeys []string
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+			capturedKeys = append(capturedKeys, key)
+			return "acquired", 0, nil, nil
+		},
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+			return nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+
+	for _, environmentID := range []string{"env-production", "env-staging"} {
+		req := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/clone", nil)
+		req.Header.Set("Idempotency-Key", "clone-key")
+		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+		ctx = context.WithValue(ctx, ctxEnvironmentIDKey, environmentID)
+		req = req.WithContext(ctx)
+
+		w := httptest.NewRecorder()
+		wrapped.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("environment %s status = %d, want %d", environmentID, w.Code, http.StatusCreated)
+		}
+	}
+
+	if len(capturedKeys) != 2 {
+		t.Fatalf("captured keys = %d, want 2", len(capturedKeys))
+	}
+	if capturedKeys[0] == capturedKeys[1] {
+		t.Fatalf("environment-scoped requests reused idempotency key %q", capturedKeys[0])
+	}
+	if capturedKeys[0] != "/v1/jobs/job-1/clone:env:env-production:clone-key" {
+		t.Fatalf("production key = %q", capturedKeys[0])
+	}
+	if capturedKeys[1] != "/v1/jobs/job-1/clone:env:env-staging:clone-key" {
+		t.Fatalf("staging key = %q", capturedKeys[1])
 	}
 }

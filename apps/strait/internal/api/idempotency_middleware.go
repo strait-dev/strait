@@ -47,8 +47,10 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scope the key to the request path to prevent cross-endpoint replay.
-		compositeKey := r.URL.Path + ":" + key
+		// Scope the key to the request path and caller environment to prevent
+		// cross-endpoint and cross-environment replay. Handler-level environment
+		// checks do not run when a completed key is replayed from cache.
+		compositeKey := r.URL.Path + ":env:" + environmentIDFromContext(r.Context()) + ":" + key
 
 		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
 		if err != nil {
