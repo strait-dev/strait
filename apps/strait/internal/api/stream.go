@@ -1,35 +1,20 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 )
 
 func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
-	run, err := s.store.GetRun(r.Context(), runID)
+	run, err := s.getRunForAccess(r.Context(), runID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
-	}
-
-	// Tenant isolation: long-lived SSE handlers cannot rely on RLS
-	// (the projectContextMiddleware set_config is transaction-local), so we
-	// must verify project ownership in application code before subscribing.
-	// Return 404 on mismatch to avoid leaking run existence across tenants.
-	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || run.ProjectID != callerProjectID {
-		respondError(w, r, http.StatusNotFound, "run not found")
+		writeTypedError(w, r, err)
 		return
 	}
 
@@ -109,18 +94,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
-	run, err := s.store.GetRun(r.Context(), runID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
-	}
-
-	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || run.ProjectID != callerProjectID {
-		respondError(w, r, http.StatusNotFound, "run not found")
+	if _, err := s.getRunForAccess(r.Context(), runID); err != nil {
+		writeTypedError(w, r, err)
 		return
 	}
 
@@ -192,17 +167,9 @@ func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
 
-	run, err := s.store.GetRun(r.Context(), runID)
+	run, err := s.getRunForAccess(r.Context(), runID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondError(w, r, http.StatusNotFound, "run not found")
-			return
-		}
-		respondError(w, r, http.StatusInternalServerError, "failed to get run")
-		return
-	}
-	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || run.ProjectID != callerProjectID {
-		respondError(w, r, http.StatusNotFound, "run not found")
+		writeTypedError(w, r, err)
 		return
 	}
 	if run.Status.IsTerminal() {

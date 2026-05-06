@@ -12,7 +12,19 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
+
+	"github.com/go-chi/chi/v5"
 )
+
+func runStreamRequestWithEnvironment(path, runID, projectID, environmentID string) *http.Request {
+	r := httptest.NewRequest(http.MethodGet, path, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("runID", runID)
+	ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, environmentID)
+	return r.WithContext(ctx)
+}
 
 func TestHandleRunStream_CrossProjectReturns404(t *testing.T) {
 	t.Parallel()
@@ -63,6 +75,71 @@ func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
 	}
 }
 
+func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-staging", ProjectID: "proj-1",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != "job-staging" {
+				t.Fatalf("GetJob id = %q, want job-staging", id)
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("mismatched environment must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-1/stream", "run-1", "proj-1", "env-prod")
+
+	srv.handleRunStream(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-staging", ProjectID: "proj-1",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("mismatched environment must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-1/stream/logs", "run-1", "proj-1", "env-prod")
+
+	srv.handleRunLogStream(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleRunStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -75,9 +152,8 @@ func TestHandleRunStream_RunNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/missing-run/stream", "", "proj-1"))
 
-	// store.ErrRunNotFound does NOT match pgx.ErrNoRows, so handler returns 500
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

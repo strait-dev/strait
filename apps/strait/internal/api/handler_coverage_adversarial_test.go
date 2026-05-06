@@ -58,6 +58,35 @@ func TestHandlerActivityStream_NoPubSub(t *testing.T) {
 	}
 }
 
+func TestHandlerActivityStream_EnvironmentScopedCallerRejectedBeforeSubscribe(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("environment-scoped activity stream must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, pub)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("projectID", "proj-1")
+	ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	r = r.WithContext(ctx)
+
+	srv.handleProjectActivityStream(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for environment-scoped activity stream, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "project-wide key") {
+		t.Fatalf("expected project-wide key error, got: %s", w.Body.String())
+	}
+}
+
 func TestHandlerActivityStream_SubscribeError(t *testing.T) {
 	t.Parallel()
 	pub := &mockPublisher{
@@ -512,6 +541,12 @@ func llmStreamRequest(runID string) *http.Request {
 	return r.WithContext(ctx)
 }
 
+func llmStreamRequestForEnvironment(runID, environmentID string) *http.Request {
+	r := llmStreamRequest(runID)
+	ctx := context.WithValue(r.Context(), ctxEnvironmentIDKey, environmentID)
+	return r.WithContext(ctx)
+}
+
 func TestHandlerRunLLMStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
@@ -546,6 +581,35 @@ func TestHandlerRunLLMStream_TerminalRun(t *testing.T) {
 
 	if w.Code != http.StatusGone {
 		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlerRunLLMStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-staging", ProjectID: "proj-1",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("mismatched environment must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+
+	w := httptest.NewRecorder()
+	srv.handleRunLLMStream(w, llmStreamRequestForEnvironment("run-1", "env-prod"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

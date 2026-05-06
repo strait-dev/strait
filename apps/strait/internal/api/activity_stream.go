@@ -27,6 +27,10 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 		respondError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
+	if environmentIDFromContext(r.Context()) != "" {
+		respondError(w, r, http.StatusForbidden, "activity stream requires a project-wide key")
+		return
+	}
 
 	if s.pubsub == nil {
 		respondError(w, r, http.StatusServiceUnavailable, "real-time streaming not available")
