@@ -796,7 +796,7 @@ func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
 			return nil, fmt.Errorf("unexpected host lookup: %s", host)
 		}
 		if lookups.Add(1) == 1 {
-			return []string{"203.0.113.10"}, nil
+			return []string{"93.184.216.34"}, nil
 		}
 		return []string{"127.0.0.1"}, nil
 	})

@@ -221,7 +221,8 @@ func TestAutoRotate_ConcurrentRotation(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
 
 	var wg conc.WaitGroup
 	for range 5 {

@@ -64,7 +64,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	var markedNewID string
 	var auditAction string
 	var webhookPayload map[string]any
-	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	webhookServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&webhookPayload); err != nil {
 			t.Fatalf("decode webhook payload: %v", err)
 		}
@@ -105,6 +105,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = webhookServer.Client()
 	r.autoRotateAPIKeys(context.Background())
 
 	if createdKey == nil {
@@ -169,6 +170,7 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
 	if created.Load() != 0 {
@@ -279,6 +281,7 @@ func TestAutoRotateAPIKeys_MarkFailsRevokesNewKey(t *testing.T) {
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
 	if revokedID != "new-key-orphan" {
@@ -316,6 +319,7 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
 	if created.Load() != 3 {
@@ -346,6 +350,7 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
 	if createdKey.NextRotationAt != nil {
@@ -355,11 +360,24 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 
 func rotationWebhookURLForTest(t *testing.T) string {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(server.Close)
-	return server.URL
+	return "https://rotation.example.test/hook"
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func successfulRotationWebhookClient() *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	})}
 }
 
 func TestAutoRotateAPIKeys_StoreNotImplemented_Noop(t *testing.T) {

@@ -23,6 +23,8 @@ func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
 	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	srv.config.AllowPrivateEndpoints = true
+	globalAllowPrivateEndpoints.Store(true)
 
 	// 192.0.2.1 is RFC 5737 TEST-NET-1, guaranteed unreachable. The SSRF
 	// guard is bypassed above so the HTTP client attempts the connection

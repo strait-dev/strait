@@ -753,9 +753,12 @@ func TestCreateSecret_SameProjectAllowed(t *testing.T) {
 // TestTestWebhook_ErrorSanitized verifies that the webhook test endpoint
 // does not leak internal network topology in error messages.
 func TestTestWebhook_ErrorSanitized(t *testing.T) {
-	t.Parallel()
+	globalAllowPrivateEndpoints.Store(true)
+	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.config.AllowPrivateEndpoints = true
+	globalAllowPrivateEndpoints.Store(true)
 
 	// Use an unreachable host that will cause a connection error.
 	body := `{"url":"https://192.0.2.1:1/hook"}`
