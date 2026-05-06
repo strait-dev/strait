@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +17,7 @@ import (
 var ErrDeviceCodeNotFound = errors.New("device code not found")
 
 const encryptedDeviceAPIKeyPrefix = "enc:v1:"
+const hashedDeviceCodePrefix = "sha256:"
 
 // DeviceCodeRow represents a row from the cli_device_codes table.
 type DeviceCodeRow struct {
@@ -35,11 +38,12 @@ func (q *Queries) CreateDeviceCode(ctx context.Context, deviceCode, userCode, pr
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateDeviceCode")
 	defer span.End()
 
+	storedDeviceCode := hashDeviceCode(deviceCode)
 	query := `
 		INSERT INTO cli_device_codes (device_code, user_code, project_id, scopes, expires_at)
 		VALUES ($1, $2, $3, $4, $5)`
 
-	_, err := q.db.Exec(ctx, query, deviceCode, userCode, projectID, scopes, expiresAt)
+	_, err := q.db.Exec(ctx, query, storedDeviceCode, userCode, projectID, scopes, expiresAt)
 	if err != nil {
 		return fmt.Errorf("create device code: %w", err)
 	}
@@ -51,6 +55,7 @@ func (q *Queries) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode stri
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetDeviceCodeByDeviceCode")
 	defer span.End()
 
+	storedDeviceCode := hashDeviceCode(deviceCode)
 	query := `
 		SELECT id, device_code, user_code, project_id,
 		       COALESCE(api_key_id, ''), COALESCE(raw_api_key, ''),
@@ -59,7 +64,7 @@ func (q *Queries) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode stri
 		WHERE device_code = $1`
 
 	row := &DeviceCodeRow{}
-	err := q.db.QueryRow(ctx, query, deviceCode).Scan(
+	err := q.db.QueryRow(ctx, query, storedDeviceCode).Scan(
 		&row.ID, &row.DeviceCode, &row.UserCode, &row.ProjectID,
 		&row.APIKeyID, &row.RawAPIKey,
 		&row.Status, &row.Scopes, &row.ExpiresAt, &row.CreatedAt,
@@ -70,6 +75,7 @@ func (q *Queries) GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode stri
 		}
 		return nil, fmt.Errorf("get device code: %w", err)
 	}
+	row.DeviceCode = deviceCode
 	if row.RawAPIKey != "" {
 		rawAPIKey, decryptErr := q.decryptDeviceAPIKey(row.RawAPIKey)
 		if decryptErr != nil {
@@ -96,7 +102,7 @@ func (q *Queries) ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, r
 		SET status = 'approved', api_key_id = $2, raw_api_key = $3, project_id = $4, scopes = $5
 		WHERE device_code = $1 AND status = 'pending' AND expires_at > NOW()`
 
-	tag, err := q.db.Exec(ctx, query, deviceCode, apiKeyID, encryptedAPIKey, projectID, scopes)
+	tag, err := q.db.Exec(ctx, query, hashDeviceCode(deviceCode), apiKeyID, encryptedAPIKey, projectID, scopes)
 	if err != nil {
 		return fmt.Errorf("approve device code: %w", err)
 	}
@@ -149,7 +155,7 @@ func (q *Queries) ExchangeDeviceCode(ctx context.Context, deviceCode string) (st
 		RETURNING api_key_id`
 
 	var apiKeyID string
-	err := q.db.QueryRow(ctx, query, deviceCode).Scan(&apiKeyID)
+	err := q.db.QueryRow(ctx, query, hashDeviceCode(deviceCode)).Scan(&apiKeyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrDeviceCodeNotFound
@@ -157,6 +163,11 @@ func (q *Queries) ExchangeDeviceCode(ctx context.Context, deviceCode string) (st
 		return "", fmt.Errorf("exchange device code: %w", err)
 	}
 	return apiKeyID, nil
+}
+
+func hashDeviceCode(deviceCode string) string {
+	sum := sha256.Sum256([]byte(deviceCode))
+	return hashedDeviceCodePrefix + hex.EncodeToString(sum[:])
 }
 
 // CleanupExpiredDeviceCodes deletes device codes that have passed their expiration time.

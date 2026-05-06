@@ -4,6 +4,8 @@ package store_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -11,6 +13,11 @@ import (
 
 	"strait/internal/store"
 )
+
+func storedDeviceCodeForTest(deviceCode string) string {
+	sum := sha256.Sum256([]byte(deviceCode))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
 
 func TestCreateDeviceCode(t *testing.T) {
 	ctx := context.Background()
@@ -46,6 +53,16 @@ func TestCreateDeviceCode(t *testing.T) {
 	}
 	if len(got.Scopes) != 2 {
 		t.Fatalf("Scopes len = %d, want 2", len(got.Scopes))
+	}
+	var storedDeviceCode string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT device_code FROM cli_device_codes WHERE user_code = $1`, userCode).Scan(&storedDeviceCode); err != nil {
+		t.Fatalf("query stored device_code: %v", err)
+	}
+	if storedDeviceCode == deviceCode {
+		t.Fatal("device_code was stored in plaintext")
+	}
+	if storedDeviceCode != storedDeviceCodeForTest(deviceCode) {
+		t.Fatalf("stored device_code = %q, want hashed value", storedDeviceCode)
 	}
 }
 
@@ -92,7 +109,7 @@ func TestApproveDeviceCode(t *testing.T) {
 		t.Fatalf("RawAPIKey = %q, want %q", got.RawAPIKey, rawAPIKey)
 	}
 	var storedRawAPIKey string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE device_code = $1`, deviceCode).Scan(&storedRawAPIKey); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE user_code = $1`, "USER-1").Scan(&storedRawAPIKey); err != nil {
 		t.Fatalf("query stored raw_api_key: %v", err)
 	}
 	if storedRawAPIKey == rawAPIKey {
@@ -158,7 +175,7 @@ func TestExchangeDeviceCode(t *testing.T) {
 		t.Fatalf("RawAPIKey = %q, want empty", got.RawAPIKey)
 	}
 	var storedRawAPIKey *string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE device_code = $1`, deviceCode).Scan(&storedRawAPIKey); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE user_code = $1`, "USER-2").Scan(&storedRawAPIKey); err != nil {
 		t.Fatalf("query stored raw_api_key after exchange: %v", err)
 	}
 	if storedRawAPIKey != nil {
@@ -188,7 +205,7 @@ func TestGetDeviceCodeByDeviceCode_RejectsPlaintextRawAPIKey(t *testing.T) {
 	_, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO cli_device_codes (device_code, user_code, project_id, api_key_id, raw_api_key, status, scopes, expires_at)
 		VALUES ($1, $2, $3, $4, $5, 'approved', $6, $7)`,
-		deviceCode, "USER-PLAIN", "project-plaintext", newID(), "plaintext-live-key", []string{"read"}, time.Now().UTC().Add(10*time.Minute),
+		storedDeviceCodeForTest(deviceCode), "USER-PLAIN", "project-plaintext", newID(), "plaintext-live-key", []string{"read"}, time.Now().UTC().Add(10*time.Minute),
 	)
 	if err != nil {
 		t.Fatalf("insert plaintext device code: %v", err)
@@ -217,7 +234,7 @@ func TestApproveDeviceCode_RequiresSecretEncryptionKey(t *testing.T) {
 	}
 
 	var storedRawAPIKey *string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE device_code = $1`, deviceCode).Scan(&storedRawAPIKey); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `SELECT raw_api_key FROM cli_device_codes WHERE user_code = $1`, "USER-NOKEY").Scan(&storedRawAPIKey); err != nil {
 		t.Fatalf("query stored raw_api_key: %v", err)
 	}
 	if storedRawAPIKey != nil {
