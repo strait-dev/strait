@@ -92,10 +92,35 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx = withAPIKeyContext(ctx, apiKey)
 	projectID := apiKey.ProjectID
 
+	var revokeKeySub *pubsub.Subscription
+	closeRevokeSubOnEarlyReturn := true
+	defer func() {
+		if closeRevokeSubOnEarlyReturn && revokeKeySub != nil {
+			revokeKeySub.Close()
+		}
+	}()
+	if apiKey.ID != "" {
+		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
+		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+	}
+
 	// Receive and validate the registration message.
-	firstMsg, err := stream.Recv()
+	firstMsg, err := recvWorkerRegistrationMessage(ctx, stream, revokeKeySub, apiKey.ID)
 	if err != nil {
+		if errors.Is(err, errAPIKeyRevoked) {
+			return err
+		}
 		return status.Errorf(codes.Internal, "recv registration: %v", err)
+	}
+	apiKey, err = resolveAPIKeyFromContext(ctx, s.queries)
+	if err != nil {
+		return err
+	}
+	ctx = withAPIKeyContext(ctx, apiKey)
+	projectID = apiKey.ProjectID
+	if revokeKeySub == nil && apiKey.ID != "" {
+		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
+		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
 	}
 	regPayload, ok := firstMsg.Payload.(*workerv1.WorkerMessage_Registration)
 	if !ok || regPayload.Registration == nil {
@@ -202,15 +227,6 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		)
 	}
 
-	// Subscribe to the API key revocation channel.
-	// When POST /v1/api-keys/:id/revoke succeeds, it publishes to this channel
-	// so every stream authenticated with that key closes across all replicas.
-	var revokeKeySub *pubsub.Subscription
-	if apiKey.ID != "" {
-		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
-	}
-
 	// Run recv and send loops concurrently. If either exits, the stream closes.
 	var wg conc.WaitGroup
 	goroutineCount := 2
@@ -241,6 +257,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 
 	// API key revocation listener: closes the stream when the authenticating key is revoked.
 	if revokeKeySub != nil {
+		closeRevokeSubOnEarlyReturn = false
 		wg.Go(func() {
 			defer revokeKeySub.Close()
 			select {
@@ -313,6 +330,32 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	firstErr := <-streamErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+func recvWorkerRegistrationMessage(ctx context.Context, stream workerv1.WorkerService_StreamTasksServer, revokeKeySub *pubsub.Subscription, apiKeyID string) (*workerv1.WorkerMessage, error) {
+	if revokeKeySub == nil {
+		return stream.Recv()
+	}
+
+	type recvResult struct {
+		msg *workerv1.WorkerMessage
+		err error
+	}
+	recvCh := make(chan recvResult, 1)
+	go func() {
+		msg, err := stream.Recv()
+		recvCh <- recvResult{msg: msg, err: err}
+	}()
+
+	select {
+	case res := <-recvCh:
+		return res.msg, res.err
+	case <-revokeKeySub.Ch:
+		slog.Info("grpc worker api key revoked before registration", "api_key_id", apiKeyID)
+		return nil, errAPIKeyRevoked
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // cleanupRegistration performs stream-exit cleanup only for the connection
