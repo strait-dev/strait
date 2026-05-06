@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -973,6 +974,11 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		return s.projectContextMiddleware(next)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bypassRLSTxBuffer(r) {
+			s.projectContextMiddleware(next).ServeHTTP(w, r)
+			return
+		}
+
 		projectID := projectIDFromContext(r.Context())
 		if projectID == "" {
 			// Routes with no project context (public endpoints, health
@@ -1012,10 +1018,17 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			}
 		}()
 
-		bw := newBufferedResponseWriter()
+		bw := newBufferedResponseWriter(maxRLSBufferedResponseBytes)
 		next.ServeHTTP(bw, r.WithContext(ctx))
 
 		panicked = false
+		if err := bw.Err(); err != nil {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+				slog.Warn("failed to rollback RLS tx after oversized response", "error", rbErr)
+			}
+			respondError(w, r, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
@@ -1025,15 +1038,25 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+const maxRLSBufferedResponseBytes = 16 << 20
+
+var errRLSBufferedResponseTooLarge = errors.New("response too large")
+
+func bypassRLSTxBuffer(r *http.Request) bool {
+	return r.Method == http.MethodGet && r.URL != nil && r.URL.Path == "/v1/audit-events/export"
+}
+
 type bufferedResponseWriter struct {
 	header      http.Header
 	body        bytes.Buffer
 	status      int
 	wroteHeader bool
+	maxBytes    int
+	err         error
 }
 
-func newBufferedResponseWriter() *bufferedResponseWriter {
-	return &bufferedResponseWriter{header: make(http.Header), status: http.StatusOK}
+func newBufferedResponseWriter(maxBytes int) *bufferedResponseWriter {
+	return &bufferedResponseWriter{header: make(http.Header), status: http.StatusOK, maxBytes: maxBytes}
 }
 
 func (w *bufferedResponseWriter) Header() http.Header {
@@ -1049,10 +1072,21 @@ func (w *bufferedResponseWriter) WriteHeader(statusCode int) {
 }
 
 func (w *bufferedResponseWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
+	if w.maxBytes > 0 && w.body.Len()+len(p) > w.maxBytes {
+		w.err = fmt.Errorf("%w: buffered response exceeds %d bytes", errRLSBufferedResponseTooLarge, w.maxBytes)
+		return 0, w.err
+	}
 	return w.body.Write(p)
+}
+
+func (w *bufferedResponseWriter) Err() error {
+	return w.err
 }
 
 func (w *bufferedResponseWriter) FlushTo(dst http.ResponseWriter) {
