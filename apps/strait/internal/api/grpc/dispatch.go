@@ -105,6 +105,8 @@ func (r *ResultChannelRegistry) Send(runID, projectID, workerID string, result *
 // ErrNoWorkerAvailable is returned when no connected worker services the run's queue.
 var ErrNoWorkerAvailable = fmt.Errorf("no worker available for queue")
 
+const invalidWorkerOutputError = "worker returned invalid output_json"
+
 // NewWorkerDispatcher creates a WorkerDispatcher. The resultChannels registry
 // must be shared with the workerService so TaskResult messages received on the
 // stream are routed to the waiting WorkerDispatch call.
@@ -313,6 +315,9 @@ func TaskResultStatus(opaque any) string {
 	if !ok || r == nil {
 		return ""
 	}
+	if taskResultOutputInvalid(r.Status, r.OutputJson) {
+		return "failed"
+	}
 	return r.Status
 }
 
@@ -321,6 +326,9 @@ func TaskResultError(opaque any) string {
 	r, ok := unwrapTaskResult(opaque)
 	if !ok || r == nil {
 		return ""
+	}
+	if taskResultOutputInvalid(r.Status, r.OutputJson) {
+		return invalidWorkerOutputError
 	}
 	return r.ErrorMessage
 }
@@ -332,9 +340,16 @@ func TaskResultOutput(opaque any) json.RawMessage {
 	if !ok || r == nil || len(r.OutputJson) == 0 {
 		return nil
 	}
+	if taskResultOutputInvalid(r.Status, r.OutputJson) {
+		return nil
+	}
 	out := make([]byte, len(r.OutputJson))
 	copy(out, r.OutputJson)
 	return json.RawMessage(out)
+}
+
+func taskResultOutputInvalid(status string, output []byte) bool {
+	return (status == "success" || status == "completed") && len(output) > 0 && !json.Valid(output)
 }
 
 func unwrapTaskResult(opaque any) (*workerv1.TaskResult, bool) {

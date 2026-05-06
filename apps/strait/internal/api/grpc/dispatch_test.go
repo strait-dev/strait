@@ -234,6 +234,24 @@ func TestTaskResultOutput_HappyPathCopiesPayload(t *testing.T) {
 	}
 }
 
+func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
+	result := &workerv1.TaskResult{
+		RunId:      "r1",
+		Status:     "success",
+		OutputJson: []byte(`{"ok":`),
+	}
+
+	if got := TaskResultStatus(result); got != "failed" {
+		t.Fatalf("TaskResultStatus() = %q, want failed", got)
+	}
+	if got := TaskResultError(result); got != invalidWorkerOutputError {
+		t.Fatalf("TaskResultError() = %q, want invalid output error", got)
+	}
+	if got := TaskResultOutput(result); got != nil {
+		t.Fatalf("TaskResultOutput() = %s, want nil for invalid JSON", got)
+	}
+}
+
 func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 	wrapped := &WorkerTaskResult{
 		TaskID: "task-1",

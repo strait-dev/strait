@@ -392,6 +392,15 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	if len(tr.ErrorMessage) > maxErrorMsgBytes {
 		tr.ErrorMessage = tr.ErrorMessage[:maxErrorMsgBytes]
 	}
+	if taskResultOutputInvalid(tr.Status, tr.OutputJson) {
+		slog.Warn("grpc task result: invalid output_json for success result - treating as failure",
+			"worker_id", workerID,
+			"run_id", tr.RunId,
+		)
+		tr.Status = "failed"
+		tr.ErrorMessage = invalidWorkerOutputError
+		tr.OutputJson = nil
+	}
 
 	// Route result to a waiting WorkerDispatch call if one exists.
 	// The dispatch goroutine is responsible for slot accounting in that path.
@@ -603,6 +612,15 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 		}
 		if len(t.ErrorMessage) > maxErrorMsgBytes {
 			t.ErrorMessage = t.ErrorMessage[:maxErrorMsgBytes]
+		}
+		if taskResultOutputInvalid(t.Status, t.OutputJson) {
+			slog.Warn("grpc reconcile: invalid output_json for completed task - treating as failure",
+				"worker_id", workerID,
+				"run_id", t.RunId,
+			)
+			t.Status = "failed"
+			t.ErrorMessage = invalidWorkerOutputError
+			t.OutputJson = nil
 		}
 
 		// Adversarial guard: verify ownership via worker_tasks.

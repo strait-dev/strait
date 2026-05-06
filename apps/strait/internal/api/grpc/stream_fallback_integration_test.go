@@ -268,6 +268,43 @@ func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *tes
 	}
 }
 
+func TestIntegration_HandleTaskResult_Fallback_InvalidSuccessOutputRoutesFailure(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":`)}
+	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
+		t.Fatalf("handleTaskResult: %v", err)
+	}
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "failed" || call.errorMessage != invalidWorkerOutputError || call.output != nil {
+		t.Fatalf("unexpected finalizer call for invalid output: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+}
+
 func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
