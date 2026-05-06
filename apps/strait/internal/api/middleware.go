@@ -779,8 +779,8 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			// Internal secret auth does not set scopes — those requests are
 			// always allowed regardless of actor headers (actor is for audit only).
 			scopes := scopesFromContext(ctx)
-			if scopes == nil {
-				// No scopes = internal secret auth — allow through.
+			if scopes == nil && isInternalCaller(ctx) {
+				// Verified internal-secret auth is allowed regardless of scopes.
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -790,7 +790,11 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			switch actorType {
 			case "api_key", "sse_token":
 				// API keys and SSE tokens use scopes directly.
-				if domain.HasScope(scopes, permission) {
+				hasScope := domain.HasScope(scopes, permission)
+				if actorType == "sse_token" {
+					hasScope = domain.HasScopeStrict(scopes, permission)
+				}
+				if hasScope {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -839,7 +843,7 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 					respondError(w, r, http.StatusForbidden, "no role assigned in this project")
 					return
 				}
-				if domain.HasScope(perms, permission) {
+				if domain.HasScopeStrict(perms, permission) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -847,7 +851,7 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				// Fallback: check resource-level policies.
 				if resType, resID := resourceFromRequest(r); resType != "" && resID != "" {
 					actions, rpErr := s.store.GetResourcePolicies(ctx, projectID, resType, resID, actorID)
-					if rpErr == nil && domain.HasScope(actions, permission) {
+					if rpErr == nil && domain.HasScopeStrict(actions, permission) {
 						next.ServeHTTP(w, r)
 						return
 					}
@@ -855,7 +859,7 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 					// Fallback: check tag-based policies for matching resources.
 					if tags, ok := s.resourceTags(ctx, resType, resID); ok {
 						tagActions, tpErr := s.store.GetTagPolicyActions(ctx, projectID, resType, actorID, tags)
-						if tpErr == nil && domain.HasScope(tagActions, permission) {
+						if tpErr == nil && domain.HasScopeStrict(tagActions, permission) {
 							next.ServeHTTP(w, r)
 							return
 						}

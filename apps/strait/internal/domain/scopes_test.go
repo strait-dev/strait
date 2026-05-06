@@ -125,6 +125,32 @@ func TestHasScope(t *testing.T) {
 	}
 }
 
+func TestHasScopeStrict(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		scopes   []string
+		required string
+		want     bool
+	}{
+		{"nil scopes deny", nil, ScopeJobsRead, false},
+		{"empty scopes deny", []string{}, ScopeJobsRead, false},
+		{"wildcard allows all", []string{ScopeAll}, ScopeJobsWrite, true},
+		{"exact match", []string{ScopeRunsRead}, ScopeRunsRead, true},
+		{"no match", []string{ScopeRunsRead}, ScopeRunsWrite, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := HasScopeStrict(tt.scopes, tt.required); got != tt.want {
+				t.Fatalf("HasScopeStrict(%v, %q) = %v, want %v", tt.scopes, tt.required, got, tt.want)
+			}
+		})
+	}
+}
+
 func makeLargeScopes(n int, lastScope string) []string {
 	scopes := make([]string, 0, n)
 	for i := range n - 1 {

@@ -103,6 +103,13 @@ func HasScope(scopes []string, required string) bool {
 	if len(scopes) == 0 {
 		return true // backwards compatible: empty = full access
 	}
+	return HasScopeStrict(scopes, required)
+}
+
+// HasScopeStrict returns true only when scopes explicitly contains the
+// requested scope or wildcard. Empty/nil scope lists deny access. Use this for
+// RBAC-derived permissions, resource policies, and short-lived delegated tokens.
+func HasScopeStrict(scopes []string, required string) bool {
 	for _, s := range scopes {
 		if s == ScopeAll || s == required {
 			return true
