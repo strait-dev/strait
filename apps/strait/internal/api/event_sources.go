@@ -415,7 +415,7 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 		switch sub.TargetType {
 		case "job":
 			job, jobErr := s.store.GetJob(ctx, sub.TargetID)
-			if jobErr != nil || !job.Enabled {
+			if jobErr != nil || job == nil || !job.Enabled {
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}

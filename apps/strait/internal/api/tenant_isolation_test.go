@@ -1045,6 +1045,47 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *
 	}
 }
 
+func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+		return &domain.EventSource{ID: "src-a", ProjectID: projectID, Name: name, Enabled: true}, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		return []domain.EventSubscription{
+			{ID: "sub-missing-job", SourceID: sourceID, TargetType: "job", TargetID: "job-missing", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+		}, nil
+	}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		if id != "job-missing" {
+			t.Fatalf("id = %q, want job-missing", id)
+		}
+		return nil, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("queue.Enqueue must not be called for nil job subscription")
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got := int(resp["dispatched"].(float64)); got != 0 {
+		t.Fatalf("dispatched = %d, want 0", got)
+	}
+}
+
 func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscription(t *testing.T) {
 	t.Parallel()
 

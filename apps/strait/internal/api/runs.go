@@ -897,7 +897,7 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 		}
 
 		job, err := s.store.GetJob(ctx, original.JobID)
-		if err != nil || !job.Enabled {
+		if err != nil || job == nil || !job.Enabled {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "job not found or disabled"})
 			continue
 		}

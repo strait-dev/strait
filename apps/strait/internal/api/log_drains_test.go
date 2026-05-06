@@ -405,6 +405,54 @@ func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
 	}
 }
 
+func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-missing", ProjectID: "proj-1",
+				Status: domain.StatusFailed, Payload: json.RawMessage(`{}`),
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != "job-missing" {
+				t.Fatalf("GetJob id = %q, want job-missing", id)
+			}
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("queue.Enqueue must not be called when replay job is nil")
+			return nil
+		},
+	}, nil)
+
+	body := `{"run_ids": ["run-1"]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-replay", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if int(resp["replayed"].(float64)) != 0 {
+		t.Fatalf("expected replayed=0, got %v", resp["replayed"])
+	}
+	results := resp["results"].([]any)
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	result := results[0].(map[string]any)
+	if result["status"] != "failed" || result["error"] != "job not found or disabled" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
 func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
