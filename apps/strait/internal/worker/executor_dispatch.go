@@ -427,13 +427,14 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		cp         *domain.RunCheckpoint
 	)
 
-	secretsCacheKey := "secrets:" + job.ID
+	secretsEnvironment := job.EnvironmentID
+	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
 	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
 		secrets = cached
 	} else {
 		var dispatchWG conc.WaitGroup
 		dispatchWG.Go(func() {
-			secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
+			secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, secretsEnvironment)
 		})
 		if run.Attempt > 1 {
 			checkpointCacheKey := "checkpoint:" + run.ID
@@ -537,12 +538,13 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 
 	extraHeaders := make(map[string]string)
 	var secrets []domain.JobSecret
-	secretsCacheKey := "secrets:" + job.ID
+	secretsEnvironment := job.EnvironmentID
+	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
 	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
 		secrets = cached
 	} else {
 		var err error
-		secrets, err = e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+		secrets, err = e.store.ListJobSecretsByJob(ctx, job.ID, secretsEnvironment)
 		if err != nil {
 			return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 		}

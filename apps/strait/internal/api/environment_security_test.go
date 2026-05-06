@@ -460,6 +460,121 @@ func TestSecret_CrossEnvironmentIsolation(t *testing.T) {
 	}
 }
 
+func TestSecret_EnvironmentScopedCallerCannotCreateSecretInOtherEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListEnvironmentsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Environment, error) {
+			return []domain.Environment{
+				{ID: "env-staging", ProjectID: projectID, Slug: "staging", Name: "Staging"},
+				{ID: "env-prod", ProjectID: projectID, Slug: "production", Name: "Production"},
+			}, nil
+		},
+		CreateJobSecretFunc: func(context.Context, *domain.JobSecret) error {
+			t.Fatal("CreateJobSecret must not be called for cross-environment create")
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	_, err := srv.handleCreateSecret(ctx, &CreateSecretInput{Body: createSecretRequest{
+		ProjectID:   "proj-1",
+		Environment: "production",
+		SecretKey:   "PROD_TOKEN",
+		Value:       "secret",
+	}})
+	if err == nil {
+		t.Fatal("expected cross-environment secret create to fail")
+	}
+}
+
+func TestSecret_JobSecretMustMatchJobEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListEnvironmentsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Environment, error) {
+			return []domain.Environment{
+				{ID: "env-staging", ProjectID: projectID, Slug: "staging", Name: "Staging"},
+				{ID: "env-prod", ProjectID: projectID, Slug: "production", Name: "Production"},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+			return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+		CreateJobSecretFunc: func(context.Context, *domain.JobSecret) error {
+			t.Fatal("CreateJobSecret must not be called for job/environment mismatch")
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateSecret(ctx, &CreateSecretInput{Body: createSecretRequest{
+		ProjectID:   "proj-1",
+		JobID:       "job-staging",
+		Environment: "production",
+		SecretKey:   "API_TOKEN",
+		Value:       "secret",
+	}})
+	if err == nil {
+		t.Fatal("expected job/environment mismatch to fail")
+	}
+}
+
+func TestSecret_EnvironmentScopedListDefaultsToCallerEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListJobSecretsFunc: func(_ context.Context, projectID, jobID, env string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
+			if projectID != "proj-1" || jobID != "" || env != "env-staging" {
+				t.Fatalf("ListJobSecrets args = project %q job %q env %q, want proj-1/empty/env-staging", projectID, jobID, env)
+			}
+			return []domain.JobSecret{{ID: "sec-staging", ProjectID: "proj-1", Environment: "env-staging", SecretKey: "STAGING_TOKEN"}}, nil
+		},
+	}
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	out, err := srv.handleListSecrets(ctx, &ListSecretsInput{})
+	if err != nil {
+		t.Fatalf("handleListSecrets() error = %v", err)
+	}
+	items, ok := out.Body.Data.([]domain.JobSecret)
+	if !ok {
+		t.Fatalf("response data type = %T, want []domain.JobSecret", out.Body.Data)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+}
+
+func TestSecret_EnvironmentScopedCallerCannotReadOrDeleteOtherEnvironmentSecret(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobSecretFunc: func(context.Context, string) (*domain.JobSecret, error) {
+			return &domain.JobSecret{ID: "sec-prod", ProjectID: "proj-1", Environment: "env-prod", SecretKey: "PROD_TOKEN"}, nil
+		},
+		DeleteJobSecretFunc: func(context.Context, string) error {
+			t.Fatal("DeleteJobSecret must not be called for cross-environment secret")
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryption(t, ms, &mockQueue{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	if _, err := srv.handleGetSecret(ctx, &GetSecretInput{SecretID: "sec-prod"}); err == nil {
+		t.Fatal("expected cross-environment secret read to fail")
+	}
+	if _, err := srv.handleDeleteSecret(ctx, &DeleteSecretInput{SecretID: "sec-prod"}); err == nil {
+		t.Fatal("expected cross-environment secret delete to fail")
+	}
+}
+
 // TestSecret_KeyVersionTracking verifies that the key version is tracked
 // when a secret is created.
 func TestSecret_KeyVersionTracking(t *testing.T) {

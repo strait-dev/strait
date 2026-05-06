@@ -402,10 +402,12 @@ func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 1, 5), nil
+		job := testJob(server.URL, 1, 5)
+		job.EnvironmentID = "env-secret"
+		return job, nil
 	}
 	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-		if jobID != "job-1" || environment != "production" {
+		if jobID != "job-1" || environment != "env-secret" {
 			t.Fatalf("unexpected args: %q %q", jobID, environment)
 		}
 		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil

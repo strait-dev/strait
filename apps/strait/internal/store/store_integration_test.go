@@ -1832,6 +1832,54 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 	}
 }
 
+func TestSecret_ListJobSecretsByJobUsesJobEnvironment(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	mustClean(t, ctx)
+
+	projectID := "project-secret-env-" + newID()
+	prod := &domain.Environment{ProjectID: projectID, Name: "Production", Slug: "production"}
+	if err := q.CreateEnvironment(ctx, prod); err != nil {
+		t.Fatalf("CreateEnvironment(prod) error = %v", err)
+	}
+	staging := &domain.Environment{ProjectID: projectID, Name: "Staging", Slug: "staging"}
+	if err := q.CreateEnvironment(ctx, staging); err != nil {
+		t.Fatalf("CreateEnvironment(staging) error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, projectID)
+	job.EnvironmentID = staging.ID
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob(environment) error = %v", err)
+	}
+
+	prodSecret := &domain.JobSecret{ProjectID: projectID, JobID: job.ID, Environment: prod.ID, SecretKey: "TOKEN", EncryptedValue: "prod"}
+	if err := q.CreateJobSecret(ctx, prodSecret); err == nil {
+		t.Fatal("CreateJobSecret(prod for staging job) error = nil, want mismatch")
+	}
+	stagingGlobal := &domain.JobSecret{ProjectID: projectID, Environment: staging.ID, SecretKey: "GLOBAL_TOKEN", EncryptedValue: "staging-global"}
+	if err := q.CreateJobSecret(ctx, stagingGlobal); err != nil {
+		t.Fatalf("CreateJobSecret(staging global) error = %v", err)
+	}
+	stagingSecret := &domain.JobSecret{ProjectID: projectID, JobID: job.ID, Environment: staging.ID, SecretKey: "JOB_TOKEN", EncryptedValue: "staging-job"}
+	if err := q.CreateJobSecret(ctx, stagingSecret); err != nil {
+		t.Fatalf("CreateJobSecret(staging job) error = %v", err)
+	}
+
+	got, err := q.ListJobSecretsByJob(ctx, job.ID, prod.ID)
+	if err != nil {
+		t.Fatalf("ListJobSecretsByJob() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListJobSecretsByJob() len = %d, want staging global + job secrets", len(got))
+	}
+	for _, secret := range got {
+		if secret.Environment != staging.ID {
+			t.Fatalf("secret environment = %q, want staging env %q", secret.Environment, staging.ID)
+		}
+	}
+}
+
 func TestAPIKey_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

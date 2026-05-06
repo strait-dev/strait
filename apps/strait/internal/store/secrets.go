@@ -33,6 +33,22 @@ func (q *Queries) CreateJobSecret(ctx context.Context, secret *domain.JobSecret)
 	if secret.KeyVersion == 0 {
 		secret.KeyVersion = 1
 	}
+	if secret.JobID != "" && secret.Environment != "" {
+		var jobProjectID, jobEnvironmentID string
+		err := q.db.QueryRow(ctx, `SELECT project_id, COALESCE(environment_id, '') FROM jobs WHERE id = $1`, secret.JobID).Scan(&jobProjectID, &jobEnvironmentID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrJobNotFound
+			}
+			return fmt.Errorf("create job secret verify job: %w", err)
+		}
+		if jobProjectID != secret.ProjectID {
+			return fmt.Errorf("create job secret: job does not belong to project")
+		}
+		if jobEnvironmentID != "" && jobEnvironmentID != secret.Environment {
+			return fmt.Errorf("create job secret: secret environment does not match job environment")
+		}
+	}
 
 	encryptionKey, err := q.secretKey()
 	if err != nil {
@@ -177,9 +193,10 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 	query := `
 		SELECT s.id, s.project_id, s.job_id, s.environment, s.secret_key, s.encrypted_value, s.key_version, s.created_at, s.updated_at
 		FROM job_secrets s
-		WHERE s.project_id = (SELECT project_id FROM jobs WHERE id = $1)
+		JOIN jobs j ON j.id = $1
+		WHERE s.project_id = j.project_id
 		  AND (s.job_id = $1 OR s.job_id IS NULL)
-		  AND s.environment = $2
+		  AND s.environment = COALESCE(NULLIF(j.environment_id, ''), $2)
 		ORDER BY s.created_at ASC`
 
 	rows, err := q.db.Query(ctx, query, jobID, environment)
