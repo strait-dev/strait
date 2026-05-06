@@ -68,9 +68,10 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default())
 
 	job := &domain.Job{
-		ID:         "job-1",
-		ProjectID:  "proj-1",
-		WebhookURL: "http://example.com/run-hook",
+		ID:            "job-1",
+		ProjectID:     "proj-1",
+		WebhookURL:    "http://example.com/run-hook",
+		WebhookSecret: "job-webhook-secret",
 	}
 	run := &domain.JobRun{
 		ID:        "run-1",
@@ -102,6 +103,9 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 	}
 	if d.WebhookURL != job.WebhookURL {
 		t.Fatalf("expected webhook_url=%s, got %s", job.WebhookURL, d.WebhookURL)
+	}
+	if d.WebhookSecret != job.WebhookSecret {
+		t.Fatalf("expected webhook secret to be preserved")
 	}
 	if d.Status != domain.WebhookStatusPending {
 		t.Fatalf("expected status=pending, got %s", d.Status)
@@ -1801,6 +1805,56 @@ func TestProcessBatch_BatchByURL_SubscriptionDeliveriesStaySignedAndUnbatched(t 
 		if d.Status != domain.WebhookStatusDelivered {
 			t.Fatalf("expected delivered, got %s for %s", d.Status, d.ID)
 		}
+	}
+}
+
+func TestProcessBatch_BatchByURL_RunWebhookSecretsStaySignedAndUnbatched(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	var sawBatchHeader atomic.Bool
+	var sawUnsigned atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		if r.Header.Get("X-Strait-Batch") != "" {
+			sawBatchHeader.Store(true)
+		}
+		if r.Header.Get("X-Webhook-Signature") == "" {
+			sawUnsigned.Store(true)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for i := range 2 {
+		d := &domain.WebhookDelivery{
+			ID:            fmt.Sprintf("run-signed-batch-%d", i),
+			RunID:         fmt.Sprintf("run-%d", i),
+			JobID:         "job-1",
+			ProjectID:     "proj-1",
+			WebhookURL:    ts.URL,
+			WebhookSecret: "job-webhook-secret",
+			Status:        domain.WebhookStatusPending,
+			MaxAttempts:   5,
+			NextRetryAt:   &now,
+			Payload:       json.RawMessage(fmt.Sprintf(`{"i":%d}`, i)),
+		}
+		_ = ms.CreateWebhookDelivery(context.Background(), d)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
+	worker.processBatch(context.Background())
+
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("expected signed run deliveries to use individual requests, got %d requests", got)
+	}
+	if sawBatchHeader.Load() {
+		t.Fatal("signed run delivery used batch headers")
+	}
+	if sawUnsigned.Load() {
+		t.Fatal("signed run delivery was sent without HMAC signature")
 	}
 }
 
@@ -3978,6 +4032,62 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 	bodyOnlySig := "v1=" + ComputeHMACSHA256(secret, []byte(`{"event":"run.completed"}`))
 	if receivedSigHeader == bodyOnlySig {
 		t.Fatal("signature must bind the timestamp, not only the body")
+	}
+}
+
+func TestAttemptDelivery_WithRunWebhookSecret_SignsHMAC(t *testing.T) {
+	t.Parallel()
+
+	var receivedSigHeader, receivedStraitSigHeader, receivedTimestamp, receivedReplayKey string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSigHeader = r.Header.Get("X-Webhook-Signature")
+		receivedStraitSigHeader = r.Header.Get("X-Strait-Signature")
+		receivedTimestamp = r.Header.Get("X-Strait-Timestamp")
+		receivedReplayKey = r.Header.Get("X-Strait-Replay-Key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	secret := "job-hmac-secret-key"
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:            "whd-run-hmac-1",
+		RunID:         "run-1",
+		JobID:         "job-1",
+		WebhookURL:    ts.URL,
+		WebhookSecret: secret,
+		Status:        domain.WebhookStatusPending,
+		MaxAttempts:   5,
+		NextRetryAt:   &now,
+		Payload:       json.RawMessage(`{"event":"run.completed"}`),
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(),
+		WithAllowPrivateEndpoints(true),
+		WithHTTPTransport(5*time.Second, time.Second, 2, 2),
+	)
+	worker.processBatch(context.Background())
+
+	if receivedSigHeader == "" {
+		t.Fatal("expected X-Webhook-Signature header to be set")
+	}
+	if receivedStraitSigHeader != receivedSigHeader {
+		t.Fatalf("X-Strait-Signature mismatch: got %q, want %q", receivedStraitSigHeader, receivedSigHeader)
+	}
+	expectedSig := ComputeTimestampedHMACSHA256(secret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
+	if receivedSigHeader != "v1="+expectedSig {
+		t.Fatalf("signature mismatch: got %q, want v1=%s", receivedSigHeader, expectedSig)
+	}
+	expectedReplayKey := ComputeReplayKey([]byte(secret), delivery.ID)
+	if receivedReplayKey != expectedReplayKey {
+		t.Fatalf("replay key = %q, want %q", receivedReplayKey, expectedReplayKey)
+	}
+	if receivedReplayKey == ComputeReplayKeyUnsigned(delivery.ID) {
+		t.Fatal("signed run webhook replay key must be HMAC-bound")
 	}
 }
 

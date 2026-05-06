@@ -2423,6 +2423,9 @@ func TestWebhookDelivery_EnqueueRunWebhookAndListPendingRun(t *testing.T) {
 	if enqueued.WebhookURL != job.WebhookURL {
 		t.Fatalf("EnqueueRunWebhook() webhook_url = %q, want %q", enqueued.WebhookURL, job.WebhookURL)
 	}
+	if enqueued.WebhookSecret != job.WebhookSecret {
+		t.Fatalf("EnqueueRunWebhook() webhook_secret = %q, want %q", enqueued.WebhookSecret, job.WebhookSecret)
+	}
 	if enqueued.Status != domain.WebhookStatusPending {
 		t.Fatalf("EnqueueRunWebhook() status = %q, want %q", enqueued.Status, domain.WebhookStatusPending)
 	}
@@ -2507,6 +2510,9 @@ func TestWebhookDelivery_EnqueueRunWebhookAndListPendingRun(t *testing.T) {
 	}
 	if pendingRun[0].ID != enqueued.ID {
 		t.Fatalf("ListPendingRunWebhookDeliveries() id = %q, want %q", pendingRun[0].ID, enqueued.ID)
+	}
+	if pendingRun[0].WebhookSecret != job.WebhookSecret {
+		t.Fatalf("ListPendingRunWebhookDeliveries() webhook_secret = %q, want %q", pendingRun[0].WebhookSecret, job.WebhookSecret)
 	}
 }
 
@@ -8860,13 +8866,14 @@ func TestClaimPendingWebhookRetries_LeaseAndTokenBoundUpdate(t *testing.T) {
 
 	past := time.Now().UTC().Add(-2 * time.Minute)
 	due := &domain.WebhookDelivery{
-		RunID:       run.ID,
-		JobID:       job.ID,
-		WebhookURL:  job.WebhookURL,
-		Status:      domain.WebhookStatusPending,
-		Attempts:    1,
-		MaxAttempts: 5,
-		NextRetryAt: &past,
+		RunID:         run.ID,
+		JobID:         job.ID,
+		WebhookURL:    job.WebhookURL,
+		WebhookSecret: "claim-secret",
+		Status:        domain.WebhookStatusPending,
+		Attempts:      1,
+		MaxAttempts:   5,
+		NextRetryAt:   &past,
 	}
 	if err := q.CreateWebhookDelivery(ctx, due); err != nil {
 		t.Fatalf("CreateWebhookDelivery() error = %v", err)
@@ -8881,6 +8888,9 @@ func TestClaimPendingWebhookRetries_LeaseAndTokenBoundUpdate(t *testing.T) {
 	}
 	if claimed[0].ClaimToken == "" || claimed[0].LeaseExpiresAt == nil {
 		t.Fatalf("claimed delivery missing lease fields: %+v", claimed[0])
+	}
+	if claimed[0].WebhookSecret != due.WebhookSecret {
+		t.Fatalf("claimed webhook_secret = %q, want %q", claimed[0].WebhookSecret, due.WebhookSecret)
 	}
 
 	claimedAgain, err := q.ClaimPendingWebhookRetries(ctx, 10, time.Minute)

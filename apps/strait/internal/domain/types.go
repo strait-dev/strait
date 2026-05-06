@@ -717,6 +717,7 @@ type WebhookDelivery struct {
 	ProjectID      string          `json:"project_id,omitempty"`
 	OrgID          string          `json:"org_id,omitempty"`
 	WebhookURL     string          `json:"webhook_url"`
+	WebhookSecret  string          `json:"-"`
 	Payload        json.RawMessage `json:"-"`
 	RetryPolicy    string          `json:"webhook_retry_policy,omitempty"`
 	Status         string          `json:"status"`

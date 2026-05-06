@@ -362,16 +362,17 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 
 	now := time.Now()
 	d := &domain.WebhookDelivery{
-		RunID:       run.ID,
-		JobID:       run.JobID,
-		WebhookURL:  job.WebhookURL,
-		RetryPolicy: n.defaultRetryPolicy,
-		Status:      domain.WebhookStatusPending,
-		Attempts:    0,
-		MaxAttempts: 5,
-		NextRetryAt: &now,
-		Payload:     payload,
-		LastError:   string(payload),
+		RunID:         run.ID,
+		JobID:         run.JobID,
+		WebhookURL:    job.WebhookURL,
+		WebhookSecret: job.WebhookSecret,
+		RetryPolicy:   n.defaultRetryPolicy,
+		Status:        domain.WebhookStatusPending,
+		Attempts:      0,
+		MaxAttempts:   5,
+		NextRetryAt:   &now,
+		Payload:       payload,
+		LastError:     string(payload),
 	}
 
 	if err := n.store.CreateWebhookDelivery(ctx, d); err != nil {
@@ -476,10 +477,10 @@ func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain
 
 	p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
 	for _, group := range groups {
-		if len(group) == 1 || hasSubscriptionDelivery(group) {
-			// Subscription webhooks require per-subscription HMAC headers and
-			// replay keys, so they must stay on the individual delivery path.
-			// Batching is safe only for unsigned legacy run/event deliveries.
+		if len(group) == 1 || hasSignedDelivery(group) {
+			// Signed webhooks require per-delivery HMAC headers and replay keys,
+			// so they must stay on the individual delivery path. Batching is
+			// safe only for unsigned legacy run/event deliveries.
 			for i := range group {
 				delivery := group[i]
 				p.Go(func(ctx context.Context) error {
@@ -507,9 +508,9 @@ func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain
 	}
 }
 
-func hasSubscriptionDelivery(deliveries []domain.WebhookDelivery) bool {
+func hasSignedDelivery(deliveries []domain.WebhookDelivery) bool {
 	for i := range deliveries {
-		if deliveries[i].SubscriptionID != "" {
+		if deliveries[i].SubscriptionID != "" || deliveries[i].WebhookSecret != "" {
 			return true
 		}
 	}
@@ -973,13 +974,12 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
 	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
 
-	// Look up the subscription's HMAC secret up-front so we can both sign
-	// the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
-	// replay key is stable across retries of the same physical delivery
-	// row so subscribers can dedup independently of the attempt
-	// counter-based idempotency key; binding it to the secret prevents
-	// leaking raw internal delivery ids in the clear.
-	var subSecret, subPrevSecret string
+	// Look up or read the delivery's HMAC secret up-front so we can both
+	// sign the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
+	// replay key is stable across retries of the same physical delivery row
+	// so subscribers can dedup independently of the attempt counter-based
+	// idempotency key.
+	var signingSecret, subSecret, subPrevSecret string
 	var subGraceExpires *time.Time
 	if d.SubscriptionID != "" {
 		secret, prevSecret, graceExpires, lookupErr := n.store.GetWebhookSubscriptionSecrets(ctx, d.SubscriptionID)
@@ -996,6 +996,8 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 			subPrevSecret = n.maybeDecryptSecret(d.ID, "previous", prevSecret)
 			subGraceExpires = graceExpires
 		}
+	} else if d.WebhookSecret != "" {
+		signingSecret = n.maybeDecryptSecret(d.ID, "job", d.WebhookSecret)
 	}
 	if d.SubscriptionID != "" && subSecret == "" {
 		errMsg := "webhook subscription signing secret unavailable"
@@ -1003,11 +1005,14 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		span.SetStatus(codes.Error, errMsg)
 		return
 	}
-
-	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(subSecret), d.ID))
-
 	if subSecret != "" {
-		sig := ComputeTimestampedHMACSHA256(subSecret, signatureTimestamp, body)
+		signingSecret = subSecret
+	}
+
+	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(signingSecret), d.ID))
+
+	if signingSecret != "" {
+		sig := ComputeTimestampedHMACSHA256(signingSecret, signatureTimestamp, body)
 		req.Header.Set("X-Strait-Signature", "v1="+sig)
 		req.Header.Set("X-Webhook-Signature", "v1="+sig)
 		if subPrevSecret != "" && subGraceExpires != nil && time.Now().Before(*subGraceExpires) {
@@ -1367,11 +1372,9 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for
-// deliveries where no subscription secret is available — currently the
-// run-terminal webhook path in internal/worker/webhook.go, which fires
-// against a job-level URL and has no subscription row to bind against.
-// The returned key is stable across retries of the same underlying id
-// but is NOT HMAC-bound; subscribers must treat it as an opaque replay
+// deliveries where no subscription or job webhook secret is available.
+// The returned key is stable across retries of the same underlying id but
+// is NOT HMAC-bound; subscribers must treat it as an opaque replay
 // discriminator rather than a proof of origin.
 func ComputeReplayKeyUnsigned(id string) string {
 	if id == "" {
