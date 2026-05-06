@@ -379,13 +379,13 @@ func (q *Queries) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID stri
 	query := `
 		UPDATE api_keys
 		SET replaced_by_key_id = $2, grace_expires_at = $3
-		WHERE id = $1 AND revoked_at IS NULL`
+		WHERE id = $1 AND revoked_at IS NULL AND replaced_by_key_id IS NULL`
 	tag, err := q.db.Exec(ctx, query, oldKeyID, newKeyID, graceExpiresAt)
 	if err != nil {
 		return fmt.Errorf("mark api key rotated: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("api key not found or already revoked")
+		return fmt.Errorf("api key not found, already revoked, or already rotated")
 	}
 	return nil
 }

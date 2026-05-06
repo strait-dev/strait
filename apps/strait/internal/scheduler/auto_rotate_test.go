@@ -17,6 +17,7 @@ type mockAutoRotateStore struct {
 	listDueRotationFn  func(ctx context.Context) ([]domain.APIKey, error)
 	createAPIKeyFn     func(ctx context.Context, key *domain.APIKey) error
 	markRotatedFn      func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	revokeAPIKeyFn     func(ctx context.Context, id string) error
 	createAuditEventFn func(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -37,6 +38,13 @@ func (m *mockAutoRotateStore) CreateAPIKey(ctx context.Context, key *domain.APIK
 func (m *mockAutoRotateStore) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
 	if m.markRotatedFn != nil {
 		return m.markRotatedFn(ctx, oldKeyID, newKeyID, graceExpiresAt)
+	}
+	return nil
+}
+
+func (m *mockAutoRotateStore) RevokeAPIKey(ctx context.Context, id string) error {
+	if m.revokeAPIKeyFn != nil {
+		return m.revokeAPIKeyFn(ctx, id)
 	}
 	return nil
 }
@@ -229,6 +237,50 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 
 	if markCalled.Load() != 0 {
 		t.Fatal("should not mark rotated when create fails")
+	}
+}
+
+func TestAutoRotateAPIKeys_MarkFailsRevokesNewKey(t *testing.T) {
+	t.Parallel()
+
+	rotationDays := 30
+	var revokedID string
+	var auditCalled atomic.Int32
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			return []domain.APIKey{{
+				ID:                   "old-key-1",
+				ProjectID:            "proj-1",
+				Name:                 "My Key",
+				RotationIntervalDays: &rotationDays,
+				RotationWebhookURL:   "https://example.com/rotation",
+			}}, nil
+		},
+		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
+			key.ID = "new-key-orphan"
+			return nil
+		},
+		markRotatedFn: func(context.Context, string, string, time.Time) error {
+			return context.Canceled
+		},
+		revokeAPIKeyFn: func(_ context.Context, id string) error {
+			revokedID = id
+			return nil
+		},
+		createAuditEventFn: func(context.Context, *domain.AuditEvent) error {
+			auditCalled.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.autoRotateAPIKeys(context.Background())
+
+	if revokedID != "new-key-orphan" {
+		t.Fatalf("revokedID = %q, want new-key-orphan", revokedID)
+	}
+	if auditCalled.Load() != 0 {
+		t.Fatal("audit event emitted despite failed rotation link")
 	}
 }
 

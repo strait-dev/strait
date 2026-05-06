@@ -94,6 +94,7 @@ type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	RevokeAPIKey(ctx context.Context, id string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -1308,6 +1309,9 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
 		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
 			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				r.logger.Warn("failed to revoke unlinked rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+			}
 			continue
 		}
 

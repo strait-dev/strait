@@ -17,14 +17,14 @@ func TestCreateAPIKey(t *testing.T) {
 
 	expires := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
 	key := &domain.APIKey{
-		ProjectID:  "proj-create-apikey-" + newID(),
-		OrgID:      "org-create-apikey-" + newID(),
-		Name:       "test-key",
-		KeyHash:    "hash-" + newID(),
-		KeyPrefix:  "sk_test_",
-		Scopes:     []string{"jobs:read", "jobs:trigger"},
-		ExpiresAt:  &expires,
-		EnvironmentID: "env-" + newID(),
+		ProjectID:          "proj-create-apikey-" + newID(),
+		OrgID:              "org-create-apikey-" + newID(),
+		Name:               "test-key",
+		KeyHash:            "hash-" + newID(),
+		KeyPrefix:          "sk_test_",
+		Scopes:             []string{"jobs:read", "jobs:trigger"},
+		ExpiresAt:          &expires,
+		EnvironmentID:      "env-" + newID(),
 		RotationWebhookURL: "https://example.com/rotate",
 	}
 
@@ -376,6 +376,21 @@ func TestMarkAPIKeyRotated_Lifecycle(t *testing.T) {
 	}
 	if got.GraceExpiresAt == nil || !got.GraceExpiresAt.Equal(grace) {
 		t.Fatalf("GraceExpiresAt = %v, want %v", got.GraceExpiresAt, grace)
+	}
+
+	otherNew := &domain.APIKey{ProjectID: projectID, Name: "new2", KeyHash: "hash-" + newID(), KeyPrefix: "sk_n2", Scopes: []string{"jobs:read"}}
+	if err := q.CreateAPIKey(ctx, otherNew); err != nil {
+		t.Fatalf("CreateAPIKey(otherNew) error = %v", err)
+	}
+	if err := q.MarkAPIKeyRotated(ctx, old.ID, otherNew.ID, grace); err == nil {
+		t.Fatal("MarkAPIKeyRotated(already rotated) error = nil, want error")
+	}
+	got, err = q.GetAPIKeyByID(ctx, old.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID(old after duplicate) error = %v", err)
+	}
+	if got.ReplacedByKeyID != new_.ID {
+		t.Fatalf("ReplacedByKeyID overwritten = %q, want original %q", got.ReplacedByKeyID, new_.ID)
 	}
 
 	// Marking an already-revoked key returns error.
