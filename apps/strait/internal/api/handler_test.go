@@ -905,8 +905,8 @@ func TestHandleTriggerJob_WaitingDependencyConflictLookupError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "idempotency key") {
-		t.Fatalf("expected idempotency key error, got %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "internal server error") {
+		t.Fatalf("expected sanitized internal error, got %s", w.Body.String())
 	}
 }
 

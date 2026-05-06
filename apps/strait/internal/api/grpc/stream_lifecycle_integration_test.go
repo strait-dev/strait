@@ -95,7 +95,7 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 		projectID = "proj-stream-revoke"
 		workerID  = "worker-stream-revoke"
 		apiKeyID  = "key-stream-revoke"
-		rawKey    = "strait_stream_revoke_test_key"
+		rawKey    = "strait_streamRevokeTestKey"
 	)
 	seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
 
@@ -133,6 +133,8 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 		if msg.GetAck() == nil {
 			t.Fatalf("first server message = %T, want ack", msg.Payload)
 		}
+	case err := <-done:
+		t.Fatalf("StreamTasks returned before registration ack: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for registration ack")
 	}

@@ -132,6 +132,7 @@ func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
 
 	// No scopes = internal auth
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxInternalCallerKey, true))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 

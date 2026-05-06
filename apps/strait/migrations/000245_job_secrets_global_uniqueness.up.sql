@@ -12,7 +12,3 @@ DELETE FROM job_secrets js
 USING ranked_global_job_secrets ranked
 WHERE js.id = ranked.id
   AND ranked.rn > 1;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_job_secrets_global_unique
-    ON job_secrets (project_id, environment, secret_key)
-    WHERE job_id IS NULL;

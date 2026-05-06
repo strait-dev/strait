@@ -337,9 +337,13 @@ func TestEndToEndWorkerMode(t *testing.T) {
 			}
 			// Set Queue on job so dispatcher can pick the worker.
 			jobObj.Queue = queueName
-			_, err = dispatcher.WorkerDispatch(dispatchCtx, run, jobObj)
+			result, err := dispatcher.WorkerDispatch(dispatchCtx, run, jobObj)
 			if err != nil {
 				t.Errorf("WorkerDispatch for run %s: %v", id, err)
+				return
+			}
+			if err := dispatcher.CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted); err != nil {
+				t.Errorf("CompleteWorkerTask for run %s: %v", id, err)
 			}
 		}(runID)
 	}

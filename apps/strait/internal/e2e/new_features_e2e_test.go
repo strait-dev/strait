@@ -220,7 +220,7 @@ func TestE2E_RunContinuation_SDKContinue(t *testing.T) {
 	}
 	triggerResp := mustDecodeObject(t, w)
 	runID := asString(t, triggerResp, "id")
-	runToken := asString(t, triggerResp, "run_token")
+	runToken := makeE2ERunToken(t, runID)
 
 	// Move run to executing
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
@@ -263,7 +263,7 @@ func TestE2E_RunContinuation_InheritsPayload(t *testing.T) {
 	}
 	triggerResp := mustDecodeObject(t, w)
 	runID := asString(t, triggerResp, "id")
-	runToken := asString(t, triggerResp, "run_token")
+	runToken := makeE2ERunToken(t, runID)
 
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{"started_at": time.Now()})
@@ -300,7 +300,7 @@ func TestE2E_RunContinuation_RejectsNonExecutingRun(t *testing.T) {
 	}
 	triggerResp := mustDecodeObject(t, w)
 	runID := asString(t, triggerResp, "id")
-	runToken := asString(t, triggerResp, "run_token")
+	runToken := makeE2ERunToken(t, runID)
 
 	// Run is still queued — should not be able to continue
 	w = doSDKRequest(t, http.MethodPost, fmt.Sprintf("/sdk/v1/runs/%s/continue", runID), runToken,
@@ -324,7 +324,7 @@ func TestE2E_RunContinuation_Lineage(t *testing.T) {
 	}
 	triggerResp := mustDecodeObject(t, w)
 	runID := asString(t, triggerResp, "id")
-	runToken := asString(t, triggerResp, "run_token")
+	runToken := makeE2ERunToken(t, runID)
 
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil)
 	_ = testStore.UpdateRunStatus(context.Background(), runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{"started_at": time.Now()})
