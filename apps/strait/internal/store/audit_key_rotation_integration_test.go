@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -102,22 +103,24 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 		t.Fatalf("newEpoch = %d, want 1", newEpoch)
 	}
 
-	// Epoch 1: 5 more events. They inherit rotation_epoch=0 by default
-	// (column default), so to simulate real post-rotation emit we manually
-	// set the epoch on each event.
+	// Epoch 1: 5 more events. CreateAuditEvent must assign the current
+	// rotation epoch automatically; callers should not need to know the
+	// current per-project signing epoch.
 	for i := 0; i < 5; i++ {
 		ev := &domain.AuditEvent{
-			ProjectID:     projectID,
-			ActorID:       "actor",
-			ActorType:     "user",
-			Action:        domain.AuditActionJobCreated,
-			ResourceType:  "job",
-			ResourceID:    "post-rotation",
-			Details:       json.RawMessage(`{"post":true}`),
-			RotationEpoch: 1,
+			ProjectID:    projectID,
+			ActorID:      "actor",
+			ActorType:    "user",
+			Action:       domain.AuditActionJobCreated,
+			ResourceType: "job",
+			ResourceID:   "post-rotation",
+			Details:      json.RawMessage(`{"post":true}`),
 		}
 		if err := q.CreateAuditEvent(ctx, ev); err != nil {
 			t.Fatalf("CreateAuditEvent post-rotation %d: %v", i, err)
+		}
+		if ev.RotationEpoch != 1 {
+			t.Fatalf("post-rotation event epoch = %d, want 1", ev.RotationEpoch)
 		}
 	}
 
@@ -131,6 +134,37 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 	// 5 pre + 1 anchor + 5 post = 11.
 	if result.EventsChecked != 11 {
 		t.Errorf("EventsChecked = %d, want 11", result.EventsChecked)
+	}
+}
+
+func TestVerifyAuditChain_MissingNonzeroEpochKeyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	key, _ := store.DeriveAuditSigningKey("missing-epoch-key-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-missing-epoch-key"
+	insertTestChain(ctx, t, q, projectID, 2)
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor-rotator"); err != nil {
+		t.Fatalf("RotateAuditSigningKey: %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		DELETE FROM audit_signing_keys
+		WHERE project_id = $1 AND rotation_epoch = 1
+	`, projectID); err != nil {
+		t.Fatalf("delete epoch key: %v", err)
+	}
+
+	_, err := q.VerifyAuditChain(ctx, projectID)
+	if err == nil {
+		t.Fatal("expected missing nonzero epoch key to fail verification")
+	}
+	if got := err.Error(); !strings.Contains(got, "no stored key for epoch 1") {
+		t.Fatalf("VerifyAuditChain error = %v, want missing epoch key", err)
 	}
 }
 

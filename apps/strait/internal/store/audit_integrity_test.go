@@ -124,6 +124,41 @@ func TestComputeAuditSignatureV3_LengthDelimitsPipeFields(t *testing.T) {
 	}
 }
 
+func TestComputeAuditSignatureLegacyVersions_LengthDelimitPipeFields(t *testing.T) {
+	t.Parallel()
+
+	key, _ := DeriveAuditSigningKey("test-secret-value")
+	for _, version := range []uint16{0, 1, 2} {
+		left := testAuditEvent("ev-1", "proj-1", "create")
+		left.SchemaVersion = version
+		left.ActorID = "actor|api"
+		left.ActorType = "key"
+
+		right := testAuditEvent("ev-1", "proj-1", "create")
+		right.SchemaVersion = version
+		right.ActorID = "actor"
+		right.ActorType = "api|key"
+
+		if sigLeft, sigRight := ComputeAuditSignature(left, key), ComputeAuditSignature(right, key); sigLeft == sigRight {
+			t.Fatalf("schema version %d audit signatures collided for pipe-ambiguous adjacent fields", version)
+		}
+	}
+}
+
+func TestKeyForEpoch_RejectsMissingNonzeroEpochKey(t *testing.T) {
+	t.Parallel()
+
+	key, _ := DeriveAuditSigningKey("test-secret-value")
+	q := &Queries{auditSigningKey: key}
+
+	if _, err := q.keyForEpoch(map[int][]byte{1: nil}, 1); err == nil {
+		t.Fatal("expected missing nonzero epoch key to be rejected")
+	}
+	if got, err := q.keyForEpoch(map[int][]byte{0: nil}, 0); err != nil || string(got) != string(key) {
+		t.Fatalf("epoch zero fallback = (%x, %v), want legacy key", got, err)
+	}
+}
+
 func TestComputeAuditSignatureV3_BindsAnchorAndRotationEpoch(t *testing.T) {
 	t.Parallel()
 

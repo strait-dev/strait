@@ -42,13 +42,10 @@ func DeriveAuditSigningKey(secret string) ([]byte, error) {
 // The canonical form includes the previous_hash, ensuring any modification
 // to any signed field invalidates the signature.
 //
-// The canonical form branches on SchemaVersion:
-//   - v1 (default): original form, 10 fields. Used by events written before
-//     the forensic-columns migration.
-//   - v2: extends v1 with RemoteIP, UserAgent, RequestID, TraceID,
-//     SchemaVersion. Used by new events after migration 000185.
-//   - v3: length-delimited fields, extending v2 with IsAnchor and
-//     RotationEpoch so forensic metadata is HMAC-bound.
+// The canonical form branches on SchemaVersion. All versions use
+// length-delimited fields so adjacent values containing separator bytes cannot
+// collide. v3 extends v2 with IsAnchor and RotationEpoch so forensic metadata
+// is HMAC-bound.
 //
 // Verify runs the same branching logic so both versions coexist in the same
 // chain without any bulk re-signing.
@@ -58,30 +55,51 @@ func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	if ev.SchemaVersion >= 3 {
 		canonical = auditSignatureCanonicalV3(ev)
 	} else if ev.SchemaVersion >= 2 {
-		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d",
-			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
-			ev.Action, ev.ResourceType, ev.ResourceID,
-			string(ev.Details),
-			ev.CreatedAt.UTC().Format(time.RFC3339Nano),
-			ev.PreviousHash,
-			ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID,
-			ev.SchemaVersion,
-		)
+		canonical = auditSignatureCanonicalV2(ev)
 	} else {
-		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
-			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
-			ev.Action, ev.ResourceType, ev.ResourceID,
-			string(ev.Details),
-			ev.CreatedAt.UTC().Format(time.RFC3339Nano),
-			ev.PreviousHash,
-		)
+		canonical = auditSignatureCanonicalV1(ev)
 	}
 	mac.Write([]byte(canonical))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+func auditSignatureCanonicalV1(ev *domain.AuditEvent) string {
+	return lengthDelimitedAuditCanonical("audit:v1\n", []string{
+		ev.ID,
+		ev.ProjectID,
+		ev.ActorID,
+		ev.ActorType,
+		ev.Action,
+		ev.ResourceType,
+		ev.ResourceID,
+		string(ev.Details),
+		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ev.PreviousHash,
+	})
+}
+
+func auditSignatureCanonicalV2(ev *domain.AuditEvent) string {
+	return lengthDelimitedAuditCanonical("audit:v2\n", []string{
+		ev.ID,
+		ev.ProjectID,
+		ev.ActorID,
+		ev.ActorType,
+		ev.Action,
+		ev.ResourceType,
+		ev.ResourceID,
+		string(ev.Details),
+		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ev.PreviousHash,
+		ev.RemoteIP,
+		ev.UserAgent,
+		ev.RequestID,
+		ev.TraceID,
+		strconv.FormatUint(uint64(ev.SchemaVersion), 10),
+	})
+}
+
 func auditSignatureCanonicalV3(ev *domain.AuditEvent) string {
-	fields := []string{
+	return lengthDelimitedAuditCanonical("audit:v3\n", []string{
 		ev.ID,
 		ev.ProjectID,
 		ev.ActorID,
@@ -99,10 +117,12 @@ func auditSignatureCanonicalV3(ev *domain.AuditEvent) string {
 		strconv.FormatUint(uint64(ev.SchemaVersion), 10),
 		strconv.FormatBool(ev.IsAnchor),
 		strconv.Itoa(ev.RotationEpoch),
-	}
+	})
+}
 
+func lengthDelimitedAuditCanonical(prefix string, fields []string) string {
 	var b strings.Builder
-	b.WriteString("audit:v3\n")
+	b.WriteString(prefix)
 	for _, field := range fields {
 		b.WriteString(strconv.Itoa(len(field)))
 		b.WriteByte(':')
@@ -126,14 +146,6 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	}
 	ev.Details = details
 
-	// Use client-side timestamp so all fields are known for signature computation.
-	// Truncate to microseconds: Postgres TIMESTAMPTZ stores microsecond precision,
-	// so the signature must be computed from the same precision that will be read
-	// back by VerifyAuditChain. Without this, the nanosecond remainder in the Go
-	// time.Time gets truncated on the Postgres round-trip and the recomputed
-	// signature no longer matches.
-	ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
-
 	// Default schema version for new events.
 	if ev.SchemaVersion == 0 {
 		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
@@ -152,6 +164,21 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	// inline when q is already tx-backed (e.g. called from rotation or
 	// from the retention tombstone path inside an outer transaction).
 	return q.withTxInheritKeys(ctx, func(tx *Queries) error {
+		if err := acquireProjectRotationLock(ctx, tx, ev.ProjectID); err != nil {
+			return fmt.Errorf("create audit event: rotation lock: %w", err)
+		}
+		if ev.RotationEpoch == 0 && !ev.IsAnchor {
+			var currentEpoch int
+			if err := tx.db.QueryRow(ctx, `
+				SELECT COALESCE(MAX(rotation_epoch), 0)
+				FROM audit_events
+				WHERE project_id = $1
+			`, ev.ProjectID).Scan(&currentEpoch); err != nil {
+				return fmt.Errorf("create audit event: read current epoch: %w", err)
+			}
+			ev.RotationEpoch = currentEpoch
+		}
+
 		// Chain lock. AdvisoryLockNsAuditChain namespaces the hash so it
 		// cannot collide with AdvisoryLockNsAuditRotate — both touch
 		// audit_events for the same project but serialize on their own
@@ -159,6 +186,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		if err := AcquireAdvisoryLock(ctx, tx, AdvisoryLockNsAuditChain, ev.ProjectID); err != nil {
 			return fmt.Errorf("create audit event: chain lock: %w", err)
 		}
+
+		// Assign the timestamp under the chain lock so chronological verifier
+		// order matches serialized insertion order even when concurrent writers
+		// waited on the same project lock.
+		ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 
 		// Read the tail signature under the lock so no concurrent writer
 		// can slip a row between this read and our insert.
@@ -266,6 +298,9 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	}
 	if stored != nil {
 		return stored, nil
+	}
+	if epoch != 0 {
+		return nil, fmt.Errorf("resolve signing key: no stored key for project %s epoch %d", projectID, epoch)
 	}
 	// Bootstrap: derive a per-(project, epoch) HMAC key from INTERNAL_SECRET
 	// and persist it as the stable per-epoch key. This guarantees that every
@@ -937,6 +972,9 @@ func (q *Queries) keyForEpoch(cache map[int][]byte, epoch int) ([]byte, error) {
 	if k, ok := cache[epoch]; ok {
 		if k != nil {
 			return k, nil
+		}
+		if epoch != 0 {
+			return nil, fmt.Errorf("verify audit chain: no stored key for epoch %d", epoch)
 		}
 		return q.auditSigningKey, nil
 	}
