@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -6660,7 +6661,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 		t.Fatal("policy.ID should be set")
 	}
 
-	actions, err := q.GetResourcePolicies(ctx, "job", "job-123", "user-pol")
+	actions, err := q.GetResourcePolicies(ctx, "proj-policy", "job", "job-123", "user-pol")
 	if err != nil {
 		t.Fatalf("GetResourcePolicies() error = %v", err)
 	}
@@ -6668,7 +6669,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 		t.Fatalf("len(actions) = %d, want 2", len(actions))
 	}
 
-	policies, err := q.ListResourcePolicies(ctx, "job", "job-123", 50, nil)
+	policies, err := q.ListResourcePolicies(ctx, "proj-policy", "job", "job-123", 50, nil)
 	if err != nil {
 		t.Fatalf("ListResourcePolicies() error = %v", err)
 	}
@@ -6676,11 +6677,11 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 		t.Fatalf("len(policies) = %d, want 1", len(policies))
 	}
 
-	if _, _, err := q.DeleteResourcePolicy(ctx, p.ID); err != nil {
+	if _, _, err := q.DeleteResourcePolicy(ctx, "proj-policy", p.ID); err != nil {
 		t.Fatalf("DeleteResourcePolicy() error = %v", err)
 	}
 
-	actions2, err := q.GetResourcePolicies(ctx, "job", "job-123", "user-pol")
+	actions2, err := q.GetResourcePolicies(ctx, "proj-policy", "job", "job-123", "user-pol")
 	if err != nil {
 		t.Fatalf("GetResourcePolicies() after delete error = %v", err)
 	}
@@ -6907,7 +6908,7 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	_, _, err := q.DeleteResourcePolicy(ctx, "nonexistent-policy-id")
+	_, _, err := q.DeleteResourcePolicy(ctx, "proj-missing", "nonexistent-policy-id")
 	if !errors.Is(err, store.ErrResourcePolicyNotFound) {
 		t.Fatalf("DeleteResourcePolicy() = %v, want ErrResourcePolicyNotFound", err)
 	}
@@ -7248,7 +7249,7 @@ func TestCreateResourcePolicy_Upsert(t *testing.T) {
 	}
 
 	// Read back — should be updated.
-	actions, err := q.GetResourcePolicies(ctx, "job", "job-1", "user-1")
+	actions, err := q.GetResourcePolicies(ctx, "proj-rp-upsert", "job", "job-1", "user-1")
 	if err != nil {
 		t.Fatalf("GetResourcePolicies() error = %v", err)
 	}
@@ -7257,12 +7258,54 @@ func TestCreateResourcePolicy_Upsert(t *testing.T) {
 	}
 }
 
+func TestResourcePolicy_ProjectScopedLookupAndDelete(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	for _, projectID := range []string{"proj-rp-scope-a", "proj-rp-scope-b"} {
+		p := &domain.ResourcePolicy{
+			ProjectID:    projectID,
+			ResourceType: "job",
+			ResourceID:   "shared-job",
+			UserID:       "shared-user",
+			Actions:      []string{"read", projectID},
+		}
+		if err := q.CreateResourcePolicy(ctx, p); err != nil {
+			t.Fatalf("CreateResourcePolicy(%s) error = %v", projectID, err)
+		}
+	}
+
+	a, err := q.ListResourcePolicies(ctx, "proj-rp-scope-a", "job", "shared-job", 10, nil)
+	if err != nil {
+		t.Fatalf("ListResourcePolicies(project A) error = %v", err)
+	}
+	if len(a) != 1 || a[0].ProjectID != "proj-rp-scope-a" {
+		t.Fatalf("project A policies = %+v, want exactly project A", a)
+	}
+
+	bActions, err := q.GetResourcePolicies(ctx, "proj-rp-scope-b", "job", "shared-job", "shared-user")
+	if err != nil {
+		t.Fatalf("GetResourcePolicies(project B) error = %v", err)
+	}
+	if !slices.Contains(bActions, "proj-rp-scope-b") {
+		t.Fatalf("project B actions = %v, want project B marker", bActions)
+	}
+
+	if _, _, err := q.DeleteResourcePolicy(ctx, "proj-rp-scope-b", a[0].ID); !errors.Is(err, store.ErrResourcePolicyNotFound) {
+		t.Fatalf("DeleteResourcePolicy(cross-project) error = %v, want ErrResourcePolicyNotFound", err)
+	}
+	if _, _, err := q.DeleteResourcePolicy(ctx, "proj-rp-scope-a", a[0].ID); err != nil {
+		t.Fatalf("DeleteResourcePolicy(project A) error = %v", err)
+	}
+}
+
 func TestListResourcePolicies_Empty(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	policies, err := q.ListResourcePolicies(ctx, "job", "nonexistent", 50, nil)
+	policies, err := q.ListResourcePolicies(ctx, "proj-empty", "job", "nonexistent", 50, nil)
 	if err != nil {
 		t.Fatalf("ListResourcePolicies() error = %v", err)
 	}
@@ -7292,7 +7335,7 @@ func TestListResourcePolicies_MultipleUsers(t *testing.T) {
 		}
 	}
 
-	policies, err := q.ListResourcePolicies(ctx, "workflow", "wf-1", 50, nil)
+	policies, err := q.ListResourcePolicies(ctx, "proj-rp-multi", "workflow", "wf-1", 50, nil)
 	if err != nil {
 		t.Fatalf("ListResourcePolicies() error = %v", err)
 	}
@@ -7317,7 +7360,7 @@ func TestGetResourcePolicies_WrongUser(t *testing.T) {
 		t.Fatalf("CreateResourcePolicy() error = %v", err)
 	}
 
-	actions, err := q.GetResourcePolicies(ctx, "job", "job-1", "user-b")
+	actions, err := q.GetResourcePolicies(ctx, "proj-rp-wrong", "job", "job-1", "user-b")
 	if err != nil {
 		t.Fatalf("GetResourcePolicies() error = %v", err)
 	}
@@ -8329,7 +8372,7 @@ func TestTagPolicy_CreateListDelete(t *testing.T) {
 		t.Fatalf("ListTagPolicies(cursor) len = %d, want 0", len(next))
 	}
 
-	deletedProjectID, deletedUserID, err := q.DeleteTagPolicy(ctx, p1.ID)
+	deletedProjectID, deletedUserID, err := q.DeleteTagPolicy(ctx, projectID, p1.ID)
 	if err != nil {
 		t.Fatalf("DeleteTagPolicy() error = %v", err)
 	}
@@ -8337,9 +8380,26 @@ func TestTagPolicy_CreateListDelete(t *testing.T) {
 		t.Fatalf("DeleteTagPolicy() returned project/user = %q/%q, want %q/%q", deletedProjectID, deletedUserID, projectID, userID)
 	}
 
-	_, _, err = q.DeleteTagPolicy(ctx, p1.ID)
+	_, _, err = q.DeleteTagPolicy(ctx, projectID, p1.ID)
 	if !errors.Is(err, store.ErrTagPolicyNotFound) {
 		t.Fatalf("DeleteTagPolicy(not found) error = %v, want ErrTagPolicyNotFound", err)
+	}
+}
+
+func TestTagPolicy_DeleteIsProjectScoped(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	p := &domain.TagPolicy{ProjectID: "project-tag-scope-a", ResourceType: "job", UserID: "user-tag-scope", TagKey: "team", TagValue: "payments", Actions: []string{"jobs:read"}}
+	if err := q.CreateTagPolicy(ctx, p); err != nil {
+		t.Fatalf("CreateTagPolicy() error = %v", err)
+	}
+	if _, _, err := q.DeleteTagPolicy(ctx, "project-tag-scope-b", p.ID); !errors.Is(err, store.ErrTagPolicyNotFound) {
+		t.Fatalf("DeleteTagPolicy(cross-project) error = %v, want ErrTagPolicyNotFound", err)
+	}
+	if _, _, err := q.DeleteTagPolicy(ctx, "project-tag-scope-a", p.ID); err != nil {
+		t.Fatalf("DeleteTagPolicy(owner project) error = %v", err)
 	}
 }
 

@@ -845,7 +845,7 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 
 				// Fallback: check resource-level policies.
 				if resType, resID := resourceFromRequest(r); resType != "" && resID != "" {
-					actions, rpErr := s.store.GetResourcePolicies(ctx, resType, resID, actorID)
+					actions, rpErr := s.store.GetResourcePolicies(ctx, projectID, resType, resID, actorID)
 					if rpErr == nil && domain.HasScope(actions, permission) {
 						next.ServeHTTP(w, r)
 						return

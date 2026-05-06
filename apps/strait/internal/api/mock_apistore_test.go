@@ -25,7 +25,7 @@ var _ APIStore = &APIStoreMock{}
 //			AggregateCostStatsHourlyFunc: func(ctx context.Context, hour time.Time) error {
 //				panic("mock out the AggregateCostStatsHourly method")
 //			},
-//			ApproveDeviceCodeFunc: func(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string) error {
+//			ApproveDeviceCodeFunc: func(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error {
 //				panic("mock out the ApproveDeviceCode method")
 //			},
 //			AreAllDescendantsTerminalFunc: func(ctx context.Context, parentRunID string) (bool, error) {
@@ -271,7 +271,7 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteProjectRoleFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the DeleteProjectRole method")
 //			},
-//			DeleteResourcePolicyFunc: func(ctx context.Context, id string) (string, string, error) {
+//			DeleteResourcePolicyFunc: func(ctx context.Context, projectID string, id string) (string, string, error) {
 //				panic("mock out the DeleteResourcePolicy method")
 //			},
 //			DeleteRunStateFunc: func(ctx context.Context, runID string, key string) error {
@@ -280,7 +280,7 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteStepsByWorkflowFunc: func(ctx context.Context, workflowID string) error {
 //				panic("mock out the DeleteStepsByWorkflow method")
 //			},
-//			DeleteTagPolicyFunc: func(ctx context.Context, id string) (string, string, error) {
+//			DeleteTagPolicyFunc: func(ctx context.Context, projectID string, id string) (string, string, error) {
 //				panic("mock out the DeleteTagPolicy method")
 //			},
 //			DeleteWebhookSubscriptionFunc: func(ctx context.Context, id string) error {
@@ -418,7 +418,7 @@ var _ APIStore = &APIStoreMock{}
 //			GetResolvedEnvironmentVariablesFunc: func(ctx context.Context, id string) (map[string]string, error) {
 //				panic("mock out the GetResolvedEnvironmentVariables method")
 //			},
-//			GetResourcePoliciesFunc: func(ctx context.Context, resourceType string, resourceID string, userID string) ([]string, error) {
+//			GetResourcePoliciesFunc: func(ctx context.Context, projectID string, resourceType string, resourceID string, userID string) ([]string, error) {
 //				panic("mock out the GetResourcePolicies method")
 //			},
 //			GetRunFunc: func(ctx context.Context, id string) (*domain.JobRun, error) {
@@ -583,7 +583,7 @@ var _ APIStore = &APIStoreMock{}
 //			ListProjectsByOrgFunc: func(ctx context.Context, orgID string) ([]domain.Project, error) {
 //				panic("mock out the ListProjectsByOrg method")
 //			},
-//			ListResourcePoliciesFunc: func(ctx context.Context, resourceType string, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
+//			ListResourcePoliciesFunc: func(ctx context.Context, projectID string, resourceType string, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
 //				panic("mock out the ListResourcePolicies method")
 //			},
 //			ListRunCheckpointsFunc: func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
@@ -1128,7 +1128,7 @@ type APIStoreMock struct {
 	DeleteProjectRoleFunc func(ctx context.Context, id string) error
 
 	// DeleteResourcePolicyFunc mocks the DeleteResourcePolicy method.
-	DeleteResourcePolicyFunc func(ctx context.Context, id string) (string, string, error)
+	DeleteResourcePolicyFunc func(ctx context.Context, projectID string, id string) (string, string, error)
 
 	// DeleteRunStateFunc mocks the DeleteRunState method.
 	DeleteRunStateFunc func(ctx context.Context, runID string, key string) error
@@ -1137,7 +1137,7 @@ type APIStoreMock struct {
 	DeleteStepsByWorkflowFunc func(ctx context.Context, workflowID string) error
 
 	// DeleteTagPolicyFunc mocks the DeleteTagPolicy method.
-	DeleteTagPolicyFunc func(ctx context.Context, id string) (string, string, error)
+	DeleteTagPolicyFunc func(ctx context.Context, projectID string, id string) (string, string, error)
 
 	// DeleteWebhookSubscriptionFunc mocks the DeleteWebhookSubscription method.
 	DeleteWebhookSubscriptionFunc func(ctx context.Context, id string) error
@@ -1275,7 +1275,7 @@ type APIStoreMock struct {
 	GetResolvedEnvironmentVariablesFunc func(ctx context.Context, id string) (map[string]string, error)
 
 	// GetResourcePoliciesFunc mocks the GetResourcePolicies method.
-	GetResourcePoliciesFunc func(ctx context.Context, resourceType string, resourceID string, userID string) ([]string, error)
+	GetResourcePoliciesFunc func(ctx context.Context, projectID string, resourceType string, resourceID string, userID string) ([]string, error)
 
 	// GetRunFunc mocks the GetRun method.
 	GetRunFunc func(ctx context.Context, id string) (*domain.JobRun, error)
@@ -1440,7 +1440,7 @@ type APIStoreMock struct {
 	ListProjectsByOrgFunc func(ctx context.Context, orgID string) ([]domain.Project, error)
 
 	// ListResourcePoliciesFunc mocks the ListResourcePolicies method.
-	ListResourcePoliciesFunc func(ctx context.Context, resourceType string, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
+	ListResourcePoliciesFunc func(ctx context.Context, projectID string, resourceType string, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
 
 	// ListRunCheckpointsFunc mocks the ListRunCheckpoints method.
 	ListRunCheckpointsFunc func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
@@ -2400,6 +2400,8 @@ type APIStoreMock struct {
 		DeleteResourcePolicy []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -2423,6 +2425,8 @@ type APIStoreMock struct {
 		DeleteTagPolicy []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -2803,6 +2807,8 @@ type APIStoreMock struct {
 		GetResourcePolicies []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ResourceType is the resourceType argument value.
 			ResourceType string
 			// ResourceID is the resourceID argument value.
@@ -3354,6 +3360,8 @@ type APIStoreMock struct {
 		ListResourcePolicies []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ResourceType is the resourceType argument value.
 			ResourceType string
 			// ResourceID is the resourceID argument value.
@@ -8021,26 +8029,28 @@ func (mock *APIStoreMock) DeleteProjectRoleCalls() []struct {
 }
 
 // DeleteResourcePolicy calls DeleteResourcePolicyFunc.
-func (mock *APIStoreMock) DeleteResourcePolicy(ctx context.Context, id string) (string, string, error) {
+func (mock *APIStoreMock) DeleteResourcePolicy(ctx context.Context, projectID string, id string) (string, string, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockDeleteResourcePolicy.Lock()
 	mock.calls.DeleteResourcePolicy = append(mock.calls.DeleteResourcePolicy, callInfo)
 	mock.lockDeleteResourcePolicy.Unlock()
 	if mock.DeleteResourcePolicyFunc == nil {
 		var (
-			projectIDOut string
-			userIDOut    string
-			errOut       error
+			deletedProjectIDOut string
+			userIDOut           string
+			errOut              error
 		)
-		return projectIDOut, userIDOut, errOut
+		return deletedProjectIDOut, userIDOut, errOut
 	}
-	return mock.DeleteResourcePolicyFunc(ctx, id)
+	return mock.DeleteResourcePolicyFunc(ctx, projectID, id)
 }
 
 // DeleteResourcePolicyCalls gets all the calls that were made to DeleteResourcePolicy.
@@ -8048,12 +8058,14 @@ func (mock *APIStoreMock) DeleteResourcePolicy(ctx context.Context, id string) (
 //
 //	len(mockedAPIStore.DeleteResourcePolicyCalls())
 func (mock *APIStoreMock) DeleteResourcePolicyCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockDeleteResourcePolicy.RLock()
 	calls = mock.calls.DeleteResourcePolicy
@@ -8144,26 +8156,28 @@ func (mock *APIStoreMock) DeleteStepsByWorkflowCalls() []struct {
 }
 
 // DeleteTagPolicy calls DeleteTagPolicyFunc.
-func (mock *APIStoreMock) DeleteTagPolicy(ctx context.Context, id string) (string, string, error) {
+func (mock *APIStoreMock) DeleteTagPolicy(ctx context.Context, projectID string, id string) (string, string, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockDeleteTagPolicy.Lock()
 	mock.calls.DeleteTagPolicy = append(mock.calls.DeleteTagPolicy, callInfo)
 	mock.lockDeleteTagPolicy.Unlock()
 	if mock.DeleteTagPolicyFunc == nil {
 		var (
-			projectIDOut string
-			userIDOut    string
-			errOut       error
+			deletedProjectIDOut string
+			userIDOut           string
+			errOut              error
 		)
-		return projectIDOut, userIDOut, errOut
+		return deletedProjectIDOut, userIDOut, errOut
 	}
-	return mock.DeleteTagPolicyFunc(ctx, id)
+	return mock.DeleteTagPolicyFunc(ctx, projectID, id)
 }
 
 // DeleteTagPolicyCalls gets all the calls that were made to DeleteTagPolicy.
@@ -8171,12 +8185,14 @@ func (mock *APIStoreMock) DeleteTagPolicy(ctx context.Context, id string) (strin
 //
 //	len(mockedAPIStore.DeleteTagPolicyCalls())
 func (mock *APIStoreMock) DeleteTagPolicyCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockDeleteTagPolicy.RLock()
 	calls = mock.calls.DeleteTagPolicy
@@ -10099,14 +10115,16 @@ func (mock *APIStoreMock) GetResolvedEnvironmentVariablesCalls() []struct {
 }
 
 // GetResourcePolicies calls GetResourcePoliciesFunc.
-func (mock *APIStoreMock) GetResourcePolicies(ctx context.Context, resourceType string, resourceID string, userID string) ([]string, error) {
+func (mock *APIStoreMock) GetResourcePolicies(ctx context.Context, projectID string, resourceType string, resourceID string, userID string) ([]string, error) {
 	callInfo := struct {
 		Ctx          context.Context
+		ProjectID    string
 		ResourceType string
 		ResourceID   string
 		UserID       string
 	}{
 		Ctx:          ctx,
+		ProjectID:    projectID,
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
 		UserID:       userID,
@@ -10121,7 +10139,7 @@ func (mock *APIStoreMock) GetResourcePolicies(ctx context.Context, resourceType 
 		)
 		return stringsOut, errOut
 	}
-	return mock.GetResourcePoliciesFunc(ctx, resourceType, resourceID, userID)
+	return mock.GetResourcePoliciesFunc(ctx, projectID, resourceType, resourceID, userID)
 }
 
 // GetResourcePoliciesCalls gets all the calls that were made to GetResourcePolicies.
@@ -10130,12 +10148,14 @@ func (mock *APIStoreMock) GetResourcePolicies(ctx context.Context, resourceType 
 //	len(mockedAPIStore.GetResourcePoliciesCalls())
 func (mock *APIStoreMock) GetResourcePoliciesCalls() []struct {
 	Ctx          context.Context
+	ProjectID    string
 	ResourceType string
 	ResourceID   string
 	UserID       string
 } {
 	var calls []struct {
 		Ctx          context.Context
+		ProjectID    string
 		ResourceType string
 		ResourceID   string
 		UserID       string
@@ -12633,15 +12653,17 @@ func (mock *APIStoreMock) ListProjectsByOrgCalls() []struct {
 }
 
 // ListResourcePolicies calls ListResourcePoliciesFunc.
-func (mock *APIStoreMock) ListResourcePolicies(ctx context.Context, resourceType string, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
+func (mock *APIStoreMock) ListResourcePolicies(ctx context.Context, projectID string, resourceType string, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
 	callInfo := struct {
 		Ctx          context.Context
+		ProjectID    string
 		ResourceType string
 		ResourceID   string
 		Limit        int
 		Cursor       *time.Time
 	}{
 		Ctx:          ctx,
+		ProjectID:    projectID,
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
 		Limit:        limit,
@@ -12657,7 +12679,7 @@ func (mock *APIStoreMock) ListResourcePolicies(ctx context.Context, resourceType
 		)
 		return resourcePolicysOut, errOut
 	}
-	return mock.ListResourcePoliciesFunc(ctx, resourceType, resourceID, limit, cursor)
+	return mock.ListResourcePoliciesFunc(ctx, projectID, resourceType, resourceID, limit, cursor)
 }
 
 // ListResourcePoliciesCalls gets all the calls that were made to ListResourcePolicies.
@@ -12666,6 +12688,7 @@ func (mock *APIStoreMock) ListResourcePolicies(ctx context.Context, resourceType
 //	len(mockedAPIStore.ListResourcePoliciesCalls())
 func (mock *APIStoreMock) ListResourcePoliciesCalls() []struct {
 	Ctx          context.Context
+	ProjectID    string
 	ResourceType string
 	ResourceID   string
 	Limit        int
@@ -12673,6 +12696,7 @@ func (mock *APIStoreMock) ListResourcePoliciesCalls() []struct {
 } {
 	var calls []struct {
 		Ctx          context.Context
+		ProjectID    string
 		ResourceType string
 		ResourceID   string
 		Limit        int

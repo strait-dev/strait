@@ -368,12 +368,12 @@ type RBACStore interface {
 	ListProjectMembers(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectMemberRole, error)
 	SeedProjectSystemRoles(ctx context.Context, projectID string) error
 	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
-	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
-	DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error)
-	ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
+	GetResourcePolicies(ctx context.Context, projectID, resourceType, resourceID, userID string) ([]string, error)
+	DeleteResourcePolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error)
+	ListResourcePolicies(ctx context.Context, projectID, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
 	CreateTagPolicy(ctx context.Context, p *domain.TagPolicy) error
 	ListTagPolicies(ctx context.Context, projectID, resourceType, userID string, limit int, cursor *time.Time) ([]domain.TagPolicy, error)
-	DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error)
+	DeleteTagPolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error)
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	CreateAuditEventDeadletter(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error

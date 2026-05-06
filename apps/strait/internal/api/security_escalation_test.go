@@ -305,6 +305,79 @@ func TestHandleAssignMember_EscalationViaRoleBlocked(t *testing.T) {
 	}
 }
 
+func TestHandleBulkAssignMembers_BlocksSelfAssignmentAndEscalation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, roleID string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: roleID, ProjectID: "proj-1", Permissions: []string{domain.ScopeAll}}, nil
+	}
+	ms.AssignMemberRoleFunc = func(context.Context, *domain.ProjectMemberRole) error {
+		t.Fatal("AssignMemberRole must not be called for self-assignment or escalation")
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRBACManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "caller-user")
+
+	out, err := srv.handleBulkAssignMembers(ctx, &BulkAssignMembersInput{Body: bulkAssignMembersRequest{Items: []assignMemberRequest{
+		{UserID: "caller-user", RoleID: "role-admin"},
+		{UserID: "other-user", RoleID: "role-admin"},
+	}}})
+	if err != nil {
+		t.Fatalf("handleBulkAssignMembers() error = %v", err)
+	}
+	body, ok := out.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("response body type = %T, want map[string]any", out.Body)
+	}
+	results, ok := body["results"].([]bulkAssignMemberResult)
+	if !ok {
+		t.Fatalf("results type = %T, want []bulkAssignMemberResult", body["results"])
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	for _, result := range results {
+		if result.Status != "error" {
+			t.Fatalf("bulk result for %s status = %q, want error", result.UserID, result.Status)
+		}
+	}
+}
+
+func TestHandleBulkAssignMembers_BlocksCrossProjectRole(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, roleID string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: roleID, ProjectID: "other-project", Permissions: []string{domain.ScopeJobsRead}}, nil
+	}
+	ms.AssignMemberRoleFunc = func(context.Context, *domain.ProjectMemberRole) error {
+		t.Fatal("AssignMemberRole must not be called for a cross-project role")
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRBACManage, domain.ScopeJobsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "caller-user")
+
+	out, err := srv.handleBulkAssignMembers(ctx, &BulkAssignMembersInput{Body: bulkAssignMembersRequest{Items: []assignMemberRequest{
+		{UserID: "other-user", RoleID: "role-other-project"},
+	}}})
+	if err != nil {
+		t.Fatalf("handleBulkAssignMembers() error = %v", err)
+	}
+	results := out.Body.(map[string]any)["results"].([]bulkAssignMemberResult)
+	if results[0].Status != "error" || results[0].Error != "role not found" {
+		t.Fatalf("result = %+v, want role not found error", results[0])
+	}
+}
+
 func TestHandleAssignMember_InternalSecretAllowsWildcardRole(t *testing.T) {
 	t.Parallel()
 
@@ -333,6 +406,82 @@ func TestHandleAssignMember_InternalSecretAllowsWildcardRole(t *testing.T) {
 	}
 	if out.Body.RoleID != "role-admin" {
 		t.Fatalf("role = %q, want %q", out.Body.RoleID, "role-admin")
+	}
+}
+
+func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateResourcePolicyFunc: func(context.Context, *domain.ResourcePolicy) error {
+			t.Fatal("CreateResourcePolicy must not be called")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRBACManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateResourcePolicy(ctx, &CreateResourcePolicyInput{Body: createResourcePolicyRequest{
+		ProjectID:    "other-project",
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		UserID:       "user-1",
+		Actions:      []string{domain.ScopeJobsRead},
+	}})
+	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("cross-project resource policy error = %v, want 403", err)
+	}
+
+	_, err = srv.handleCreateResourcePolicy(ctx, &CreateResourcePolicyInput{Body: createResourcePolicyRequest{
+		ProjectID:    "proj-1",
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		UserID:       "user-1",
+		Actions:      []string{domain.ScopeJobsWrite},
+	}})
+	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("escalating resource policy error = %v, want 403", err)
+	}
+}
+
+func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateTagPolicyFunc: func(context.Context, *domain.TagPolicy) error {
+			t.Fatal("CreateTagPolicy must not be called")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRBACManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateTagPolicy(ctx, &CreateTagPolicyInput{Body: createTagPolicyRequest{
+		ProjectID:    "other-project",
+		ResourceType: "job",
+		UserID:       "user-1",
+		TagKey:       "team",
+		TagValue:     "payments",
+		Actions:      []string{domain.ScopeJobsRead},
+	}})
+	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("cross-project tag policy error = %v, want 403", err)
+	}
+
+	_, err = srv.handleCreateTagPolicy(ctx, &CreateTagPolicyInput{Body: createTagPolicyRequest{
+		ProjectID:    "proj-1",
+		ResourceType: "job",
+		UserID:       "user-1",
+		TagKey:       "team",
+		TagValue:     "payments",
+		Actions:      []string{domain.ScopeJobsWrite},
+	}})
+	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("escalating tag policy error = %v, want 403", err)
 	}
 }
 
