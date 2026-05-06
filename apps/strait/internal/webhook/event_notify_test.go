@@ -2243,6 +2243,40 @@ func TestAttemptBatchDelivery_ClickHouseEvents(t *testing.T) {
 	}
 }
 
+func TestEnqueueDeliveryEvent_IncludesProjectID(t *testing.T) {
+	t.Parallel()
+
+	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
+		Enabled:       true,
+		BatchSize:     100,
+		FlushInterval: time.Minute,
+	}, slog.Default())
+
+	worker := NewDeliveryWorker(&mockDeliveryStore{}, slog.Default(), WithChExporter(exporter))
+	worker.enqueueDeliveryEvent(&domain.WebhookDelivery{
+		ID:         "delivery-project",
+		RunID:      "run-project",
+		JobID:      "job-project",
+		ProjectID:  "proj-project",
+		WebhookURL: "https://example.com/hook",
+		Status:     domain.WebhookStatusDelivered,
+		Attempts:   1,
+		CreatedAt:  time.Now(),
+	}, 123, "run_webhook")
+
+	records := exporter.PendingSnapshot()
+	if len(records) != 1 {
+		t.Fatalf("pending records = %d, want 1", len(records))
+	}
+	rec, ok := records[0].(clickhouse.WebhookDeliveryEventRecord)
+	if !ok {
+		t.Fatalf("pending record type = %T, want WebhookDeliveryEventRecord", records[0])
+	}
+	if rec.ProjectID != "proj-project" {
+		t.Fatalf("ProjectID = %q, want proj-project", rec.ProjectID)
+	}
+}
+
 func TestProcessBatch_BatchAndIndividualMixed(t *testing.T) {
 	t.Parallel()
 

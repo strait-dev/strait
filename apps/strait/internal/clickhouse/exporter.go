@@ -607,3 +607,15 @@ func (e *Exporter) PendingCount() int {
 	defer e.mu.Unlock()
 	return len(e.pending)
 }
+
+// PendingSnapshot returns a copy of queued records for diagnostics and tests.
+func (e *Exporter) PendingSnapshot() []any {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]any, len(e.pending))
+	copy(out, e.pending)
+	return out
+}

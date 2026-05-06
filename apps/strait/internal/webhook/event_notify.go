@@ -869,7 +869,7 @@ func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, duratio
 		DeliveryID:     d.ID,
 		RunID:          d.RunID,
 		JobID:          d.JobID,
-		ProjectID:      "", // WebhookDelivery does not carry project_id; left empty.
+		ProjectID:      d.ProjectID,
 		WebhookURL:     d.WebhookURL,
 		Status:         d.Status,
 		Attempts:       uint8(min(d.Attempts, 255)), //nolint:gosec // clamped to uint8 range
