@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/hmac"
 	"errors"
 	"fmt"
 	"time"
@@ -65,11 +64,11 @@ func (q *Queries) upsertAuditChainCheckpoint(ctx context.Context, projectID, las
 	return nil
 }
 
-// VerifyAuditChainIncremental verifies only the audit events that have
-// been appended since the project's last recorded successful checkpoint.
-// On first call (or whenever no checkpoint exists), it falls back to
-// VerifyAuditChain and records a checkpoint on success. Subsequent calls
-// read only rows strictly after the checkpoint's anchoring event.
+// VerifyAuditChainIncremental verifies the full surviving audit-event chain and
+// refreshes the project's last successful checkpoint. The checkpoint is only a
+// progress cursor for dashboards and future implementation work, never a
+// cryptographic trust root; every successful call revalidates the prefix so
+// pre-checkpoint tampering cannot be hidden by a clean appended tail.
 //
 // Ordering contract (must match VerifyAuditChain): rotation_epoch ASC,
 // then created_at ASC, then id ASC. The checkpoint stores the tail
@@ -111,123 +110,22 @@ func (q *Queries) VerifyAuditChainIncremental(ctx context.Context, projectID str
 		return result, nil
 	}
 
-	// Look up the checkpoint event's (rotation_epoch, created_at, signature).
-	// These pin the resume position: we want every row whose (epoch, ts, id)
-	// is strictly greater than the checkpoint's.
-	var (
-		cpEpoch         int
-		cpCreatedAt     time.Time
-		cpSignature     string
-		cpIsAnchorValid bool
-	)
-	if err := q.db.QueryRow(ctx, `
-		SELECT rotation_epoch, created_at, signature
-		FROM audit_events
-		WHERE id = $1 AND project_id = $2
-	`, cp.LastVerifiedEventID, projectID).Scan(&cpEpoch, &cpCreatedAt, &cpSignature); err != nil {
+	// A checkpoint is a cursor, not a cryptographic trust root. Re-verify the
+	// full surviving chain before refreshing it so historical tampering before
+	// the checkpoint cannot be hidden by an otherwise-valid appended tail.
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// The checkpointed event no longer exists — retention
-			// trimmed the tail since the last verify. Fall back to a
-			// full verify so we re-anchor from the surviving head.
 			return q.verifyAuditChainIncrementalFallback(ctx, projectID)
 		}
-		return nil, fmt.Errorf("incremental verify: read checkpoint event: %w", err)
-	}
-	cpIsAnchorValid = cpSignature != ""
-	if !cpIsAnchorValid {
-		// Degenerate: checkpointed event has no signature. Should not
-		// happen with the atomic insert path, but be defensive and
-		// fall back rather than propagating a nonsense anchor.
-		return q.verifyAuditChainIncrementalFallback(ctx, projectID)
-	}
-
-	result := &domain.AuditChainVerification{
-		ProjectID:   projectID,
-		Valid:       true,
-		Incremental: true,
-	}
-
-	// Resume predicate: strictly after the checkpoint.
-	// (rotation_epoch, created_at, id) is the deterministic total
-	// ordering for rows within a project.
-	const query = `
-		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at,
-		       remote_ip, user_agent, request_id, trace_id, schema_version,
-		       is_anchor, rotation_epoch
-		FROM audit_events
-		WHERE project_id = $1
-		  AND (
-		        rotation_epoch > $2
-		     OR (rotation_epoch = $2 AND created_at > $3)
-		     OR (rotation_epoch = $2 AND created_at = $3 AND id > $4)
-		      )
-		ORDER BY rotation_epoch ASC, created_at ASC, id ASC`
-
-	epochKeyCache, err := q.preloadEpochKeys(ctx, projectID,
-		`rotation_epoch > $2
-		 OR (rotation_epoch = $2 AND created_at > $3)
-		 OR (rotation_epoch = $2 AND created_at = $3 AND id > $4)`,
-		cpEpoch, cpCreatedAt, cp.LastVerifiedEventID)
-	if err != nil {
 		return nil, err
 	}
+	result.Incremental = true
 
-	rows, err := q.db.Query(ctx, query, projectID, cpEpoch, cpCreatedAt, cp.LastVerifiedEventID)
-	if err != nil {
-		return nil, fmt.Errorf("incremental verify: query: %w", err)
-	}
-	defer rows.Close()
-
-	expectedPrevHash := cpSignature
-	result.ChainStart = cpSignature
-
-	for rows.Next() {
-		var ev domain.AuditEvent
-		if err := rows.Scan(&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action, &ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.Signature, &ev.PreviousHash, &ev.CreatedAt, &ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion, &ev.IsAnchor, &ev.RotationEpoch); err != nil {
-			return nil, fmt.Errorf("incremental verify scan: %w", err)
+	if result.Valid && result.LastEventID != "" {
+		if err := q.upsertAuditChainCheckpoint(ctx, projectID, result.LastEventID, time.Now().UTC()); err != nil {
+			return nil, err
 		}
-
-		result.EventsChecked++
-		if result.FirstEventID == "" {
-			result.FirstEventID = ev.ID
-		}
-		result.LastEventID = ev.ID
-
-		if ev.PreviousHash != expectedPrevHash {
-			result.Valid = false
-			result.BrokenAtID = ev.ID
-			result.Error = fmt.Sprintf("chain broken at event %s: previous_hash mismatch (expected %s, got %s)", ev.ID, expectedPrevHash, ev.PreviousHash)
-			return result, nil
-		}
-
-		key, keyErr := q.keyForEpoch(epochKeyCache, ev.RotationEpoch)
-		if keyErr != nil {
-			return nil, keyErr
-		}
-		expected := ComputeAuditSignature(&ev, key)
-		if !hmac.Equal([]byte(ev.Signature), []byte(expected)) {
-			result.Valid = false
-			result.BrokenAtID = ev.ID
-			result.Error = fmt.Sprintf("signature mismatch at event %s: event may have been tampered with", ev.ID)
-			return result, nil
-		}
-
-		expectedPrevHash = ev.Signature
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("incremental verify rows: %w", err)
-	}
-
-	// Advance the checkpoint only on a clean verify that extended the tail.
-	// EventsChecked == 0 means no new rows since the last verify; we still
-	// refresh last_verified_at so dashboards see the re-check happened.
-	newTail := cp.LastVerifiedEventID
-	if result.LastEventID != "" {
-		newTail = result.LastEventID
-	}
-	if err := q.upsertAuditChainCheckpoint(ctx, projectID, newTail, time.Now().UTC()); err != nil {
-		return nil, err
 	}
 
 	return result, nil
