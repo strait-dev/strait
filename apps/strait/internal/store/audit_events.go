@@ -581,10 +581,31 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		return fmt.Errorf("tombstone: read prev_hash: %w", err)
 	}
 
+	var firstSurvivingID, chainStart string
+	if err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(
+			(SELECT id FROM audit_events
+			 WHERE project_id = $1
+			 ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1),
+			''
+		),
+		COALESCE(
+			(SELECT previous_hash FROM audit_events
+			 WHERE project_id = $1
+			 ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1),
+			$2
+		)
+	`, projectID, ZeroHash).Scan(&firstSurvivingID, &chainStart); err != nil {
+		return fmt.Errorf("tombstone: read surviving head: %w", err)
+	}
+
 	details, err := json.Marshal(map[string]any{
-		"deleted_count":  deleted,
-		"trimmed_before": cutoff.UTC().Format(time.RFC3339),
-		"previous_hash":  prevHash,
+		"chain_start":              chainStart,
+		"deleted_count":            deleted,
+		"first_surviving_event_id": firstSurvivingID,
+		"surviving_tail_signature": prevHash,
+		"trimmed_before":           cutoff.UTC().Format(time.RFC3339),
+		"previous_hash":            prevHash,
 	})
 	if err != nil {
 		return fmt.Errorf("tombstone: marshal details: %w", err)
@@ -800,7 +821,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	var expectedPrevHash string
 	first := true
-	hasRetentionTombstone := false
+	retentionTombstoneJustifiesStart := false
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -814,7 +835,8 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		}
 		result.LastEventID = ev.ID
 		if ev.Action == domain.AuditActionRetentionTrimmed && ev.IsAnchor {
-			hasRetentionTombstone = true
+			retentionTombstoneJustifiesStart = retentionTombstoneJustifiesStart ||
+				auditRetentionTombstoneJustifiesStart(ev, result.FirstEventID, result.ChainStart)
 		}
 
 		if first {
@@ -850,13 +872,27 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("verify audit chain rows: %w", err)
 	}
-	if result.EventsChecked > 0 && result.ChainStart != ZeroHash && !hasRetentionTombstone {
+	if result.EventsChecked > 0 && result.ChainStart != ZeroHash && !retentionTombstoneJustifiesStart {
 		result.Valid = false
 		result.BrokenAtID = result.FirstEventID
-		result.Error = fmt.Sprintf("chain starts from non-zero previous_hash %s without a signed retention tombstone", result.ChainStart)
+		result.Error = fmt.Sprintf("chain starts from non-zero previous_hash %s without a matching signed retention tombstone", result.ChainStart)
 	}
 
 	return result, nil
+}
+
+func auditRetentionTombstoneJustifiesStart(ev domain.AuditEvent, firstEventID, chainStart string) bool {
+	if firstEventID == "" || chainStart == "" {
+		return false
+	}
+	var details struct {
+		ChainStart            string `json:"chain_start"`
+		FirstSurvivingEventID string `json:"first_surviving_event_id"`
+	}
+	if err := json.Unmarshal(ev.Details, &details); err != nil {
+		return false
+	}
+	return details.ChainStart == chainStart && details.FirstSurvivingEventID == firstEventID
 }
 
 // preloadEpochKeys fetches all distinct rotation epochs for a project
