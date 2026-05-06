@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -421,19 +423,21 @@ func taskResultMsg(runID, taskStatus, errMsg string, duration time.Duration) *wo
 	}
 }
 
-// isStreamClosedErr returns true for gRPC errors that indicate the stream is
-// done and the worker should reconnect (or exit when ctx is cancelled).
+// isStreamClosedErr returns true only for clean stream termination. Transient
+// transport failures must return false so the caller enters the reconnect loop.
 func isStreamClosedErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	s, ok := status.FromError(err)
-	if !ok {
-		// Non-gRPC error (e.g. io.EOF) — treat as closed.
+	if errors.Is(err, io.EOF) {
 		return true
 	}
-	switch s.Code() { //nolint:exhaustive // only reconnect-worthy codes matter; all others are non-retriable
-	case codes.Canceled, codes.Unavailable, codes.DeadlineExceeded:
+	s, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	switch s.Code() { //nolint:exhaustive // only clean terminal codes should bypass reconnect
+	case codes.Canceled, codes.OK:
 		return true
 	}
 	return false
