@@ -68,7 +68,7 @@ func requireJSONAccept(next http.Handler) http.Handler {
 			ok := false
 			for part := range strings.SplitSeq(accept, ",") {
 				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
-				if mt == "application/json" || mt == "application/*" || mt == "*/*" {
+				if mt == "application/json" || mt == "application/*" || mt == "application/x-ndjson" || mt == "text/csv" || mt == "*/*" {
 					ok = true
 					break
 				}
