@@ -23,7 +23,12 @@ func TestSentryRunMetadataCarriesTraceContext(t *testing.T) {
 	hub := sentry.NewHub(nil, sentry.NewScope())
 	ctx = sentry.SetHubOnContext(ctx, hub)
 
-	got := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil)
+	got := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", map[string]string{
+		"dependency_key": "dep-1",
+	})
+	if got["dependency_key"] != "dep-1" {
+		t.Fatalf("dependency_key = %q, want dep-1", got["dependency_key"])
+	}
 	if got[domain.RunMetadataSentryTrace] == "" {
 		t.Fatal("expected Sentry trace metadata")
 	}
