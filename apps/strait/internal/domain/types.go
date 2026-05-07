@@ -1447,10 +1447,11 @@ type Worker struct {
 type WorkerTaskStatus string
 
 const (
-	WorkerTaskStatusAssigned  WorkerTaskStatus = "assigned"
-	WorkerTaskStatusAccepted  WorkerTaskStatus = "accepted"
-	WorkerTaskStatusCompleted WorkerTaskStatus = "completed"
-	WorkerTaskStatusFailed    WorkerTaskStatus = "failed"
+	WorkerTaskStatusAssigned       WorkerTaskStatus = "assigned"
+	WorkerTaskStatusAccepted       WorkerTaskStatus = "accepted"
+	WorkerTaskStatusResultReceived WorkerTaskStatus = "result_received"
+	WorkerTaskStatusCompleted      WorkerTaskStatus = "completed"
+	WorkerTaskStatusFailed         WorkerTaskStatus = "failed"
 )
 
 // WorkerTask represents a job run assigned to a specific worker.

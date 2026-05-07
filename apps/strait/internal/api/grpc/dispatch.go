@@ -201,6 +201,11 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		if !open || result == nil {
 			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
 		}
+		if marked, err := d.markWorkerTaskResultReceived(ctx, task.ID, run.ID); err != nil {
+			return nil, err
+		} else if !marked {
+			return nil, fmt.Errorf("worker dispatch: task assignment closed before result for run %s", run.ID)
+		}
 		// Return as interface{} so callers in worker package don't need to
 		// import workerv1. The task ID stays attached so the executor marks
 		// worker_tasks terminal only after run result persistence succeeds.
@@ -213,6 +218,19 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		d.registry.IncrementSlots(workerID)
 		return nil, ctx.Err()
 	}
+}
+
+func (d *WorkerDispatcher) markWorkerTaskResultReceived(ctx context.Context, taskID, runID string) (bool, error) {
+	if d.queries == nil || taskID == "" {
+		return true, nil
+	}
+	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	marked, err := d.queries.MarkWorkerTaskResultReceived(markCtx, taskID)
+	if err != nil {
+		return false, fmt.Errorf("worker dispatch: mark task result received for run %s: %w", runID, err)
+	}
+	return marked, nil
 }
 
 func (d *WorkerDispatcher) markWorkerTaskFailedAfterAbort(ctx context.Context, taskID, runID string) {

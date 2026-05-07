@@ -179,6 +179,8 @@ func (q *Queries) UpdateWorkerTaskStatus(ctx context.Context, taskID string, sta
 	switch status {
 	case domain.WorkerTaskStatusAccepted:
 		query = `UPDATE worker_tasks SET status = $1, accepted_at = NOW() WHERE id = $2`
+	case domain.WorkerTaskStatusResultReceived:
+		query = `UPDATE worker_tasks SET status = $1 WHERE id = $2`
 	case domain.WorkerTaskStatusCompleted, domain.WorkerTaskStatusFailed:
 		query = `UPDATE worker_tasks SET status = $1, finished_at = NOW() WHERE id = $2`
 	default:
@@ -190,6 +192,26 @@ func (q *Queries) UpdateWorkerTaskStatus(ctx context.Context, taskID string, sta
 		return fmt.Errorf("update worker task status: %w", err)
 	}
 	return nil
+}
+
+// MarkWorkerTaskResultReceived closes an active assignment to disconnect
+// requeue once its TaskResult has reached the API process. The executor still
+// moves the row to completed/failed only after run finalization succeeds.
+func (q *Queries) MarkWorkerTaskResultReceived(ctx context.Context, taskID string) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkWorkerTaskResultReceived")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx,
+		`UPDATE worker_tasks
+		 SET status = $1
+		 WHERE id = $2
+		   AND status IN ('assigned', 'accepted')`,
+		string(domain.WorkerTaskStatusResultReceived), taskID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark worker task result received: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // GetWorkerTask fetches a task by ID.

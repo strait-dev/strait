@@ -143,6 +143,60 @@ func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 	}
 }
 
+// TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns verifies
+// that disconnect cleanup cannot requeue a run after the API has already
+// received the worker result but before executor finalization has completed.
+func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	if marked, err := q.MarkWorkerTaskResultReceived(ctx, taskID); err != nil {
+		t.Fatalf("MarkWorkerTaskResultReceived: %v", err)
+	} else if !marked {
+		t.Fatal("MarkWorkerTaskResultReceived marked = false, want true")
+	}
+
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	svc.finalizeDisconnect(projectID, workerID)
+
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("run status = %q, want executing", run.Status)
+	}
+	if run.Error != "" {
+		t.Fatalf("run.Error = %q, want empty", run.Error)
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusResultReceived {
+		t.Fatalf("worker task status = %q, want result_received", task.Status)
+	}
+	if task.FinishedAt != nil {
+		t.Fatalf("worker task FinishedAt = %v, want nil before finalization", task.FinishedAt)
+	}
+}
+
 // TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue verifies
 // that a stale stream from a same-ID reconnect cannot run disconnect cleanup
 // for the replacement connection.
