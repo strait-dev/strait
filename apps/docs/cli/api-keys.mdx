@@ -201,10 +201,6 @@ Scopes restrict what an API key is allowed to do. Assign only the scopes your in
 | `dlq:read` | Read dead-letter queue entries. |
 | `dlq:replay` | Replay dead-letter queue entries. |
 | `dlq:purge` | Purge dead-letter queue entries. |
-| `outbox:read` | Read outbox entries. |
-| `outbox:retry` | Retry outbox entries. |
-| `outbox:purge` | Purge outbox entries. |
-
 <Tip>
 Keys created via CLI device-code authentication (`strait login`) receive the `CLIDefaultScopes` set, which includes standard operational scopes but excludes `api-keys:manage`, `rbac:manage`, and `projects:manage` to limit blast radius.
 </Tip>

@@ -36,7 +36,7 @@ Subscribe a channel to one or more of these events:
 | `spending.limit_warning` | A run or daily budget is approaching its limit. |
 | `spending.limit_reached` | A budget limit was hit and runs are being rejected. |
 
-Runs that reach terminal states (completed, failed, timed out, crashed) also trigger notifications through CDC — any channel subscribed to the relevant project receives delivery updates.
+Runs that reach terminal states (`completed`, `failed`, `timed_out`, `crashed`) can also trigger notifications for subscribed channels.
 
 ## Setting Up Slack Notifications
 

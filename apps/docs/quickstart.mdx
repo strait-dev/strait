@@ -21,7 +21,7 @@ docker compose -f apps/strait/docker-compose.yml up -d
 docker compose -f apps/strait/docker-compose.yml ps
 ```
 
-This runs PostgreSQL on host port 15432, Redis on 16379, and Sequin on 7376. All three should report `(healthy)`. If a port is already in use, edit the port mapping in `apps/strait/docker-compose.yml` or stop the conflicting service.
+This starts the local database, Redis, and supporting services. They should all report `(healthy)`. If a port is already in use, edit the port mapping in `apps/strait/docker-compose.yml` or stop the conflicting service.
 
 ## Step 2: configure environment variables
 

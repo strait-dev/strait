@@ -223,11 +223,8 @@ From the dead-letter queue, you can:
 - **Inspect** the failure — view the error message, response body, execution trace, and every previous attempt.
 - **Replay** the run — re-enqueue it for another execution or create a replacement run, depending on the endpoint used.
 - **Bulk replay** — replay multiple dead-lettered runs at once via `POST /v1/runs/bulk-dlq-replay`.
-- **Administer** the queue — operators can list, replay, unmask, or purge entries via `/v1/admin/dlq`.
 
-The dead-letter queue prevents failed work from being silently dropped. Nothing is lost — every failure is visible and actionable.
-
-For operational procedures, see [Dead-letter recovery](/operations/dlq-recovery).
+The dead-letter queue prevents failed work from being silently dropped. Nothing is lost -- every failure is visible and actionable.
 
 ## Run Data
 

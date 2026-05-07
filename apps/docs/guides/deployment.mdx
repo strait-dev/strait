@@ -11,16 +11,14 @@ Strait ships as a single Go binary. Deploy it with Docker or any platform that r
 | Service | Required | Purpose |
 | :--- | :--- | :--- |
 | **PostgreSQL** | Yes | Primary data store and job queue |
-| **Redis** | Yes | Pub/sub, SSE streaming, real-time event distribution |
-| **Sequin** | Yes | Streams database changes for real-time updates and webhooks |
+| **Redis** | Yes | Real-time updates and pub/sub notifications |
 
-See [Architecture](/architecture) for how these services interact.
+The self-hosted Docker Compose stack includes the supporting services Strait needs for local and production-style deployments.
 
 ### Hosted Dependency Options
 
 - **PostgreSQL**: RDS, Cloud SQL, or Supabase
 - **Redis**: Upstash, ElastiCache, or Memorystore
-- **Sequin**: Self-hosted Docker image
 
 ## Secrets Management
 
@@ -103,34 +101,11 @@ Run Strait as one or more long-lived processes. For small deployments, run a
 single `--mode all` process. For higher throughput, split API and worker
 capacity into separate processes by passing `--mode api` or `--mode worker`.
 
-## Sequin Deployment
-
-Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, using the official `sequin/sequin:latest` image -- no build step needed.
-
-```bash
-# From repo root
-bun run deploy:sequin
-```
-
-Sequin requires the following secrets configured in your deployment platform:
-
-| Secret | Description |
-| :--- | :--- |
-| `PG_HOSTNAME` | PostgreSQL host |
-| `PG_PORT` | PostgreSQL port |
-| `PG_USERNAME` | PostgreSQL user |
-| `PG_PASSWORD` | PostgreSQL password |
-| `PG_DATABASE` | Database name |
-| `PG_SSL` | Enable SSL (`true`) |
-| `REDIS_URL` | Redis connection string |
-| `SECRET_KEY_BASE` | Sequin internal encryption key |
-| `VAULT_KEY` | Sequin vault encryption key |
-
-### Region Strategy
+## Region Strategy
 
 - **Primary region**: Co-locate Strait with your database for lowest latency.
-- **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
-- **Sequin**: Single instance, co-located with the database. Sequin maintains a persistent connection to the database to detect changes, so it must run in the same region. Multiple instances would cause duplicate event processing.
+- **Additional API regions**: Deploy API instances closer to users when read and trigger latency matters.
+- **Workers**: Place workers near the services they call, especially for private-network worker deployments.
 
 ## Scaling
 
@@ -164,6 +139,4 @@ The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deplo
 docker build -t strait apps/strait/
 docker run -e DATABASE_URL=... -e REDIS_URL=... strait --mode all
 
-# Deploy Sequin
-docker run -e PG_HOSTNAME=... sequin/sequin:latest
 ```

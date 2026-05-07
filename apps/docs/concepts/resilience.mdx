@@ -107,7 +107,7 @@ When Strait receives `SIGINT`/`SIGTERM`, it shuts down in stages:
 
 1. Stop accepting new work (polling loop exits).
 2. Drain in-progress runs (30-second timeout).
-3. Stop scheduler, cron, and reaper.
+3. Stop scheduling and cleanup tasks.
 4. Drain HTTP server (10-second grace period).
 5. Close database and Redis connections, flush telemetry.
 

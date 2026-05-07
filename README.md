@@ -30,7 +30,7 @@ cd strait
 make selfhost
 ```
 
-That boots PostgreSQL, Redis, Sequin, the Strait API, and the dashboard on your machine. Open http://localhost:3000, sign up, and create your first job. No Stripe, no billing, no telemetry, no third-party accounts.
+That boots the Strait API, dashboard, database, and supporting services on your machine. Open http://localhost:3000, sign up, and create your first job. No Stripe, no billing, no telemetry, no third-party accounts.
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
@@ -56,7 +56,7 @@ unless something actually fails.
 2. Clone https://github.com/strait-dev/strait.git to a fresh directory and cd
    into it. If the repo already exists, cd into it and `git pull`.
 3. Run `make selfhost`. This generates `.env.selfhost` with random secrets,
-   then brings up Postgres, Redis, Sequin, the Strait API, and the dashboard
+   then brings up the Strait API, dashboard, database, and supporting services
    via `docker-compose.selfhost.yml`.
 4. Wait for every service to be healthy. Poll
    `curl -sf http://localhost:8080/health`, `curl -sf http://localhost:3000/login`,

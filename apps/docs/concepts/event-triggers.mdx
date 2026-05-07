@@ -86,8 +86,6 @@ Every event trigger has a `timeout_secs` value (default: 3600 seconds / 1 hour).
 - For workflow steps: the step transitions to `failed` and the workflow follows its `on_failure` policy (`fail_workflow`, `skip_dependents`, or `continue`)
 - For job runs: the run transitions to `timed_out`
 
-The reaper process polls for expired triggers every 30 seconds.
-
 <Tip>
 Set `timeout_secs` to a large value for long-running waits (e.g., `604800` for 7 days). The wait consumes no resources — it's just a database row.
 </Tip>
@@ -343,7 +341,7 @@ The quota only counts triggers in `waiting` status. Resolved, timed-out, and can
 
 ## Data Retention & Purge
 
-Terminal event triggers (received, timed_out, canceled) are automatically cleaned up by the reaper based on the `EVENT_TRIGGER_RETENTION` setting (default: 30 days).
+Terminal event triggers (`received`, `timed_out`, `canceled`) are automatically cleaned up based on the `EVENT_TRIGGER_RETENTION` setting.
 
 For manual control, use the purge API or CLI:
 
@@ -408,20 +406,6 @@ client = Client.from_file()
 
 # See https://github.com/strait-dev/strait-python for full usage
 ```
-## Reconciliation
-
-A background reconciliation reaper runs every 30 seconds to catch edge cases:
-
-- **Expired triggers**: Triggers past their `expires_at` are timed out
-- **Stale steps**: Triggers marked `received` but whose step/run is still in `waiting` status (30-second grace period) are re-resolved
-- **Expired approvals**: Approval steps past their timeout are failed
-
-### Distributed Reaper
-
-In multi-instance deployments, the reaper uses database-level locking so only one instance runs the reaper cycle. Other instances skip the cycle and try again on the next interval.
-
-This requires no external coordination service — the database itself provides leader election. If the active instance crashes, another instance acquires the lock on the next tick.
-
 ## Prometheus Metrics
 
 | Metric | Type | Description |

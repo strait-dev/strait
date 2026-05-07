@@ -1,10 +1,10 @@
 ---
 title: "Environment Variables"
-description: "Complete reference of environment variables used to configure Strait."
+description: "Customer-facing environment variables used to configure Strait."
 sidebarTitle: "Environment Variables"
 ---
 
-This page documents all environment variables available for configuring Strait.
+This page documents the environment variables most deployments need to configure Strait. Internal maintenance settings are intentionally omitted from the public docs.
 
 <Note>
   Required fields: `DATABASE_URL`, `INTERNAL_SECRET`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, and `SECRET_ENCRYPTION_KEY`.
@@ -19,7 +19,7 @@ This page documents all environment variables available for configuring Strait.
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `DATABASE_URL` | String | (Required) | PostgreSQL connection string. |
-| `REDIS_URL` | String | - | Redis connection string for pub/sub and CDC. |
+| `REDIS_URL` | String | - | Redis connection string for pub/sub and real-time updates. |
 | `MODE` | String | `all` | Operation mode: `all`, `api`, or `worker`. |
 | `PORT` | Integer | `8080` | Port the HTTP server listens on. |
 | `INTERNAL_SECRET` | String | (Required) | Secret used for internal authentication between components. |
@@ -56,11 +56,11 @@ This page documents all environment variables available for configuring Strait.
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `HEARTBEAT_INTERVAL` | Duration | `10s` | Interval for worker heartbeats. |
-| `REAPER_INTERVAL` | Duration | `30s` | Interval for the stale run reaper process. |
+| `REAPER_INTERVAL` | Duration | `30s` | How often Strait checks for interrupted or stale runs. |
 | `STALE_THRESHOLD` | Duration | `60s` | Threshold after which a run is considered stale. |
-| `POLLER_INTERVAL` | Duration | `5s` | Interval for the job poller to check for new work. |
+| `POLLER_INTERVAL` | Duration | `5s` | How often workers check for queued work. |
 | `INDEX_MAINTENANCE_INTERVAL` | Duration | `24h` | Interval for partial index maintenance (`REINDEX INDEX CONCURRENTLY`). Set to `0` or negative to disable. |
-| `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Number of records to delete in a single reaper batch. |
+| `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Maximum records cleaned up in one retention pass. |
 | `LOG_DRAIN_WORKER_INTERVAL` | Duration | `60s` | Interval for the log drain delivery worker. |
 
 ## Database Pool
@@ -90,16 +90,6 @@ This page documents all environment variables available for configuring Strait.
 | `MAX_REQUEST_BODY_SIZE` | Integer | `1MB` | Maximum size of the request body in bytes. |
 | `MAX_BULK_TRIGGER_ITEMS` | Integer | `500` | Maximum number of items in a single bulk trigger request. |
 
-## Sequin CDC
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `SEQUIN_BASE_URL` | String | - | Base URL for the Sequin CDC service. |
-| `SEQUIN_CONSUMER_NAME` | String | - | Name of the Sequin consumer. |
-| `SEQUIN_API_TOKEN` | String | - | API token for Sequin authentication. |
-| `SEQUIN_BATCH_SIZE` | Integer | `10` | Number of events to fetch from Sequin in one batch. |
-| `SEQUIN_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for Sequin long polling. |
-
 ## CORS Configuration
 
 | Variable | Type | Default | Description |
@@ -122,13 +112,6 @@ This page documents all environment variables available for configuring Strait.
 | :--- | :--- | :--- | :--- |
 | `PERMISSION_CACHE_TTL` | Duration | `5m` | TTL for the RBAC permission cache. |
 
-## CDC Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `CDC_BATCH_SIZE` | Integer | `10` | Number of change events to process in a single batch. |
-| `CDC_WAIT_TIME_MS` | Integer | `5000` | Wait time in milliseconds for CDC long polling. |
-
 ## Retention Configuration
 
 | Variable | Type | Default | Description |
@@ -137,7 +120,7 @@ This page documents all environment variables available for configuring Strait.
 | `RUN_RETENTION_LONG` | Duration | `90d` | Long-term retention period for job runs. |
 | `WORKFLOW_RUN_RETENTION_DAYS` | Integer | `30` | Number of days to retain workflow run data. |
 | `WORKFLOW_RETENTION` | Duration | `30d` | Retention period for workflow definitions. |
-| `EVENT_TRIGGER_RETENTION` | Duration | `168h` (7d) | Retention period for terminal event triggers. Terminal triggers older than this are purged by the reaper. Set to `0` to disable automatic cleanup. |
+| `EVENT_TRIGGER_RETENTION` | Duration | `168h` (7d) | Retention period for terminal event triggers. Set to `0` to disable automatic cleanup. |
 | `EVENT_TRIGGER_RETENTION_DAYS` | Integer | - | Legacy alternative: retention in days (e.g., `90`). Only used when `EVENT_TRIGGER_RETENTION` is not set. |
 | `TERMINAL_ARCHIVE_ENABLED` | Boolean | `true` | Move terminal job runs to an archive table to keep the hot `job_runs` table lean. Disable only for testing. |
 | `PARTITION_RECLAIM_ENABLED` | Boolean | `false` | Reclaim disk space by re-creating detached time-series partitions. Enable on long-running self-hosted installs with disk pressure. |
@@ -156,7 +139,7 @@ This page documents all environment variables available for configuring Strait.
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
-| `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before run is considered stalled by reaper. |
+| `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before Strait considers the run stalled. |
 | `WF_STALL_ACTION` | String | `log_only` | Action when stalled run is detected: `log_only`, `reconcile`, or `fail_workflow`. |
 | `WF_MAX_STEP_CAP` | Integer | `0` | Maximum number of steps allowed in a single workflow. `0` means unlimited. |
 | `WF_STEP_CONCURRENCY_LIMIT` | Integer | `0` | Maximum concurrent step executions per workflow run. `0` means unlimited. |
@@ -280,6 +263,6 @@ Strait is orchestration-only. Workers connect via gRPC streaming and execute job
 | `AUDIT_SIEM_BATCH_SIZE` | Integer | `100` | Number of audit events to batch per SIEM flush. |
 | `AUDIT_SIEM_FLUSH_INTERVAL` | Duration | `10s` | Maximum time between SIEM flushes. |
 | `AUDIT_EXPORT_ROW_CAP_DEFAULT` | Integer | `1000000` | Default cap on rows returned per audit export call. Per-project overrides live in `project_quotas.audit_export_row_cap`. |
-| `AUDIT_DLQ_RECLAIM_BATCH` | Integer | `200` | Maximum audit dead-letter rows the reclaimer processes per scheduler tick. |
-| `AUDIT_DLQ_MAX_AGE_DAYS` | Integer | `30` | Maximum days an audit dead-letter row may live before the retention reaper drops it. `0` disables the sweep. |
-| `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | Integer | `10` | Maximum reclaim attempts per DLQ row before skipping. `0` disables the cap. |
+| `AUDIT_DLQ_RECLAIM_BATCH` | Integer | `200` | Maximum audit dead-letter rows processed in one recovery pass. |
+| `AUDIT_DLQ_MAX_AGE_DAYS` | Integer | `30` | Maximum days an audit dead-letter row may be retained. `0` disables the sweep. |
+| `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | Integer | `10` | Maximum recovery attempts per audit dead-letter row before skipping. `0` disables the cap. |

@@ -32,7 +32,7 @@ See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the detail
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - 2 GB RAM minimum (4 GB recommended)
-- Ports 3000 (Dashboard), 8080 (API), 5432 (Postgres), 6379 (Redis), 7376 (Sequin) available
+- Ports 3000 (Dashboard), 8080 (API), 5432 (Postgres), and 6379 (Redis) available
 
 ### Quick Start
 
@@ -108,23 +108,12 @@ curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
 | `strait-app` | `ghcr.io/strait-dev/strait-app:latest` | 3000 | Dashboard UI |
 | `postgres` | `postgres:18-alpine` | 5432 | Primary database |
 | `redis` | `redis:8-alpine` | 6379 | Pub/sub, caching |
-| `sequin` | `sequin/sequin:latest` | 7376 | CDC (Change Data Capture) |
 
 ## Community edition
 
 Self-hosting runs the community edition. It includes job creation and scheduling, HTTP and gRPC worker dispatch, cron with overlap policies, retry strategies (exponential, linear, fixed, custom), workflow DAGs with dependencies, webhook subscriptions and delivery, SSE streaming, API keys and RBAC, full run-lifecycle management (cancel, replay, pause, resume), and the dead-letter queue for runs that exhaust their retries.
 
 The hosted orchestrator at [strait.dev](https://strait.dev) adds multi-region orchestration, advanced analytics, and Stripe-backed metering. Your job code still runs on your own infrastructure on either edition.
-
-## Real-time updates (CDC)
-
-Strait uses [Sequin](https://sequinstream.com) for change data capture. Sequin watches four PostgreSQL tables — `job_runs`, `workflow_runs`, `workflow_step_runs`, and `event_triggers` — and pushes changes back to Strait through an HTTP pull consumer. That's what powers the SSE stream at `GET /v1/runs/{runID}/stream` and the live dashboard.
-
-The consumer is provisioned by `packages/configs/sequin.yml`, mounted into the Sequin container at boot. Nothing to configure by hand. Verify with:
-
-```bash
-curl http://localhost:7376/health
-```
 
 ## Environment overrides
 
@@ -253,8 +242,6 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 **Strait API won't start.** Check the logs first: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait`. Usual culprits are PostgreSQL not yet ready (give it a moment, then retry) or bad secrets in `.env.selfhost`. Run `docker ps` to confirm Postgres is healthy. If the secrets look corrupted, regenerate them with `make selfhost-reset` followed by `make selfhost`.
 
 **Dashboard can't reach the API.** Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. After fixing it, restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`.
-
-**Sequin won't start.** Logs: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs sequin`. Sequin needs PostgreSQL with logical replication enabled — the Alpine Postgres image enables it by default, so the usual fix is just waiting for Postgres to finish coming up.
 
 **Migrations failed.** They run automatically on startup. Look at `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep migration` to see which one and why.
 

@@ -100,7 +100,6 @@
               "concepts/webhook-subscriptions",
               "concepts/event-sources",
               "concepts/clickhouse-analytics",
-              "concepts/cdc",
               "concepts/notifications",
               "concepts/debug-bundles"
             ]
@@ -120,13 +119,8 @@
               "guides/idempotency",
               "guides/workflow-approvals",
               "guides/event-triggers",
-              "guides/audit-events",
-              "guides/dag-operations-playbook"
+              "guides/audit-events"
             ]
-          },
-          {
-            "group": "Operations",
-            "pages": ["operations/alert-runbooks", "operations/dlq-recovery"]
           },
           {
             "group": "Integrations",
@@ -251,10 +245,6 @@
     {
       "source": "/docs/cli/:slug",
       "destination": "/cli/:slug"
-    },
-    {
-      "source": "/docs/operations/:slug",
-      "destination": "/operations/:slug"
     },
     {
       "source": "/configuration/:slug",
