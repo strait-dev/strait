@@ -290,19 +290,21 @@ type Config struct {
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 
 	// gRPC server settings.
-	GRPCEnabled          bool          `env:"GRPC_ENABLED" default:"true"`
-	GRPCBindAddr         string        `env:"GRPC_BIND_ADDR" default:"127.0.0.1"`
-	GRPCPort             int           `env:"GRPC_PORT" default:"50051"`
-	GRPCAllowPlaintext   bool          `env:"GRPC_ALLOW_PLAINTEXT" default:"false"`
-	GRPCTLSCertPath      string        `env:"GRPC_TLS_CERT_PATH"`
-	GRPCTLSKeyPath       string        `env:"GRPC_TLS_KEY_PATH"`
-	GRPCKeepaliveTime    time.Duration `env:"GRPC_KEEPALIVE_TIME" default:"30s"`
-	GRPCKeepaliveTimeout time.Duration `env:"GRPC_KEEPALIVE_TIMEOUT" default:"10s"`
+	GRPCEnabled              bool          `env:"GRPC_ENABLED" default:"true"`
+	GRPCBindAddr             string        `env:"GRPC_BIND_ADDR" default:"127.0.0.1"`
+	GRPCPort                 int           `env:"GRPC_PORT" default:"50051"`
+	GRPCAllowPlaintext       bool          `env:"GRPC_ALLOW_PLAINTEXT" default:"false"`
+	GRPCTLSCertPath          string        `env:"GRPC_TLS_CERT_PATH"`
+	GRPCTLSKeyPath           string        `env:"GRPC_TLS_KEY_PATH"`
+	GRPCKeepaliveTime        time.Duration `env:"GRPC_KEEPALIVE_TIME" default:"30s"`
+	GRPCKeepaliveTimeout     time.Duration `env:"GRPC_KEEPALIVE_TIMEOUT" default:"10s"`
+	GRPCPubsubStartupTimeout time.Duration `env:"GRPC_PUBSUB_STARTUP_TIMEOUT" default:"30s"`
 
 	// gRPC Worker connection management.
 	WorkerHeartbeatTimeout        time.Duration `env:"WORKER_HEARTBEAT_TIMEOUT" default:"30s"`
-	WorkerDBSyncInterval          time.Duration `env:"WORKER_DB_SYNC_INTERVAL" default:"10s"`
+	WorkerDBSyncInterval          time.Duration `env:"WORKER_DB_SYNC_INTERVAL" default:"15s"`
 	WorkerDisconnectSweepInterval time.Duration `env:"WORKER_DISCONNECT_SWEEP_INTERVAL" default:"30s"`
+	WorkerDisconnectAckTimeout    time.Duration `env:"WORKER_DISCONNECT_ACK_TIMEOUT" default:"5s"`
 }
 
 // Load reads configuration from environment variables.
@@ -471,6 +473,24 @@ func validateLoaded(cfg *Config) error {
 		if u.User != nil {
 			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
 		}
+	}
+	if cfg.WorkerDBSyncInterval <= cfg.HeartbeatInterval {
+		return &domain.ConfigError{
+			Field:   "WORKER_DB_SYNC_INTERVAL",
+			Message: fmt.Sprintf("must be > HEARTBEAT_INTERVAL (%v), got %v", cfg.HeartbeatInterval, cfg.WorkerDBSyncInterval),
+		}
+	}
+	if cfg.WorkerDBSyncInterval >= cfg.StaleThreshold {
+		return &domain.ConfigError{
+			Field:   "WORKER_DB_SYNC_INTERVAL",
+			Message: fmt.Sprintf("must be < STALE_THRESHOLD (%v), got %v", cfg.StaleThreshold, cfg.WorkerDBSyncInterval),
+		}
+	}
+	if cfg.WorkerDisconnectAckTimeout <= 0 {
+		return &domain.ConfigError{Field: "WORKER_DISCONNECT_ACK_TIMEOUT", Message: "must be > 0"}
+	}
+	if cfg.GRPCPubsubStartupTimeout <= 0 {
+		return &domain.ConfigError{Field: "GRPC_PUBSUB_STARTUP_TIMEOUT", Message: "must be > 0"}
 	}
 
 	return nil

@@ -135,7 +135,9 @@ func (r *ResultChannelRegistry) SendAfterHandoff(
 }
 
 // ErrNoWorkerAvailable is returned when no connected worker services the run's queue.
-var ErrNoWorkerAvailable = fmt.Errorf("no worker available for queue")
+//
+// Deprecated: use ErrNoWorkerForQueue.
+var ErrNoWorkerAvailable = ErrNoWorkerForQueue
 
 const invalidWorkerOutputError = "worker returned invalid output_json"
 
@@ -174,18 +176,27 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	ctx context.Context,
 	run *domain.JobRun,
 	job *domain.Job,
-) (any, error) {
+) (out any, err error) {
+	trace := newDispatchTrace(run, job)
+	defer func() {
+		trace.finish(err)
+	}()
+
 	// Atomic pick + slot reservation under the registry write lock. Without
 	// this, N concurrent dispatchers can all see SlotsAvailable=1 on the
 	// same worker, all decrement, and oversubscribe a single-slot worker.
 	workerID, sendCh, ok := d.registry.ReserveWorkerForQueue(run.ProjectID, job.Queue, job.EnvironmentID)
+	trace.WorkerID = workerID
 	if !ok {
+		trace.Decision = "no_worker"
 		return nil, ErrNoWorkerAvailable
 	}
+	trace.Decision = "worker_reserved"
 	if sendCh == nil {
 		// Defensive: a worker entry without a send channel should never be
 		// pickable, but if one slipped through, release the reservation.
 		d.registry.IncrementSlots(workerID)
+		trace.Result = "nil_send_channel"
 		return nil, ErrNoWorkerAvailable
 	}
 
@@ -200,8 +211,11 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	}
 	if err := d.queries.CreateWorkerTask(ctx, task); err != nil {
 		d.registry.IncrementSlots(workerID)
+		trace.TaskID = task.ID
+		trace.Result = "task_record_failed"
 		return nil, fmt.Errorf("worker dispatch: record task: %w", err)
 	}
+	trace.TaskID = task.ID
 
 	// Register the result channel before sending the assignment so we can
 	// never miss a TaskResult that arrives before we start waiting. The
@@ -220,9 +234,12 @@ func (d *WorkerDispatcher) WorkerDispatch(
 
 	select {
 	case sendCh <- msg:
+		trace.Result = "assignment_queued"
+		d.emitTaskRoutedAudit(ctx, run, job, workerID)
 	case <-ctx.Done():
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
 		d.registry.IncrementSlots(workerID)
+		trace.Result = "send_cancelled"
 		return nil, ctx.Err()
 	}
 
@@ -231,16 +248,20 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	case result, open := <-resultCh:
 		d.registry.IncrementSlots(workerID)
 		if !open || result == nil {
+			trace.Result = "result_channel_closed"
 			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
 		}
 		if marked, err := d.markWorkerTaskResultReceived(ctx, task.ID, run.ID); err != nil {
+			trace.Result = "task_result_mark_failed"
 			return nil, err
 		} else if !marked {
+			trace.Result = "task_assignment_closed"
 			return nil, fmt.Errorf("worker dispatch: task assignment closed before result for run %s", run.ID)
 		}
 		// Return as interface{} so callers in worker package don't need to
 		// import workerv1. The task ID stays attached so the executor marks
 		// worker_tasks terminal only after run result persistence succeeds.
+		trace.Result = "result_received"
 		return &WorkerTaskResult{TaskID: task.ID, Result: result}, nil
 
 	case <-ctx.Done():
@@ -248,7 +269,105 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		d.sendCancel(sendCh, run.ID)
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
 		d.registry.IncrementSlots(workerID)
+		trace.Result = "wait_cancelled"
 		return nil, ctx.Err()
+	}
+}
+
+type dispatchTrace struct {
+	Started   time.Time
+	RunID     string
+	JobID     string
+	Queue     string
+	ProjectID string
+	WorkerID  string
+	TaskID    string
+	Decision  string
+	Result    string
+}
+
+func newDispatchTrace(run *domain.JobRun, job *domain.Job) *dispatchTrace {
+	trace := &dispatchTrace{Started: time.Now()}
+	if run != nil {
+		trace.RunID = run.ID
+		trace.ProjectID = run.ProjectID
+		trace.JobID = run.JobID
+	}
+	if job != nil {
+		if trace.JobID == "" {
+			trace.JobID = job.ID
+		}
+		trace.Queue = job.Queue
+	}
+	return trace
+}
+
+func (t *dispatchTrace) finish(err error) {
+	if t == nil {
+		return
+	}
+	logger := slog.Default()
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
+	result := t.Result
+	if result == "" {
+		if err != nil {
+			result = "error"
+		} else {
+			result = "success"
+		}
+	}
+	args := []any{
+		"run_id", t.RunID,
+		"job_id", t.JobID,
+		"queue", t.Queue,
+		"project_id", t.ProjectID,
+		"worker_id", t.WorkerID,
+		"task_id", t.TaskID,
+		"decision", t.Decision,
+		"result", result,
+		"duration_ms", time.Since(t.Started).Milliseconds(),
+	}
+	if err != nil {
+		args = append(args, "error", err)
+	}
+	logger.Debug("worker dispatch trace", args...)
+}
+
+func (d *WorkerDispatcher) emitTaskRoutedAudit(ctx context.Context, run *domain.JobRun, job *domain.Job, workerID string) {
+	if d.queries == nil || run == nil || job == nil {
+		return
+	}
+	details := map[string]any{
+		"run_id":     run.ID,
+		"worker_id":  workerID,
+		"queue":      job.Queue,
+		"project_id": run.ProjectID,
+	}
+	raw, err := json.Marshal(details)
+	if err != nil {
+		slog.Warn("worker dispatch: marshal task route audit failed", "run_id", run.ID, "error", err)
+		return
+	}
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	ev := &domain.AuditEvent{
+		ProjectID:     run.ProjectID,
+		ActorID:       "system:worker-dispatcher",
+		ActorType:     "system",
+		Action:        domain.AuditActionWorkerTaskRouted,
+		ResourceType:  "run",
+		ResourceID:    run.ID,
+		Details:       json.RawMessage(raw),
+		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
+	}
+	if err := d.queries.CreateAuditEvent(auditCtx, ev); err != nil {
+		slog.Warn("worker dispatch: create task route audit failed",
+			"run_id", run.ID,
+			"worker_id", workerID,
+			"error", err,
+		)
 	}
 }
 
@@ -325,7 +444,7 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 			Attempt:      run.Attempt,
 			AssignmentID: assignmentID,
 			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    "strait:run-token",
+				Issuer:    domain.RunTokenIssuer,
 				Subject:   run.ID,
 				ExpiresAt: jwt.NewNumericDate(expiresAt),
 				IssuedAt:  jwt.NewNumericDate(time.Now()),

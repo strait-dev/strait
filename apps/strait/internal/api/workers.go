@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -95,6 +97,23 @@ type DeleteWorkerOutput struct {
 	Body map[string]string
 }
 
+var workerDisconnectAckTimeout = 5 * time.Second
+
+func (s *Server) workerDisconnectAckTimeout() time.Duration {
+	if s != nil && s.config != nil && s.config.WorkerDisconnectAckTimeout > 0 {
+		return s.config.WorkerDisconnectAckTimeout
+	}
+	return workerDisconnectAckTimeout
+}
+
+func retryAfterSeconds(d time.Duration) string {
+	if d <= 0 {
+		return "1"
+	}
+	seconds := int((d + time.Second - time.Nanosecond) / time.Second)
+	return strconv.Itoa(max(seconds, 1))
+}
+
 func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInput) (*DeleteWorkerOutput, error) {
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
@@ -116,6 +135,17 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 		)
 		return nil, huma.Error503ServiceUnavailable("worker force-disconnect unavailable: pubsub not configured")
 	}
+	ackChannel := fmt.Sprintf("worker:disconnect_ack:%s", input.WorkerID)
+	ackSub, subErr := s.pubsub.Subscribe(ctx, ackChannel)
+	if subErr != nil || ackSub == nil {
+		slog.Error("worker force-disconnect: ack subscription failed",
+			"worker_id", input.WorkerID,
+			"error", subErr,
+		)
+		return nil, huma.Error503ServiceUnavailable("worker force-disconnect unavailable: ack subscription failed")
+	}
+	defer ackSub.Close()
+
 	channel := fmt.Sprintf("worker:disconnect:%s", input.WorkerID)
 	if pubErr := s.pubsub.Publish(ctx, channel, []byte(input.WorkerID)); pubErr != nil {
 		slog.Error("worker force-disconnect: publish failed",
@@ -127,15 +157,51 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 
 	s.emitAuditEvent(ctx, domain.AuditActionWorkerForceDisconnected, "worker", input.WorkerID, map[string]any{
 		"worker_id": input.WorkerID,
+		"reason":    "operator_requested",
 	})
 
-	slog.Info("worker force-disconnect requested",
-		"worker_id", input.WorkerID,
-		"project_id", projectID,
-		"actor", actorFromContext(ctx),
-	)
+	ackTimeout := s.workerDisconnectAckTimeout()
+	timer := time.NewTimer(ackTimeout)
+	defer timer.Stop()
+	select {
+	case msg, ok := <-ackSub.Ch:
+		if !ok || string(msg) != input.WorkerID {
+			reason := "ack_worker_mismatch"
+			if !ok {
+				reason = "ack_channel_closed"
+			}
+			s.emitAuditEvent(ctx, domain.AuditActionWorkerDeleteTimeout, "worker", input.WorkerID, map[string]any{
+				"worker_id":  input.WorkerID,
+				"timeout_ms": ackTimeout.Milliseconds(),
+				"reason":     reason,
+			})
+			err := huma.Error503ServiceUnavailable("worker_disconnect_pending")
+			return nil, huma.ErrorWithHeaders(err, http.Header{
+				"Retry-After": []string{retryAfterSeconds(ackTimeout)},
+			})
+		}
+		s.emitAuditEvent(ctx, domain.AuditActionWorkerDeleteAcked, "worker", input.WorkerID, map[string]any{
+			"worker_id": input.WorkerID,
+		})
+		slog.Info("worker force-disconnect acknowledged",
+			"worker_id", input.WorkerID,
+			"project_id", projectID,
+			"actor", actorFromContext(ctx),
+		)
+	case <-timer.C:
+		s.emitAuditEvent(ctx, domain.AuditActionWorkerDeleteTimeout, "worker", input.WorkerID, map[string]any{
+			"worker_id":  input.WorkerID,
+			"timeout_ms": ackTimeout.Milliseconds(),
+		})
+		err := huma.Error503ServiceUnavailable("worker_disconnect_pending")
+		return nil, huma.ErrorWithHeaders(err, http.Header{
+			"Retry-After": []string{retryAfterSeconds(ackTimeout)},
+		})
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
-	return &DeleteWorkerOutput{Body: map[string]string{"status": "disconnect_requested"}}, nil
+	return &DeleteWorkerOutput{Body: map[string]string{"status": "disconnected"}}, nil
 }
 
 // -- List worker tasks --.

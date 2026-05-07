@@ -165,7 +165,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		// jwt.WithExpirationRequired rejects tokens that omit `exp`. Without
 		// it the library silently treats a missing exp as valid forever, so
 		// a forged or accidentally-non-expiring token would never time out.
-		// Issuer is bound to "strait:run-token" so a token issued for a
+		// Issuer is bound to domain.RunTokenIssuer so a token issued for a
 		// different audience (e.g. an SSE token) cannot be replayed against
 		// the SDK plane.
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
@@ -173,8 +173,11 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 			return []byte(s.config.JWTSigningKey), nil
-		}, jwt.WithExpirationRequired(), jwt.WithIssuer("strait:run-token"))
+		}, jwt.WithExpirationRequired(), jwt.WithIssuer(domain.RunTokenIssuer))
 		if err != nil || !token.Valid {
+			if claims.Issuer != domain.RunTokenIssuer {
+				s.auditRunTokenRejected(r.Context(), chi.URLParam(r, "runID"), "bad_issuer", claims)
+			}
 			respondError(w, r, http.StatusUnauthorized, "invalid run token")
 			return
 		}
@@ -233,6 +236,21 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxActorIDKey, "run:"+subject)
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) auditRunTokenRejected(ctx context.Context, runID, reason string, claims *runTokenClaims) {
+	if s == nil || s.store == nil {
+		return
+	}
+	details := map[string]any{
+		"reason":         reason,
+		"run_id":         runID,
+		"issuer_present": claims != nil && claims.Issuer != "",
+	}
+	if claims != nil && claims.Issuer != "" {
+		details["issuer"] = claims.Issuer
+	}
+	s.emitAuditEvent(ctx, domain.AuditActionAuthRunTokenRejected, "run", runID, details)
 }
 
 func (s *Server) revalidateRunTokenState(ctx context.Context) error {

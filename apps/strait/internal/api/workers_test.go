@@ -5,10 +5,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/domain"
+	"strait/internal/pubsub"
 )
 
 // helper: build a minimal Server for handleDeleteWorker tests, scoped by a
@@ -92,6 +94,11 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 			publishedData = string(data)
 			return nil
 		},
+		subscribeFn: func(ctx context.Context, channel string) (*pubsub.Subscription, error) {
+			ch := make(chan []byte, 1)
+			ch <- []byte("worker-1")
+			return pubsub.NewSubscription(ch, func() {}), nil
+		},
 	}
 	srv, ctx := newDeleteWorkerServer(t, pub, func(ctx context.Context, workerID, projectID string) (*domain.Worker, error) {
 		return ownedWorker(), nil
@@ -101,14 +108,103 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out == nil || out.Body["status"] != "disconnect_requested" {
-		t.Fatalf("expected disconnect_requested envelope, got %+v", out)
+	if out == nil || out.Body["status"] != "disconnected" {
+		t.Fatalf("expected disconnected envelope, got %+v", out)
 	}
 	if !strings.HasPrefix(publishedChannel, "worker:disconnect:") {
 		t.Fatalf("expected channel prefix worker:disconnect:, got %q", publishedChannel)
 	}
 	if publishedData != "worker-1" {
 		t.Fatalf("expected published data %q, got %q", "worker-1", publishedData)
+	}
+}
+
+func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
+	oldTimeout := workerDisconnectAckTimeout
+	workerDisconnectAckTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { workerDisconnectAckTimeout = oldTimeout })
+
+	pub := &mockPublisher{
+		subscribeFn: func(ctx context.Context, channel string) (*pubsub.Subscription, error) {
+			ch := make(chan []byte)
+			return pubsub.NewSubscription(ch, func() { close(ch) }), nil
+		},
+	}
+	srv, ctx := newDeleteWorkerServer(t, pub, func(ctx context.Context, workerID, projectID string) (*domain.Worker, error) {
+		return ownedWorker(), nil
+	})
+
+	start := time.Now()
+	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
+	if err == nil {
+		t.Fatalf("expected timeout error, got out=%+v", out)
+	}
+	if elapsed := time.Since(start); elapsed < workerDisconnectAckTimeout {
+		t.Fatalf("handler returned before ack timeout: %v", elapsed)
+	}
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
+	}
+	if statusErr.GetStatus() != 503 {
+		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
+	}
+	if !strings.Contains(err.Error(), "worker_disconnect_pending") {
+		t.Fatalf("expected worker_disconnect_pending error, got %v", err)
+	}
+}
+
+func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
+	oldTimeout := workerDisconnectAckTimeout
+	workerDisconnectAckTimeout = time.Second
+	t.Cleanup(func() { workerDisconnectAckTimeout = oldTimeout })
+
+	pub := &mockPublisher{
+		subscribeFn: func(ctx context.Context, channel string) (*pubsub.Subscription, error) {
+			ch := make(chan []byte)
+			close(ch)
+			return pubsub.NewSubscription(ch, func() {}), nil
+		},
+	}
+	srv, ctx := newDeleteWorkerServer(t, pub, func(ctx context.Context, workerID, projectID string) (*domain.Worker, error) {
+		return ownedWorker(), nil
+	})
+
+	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
+	if err == nil {
+		t.Fatalf("expected closed ack channel to fail, got out=%+v", out)
+	}
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
+	}
+	if statusErr.GetStatus() != 503 {
+		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
+	}
+}
+
+func TestHandleDeleteWorker_MismatchedAckReturns503(t *testing.T) {
+	pub := &mockPublisher{
+		subscribeFn: func(ctx context.Context, channel string) (*pubsub.Subscription, error) {
+			ch := make(chan []byte, 1)
+			ch <- []byte("other-worker")
+			return pubsub.NewSubscription(ch, func() {}), nil
+		},
+	}
+	srv, ctx := newDeleteWorkerServer(t, pub, func(ctx context.Context, workerID, projectID string) (*domain.Worker, error) {
+		return ownedWorker(), nil
+	})
+
+	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
+	if err == nil {
+		t.Fatalf("expected mismatched ack to fail, got out=%+v", out)
+	}
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
+	}
+	if statusErr.GetStatus() != 503 {
+		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
 	}
 }
 

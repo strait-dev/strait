@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -371,6 +372,73 @@ func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
 	}
 	if called.Load() {
 		t.Fatal("next handler should not have been called for wrong-issuer token")
+	}
+}
+
+func TestRunTokenAuth_BadIssuerEmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.AuditEvent
+	store := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			captured = ev
+			return nil
+		},
+	}
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testSigningKey,
+		},
+		Store: store,
+		Queue: &mockQueue{},
+	})
+	t.Cleanup(srv.Close)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, runTokenClaims{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:sse",
+			Subject:   "run-issuer-audit",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	})
+	signed, err := token.SignedString([]byte(testSigningKey))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("next handler should not have been called")
+	}))
+	r := authRequest(t, "run-issuer-audit")
+	r.Header.Set("Authorization", "Bearer "+signed)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for bad issuer token, got %d", w.Code)
+	}
+	if captured == nil {
+		t.Fatal("expected audit event for bad run-token issuer")
+	}
+	if captured.Action != domain.AuditActionAuthRunTokenRejected {
+		t.Fatalf("audit action = %q, want %q", captured.Action, domain.AuditActionAuthRunTokenRejected)
+	}
+	if captured.ResourceType != "run" || captured.ResourceID != "run-issuer-audit" {
+		t.Fatalf("audit resource = %s/%s, want run/run-issuer-audit", captured.ResourceType, captured.ResourceID)
+	}
+	var details map[string]any
+	if err := json.Unmarshal(captured.Details, &details); err != nil {
+		t.Fatalf("unmarshal audit details: %v", err)
+	}
+	if details["reason"] != "bad_issuer" {
+		t.Fatalf("audit reason = %v, want bad_issuer", details["reason"])
+	}
+	if details["run_id"] != "run-issuer-audit" {
+		t.Fatalf("audit run_id = %v, want run-issuer-audit", details["run_id"])
 	}
 }
 

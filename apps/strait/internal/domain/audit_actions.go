@@ -24,6 +24,9 @@ const (
 	AuditActionAPIKeyRotated  = "api_key.rotate"
 	AuditActionAPIKeyListRead = "api_key.list_read"
 
+	// SDK run-token auth.
+	AuditActionAuthRunTokenRejected = "auth.run_token.rejected"
+
 	// Audit log self-audit + read access (SOC 2 requires audit of audit reads).
 	AuditActionAuditExported      = "audit.exported"
 	AuditActionAuditExportCapped  = "audit.export_capped"
@@ -198,6 +201,9 @@ const (
 	AuditActionWorkerConnected         = "worker.connected"
 	AuditActionWorkerDisconnected      = "worker.disconnected"
 	AuditActionWorkerForceDisconnected = "worker.force_disconnected"
+	AuditActionWorkerTaskRouted        = "worker.task_routed"
+	AuditActionWorkerDeleteAcked       = "worker.delete.acked"
+	AuditActionWorkerDeleteTimeout     = "worker.delete.timeout"
 
 	// Quota and cron lifecycle (billing-period enforcement).
 	AuditActionQuotaExceeded       = "quota.exceeded"
@@ -215,6 +221,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionAPIKeyRevoked:                   {},
 	AuditActionAPIKeyRotated:                   {},
 	AuditActionAPIKeyListRead:                  {},
+	AuditActionAuthRunTokenRejected:            {},
 	AuditActionAuditExported:                   {},
 	AuditActionAuditExportCapped:               {},
 	AuditActionAuditListRead:                   {},
@@ -344,6 +351,9 @@ var allAuditActions = map[string]struct{}{
 	AuditActionWorkerConnected:                 {},
 	AuditActionWorkerDisconnected:              {},
 	AuditActionWorkerForceDisconnected:         {},
+	AuditActionWorkerTaskRouted:                {},
+	AuditActionWorkerDeleteAcked:               {},
+	AuditActionWorkerDeleteTimeout:             {},
 	AuditActionQuotaExceeded:                   {},
 	AuditActionCronPausedQuota:                 {},
 	AuditActionCronResumedQuota:                {},

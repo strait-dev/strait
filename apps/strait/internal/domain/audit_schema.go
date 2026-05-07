@@ -57,6 +57,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	AuditActionAPIKeyListRead: {
 		Description: "API key list read.",
 	},
+	AuditActionAuthRunTokenRejected: {
+		Required:    []string{"reason", "run_id"},
+		Description: "SDK run-token authentication rejected before run-scoped API access.",
+	},
 
 	// Audit.
 	AuditActionAuditExported: {
@@ -616,6 +620,18 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	AuditActionWorkerForceDisconnected: {
 		Required:    []string{"worker_id", "reason"},
 		Description: "Worker force-disconnected by operator or revocation broadcast.",
+	},
+	AuditActionWorkerTaskRouted: {
+		Required:    []string{"run_id", "worker_id", "queue", "project_id"},
+		Description: "Worker-mode run routed to a connected gRPC worker.",
+	},
+	AuditActionWorkerDeleteAcked: {
+		Required:    []string{"worker_id"},
+		Description: "Worker force-disconnect request was acknowledged by the worker-plane replica.",
+	},
+	AuditActionWorkerDeleteTimeout: {
+		Required:    []string{"worker_id", "timeout_ms"},
+		Description: "Worker force-disconnect request timed out waiting for worker-plane acknowledgement.",
 	},
 
 	// Quota and cron lifecycle (billing-period enforcement).

@@ -110,6 +110,9 @@ Use these when running connected workers.
 | `GRPC_ALLOW_PLAINTEXT` | `false` | Allow plaintext gRPC on non-loopback addresses. |
 | `GRPC_TLS_CERT_PATH` | - | TLS certificate path. |
 | `GRPC_TLS_KEY_PATH` | - | TLS private key path. |
+| `WORKER_DB_SYNC_INTERVAL` | `15s` | Interval at which connected worker state is flushed to the database. Must be greater than `HEARTBEAT_INTERVAL` and less than `STALE_THRESHOLD`. |
+| `WORKER_DISCONNECT_ACK_TIMEOUT` | `5s` | Maximum time `DELETE /workers/{id}` waits for worker-plane disconnect acknowledgement before returning `503` with `Retry-After`. |
+| `GRPC_PUBSUB_STARTUP_TIMEOUT` | `30s` | Maximum time gRPC startup waits for pubsub readiness before refusing to serve worker streams. |
 | `EXTERNAL_API_URL` | - | Base URL workers use to call back to the Strait API. |
 
 ## Related
