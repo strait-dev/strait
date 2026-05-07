@@ -3,49 +3,58 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"strait/internal/telemetry"
 )
 
-func unarySentryInterceptor() grpc.UnaryServerInterceptor {
+type grpcSentryMetadata struct {
+	mode    string
+	region  string
+	version string
+}
+
+func unarySentryInterceptor(meta grpcSentryMetadata) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		ctx = ensureGRPCSentryHub(ctx)
-		configureGRPCSentryScope(ctx, map[string]string{
-			"grpc_method": info.FullMethod,
-			"rpc_system":  "grpc",
+		configureGRPCSentryScope(ctx, meta, map[telemetry.SentryTag]string{
+			telemetry.TagService: grpcServiceName(info.FullMethod),
+			telemetry.TagRPC:     grpcRPCName(info.FullMethod),
 		})
 		defer func() {
 			if r := recover(); r != nil {
-				captureGRPCSentryError(ctx, info.FullMethod, grpcPanicError(r))
+				captureGRPCSentryError(ctx, meta, info.FullMethod, grpcPanicError(r))
 				panic(r)
 			}
 		}()
 		resp, err = handler(ctx, req)
-		captureGRPCSentryError(ctx, info.FullMethod, err)
+		captureGRPCSentryError(ctx, meta, info.FullMethod, err)
 		return resp, err
 	}
 }
 
-func streamSentryInterceptor() grpc.StreamServerInterceptor {
+func streamSentryInterceptor(meta grpcSentryMetadata) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := ensureGRPCSentryHub(ss.Context())
-		configureGRPCSentryScope(ctx, map[string]string{
-			"grpc_method": info.FullMethod,
-			"rpc_system":  "grpc",
+		configureGRPCSentryScope(ctx, meta, map[telemetry.SentryTag]string{
+			telemetry.TagService: grpcServiceName(info.FullMethod),
+			telemetry.TagRPC:     grpcRPCName(info.FullMethod),
 		})
 		wrapped := &sentryServerStream{ServerStream: ss, ctx: ctx}
 		defer func() {
 			if r := recover(); r != nil {
-				captureGRPCSentryError(ctx, info.FullMethod, grpcPanicError(r))
+				captureGRPCSentryError(ctx, meta, info.FullMethod, grpcPanicError(r))
 				panic(r)
 			}
 		}()
 		err := handler(srv, wrapped)
-		captureGRPCSentryError(ctx, info.FullMethod, err)
+		captureGRPCSentryError(ctx, meta, info.FullMethod, err)
 		return err
 	}
 }
@@ -66,14 +75,19 @@ func ensureGRPCSentryHub(ctx context.Context) context.Context {
 	return sentry.SetHubOnContext(ctx, sentry.CurrentHub().Clone())
 }
 
-func configureGRPCSentryScope(ctx context.Context, tags map[string]string) {
+func configureGRPCSentryScope(ctx context.Context, meta grpcSentryMetadata, tags map[telemetry.SentryTag]string) {
 	hub := sentry.GetHubFromContext(ctx)
 	if hub == nil {
 		return
 	}
 	hub.ConfigureScope(func(scope *sentry.Scope) {
 		for k, v := range sentryGRPCContextTags(ctx, tags) {
-			scope.SetTag(k, v)
+			telemetry.SetSentryTag(scope, k, v)
+		}
+		if meta.hasRequiredTags() {
+			for k, v := range telemetry.RequiredSentryTags("", telemetry.SubsystemGRPC, meta.mode, meta.region, meta.version) {
+				telemetry.SetSentryTag(scope, k, v)
+			}
 		}
 		if apiKeyID := grpcAPIKeyIDFromContext(ctx); apiKeyID != "" {
 			scope.SetUser(sentry.User{
@@ -85,16 +99,17 @@ func configureGRPCSentryScope(ctx context.Context, tags map[string]string) {
 			})
 		}
 		scope.SetContext("grpc.request", sentry.Context{
-			"method":         tags["grpc_method"],
+			"service":        tags[telemetry.TagService],
+			"rpc":            tags[telemetry.TagRPC],
 			"project_id":     grpcProjectIDFromContext(ctx),
 			"api_key_id":     grpcAPIKeyIDFromContext(ctx),
-			"worker_id":      tags["worker_id"],
+			"worker_id":      tags[telemetry.TagWorkerID],
 			"environment_id": grpcEnvironmentIDFromContext(ctx),
 		})
 	})
 }
 
-func captureGRPCSentryError(ctx context.Context, method string, err error) {
+func captureGRPCSentryError(ctx context.Context, meta grpcSentryMetadata, method string, err error) {
 	if err == nil || !shouldCaptureGRPCSentryError(err) {
 		return
 	}
@@ -102,10 +117,10 @@ func captureGRPCSentryError(ctx context.Context, method string, err error) {
 	if hub == nil {
 		return
 	}
-	configureGRPCSentryScope(ctx, map[string]string{
-		"grpc_method": method,
-		"rpc_system":  "grpc",
-		"grpc_code":   status.Code(err).String(),
+	configureGRPCSentryScope(ctx, meta, map[telemetry.SentryTag]string{
+		telemetry.TagService:  grpcServiceName(method),
+		telemetry.TagRPC:      grpcRPCName(method),
+		telemetry.TagGRPCCode: status.Code(err).String(),
 	})
 	hub.CaptureException(err)
 }
@@ -119,50 +134,47 @@ func shouldCaptureGRPCSentryError(err error) bool {
 	}
 }
 
-func sentryGRPCContextTags(ctx context.Context, tags map[string]string) map[string]string {
-	out := map[string]string{}
+func sentryGRPCContextTags(ctx context.Context, tags map[telemetry.SentryTag]string) map[telemetry.SentryTag]string {
+	out := map[telemetry.SentryTag]string{}
 	for k, v := range tags {
 		if v != "" {
 			out[k] = v
 		}
 	}
 	if projectID := grpcProjectIDFromContext(ctx); projectID != "" {
-		out["project_id"] = projectID
+		out[telemetry.TagProjectID] = projectID
 	}
 	if orgID := OrgIDFromContext(ctx); orgID != "" {
-		out["org_id"] = orgID
+		out[telemetry.TagOrgID] = orgID
 	}
 	if apiKeyID := grpcAPIKeyIDFromContext(ctx); apiKeyID != "" {
-		out["api_key_id"] = apiKeyID
-		out["actor_id"] = "apikey:" + apiKeyID
-		out["actor_type"] = "api_key"
+		out[telemetry.TagAPIKeyID] = apiKeyID
+		out[telemetry.TagActorID] = "apikey:" + apiKeyID
+		out[telemetry.TagActorType] = "api_key"
 	}
 	if envID := grpcEnvironmentIDFromContext(ctx); envID != "" {
-		out["environment_id"] = envID
+		out[telemetry.TagEnvironmentID] = envID
 	}
 	if traceID, spanID := grpcOTelTraceIDs(ctx); traceID != "" {
-		out["trace_id"] = traceID
+		out[telemetry.TagTraceID] = traceID
 		if spanID != "" {
-			out["span_id"] = spanID
+			out[telemetry.TagSpanID] = spanID
 		}
 	}
 	return out
 }
 
 func configureGRPCSentryAPIKeyScope(ctx context.Context) {
-	configureGRPCSentryScope(ctx, map[string]string{
-		"rpc_system": "grpc",
-	})
+	configureGRPCSentryScope(ctx, grpcSentryMetadata{}, map[telemetry.SentryTag]string{})
 }
 
 func configureGRPCSentryWorkerScope(ctx context.Context, workerID, name, hostname, sdkLanguage, sdkVersion string) {
-	configureGRPCSentryScope(ctx, map[string]string{
-		"rpc_system":   "grpc",
-		"worker_id":    workerID,
-		"worker_name":  name,
-		"worker_host":  hostname,
-		"sdk_language": sdkLanguage,
-		"sdk_version":  sdkVersion,
+	configureGRPCSentryScope(ctx, grpcSentryMetadata{}, map[telemetry.SentryTag]string{
+		telemetry.TagWorkerID:    workerID,
+		telemetry.TagWorkerName:  name,
+		telemetry.TagWorkerHost:  hostname,
+		telemetry.TagSDKLanguage: sdkLanguage,
+		telemetry.TagSDKVersion:  sdkVersion,
 	})
 }
 
@@ -199,4 +211,26 @@ func grpcOTelTraceIDs(ctx context.Context) (string, string) {
 
 func grpcPanicError(panicValue any) error {
 	return status.Error(codes.Internal, fmt.Sprintf("panic: %v", panicValue))
+}
+
+func (m grpcSentryMetadata) hasRequiredTags() bool {
+	return m.mode != "" || m.region != "" || m.version != ""
+}
+
+func grpcServiceName(fullMethod string) string {
+	fullMethod = strings.TrimPrefix(fullMethod, "/")
+	service, _, ok := strings.Cut(fullMethod, "/")
+	if !ok {
+		return fullMethod
+	}
+	return service
+}
+
+func grpcRPCName(fullMethod string) string {
+	fullMethod = strings.TrimPrefix(fullMethod, "/")
+	_, rpc, ok := strings.Cut(fullMethod, "/")
+	if !ok {
+		return fullMethod
+	}
+	return rpc
 }

@@ -126,7 +126,11 @@
           },
           {
             "group": "Operations",
-            "pages": ["operations/alert-runbooks", "operations/dlq-recovery"]
+            "pages": [
+              "operations/observability",
+              "operations/alert-runbooks",
+              "operations/dlq-recovery"
+            ]
           },
           {
             "group": "Integrations",

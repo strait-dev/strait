@@ -34,22 +34,31 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	scope := sentry.NewScope()
-	applyHTTPSentryScope(scope, req, domain.EditionCloud)
+	applyHTTPSentryScope(scope, req, sentryHTTPMetadata{
+		edition: string(domain.EditionCloud),
+		mode:    "all",
+		region:  "iad",
+		version: "test-version",
+	})
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
 	}
 
 	wantTags := map[string]string{
-		"project_id":  "proj-1",
-		"actor_id":    "user-1",
-		"actor_type":  "user",
-		"request_id":  "req-1",
-		"http_method": http.MethodPost,
-		"http_route":  "/v1/runs/{runID}",
-		"edition":     "cloud",
-		"trace_id":    traceID.String(),
-		"span_id":     spanID.String(),
+		"project_id": "proj-1",
+		"actor_id":   "user-1",
+		"actor_type": "user",
+		"request_id": "req-1",
+		"method":     http.MethodPost,
+		"route":      "/v1/runs/{runID}",
+		"edition":    "cloud",
+		"subsystem":  "api",
+		"mode":       "all",
+		"region":     "iad",
+		"version":    "test-version",
+		"trace_id":   traceID.String(),
+		"span_id":    spanID.String(),
 	}
 	for key, want := range wantTags {
 		if got := event.Tags[key]; got != want {
@@ -73,17 +82,17 @@ func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
 
 	scope := sentry.NewScope()
-	applyHTTPSentryScope(scope, req, domain.EditionCommunity)
+	applyHTTPSentryScope(scope, req, sentryHTTPMetadata{edition: string(domain.EditionCommunity)})
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
 	}
 
-	if event.Tags["http_method"] != http.MethodGet {
-		t.Fatalf("http_method = %q, want GET", event.Tags["http_method"])
+	if event.Tags["method"] != http.MethodGet {
+		t.Fatalf("method = %q, want GET", event.Tags["method"])
 	}
-	if event.Tags["http_route"] != "/health" {
-		t.Fatalf("http_route = %q, want /health", event.Tags["http_route"])
+	if event.Tags["route"] != "/health" {
+		t.Fatalf("route = %q, want /health", event.Tags["route"])
 	}
 	if event.User.ID != "" {
 		t.Fatalf("anonymous request user id = %q, want empty", event.User.ID)

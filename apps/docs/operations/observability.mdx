@@ -1,0 +1,39 @@
+---
+title: Observability
+description: Operational conventions for Strait telemetry, including Sentry tag taxonomy.
+---
+
+## Sentry tags
+
+Strait uses a fixed Sentry tag taxonomy so issues can be searched, grouped, and routed consistently. Tags are intentionally low-cardinality except for documented resource identifiers such as `project_id`, `run_id`, and `job_id`.
+
+| Tag | Source | Cardinality | Notes |
+| --- | --- | --- | --- |
+| `edition` | Process | Low | `community` or `cloud`. |
+| `subsystem` | Capture path | Low | One of `api`, `grpc`, `worker`, `queue`, `workflow`, `scheduler`, `webhook`, `cdc`, `logdrain`, or `unknown`. |
+| `mode` | Process config | Low | `api`, `worker`, `all`, or `unknown`. |
+| `region` | Process config | Low | Deployment region, defaults to `unknown` when unset. |
+| `version` | Build metadata | Low | Binary or release version, defaults to `unknown` when unset. |
+| `route` | HTTP API | Low | Chi route pattern or request path fallback. |
+| `method` | HTTP API | Low | HTTP method. |
+| `status_class` | HTTP API | Low | Normalized status family such as `4xx` or `5xx`. |
+| `service` | gRPC API | Low | Fully-qualified gRPC service name. |
+| `rpc` | gRPC API | Low | gRPC method name. |
+| `grpc_code` | gRPC API | Low | gRPC status code for captured server-side errors. |
+| `worker_id` | Worker plane | Medium | Connected worker identifier. |
+| `project_id` | Auth/domain | Identifier | Allowed high-cardinality tenant identifier. |
+| `org_id` | Auth/domain | Identifier | Organization identifier when available. |
+| `actor_id` | Auth | Identifier | API key, user, SSE token, or run token actor. |
+| `actor_type` | Auth | Low | `api_key`, `user`, `sse_token`, or `run_token`. |
+| `request_id` | HTTP API | Identifier | Request correlation ID. |
+| `trace_id` | OpenTelemetry | Identifier | Trace correlation ID. |
+| `span_id` | OpenTelemetry | Identifier | Span correlation ID. |
+| `job_id` | Domain | Identifier | Job identifier when a run/job path captures an error. |
+| `run_id` | Domain | Identifier | Run identifier when available. |
+| `workflow_id` | Domain | Identifier | Workflow identifier when available. |
+| `step_id` | Domain | Identifier | Workflow step identifier when available. |
+| `delivery_id` | Webhooks | Identifier | Webhook delivery identifier. |
+| `attempt` | Domain | Low | Retry or run attempt number. |
+| `error_class` | Capture path | Low | Normalized class such as `server`, `timeout`, or `network`. |
+
+New Sentry capture paths should use the typed helpers in `internal/telemetry/sentry_tags.go` instead of introducing free-form tag keys.

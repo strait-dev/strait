@@ -414,7 +414,7 @@ func TestSanitizeQueryString_InvalidInput(t *testing.T) {
 	}
 }
 
-// --- sentryTagKeys tests.
+// --- Sentry tag taxonomy tests.
 
 func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {
 	t.Parallel()
@@ -427,8 +427,8 @@ func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {
 	}
 
 	for _, key := range knownKeys {
-		if !sentryTagKeys[key] {
-			t.Errorf("sentryTagKeys missing %q", key)
+		if _, ok := SentryTagFromString(key); !ok {
+			t.Errorf("SentryTagFromString missing %q", key)
 		}
 	}
 }
@@ -437,8 +437,8 @@ func TestSentryTagKeys_DoesNotContain_NonTagKeys(t *testing.T) {
 	t.Parallel()
 	nonTagKeys := []string{"error", "message", "level", "timestamp", "random_key"}
 	for _, key := range nonTagKeys {
-		if sentryTagKeys[key] {
-			t.Errorf("sentryTagKeys should not contain %q", key)
+		if _, ok := SentryTagFromString(key); ok {
+			t.Errorf("SentryTagFromString should not contain %q", key)
 		}
 	}
 }

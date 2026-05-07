@@ -117,17 +117,6 @@ func MarkRetryableResolved(err error) error {
 	return errors.Join(ErrRetryableResolved, err)
 }
 
-// Known identifier keys that should become Sentry tags (for filtering/searching).
-var sentryTagKeys = map[string]bool{
-	"run_id": true, "job_id": true, "project_id": true,
-	"workflow_run_id": true, "delivery_id": true, "trigger_id": true,
-	"step_run_id": true, "table": true,
-	"batch_key": true, "error_class": true, "attempt": true,
-	"status_code": true, "operation": true, "consumer": true,
-	"approval_id": true, "key_id": true, "subscription_id": true,
-	"source_id": true, "drain_id": true, "batch_id": true,
-}
-
 // SentryHandler wraps an slog.Handler and sends Error-level records to Sentry.
 type SentryHandler struct {
 	inner slog.Handler
@@ -178,9 +167,9 @@ func (h *SentryHandler) Handle(ctx context.Context, r slog.Record) error {
 			// Sanitize values that might contain secrets.
 			val = SanitizeValue(key, val)
 
-			// Promote known identifiers to tags, rest to extra context.
-			if sentryTagKeys[key] {
-				scope.SetTag(key, val)
+			// Promote documented identifiers to tags, rest to extra context.
+			if tag, ok := SentryTagFromString(key); ok {
+				SetSentryTag(scope, tag, val)
 			} else {
 				extra[key] = val
 			}

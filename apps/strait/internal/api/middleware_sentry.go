@@ -9,6 +9,8 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/chi/v5"
 	"go.opentelemetry.io/otel/trace"
+
+	"strait/internal/telemetry"
 )
 
 // sentryScope ensures every request has an isolated hub and a baseline scope.
@@ -38,19 +40,38 @@ func (s *Server) configureHTTPSentryScope(r *http.Request) {
 		return
 	}
 	hub.ConfigureScope(func(scope *sentry.Scope) {
-		applyHTTPSentryScope(scope, r, s.edition)
+		applyHTTPSentryScope(scope, r, s.sentryHTTPMetadata())
 		scope.AddEventProcessor(func(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
-			applyHTTPSentryEvent(event, r, s.edition)
+			applyHTTPSentryEvent(event, r, s.sentryHTTPMetadata())
 			return event
 		})
 	})
 }
 
-func applyHTTPSentryScope(scope *sentry.Scope, r *http.Request, edition any) {
+type sentryHTTPMetadata struct {
+	edition string
+	mode    string
+	region  string
+	version string
+}
+
+func (s *Server) sentryHTTPMetadata() sentryHTTPMetadata {
+	meta := sentryHTTPMetadata{
+		edition: stringValue(s.edition),
+		version: s.version,
+	}
+	if s.config != nil {
+		meta.mode = s.config.Mode
+		meta.region = s.config.DefaultRegion
+	}
+	return meta
+}
+
+func applyHTTPSentryScope(scope *sentry.Scope, r *http.Request, meta sentryHTTPMetadata) {
 	scope.SetRequest(r)
-	tags := sentryHTTPContextTags(r, edition)
+	tags := sentryHTTPContextTags(r, meta)
 	for k, v := range tags {
-		scope.SetTag(k, v)
+		telemetry.SetSentryTag(scope, k, v)
 	}
 	if actorID := actorFromContext(r.Context()); actorID != "" {
 		scope.SetUser(sentry.User{
@@ -69,11 +90,11 @@ func applyHTTPSentryScope(scope *sentry.Scope, r *http.Request, edition any) {
 	})
 }
 
-func applyHTTPSentryEvent(event *sentry.Event, r *http.Request, edition any) {
+func applyHTTPSentryEvent(event *sentry.Event, r *http.Request, meta sentryHTTPMetadata) {
 	if event.Tags == nil {
 		event.Tags = map[string]string{}
 	}
-	maps.Copy(event.Tags, sentryHTTPContextTags(r, edition))
+	maps.Copy(event.Tags, telemetry.SentryTagStrings(sentryHTTPContextTags(r, meta)))
 	if actorID := actorFromContext(r.Context()); actorID != "" && event.User.ID == "" {
 		event.User = sentry.User{
 			ID: actorID,
@@ -94,37 +115,41 @@ func applyHTTPSentryEvent(event *sentry.Event, r *http.Request, edition any) {
 	}
 }
 
-func sentryHTTPContextTags(r *http.Request, edition any) map[string]string {
+func sentryHTTPContextTags(r *http.Request, meta sentryHTTPMetadata) map[telemetry.SentryTag]string {
 	ctx := r.Context()
-	tags := map[string]string{
-		"http_method": r.Method,
-		"edition":     stringValue(edition),
-	}
+	tags := telemetry.RequiredSentryTags(
+		meta.edition,
+		telemetry.SubsystemAPI,
+		meta.mode,
+		meta.region,
+		meta.version,
+	)
+	tags[telemetry.TagMethod] = r.Method
 	if route := chiRoutePattern(r); route != "" {
-		tags["http_route"] = route
+		tags[telemetry.TagRoute] = route
 	} else if r.URL != nil {
-		tags["http_path"] = r.URL.Path
+		tags[telemetry.TagRoute] = r.URL.Path
 	}
 	if requestID := requestIDFromContext(ctx); requestID != "" {
-		tags["request_id"] = requestID
+		tags[telemetry.TagRequestID] = requestID
 	}
 	if projectID := projectIDFromContext(ctx); projectID != "" {
-		tags["project_id"] = projectID
+		tags[telemetry.TagProjectID] = projectID
 	}
 	if actorID := actorFromContext(ctx); actorID != "" {
-		tags["actor_id"] = actorID
+		tags[telemetry.TagActorID] = actorID
 	}
 	if actorType := actorTypeFromContext(ctx); actorType != "" {
-		tags["actor_type"] = actorType
+		tags[telemetry.TagActorType] = actorType
 	}
 	if traceID, spanID := otelTraceIDs(ctx); traceID != "" {
-		tags["trace_id"] = traceID
+		tags[telemetry.TagTraceID] = traceID
 		if spanID != "" {
-			tags["span_id"] = spanID
+			tags[telemetry.TagSpanID] = spanID
 		}
 	}
 	if runID, _ := ctx.Value(ctxRunIDKey).(string); runID != "" {
-		tags["run_id"] = runID
+		tags[telemetry.TagRunID] = runID
 	}
 	return tags
 }

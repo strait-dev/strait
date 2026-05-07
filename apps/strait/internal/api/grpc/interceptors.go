@@ -12,18 +12,26 @@ import (
 
 // unaryInterceptorChain returns the ordered list of unary server interceptors.
 func unaryInterceptorChain() []grpc.UnaryServerInterceptor {
+	return unaryInterceptorChainWithMetadata(grpcSentryMetadata{})
+}
+
+func unaryInterceptorChainWithMetadata(meta grpcSentryMetadata) []grpc.UnaryServerInterceptor {
 	return []grpc.UnaryServerInterceptor{
 		unaryRecoveryInterceptor(),
-		unarySentryInterceptor(),
+		unarySentryInterceptor(meta),
 		unaryLoggingInterceptor(),
 	}
 }
 
 // streamInterceptorChain returns the ordered list of stream server interceptors.
 func streamInterceptorChain() []grpc.StreamServerInterceptor {
+	return streamInterceptorChainWithMetadata(grpcSentryMetadata{})
+}
+
+func streamInterceptorChainWithMetadata(meta grpcSentryMetadata) []grpc.StreamServerInterceptor {
 	return []grpc.StreamServerInterceptor{
 		streamRecoveryInterceptor(),
-		streamSentryInterceptor(),
+		streamSentryInterceptor(meta),
 		streamLoggingInterceptor(),
 	}
 }

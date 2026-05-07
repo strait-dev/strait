@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 )
 
 func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
@@ -31,6 +32,14 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		OrgID:         "org-1",
 		EnvironmentID: "env-1",
 	})
+	configureGRPCSentryScope(ctx, grpcSentryMetadata{
+		mode:    "all",
+		region:  "iad",
+		version: "test-version",
+	}, map[telemetry.SentryTag]string{
+		telemetry.TagService: "strait.worker.v1.WorkerService",
+		telemetry.TagRPC:     "StreamTasks",
+	})
 	configureGRPCSentryWorkerScope(ctx, "worker-1", "Worker One", "host-a", "go", "1.2.3")
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
@@ -45,6 +54,12 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		"actor_id":       "apikey:key-1",
 		"actor_type":     "api_key",
 		"environment_id": "env-1",
+		"subsystem":      "grpc",
+		"mode":           "all",
+		"region":         "iad",
+		"version":        "test-version",
+		"service":        "strait.worker.v1.WorkerService",
+		"rpc":            "StreamTasks",
 		"worker_id":      "worker-1",
 		"worker_name":    "Worker One",
 		"worker_host":    "host-a",
@@ -69,7 +84,7 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
 	t.Parallel()
 
-	interceptor := streamSentryInterceptor()
+	interceptor := streamSentryInterceptor(grpcSentryMetadata{})
 	info := &grpc.StreamServerInfo{FullMethod: "/strait.worker.v1.WorkerService/StreamTasks"}
 	stream := &mockServerStream{ctx: context.Background()}
 	var sawHub bool
