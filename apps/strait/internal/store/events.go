@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -38,6 +40,48 @@ func (q *Queries) InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	).Scan(&event.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) InsertEventForActiveRun(ctx context.Context, event *domain.RunEvent, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.InsertEventForActiveRun")
+	defer span.End()
+
+	if event.ID == "" {
+		event.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $7
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_events (id, run_id, type, level, message, data)
+		SELECT $1, id, $3, $4, $5, $6
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		event.ID,
+		event.RunID,
+		event.Type,
+		dbscan.NilIfEmptyString(event.Level),
+		event.Message,
+		dbscan.NilIfEmptyRawMessage(event.Data),
+		attempt,
+	).Scan(&event.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, event.RunID, attempt)
+		}
+		return fmt.Errorf("insert active run event: %w", err)
 	}
 
 	return nil

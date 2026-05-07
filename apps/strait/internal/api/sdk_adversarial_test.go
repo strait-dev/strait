@@ -205,6 +205,34 @@ func (m *workerTaskAPIStoreMock) GetWorkerTask(_ context.Context, _ string) (*do
 	return m.task, m.err
 }
 
+type racingTerminalSDKStore struct {
+	*APIStoreMock
+	stateCalls atomic.Int64
+}
+
+func (m *racingTerminalSDKStore) GetRunTokenState(_ context.Context, runID string) (domain.RunStatus, int, string, error) {
+	if m.stateCalls.Add(1) <= 2 {
+		return domain.StatusExecuting, 1, "proj-1", nil
+	}
+	return domain.StatusCompleted, 1, "proj-1", nil
+}
+
+func (m *racingTerminalSDKStore) InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpdateRunMetadataForActiveRun(context.Context, string, map[string]string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpdateHeartbeatForActiveRun(context.Context, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error {
+	return store.ErrRunConflict
+}
+
 // authRequest builds a request with the given runID in the chi route context.
 func authRequest(t *testing.T, runID string) *http.Request {
 	t.Helper()
@@ -915,6 +943,45 @@ func TestSDKMemory_KeyAtMaxLength(t *testing.T) {
 	})).ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "log", method: http.MethodPost, path: "/sdk/v1/runs/run-1/log", body: `{"message":"late"}`},
+		{name: "progress", method: http.MethodPost, path: "/sdk/v1/runs/run-1/progress", body: `{"percent":50,"message":"late"}`},
+		{name: "annotate", method: http.MethodPost, path: "/sdk/v1/runs/run-1/annotate", body: `{"annotations":{"late":"true"}}`},
+		{name: "heartbeat", method: http.MethodPost, path: "/sdk/v1/runs/run-1/heartbeat", body: ""},
+		{name: "checkpoint", method: http.MethodPost, path: "/sdk/v1/runs/run-1/checkpoint", body: `{"state":{"cursor":1}}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ms := &racingTerminalSDKStore{
+				APIStoreMock: &APIStoreMock{
+					GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+						return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting, Attempt: 1}, nil
+					},
+				},
+			}
+			srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+			w := httptest.NewRecorder()
+			r := sdkRequest(t, tt.method, tt.path, "run-1", tt.body)
+
+			srv.ServeHTTP(w, r)
+
+			if w.Code != http.StatusGone {
+				t.Fatalf("expected 410 after terminal race, got %d: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

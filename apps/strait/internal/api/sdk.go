@@ -43,6 +43,31 @@ type runTokenStateGetter interface {
 	GetRunTokenState(context.Context, string) (domain.RunStatus, int, string, error)
 }
 
+type activeRunMutationStore interface {
+	InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error
+	UpdateRunMetadataForActiveRun(context.Context, string, map[string]string, int) error
+	UpdateHeartbeatForActiveRun(context.Context, string, int) error
+	CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error
+}
+
+func runTokenAttemptFromContext(ctx context.Context) int {
+	attempt, _ := ctx.Value(ctxRunAttemptKey).(int)
+	return attempt
+}
+
+func (s *Server) guardedSDKMutationError(ctx context.Context, err error) error {
+	if errors.Is(err, store.ErrRunConflict) {
+		if revalidateErr := s.revalidateRunTokenState(ctx); revalidateErr != nil {
+			return revalidateErr
+		}
+		return huma.Error409Conflict("run is not active for this SDK token")
+	}
+	if errors.Is(err, store.ErrRunNotFound) {
+		return huma.Error404NotFound("run not found")
+	}
+	return nil
+}
+
 func sdkVersionFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxSDKVersionKey).(string)
 	return v
@@ -288,7 +313,16 @@ func (s *Server) handleSDKLog(ctx context.Context, input *SDKLogInput) (*SDKLogO
 		data = json.RawMessage(`{}`)
 	}
 	event := &domain.RunEvent{RunID: runID, Type: eventType, Level: req.Level, Message: req.Message, Data: data}
-	if err := s.store.InsertEvent(ctx, event); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.InsertEventForActiveRun(ctx, event, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.InsertEvent(ctx, event)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		slog.Error("failed to insert event", "run_id", runID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to insert event")
 	}
@@ -335,8 +369,17 @@ func (s *Server) handleSDKProgress(ctx context.Context, input *SDKProgressInput)
 		return nil, huma.Error500InternalServerError("failed to marshal progress payload")
 	}
 	event := &domain.RunEvent{RunID: runID, Type: domain.EventProgress, Level: "info", Message: req.Message, Data: data}
-	if err := s.store.InsertEvent(ctx, event); err != nil {
-		slog.Error("failed to insert progress event", "run_id", runID, "error", err)
+	var eventErr error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		eventErr = guardedStore.InsertEventForActiveRun(ctx, event, runTokenAttemptFromContext(ctx))
+	} else {
+		eventErr = s.store.InsertEvent(ctx, event)
+	}
+	if eventErr != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, eventErr); sdkErr != nil {
+			return nil, sdkErr
+		}
+		slog.Error("failed to insert progress event", "run_id", runID, "error", eventErr)
 		return nil, huma.Error500InternalServerError("failed to insert event")
 	}
 	if s.pubsub != nil {
@@ -381,9 +424,15 @@ func (s *Server) handleSDKAnnotate(ctx context.Context, input *SDKAnnotateInput)
 			return nil, huma.Error400BadRequest("annotation value too long (max 1024 characters)")
 		}
 	}
-	if err := s.store.UpdateRunMetadata(ctx, runID, req.Annotations); err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpdateRunMetadataForActiveRun(ctx, runID, req.Annotations, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpdateRunMetadata(ctx, runID, req.Annotations)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
 		}
 		return nil, huma.Error500InternalServerError("failed to update run annotations")
 	}
@@ -400,7 +449,16 @@ func (s *Server) handleSDKAnnotate(ctx context.Context, input *SDKAnnotateInput)
 type SDKHeartbeatOutput struct{ Body map[string]string }
 
 func (s *Server) handleSDKHeartbeat(ctx context.Context, input *SDKRunIDInput) (*SDKHeartbeatOutput, error) {
-	if err := s.store.UpdateHeartbeat(ctx, input.RunID); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpdateHeartbeatForActiveRun(ctx, input.RunID, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpdateHeartbeat(ctx, input.RunID)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		slog.Error("failed to update heartbeat", "run_id", input.RunID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to update heartbeat")
 	}
@@ -438,7 +496,15 @@ func (s *Server) handleSDKCheckpoint(ctx context.Context, input *SDKCheckpointIn
 		source = "sdk"
 	}
 	checkpoint := &domain.RunCheckpoint{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, Source: source, State: req.State}
-	if err := s.store.CreateRunCheckpoint(ctx, checkpoint); err != nil {
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunCheckpointForActiveRun(ctx, checkpoint, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunCheckpoint(ctx, checkpoint)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create checkpoint")
 	}
 	return &SDKCheckpointOutput{Body: checkpoint}, nil

@@ -1448,6 +1448,80 @@ func TestInsertEvent(t *testing.T) {
 	}
 }
 
+func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-sdk-active-mutations")
+	activeRun := mustCreateRun(t, ctx, q, job)
+	if err := q.UpdateRunStatus(ctx, activeRun.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("dequeue active run: %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, activeRun.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("execute active run: %v", err)
+	}
+
+	event := &domain.RunEvent{RunID: activeRun.ID, Type: domain.EventLog, Level: "info", Message: "active event", Data: []byte(`{"ok":true}`)}
+	if err := q.InsertEventForActiveRun(ctx, event, activeRun.Attempt); err != nil {
+		t.Fatalf("InsertEventForActiveRun(active) error = %v", err)
+	}
+	if event.CreatedAt.IsZero() {
+		t.Fatal("InsertEventForActiveRun(active) did not set CreatedAt")
+	}
+
+	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active"}, activeRun.Attempt); err != nil {
+		t.Fatalf("UpdateRunMetadataForActiveRun(active) error = %v", err)
+	}
+	if err := q.UpdateHeartbeatForActiveRun(ctx, activeRun.ID, activeRun.Attempt); err != nil {
+		t.Fatalf("UpdateHeartbeatForActiveRun(active) error = %v", err)
+	}
+	checkpoint := &domain.RunCheckpoint{RunID: activeRun.ID, Source: "sdk", State: json.RawMessage(`{"cursor":1}`)}
+	if err := q.CreateRunCheckpointForActiveRun(ctx, checkpoint, activeRun.Attempt); err != nil {
+		t.Fatalf("CreateRunCheckpointForActiveRun(active) error = %v", err)
+	}
+	if checkpoint.Sequence != 1 {
+		t.Fatalf("checkpoint sequence = %d, want 1", checkpoint.Sequence)
+	}
+
+	stored, err := q.GetRun(ctx, activeRun.ID)
+	if err != nil {
+		t.Fatalf("GetRun(active) error = %v", err)
+	}
+	if stored.Metadata["sdk"] != "active" {
+		t.Fatalf("metadata = %+v, want sdk=active", stored.Metadata)
+	}
+	if stored.HeartbeatAt == nil {
+		t.Fatal("heartbeat_at was not updated")
+	}
+
+	if err := q.InsertEventForActiveRun(ctx, &domain.RunEvent{RunID: activeRun.ID, Type: domain.EventLog, Message: "stale"}, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
+		t.Fatalf("InsertEventForActiveRun(stale attempt) error = %v, want ErrRunConflict", err)
+	}
+
+	terminalRun := mustCreateRun(t, ctx, q, job)
+	if err := q.UpdateRunStatus(ctx, terminalRun.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("dequeue terminal run: %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, terminalRun.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("execute terminal run: %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, terminalRun.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
+		t.Fatalf("complete terminal run: %v", err)
+	}
+
+	for name, err := range map[string]error{
+		"event":      q.InsertEventForActiveRun(ctx, &domain.RunEvent{RunID: terminalRun.ID, Type: domain.EventLog, Message: "late"}, terminalRun.Attempt),
+		"metadata":   q.UpdateRunMetadataForActiveRun(ctx, terminalRun.ID, map[string]string{"late": "true"}, terminalRun.Attempt),
+		"heartbeat":  q.UpdateHeartbeatForActiveRun(ctx, terminalRun.ID, terminalRun.Attempt),
+		"checkpoint": q.CreateRunCheckpointForActiveRun(ctx, &domain.RunCheckpoint{RunID: terminalRun.ID, State: json.RawMessage(`{"late":true}`)}, terminalRun.Attempt),
+	} {
+		if !errors.Is(err, store.ErrRunConflict) {
+			t.Fatalf("%s terminal mutation error = %v, want ErrRunConflict", name, err)
+		}
+	}
+}
+
 func TestListEvents(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

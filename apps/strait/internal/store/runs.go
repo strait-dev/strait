@@ -393,6 +393,55 @@ func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.Ru
 	return nil
 }
 
+func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoint *domain.RunCheckpoint, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunCheckpointForActiveRun")
+	defer span.End()
+
+	if checkpoint.ID == "" {
+		checkpoint.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if checkpoint.Source == "" {
+		checkpoint.Source = "sdk"
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $5
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		),
+		next_seq AS (
+			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
+			FROM run_checkpoints
+			WHERE run_id = $1
+		)
+		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
+		SELECT $2, active_run.id, next_seq.seq, $3, $4
+		FROM active_run, next_seq
+		RETURNING sequence, created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		checkpoint.RunID,
+		checkpoint.ID,
+		checkpoint.Source,
+		dbscan.NilIfEmptyRawMessage(checkpoint.State),
+		attempt,
+	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, checkpoint.RunID, attempt)
+		}
+		return fmt.Errorf("create active run checkpoint: %w", err)
+	}
+
+	return nil
+}
+
 func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunCheckpoints")
 	defer span.End()
@@ -1456,6 +1505,34 @@ func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations 
 	return nil
 }
 
+func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, annotations map[string]string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunMetadataForActiveRun")
+	defer span.End()
+
+	encoded, err := json.Marshal(annotations)
+	if err != nil {
+		return fmt.Errorf("marshal annotations: %w", err)
+	}
+
+	query := `
+		UPDATE job_runs
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+		WHERE id = $2
+		  AND attempt = $3
+		  AND status IN ('executing', 'waiting')`
+
+	tag, err := q.db.Exec(ctx, query, encoded, id, attempt)
+	if err != nil {
+		return fmt.Errorf("update active run metadata: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+	}
+
+	return nil
+}
+
 func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateHeartbeat")
 	defer span.End()
@@ -1469,6 +1546,29 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", ErrRunNotFound, id)
+	}
+
+	return nil
+}
+
+func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateHeartbeatForActiveRun")
+	defer span.End()
+
+	query := `
+		UPDATE job_runs
+		SET heartbeat_at = NOW()
+		WHERE id = $1
+		  AND attempt = $2
+		  AND status IN ('executing', 'waiting')`
+
+	tag, err := q.db.Exec(ctx, query, id, attempt)
+	if err != nil {
+		return fmt.Errorf("update active run heartbeat: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
 	}
 
 	return nil
