@@ -808,6 +808,8 @@ func TestLoad_StringOverrides(t *testing.T) {
 	t.Setenv("SENTRY_MAX_SPANS", "256")
 	t.Setenv("SENTRY_MAX_ERROR_DEPTH", "16")
 	t.Setenv("SENTRY_STRICT_TRACE_CONTINUATION", "true")
+	t.Setenv("SENTRY_SCHEDULER_CHECKINS", "true")
+	t.Setenv("SENTRY_SCHEDULER_CHECKIN_PREFIX", "custom-scheduler")
 	t.Setenv("RESEND_API_KEY", "re_123")
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
 	t.Setenv("GRPC_BIND_ADDR", "0.0.0.0")
@@ -846,6 +848,12 @@ func TestLoad_StringOverrides(t *testing.T) {
 	}
 	if !cfg.SentryStrictTraceContinuation {
 		t.Fatal("SentryStrictTraceContinuation = false, want true")
+	}
+	if !cfg.SentrySchedulerCheckIns {
+		t.Fatal("SentrySchedulerCheckIns = false, want true")
+	}
+	if cfg.SentrySchedulerCheckInPrefix != "custom-scheduler" {
+		t.Fatalf("SentrySchedulerCheckInPrefix = %q, want custom-scheduler", cfg.SentrySchedulerCheckInPrefix)
 	}
 	if cfg.ResendAPIKey != "re_123" {
 		t.Fatalf("ResendAPIKey = %q, want re_123", cfg.ResendAPIKey)

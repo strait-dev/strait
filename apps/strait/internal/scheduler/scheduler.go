@@ -88,8 +88,10 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
 		memoryCleanup:   NewMemoryCleanup(s, 5*time.Minute),
 		tracker: componentTracker{sentry: sentrySchedulerMetadata{
-			mode:   cfg.Mode,
-			region: cfg.DefaultRegion,
+			mode:                 cfg.Mode,
+			region:               cfg.DefaultRegion,
+			checkInsEnabled:      cfg.SentrySchedulerCheckIns,
+			checkInMonitorPrefix: cfg.SentrySchedulerCheckInPrefix,
 		}},
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
@@ -105,7 +107,17 @@ type SchedulerOption func(*Scheduler)
 // WithSentryRuntime attaches low-cardinality runtime tags to scheduler panic events.
 func WithSentryRuntime(mode, region, version string) SchedulerOption {
 	return func(s *Scheduler) {
-		s.tracker.sentry = sentrySchedulerMetadata{mode: mode, region: region, version: version}
+		s.tracker.sentry.mode = mode
+		s.tracker.sentry.region = region
+		s.tracker.sentry.version = version
+	}
+}
+
+// WithSentryCheckIns enables Sentry monitor check-ins for tracked scheduler components.
+func WithSentryCheckIns(enabled bool, monitorPrefix string) SchedulerOption {
+	return func(s *Scheduler) {
+		s.tracker.sentry.checkInsEnabled = enabled
+		s.tracker.sentry.checkInMonitorPrefix = monitorPrefix
 	}
 }
 

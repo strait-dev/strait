@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,8 @@ import (
 // actually killing the process.
 var exitFunc = func(code int) { os.Exit(code) }
 
+var captureSchedulerCheckIn = sentry.CaptureCheckIn
+
 // safeGo wraps a goroutine with panic recovery. If the function panics,
 // the panic is logged with a stack trace, reported to Sentry, and the
 // process is terminated. A silently dead scheduler component is worse
@@ -35,19 +38,31 @@ func safeGo(wg *conc.WaitGroup, name string, fn func()) {
 }
 
 type sentrySchedulerMetadata struct {
-	mode    string
-	region  string
-	version string
+	mode                 string
+	region               string
+	version              string
+	checkInsEnabled      bool
+	checkInMonitorPrefix string
 }
 
 func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *conc.WaitGroup, name string, fn func()) {
 	wg.Go(func() {
 		ctx := telemetry.EnsureSentryHub(ctx)
+		checkInID := startSchedulerCheckIn(meta, name)
+		checkInStart := time.Now()
+		checkInFinished := false
+		defer func() {
+			if !checkInFinished {
+				finishSchedulerCheckIn(meta, name, checkInID, sentry.CheckInStatusOK, time.Since(checkInStart))
+			}
+		}()
 		telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component started", map[string]any{
 			"component": name,
 		})
 		defer func() {
 			if r := recover(); r != nil {
+				checkInFinished = true
+				finishSchedulerCheckIn(meta, name, checkInID, sentry.CheckInStatusError, time.Since(checkInStart))
 				stack := string(debug.Stack())
 				telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component panic", map[string]any{
 					"component": name,
@@ -71,7 +86,66 @@ func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *co
 			}
 		}()
 		fn()
+		checkInFinished = true
+		finishSchedulerCheckIn(meta, name, checkInID, sentry.CheckInStatusOK, time.Since(checkInStart))
 	})
+}
+
+func startSchedulerCheckIn(meta sentrySchedulerMetadata, component string) sentry.EventID {
+	if !meta.checkInsEnabled {
+		return ""
+	}
+	eventID := captureSchedulerCheckIn(&sentry.CheckIn{
+		MonitorSlug: schedulerCheckInSlug(meta, component),
+		Status:      sentry.CheckInStatusInProgress,
+	}, nil)
+	if eventID == nil {
+		return ""
+	}
+	return *eventID
+}
+
+func finishSchedulerCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration) {
+	if !meta.checkInsEnabled {
+		return
+	}
+	captureSchedulerCheckIn(&sentry.CheckIn{
+		ID:          checkInID,
+		MonitorSlug: schedulerCheckInSlug(meta, component),
+		Status:      status,
+		Duration:    duration,
+	}, nil)
+}
+
+func schedulerCheckInSlug(meta sentrySchedulerMetadata, component string) string {
+	prefix := sanitizeSchedulerCheckInPart(meta.checkInMonitorPrefix)
+	if prefix == "" {
+		prefix = "strait-scheduler"
+	}
+	name := sanitizeSchedulerCheckInPart(component)
+	if name == "" {
+		name = "component"
+	}
+	return prefix + "-" + name
+}
+
+func sanitizeSchedulerCheckInPart(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func applySchedulerSentryScope(scope *sentry.Scope, meta sentrySchedulerMetadata, name string, panicValue any) {

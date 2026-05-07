@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sourcegraph/conc"
@@ -45,6 +46,82 @@ func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
 	}
 	if got := event.Breadcrumbs[0].Category; got != "scheduler.component" {
 		t.Fatalf("breadcrumb category = %q, want scheduler.component", got)
+	}
+}
+
+func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
+	// Not parallel: mutates package-level captureSchedulerCheckIn.
+	origCapture := captureSchedulerCheckIn
+	defer func() { captureSchedulerCheckIn = origCapture }()
+
+	var got []sentry.CheckIn
+	id := sentry.EventID("check-in-id")
+	captureSchedulerCheckIn = func(checkIn *sentry.CheckIn, _ *sentry.MonitorConfig) *sentry.EventID {
+		got = append(got, *checkIn)
+		return &id
+	}
+
+	var wg conc.WaitGroup
+	safeGoWithContext(context.Background(), sentrySchedulerMetadata{
+		checkInsEnabled:      true,
+		checkInMonitorPrefix: "Strait Scheduler",
+	}, &wg, "Clean Component", func() {})
+	wg.Wait()
+
+	if len(got) != 2 {
+		t.Fatalf("check-ins = %d, want 2", len(got))
+	}
+	if got[0].MonitorSlug != "strait-scheduler-clean-component" {
+		t.Fatalf("monitor slug = %q, want sanitized slug", got[0].MonitorSlug)
+	}
+	if got[0].Status != sentry.CheckInStatusInProgress {
+		t.Fatalf("start status = %q, want in_progress", got[0].Status)
+	}
+	if got[1].ID != id {
+		t.Fatalf("finish check-in id = %q, want %q", got[1].ID, id)
+	}
+	if got[1].Status != sentry.CheckInStatusOK {
+		t.Fatalf("finish status = %q, want ok", got[1].Status)
+	}
+	if got[1].Duration < 0 {
+		t.Fatalf("duration = %v, want non-negative", got[1].Duration)
+	}
+}
+
+func TestSafeGoWithContext_CapturesErrorCheckInOnPanic(t *testing.T) {
+	// Not parallel: mutates package-level captureSchedulerCheckIn and exitFunc.
+	origCapture := captureSchedulerCheckIn
+	origExit := exitFunc
+	defer func() {
+		captureSchedulerCheckIn = origCapture
+		exitFunc = origExit
+	}()
+
+	var got []sentry.CheckIn
+	id := sentry.EventID("panic-check-in-id")
+	captureSchedulerCheckIn = func(checkIn *sentry.CheckIn, _ *sentry.MonitorConfig) *sentry.EventID {
+		got = append(got, *checkIn)
+		return &id
+	}
+	exitFunc = func(int) {}
+
+	var wg conc.WaitGroup
+	safeGoWithContext(context.Background(), sentrySchedulerMetadata{
+		checkInsEnabled:      true,
+		checkInMonitorPrefix: "strait",
+	}, &wg, "panic_component", func() {
+		panic("boom")
+	})
+	wg.Wait()
+
+	if len(got) != 2 {
+		t.Fatalf("check-ins = %d, want 2", len(got))
+	}
+	if got[1].Status != sentry.CheckInStatusError {
+		t.Fatalf("finish status = %q, want error", got[1].Status)
+	}
+	if got[1].Duration > time.Minute {
+		t.Fatalf("duration = %v, want bounded test duration", got[1].Duration)
 	}
 }
 

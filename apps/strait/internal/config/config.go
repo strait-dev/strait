@@ -282,6 +282,8 @@ type Config struct {
 	SentryMaxSpans                int     `env:"SENTRY_MAX_SPANS" default:"1000"`
 	SentryMaxErrorDepth           int     `env:"SENTRY_MAX_ERROR_DEPTH" default:"100"`
 	SentryStrictTraceContinuation bool    `env:"SENTRY_STRICT_TRACE_CONTINUATION" default:"false"`
+	SentrySchedulerCheckIns       bool    `env:"SENTRY_SCHEDULER_CHECKINS" default:"false"`
+	SentrySchedulerCheckInPrefix  string  `env:"SENTRY_SCHEDULER_CHECKIN_PREFIX" default:"strait-scheduler"`
 
 	// Pyroscope continuous profiling
 	PyroscopeEndpoint  string `env:"PYROSCOPE_ENDPOINT"`
