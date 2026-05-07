@@ -14,6 +14,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
@@ -27,6 +28,16 @@ func (e *WorkflowEngine) startStep(
 ) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.startStep")
 	defer span.End()
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step starting", map[string]any{
+		"workflow_id":      wfRun.WorkflowID,
+		"workflow_run_id":  wfRun.ID,
+		"workflow_step_id": step.ID,
+		"step_run_id":      stepRun.ID,
+		"step_ref":         step.StepRef,
+		"step_type":        string(step.StepType),
+		"project_id":       wfRun.ProjectID,
+		"job_id":           step.JobID,
+	})
 
 	now := time.Now()
 	if step.StepType == domain.WorkflowStepTypeApproval {
@@ -78,6 +89,13 @@ func (e *WorkflowEngine) startStep(
 
 		stepRun.Status = domain.StepWaiting
 		stepRun.StartedAt = &now
+		telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+			"workflow_run_id": wfRun.ID,
+			"step_run_id":     stepRun.ID,
+			"step_ref":        step.StepRef,
+			"step_type":       string(step.StepType),
+			"project_id":      wfRun.ProjectID,
+		})
 
 		e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 		return nil
@@ -128,6 +146,13 @@ func (e *WorkflowEngine) startStep(
 
 			stepRun.Status = domain.StepWaiting
 			stepRun.StartedAt = &now
+			telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+				"workflow_run_id": wfRun.ID,
+				"step_run_id":     stepRun.ID,
+				"step_ref":        step.StepRef,
+				"step_type":       string(step.StepType),
+				"project_id":      wfRun.ProjectID,
+			})
 
 			e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 
@@ -188,6 +213,14 @@ func (e *WorkflowEngine) startStep(
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 	stepRun.JobRunID = jobRun.ID
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step enqueued", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"project_id":      wfRun.ProjectID,
+		"job_id":          step.JobID,
+		"job_run_id":      jobRun.ID,
+	})
 
 	return nil
 }
@@ -218,6 +251,14 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	}
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow subworkflow step running", map[string]any{
+		"workflow_run_id":   wfRun.ID,
+		"step_run_id":       stepRun.ID,
+		"step_ref":          step.StepRef,
+		"project_id":        wfRun.ProjectID,
+		"sub_workflow_id":   step.SubWorkflowID,
+		"max_nesting_depth": maxDepth,
+	})
 
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
@@ -234,6 +275,14 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 		"sub_workflow_id", step.SubWorkflowID,
 		"nesting_depth", currentDepth+1,
 	)
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "subworkflow triggered", map[string]any{
+		"parent_workflow_run_id": wfRun.ID,
+		"child_workflow_run_id":  childRun.ID,
+		"step_run_id":            stepRun.ID,
+		"step_ref":               step.StepRef,
+		"project_id":             wfRun.ProjectID,
+		"nesting_depth":          currentDepth + 1,
+	})
 
 	return nil
 }
@@ -305,6 +354,15 @@ func (e *WorkflowEngine) startWaitForEventStep(
 
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"step_type":       string(step.StepType),
+		"project_id":      wfRun.ProjectID,
+		"timeout_secs":    timeoutSecs,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+	})
 
 	e.logger.Info("wait_for_event step started",
 		"workflow_run_id", wfRun.ID,
@@ -362,6 +420,15 @@ func (e *WorkflowEngine) startSleepStep(
 
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"step_type":       string(step.StepType),
+		"project_id":      wfRun.ProjectID,
+		"duration_secs":   durationSecs,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+	})
 
 	e.logger.Info("sleep step started",
 		"workflow_run_id", wfRun.ID,

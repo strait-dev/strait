@@ -17,6 +17,7 @@ import (
 	"strait/internal/httputil"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
@@ -37,6 +38,9 @@ func recordRetryAttempt(ctx context.Context, attempt int) {
 func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run completed", run, job, map[string]any{
+		"to_status": string(domain.StatusCompleted),
+	})
 
 	now := time.Now()
 	fields := map[string]any{
@@ -260,6 +264,10 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run failed", run, job, map[string]any{
+		"error_class":  errClass,
+		"max_attempts": policy.maxAttempts,
+	})
 	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
 		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
 	}
@@ -322,6 +330,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	if shouldRetry {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
+		addWorkerRunBreadcrumb(ctx, "worker.retry", "run retry scheduled", run, job, map[string]any{
+			"attempt":       run.Attempt + 1,
+			"next_retry_at": retryAt.Format(time.RFC3339),
+			"error_class":   errClass,
+		})
 		fields := map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
@@ -424,6 +437,10 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run timed out", run, job, map[string]any{
+		"timeout_secs": policy.timeoutSecs,
+		"max_attempts": policy.maxAttempts,
+	})
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
 		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
@@ -577,6 +594,9 @@ func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields m
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run system failure", run, nil, map[string]any{
+		"error_class": "server",
+	})
 
 	sentry.WithScope(func(scope *sentry.Scope) {
 		scope.SetTag("run_id", run.ID)
@@ -644,6 +664,26 @@ func durationMillisecondsAtLeastOne(d time.Duration) int64 {
 		return 1
 	}
 	return ms
+}
+
+func addWorkerRunBreadcrumb(ctx context.Context, category, message string, run *domain.JobRun, job *domain.Job, data map[string]any) {
+	if run == nil {
+		return
+	}
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["run_id"] = run.ID
+	data["job_id"] = run.JobID
+	data["project_id"] = run.ProjectID
+	data["attempt"] = run.Attempt
+	data["status"] = string(run.Status)
+	data["execution_mode"] = string(run.ExecutionMode)
+	if job != nil {
+		data["job_version"] = job.Version
+		data["environment_id"] = job.EnvironmentID
+	}
+	telemetry.AddSentryBreadcrumb(ctx, category, message, data)
 }
 
 // queueWait returns the duration a run spent queued (created_at to started_at).

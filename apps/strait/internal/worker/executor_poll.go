@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 )
@@ -103,6 +104,13 @@ func (e *Executor) poll(ctx context.Context) {
 			}
 			defer func() {
 				if r := recover(); r != nil {
+					telemetry.AddSentryBreadcrumb(execCtx, "worker.dispatch", "worker panic", map[string]any{
+						"run_id":         run.ID,
+						"job_id":         run.JobID,
+						"project_id":     run.ProjectID,
+						"attempt":        run.Attempt,
+						"execution_mode": string(run.ExecutionMode),
+					})
 					sentry.WithScope(func(scope *sentry.Scope) {
 						scope.SetTag("run_id", run.ID)
 						scope.SetTag("job_id", run.JobID)

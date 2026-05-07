@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
@@ -98,6 +99,9 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.RetryWorkflowRun")
 	defer span.End()
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow retry requested", map[string]any{
+		"original_workflow_run_id": originalRunID,
+	})
 
 	// 1. Fetch the original workflow run.
 	origRun, err := e.store.GetWorkflowRun(ctx, originalRunID)
@@ -195,6 +199,13 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 	}
 	wfRun.Status = domain.WfStatusRunning
 	wfRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow retry started", map[string]any{
+		"workflow_id":              wfRun.WorkflowID,
+		"workflow_run_id":          wfRun.ID,
+		"project_id":               wfRun.ProjectID,
+		"original_workflow_run_id": originalRunID,
+		"root_count":               len(roots),
+	})
 
 	// 7. Start ready steps (same logic as TriggerWorkflow).
 	runningStarts := 0

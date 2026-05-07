@@ -147,6 +147,13 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow trigger requested", map[string]any{
+		"workflow_id":            workflowID,
+		"project_id":             projectID,
+		"triggered_by":           triggeredBy,
+		"parent_workflow_run_id": parentWorkflowRunID,
+		"parent_step_run_id":     parentStepRunID,
+	})
 	triggerStatus := "success"
 	defer func() {
 		e.recordTrigger(ctx, triggerStatus)
@@ -322,6 +329,14 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 	wfRun.Status = domain.WfStatusRunning
 	wfRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow run started", map[string]any{
+		"workflow_id":     wfRun.WorkflowID,
+		"workflow_run_id": wfRun.ID,
+		"project_id":      wfRun.ProjectID,
+		"version":         wfRun.WorkflowVersion,
+		"step_count":      len(stepRuns),
+		"root_count":      len(roots),
+	})
 
 	for i := range steps {
 		step := &steps[i]

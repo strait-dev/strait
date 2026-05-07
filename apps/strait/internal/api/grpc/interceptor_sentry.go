@@ -34,6 +34,7 @@ func unarySentryInterceptor(meta grpcSentryMetadata) grpc.UnaryServerInterceptor
 			}
 		}()
 		resp, err = handler(ctx, req)
+		addGRPCSentryBreadcrumb(ctx, info.FullMethod, false, err)
 		captureGRPCSentryError(ctx, meta, info.FullMethod, err)
 		return resp, err
 	}
@@ -54,9 +55,22 @@ func streamSentryInterceptor(meta grpcSentryMetadata) grpc.StreamServerIntercept
 			}
 		}()
 		err := handler(srv, wrapped)
+		addGRPCSentryBreadcrumb(ctx, info.FullMethod, true, err)
 		captureGRPCSentryError(ctx, meta, info.FullMethod, err)
 		return err
 	}
+}
+
+func addGRPCSentryBreadcrumb(ctx context.Context, method string, stream bool, err error) {
+	message := "grpc unary"
+	if stream {
+		message = "grpc stream"
+	}
+	telemetry.AddSentryBreadcrumb(ctx, "grpc.server", message, map[string]any{
+		"service":   grpcServiceName(method),
+		"rpc":       grpcRPCName(method),
+		"grpc_code": status.Code(err).String(),
+	})
 }
 
 type sentryServerStream struct {

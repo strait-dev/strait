@@ -100,6 +100,35 @@ func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
 	}
 }
 
+func TestUnarySentryInterceptorAddsBreadcrumb(t *testing.T) {
+	t.Parallel()
+
+	interceptor := unarySentryInterceptor(grpcSentryMetadata{})
+	info := &grpc.UnaryServerInfo{FullMethod: "/strait.worker.v1.WorkerService/Heartbeat"}
+	ctx := sentry.SetHubOnContext(context.Background(), sentry.NewHub(nil, sentry.NewScope()))
+	_, err := interceptor(ctx, nil, info, func(context.Context, any) (any, error) {
+		return nil, status.Error(codes.Unavailable, "worker unavailable")
+	})
+	if err == nil {
+		t.Fatal("expected handler error")
+	}
+
+	event := sentry.GetHubFromContext(ctx).Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event == nil || len(event.Breadcrumbs) != 1 {
+		t.Fatalf("breadcrumbs = %v, want one breadcrumb", event)
+	}
+	bc := event.Breadcrumbs[0]
+	if bc.Category != "grpc.server" {
+		t.Fatalf("category = %q, want grpc.server", bc.Category)
+	}
+	if got := bc.Data["grpc_code"]; got != codes.Unavailable.String() {
+		t.Fatalf("grpc_code = %v, want %s", got, codes.Unavailable.String())
+	}
+	if got := bc.Data["rpc"]; got != "Heartbeat" {
+		t.Fatalf("rpc = %v, want Heartbeat", got)
+	}
+}
+
 func TestShouldCaptureGRPCSentryError_OnlyServerSideCodes(t *testing.T) {
 	t.Parallel()
 

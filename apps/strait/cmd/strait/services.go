@@ -41,6 +41,7 @@ import (
 	pgmigrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
@@ -113,7 +114,10 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	if cfg.DBHealthCheckPeriod > 0 {
 		poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
 	}
-	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
+	poolConfig.ConnConfig.Tracer = multitracer.New(
+		otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
+		telemetry.SentryPGXTracer{},
+	)
 
 	// Apply MVCC horizon guardrails and timeouts (Phase 1).
 	// These runtime params are applied to every connection in the pool via pgx's
@@ -214,6 +218,7 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *r
 		} else {
 			slog.Info("connected to redis")
 		}
+		rdb.AddHook(telemetry.RedisBreadcrumbHook{})
 		pub := pubsub.NewRedisPublisher(rdb)
 		return pub, rdb, nil
 	}
