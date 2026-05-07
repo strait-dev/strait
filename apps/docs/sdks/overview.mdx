@@ -1,159 +1,141 @@
 ---
 title: "SDK Overview"
-description: "Official Strait SDKs for TypeScript, Python, Go, Ruby, and Rust — each in its own dedicated repository."
+description: "Install an official Strait SDK and call the API from your application."
 icon: "code"
 og:image: "/images/og.png"
 ---
 
-Strait provides official SDKs for **TypeScript**, **Python**, **Go**, **Ruby**, and **Rust**. All five SDKs cover the full Strait API with the same configuration model. Service organization varies slightly by language (see each SDK page for details).
+Strait provides SDKs for TypeScript, Python, Go, Ruby, and Rust.
 
-The **Python**, **Go**, **Ruby**, **Rust**, and **MCP** SDKs have moved to dedicated repositories. The TypeScript SDK remains in this monorepo.
+Use an SDK to create jobs, trigger runs, inspect status, define workflows, and report progress from job handlers.
 
-## Repositories
+## Install
 
-| SDK | Repository | Install |
-|---|---|---|
-| **TypeScript** | [strait-dev/strait-ts](https://github.com/strait-dev/strait-ts) | `npm install @strait/ts` |
-| **Python** | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) | `pip install strait-python` |
-| **Go** | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) | `go get github.com/strait-dev/strait-go` |
-| **Ruby** | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) | `gem install strait` |
-| **Rust** | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) | `cargo add strait` |
-| **MCP** | [strait-dev/mcp](https://github.com/strait-dev/mcp) | See repository README |
+| Language | Install |
+|---|---|
+| TypeScript | `npm install @strait/ts` |
+| Python | `pip install strait-python` |
+| Go | `go get github.com/strait-dev/strait-go` |
+| Ruby | `gem install strait` |
+| Rust | `cargo add strait` |
 
-## Feature Parity
+## Configure
 
-All five SDKs implement the same capabilities:
-
-| Feature | TypeScript | Python | Go | Ruby | Rust |
-|---|---|---|---|---|---|
-| **API operations** | `client.jobs.list()` | `client.jobs.list()` | `jobs.List(ctx)` | `jobs.list` | `jobs.list().await` |
-| **Config from `strait.json`** | `createClientFromConfigFile()` | `Client.from_file()` | `NewClientFromFile()` | `Client.from_file` | `Client::from_file()` |
-| **Config from env vars** | `createClientFromEnv()` | `Client.from_env()` | `NewClientFromEnv()` | `Client.from_env` | `Client::from_env()` |
-| **Authoring DSL** | `defineJob()` / `defineWorkflow()` | `define_job()` / `define_workflow()` | `DefineJob()` / `DefineWorkflow()` | `define_job` / `define_workflow` | `define_job()` / `define_workflow()` |
-| **Composition helpers** | `withRetry()`, `waitForRun()`, `paginate()` | `with_retry()`, `wait_for_run()`, `paginate()` | `WithRetry()`, `WaitForRun()`, `Paginate()` | `with_retry`, `wait_for_run`, `paginate` | `with_retry()`, `wait_for_run()`, `paginate()` |
-| **State machines** | XState v5 actors | `transition_run()` | `CanTransitionRun()` | `can_transition_run?` | `can_transition_run()` |
-| **Dependency validation** | Cycle detection | Cycle detection | Cycle detection | Cycle detection | Cycle detection |
-| **Middleware hooks** | `onRequest` / `onResponse` / `onError` | `on_request` / `on_response` / `on_error` | `OnRequest` / `OnResponse` / `OnError` | `on_request` / `on_response` / `on_error` | `on_request` / `on_response` / `on_error` |
-| **Typed errors** | 10 error classes | 10 exception types | 10 error types | 10 error classes | 10 error variants |
-| **Custom HTTP client** | Custom `fetch` | `httpx.Client` | `HTTPDoer` interface | `#call` interface | `reqwest::Client` |
-
-## Quick Start
-
-<Info>
-These examples assume you have a Strait server running (cloud or self-hosted) and at least one job created. See [Quick Start](/quickstart) to set up your server and create your first job.
-</Info>
-
-**1. Set your API key:**
+Set your API key:
 
 ```bash
-export STRAIT_API_KEY="sk_live_..."
+export STRAIT_API_KEY="strait_..."
 ```
 
-**2. Create a client and trigger a job:**
+Then create a client from the environment.
 
 <CodeGroup>
   ```ts TypeScript
   import { createClientFromEnv } from "@strait/ts/node";
 
   const client = createClientFromEnv();
-
-  // Trigger a job and wait for the result
-  const run = await client.triggerJob({
-    pathParams: { jobID: "my-job" },
-    body: { payload: { key: "value" } },
-  });
-
-  console.log(run.id, run.status); // run_abc123 queued
   ```
 
   ```python Python
   from strait import Client
 
   client = Client.from_env()
-
-  run = client.jobs.trigger("my-job", {"payload": {"key": "value"}})
-  print(run["id"], run["status"])  # run_abc123 queued
   ```
 
   ```go Go
-  client, _ := strait.NewClientFromEnv()
-
-  run, _ := client.Jobs().Trigger(ctx, "my-job", strait.TriggerInput{
-      Payload: map[string]any{"key": "value"},
-  })
-  fmt.Println(run.ID, run.Status) // run_abc123 queued
+  client, err := strait.NewClientFromEnv()
+  if err != nil {
+      return err
+  }
   ```
 </CodeGroup>
 
-## SDK Architecture
+## Trigger a Job
 
-Each SDK is organized into the same five layers:
+<CodeGroup>
+  ```ts TypeScript
+  const run = await client.triggerJob({
+    pathParams: { jobID: "send-email" },
+    body: {
+      payload: {
+        to: "customer@example.com",
+        template: "welcome",
+      },
+    },
+  });
 
+  console.log(run.id, run.status);
+  ```
+
+  ```python Python
+  run = client.jobs.trigger(
+      "send-email",
+      {"payload": {"to": "customer@example.com", "template": "welcome"}},
+  )
+
+  print(run["id"], run["status"])
+  ```
+
+  ```go Go
+  run, err := client.Jobs().Trigger(ctx, "send-email", strait.TriggerInput{
+      Payload: map[string]any{
+          "to": "customer@example.com",
+          "template": "welcome",
+      },
+  })
+  if err != nil {
+      return err
+  }
+
+  fmt.Println(run.ID, run.Status)
+  ```
+</CodeGroup>
+
+## Report Progress from a Job
+
+When Strait calls your job endpoint, it includes a short-lived run token. Use that token to log progress, save checkpoints, and send heartbeats during long work.
+
+```ts
+app.post("/jobs/process-file", async (req, res) => {
+  const ctx = createRunContext({
+    token: req.headers["x-sdk-token"],
+  });
+
+  await ctx.log("Started file processing");
+  await ctx.heartbeat();
+
+  const result = await processFile(req.body.payload.file_url);
+
+  res.json(result);
+});
 ```
-+-------------------------------------------+
-|  Authoring DSL                            |  defineJob() / defineWorkflow()
-+-------------------------------------------+
-|  Composition Helpers                      |  retry, wait, paginate
-+-------------------------------------------+
-|  Domain Operations                        |  jobs, runs, workflows, ...
-+-------------------------------------------+
-|  HTTP Client + Middleware                 |  auth, headers, error mapping
-+-------------------------------------------+
-|  Configuration                            |  strait.json / env vars / inline
-+-------------------------------------------+
-```
 
-### Domain Operations (19 Services)
+See [SDK Integration](/guides/sdk-integration) for a full handler example.
 
-All 186 API operations are organized into typed service classes:
+## Repositories
 
-| Service | Operations |
+| SDK | Repository |
 |---|---|
-| `jobs` | list, create, get, update, delete, trigger, bulk_trigger, clone |
-| `runs` | list, get, delete, replay, bulk_cancel, get_dlq |
-| `workflows` | list, create, get, update, delete, trigger, get_diff, get_policy |
-| `workflow_runs` | list, get, pause, resume, approve_step, skip_step |
-| `deployments` | list, create, finalize, promote, rollback |
-| `environments` | list, create, get, update, delete |
-| `secrets` | list, create, delete |
-| `api_keys` | list, create, delete, rotate |
-| `webhooks` | list_subscriptions, create_subscription, delete_subscription, list_deliveries, get_delivery, retry_delivery |
-| `event_triggers` | list_events, get_event, delete_event, send_event, send_prefix, purge_event, get_stat |
-| `event_sources` | list, get, create, update, delete |
-| `batch_operations` | list, get |
-| `stats` | list |
-| `analytics` | get_performance |
-| `log_drains` | list, create, get, update, delete |
-| `sdk_runs` | annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool_call, usage, wait_for_event |
-| `rbac` | list_audit_events, list_members, create_member, delete_member, bulk_member, list_roles, create_role, get_role, update_role, delete_role, list_resource_policies, create_resource_policy, delete_resource_policy, list_tag_policies, create_tag_policy, delete_tag_policy, seed_roles |
-| `job_groups` | list, create, get, update, delete, list_jobs, pause_all, resume_all, get_stats |
-| `health` | list, get_ready, list_metrics |
+| TypeScript | [strait-dev/strait-ts](https://github.com/strait-dev/strait-ts) |
+| Python | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) |
+| Go | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) |
+| Ruby | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) |
+| Rust | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) |
+| MCP | [strait-dev/mcp](https://github.com/strait-dev/mcp) |
 
-## What's Next?
+## Next
 
 <CardGroup cols={2}>
-  <Card title="Configuration" icon="gear" href="/sdks/configuration">
-    `strait.json` schema reference, environment variable overrides, and config file discovery.
+  <Card title="TypeScript Quickstart" icon="js" href="/sdks/typescript-quickstart">
+    Install the TypeScript SDK, create a client, and trigger a job.
   </Card>
-  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">
-    Full API coverage with authoring DSL, composition helpers, typed errors, and AI SDK integration.
+  <Card title="Python Quickstart" icon="python" href="/sdks/python-quickstart">
+    Install the Python SDK, create a client, and trigger a job.
   </Card>
-</CardGroup>
-
-<CardGroup cols={2}>
-  <Card title="Python SDK" icon="python" href="/sdks/python">
-    Now in its own repository at github.com/strait-dev/strait-python.
+  <Card title="Go Quickstart" icon="golang" href="/sdks/go-quickstart">
+    Install the Go SDK, create a client, and trigger a job.
   </Card>
-  <Card title="Go SDK" icon="golang" href="/sdks/go">
-    Now in its own repository at github.com/strait-dev/strait-go.
-  </Card>
-</CardGroup>
-
-<CardGroup cols={2}>
-  <Card title="Ruby SDK" icon="gem" href="/sdks/ruby">
-    Now in its own repository at github.com/strait-dev/strait-ruby.
-  </Card>
-  <Card title="Rust SDK" icon="rust" href="/sdks/rust">
-    Now in its own repository at github.com/strait-dev/strait-rust.
+  <Card title="SDK Integration" icon="code" href="/guides/sdk-integration">
+    Write job handlers that report logs, heartbeats, checkpoints, and results.
   </Card>
 </CardGroup>

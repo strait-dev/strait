@@ -26,5 +26,5 @@ make selfhost-reset  # runs selfhost-init.sh --reset
 
 Referenced by:
 - `Makefile` (`selfhost`, `selfhost-reset` targets)
-- `SELFHOST.md` (operator documentation)
+- `SELFHOST.md` (self-host guide)
 - `docker-compose.selfhost.yml` (comment header)

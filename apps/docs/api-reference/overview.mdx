@@ -13,8 +13,8 @@ og:image: "/images/og.png"
 
 The Strait API supports four authentication methods depending on the client and use case.
 
-### Internal Secret
-Used for administrative tasks and internal service-to-service communication.
+### Server Secret
+Used for trusted backend calls.
 - **Header**: `X-Internal-Secret: <your-secret>`
 - **Bearer Token**: `Authorization: Bearer <your-secret>`
 
@@ -55,7 +55,7 @@ List endpoints use cursor-based pagination.
 Rate limits are applied per IP address:
 - **Global API**: 100 requests per minute.
 - **Job Trigger**: 10 triggers per minute.
-- **Bulk Trigger**: 30 bulk triggers per minute.
+- **Bulk Trigger**: 5 bulk trigger requests per minute.
 
 ## Request Limits
 
@@ -74,7 +74,7 @@ Rate limits are applied per IP address:
 |---|---|---|
 |Jobs|`/v1/jobs`|Create, update, trigger, and manage job definitions|
 |Runs|`/v1/runs`|Track, cancel, retry, and inspect job runs|
-|Workflows|`/v1/workflows`|Define and manage workflow DAGs|
+|Workflows|`/v1/workflows`|Define and manage workflows|
 |Workflow Runs|`/v1/workflow-runs`|Monitor and control workflow executions|
 |Events|`/v1/events`|Send events to triggers and dispatch to sources|
 |Event Sources|`/v1/event-sources`|Manage inbound event channels and subscriptions|
@@ -82,7 +82,7 @@ Rate limits are applied per IP address:
 |Environments|`/v1/environments`|Configure per-environment variable overrides|
 |API Keys|`/v1/api-keys`|Create, rotate, and revoke API keys|
 |Webhook Subscriptions|`/v1/webhook-subscriptions`|Manage project-wide webhook subscriptions|
-|Audit|`/v1/audit`|Query audit events and review queue|
+|Audit|`/v1/audit-events`|Query and export audit events|
 |RBAC|`/v1/roles`, `/v1/members`|Manage roles, members, and policies|
 
 All endpoints accept and return JSON. Use the interactive API explorer below for full request/response schemas.
@@ -154,24 +154,24 @@ Every error response follows the same shape:
 |`enqueue_throttled`|429|Per-job or per-project enqueue throttle exceeded. Retry with backoff.|
 |`internal_error`|500|Unexpected server-side failure. Quote `request_id` when reporting.|
 |`service_unavailable`|503|Dependency degraded or shedding load. Retry with backoff.|
-## DAG and Dependency Runtime Endpoints
+## Workflow and Dependency Endpoints
 
 ### Planning and Diagnostics
 
 - `POST /v1/workflows/{workflowID}/plan`: Topological plan preview for the current workflow version (supports step overrides).
 - `GET /v1/runs/{runID}/dependency-status`: Returns dependency definitions for a run and whether it is currently unblocked.
-- `GET /v1/workflow-runs/{workflowRunID}/graph`: Runtime graph (nodes, edges, runnable set, critical-path estimates).
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: Workflow graph for a run.
 - `GET /v1/workflow-runs/{workflowRunID}/explain`: Scheduler/condition decision stream with optional `step_ref` and `decision_type` filters.
 
 ### Recovery and Governance
 
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: Reset one terminal step to `pending` and resume progression.
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: Reset the selected step and descendants, then resume progression.
-- `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level DAG governance policy.
+- `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level workflow policy.
 
 ### Bulk Operations
 
-- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to 100 runs in a single request. Supports per-item payload, priority, idempotency keys, and tags. Returns structured results with per-item status. Rate limited to 30 requests per minute.
+- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to the configured `MAX_BULK_TRIGGER_ITEMS` limit in a single request. Supports per-item payload, priority, idempotency keys, and tags. Returns structured results with per-item status. Rate limited to 5 requests per minute.
 - `POST /v1/runs/bulk-cancel`: Cancel up to 100 runs in a single request. Returns per-run cancel status with error details for runs that could not be canceled.
 
 ### Version Analysis

@@ -1,0 +1,42 @@
+---
+title: "Coordinate Multi-Step Workflows"
+description: "Run ordered steps with dependencies, retries, waits, and recovery."
+icon: "diagram-project"
+---
+
+Use workflows when the work is more than one job.
+
+Examples include onboarding, order fulfillment, data pipelines, AI review flows, and processes that wait for approvals or external events.
+
+## When a Workflow Fits
+
+Use a workflow when you need:
+
+- Steps that depend on earlier steps.
+- Parallel branches.
+- Retries on one failed step without rerunning everything.
+- Approval gates or event waits.
+- A run view that shows where the process is stuck.
+
+Use [job chaining](/concepts/job-chaining) for short linear sequences. Use workflows when the process needs to be inspected and operated.
+
+## Basic Shape
+
+```json
+{
+  "steps": [
+    { "step_ref": "extract", "job_id": "job_extract" },
+    { "step_ref": "transform", "job_id": "job_transform", "depends_on": ["extract"] },
+    { "step_ref": "load", "job_id": "job_load", "depends_on": ["transform"] }
+  ]
+}
+```
+
+Each step gets its own run history. Failed steps follow their retry policy.
+
+## Read Next
+
+- [Workflows](/concepts/workflows)
+- [Event Triggers](/concepts/event-triggers)
+- [Workflow Approvals](/guides/workflow-approvals)
+- [Compare Strait and Workflow Engines](/compare/workflow-engines)

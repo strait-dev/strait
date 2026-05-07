@@ -1,0 +1,79 @@
+---
+title: "Go Quickstart"
+description: "Install the Go SDK and trigger your first run."
+icon: "golang"
+---
+
+Use the Go SDK when your services or workers are written in Go.
+
+This page shows the shortest path: install the module, create a client, trigger a job, and inspect the run.
+
+## Install
+
+```bash
+go get github.com/strait-dev/strait-go
+```
+
+## Configure
+
+Set your API key:
+
+```bash
+export STRAIT_API_KEY="strait_..."
+export STRAIT_BASE_URL="https://api.strait.dev"
+```
+
+Create a client from the environment:
+
+```go
+client, err := strait.NewClientFromEnv()
+if err != nil {
+    return err
+}
+```
+
+## Trigger a Job
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    strait "github.com/strait-dev/strait-go"
+    "github.com/strait-dev/strait-go/operations"
+)
+
+func main() {
+    ctx := context.Background()
+
+    client, err := strait.NewClientFromEnv()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    jobs := operations.NewJobsService(client)
+
+    run, err := jobs.Trigger(ctx, "send-welcome-email", &operations.TriggerJobRequest{
+        Payload: map[string]any{
+            "user_id": "usr_123",
+            "email": "customer@example.com",
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println(run.ID, run.Status)
+}
+```
+
+The response returns a run ID. Use it to check status or correlate the run with your own logs.
+
+## Next
+
+- [Go Reference](/sdks/go)
+- [SDK Integration](/guides/sdk-integration)
+- [Create a Production Job](/guides/production-job)

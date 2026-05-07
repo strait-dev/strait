@@ -1,17 +1,17 @@
 # Strait — Go Service
 
-The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and observability. If you're contributing to the Go backend, this is where you work.
+The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and monitoring. If you're contributing to the Go backend, this is where you work.
 
 ## Table of contents
 
 - [Architecture](#architecture)
 - [Editions](#editions)
 - [Getting started](#getting-started)
-- [Internal packages](#internal-packages)
+- [Packages](#packages)
 - [Configuration](#configuration)
 - [Database and migrations](#database-and-migrations)
 - [Testing](#testing)
-- [Observability](#observability)
+- [Monitoring](#monitoring)
 - [Contributing](#contributing)
 
 ---
@@ -69,7 +69,7 @@ Two editions compile from the same codebase, controlled at compile time by a bui
 | Edition | Build command | Description |
 |---|---|---|
 | Community | `go build ./...` | Self-hosted, open-source. No billing. |
-| Cloud | `go build -tags cloud ./...` | Hosted orchestrator at strait.dev (API + Postgres + Redis + scheduler + gRPC worker plane). Multi-region, Stripe billing, advanced analytics. Customer code runs on customer infra in both editions. |
+| Cloud | `go build -tags cloud ./...` | Hosted orchestrator at strait.dev (API + Postgres + Redis + scheduler + gRPC worker plane). Multi-region, Stripe billing, hosted reporting. Customer code runs on customer infra in both editions. |
 
 `internal/domain/edition_community.go` and `internal/domain/edition_cloud.go` each implement `ParseEdition()` and feature gate constants. Only one compiles per build.
 
@@ -106,7 +106,7 @@ See `internal/config/config.go` for every supported env var and its default valu
 
 ---
 
-## Internal packages
+## Packages
 
 | Package | Purpose |
 |---|---|
@@ -126,7 +126,7 @@ See `internal/config/config.go` for every supported env var and its default valu
 | `cache` | In-memory TTL cache (Otter) for hot-path reads like quota snapshots. |
 | `testutil` | Test helpers: real Postgres containers, in-memory Redis, domain object factories. |
 
-For detailed package documentation, implementation patterns, and contribution recipes, see [AGENTS.md](../../AGENTS.md) and the [architecture docs](../../apps/docs/architecture.mdx).
+For detailed package notes, contribution rules, and architecture context, see [AGENTS.md](../../AGENTS.md) and the [architecture docs](../../apps/docs/architecture.mdx).
 
 ---
 
@@ -167,7 +167,7 @@ Mocks are generated via `moq` — run `go generate ./...` after interface change
 
 ---
 
-## Observability
+## Monitoring
 
 - **Metrics:** Prometheus, scraped at `/metrics`
 - **Traces:** OTLP export to the OpenTelemetry Collector, forwarded to Grafana Tempo

@@ -1,0 +1,118 @@
+---
+title: "Create a Production Job"
+description: "Set up a job with retries, timeouts, idempotency, and basic monitoring."
+icon: "check-circle"
+---
+
+This guide shows the settings most production jobs should have before they process real work.
+
+## 1. Create an Endpoint
+
+Your endpoint should accept a POST request and return quickly with a clear success or failure.
+
+```json
+{
+  "payload": { "user_id": "usr_42" },
+  "metadata": {},
+  "job_id": "job_123",
+  "run_id": "run_123",
+  "attempt": 1
+}
+```
+
+Return `2xx` only after the work is complete. Return `408`, `429`, or `5xx` for failures that should be retried.
+
+## 2. Create the Job
+
+```bash
+curl -X POST https://api.strait.dev/v1/jobs \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_123",
+    "name": "Send Welcome Email",
+    "slug": "send-welcome-email",
+    "endpoint_url": "https://api.example.com/jobs/send-welcome-email",
+    "timeout_secs": 60,
+    "max_attempts": 5,
+    "retry_strategy": "exponential"
+  }'
+```
+
+Use a timeout that reflects the real upper bound for the work. Avoid very long timeouts unless the endpoint truly needs them.
+
+## 3. Add Idempotency
+
+If the caller may retry the trigger request, send an idempotency key.
+
+```bash
+curl -X POST https://api.strait.dev/v1/jobs/send-welcome-email/trigger \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Idempotency-Key: welcome-email-usr_42" \
+  -H "Content-Type: application/json" \
+  -d '{ "payload": { "user_id": "usr_42" } }'
+```
+
+The key should represent the business action, not a random request ID.
+
+## 4. Protect the Downstream Service
+
+Set concurrency and rate limits when your endpoint calls a database, third-party API, or service with limited capacity.
+
+```json
+{
+  "max_concurrency": 10,
+  "rate_limit_max": 100,
+  "rate_limit_window_secs": 60
+}
+```
+
+Start conservative. Raise limits after you understand latency and failure rates.
+
+## 5. Add Metadata
+
+Metadata makes runs easier to find later.
+
+```json
+{
+  "payload": { "user_id": "usr_42" },
+  "metadata": {
+    "source": "signup",
+    "request_id": "req_123"
+  },
+  "tags": {
+    "tenant": "acme"
+  }
+}
+```
+
+Use metadata for context. Use tags for fields you expect to filter on.
+
+## 6. Watch the First Runs
+
+After triggering the job, check the run:
+
+```bash
+curl https://api.strait.dev/v1/runs/run_123 \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+Confirm:
+
+- The run reaches `completed`.
+- The result contains what you expect.
+- The endpoint latency is inside your timeout.
+- Failed attempts retry as expected.
+
+## 7. Handle Failures
+
+When retries are exhausted, the run moves to `dead_letter`. Treat those runs as a work queue for human review.
+
+See [Handle Failed Runs](/guides/handle-failed-runs).
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Runs](/concepts/runs)
+- [Idempotency](/guides/idempotency)
+- [Retry Strategies](/concepts/retry-strategies)

@@ -31,12 +31,29 @@
         "groups": [
           {
             "group": "Getting Started",
+            "pages": ["introduction", "choose-your-path", "quickstart"]
+          },
+          {
+            "group": "Use Cases",
             "pages": [
-              "introduction",
-              "choose-your-path",
-              "quickstart",
-              "architecture",
-              "changelog"
+              "use-cases/background-jobs",
+              "use-cases/scheduled-work",
+              "use-cases/multi-step-workflows",
+              "use-cases/private-network-jobs",
+              "use-cases/replay-failed-work"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/production-job",
+              "guides/private-workers",
+              "guides/handle-failed-runs",
+              "guides/deployment",
+              "guides/authentication",
+              "sdks/typescript-quickstart",
+              "sdks/python-quickstart",
+              "sdks/go-quickstart"
             ]
           },
           {
@@ -53,36 +70,16 @@
               "concepts/jobs",
               "concepts/runs",
               "concepts/workflows",
-              "concepts/retry-strategies",
-              "concepts/event-triggers",
-              "concepts/scheduling",
               "concepts/projects"
             ]
           },
           {
-            "group": "Workflows",
+            "group": "Job Features",
             "pages": [
-              "concepts/dag-runtime",
-              "concepts/durable-workflows",
-              "concepts/compensating-transactions",
-              "concepts/workflow-simulator",
-              "concepts/workflow-test-suites",
-              "concepts/workflow-debugger"
-            ]
-          },
-          {
-            "group": "Reliability",
-            "pages": [
-              "concepts/resilience",
-              "concepts/adaptive-concurrency",
-              "concepts/canary-deployments",
-              "concepts/cost-budgets",
-              "concepts/slos"
-            ]
-          },
-          {
-            "group": "Execution",
-            "pages": [
+              "concepts/retry-strategies",
+              "concepts/scheduling",
+              "concepts/event-triggers",
+              "concepts/event-sources",
               "concepts/execution-modes",
               "concepts/batch-operations",
               "concepts/job-chaining",
@@ -91,46 +88,59 @@
             ]
           },
           {
-            "group": "Observability",
+            "group": "Monitoring",
             "pages": [
+              "operations/observability",
               "concepts/real-time",
-              "concepts/audit-logging",
-              "concepts/log-drains",
               "concepts/webhooks",
               "concepts/webhook-subscriptions",
-              "concepts/event-sources",
+              "concepts/log-drains",
               "concepts/clickhouse-analytics",
-              "concepts/cdc",
               "concepts/notifications",
-              "concepts/debug-bundles"
+              "concepts/audit-logging"
             ]
           },
           {
-            "group": "Configuration",
-            "pages": ["configuration/environment-variables"]
-          },
-          {
-            "group": "Guides",
+            "group": "Security and Access",
             "pages": [
-              "guides/authentication",
-              "guides/deployment",
               "guides/security",
               "guides/sdk-integration",
               "guides/rbac",
               "guides/idempotency",
               "guides/workflow-approvals",
               "guides/event-triggers",
-              "guides/audit-events",
-              "guides/dag-operations-playbook"
+              "guides/audit-events"
             ]
           },
           {
-            "group": "Operations",
+            "group": "Compare",
             "pages": [
-              "operations/observability",
-              "operations/alert-runbooks",
-              "operations/dlq-recovery"
+              "compare/message-queues",
+              "compare/cron",
+              "compare/workflow-engines",
+              "compare/when-not-to-use-strait"
             ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "concepts/durable-workflows",
+              "concepts/compensating-transactions",
+              "concepts/adaptive-concurrency",
+              "concepts/canary-deployments",
+              "concepts/cost-budgets",
+              "concepts/slos",
+              "concepts/debug-bundles",
+              "concepts/workflow-simulator",
+              "concepts/workflow-test-suites",
+              "concepts/workflow-debugger",
+              "architecture",
+              "changelog"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": ["configuration/environment-variables"]
           },
           {
             "group": "Integrations",
@@ -142,9 +152,17 @@
         "tab": "SDKs",
         "groups": [
           {
-            "group": "SDK Reference",
+            "group": "Start Here",
             "pages": [
               "sdks/overview",
+              "sdks/typescript-quickstart",
+              "sdks/python-quickstart",
+              "sdks/go-quickstart"
+            ]
+          },
+          {
+            "group": "SDK Reference",
+            "pages": [
               "sdks/configuration",
               "sdks/typescript",
               "sdks/python",
@@ -257,12 +275,12 @@
       "destination": "/cli/:slug"
     },
     {
-      "source": "/docs/operations/:slug",
-      "destination": "/operations/:slug"
-    },
-    {
       "source": "/configuration/:slug",
       "destination": "/configuration/:slug"
+    },
+    {
+      "source": "/guides/message-queues-vs-orchestration",
+      "destination": "/compare/message-queues"
     }
   ]
 }

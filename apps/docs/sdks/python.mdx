@@ -90,7 +90,7 @@ from strait import Client
 
 client = Client(
     base_url="https://api.strait.dev",
-    api_key="sk_live_...",
+    api_key="strait_...",
     auth_type="bearer",
     timeout_ms=30_000,
 )
@@ -216,7 +216,7 @@ order_pipeline = define_workflow(
     ],
 )
 
-# DAG is validated at definition time
+# Dependency graph is validated at definition time
 order_pipeline.register(client)
 workflow_run = order_pipeline.trigger(client)
 ```
@@ -231,7 +231,7 @@ workflow_run = order_pipeline.trigger(client)
 | `step.sleep(name, seconds)` | Pause for a fixed duration |
 | `step.condition(name, expression)` | Branch based on a condition |
 
-All step types accept `depends_on` to define DAG edges.
+All step types accept `depends_on` to define dependencies.
 
 ## Composition Helpers
 
@@ -335,7 +335,7 @@ except StraitError as e:
 | `RateLimitedError` | 429 | Rate limit exceeded; includes `retry_after_ms` |
 | `ApiError` | other | Any other HTTP error |
 | `TimeoutError` | -- | Polling timeout exceeded |
-| `DagValidationError` | -- | Invalid workflow DAG structure |
+| `DagValidationError` | -- | Invalid workflow dependency graph |
 
 ## Middleware
 

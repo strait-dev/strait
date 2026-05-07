@@ -112,7 +112,7 @@ const summarizer = defineJob({
 The `run` function is your job's handler. When Strait dispatches this job, the SDK routes the callback to your `run` function. You don't need to write a separate HTTP endpoint.
 </Info>
 
-The `reportUsage` call is what connects your LLM spend to Strait's budget enforcement. Without it, Strait has no visibility into what a run actually cost.
+The `reportUsage` call connects LLM spend to Strait's budget checks. Without it, Strait cannot know what a run cost.
 
 ## Step 3: Calculate Costs
 

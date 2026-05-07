@@ -1,185 +1,131 @@
-# Strait — Full Reference
+# Strait -- Full Reference
 
-> Open-source job orchestration platform with 13-state FSM, workflow DAGs, smart retry, event triggers, and multi-language SDK support across TypeScript, Python, Go, Ruby, and Rust.
+> Open-source job orchestration for background jobs and workflows. Strait runs as a single Go binary backed by PostgreSQL and Redis. Customer job code runs on customer infrastructure.
 
-## Architecture
+For the shorter index, see https://strait.dev/llms.txt.
 
-Strait is a job orchestration platform that provides:
-- **API Server**: REST API with 186 endpoints across 19 services
-- **Worker Executor**: Processes job runs with configurable concurrency
-- **Scheduler**: Cron-based job scheduling with timezone support
-- **PostgreSQL Queue**: Durable message queue for job runs (PlanetScale compatible)
-- **Redis**: Optional caching and rate limiting (Upstash compatible)
+## Product Summary
 
-### Operation Modes
-- `api`: API server only
-- `worker`: Worker executor only
-- `all`: Both API server and worker (default)
+Strait lets teams define jobs, trigger runs, schedule recurring work, retry failures, coordinate workflow steps, and inspect execution history.
+
+Use Strait when you need:
+
+- retries, timeouts, and `dead_letter` recovery
+- recurring jobs with run history
+- private workers for jobs inside a private network
+- workflows with approvals, waits, and compensation steps
+- live updates, webhooks, audit events, and logs
+- SDKs for TypeScript, Python, Go, Ruby, and Rust
+
+## Start Here
+
+- Introduction: https://docs.strait.dev/introduction
+- Choose Your Path: https://docs.strait.dev/choose-your-path
+- Quickstart: https://docs.strait.dev/quickstart
+- Create a Production Job: https://docs.strait.dev/guides/production-job
 
 ## Core Concepts
 
 ### Jobs
-Jobs are durable, retriable units of work. Each job has:
-- Unique slug identifier
-- Endpoint URL for execution
-- Configurable retry strategy (exponential, fixed, custom delays)
-- Concurrency limits and rate limiting
-- Cron scheduling with timezone support
-- Webhook notifications
+
+Jobs define work Strait can trigger. A job includes where the work runs, how long it may run, how it retries, and how many copies may run at once.
+
+Learn more: https://docs.strait.dev/concepts/jobs
 
 ### Runs
-Runs are individual job executions following a 13-state FSM:
 
-**States**: delayed, queued, dequeued, executing, waiting, completed, failed, timed_out, crashed, system_failed, canceled, expired, dead_letter, replay_staged
+Runs are individual executions of a job. A run usually moves from `queued` to `executing` to `completed`. Failed runs retry according to policy and can move to `dead_letter` for inspection and replay.
 
-**Terminal states**: completed, failed, timed_out, crashed, system_failed, canceled, expired
-
-**Events**: ENQUEUE, DEQUEUE, EXECUTE, COMPLETE, FAIL, TIMEOUT, CRASH, SYSTEM_FAIL, CANCEL, EXPIRE, WAIT, REQUEUE, DEAD_LETTER, REPLAY
+Learn more: https://docs.strait.dev/concepts/runs
+Related: https://docs.strait.dev/guides/handle-failed-runs
 
 ### Workflows
-Multi-step DAG orchestration with 5 step types:
-- **Job**: Execute a job as a workflow step
-- **Approval**: Human approval gate with timeout
-- **Sub-workflow**: Nested workflow execution
-- **Wait for Event**: Pause until external event arrives
-- **Sleep**: Fixed delay between steps
 
-Steps support: depends_on (DAG edges), conditions, on_failure actions, retry configuration, timeout overrides, output transforms, concurrency keys, resource classes.
+Workflows coordinate several jobs and steps. Steps can run in order or in parallel, wait for approval, pause for an event, or run compensation steps after failure.
 
-### Event Triggers
-Pub/sub event system supporting:
-- Key-based event routing
-- Prefix-based event matching
-- Event purging
-- Multiple job/workflow subscribers per event
+Learn more: https://docs.strait.dev/concepts/workflows
 
-### Deployments
-Atomic deployment pipeline:
-1. Create deployment version (upload artifact)
-2. Finalize (validate)
-3. Promote (activate)
-4. Rollback (revert to previous)
+### Execution Modes
 
-## SDK Architecture
+HTTP jobs call an endpoint you expose. Worker jobs keep your code inside a private network by using a long-lived worker connection to receive work.
 
-All 5 SDKs follow the same 5-layer architecture:
+Learn more: https://docs.strait.dev/concepts/execution-modes
+Related: https://docs.strait.dev/guides/private-workers
 
-```
-Authoring DSL (defineJob / defineWorkflow)
-↓
-Composition Helpers (retry, wait, paginate, deploy)
-↓
-Domain Operations (19 services, 186 endpoints)
-↓
-HTTP Client + Middleware (auth, headers, error mapping)
-↓
-Configuration (strait.json / env vars / inline)
-```
+## Job Features
 
-### 19 Domain Services
-1. **Jobs** — CRUD, clone, trigger, bulk trigger, versions, dependencies, batch operations
-2. **Runs** — CRUD, checkpoints, children, debug, DLQ, events, lineage, outputs, replay, tool calls, usage
-3. **Workflows** — CRUD, clone, dry run, plan, simulate, trigger, graph, versions, diff, policy, explain, labels, impact
-4. **Workflow Runs** — CRUD, pause, resume, retry, steps, approve/retry/skip/force-complete/replay-subtree steps
-5. **Deployments** — List, create, finalize, promote, rollback
-6. **Environments** — CRUD, variables
-7. **Secrets** — List, create, delete
-8. **API Keys** — List, create, delete, rotate
-9. **Webhooks** — Subscriptions CRUD, deliveries, retry
-10. **Event Triggers** — Events CRUD, send, send by prefix, purge, stats
-11. **Event Sources** — CRUD, subscribe, subscriptions, dispatch
-12. **Batch Operations** — List, get
-13. **Stats** — List
-14. **Analytics** — Performance metrics
-15. **Log Drains** — CRUD
-16. **SDK Runs** — 13 endpoints: annotate, checkpoint, complete, continue, fail, heartbeat, log, output, progress, spawn, tool-call, usage, wait-for-event
-17. **RBAC** — Audit events, members, roles, resource policies, tag policies, seed
-18. **Job Groups** — CRUD, list jobs, pause/resume all, stats
-19. **Health** — Health check, readiness, metrics
+- Retry Strategies: https://docs.strait.dev/concepts/retry-strategies
+- Scheduling: https://docs.strait.dev/concepts/scheduling
+- Event Triggers: https://docs.strait.dev/concepts/event-triggers
+- Event Sources: https://docs.strait.dev/concepts/event-sources
+- Batch Operations: https://docs.strait.dev/concepts/batch-operations
+- Job Chaining: https://docs.strait.dev/concepts/job-chaining
+- Versioning: https://docs.strait.dev/concepts/versioning
+- Environments: https://docs.strait.dev/concepts/environments
 
-### Authoring DSL
-Define jobs and workflows programmatically:
-- `define_job(options)` — Create a job definition with run/lifecycle handlers
-- `define_workflow(options)` — Create a workflow definition with DAG steps
-- `register(client, project_id)` — Register with the API
-- `trigger(client, input)` — Trigger execution
-- DAG validation using Kahn's topological sort algorithm
+## Monitoring and Audit
 
-### Composition Helpers
-- **Retry**: `with_retry(fn, options)` — Exponential backoff with full/none jitter, configurable max delay and attempts
-- **Wait**: `wait_for_run(run_id, options)` — Poll until terminal status with exponential backoff
-- **Trigger & Wait**: `trigger_and_wait(input, options)` — Combine trigger + wait
-- **Paginate**: `paginate(list_fn, options)` — Cursor-based pagination iterator
-- **Idempotency**: `with_idempotency(headers, key)` — Add idempotency key headers
-- **Deployments**: `create_and_finalize(client, body)`, `create_finalize_promote(client, body)` — Multi-step deployment helpers
+- Real-Time Streaming: https://docs.strait.dev/concepts/real-time
+- Webhooks: https://docs.strait.dev/concepts/webhooks
+- Webhook Subscriptions: https://docs.strait.dev/concepts/webhook-subscriptions
+- Log Drains: https://docs.strait.dev/concepts/log-drains
+- ClickHouse Analytics: https://docs.strait.dev/concepts/clickhouse-analytics
+- Notifications: https://docs.strait.dev/concepts/notifications
+- Audit Logging: https://docs.strait.dev/concepts/audit-logging
+- Audit Events: https://docs.strait.dev/guides/audit-events
 
-### Error Types (10)
-1. TransportError — Network failures
-2. DecodeError — JSON parse failures
-3. ValidationError — Config/input validation (with issues list)
-4. UnauthorizedError — 401/403 (with status, body)
-5. NotFoundError — 404
-6. ConflictError — 409
-7. RateLimitedError — 429
-8. ApiError — Other HTTP errors
-9. TimeoutError — Polling timeout (with run_id, elapsed_ms)
-10. DagValidationError — DAG issues (cycles, missing_refs, duplicate_refs)
+## Advanced
 
-### Middleware
-Hook into request lifecycle:
-- `on_request(ctx)` — Before request (method, url, headers)
-- `on_response(ctx)` — After response (method, url, status, duration_ms)
-- `on_error(ctx)` — On error (method, url, error)
+- Durable Workflows: https://docs.strait.dev/concepts/durable-workflows
+- Compensating Transactions: https://docs.strait.dev/concepts/compensating-transactions
+- Adaptive Concurrency: https://docs.strait.dev/concepts/adaptive-concurrency
+- Canary Deployments: https://docs.strait.dev/concepts/canary-deployments
+- Cost Budgets: https://docs.strait.dev/concepts/cost-budgets
+- SLOs and Anomaly Detection: https://docs.strait.dev/concepts/slos
+- Debug Bundles: https://docs.strait.dev/concepts/debug-bundles
+- Workflow Simulator: https://docs.strait.dev/concepts/workflow-simulator
+- Workflow Test Suites: https://docs.strait.dev/concepts/workflow-test-suites
+- Workflow Debugger: https://docs.strait.dev/concepts/workflow-debugger
+- Architecture: https://docs.strait.dev/architecture
 
-## Configuration
+## Guides
 
-### strait.json
-```json
-{
-  "$schema": "https://strait.dev/schema/strait.json",
-  "project": { "id": "proj_xxx", "name": "My Project" },
-  "sdk": { "base_url": "https://api.strait.dev", "auth_type": "apiKey", "timeout_ms": 30000 }
-}
-```
+- Handle Failed Runs: https://docs.strait.dev/guides/handle-failed-runs
+- Run Private Workers: https://docs.strait.dev/guides/private-workers
+- Deployment: https://docs.strait.dev/guides/deployment
+- Authentication: https://docs.strait.dev/guides/authentication
+- RBAC: https://docs.strait.dev/guides/rbac
+- Idempotency: https://docs.strait.dev/guides/idempotency
+- Security: https://docs.strait.dev/guides/security
+- SDK Integration: https://docs.strait.dev/guides/sdk-integration
+- Event Triggers: https://docs.strait.dev/guides/event-triggers
+- Workflow Approvals: https://docs.strait.dev/guides/workflow-approvals
+- Audit Events: https://docs.strait.dev/guides/audit-events
 
-### Environment Variables
-- `STRAIT_BASE_URL` — API base URL (required)
-- `STRAIT_API_KEY` — API key (required, always from env)
-- `STRAIT_AUTH_TYPE` — Auth type: bearer, apiKey, runToken (default: apiKey)
-- `STRAIT_TIMEOUT_MS` — Request timeout in ms (default: 30000)
+## SDKs
 
-Priority: env vars > strait.json > inline options
+- SDK Overview: https://docs.strait.dev/sdks/overview
+- Configuration: https://docs.strait.dev/sdks/configuration
+- TypeScript Quickstart: https://docs.strait.dev/sdks/typescript-quickstart
+- Python Quickstart: https://docs.strait.dev/sdks/python-quickstart
+- Go Quickstart: https://docs.strait.dev/sdks/go-quickstart
+- TypeScript: https://docs.strait.dev/sdks/typescript
+- Python: https://docs.strait.dev/sdks/python
+- Go: https://docs.strait.dev/sdks/go
+- Ruby: https://docs.strait.dev/sdks/ruby
+- Rust: https://docs.strait.dev/sdks/rust
+- MCP Server: https://docs.strait.dev/sdks/mcp
 
-## SDK Quick Start
+## Compare
 
-### TypeScript
-```typescript
-import { createClient } from "@strait/sdk";
-const client = createClient({ baseUrl: "...", apiKey: "..." });
-const jobs = await client.jobs.list();
-```
+- Strait and Message Queues: https://docs.strait.dev/compare/message-queues
+- Strait and Cron: https://docs.strait.dev/compare/cron
+- Strait and Workflow Engines: https://docs.strait.dev/compare/workflow-engines
+- When Not to Use Strait: https://docs.strait.dev/compare/when-not-to-use-strait
 
-### Python
-```python
-from strait import Client
-client = Client.from_env()
-jobs = client.jobs.list()
-```
+## API and CLI
 
-### Go
-```go
-client, _ := strait.NewClientFromEnv()
-jobs, _ := client.Jobs.List(ctx, nil)
-```
-
-### Ruby
-```ruby
-client = Strait::Client.from_env
-jobs = client.jobs.list
-```
-
-### Rust
-```rust
-let client = StraitClient::from_env()?;
-let jobs = client.jobs().list(None).await?;
-```
+- API Reference: https://docs.strait.dev/api-reference/overview
+- CLI Overview: https://docs.strait.dev/cli/overview
+- CLI API Keys: https://docs.strait.dev/cli/api-keys
+- Environment Variables: https://docs.strait.dev/configuration/environment-variables

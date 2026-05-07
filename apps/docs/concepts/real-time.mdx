@@ -82,10 +82,10 @@ Subscribe to all activity across a project in a single connection:
 GET /v1/projects/{projectID}/activity/stream
 ```
 
-This feed merges job runs, workflow runs, and event triggers into one stream using CDC (change data capture). Each message describes a database change:
+This feed merges job runs, workflow runs, and event triggers into one stream. Each message describes what changed:
 
 ```json
-{"table": "job_runs", "action": "UPDATE", "record": {"id": "...", "status": "completed"}, "changes": {"status": ["executing", "completed"]}, "timestamp": "2025-06-01T12:01:00Z"}
+{"type": "run.updated", "run_id": "...", "status": "completed", "previous_status": "executing", "timestamp": "2025-06-01T12:01:00Z"}
 ```
 
 Use this for dashboards, audit logs, or any UI that needs a live view of project-wide activity.

@@ -53,7 +53,7 @@ Note: The `make loadtest-*` targets are defined in the loadtest Makefile at `app
 | 4 | Endurance | 24-72h | Memory leaks, goroutine leaks, performance drift |
 | 5 | Chaos Engineering | ~4h | Recovery from failure scenarios |
 
-## Observability Pipeline
+## Monitoring Pipeline
 
 Strait exports telemetry through several channels:
 

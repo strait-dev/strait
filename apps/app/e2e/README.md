@@ -73,7 +73,7 @@ e2e/
     billing/              # Billing tabs
     settings/             # Account, project settings
     onboarding/           # New user flow
-    dlq/                  # Dead letter queue
+    dlq/                  # Failed run review
     events-logs/          # Events, logs
     navigation/           # Sidebar, routing
     error-states/         # 404, auth errors

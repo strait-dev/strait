@@ -1,0 +1,100 @@
+---
+title: "Handle Failed Runs"
+description: "Find failed work, understand what happened, and replay it safely."
+icon: "rotate-ccw"
+---
+
+Failed runs are normal. A dependency may be down, a payload may be invalid, or an endpoint may time out. Strait keeps the run history so you can fix the cause and retry the work.
+
+## 1. Find the Run
+
+List recent failed runs:
+
+```bash
+curl "https://api.strait.dev/v1/runs?status=failed&limit=20" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+List runs that exhausted retries:
+
+```bash
+curl "https://api.strait.dev/v1/runs/dlq?limit=20" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+## 2. Inspect the Error
+
+Fetch the run:
+
+```bash
+curl https://api.strait.dev/v1/runs/run_123 \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+Check these fields first:
+
+| Field | Why it matters |
+|---|---|
+| `status` | Shows whether the run is still retrying or terminal. |
+| `attempt` | Shows how many attempts have run. |
+| `error` | Shows the last failure. |
+| `payload` | Confirms what was sent to your endpoint. |
+| `execution_trace` | Shows whether the run waited, connected, or timed out. |
+
+## 3. Decide Whether to Replay
+
+Replay only after you understand the failure.
+
+Replay is usually safe when:
+
+- A downstream service was temporarily unavailable.
+- You deployed a fix to your endpoint.
+- A rate limit or timeout has cleared.
+- The job is idempotent.
+
+Do not replay blindly when:
+
+- The payload is invalid and still needs correction.
+- The job may create duplicate side effects.
+- The endpoint is still failing.
+
+## 4. Replay the Run
+
+```bash
+curl -X POST https://api.strait.dev/v1/runs/run_123/replay \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+For `dead_letter` runs, replay after the underlying issue is fixed:
+
+```bash
+curl -X POST https://api.strait.dev/v1/runs/run_123/dlq-replay \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+For many `dead_letter` runs:
+
+```bash
+curl -X POST https://api.strait.dev/v1/runs/bulk-dlq-replay \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "run_ids": ["run_123", "run_456"] }'
+```
+
+## 5. Prevent the Same Failure
+
+Common fixes:
+
+| Problem | Fix |
+|---|---|
+| Endpoint takes too long | Increase `timeout_secs` or make the endpoint return faster. |
+| Dependency is overloaded | Lower `max_concurrency` or add rate limits. |
+| Duplicate side effects | Add idempotency in the job handler and trigger request. |
+| Bad payloads | Add payload validation before triggering the job. |
+| Repeated identical errors | Use poison pill detection to stop wasteful retries early. |
+
+## Related
+
+- [Runs](/concepts/runs)
+- [Retry Strategies](/concepts/retry-strategies)
+- [Create a Production Job](/guides/production-job)

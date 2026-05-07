@@ -1,10 +1,10 @@
 ---
 title: "Integrations"
-description: "Connect Strait to your existing infrastructure with built-in integrations for databases, message brokers, and observability tools."
+description: "Connect Strait to your database, Redis, and monitoring tools."
 icon: "puzzle-piece"
 ---
 
-Strait connects to PostgreSQL, Redis, and optional observability backends.
+Strait connects to PostgreSQL, Redis, and optional monitoring tools.
 
 ## Core Infrastructure
 
@@ -13,11 +13,11 @@ Strait connects to PostgreSQL, Redis, and optional observability backends.
     The only required dependency. Strait uses database locks for queue semantics, LISTEN/NOTIFY for real-time updates, and stores all state in Postgres.
   </Card>
   <Card title="Redis" icon="bolt">
-    Required. Powers real-time updates (SSE streaming), pub/sub notifications, and CDC event distribution.
+    Required. Powers real-time updates, pub/sub notifications, and live dashboard updates.
   </Card>
 </CardGroup>
 
-## Observability
+## Monitoring
 
 <CardGroup cols={2}>
   <Card title="OpenTelemetry" icon="signal">
@@ -27,18 +27,12 @@ Strait connects to PostgreSQL, Redis, and optional observability backends.
     Pre-built dashboards for job throughput, run latency, queue depth, and error rates.
   </Card>
   <Card title="ClickHouse" icon="chart-bar" href="/concepts/clickhouse-analytics">
-    Real-time analytics with 12 tables and 32 API endpoints for deep operational insights.
+    Analytics for run history, cost, and throughput.
   </Card>
   <Card title="Sentry" icon="bug">
-    Automatic error reporting with run context, job metadata, and workflow step information.
+    Error reporting with run context, job metadata, and workflow step information.
   </Card>
 </CardGroup>
-
-## Change Data Capture
-
-<Card title="Sequin CDC" icon="stream" href="/concepts/cdc">
-  Stream job and workflow state changes in real-time via PostgreSQL WAL. React instantly when runs complete, fail, or transition states.
-</Card>
 
 ## Log Forwarding
 

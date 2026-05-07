@@ -1,0 +1,50 @@
+---
+title: "When Not to Use Strait"
+description: "Cases where a simpler tool is probably a better choice."
+icon: "ban"
+---
+
+Strait is useful when work needs run history, retries, replay, schedules, workflows, or private workers.
+
+It is not the right tool for every background task.
+
+## A Queue Is Probably Enough
+
+Use a queue when work is simple message delivery and your team already owns the surrounding system.
+
+That usually means you already have retry policy, metrics, replay, dashboards, and access control in place.
+
+## Cron Is Probably Enough
+
+Use cron when the task is local, low-risk, and easy to inspect from logs.
+
+Examples include simple host maintenance, local cleanup, or one-off scripts that do not need run records.
+
+## An Application Function Is Enough
+
+Keep work inline when it is fast, reliable, and part of the request path.
+
+Do not add a job system for a task that finishes quickly and does not need retry or replay.
+
+## Strait May Be Too Much
+
+Strait may not be a fit when:
+
+- You do not need run history.
+- Failed work does not need replay.
+- You only need raw event streaming.
+- You want a high-throughput log pipeline.
+- You want to move all business logic into a durable-code workflow runtime.
+
+## Strait Is a Good Fit When
+
+Use Strait when the cost of a failed background task is high enough that you need to know what happened and safely recover.
+
+That is the line: not every async task needs orchestration, but important async work usually does.
+
+## Related
+
+- [Strait and Message Queues](/compare/message-queues)
+- [Strait and Cron](/compare/cron)
+- [Strait and Workflow Engines](/compare/workflow-engines)
+- [Introduction](/introduction)

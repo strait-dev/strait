@@ -1,0 +1,53 @@
+---
+title: "Strait and Workflow Engines"
+description: "How Strait compares to systems built primarily for durable workflow code."
+icon: "diagram-project"
+---
+
+Workflow engines are useful when your business process is written as durable code and the engine owns execution.
+
+Strait is different. Your code runs in your infrastructure. Strait coordinates jobs, workflows, retries, waits, and run history around that code.
+
+## Use a Workflow Engine When
+
+A dedicated workflow engine may be a better fit when:
+
+- Your team wants to model most business logic as durable workflow code.
+- You need language-level workflow determinism.
+- You want the engine to own long-running execution semantics inside application code.
+- You already operate that engine successfully.
+
+## Use Strait When
+
+Strait is a better fit when:
+
+- Your jobs already exist as HTTP endpoints or worker handlers.
+- You want a control plane around work, not a new runtime for business logic.
+- You need scheduling, retries, replay, and workflows in one API.
+- You want to self-host with PostgreSQL and Redis.
+- You want customers or your team to inspect runs without reading application logs.
+
+## Practical Difference
+
+With Strait, each step is a job. Jobs can be HTTP endpoints or connected workers.
+
+The workflow defines order, dependencies, waits, approvals, and failure behavior. It does not require moving all business logic into a workflow runtime.
+
+## Example
+
+For order fulfillment, Strait can coordinate:
+
+1. Create the order.
+2. Wait for payment confirmation.
+3. Reserve inventory.
+4. Request approval for high-value orders.
+5. Send the confirmation.
+
+Each step remains ordinary application code. Strait records the process and lets you retry or recover failed work.
+
+## Related
+
+- [Coordinate Multi-Step Workflows](/use-cases/multi-step-workflows)
+- [Workflows](/concepts/workflows)
+- [Event Triggers](/concepts/event-triggers)
+- [Workflow Approvals](/guides/workflow-approvals)
