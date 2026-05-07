@@ -27,7 +27,7 @@ func TestHandleTriggerJob_RejectsOversizedTags(t *testing.T) {
 
 	var body strings.Builder
 	body.WriteString(`{"tags":{`)
-	for i := 0; i < 21; i++ {
+	for i := range 21 {
 		if i > 0 {
 			body.WriteByte(',')
 		}

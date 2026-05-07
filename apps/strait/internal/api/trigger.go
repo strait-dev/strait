@@ -64,7 +64,7 @@ type TriggerJobOutput struct {
 	Body any
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen,nestif
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (*TriggerJobOutput, error) {
 	jobID := input.JobID
 	if err := validateRunCreationJobID(jobID); err != nil {
@@ -511,28 +511,31 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 }
 
 func (s *Server) checkTriggerLimits(ctx context.Context, job *domain.Job, quota *store.ProjectQuota) error {
-	if quota != nil {
-		if quota.MaxQueuedRuns > 0 {
-			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return fmt.Errorf("evaluate project queued quota: %w", countErr)
-			}
-			if queuedRuns >= quota.MaxQueuedRuns {
-				return errTriggerProjectQueuedQuotaExceeded
-			}
+	if quota == nil {
+		return s.checkJobRateLimit(ctx, job)
+	}
+	if quota.MaxQueuedRuns > 0 {
+		queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+		if countErr != nil {
+			return fmt.Errorf("evaluate project queued quota: %w", countErr)
 		}
-
-		if quota.MaxExecutingRuns > 0 {
-			activeRuns, countErr := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return fmt.Errorf("evaluate project active quota: %w", countErr)
-			}
-			if activeRuns >= quota.MaxExecutingRuns {
-				return errTriggerProjectExecutingQuotaExceeded
-			}
+		if queuedRuns >= quota.MaxQueuedRuns {
+			return errTriggerProjectQueuedQuotaExceeded
 		}
 	}
+	if quota.MaxExecutingRuns > 0 {
+		activeRuns, countErr := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
+		if countErr != nil {
+			return fmt.Errorf("evaluate project active quota: %w", countErr)
+		}
+		if activeRuns >= quota.MaxExecutingRuns {
+			return errTriggerProjectExecutingQuotaExceeded
+		}
+	}
+	return s.checkJobRateLimit(ctx, job)
+}
 
+func (s *Server) checkJobRateLimit(ctx context.Context, job *domain.Job) error {
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 		runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)

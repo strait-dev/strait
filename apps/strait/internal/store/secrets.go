@@ -248,10 +248,6 @@ func deriveSecretKey(secretEncryptionKey string) ([]byte, error) {
 
 // secretKeyLegacy returns the old SHA-256 derived key for backward-compatible
 // decryption of secrets encrypted before the HKDF migration.
-func (q *Queries) secretKeyLegacy() ([]byte, error) {
-	return deriveSecretKeyLegacy(q.secretEncryptionKey)
-}
-
 func deriveSecretKeyLegacy(secretEncryptionKey string) ([]byte, error) {
 	if secretEncryptionKey == "" {
 		return nil, fmt.Errorf("secret encryption key is not configured")

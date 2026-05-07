@@ -69,7 +69,7 @@ type BulkTriggerJobOutput struct {
 	Body BulkTriggerResponse
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen,nestif
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJobInput) (*BulkTriggerJobOutput, error) {
 	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
