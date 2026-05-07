@@ -28,6 +28,9 @@ var _ APIStore = &APIStoreMock{}
 //			ApproveDeviceCodeFunc: func(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error {
 //				panic("mock out the ApproveDeviceCode method")
 //			},
+//			ApproveDeviceCodeByUserCodeFunc: func(ctx context.Context, userCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error {
+//				panic("mock out the ApproveDeviceCodeByUserCode method")
+//			},
 //			AreAllDescendantsTerminalFunc: func(ctx context.Context, parentRunID string) (bool, error) {
 //				panic("mock out the AreAllDescendantsTerminal method")
 //			},
@@ -348,6 +351,9 @@ var _ APIStore = &APIStoreMock{}
 //			},
 //			GetDeviceCodeByDeviceCodeFunc: func(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error) {
 //				panic("mock out the GetDeviceCodeByDeviceCode method")
+//			},
+//			GetDeviceCodeByUserCodeFunc: func(ctx context.Context, userCode string) (*store.DeviceCodeRow, error) {
+//				panic("mock out the GetDeviceCodeByUserCode method")
 //			},
 //			GetEnvironmentFunc: func(ctx context.Context, id string) (*domain.Environment, error) {
 //				panic("mock out the GetEnvironment method")
@@ -884,6 +890,9 @@ type APIStoreMock struct {
 	// ApproveDeviceCodeFunc mocks the ApproveDeviceCode method.
 	ApproveDeviceCodeFunc func(ctx context.Context, deviceCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error
 
+	// ApproveDeviceCodeByUserCodeFunc mocks the ApproveDeviceCodeByUserCode method.
+	ApproveDeviceCodeByUserCodeFunc func(ctx context.Context, userCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error
+
 	// AreAllDescendantsTerminalFunc mocks the AreAllDescendantsTerminal method.
 	AreAllDescendantsTerminalFunc func(ctx context.Context, parentRunID string) (bool, error)
 
@@ -1204,6 +1213,9 @@ type APIStoreMock struct {
 
 	// GetDeviceCodeByDeviceCodeFunc mocks the GetDeviceCodeByDeviceCode method.
 	GetDeviceCodeByDeviceCodeFunc func(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
+
+	// GetDeviceCodeByUserCodeFunc mocks the GetDeviceCodeByUserCode method.
+	GetDeviceCodeByUserCodeFunc func(ctx context.Context, userCode string) (*store.DeviceCodeRow, error)
 
 	// GetEnvironmentFunc mocks the GetEnvironment method.
 	GetEnvironmentFunc func(ctx context.Context, id string) (*domain.Environment, error)
@@ -1742,6 +1754,21 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// DeviceCode is the deviceCode argument value.
 			DeviceCode string
+			// ApiKeyID is the apiKeyID argument value.
+			ApiKeyID string
+			// RawAPIKey is the rawAPIKey argument value.
+			RawAPIKey string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Scopes is the scopes argument value.
+			Scopes []string
+		}
+		// ApproveDeviceCodeByUserCode holds details about calls to the ApproveDeviceCodeByUserCode method.
+		ApproveDeviceCodeByUserCode []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// UserCode is the userCode argument value.
+			UserCode string
 			// ApiKeyID is the apiKeyID argument value.
 			ApiKeyID string
 			// RawAPIKey is the rawAPIKey argument value.
@@ -2623,6 +2650,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// DeviceCode is the deviceCode argument value.
 			DeviceCode string
+		}
+		// GetDeviceCodeByUserCode holds details about calls to the GetDeviceCodeByUserCode method.
+		GetDeviceCodeByUserCode []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// UserCode is the userCode argument value.
+			UserCode string
 		}
 		// GetEnvironment holds details about calls to the GetEnvironment method.
 		GetEnvironment []struct {
@@ -4305,6 +4339,7 @@ type APIStoreMock struct {
 	}
 	lockAggregateCostStatsHourly           sync.RWMutex
 	lockApproveDeviceCode                  sync.RWMutex
+	lockApproveDeviceCodeByUserCode        sync.RWMutex
 	lockAreAllDescendantsTerminal          sync.RWMutex
 	lockAreJobDependenciesSatisfied        sync.RWMutex
 	lockAssignMemberRole                   sync.RWMutex
@@ -4412,6 +4447,7 @@ type APIStoreMock struct {
 	lockGetDebugBundle                     sync.RWMutex
 	lockGetDeploymentVersion               sync.RWMutex
 	lockGetDeviceCodeByDeviceCode          sync.RWMutex
+	lockGetDeviceCodeByUserCode            sync.RWMutex
 	lockGetEnvironment                     sync.RWMutex
 	lockGetEventSource                     sync.RWMutex
 	lockGetEventSourceByName               sync.RWMutex
@@ -4679,6 +4715,61 @@ func (mock *APIStoreMock) ApproveDeviceCodeCalls() []struct {
 	mock.lockApproveDeviceCode.RLock()
 	calls = mock.calls.ApproveDeviceCode
 	mock.lockApproveDeviceCode.RUnlock()
+	return calls
+}
+
+// ApproveDeviceCodeByUserCode calls ApproveDeviceCodeByUserCodeFunc.
+func (mock *APIStoreMock) ApproveDeviceCodeByUserCode(ctx context.Context, userCode string, apiKeyID string, rawAPIKey string, projectID string, scopes []string) error {
+	callInfo := struct {
+		Ctx       context.Context
+		UserCode  string
+		ApiKeyID  string
+		RawAPIKey string
+		ProjectID string
+		Scopes    []string
+	}{
+		Ctx:       ctx,
+		UserCode:  userCode,
+		ApiKeyID:  apiKeyID,
+		RawAPIKey: rawAPIKey,
+		ProjectID: projectID,
+		Scopes:    scopes,
+	}
+	mock.lockApproveDeviceCodeByUserCode.Lock()
+	mock.calls.ApproveDeviceCodeByUserCode = append(mock.calls.ApproveDeviceCodeByUserCode, callInfo)
+	mock.lockApproveDeviceCodeByUserCode.Unlock()
+	if mock.ApproveDeviceCodeByUserCodeFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.ApproveDeviceCodeByUserCodeFunc(ctx, userCode, apiKeyID, rawAPIKey, projectID, scopes)
+}
+
+// ApproveDeviceCodeByUserCodeCalls gets all the calls that were made to ApproveDeviceCodeByUserCode.
+// Check the length with:
+//
+//	len(mockedAPIStore.ApproveDeviceCodeByUserCodeCalls())
+func (mock *APIStoreMock) ApproveDeviceCodeByUserCodeCalls() []struct {
+	Ctx       context.Context
+	UserCode  string
+	ApiKeyID  string
+	RawAPIKey string
+	ProjectID string
+	Scopes    []string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		UserCode  string
+		ApiKeyID  string
+		RawAPIKey string
+		ProjectID string
+		Scopes    []string
+	}
+	mock.lockApproveDeviceCodeByUserCode.RLock()
+	calls = mock.calls.ApproveDeviceCodeByUserCode
+	mock.lockApproveDeviceCodeByUserCode.RUnlock()
 	return calls
 }
 
@@ -9155,6 +9246,46 @@ func (mock *APIStoreMock) GetDeviceCodeByDeviceCodeCalls() []struct {
 	mock.lockGetDeviceCodeByDeviceCode.RLock()
 	calls = mock.calls.GetDeviceCodeByDeviceCode
 	mock.lockGetDeviceCodeByDeviceCode.RUnlock()
+	return calls
+}
+
+// GetDeviceCodeByUserCode calls GetDeviceCodeByUserCodeFunc.
+func (mock *APIStoreMock) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*store.DeviceCodeRow, error) {
+	callInfo := struct {
+		Ctx      context.Context
+		UserCode string
+	}{
+		Ctx:      ctx,
+		UserCode: userCode,
+	}
+	mock.lockGetDeviceCodeByUserCode.Lock()
+	mock.calls.GetDeviceCodeByUserCode = append(mock.calls.GetDeviceCodeByUserCode, callInfo)
+	mock.lockGetDeviceCodeByUserCode.Unlock()
+	if mock.GetDeviceCodeByUserCodeFunc == nil {
+		var (
+			deviceCodeRowOut *store.DeviceCodeRow
+			errOut           error
+		)
+		return deviceCodeRowOut, errOut
+	}
+	return mock.GetDeviceCodeByUserCodeFunc(ctx, userCode)
+}
+
+// GetDeviceCodeByUserCodeCalls gets all the calls that were made to GetDeviceCodeByUserCode.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetDeviceCodeByUserCodeCalls())
+func (mock *APIStoreMock) GetDeviceCodeByUserCodeCalls() []struct {
+	Ctx      context.Context
+	UserCode string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		UserCode string
+	}
+	mock.lockGetDeviceCodeByUserCode.RLock()
+	calls = mock.calls.GetDeviceCodeByUserCode
+	mock.lockGetDeviceCodeByUserCode.RUnlock()
 	return calls
 }
 

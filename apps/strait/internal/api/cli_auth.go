@@ -40,8 +40,8 @@ type deviceTokenResponse struct {
 	Scopes    []string `json:"scopes"`
 }
 type approveDeviceCodeRequest struct {
-	DeviceCode string `json:"device_code" validate:"required"`
-	ProjectID  string `json:"project_id" validate:"required"`
+	UserCode  string `json:"user_code" validate:"required"`
+	ProjectID string `json:"project_id" validate:"required"`
 }
 
 func generateDeviceCode() (string, error) {
@@ -133,7 +133,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
-	row, err := s.store.GetDeviceCodeByDeviceCode(ctx, req.DeviceCode)
+	row, err := s.store.GetDeviceCodeByUserCode(ctx, req.UserCode)
 	if err != nil {
 		if errors.Is(err, store.ErrDeviceCodeNotFound) {
 			return nil, huma.Error404NotFound("device code not found")
@@ -172,7 +172,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if err := s.store.CreateAPIKey(ctx, apiKey); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
-	if err := s.store.ApproveDeviceCode(ctx, req.DeviceCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
+	if err := s.store.ApproveDeviceCodeByUserCode(ctx, req.UserCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
 		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
 	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))

@@ -285,11 +285,14 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	t.Parallel()
 
 	var createdKey *domain.APIKey
-	var approvedDeviceCode string
+	var approvedUserCode string
 	var approvedAPIKeyID string
 
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, userCode string) (*store.DeviceCodeRow, error) {
+			if userCode != "ABCD1234" {
+				t.Fatalf("lookup user_code = %q, want ABCD1234", userCode)
+			}
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -304,8 +307,8 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, deviceCode, apiKeyID, _ string, projectID string, scopes []string) error {
-			approvedDeviceCode = deviceCode
+		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, userCode, apiKeyID, _ string, projectID string, scopes []string) error {
+			approvedUserCode = userCode
 			approvedAPIKeyID = apiKeyID
 			if projectID != "proj-1" {
 				t.Fatalf("approved project_id = %q, want proj-1", projectID)
@@ -318,7 +321,7 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"device_code":"test-device-code","project_id":"proj-1"}`
+	body := `{"user_code":"ABCD1234","project_id":"proj-1"}`
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/cli/device-codes/approve", body)
 	r.Header.Set("X-Project-Id", "proj-1")
@@ -335,8 +338,8 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	if createdKey.ProjectID != "proj-1" {
 		t.Fatalf("expected project_id proj-1, got %q", createdKey.ProjectID)
 	}
-	if approvedDeviceCode != "test-device-code" {
-		t.Fatalf("expected device code to be approved, got %q", approvedDeviceCode)
+	if approvedUserCode != "ABCD1234" {
+		t.Fatalf("expected user code to be approved, got %q", approvedUserCode)
 	}
 	if approvedAPIKeyID != "key-generated" {
 		t.Fatalf("expected api key id key-generated, got %q", approvedAPIKeyID)
@@ -348,7 +351,7 @@ func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScoped
 
 	var createdKey *domain.APIKey
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-env",
 				DeviceCode: "test-device-code",
@@ -369,7 +372,7 @@ func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScoped
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
+		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
@@ -379,8 +382,8 @@ func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScoped
 	ctx = context.WithValue(ctx, ctxScopesKey, domain.CLIDefaultScopes)
 
 	_, err := srv.handleApproveDeviceCode(ctx, &ApproveDeviceCodeInput{Body: approveDeviceCodeRequest{
-		DeviceCode: "test-device-code",
-		ProjectID:  "proj-1",
+		UserCode:  "ABCD1234",
+		ProjectID: "proj-1",
 	}})
 	if err != nil {
 		t.Fatalf("handleApproveDeviceCode() error = %v", err)
@@ -398,7 +401,7 @@ func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
 
 	var createdKey *domain.APIKey
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-lifetime",
 				DeviceCode: "test-device-code",
@@ -416,7 +419,7 @@ func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
+		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
@@ -425,8 +428,8 @@ func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxScopesKey, domain.CLIDefaultScopes)
 
 	_, err := srv.handleApproveDeviceCode(ctx, &ApproveDeviceCodeInput{Body: approveDeviceCodeRequest{
-		DeviceCode: "test-device-code",
-		ProjectID:  "proj-1",
+		UserCode:  "ABCD1234",
+		ProjectID: "proj-1",
 	}})
 	if err != nil {
 		t.Fatalf("handleApproveDeviceCode() error = %v", err)
@@ -443,13 +446,13 @@ func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return nil, store.ErrDeviceCodeNotFound
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"device_code":"nonexistent","project_id":"proj-1"}`
+	body := `{"user_code":"nonexistent","project_id":"proj-1"}`
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/cli/device-codes/approve", body)
 	r.Header.Set("X-Project-Id", "proj-1")
@@ -461,11 +464,34 @@ func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleApproveDeviceCode_RejectsDeviceCodeOnly(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetDeviceCodeByUserCodeFunc: func(context.Context, string) (*store.DeviceCodeRow, error) {
+			t.Fatal("device-code-only approval must not reach the store")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"device_code":"secret-device-code","project_id":"proj-1"}`
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodPost, "/v1/cli/device-codes/approve", body)
+	r.Header.Set("X-Project-Id", "proj-1")
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
+		t.Fatalf("expected validation error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -485,8 +511,8 @@ func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T)
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 
 	_, err := srv.handleApproveDeviceCode(ctx, &ApproveDeviceCodeInput{Body: approveDeviceCodeRequest{
-		DeviceCode: "test-device-code",
-		ProjectID:  "proj-1",
+		UserCode:  "ABCD1234",
+		ProjectID: "proj-1",
 	}})
 	if err == nil {
 		t.Fatal("expected approval to fail when caller cannot grant CLI scopes")

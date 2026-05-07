@@ -77,6 +77,65 @@ func TestGetDeviceCodeByDeviceCode_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetDeviceCodeByUserCode(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
+	mustClean(t, ctx)
+
+	deviceCode := newID()
+	userCode := "USER-CODE"
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	if err := q.CreateDeviceCode(ctx, deviceCode, userCode, "project-user-code", []string{"read"}, expiresAt); err != nil {
+		t.Fatalf("CreateDeviceCode() error = %v", err)
+	}
+
+	got, err := q.GetDeviceCodeByUserCode(ctx, userCode)
+	if err != nil {
+		t.Fatalf("GetDeviceCodeByUserCode() error = %v", err)
+	}
+	if got.UserCode != userCode {
+		t.Fatalf("UserCode = %q, want %q", got.UserCode, userCode)
+	}
+	if got.DeviceCode == deviceCode {
+		t.Fatal("GetDeviceCodeByUserCode exposed the raw device code")
+	}
+	if got.DeviceCode != storedDeviceCodeForTest(deviceCode) {
+		t.Fatalf("DeviceCode = %q, want hashed stored value", got.DeviceCode)
+	}
+	if got.Status != "pending" {
+		t.Fatalf("Status = %q, want pending", got.Status)
+	}
+}
+
+func TestGetDeviceCodeByUserCode_NotFoundForNonPendingRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
+	mustClean(t, ctx)
+	t.Cleanup(func() {
+		mustClean(t, ctx)
+	})
+
+	approvedDeviceCode := newID()
+	if err := q.CreateDeviceCode(ctx, approvedDeviceCode, "USER-APPROVED", "project-approved-user-code", []string{"read"}, time.Now().UTC().Add(10*time.Minute)); err != nil {
+		t.Fatalf("CreateDeviceCode(approved) error = %v", err)
+	}
+	if err := q.ApproveDeviceCode(ctx, approvedDeviceCode, newID(), "raw-key", "project-approved-user-code", []string{"read"}); err != nil {
+		t.Fatalf("ApproveDeviceCode() error = %v", err)
+	}
+	if _, err := q.GetDeviceCodeByUserCode(ctx, "USER-APPROVED"); !errors.Is(err, store.ErrDeviceCodeNotFound) {
+		t.Fatalf("GetDeviceCodeByUserCode(approved) error = %v, want ErrDeviceCodeNotFound", err)
+	}
+
+	if err := q.CreateDeviceCode(ctx, newID(), "USER-EXPIRED", "project-expired-user-code", []string{"read"}, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("CreateDeviceCode(expired) error = %v", err)
+	}
+	if _, err := q.GetDeviceCodeByUserCode(ctx, "USER-EXPIRED"); !errors.Is(err, store.ErrDeviceCodeNotFound) {
+		t.Fatalf("GetDeviceCodeByUserCode(expired) error = %v, want ErrDeviceCodeNotFound", err)
+	}
+}
+
 func TestApproveDeviceCode(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -126,6 +185,54 @@ func TestApproveDeviceCode(t *testing.T) {
 	}
 }
 
+func TestApproveDeviceCodeByUserCode(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
+	mustClean(t, ctx)
+
+	deviceCode := newID()
+	userCode := "USER-APPROVE"
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	if err := q.CreateDeviceCode(ctx, deviceCode, userCode, "project-approve-user-code", []string{"read"}, expiresAt); err != nil {
+		t.Fatalf("CreateDeviceCode() error = %v", err)
+	}
+
+	apiKeyID := newID()
+	rawAPIKey := "sk-test-user-code-raw-key"
+	if err := q.ApproveDeviceCodeByUserCode(ctx, userCode, apiKeyID, rawAPIKey, "project-approve-user-code", []string{"read", "runs:read"}); err != nil {
+		t.Fatalf("ApproveDeviceCodeByUserCode() error = %v", err)
+	}
+
+	got, err := q.GetDeviceCodeByDeviceCode(ctx, deviceCode)
+	if err != nil {
+		t.Fatalf("GetDeviceCodeByDeviceCode() error = %v", err)
+	}
+	if got.Status != "approved" {
+		t.Fatalf("Status = %q, want approved", got.Status)
+	}
+	if got.APIKeyID != apiKeyID {
+		t.Fatalf("APIKeyID = %q, want %q", got.APIKeyID, apiKeyID)
+	}
+	if got.RawAPIKey != rawAPIKey {
+		t.Fatalf("RawAPIKey = %q, want %q", got.RawAPIKey, rawAPIKey)
+	}
+
+	var storedDeviceCode, storedRawAPIKey string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT device_code, raw_api_key FROM cli_device_codes WHERE user_code = $1`, userCode).Scan(&storedDeviceCode, &storedRawAPIKey); err != nil {
+		t.Fatalf("query stored device code approval: %v", err)
+	}
+	if storedDeviceCode == deviceCode {
+		t.Fatal("ApproveDeviceCodeByUserCode left device_code in plaintext")
+	}
+	if storedRawAPIKey == rawAPIKey {
+		t.Fatal("ApproveDeviceCodeByUserCode stored raw_api_key in plaintext")
+	}
+	if !strings.HasPrefix(storedRawAPIKey, "enc:v1:") {
+		t.Fatalf("stored raw_api_key prefix = %q, want enc:v1", storedRawAPIKey)
+	}
+}
+
 func TestApproveDeviceCode_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -135,6 +242,18 @@ func TestApproveDeviceCode_NotFound(t *testing.T) {
 	err := q.ApproveDeviceCode(ctx, "nonexistent", newID(), "key", "project-missing", []string{"read"})
 	if !errors.Is(err, store.ErrDeviceCodeNotFound) {
 		t.Fatalf("ApproveDeviceCode(notfound) error = %v, want ErrDeviceCodeNotFound", err)
+	}
+}
+
+func TestApproveDeviceCodeByUserCode_NotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
+	mustClean(t, ctx)
+
+	err := q.ApproveDeviceCodeByUserCode(ctx, "missing-user-code", newID(), "key", "project-missing", []string{"read"})
+	if !errors.Is(err, store.ErrDeviceCodeNotFound) {
+		t.Fatalf("ApproveDeviceCodeByUserCode(notfound) error = %v, want ErrDeviceCodeNotFound", err)
 	}
 }
 

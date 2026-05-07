@@ -348,7 +348,9 @@ type AuthStore interface {
 	CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
+	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*store.DeviceCodeRow, error)
 	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey, projectID string, scopes []string) error
+	ApproveDeviceCodeByUserCode(ctx context.Context, userCode, apiKeyID, rawAPIKey, projectID string, scopes []string) error
 	ExchangeDeviceCode(ctx context.Context, deviceCode string) (string, error)
 	CleanupExpiredDeviceCodes(ctx context.Context) (int64, error)
 }
