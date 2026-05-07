@@ -437,7 +437,7 @@ func isStreamClosedErr(err error) bool {
 		return false
 	}
 	switch s.Code() { //nolint:exhaustive // only clean terminal codes should bypass reconnect
-	case codes.Canceled, codes.OK:
+	case codes.OK:
 		return true
 	}
 	return false
