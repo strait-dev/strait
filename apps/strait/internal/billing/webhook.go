@@ -45,6 +45,11 @@ type webhookProcessingStatusStore interface {
 	GetWebhookProcessingStatus(ctx context.Context, msgID string) (string, error)
 }
 
+type stripeBindingStore interface {
+	GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error)
+	GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error)
+}
+
 type webhookClaimState struct {
 	eventID         string
 	claimed         bool
@@ -460,7 +465,10 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		return ErrUnknownPrice
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id from subscription", "subscription_id", sub.ID)
 		return fmt.Errorf("unable to resolve org_id from subscription %s metadata", sub.ID)
@@ -622,7 +630,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return nil
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -803,7 +814,10 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, data jso
 		return h.handleAddonSubscriptionCanceled(ctx, &sub)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1035,7 +1049,10 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1071,7 +1088,10 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1111,7 +1131,10 @@ func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMe
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1339,6 +1362,44 @@ func (h *WebhookHandler) resolveOrgID(sub *stripe.Subscription) string {
 	return ""
 }
 
+func (h *WebhookHandler) resolveBoundOrgID(ctx context.Context, sub *stripe.Subscription) (string, error) {
+	metadataOrgID := h.resolveOrgID(sub)
+	bindingStore, ok := h.store.(stripeBindingStore)
+	if !ok {
+		return metadataOrgID, nil
+	}
+
+	if sub.ID != "" {
+		existing, err := bindingStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, sub.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup subscription binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "subscription", sub.ID)
+		}
+	}
+	if sub.Customer != nil && sub.Customer.ID != "" {
+		existing, err := bindingStore.GetOrgSubscriptionByStripeCustomerID(ctx, sub.Customer.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup customer binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", sub.Customer.ID)
+		}
+	}
+	return metadataOrgID, nil
+}
+
+func validateStripeBindingOrg(metadataOrgID, boundOrgID, bindingType, bindingID string) (string, error) {
+	if boundOrgID == "" {
+		return metadataOrgID, nil
+	}
+	if metadataOrgID != "" && metadataOrgID != boundOrgID {
+		return "", fmt.Errorf("stripe %s %s is already bound to org %s", bindingType, bindingID, boundOrgID)
+	}
+	return boundOrgID, nil
+}
+
 // logAuditEvent records an audit event if the audit store is configured.
 // Errors are logged but do not fail the webhook handler.
 func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string, details map[string]string) {
@@ -1369,7 +1430,10 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 // handleAddonSubscriptionCreated creates an addon record when a Stripe addon
 // subscription is created.
 func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType) error {
-	orgID := h.resolveOrgID(sub)
+	orgID, err := h.resolveBoundOrgID(ctx, sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id for addon subscription", "subscription_id", sub.ID)
 		return nil
@@ -1427,7 +1491,10 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 // handleAddonSubscriptionCanceled deactivates an addon record when a Stripe
 // addon subscription is canceled or deleted.
 func (h *WebhookHandler) handleAddonSubscriptionCanceled(ctx context.Context, sub *stripe.Subscription) error {
-	orgID := h.resolveOrgID(sub)
+	orgID, err := h.resolveBoundOrgID(ctx, sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}

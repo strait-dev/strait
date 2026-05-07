@@ -552,6 +552,43 @@ func TestPgStore_UpdateOrgSubscriptionPlan(t *testing.T) {
 	}
 }
 
+func TestPgStore_GetOrgSubscriptionByStripeBindings(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-stripe-bindings-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_subscription_id = 'sub_lookup_123',
+		    stripe_customer_id = 'cus_lookup_123'
+		WHERE org_id = $1
+	`, orgID); err != nil {
+		t.Fatalf("update subscription bindings: %v", err)
+	}
+
+	bySub, err := pgStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, "sub_lookup_123")
+	if err != nil {
+		t.Fatalf("GetOrgSubscriptionByStripeSubscriptionID() error = %v", err)
+	}
+	if bySub.OrgID != orgID {
+		t.Fatalf("subscription binding org = %q, want %q", bySub.OrgID, orgID)
+	}
+
+	byCustomer, err := pgStore.GetOrgSubscriptionByStripeCustomerID(ctx, "cus_lookup_123")
+	if err != nil {
+		t.Fatalf("GetOrgSubscriptionByStripeCustomerID() error = %v", err)
+	}
+	if byCustomer.OrgID != orgID {
+		t.Fatalf("customer binding org = %q, want %q", byCustomer.OrgID, orgID)
+	}
+
+	if _, err := pgStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, "sub_missing"); !errors.Is(err, billing.ErrSubscriptionNotFound) {
+		t.Fatalf("missing subscription binding error = %v, want ErrSubscriptionNotFound", err)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 6: UpdateOrgSubscriptionPlan not found
 // --------------------------------------------------------------------------.

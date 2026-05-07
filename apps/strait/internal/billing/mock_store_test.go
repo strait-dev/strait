@@ -80,6 +80,28 @@ func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string)
 	return nil, ErrSubscriptionNotFound
 }
 
+func (m *mockBillingStore) GetOrgSubscriptionByStripeSubscriptionID(_ context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
+	if m.subscriptions != nil {
+		for _, sub := range m.subscriptions {
+			if sub.StripeSubscriptionID != nil && *sub.StripeSubscriptionID == stripeSubscriptionID {
+				return sub, nil
+			}
+		}
+	}
+	return nil, ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) GetOrgSubscriptionByStripeCustomerID(_ context.Context, stripeCustomerID string) (*OrgSubscription, error) {
+	if m.subscriptions != nil {
+		for _, sub := range m.subscriptions {
+			if sub.StripeCustomerID != nil && *sub.StripeCustomerID == stripeCustomerID {
+				return sub, nil
+			}
+		}
+	}
+	return nil, ErrSubscriptionNotFound
+}
+
 func (m *mockBillingStore) UpsertOrgSubscription(_ context.Context, sub *OrgSubscription) error {
 	m.lastUpserted = sub
 	m.upsertCount++

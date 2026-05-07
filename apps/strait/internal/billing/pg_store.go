@@ -44,9 +44,27 @@ func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
+	return s.getOrgSubscriptionWhere(ctx, "org_id = $1", orgID)
+}
+
+func (s *PgStore) GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
+	if stripeSubscriptionID == "" {
+		return nil, ErrSubscriptionNotFound
+	}
+	return s.getOrgSubscriptionWhere(ctx, "stripe_subscription_id = $1", stripeSubscriptionID)
+}
+
+func (s *PgStore) GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error) {
+	if stripeCustomerID == "" {
+		return nil, ErrSubscriptionNotFound
+	}
+	return s.getOrgSubscriptionWhere(ctx, "stripe_customer_id = $1", stripeCustomerID)
+}
+
+func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	var addOnsJSON []byte
-	err := s.pool.QueryRow(ctx, `
+	query := `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
@@ -59,8 +77,8 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			COALESCE(add_ons, '{}'::jsonb),
 			created_at, updated_at
 		FROM organization_subscriptions
-		WHERE org_id = $1
-	`, orgID).Scan(
+		WHERE ` + where
+	err := s.pool.QueryRow(ctx, query, arg).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
 		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
@@ -81,7 +99,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 	}
 	if len(addOnsJSON) > 0 {
 		if jsonErr := unmarshalJSON(addOnsJSON, &sub.AddOns); jsonErr != nil {
-			return nil, fmt.Errorf("unmarshalling add_ons for org %s: %w", orgID, jsonErr)
+			return nil, fmt.Errorf("unmarshalling add_ons for org %s: %w", sub.OrgID, jsonErr)
 		}
 	}
 	return &sub, nil

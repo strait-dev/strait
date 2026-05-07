@@ -785,6 +785,86 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 	}
 }
 
+func TestWebhook_SubscriptionCreatedRejectsMetadataOrgRebinding(t *testing.T) {
+	t.Parallel()
+
+	boundOrg := "00000000-0000-0000-0000-000000000040"
+	attackerOrg := "00000000-0000-0000-0000-000000000041"
+	subID := "sub_bound"
+	customerID := "cust_bound"
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		boundOrg: {
+			OrgID:                boundOrg,
+			PlanTier:             string(domain.PlanStarter),
+			StripeSubscriptionID: &subID,
+			StripeCustomerID:     &customerID,
+			Status:               "active",
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := testSubscriptionData{
+		ID:         subID,
+		ProductID:  "pro-id",
+		CustomerID: customerID,
+		Metadata:   map[string]string{"org_id": attackerOrg},
+	}
+	body := webhookPayload(t, "customer.subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 for attempted Stripe binding rebinding", rr.Code)
+	}
+	if _, err := store.GetOrgSubscription(context.Background(), attackerOrg); !errors.Is(err, ErrSubscriptionNotFound) {
+		t.Fatalf("attacker org subscription lookup error = %v, want ErrSubscriptionNotFound", err)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
+	if err != nil {
+		t.Fatalf("bound org subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanStarter) {
+		t.Fatalf("bound org plan = %q, want unchanged starter", sub.PlanTier)
+	}
+}
+
+func TestWebhook_SubscriptionCreatedUsesExistingCustomerBindingWhenMetadataMissing(t *testing.T) {
+	t.Parallel()
+
+	boundOrg := "00000000-0000-0000-0000-000000000042"
+	customerID := "cust_existing"
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		boundOrg: {
+			OrgID:            boundOrg,
+			PlanTier:         string(domain.PlanStarter),
+			StripeCustomerID: &customerID,
+			Status:           "active",
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := testSubscriptionData{
+		ID:         "sub_new_for_existing_customer",
+		ProductID:  "pro-id",
+		CustomerID: customerID,
+		Metadata:   map[string]string{},
+	}
+	body := webhookPayload(t, "customer.subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
+	if err != nil {
+		t.Fatalf("bound org subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("bound org plan = %q, want pro", sub.PlanTier)
+	}
+}
+
 // ============================================================.
 // 5. Concurrent operations on billing state
 // ============================================================.
