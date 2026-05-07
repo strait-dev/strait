@@ -1,0 +1,77 @@
+---
+title: "Message Queues vs Orchestration"
+description: "When a queue is enough, and when Strait is a better fit."
+icon: "git-branch"
+---
+
+A message queue moves messages from producers to consumers. Strait coordinates work from trigger to result.
+
+Both are useful. The difference is how much of the job lifecycle you want the system to own.
+
+## Use a Queue When
+
+A queue is usually enough when:
+
+- Each message maps to one simple unit of work.
+- You already own retry, timeout, and `dead_letter` handling.
+- You do not need workflow steps or approvals.
+- You do not need a run history for customers or operators.
+- You want a low-level building block for your own job system.
+
+## Use Strait When
+
+Strait is a better fit when:
+
+- You want every job execution tracked as a run.
+- You need retries, timeouts, replay, and `dead_letter` handling.
+- You need scheduled jobs.
+- You need workflows with dependencies between steps.
+- You need approvals, event waits, or long-running processes.
+- You want SDKs and API endpoints for job operations instead of building them yourself.
+
+## The Practical Difference
+
+With a queue, your application usually owns the surrounding system:
+
+- retry rules
+- attempt history
+- idempotency
+- `dead_letter` replay
+- dashboards
+- workflow dependencies
+- scheduling
+- access control
+
+With Strait, those are part of the product. Your code focuses on the work itself.
+
+## A Simple Example
+
+For a welcome email, a queue may be enough.
+
+For onboarding a customer, Strait is usually a better fit:
+
+1. Create account.
+2. Send welcome email.
+3. Wait for billing setup.
+4. Provision workspace.
+5. Notify the team.
+6. Retry only the failed step.
+
+That process has state, dependencies, retries, and recovery. It is more than message delivery.
+
+## How to Decide
+
+Ask one question:
+
+> If this fails at 2 AM, what do I need to know and what do I need to retry?
+
+If the answer is just "process the message again", a queue may be enough.
+
+If the answer includes "which step failed, with what payload, after how many attempts, and what can I safely replay", use Strait.
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Runs](/concepts/runs)
+- [Workflows](/concepts/workflows)
+- [Create a Production Job](/guides/production-job)

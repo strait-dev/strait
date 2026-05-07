@@ -130,14 +130,14 @@ curl -X PUT \
 
 Set `days` to `0` to disable retention trimming entirely. When events are deleted, a tombstone anchor preserves chain continuity so verification still passes.
 
-## Audit Dead-Letter
+## Failed Audit Events
 
-Audit events that fail to persist after all retries land in the audit dead-letter table. Administrators can inspect and replay them:
+If an audit event cannot be saved after retries, Strait keeps it separate so an administrator can inspect and replay it.
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/v1/audit/deadletter` | GET | List audit dead-letter rows |
-| `/v1/audit/deadletter/{id}` | GET | Inspect one audit dead-letter row |
+| `/v1/audit/deadletter` | GET | List failed audit rows |
+| `/v1/audit/deadletter/{id}` | GET | Inspect one failed audit row |
 | `/v1/audit/deadletter/{id}/replay` | POST | Replay an event into the primary chain |
 
 ## Related

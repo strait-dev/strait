@@ -10,7 +10,7 @@
 
 Strait runs your background jobs and orchestrates multi-step workflows. One service, backed by PostgreSQL and Redis. No RabbitMQ, no SQS, no Kafka.
 
-- Full run lifecycle from `queued` to terminal state, plus a dead-letter queue for runs that exhaust their retries -- visible in a live dashboard.
+- Full run lifecycle from `queued` to terminal state, plus `dead_letter` runs for failures that exhaust their retries -- visible in a live dashboard.
 - Workflow engine with branching, parallel steps, sub-workflows, approval gates, and compensation steps.
 - Configurable retry strategies (exponential, linear, fixed, custom) with jitter and per-endpoint circuit breakers.
 - Durable workflows that survive multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
@@ -92,7 +92,7 @@ Important rules:
 
 | | Self-host (community) | Cloud ([strait.dev](https://strait.dev)) |
 |---|---|---|
-| Job orchestration with retries, workflows, and dead-letter recovery | ✓ | ✓ |
+| Job orchestration with retries, workflows, and `dead_letter` recovery | ✓ | ✓ |
 | Workflow engine with branching, rollback, and approval gates | ✓ | ✓ |
 | Real-time streaming and live updates | ✓ | ✓ |
 | All SDKs (TS, Python, Go, Ruby, Rust) | ✓ | ✓ |

@@ -147,7 +147,7 @@ The response returns both `old_key_id` and `new_key_id`, plus `grace_expires_at`
   </Step>
 </Steps>
 
-For a deeper walkthrough, see [API Key Rotation](/guides/authentication#api-key-rotation).
+For the full flow, see [API Key Rotation](/guides/authentication#api-key-rotation).
 
 ---
 
@@ -198,9 +198,9 @@ Scopes restrict what an API key is allowed to do. Assign only the scopes your in
 | `projects:read` | Read project metadata. |
 | `projects:write` | Update project settings. |
 | `projects:manage` | Full project administration. |
-| `dlq:read` | Read dead-letter queue entries. |
-| `dlq:replay` | Replay dead-letter queue entries. |
-| `dlq:purge` | Purge dead-letter queue entries. |
+| `dlq:read` | Read `dead_letter` runs. |
+| `dlq:replay` | Replay `dead_letter` runs. |
+| `dlq:purge` | Purge `dead_letter` runs. |
 <Tip>
 Keys created via CLI device-code authentication (`strait login`) receive the `CLIDefaultScopes` set, which includes standard operational scopes but excludes `api-keys:manage`, `rbac:manage`, and `projects:manage` to limit blast radius.
 </Tip>

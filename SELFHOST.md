@@ -111,7 +111,7 @@ curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
 
 ## Community edition
 
-Self-hosting runs the community edition. It includes job creation and scheduling, HTTP and gRPC worker dispatch, cron with overlap policies, retry strategies, workflows with dependencies, webhook delivery, SSE streaming, API keys and RBAC, run management, and dead-letter replay.
+Self-hosting runs the community edition. It includes job creation and scheduling, HTTP and gRPC worker dispatch, cron with overlap policies, retry strategies, workflows with dependencies, webhook delivery, SSE streaming, API keys and RBAC, run management, and `dead_letter` replay.
 
 The hosted service at [strait.dev](https://strait.dev) adds managed infrastructure, analytics, and Stripe-backed metering. Your job code still runs on your own infrastructure on either edition.
 

@@ -306,7 +306,7 @@ The `run` handler receives a `RunContext` (`ctx`) with methods for reporting pro
 | `ctx.sendEvent(event, payload)` | Emit a typed event |
 | `ctx.spawnRun(jobOrRef, payload)` | Spawn a child run |
 | `ctx.waitForEvent(eventName, opts?)` | Pause until a matching event arrives |
-| `ctx.toolCall(name, input, output)` | Record a tool call for observability |
+| `ctx.toolCall(name, input, output)` | Record a tool call for monitoring |
 | `ctx.usage(tokens)` | Report token usage for cost tracking |
 | `ctx.heartbeat()` | Signal liveness to prevent timeout |
 | `ctx.output(partial)` | Stream partial output back to the caller |

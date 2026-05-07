@@ -168,7 +168,7 @@ The other SDKs — Python, Go, Ruby, Rust — are documented under [SDKs](/sdks/
 
 **SSRF rejection on a private endpoint.** Strait blocks private IP ranges, loopback, and link-local addresses by default. Use a public endpoint, or read [Security](/guides/security#ssrf-protection) for how to configure trusted internal targets.
 
-**Repeated failures.** When a job exhausts `max_attempts` it moves to `dead_letter`. Inspect the request and response in the dashboard, fix the underlying issue, and replay the run from the dead-letter queue.
+**Repeated failures.** When a job exhausts `max_attempts` it moves to `dead_letter`. Inspect the request and response in the dashboard, fix the underlying issue, and replay the run.
 
 ## Next
 

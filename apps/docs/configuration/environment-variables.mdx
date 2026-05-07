@@ -1,268 +1,117 @@
 ---
 title: "Environment Variables"
-description: "Customer-facing environment variables used to configure Strait."
+description: "Required and commonly used settings for running Strait."
 sidebarTitle: "Environment Variables"
 ---
 
-This page documents the environment variables most deployments need to configure Strait. Internal maintenance settings are intentionally omitted from the public docs.
+This page lists the settings most deployments need. The full runtime has additional tuning flags, but most teams should start here.
 
-<Note>
-  Required fields: `DATABASE_URL`, `INTERNAL_SECRET`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, and `SECRET_ENCRYPTION_KEY`.
-</Note>
+## Required
 
-<Tip>
-  Set these as environment variables in your deployment platform (e.g., Vercel, Railway, Docker, or your CI/CD pipeline). See the [Deployment Guide](/guides/deployment) for production setup.
-</Tip>
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string. |
+| `INTERNAL_SECRET` | Secret for trusted service-to-service access. Use 32+ characters. |
+| `JWT_SIGNING_KEY` | Secret used to sign run tokens for SDK calls. Use 32+ characters. |
+| `ENCRYPTION_KEY` | Key used for encrypted data at rest. |
+| `SECRET_ENCRYPTION_KEY` | Key used to encrypt stored secrets. |
 
-## Core Configuration
+Example:
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | String | (Required) | PostgreSQL connection string. |
-| `REDIS_URL` | String | - | Redis connection string for pub/sub and real-time updates. |
-| `MODE` | String | `all` | Operation mode: `all`, `api`, or `worker`. |
-| `PORT` | Integer | `8080` | Port the HTTP server listens on. |
-| `INTERNAL_SECRET` | String | (Required) | Secret used for internal authentication between components. |
-| `JWT_SIGNING_KEY` | String | (Required) | Key used to sign JWT run tokens. Must be at least 32 characters. |
-| `LOG_LEVEL` | String | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. |
-| `SECRET_ENCRYPTION_KEY` | String | - | Key used to encrypt job secrets. Required when using secret injection. |
-| `ENCRYPTION_KEY` | String | - | Key used for data encryption at rest. Should be unique per environment. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | - | OpenTelemetry collector endpoint for traces and logs. Also used by the slog-to-OTLP bridge. |
-| `OTLP_METRIC_ENDPOINT` | String | - | Separate OTLP endpoint for metrics push (if different from trace endpoint). |
-| `OTLP_METRIC_ENABLED` | Boolean | `false` | Enable OTLP metric push export. |
-| `SENTRY_DSN` | String | - | Sentry DSN for error tracking. |
-| `SENTRY_ENVIRONMENT` | String | - | Environment tag for Sentry and OTel resources (e.g., `development`, `staging`, `production`). Sets `deployment.environment` on all OTel metrics, traces, and logs. |
-| `UPSTASH_REDIS_REST_URL` | String | - | Upstash Redis REST API URL. |
-| `UPSTASH_REDIS_REST_TOKEN` | String | - | Upstash Redis REST API token. |
+```bash
+export DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable"
+export INTERNAL_SECRET="$(openssl rand -base64 32)"
+export JWT_SIGNING_KEY="$(openssl rand -base64 32)"
+export ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+```
 
-## Worker Configuration
+## Recommended
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `WORKER_CONCURRENCY` | Integer | `10` | Number of concurrent jobs a worker can execute. |
-| `WEBHOOK_TIMEOUT` | Duration | `10s` | Timeout for webhook requests. |
-| `WEBHOOK_IDLE_CONN_TIMEOUT` | Duration | `60s` | Idle connection timeout for webhook client. |
-| `EXECUTOR_HTTP_TIMEOUT` | Duration | `5m` | Timeout for executor HTTP requests. |
-| `EXECUTOR_IDLE_CONN_TIMEOUT` | Duration | `90s` | Idle connection timeout for executor client. |
-| `WEBHOOK_MAX_ATTEMPTS` | Integer | `3` | Maximum number of attempts for webhook delivery. |
-| `DEFAULT_JOB_MAX_ATTEMPTS` | Integer | `3` | Default maximum retry attempts for jobs. |
-| `DEFAULT_JOB_TIMEOUT_SECS` | Integer | `300` | Default timeout for jobs in seconds. |
-| `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for each worker. When the queue is full, new work waits until capacity opens. `0` means unbounded. |
-| `WEBHOOK_CONCURRENCY` | Integer | `50` | Maximum concurrent webhook deliveries. Increase for high-throughput webhook workloads. |
-| `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
+| Variable | Default | Description |
+|---|---|---|
+| `REDIS_URL` | - | Redis connection string for live updates and pub/sub. |
+| `MODE` | `all` | `all`, `api`, or `worker`. |
+| `PORT` | `8080` | HTTP API port. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `REQUEST_TIMEOUT` | `30s` | Max time for incoming HTTP requests. |
+| `MAX_REQUEST_BODY_SIZE` | `1MB` | Max request body size. |
 
-## Scheduler Configuration
+## Worker Settings
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `HEARTBEAT_INTERVAL` | Duration | `10s` | Interval for worker heartbeats. |
-| `REAPER_INTERVAL` | Duration | `30s` | How often Strait checks for interrupted or stale runs. |
-| `STALE_THRESHOLD` | Duration | `60s` | Threshold after which a run is considered stale. |
-| `POLLER_INTERVAL` | Duration | `5s` | How often workers check for queued work. |
-| `INDEX_MAINTENANCE_INTERVAL` | Duration | `24h` | Interval for partial index maintenance (`REINDEX INDEX CONCURRENTLY`). Set to `0` or negative to disable. |
-| `REAPER_DELETE_BATCH_SIZE` | Integer | `100` | Maximum records cleaned up in one retention pass. |
-| `LOG_DRAIN_WORKER_INTERVAL` | Duration | `60s` | Interval for the log drain delivery worker. |
+| Variable | Default | Description |
+|---|---|---|
+| `WORKER_CONCURRENCY` | `10` | Max jobs a worker can execute at the same time. |
+| `WORKER_QUEUE_SIZE` | `0` | Local queue size per worker. `0` means unbounded. |
+| `EXECUTOR_HTTP_TIMEOUT` | `5m` | Max time for HTTP job execution. |
+| `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
+| `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts for jobs without an explicit value. |
 
-## Database Pool
+## API Limits
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `DB_MAX_CONNS` | Integer | `25` | Maximum number of open connections to the database. |
-| `DB_MIN_CONNS` | Integer | `5` | Minimum number of idle connections in the pool. |
-| `DB_MAX_CONN_LIFETIME` | Duration | `30m` | Maximum amount of time a connection may be reused. |
-| `DB_MAX_CONN_IDLE_TIME` | Duration | `5m` | Maximum amount of time a connection may be idle. |
-| `DB_PGBOUNCER_MODE` | Boolean | `false` | Enable PgBouncer-compatible connection handling. Disables features incompatible with connection poolers. |
+| Variable | Default | Description |
+|---|---|---|
+| `RATE_LIMIT_REQUESTS` | `100` | Global requests allowed per window. |
+| `RATE_LIMIT_WINDOW` | `1m` | Global rate-limit window. |
+| `TRIGGER_RATE_LIMIT_REQUESTS` | `10` | Trigger requests allowed per window. |
+| `TRIGGER_RATE_LIMIT_WINDOW` | `1m` | Trigger rate-limit window. |
+| `MAX_BULK_TRIGGER_ITEMS` | `500` | Max items in one bulk trigger request. |
 
-## Rate Limiting
+## Security
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `RATE_LIMIT_REQUESTS` | Integer | `100` | Number of requests allowed per window. |
-| `RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for rate limiting. |
-| `TRIGGER_RATE_LIMIT_REQUESTS` | Integer | `10` | Number of trigger requests allowed per window. |
-| `TRIGGER_RATE_LIMIT_WINDOW` | Duration | `1m` | Time window for trigger rate limiting. |
+| Variable | Default | Description |
+|---|---|---|
+| `CORS_ALLOWED_ORIGINS` | `*` | Comma-separated list of allowed origins. |
+| `CORS_ALLOW_CREDENTIALS` | `false` | Whether CORS requests may include credentials. |
+| `OIDC_ENABLED` | `false` | Enable OIDC bearer-token authentication. |
+| `OIDC_ISSUER` | - | Expected OIDC issuer. |
+| `OIDC_AUDIENCE` | - | Expected OIDC audience. |
+| `OIDC_PUBLIC_KEY_PEM` | - | Public key used to verify OIDC tokens. |
 
-## Request Configuration
+## Monitoring
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `REQUEST_TIMEOUT` | Duration | `30s` | Timeout for incoming HTTP requests. |
-| `MAX_REQUEST_BODY_SIZE` | Integer | `1MB` | Maximum size of the request body in bytes. |
-| `MAX_BULK_TRIGGER_ITEMS` | Integer | `500` | Maximum number of items in a single bulk trigger request. |
-
-## CORS Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `CORS_ALLOWED_ORIGINS` | String List | `*` | Comma-separated list of allowed origins. |
-| `CORS_ALLOW_CREDENTIALS` | Boolean | `false` | Whether to allow credentials in CORS requests. |
-
-## OIDC Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `OIDC_ENABLED` | Boolean | `false` | Enable OpenID Connect authentication. |
-| `OIDC_ISSUER` | String | - | OIDC token issuer URL. |
-| `OIDC_AUDIENCE` | String | - | Expected OIDC audience claim. |
-| `OIDC_PUBLIC_KEY_PEM` | String | - | PEM-encoded public key for OIDC token verification. |
-
-## RBAC Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `PERMISSION_CACHE_TTL` | Duration | `5m` | TTL for the RBAC permission cache. |
-
-## Retention Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `RUN_RETENTION_SHORT` | Duration | `30d` | Short-term retention period for job runs. |
-| `RUN_RETENTION_LONG` | Duration | `90d` | Long-term retention period for job runs. |
-| `WORKFLOW_RUN_RETENTION_DAYS` | Integer | `30` | Number of days to retain workflow run data. |
-| `WORKFLOW_RETENTION` | Duration | `30d` | Retention period for workflow definitions. |
-| `EVENT_TRIGGER_RETENTION` | Duration | `168h` (7d) | Retention period for terminal event triggers. Set to `0` to disable automatic cleanup. |
-| `EVENT_TRIGGER_RETENTION_DAYS` | Integer | - | Legacy alternative: retention in days (e.g., `90`). Only used when `EVENT_TRIGGER_RETENTION` is not set. |
-| `TERMINAL_ARCHIVE_ENABLED` | Boolean | `true` | Move terminal job runs to an archive table to keep the hot `job_runs` table lean. Disable only for testing. |
-| `PARTITION_RECLAIM_ENABLED` | Boolean | `false` | Reclaim disk space by re-creating detached time-series partitions. Enable on long-running self-hosted installs with disk pressure. |
-| `PARTITION_RECLAIM_INTERVAL` | Duration | `24h` | How often Strait checks whether old partitions can be reclaimed. |
-| `PARTITION_RECLAIM_SAFETY_MONTHS` | Integer | `2` | Minimum months of data to retain when reclaiming partitions. |
-
-## Redis Sentinel
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `REDIS_SENTINEL_MASTER` | String | - | Name of the Redis Sentinel master. |
-| `REDIS_SENTINEL_ADDRS` | String List | - | Comma-separated list of Redis Sentinel addresses. |
-
-## Workflow Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `MAX_WORKFLOW_NESTING_DEPTH` | Integer | `10` | Maximum allowed depth for nested workflows. |
-| `WF_STALL_THRESHOLD` | Duration | `15m` | Max time without workflow progression before Strait considers the run stalled. |
-| `WF_STALL_ACTION` | String | `log_only` | Action when stalled run is detected: `log_only`, `reconcile`, or `fail_workflow`. |
-| `WF_MAX_STEP_CAP` | Integer | `0` | Maximum number of steps allowed in a single workflow. `0` means unlimited. |
-| `WF_STEP_CONCURRENCY_LIMIT` | Integer | `0` | Maximum concurrent step executions per workflow run. `0` means unlimited. |
-| `DEPENDENCY_STATUS_CACHE_TTL` | Duration | `5s` | TTL for the job dependency status cache. |
-
-## SSE Configuration
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `SSE_KEEPALIVE_INTERVAL` | Duration | `15s` | Interval for sending keepalive events over SSE. |
-| `SSE_MAX_CONNS` | Integer | `5000` | Maximum total concurrent SSE connections across all projects. |
-| `SSE_MAX_CONNS_PER_PROJECT` | Integer | `100` | Maximum concurrent SSE connections per project. |
-| `SSE_MAX_CONN_DURATION` | Duration | `30m` | Maximum duration for a single SSE connection before the server closes it. |
-
-## Worker Partitions
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `WORKER_PARTITIONS` | String List | - | List of partitions this worker should handle. |
-| `WORKER_PARTITION_WEIGHTS` | String | - | Weights for the configured partitions. |
-
-## Encryption
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `ENCRYPTION_KEY` | String | - | Primary key used for data encryption. |
-| `ENCRYPTION_KEY_OLD` | String List | - | List of previous encryption keys used for rotation. |
-
-
-
-## gRPC Worker Server
-
-Strait is orchestration-only. Workers connect via gRPC streaming and execute jobs in their own processes. There is no built-in container runtime.
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `GRPC_ENABLED` | Boolean | `true` | Enable the gRPC streaming server for worker connections. |
-| `GRPC_BIND_ADDR` | String | `127.0.0.1` | Address the gRPC server binds to. Non-loopback plaintext listeners require TLS or explicit `GRPC_ALLOW_PLAINTEXT=true`. |
-| `GRPC_PORT` | Integer | `50051` | Port the gRPC server listens on. |
-| `GRPC_ALLOW_PLAINTEXT` | Boolean | `false` | Permit plaintext gRPC on non-loopback bind addresses. Use only behind a trusted TLS-terminating proxy. |
-| `GRPC_TLS_CERT_PATH` | String | - | Path to TLS certificate file. Optional; cloud deployments terminate TLS at the load balancer. |
-| `GRPC_TLS_KEY_PATH` | String | - | Path to TLS private key file. |
-| `GRPC_KEEPALIVE_TIME` | Duration | `30s` | How often the server sends keepalive pings to connected workers. |
-| `GRPC_KEEPALIVE_TIMEOUT` | Duration | `10s` | Time the server waits for a keepalive ping acknowledgement before closing the connection. |
-| `WORKER_HEARTBEAT_TIMEOUT` | Duration | `30s` | Duration after which a worker is considered disconnected if no heartbeat is received. |
-| `WORKER_DB_SYNC_INTERVAL` | Duration | `10s` | Interval at which connected worker state is flushed to the database. |
-| `WORKER_DISCONNECT_SWEEP_INTERVAL` | Duration | `30s` | How often Strait checks for disconnected workers. |
-| `EXTERNAL_API_URL` | String | - | Base URL workers use to call back to the Strait API (e.g., `https://api.example.com`). |
-
-## Shutdown
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `WORKER_DRAIN_TIMEOUT` | Duration | `30s` | Maximum time to wait for workers to finish in-flight jobs during shutdown. |
-
-
-## Webhook Delivery
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `WEBHOOK_MAX_PAYLOAD_BYTES` | Integer | `1MB` | Maximum size of webhook payloads in bytes. |
-
-## Adaptive Concurrency
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `ADAPTIVE_CONCURRENCY_MIN` | Integer | `5` | Minimum concurrency level for adaptive scaling. |
-| `ADAPTIVE_CONCURRENCY_MAX` | Integer | `100` | Maximum concurrency level for adaptive scaling. |
-
-## ClickHouse (Optional Analytics)
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `CLICKHOUSE_ENABLED` | Boolean | `false` | Enable the ClickHouse client and create analytics tables on startup. |
-| `CLICKHOUSE_URL` | String | - | ClickHouse native protocol URL (e.g., `clickhouse://localhost:9000`). Required when enabled. |
-| `CLICKHOUSE_DATABASE` | String | `strait` | Target ClickHouse database name. |
-| `CLICKHOUSE_BATCH_SIZE` | Integer | `1000` | Maximum records per batch insert. |
-| `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between exporter flushes. |
-| `CLICKHOUSE_EXPORT_ENABLED` | Boolean | `false` | Enable the async exporter that sends run analytics to ClickHouse on run completion. |
-
-
-## Database Tuning
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `DB_HEALTH_CHECK_PERIOD` | Duration | `30s` | How often to check database connectivity. |
-| `DB_STATEMENT_TIMEOUT` | Duration | `30s` | Maximum time for a single SQL statement. |
-| `DB_LOCK_TIMEOUT` | Duration | `10s` | Maximum time to wait for a database lock. |
-
-## Worker Tuning
-
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `MAX_DEQUEUE_BATCH_SIZE` | Integer | `10` | Number of runs to claim per dequeue cycle. |
-| `DEFAULT_JOB_MAX_CONCURRENCY` | Integer | `0` (unlimited) | Default max concurrency when not set on the job. |
-| `DEFAULT_RUN_TTL_SECS` | Integer | `0` (no expiry) | Default TTL for runs when not set on the job. |
-
+| Variable | Default | Description |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OpenTelemetry endpoint for traces and logs. |
+| `OTLP_METRIC_ENDPOINT` | - | OpenTelemetry endpoint for metrics, if different. |
+| `OTLP_METRIC_ENABLED` | `false` | Enable OTLP metric export. |
+| `SENTRY_DSN` | - | Sentry DSN for error reporting. |
+| `SENTRY_ENVIRONMENT` | - | Environment tag such as `production` or `staging`. |
+| `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
 
 ## Notifications
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `RESEND_API_KEY` | String | - | API key for email notifications via Resend. |
-| `RESEND_FROM_EMAIL` | String | `noreply@strait.dev` | From address for email notifications. |
+| Variable | Default | Description |
+|---|---|---|
+| `RESEND_API_KEY` | - | Required for email notifications. |
+| `RESEND_FROM_EMAIL` | `noreply@strait.dev` | From address for email notifications. |
+| `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
+| `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
-## Webhooks
+## Retention
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `WEBHOOK_REQUIRE_TLS` | Boolean | `false` | Require HTTPS for all webhook endpoints. |
-| `ALLOW_PRIVATE_ENDPOINTS` | Boolean | `false` | Allow webhook delivery to private IP ranges (not recommended for production). |
+| Variable | Default | Description |
+|---|---|---|
+| `RUN_RETENTION_SHORT` | `30d` | Retention for common terminal runs. |
+| `RUN_RETENTION_LONG` | `90d` | Retention for timeout, crash, and system-failure runs. |
+| `WORKFLOW_RUN_RETENTION_DAYS` | `30` | Retention for workflow run data. |
+| `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default audit event retention. |
 
-## Audit Events
+## Worker Mode
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `AUDIT_RETENTION_DEFAULT_DAYS` | Integer | `365` | Default retention in days for audit events. Per-project overrides live in `project_quotas.audit_retention_days`. `0` disables trimming for a project. |
-| `AUDIT_ASYNC_BUFFER_SIZE` | Integer | `4096` | Size of the in-memory async emit buffer. Must be at least `256`. |
-| `AUDIT_SIEM_ENDPOINT` | String | - | SIEM forwarding endpoint. Leave empty to disable. When set, `AUDIT_SIEM_AUTH_TOKEN` is required. |
-| `AUDIT_SIEM_AUTH_TOKEN` | String | - | Bearer token sent to the SIEM endpoint as `Authorization: Bearer ...`. |
-| `AUDIT_SIEM_BATCH_SIZE` | Integer | `100` | Number of audit events to batch per SIEM flush. |
-| `AUDIT_SIEM_FLUSH_INTERVAL` | Duration | `10s` | Maximum time between SIEM flushes. |
-| `AUDIT_EXPORT_ROW_CAP_DEFAULT` | Integer | `1000000` | Default cap on rows returned per audit export call. Per-project overrides live in `project_quotas.audit_export_row_cap`. |
-| `AUDIT_DLQ_RECLAIM_BATCH` | Integer | `200` | Maximum audit dead-letter rows processed in one recovery pass. |
-| `AUDIT_DLQ_MAX_AGE_DAYS` | Integer | `30` | Maximum days an audit dead-letter row may be retained. `0` disables automatic cleanup. |
-| `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | Integer | `10` | Maximum recovery attempts per audit dead-letter row before skipping. `0` disables the cap. |
+Use these when running connected workers.
+
+| Variable | Default | Description |
+|---|---|---|
+| `GRPC_BIND_ADDR` | `127.0.0.1` | Address for the gRPC server. |
+| `GRPC_PORT` | `50051` | gRPC server port. |
+| `GRPC_ALLOW_PLAINTEXT` | `false` | Allow plaintext gRPC on non-loopback addresses. |
+| `GRPC_TLS_CERT_PATH` | - | TLS certificate path. |
+| `GRPC_TLS_KEY_PATH` | - | TLS private key path. |
+| `EXTERNAL_API_URL` | - | Base URL workers use to call back to the Strait API. |
+
+## Related
+
+- [Deployment](/guides/deployment)
+- [Run Private Workers](/guides/private-workers)
+- [Authentication](/guides/authentication)

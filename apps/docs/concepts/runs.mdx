@@ -1,362 +1,149 @@
 ---
 title: "Runs"
-description: "Track every execution from trigger to completion."
+description: "Track one execution of a job from trigger to result."
 icon: "play"
 ---
 
-A run is a single execution of a [job](/concepts/jobs). When you trigger a job — manually, on a schedule, from a workflow, or through an event — Strait creates a run and tracks it through its entire lifecycle. The run captures everything: the input payload, which attempt this is, how long the endpoint took to respond, and the final result.
+A run is one execution of a [job](/concepts/jobs). It records the payload, status, attempts, timing, result, and error details.
 
-Every run has a unique ID (UUIDv7), belongs to exactly one job, and records who or what triggered it.
+Runs are what you watch when work is happening. Jobs define what can run. Runs show what actually happened.
 
-## Run Lifecycle
+## Run States
 
-Each run moves through a defined set of states. Most runs follow a simple path: **queued**, **executing**, **completed**. When things go wrong, retries and the dead-letter queue keep you in control.
-
-### Lifecycle Diagram
+Most runs follow a simple path:
 
 ```text
-                    ┌─────────┐
-                    │ delayed │
-                    └────┬────┘
-                         │ scheduled_at <= NOW
-                         v
-   ┌────────────────┬─────────┬────────────────────┐
-   │                │ queued  │                     │
-   │                └────┬────┘                     │
-   │                     │ picked up               │
-   │                     v                          │
-   │    retry    ┌───────────┐                      │
-   │  ┌─────────>│ executing │                      │
-   │  │          └─────┬─────┘                      │
-   │  │  ┌─────────┬───┴───┬─────────┐              │
-   │  │  │         │       │         │              │
-   │  │  v         v       v         v              │
-   │  │ completed failed timed_out crashed          │
-   │  │                │                             │
-   │  │                v (max attempts reached)      │
-   │  │          ┌─────────────┐                     │
-   │  │          │ dead_letter │                     │
-   │  │          └─────────────┘                     │
-   │  │                                              │
-   │  └── (attempt < max_attempts) ──────────────────┘
-   │                                                 │
-   │  canceled <── (any non-terminal) ───────────────┘
-   │  expired  <── (delayed, queued with expires_at) ┘
+queued -> executing -> completed
 ```
 
-### What Each State Means
+When something fails, Strait retries according to the job policy. If the run still cannot complete, it moves to `dead_letter`.
 
-| State | What is happening |
-| :--- | :--- |
-| **delayed** | The run is created but scheduled for a future time. It waits until `scheduled_at` arrives, then moves to `queued`. |
-| **queued** | Your run is waiting for a worker to pick it up. Under normal load, this takes milliseconds. If workers are saturated or concurrency limits apply, the run stays here until capacity opens. |
-| **executing** | Strait is calling your endpoint. The run stays in this state until your endpoint responds or the timeout fires. |
-| **completed** | Your endpoint returned a success response (2xx). The run is finished — the response body is stored in `result`. |
-| **failed** | Your endpoint returned an error (non-2xx response or connection failure). If retry attempts remain, Strait re-queues the run automatically. If all attempts are exhausted, the run moves to `dead_letter`. |
-| **timed_out** | Your endpoint did not respond within the configured `timeout_secs`. Like `failed`, this triggers a retry if attempts remain. |
-| **crashed** | The worker process terminated unexpectedly mid-execution. The run is retried if attempts remain. |
-| **waiting** | The run is paused — typically waiting for a child run, an external event, or an approval step in a workflow. No compute is held. |
-| **canceled** | You or an API call canceled this run. Cancellation can happen from any non-terminal state. |
-| **expired** | The run exceeded its `run_ttl_secs` before a worker picked it up. It never executed. |
-| **dead_letter** | All retries exhausted, or poison pill detection stopped retries early. The run is held for inspection. You can view what went wrong and replay it when ready. |
+| State | Meaning |
+|---|---|
+| `delayed` | The run is scheduled for a future time. |
+| `queued` | The run is waiting to start. |
+| `executing` | Strait is calling your endpoint or connected worker. |
+| `completed` | The work finished successfully. |
+| `failed` | The endpoint returned an error and no retry remains. |
+| `timed_out` | The endpoint did not finish before `timeout_secs`. |
+| `canceled` | The run was canceled before completion. |
+| `expired` | The run was not picked up before its TTL. |
+| `dead_letter` | Retries were exhausted. The run can be inspected and replayed. |
 
-<Info>
-**Terminal states**: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `expired`, `dead_letter`. Once a run reaches a terminal state, no further automatic transitions occur. Dead-lettered runs can be replayed.
-</Info>
-
-### Valid Transitions
-
-| From | Can transition to |
-| :--- | :--- |
-| `delayed` | `queued`, `canceled`, `expired` |
-| `queued` | `executing`, `canceled`, `expired` |
-| `executing` | `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `waiting`, `queued`, `dead_letter` |
-| `waiting` | `executing`, `completed`, `failed`, `canceled`, `timed_out` |
-| `dead_letter` | `queued` or a cloned replacement run (via replay) |
-
-## Triggering Runs
-
-There are several ways to create a run.
-
-### API
-
-Send a POST request to trigger a job:
+## Trigger a Run
 
 ```bash
-curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger \
-  -H "Authorization: Bearer strait_..." \
+curl -X POST https://api.strait.dev/v1/jobs/send-welcome-email/trigger \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "payload": { "user_id": "usr_123", "action": "sync" },
-    "metadata": { "source": "billing-service" }
+    "payload": { "user_id": "usr_42" },
+    "metadata": { "source": "signup" }
   }'
 ```
 
-The response includes the new run's ID and initial status:
+Response:
 
 ```json
 {
-  "id": "run_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
-  "job_id": "job_abc123",
+  "id": "run_123",
+  "job_id": "job_123",
   "status": "queued",
-  "attempt": 1,
-  "payload": { "user_id": "usr_123", "action": "sync" },
-  "metadata": { "source": "billing-service" },
-  "triggered_by": "manual",
-  "created_at": "2025-01-15T10:30:00Z"
+  "attempt": 1
 }
 ```
 
-### Bulk trigger
-
-Trigger many runs at once with a single request. Strait creates a [batch operation](/concepts/batch-operations) to track them:
+## Check Status
 
 ```bash
-curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger/bulk \
-  -H "Authorization: Bearer strait_..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "items": [
-      { "payload": { "user_id": "usr_123" } },
-      { "payload": { "user_id": "usr_456" } },
-      { "payload": { "user_id": "usr_789" } }
-    ]
-  }'
+curl https://api.strait.dev/v1/runs/run_123 \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
-### Cron schedule
+Completed runs include a `result`. Failed and timed-out runs include error details.
 
-Jobs with a cron expression trigger runs automatically on schedule. See [Scheduling](/concepts/scheduling) for details.
+## Watch Live Updates
 
-### Workflows
-
-When a [workflow](/concepts/workflows) executes, each step creates its own run. Steps can depend on other steps, run in parallel, or trigger conditionally based on previous results.
-
-### Job chaining
-
-A job can trigger downstream runs when it completes. See [Job Chaining](/concepts/job-chaining) for how to set up completion-based triggers.
-
-### Event sources
-
-External events can trigger runs via [event sources](/concepts/event-sources). When an event matches a subscription filter, Strait enqueues a run with the event payload.
-
-Every run records what triggered it in the `triggered_by` field: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, or `job_completion`.
-
-## Watching Runs
-
-### Get run status
-
-Fetch the current state of any run:
+Use server-sent events when you want to wait for a run in a script or update a dashboard in real time.
 
 ```bash
-curl https://your-strait-instance/v1/runs/{runID} \
-  -H "Authorization: Bearer strait_..."
+curl -N https://api.strait.dev/v1/runs/run_123/stream \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
-The response includes the run's current status, attempt number, payload, result (if completed), error (if failed), and all timing fields.
+See [Real-Time Streaming](/concepts/real-time) for browser authentication and event formats.
+
+## Failed Runs
+
+When a run fails, check:
+
+| Field | What to look for |
+|---|---|
+| `status` | Whether the run is retrying, terminal, or in `dead_letter`. |
+| `attempt` | How many attempts have already run. |
+| `error` | The last error returned by your endpoint or worker. |
+| `execution_trace` | Timing information for the attempt. |
+| `metadata` and `tags` | Your own correlation fields. |
+
+If the run is in `dead_letter`, fix the underlying problem first, then replay the run.
+
+See [Handle Failed Runs](/guides/handle-failed-runs) for a practical recovery flow.
+
+## Replay
+
+Replay creates another attempt at the same work.
+
+```bash
+curl -X POST https://api.strait.dev/v1/runs/run_123/replay \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+Use replay after you have fixed the endpoint, restored a dependency, or corrected bad configuration.
+
+## Metadata and Tags
+
+Use metadata for correlation fields that help you understand where a run came from.
 
 ```json
 {
-  "id": "run_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
-  "job_id": "job_abc123",
-  "status": "completed",
-  "attempt": 1,
-  "payload": { "user_id": "usr_123", "action": "sync" },
-  "result": { "synced": true, "records": 42 },
-  "metadata": { "source": "billing-service" },
-  "triggered_by": "manual",
-  "started_at": "2025-01-15T10:30:00.120Z",
-  "finished_at": "2025-01-15T10:30:01.450Z",
-  "execution_trace": {
-    "queue_wait_ms": 12,
-    "dequeue_ms": 3,
-    "connect_ms": 45,
-    "ttfb_ms": 890,
-    "transfer_ms": 15,
-    "total_ms": 1330
-  },
-  "created_at": "2025-01-15T10:30:00Z"
+  "metadata": {
+    "source": "signup",
+    "request_id": "req_123"
+  }
 }
 ```
 
-### List runs by status
+Use tags when you want to filter and group runs.
 
-```bash
-curl "https://your-strait-instance/v1/runs?status=failed&limit=20" \
-  -H "Authorization: Bearer strait_..."
+```json
+{
+  "tags": {
+    "tenant": "acme",
+    "region": "us-east"
+  }
+}
 ```
 
-### SSE streaming
+## Per-Run Overrides
 
-Subscribe to real-time run updates using server-sent events:
-
-```bash
-curl -N "https://your-strait-instance/v1/runs/{runID}/stream" \
-  -H "Authorization: Bearer strait_..."
-```
-
-The stream emits events as the run transitions between states. Useful for building live dashboards or waiting for completion in scripts. See [Real-Time Streaming](/concepts/real-time) for the full streaming reference.
-
-## Retries
-
-When a run fails, times out, or crashes, Strait checks if retry attempts remain. If `attempt < max_attempts`, the run is re-queued automatically after a backoff delay.
-
-The retry strategy controls how long Strait waits between attempts:
-
-| Strategy | Behavior |
-| :--- | :--- |
-| **Exponential** (default) | Delay doubles each attempt (with jitter) |
-| **Linear** | Delay increases by a fixed amount each attempt |
-| **Fixed** | Same delay every time |
-| **Custom** | You provide explicit delays for each attempt |
-
-Each retry creates a new execution of the same run, incrementing the `attempt` counter. The payload stays the same; only the attempt number changes.
-
-For full configuration details, see [Retry Strategies](/concepts/retry-strategies).
-
-## Dead-Letter Queue
-
-When all retry attempts are exhausted and the run still has not succeeded, Strait moves it to the **dead-letter queue** (status: `dead_letter`). The run stays there until you replay it or remove it.
-
-From the dead-letter queue, you can:
-
-- **Inspect** the failure — view the error message, response body, execution trace, and every previous attempt.
-- **Replay** the run — re-enqueue it for another execution or create a replacement run, depending on the endpoint used.
-- **Bulk replay** — replay multiple dead-lettered runs at once via `POST /v1/runs/bulk-dlq-replay`.
-
-The dead-letter queue prevents failed work from being silently dropped. Nothing is lost -- every failure is visible and actionable.
-
-## Run Data
-
-Each run carries several data fields. Here is what they contain and when to use them.
-
-### payload
-
-The input data provided when the run was triggered. This is the JSON body you send in the trigger request. It is passed to your endpoint as the request body on every attempt.
-
-### result
-
-The output data returned by your endpoint on a successful execution (2xx response). Only populated when the run reaches `completed`. Use this to pass data between workflow steps or to store the output of a job for later retrieval.
-
-### metadata
-
-Key-value string annotations you attach at trigger time. Metadata is not sent to your endpoint — it is for your own tracking. Use it for correlation IDs, source identifiers, or any context you want to find the run later.
-
-### tags
-
-Key-value pairs for filtering runs. Similar to metadata, but specifically designed for use in queries and list filters.
-
-### error
-
-The error message captured when a run fails or times out. Contains the response body (for HTTP errors) or the timeout/crash description.
-
-### execution_trace
-
-Granular timing breakdown for each execution attempt:
-
-| Field | What it measures |
-| :--- | :--- |
-| `queue_wait_ms` | Time spent waiting in `queued` state |
-| `dequeue_ms` | Time taken to claim the run from the queue |
-| `connect_ms` | TCP/TLS connection time to your endpoint |
-| `ttfb_ms` | Time to first byte — how long until your endpoint started responding |
-| `transfer_ms` | Time to download the full response body |
-| `total_ms` | Total wall-clock time for the execution |
-
-Use execution traces to identify whether slowness is in your endpoint, the network, or queue saturation.
-
-### Debug mode
-
-When you enable `debug_mode`, Strait captures detailed event logs and assembles a debug bundle for troubleshooting. Useful for diagnosing issues in development or investigating production incidents.
-
-### Continuation lineage
-
-When one run triggers another as a continuation (for long-running work split across multiple executions), Strait tracks the chain using `continuation_of` and `lineage_depth`. This lets you trace the full execution history back to the original run.
-
-## Run Fields Reference
-
-Full field reference for the run model.
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (UUIDv7). |
-| `job_id` | `string` | Reference to the parent job. |
-| `project_id` | `string` | The project this run belongs to. |
-| `status` | `string` | Current lifecycle state. See lifecycle diagram above. |
-| `attempt` | `int` | Current retry attempt number (starts at 1). |
-| `payload` | `json` | Input data provided when the run was triggered. |
-| `result` | `json` | Output data returned by the job endpoint on success. |
-| `metadata` | `map[string]string` | Key-value annotations for the run. |
-| `error` | `string` | Error message if the run failed or timed out. |
-| `triggered_by` | `string` | Trigger source: `manual`, `cron`, `spawn`, `workflow`, `retry`, `debounce`, `job_completion`. |
-| `scheduled_at` | `time.Time` | When the run is scheduled to be queued. |
-| `started_at` | `time.Time` | When the run transitioned to `executing`. |
-| `finished_at` | `time.Time` | When the run reached a terminal state. |
-| `heartbeat_at` | `time.Time` | Last recorded heartbeat from the executor. |
-| `next_retry_at` | `time.Time` | When the next retry attempt is scheduled. |
-| `expires_at` | `time.Time` | When the run will expire if not completed. |
-| `parent_run_id` | `string` | Reference to the parent run if spawned. |
-| `priority` | `int` | Scheduling priority (higher numbers are dequeued first). |
-| `idempotency_key` | `string` | Key used to prevent duplicate executions. |
-| `job_version` | `int` | The version of the job configuration used for this run. |
-| `job_version_id` | `string` | The specific version ID of the job configuration. |
-| `batch_id` | `string` | Reference to the batch operation that created this run (if bulk triggered). |
-| `concurrency_key` | `string` | Key used for per-key concurrency limiting. |
-| `created_by` | `string` | Actor ID who created the run (user ID or `apikey:<id>`). |
-| `tags` | `map[string]string` | Key-value pairs for filtering and metadata. |
-| `workflow_step_run_id` | `string` | Reference to the workflow step run if part of a workflow. |
-| `max_attempts_override` | `int` | Override for the job's `max_attempts` on this run. |
-| `timeout_secs_override` | `int` | Override for the job's `timeout_secs` on this run. |
-| `retry_backoff` | `string` | Override for the retry strategy on this run. |
-| `retry_initial_delay_secs` | `int` | Override for initial retry delay. |
-| `retry_max_delay_secs` | `int` | Override for maximum retry delay. |
-| `execution_trace` | `json` | Detailed timing breakdown (TTFB, connect time, etc.). |
-| `debug_mode` | `bool` | Whether debug logging and bundle assembly are enabled. |
-| `continuation_of` | `string` | Links to the previous run if this is a continuation. |
-| `lineage_depth` | `int` | How many continuations deep this run is. |
-| `created_at` | `time.Time` | When the run record was created. |
-
-
-## Per-run Overrides
-
-Override job defaults on a per-trigger basis:
+You can override selected job defaults when triggering a run.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/jobs/my-job/trigger \
-  -H "Authorization: Bearer $API_KEY" \
+curl -X POST https://api.strait.dev/v1/jobs/import-users/trigger \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{
-    "payload": {"user_id": "usr_123"},
-    "max_attempts_override": 10,
-    "timeout_secs_override": 600
+    "payload": { "batch_id": "batch_123" },
+    "timeout_secs_override": 600,
+    "max_attempts_override": 5
   }'
 ```
 
-Overrides apply only to this run. The job definition is unchanged.
+Overrides apply only to that run. The job definition is unchanged.
 
-## Run State
+## Related
 
-Store key-value data scoped to a single run. Useful for passing state between checkpoints or across continuation runs.
-
-SDK endpoints:
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `POST` | `/sdk/v1/runs/{runID}/state` | Set a key |
-| `GET` | `/sdk/v1/runs/{runID}/state/{key}` | Get a key |
-| `GET` | `/sdk/v1/runs/{runID}/state` | List all keys |
-| `DELETE` | `/sdk/v1/runs/{runID}/state/{key}` | Delete a key |
-
-## Job Memory
-
-Store key-value data scoped to a job (persisted across runs). Useful for caching API tokens, tracking cursor positions, or any state that should survive between runs.
-
-SDK endpoints:
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `POST` | `/sdk/v1/jobs/{jobID}/memory` | Set a key (max 1MB value, 100 keys per job) |
-| `GET` | `/sdk/v1/jobs/{jobID}/memory/{key}` | Get a key |
-| `GET` | `/sdk/v1/jobs/{jobID}/memory` | List all keys |
-| `DELETE` | `/sdk/v1/jobs/{jobID}/memory/{key}` | Delete a key |
-
-Memory entries have an optional `ttl_secs` for automatic expiration.
+- [Jobs](/concepts/jobs)
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Retry Strategies](/concepts/retry-strategies)
+- [Real-Time Streaming](/concepts/real-time)

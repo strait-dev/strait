@@ -53,10 +53,18 @@
               "concepts/jobs",
               "concepts/runs",
               "concepts/workflows",
-              "concepts/retry-strategies",
-              "concepts/event-triggers",
-              "concepts/scheduling",
               "concepts/projects"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/production-job",
+              "guides/handle-failed-runs",
+              "guides/private-workers",
+              "guides/message-queues-vs-orchestration",
+              "guides/deployment",
+              "guides/authentication"
             ]
           },
           {
@@ -82,6 +90,9 @@
           {
             "group": "Job Features",
             "pages": [
+              "concepts/retry-strategies",
+              "concepts/scheduling",
+              "concepts/event-triggers",
               "concepts/execution-modes",
               "concepts/batch-operations",
               "concepts/job-chaining",
@@ -108,10 +119,8 @@
             "pages": ["configuration/environment-variables"]
           },
           {
-            "group": "Guides",
+            "group": "Security and Access",
             "pages": [
-              "guides/authentication",
-              "guides/deployment",
               "guides/security",
               "guides/sdk-integration",
               "guides/rbac",

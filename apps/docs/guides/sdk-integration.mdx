@@ -1,9 +1,11 @@
 ---
 title: "SDK Integration"
-description: "How to write job handlers that run inside Strait: receiving payloads, reporting progress, and returning results."
+description: "Write job handlers that receive payloads, report progress, and return results."
 ---
 
-This guide shows how to write jobs that run inside Strait using the official SDKs. Your job code receives payloads, reports progress, and returns results.
+This guide shows how to write job handlers with the official SDKs.
+
+Your code runs in your infrastructure. Strait calls it, tracks the run, and gives the handler a short-lived token for progress updates.
 
 <Info>
   For per-language API documentation, see the [SDK Reference](/sdks/overview).
@@ -31,25 +33,20 @@ Create a `strait.json` at your project root with `strait init`, then set `STRAIT
 
 ## Writing a Job Handler
 
-When Strait triggers a job, it calls your HTTP endpoint with the run payload and an SDK token. Here is what happens inside your handler:
+When Strait triggers a job, it calls your HTTP endpoint with the run payload and an SDK token.
 
 ```typescript
-// Your Express/Fastify/Hono endpoint that Strait calls
 app.post('/jobs/send-email', async (req, res) => {
   const { payload, run_id, attempt } = req.body;
   const token = req.headers['x-sdk-token'];
 
-  // Create SDK client for this run
   const ctx = createRunContext({ token });
 
-  // Report progress
   await ctx.log('Sending email to ' + payload.to);
   await ctx.heartbeat();
 
-  // Do the work
   const result = await sendEmail(payload);
 
-  // Return result
   res.json({ sent: true, messageId: result.id });
 });
 ```
@@ -79,11 +76,11 @@ The run context gives your job handler methods to communicate state back to Stra
 | `output(data)` | Store structured results or artifacts |
 | `waitForEvent(eventKey, timeoutSecs)` | Pause until an external event arrives |
 
-### Example: Long-Running Job with Checkpoints
+### Long-Running Job with Checkpoints
 
 ```typescript
 app.post('/jobs/process-csv', async (req, res) => {
-  const { payload, run_id } = req.body;
+  const { payload } = req.body;
   const ctx = createRunContext({ token: req.headers['x-sdk-token'] });
 
   const rows = await fetchRows(payload.fileUrl);
@@ -93,7 +90,6 @@ app.post('/jobs/process-csv', async (req, res) => {
     await processRow(rows[i]);
     processed = i + 1;
 
-    // Checkpoint every 100 rows so retries resume here
     if (processed % 100 === 0) {
       await ctx.checkpoint({ processed });
       await ctx.progress(Math.round((processed / rows.length) * 100));
@@ -109,7 +105,7 @@ app.post('/jobs/process-csv', async (req, res) => {
 
 ## Authoring DSL
 
-For TypeScript, the SDK provides `defineJob` and `defineWorkflow` helpers that declare jobs with typed payloads, retry policies, and timeout configuration:
+For TypeScript, the SDK provides `defineJob` and `defineWorkflow` helpers for typed job and workflow definitions:
 
 ```typescript
 import { defineJob } from '@strait/ts';
@@ -151,7 +147,7 @@ test('send-email handler', async () => {
 });
 ```
 
-The test context captures logs, checkpoints, and heartbeats so you can assert on them without running the full system.
+The test context captures logs, checkpoints, and heartbeats so you can assert on them without calling Strait.
 
 ---
 

@@ -1,0 +1,67 @@
+---
+title: "Run Private Workers"
+description: "Use worker mode when Strait cannot call your service directly."
+icon: "server"
+---
+
+Use worker mode when job code should stay inside your private network. Instead of exposing an HTTP endpoint, you run a worker process that connects to Strait and receives work over that connection.
+
+## When to Use Worker Mode
+
+Worker mode is a good fit when:
+
+- Your code runs in a private VPC or on-prem network.
+- You do not want to expose a public job endpoint.
+- The job needs local files, private databases, or long-lived connections.
+- You want one process to handle many jobs with shared setup.
+
+Use HTTP mode when you already have an endpoint Strait can call.
+
+## Create a Worker Job
+
+Set `execution_mode` to `worker`.
+
+```bash
+curl -X POST https://api.strait.dev/v1/jobs \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_123",
+    "name": "Train Model",
+    "slug": "train-model",
+    "execution_mode": "worker",
+    "queue_name": "ml"
+  }'
+```
+
+The `queue_name` lets you route work to the right set of workers.
+
+## Start Workers
+
+Run one or more worker processes using your SDK. Each worker registers the queues it can handle, then waits for runs.
+
+At a high level, a worker does three things:
+
+1. Connects to Strait.
+2. Registers handlers for one or more queues.
+3. Returns a result or error for each run it receives.
+
+See your SDK reference for language-specific worker setup.
+
+## Scale Workers
+
+To increase throughput, run more worker processes for the same queue. Strait distributes matching runs across connected workers.
+
+Keep workers close to the systems they call. If a job reads from a private database, run the worker near that database.
+
+## Failure Behavior
+
+If a worker disconnects while processing a run, Strait returns unfinished work to the queue. The run then follows the job's retry policy.
+
+Use idempotent handlers when possible. A run may be attempted more than once after timeouts, disconnects, or process restarts.
+
+## Related
+
+- [Execution Modes](/concepts/execution-modes)
+- [SDK Integration](/guides/sdk-integration)
+- [Create a Production Job](/guides/production-job)
