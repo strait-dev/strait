@@ -1164,6 +1164,24 @@ func (s *PgStore) ReleaseWebhookClaim(ctx context.Context, msgID string) error {
 	return nil
 }
 
+func (s *PgStore) GetWebhookProcessingStatus(ctx context.Context, msgID string) (string, error) {
+	if msgID == "" {
+		return "", nil
+	}
+	var status string
+	err := s.pool.QueryRow(ctx,
+		`SELECT status FROM processed_webhook_messages WHERE msg_id = $1`,
+		msgID,
+	).Scan(&status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get webhook processing status: %w", err)
+	}
+	return status, nil
+}
+
 // IsWebhookProcessed checks whether a webhook message ID has already been processed.
 func (s *PgStore) IsWebhookProcessed(ctx context.Context, msgID string) (bool, error) {
 	var exists bool

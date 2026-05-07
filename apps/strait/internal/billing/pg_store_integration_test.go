@@ -1855,9 +1855,23 @@ func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
 	if processed {
 		t.Fatal("processing claim must not count as processed")
 	}
+	status, err := pgStore.GetWebhookProcessingStatus(ctx, msgID)
+	if err != nil {
+		t.Fatalf("GetWebhookProcessingStatus(processing) error = %v", err)
+	}
+	if status != "processing" {
+		t.Fatalf("GetWebhookProcessingStatus(processing) = %q, want processing", status)
+	}
 
 	if err := pgStore.ReleaseWebhookClaim(ctx, msgID); err != nil {
 		t.Fatalf("ReleaseWebhookClaim error = %v", err)
+	}
+	status, err = pgStore.GetWebhookProcessingStatus(ctx, msgID)
+	if err != nil {
+		t.Fatalf("GetWebhookProcessingStatus(after release) error = %v", err)
+	}
+	if status != "" {
+		t.Fatalf("GetWebhookProcessingStatus(after release) = %q, want empty", status)
 	}
 	reclaimed, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
 	if err != nil {
@@ -1868,6 +1882,13 @@ func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
 	}
 	if err := pgStore.MarkWebhookProcessed(ctx, msgID); err != nil {
 		t.Fatalf("MarkWebhookProcessed error = %v", err)
+	}
+	status, err = pgStore.GetWebhookProcessingStatus(ctx, msgID)
+	if err != nil {
+		t.Fatalf("GetWebhookProcessingStatus(processed) error = %v", err)
+	}
+	if status != "processed" {
+		t.Fatalf("GetWebhookProcessingStatus(processed) = %q, want processed", status)
 	}
 	again, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
 	if err != nil {

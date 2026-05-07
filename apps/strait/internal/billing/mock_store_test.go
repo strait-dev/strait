@@ -54,6 +54,8 @@ type mockBillingStore struct {
 	recordWebhookErr           error
 	claimWebhookErr            error
 	claimWebhookResult         *bool
+	webhookProcessingStatus    string
+	webhookProcessingStatusErr error
 	releasedWebhookIDs         []string
 	recordedWebhookIDs         []string
 	getOrgSubscriptionFn       func(ctx context.Context, orgID string) (*OrgSubscription, error)
@@ -411,6 +413,10 @@ func (m *mockBillingStore) MarkWebhookProcessed(_ context.Context, msgID string)
 func (m *mockBillingStore) ReleaseWebhookClaim(_ context.Context, msgID string) error {
 	m.releasedWebhookIDs = append(m.releasedWebhookIDs, msgID)
 	return nil
+}
+
+func (m *mockBillingStore) GetWebhookProcessingStatus(_ context.Context, _ string) (string, error) {
+	return m.webhookProcessingStatus, m.webhookProcessingStatusErr
 }
 
 func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {
