@@ -101,6 +101,34 @@ func TestRLSTxMiddleware_AuditExportBypassesBufferedTransaction(t *testing.T) {
 	}
 }
 
+func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
+	t.Parallel()
+
+	var beginCount atomic.Int32
+	tx := &fakeRLSTx{commitErr: errors.New("should not commit")}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx, beginCount: &beginCount}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("webhook tested"))
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if got := w.Body.String(); got != "webhook tested" {
+		t.Fatalf("body = %q", got)
+	}
+	if beginCount.Load() != 0 {
+		t.Fatalf("RLS tx began %d times for webhook test, want 0", beginCount.Load())
+	}
+}
+
 type fakeTxBeginner struct {
 	tx         *fakeRLSTx
 	beginCount *atomic.Int32

@@ -1053,7 +1053,13 @@ const maxRLSBufferedResponseBytes = 16 << 20
 var errRLSBufferedResponseTooLarge = errors.New("response too large")
 
 func bypassRLSTxBuffer(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL != nil && r.URL.Path == "/v1/audit-events/export"
+	if r.URL == nil {
+		return false
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/v1/audit-events/export" {
+		return true
+	}
+	return r.Method == http.MethodPost && r.URL.Path == "/v1/webhooks/test"
 }
 
 type bufferedResponseWriter struct {
