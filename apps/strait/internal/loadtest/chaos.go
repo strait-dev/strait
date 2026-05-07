@@ -382,14 +382,13 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 			LIMIT 1
 		),
 		pressure_run AS (
-			INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)
+			INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at)
 			SELECT 'loadtest-pressure-' || gen_random_uuid()::text,
 			       id,
 			       project_id,
 			       'completed',
 			       '{}'::jsonb,
 			       'loadtest',
-			       NOW(),
 			       NOW()
 			FROM target_job
 			RETURNING id
@@ -446,14 +445,13 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 			WHERE project_id = $1 AND (slug = $2 OR id = $2)
 			LIMIT 1
 		)
-		INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)
+		INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at)
 		SELECT 'loadtest-clock-skew-' || gen_random_uuid()::text,
 		       id,
 		       project_id,
 		       'pending',
 		       jsonb_build_object('source', 'loadtest', 'scenario', 'clock_skew'),
 		       'loadtest',
-		       NOW() + INTERVAL '24 hours',
 		       NOW() + INTERVAL '24 hours'
 		FROM target_job, generate_series(1, 100)`,
 		ce.projectID,

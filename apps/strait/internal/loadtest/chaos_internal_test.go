@@ -38,9 +38,20 @@ func TestChaosHarness_RunEventsPressureUsesCurrentSchema(t *testing.T) {
 	if strings.Contains(source, "run_events (id, run_id, project_id") {
 		t.Fatal("run_events pressure scenario inserts removed project_id column")
 	}
+	if strings.Contains(source, "job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)") {
+		t.Fatal("job_runs chaos scenarios insert removed updated_at column")
+	}
 	for _, required := range []string{"run_events (id, run_id, type, level, message, data, created_at)", "'loadtest_pressure'"} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("run_events pressure scenario missing expected schema fragment %q", required)
+		}
+	}
+	for _, required := range []string{
+		"job_runs (id, job_id, project_id, status, payload, triggered_by, created_at)",
+		"'loadtest-clock-skew-'",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("job_runs chaos scenario missing expected schema fragment %q", required)
 		}
 	}
 }
