@@ -59,6 +59,17 @@ func InitSentry(cfg SentryConfig) (func(), error) {
 	return func() { sentry.Flush(2 * time.Second) }, nil
 }
 
+// EnsureSentryHub returns ctx with an isolated Sentry hub attached.
+func EnsureSentryHub(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if sentry.GetHubFromContext(ctx) != nil {
+		return ctx
+	}
+	return sentry.SetHubOnContext(ctx, sentry.CurrentHub().Clone())
+}
+
 // SentryClientOptions returns the SDK options used by InitSentry. Tests use it
 // with a fake transport so classifier behavior is exercised through the SDK.
 func SentryClientOptions(cfg SentryConfig, tracesSampleRate float64) sentry.ClientOptions {
@@ -149,37 +160,20 @@ func (h *SentryHandler) Handle(ctx context.Context, r slog.Record) error {
 		return err
 	}
 
-	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetLevel(sentry.LevelError)
-
-		var captureErr error
-		extra := sentry.Context{}
-		r.Attrs(func(a slog.Attr) bool {
-			key := a.Key
-			val := fmt.Sprintf("%v", a.Value.Any())
-
-			// If the attr is an error, capture it as an exception.
-			if key == "error" {
-				if e, ok := a.Value.Any().(error); ok {
-					captureErr = e
-				}
-			}
-
-			// Sanitize values that might contain secrets.
-			val = SanitizeValue(key, val)
-
-			// Promote documented identifiers to tags, rest to extra context.
-			if tag, ok := SentryTagFromString(key); ok {
-				SetSentryTag(scope, tag, val)
+	if hub := sentry.GetHubFromContext(ctx); hub != nil {
+		hub.WithScope(func(scope *sentry.Scope) {
+			captureErr := configureSentryLogScope(scope, r)
+			if captureErr != nil {
+				hub.CaptureException(captureErr)
 			} else {
-				extra[key] = val
+				hub.CaptureMessage(r.Message)
 			}
-			return true
 		})
-		if len(extra) > 0 {
-			scope.SetContext("extra", extra)
-		}
+		return err
+	}
 
+	sentry.WithScope(func(scope *sentry.Scope) {
+		captureErr := configureSentryLogScope(scope, r)
 		if captureErr != nil {
 			sentry.CaptureException(captureErr)
 		} else {
@@ -188,6 +182,36 @@ func (h *SentryHandler) Handle(ctx context.Context, r slog.Record) error {
 	})
 
 	return err
+}
+
+func configureSentryLogScope(scope *sentry.Scope, r slog.Record) error {
+	scope.SetLevel(sentry.LevelError)
+
+	var captureErr error
+	extra := sentry.Context{}
+	r.Attrs(func(a slog.Attr) bool {
+		key := a.Key
+		val := fmt.Sprintf("%v", a.Value.Any())
+
+		if key == "error" {
+			if e, ok := a.Value.Any().(error); ok {
+				captureErr = e
+			}
+		}
+
+		val = SanitizeValue(key, val)
+
+		if tag, ok := SentryTagFromString(key); ok {
+			SetSentryTag(scope, tag, val)
+		} else {
+			extra[key] = val
+		}
+		return true
+	})
+	if len(extra) > 0 {
+		scope.SetContext("extra", extra)
+	}
+	return captureErr
 }
 
 // SanitizeValue redacts values for keys that commonly hold secrets,

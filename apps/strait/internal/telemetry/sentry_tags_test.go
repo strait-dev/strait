@@ -38,6 +38,14 @@ func TestSentryTagFromString_KnownAndAliases(t *testing.T) {
 	}
 }
 
+func TestNormalizeSubsystem_KnownBilling(t *testing.T) {
+	t.Parallel()
+
+	if got := NormalizeSubsystem("billing"); got != SubsystemBilling {
+		t.Fatalf("NormalizeSubsystem(billing) = %q, want %q", got, SubsystemBilling)
+	}
+}
+
 func TestSetSentryTag_SkipsEmptyAndNormalizes(t *testing.T) {
 	t.Parallel()
 

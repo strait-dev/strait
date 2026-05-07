@@ -137,6 +137,8 @@ type Executor struct {
 	jwtSigningKey            string
 	externalAPIURL           string
 	defaultRegion            string
+	mode                     string
+	version                  string
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
@@ -205,6 +207,8 @@ type ExecutorConfig struct {
 	JWTSigningKey              string
 	ExternalAPIURL             string
 	DefaultRegion              string
+	Mode                       string
+	Version                    string
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
 	JobLookup                  JobLookup
@@ -329,6 +333,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jwtSigningKey:            cfg.JWTSigningKey,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultRegion:            cfg.DefaultRegion,
+		mode:                     cfg.Mode,
+		version:                  cfg.Version,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		runCostRecorder:          cfg.RunCostRecorder,

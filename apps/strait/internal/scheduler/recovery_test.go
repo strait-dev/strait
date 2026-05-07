@@ -1,9 +1,11 @@
 package scheduler
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/sourcegraph/conc"
 )
 
@@ -24,6 +26,25 @@ func TestSafeGo_NoPanic_RunsNormally(t *testing.T) {
 
 	if !ran {
 		t.Fatal("expected function to run")
+	}
+}
+
+func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
+	t.Parallel()
+
+	hub := sentry.NewHub(nil, sentry.NewScope())
+	ctx := sentry.SetHubOnContext(context.Background(), hub)
+
+	var wg conc.WaitGroup
+	safeGoWithContext(ctx, &wg, "breadcrumb-component", func() {})
+	wg.Wait()
+
+	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event == nil || len(event.Breadcrumbs) != 1 {
+		t.Fatalf("breadcrumbs = %v, want one breadcrumb", event)
+	}
+	if got := event.Breadcrumbs[0].Category; got != "scheduler.component" {
+		t.Fatalf("breadcrumb category = %q, want scheduler.component", got)
 	}
 }
 

@@ -606,6 +606,38 @@ func TestSentryHandler_TagKeys_SetAsTag(t *testing.T) {
 	}
 }
 
+func TestSentryHandler_UsesContextHubScope(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	ctx := EnsureSentryHub(context.Background())
+	hub := sentry.GetHubFromContext(ctx)
+	if hub == nil {
+		t.Fatal("expected context hub")
+	}
+	hub.ConfigureScope(func(scope *sentry.Scope) {
+		SetSentryTag(scope, TagRequestID, "req-123")
+		scope.SetContext("http.request", sentry.Context{"route": "/v1/jobs"})
+	})
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(NewSentryHandler(inner))
+
+	logger.ErrorContext(ctx, "request failed", "error", errors.New("boom"))
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+	event := collector.get(0)
+	if got := event.Tags["request_id"]; got != "req-123" {
+		t.Fatalf("request_id tag = %q, want req-123", got)
+	}
+	if event.Contexts["http.request"]["route"] != "/v1/jobs" {
+		t.Fatalf("http.request context = %v, want route", event.Contexts["http.request"])
+	}
+}
+
 func TestSentryHandler_NonTagKeys_SetAsExtra(t *testing.T) {
 	collector := &sentryEventCollector{}
 	initTestSentry(t, collector)

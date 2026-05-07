@@ -644,6 +644,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		JWTSigningKey:           cfg.JWTSigningKey,
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		DefaultRegion:           cfg.DefaultRegion,
+		Mode:                    cfg.Mode,
+		Version:                 version,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)

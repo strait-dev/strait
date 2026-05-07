@@ -393,11 +393,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = targetStatus
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("error_class", errClass)
-		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": errClass})
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("failure", map[string]any{
 			"error_message": errMsg,
@@ -511,10 +507,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = domain.StatusTimedOut
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		e.applyWorkerSentryScope(scope, run, nil)
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("timeout", map[string]any{
 			"timeout_secs": policy.timeoutSecs,
@@ -599,19 +592,8 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	})
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("error_class", "server")
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": "server"})
 		scope.SetLevel(sentry.LevelError)
-		scope.SetContext("run", map[string]any{
-			"run_id":         run.ID,
-			"job_id":         run.JobID,
-			"project_id":     run.ProjectID,
-			"attempt":        run.Attempt,
-			"from_status":    string(run.Status),
-			"execution_mode": string(run.ExecutionMode),
-		})
 		scope.SetFingerprint([]string{"system_failure", reason})
 		sentry.CaptureMessage(fmt.Sprintf("system failure: %s", reason))
 	})
@@ -684,6 +666,38 @@ func addWorkerRunBreadcrumb(ctx context.Context, category, message string, run *
 		data["environment_id"] = job.EnvironmentID
 	}
 	telemetry.AddSentryBreadcrumb(ctx, category, message, data)
+}
+
+func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRun, data map[string]any) {
+	for k, v := range telemetry.RequiredSentryTags(
+		string(domain.BuildEdition()),
+		telemetry.SubsystemWorker,
+		e.mode,
+		e.defaultRegion,
+		e.version,
+	) {
+		telemetry.SetSentryTag(scope, k, v)
+	}
+	if run != nil {
+		telemetry.SetSentryTag(scope, telemetry.TagRunID, run.ID)
+		telemetry.SetSentryTag(scope, telemetry.TagJobID, run.JobID)
+		telemetry.SetSentryTag(scope, telemetry.TagProjectID, run.ProjectID)
+		telemetry.SetSentryTag(scope, telemetry.TagAttempt, fmt.Sprintf("%d", run.Attempt))
+		scope.SetContext("run", sentry.Context{
+			"run_id":         run.ID,
+			"job_id":         run.JobID,
+			"project_id":     run.ProjectID,
+			"attempt":        run.Attempt,
+			"priority":       run.Priority,
+			"execution_mode": string(run.ExecutionMode),
+			"status":         string(run.Status),
+		})
+	}
+	for key, val := range data {
+		if tag, ok := telemetry.SentryTagFromString(key); ok {
+			telemetry.SetSentryTag(scope, tag, fmt.Sprintf("%v", val))
+		}
+	}
 }
 
 // queueWait returns the duration a run spent queued (created_at to started_at).

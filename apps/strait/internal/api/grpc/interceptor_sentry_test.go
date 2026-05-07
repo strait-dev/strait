@@ -33,6 +33,7 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		EnvironmentID: "env-1",
 	})
 	configureGRPCSentryScope(ctx, grpcSentryMetadata{
+		edition: string(domain.BuildEdition()),
 		mode:    "all",
 		region:  "iad",
 		version: "test-version",
@@ -54,6 +55,7 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		"actor_id":       "apikey:key-1",
 		"actor_type":     "api_key",
 		"environment_id": "env-1",
+		"edition":        string(domain.BuildEdition()),
 		"subsystem":      "grpc",
 		"mode":           "all",
 		"region":         "iad",

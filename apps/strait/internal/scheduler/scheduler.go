@@ -288,70 +288,70 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
-	s.tracker.track(&s.wg, "poller", func() { s.poller.Run(ctx) })
-	s.tracker.track(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
-	s.tracker.track(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
-	s.tracker.track(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
-	s.tracker.track(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
-	s.tracker.track(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
-	s.tracker.track(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
-	s.tracker.track(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "poller", func() { s.poller.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "reaper", func() { s.reaper.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
+	s.tracker.track(ctx, &s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
 	if s.usageFlusher != nil {
-		s.tracker.track(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
 	}
 	if s.concurrentReconciler != nil {
-		s.tracker.track(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
 	}
 	if s.downgradeApplier != nil {
-		s.tracker.track(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
 	}
 	if s.anomalyMonitor != nil {
-		s.tracker.track(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
 	}
 	if s.gracePeriodEnforcer != nil {
-		s.tracker.track(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
 	}
 	if s.quotaResumeEnforcer != nil {
-		s.tracker.track(&s.wg, "quota_resume_enforcer", func() { s.quotaResumeEnforcer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "quota_resume_enforcer", func() { s.quotaResumeEnforcer.Run(ctx) })
 	}
 	if s.staleSubscriptionChecker != nil {
-		s.tracker.track(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
 	}
 	if s.webhookMessageCleanup != nil {
-		s.tracker.track(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
 	}
 	if s.contractExpiryChecker != nil {
-		s.tracker.track(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
 	}
 	if s.priorityPromoter != nil {
-		s.tracker.track(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
 	}
 	if s.counterReconciler != nil {
-		s.tracker.track(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
 	}
 	if s.claimReconciler != nil {
-		s.tracker.track(&s.wg, "claim_reconciler", func() { s.claimReconciler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "claim_reconciler", func() { s.claimReconciler.Run(ctx) })
 	}
 	if s.partitionEnsurer != nil {
-		s.tracker.track(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
 	}
 	if s.partitionTuner != nil {
-		s.tracker.track(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
 	}
 	if s.partitionReclaimer != nil {
-		s.tracker.track(&s.wg, "partition_reclaimer", func() { s.partitionReclaimer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "partition_reclaimer", func() { s.partitionReclaimer.Run(ctx) })
 	}
 	if s.dlqAgeOut != nil {
-		s.tracker.track(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
 	}
 	if s.outboxFlusher != nil {
-		s.tracker.track(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
 	}
 	if s.planDriftMonitor != nil {
-		s.tracker.track(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
 	}
 	if s.backpressureSampler != nil {
-		s.tracker.track(&s.wg, "backpressure_sampler", func() { s.backpressureSampler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "backpressure_sampler", func() { s.backpressureSampler.Run(ctx) })
 	}
 
 	slog.Info("scheduler started")

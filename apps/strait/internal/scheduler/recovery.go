@@ -12,7 +12,9 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/sourcegraph/conc"
 
+	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -29,18 +31,46 @@ var exitFunc = func(code int) { os.Exit(code) }
 // than a restart, so we crash to let the process manager
 // restart us.
 func safeGo(wg *conc.WaitGroup, name string, fn func()) {
+	safeGoWithContext(context.Background(), wg, name, fn)
+}
+
+func safeGoWithContext(ctx context.Context, wg *conc.WaitGroup, name string, fn func()) {
 	wg.Go(func() {
+		ctx := telemetry.EnsureSentryHub(ctx)
+		telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component started", map[string]any{
+			"component": name,
+		})
 		defer func() {
 			if r := recover(); r != nil {
 				stack := string(debug.Stack())
+				telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component panic", map[string]any{
+					"component": name,
+					"panic":     fmt.Sprintf("%v", r),
+				})
 				slog.Error("scheduler component panicked, crashing process",
 					"component", name,
 					"panic", fmt.Sprintf("%v", r),
 					"stack", stack,
 				)
 
-				if hub := sentry.CurrentHub(); hub != nil {
-					hub.Recover(r)
+				if hub := sentry.GetHubFromContext(ctx); hub != nil {
+					hub.WithScope(func(scope *sentry.Scope) {
+						for k, v := range telemetry.RequiredSentryTags(
+							string(domain.BuildEdition()),
+							telemetry.SubsystemScheduler,
+							"",
+							"",
+							"",
+						) {
+							telemetry.SetSentryTag(scope, k, v)
+						}
+						telemetry.SetSentryTag(scope, telemetry.TagOperation, name)
+						scope.SetContext("scheduler.component", sentry.Context{
+							"component": name,
+							"panic":     fmt.Sprintf("%v", r),
+						})
+						hub.Recover(r)
+					})
 					sentry.Flush(2 * time.Second)
 				}
 
@@ -65,12 +95,12 @@ type componentHandle struct {
 
 // track launches fn with panic recovery (via safeGo) and registers a
 // per-component done channel so Stop can enforce a shutdown deadline.
-func (t *componentTracker) track(wg *conc.WaitGroup, name string, fn func()) {
+func (t *componentTracker) track(ctx context.Context, wg *conc.WaitGroup, name string, fn func()) {
 	done := make(chan struct{})
 	t.mu.Lock()
 	t.items = append(t.items, componentHandle{name: name, done: done})
 	t.mu.Unlock()
-	safeGo(wg, name, func() {
+	safeGoWithContext(ctx, wg, name, func() {
 		defer close(done)
 		fn()
 	})

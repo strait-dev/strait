@@ -14,6 +14,7 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
 
@@ -172,7 +173,10 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 }
 
 func (s *Server) sentryMetadata() grpcSentryMetadata {
-	meta := grpcSentryMetadata{version: s.version}
+	meta := grpcSentryMetadata{
+		edition: string(domain.BuildEdition()),
+		version: s.version,
+	}
 	if s.cfg != nil {
 		meta.mode = s.cfg.Mode
 		meta.region = s.cfg.DefaultRegion

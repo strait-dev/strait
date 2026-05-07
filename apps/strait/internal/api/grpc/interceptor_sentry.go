@@ -15,6 +15,7 @@ import (
 )
 
 type grpcSentryMetadata struct {
+	edition string
 	mode    string
 	region  string
 	version string
@@ -99,7 +100,7 @@ func configureGRPCSentryScope(ctx context.Context, meta grpcSentryMetadata, tags
 			telemetry.SetSentryTag(scope, k, v)
 		}
 		if meta.hasRequiredTags() {
-			for k, v := range telemetry.RequiredSentryTags("", telemetry.SubsystemGRPC, meta.mode, meta.region, meta.version) {
+			for k, v := range telemetry.RequiredSentryTags(meta.edition, telemetry.SubsystemGRPC, meta.mode, meta.region, meta.version) {
 				telemetry.SetSentryTag(scope, k, v)
 			}
 		}
@@ -228,7 +229,7 @@ func grpcPanicError(panicValue any) error {
 }
 
 func (m grpcSentryMetadata) hasRequiredTags() bool {
-	return m.mode != "" || m.region != "" || m.version != ""
+	return m.edition != "" || m.mode != "" || m.region != "" || m.version != ""
 }
 
 func grpcServiceName(fullMethod string) string {

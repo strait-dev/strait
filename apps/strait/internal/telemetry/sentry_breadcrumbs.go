@@ -33,7 +33,6 @@ func AddSentryBreadcrumb(ctx context.Context, category, message string, data map
 		hub.AddBreadcrumb(bc, nil)
 		return
 	}
-	sentry.AddBreadcrumb(bc)
 }
 
 type SentryPGXTracer struct{}

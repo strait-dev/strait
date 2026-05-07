@@ -64,6 +64,7 @@ const (
 	SubsystemQueue     = "queue"
 	SubsystemWorkflow  = "workflow"
 	SubsystemScheduler = "scheduler"
+	SubsystemBilling   = "billing"
 	SubsystemWebhook   = "webhook"
 	SubsystemCDC       = "cdc"
 	SubsystemLogDrain  = "logdrain"
@@ -201,6 +202,8 @@ func NormalizeSubsystem(subsystem string) string {
 		return SubsystemWorkflow
 	case SubsystemScheduler:
 		return SubsystemScheduler
+	case SubsystemBilling:
+		return SubsystemBilling
 	case SubsystemWebhook:
 		return SubsystemWebhook
 	case SubsystemCDC:

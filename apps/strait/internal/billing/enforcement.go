@@ -17,6 +17,7 @@ import (
 	"strait/internal/cache/otterstore"
 
 	"github.com/eko/gocache/lib/v4/cache"
+	"github.com/getsentry/sentry-go"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -262,15 +263,35 @@ func (e *Enforcer) checkEnforcementMode(orgID, checkType string) (skip bool) {
 
 // GetOrgPlanLimits returns plan limits for an org, with caching.
 func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits OrgPlanLimits, retErr error) {
+	ctx = telemetry.EnsureSentryHub(ctx)
 	if e == nil || orgID == "" {
 		return GetPlanLimits(domain.PlanFree), nil
 	}
+	addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits requested", map[string]any{
+		"org_id": orgID,
+	})
 
 	// Guard against nil orgCache or uninitialized otter internals that can
 	// panic (observed when the billing enforcer is created without a fully
 	// functional backing store, e.g. missing Stripe configuration).
 	defer func() {
 		if r := recover(); r != nil {
+			addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limit panic", map[string]any{
+				"org_id": orgID,
+				"panic":  fmt.Sprintf("%v", r),
+			})
+			if hub := sentry.GetHubFromContext(ctx); hub != nil {
+				hub.WithScope(func(scope *sentry.Scope) {
+					applyBillingSentryScope(scope, orgID, "plan_limits")
+					scope.SetLevel(sentry.LevelError)
+					scope.SetContext("billing", sentry.Context{
+						"org_id":    orgID,
+						"operation": "plan_limits",
+						"panic":     fmt.Sprintf("%v", r),
+					})
+					hub.Recover(r)
+				})
+			}
 			slog.Error("recovered panic in GetOrgPlanLimits, returning free-tier defaults",
 				"org_id", orgID, "panic", r)
 			limits = GetPlanLimits(domain.PlanFree)
@@ -279,10 +300,17 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	}()
 
 	if e.orgCache == nil {
+		addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits cache unavailable", map[string]any{
+			"org_id": orgID,
+		})
 		return GetPlanLimits(domain.PlanFree), nil
 	}
 
 	if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+		addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits cache hit", map[string]any{
+			"org_id": orgID,
+			"plan":   string(cached.limits.PlanTier),
+		})
 		return cached.limits, nil
 	}
 
@@ -1189,6 +1217,10 @@ func (e *Enforcer) GetDailyRunCount(ctx context.Context, orgID string) (int64, e
 
 // recordRejection increments the limit rejection Prometheus counter.
 func (e *Enforcer) recordRejection(ctx context.Context, reason string, planTier domain.PlanTier) {
+	addBillingSentryBreadcrumb(ctx, "limit_rejection", "billing limit rejected", map[string]any{
+		"reason":    reason,
+		"plan_tier": string(planTier),
+	})
 	if e.metrics == nil || e.metrics.LimitRejections == nil {
 		return
 	}
@@ -1202,6 +1234,10 @@ func (e *Enforcer) recordRejection(ctx context.Context, reason string, planTier 
 
 // recordFailOpen increments the fail-open Prometheus counter for ops visibility.
 func (e *Enforcer) recordFailOpen(ctx context.Context, checkType, errorType string) {
+	addBillingSentryBreadcrumb(ctx, "fail_open", "billing enforcement failed open", map[string]any{
+		"check_type": checkType,
+		"error_type": errorType,
+	})
 	if e.metrics == nil || e.metrics.EnforcementFailOpen == nil {
 		return
 	}
@@ -1211,6 +1247,28 @@ func (e *Enforcer) recordFailOpen(ctx context.Context, checkType, errorType stri
 			attribute.String("error_type", errorType),
 		),
 	)
+}
+
+func addBillingSentryBreadcrumb(ctx context.Context, operation, message string, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["operation"] = operation
+	telemetry.AddSentryBreadcrumb(ctx, "billing."+operation, message, data)
+}
+
+func applyBillingSentryScope(scope *sentry.Scope, orgID, operation string) {
+	for k, v := range telemetry.RequiredSentryTags(
+		string(domain.BuildEdition()),
+		telemetry.SubsystemBilling,
+		"",
+		"",
+		"",
+	) {
+		telemetry.SetSentryTag(scope, k, v)
+	}
+	telemetry.SetSentryTag(scope, telemetry.TagOrgID, orgID)
+	telemetry.SetSentryTag(scope, telemetry.TagOperation, operation)
 }
 
 // CheckMemberLimit checks if the org can add another member.
