@@ -167,35 +167,3 @@ func TestHandleCostByTrigger_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-func TestHandleCostByMachine_Success(t *testing.T) {
-	t.Parallel()
-	as := &AnalyticsStoreMock{
-		GetCostByMachineFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByMachine, error) {
-			return []store.CostByMachine{
-				{Preset: "large", Cost: 80000, DurationSecs: 3600, RunCount: 20},
-			}, nil
-		},
-	}
-	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-machine", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleCostByMachine_StoreError(t *testing.T) {
-	t.Parallel()
-	as := &AnalyticsStoreMock{
-		GetCostByMachineFunc: func(_ context.Context, _ string, _, _ time.Time) ([]store.CostByMachine, error) {
-			return nil, errors.New("db error")
-		},
-	}
-	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-machine", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
-}

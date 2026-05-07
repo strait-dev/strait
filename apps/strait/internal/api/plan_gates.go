@@ -90,29 +90,6 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 	)
 }
 
-// checkPresetAllowed verifies that the requested machine preset is available
-// on the project's org plan. Returns nil if allowed or if billing is unavailable.
-func (s *Server) checkPresetAllowed(ctx context.Context, projectID, preset string) error {
-	if preset == "" {
-		return nil
-	}
-
-	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
-		return nil // fail open
-	}
-
-	if limits.IsPresetAllowed(preset) {
-		return nil
-	}
-
-	s.recordBillingEvent(ctx, projectID, "gate_rejected", preset, string(limits.PlanTier))
-
-	return huma.Error400BadRequest(
-		fmt.Sprintf("Machine preset %q is not available on the %s plan. Upgrade at /settings/billing", preset, limits.DisplayName),
-	)
-}
-
 // checkWorkflowStepLimit verifies that the number of steps does not exceed
 // the plan's MaxWorkflowDAGSteps. Returns nil if within limits.
 func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, stepCount int) error {
@@ -231,39 +208,51 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 // checkWebhookEndpointLimit verifies that the org has not exceeded its
 // plan's MaxWebhookEndpoints. Counts across ALL projects to match downgrade cleanup.
 func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
-		return nil // fail open
+	orgID, maxEndpoints, displayName, err := s.resolveWebhookEndpointCreateLimit(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if orgID == "" || maxEndpoints < 0 {
+		return nil
 	}
 
-	if limits.MaxWebhookEndpoints == -1 {
-		return nil // unlimited
-	}
-
-	if limits.MaxWebhookEndpoints == 0 {
-		return huma.Error400BadRequest(
-			fmt.Sprintf("Webhooks are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
-		)
-	}
-
-	// Count org-wide to match downgrade enforcement scope.
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open
-	}
 	count, err := s.store.CountWebhookSubscriptionsByOrg(ctx, orgID)
 	if err != nil {
 		return nil //nolint:nilerr // fail open: billing unavailable should not block webhook creation
 	}
 
-	if count >= limits.MaxWebhookEndpoints {
+	if count >= maxEndpoints {
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d webhook endpoints (you have %d). Upgrade at /settings/billing",
-				limits.DisplayName, limits.MaxWebhookEndpoints, count),
+				displayName, maxEndpoints, count),
 		)
 	}
 
 	return nil
+}
+
+func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return "", -1, "", nil // fail open
+	}
+
+	if limits.MaxWebhookEndpoints == -1 {
+		return "", -1, limits.DisplayName, nil // unlimited
+	}
+
+	if limits.MaxWebhookEndpoints == 0 {
+		return "", 0, limits.DisplayName, huma.Error400BadRequest(
+			fmt.Sprintf("Webhooks are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open
+	}
+
+	return orgID, limits.MaxWebhookEndpoints, limits.DisplayName, nil
 }
 
 // basicWebhookEvents is the set of events available on the "basic" webhook tier.

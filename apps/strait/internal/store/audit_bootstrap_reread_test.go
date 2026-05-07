@@ -71,7 +71,7 @@ func TestResolveSigningKeyForEpoch_InsertedButNotReadBack_Errors(t *testing.T) {
 	globalKey, _ := DeriveAuditSigningKey("global-sig-secret")
 	q.auditSigningKey = globalKey
 
-	_, err := q.resolveSigningKeyForEpoch(context.Background(), "proj-ghost", 3)
+	_, err := q.resolveSigningKeyForEpoch(context.Background(), "proj-ghost", 0)
 	if err == nil {
 		t.Fatal("expected error when re-read returns nothing after INSERT, got nil")
 	}

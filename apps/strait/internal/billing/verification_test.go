@@ -158,13 +158,7 @@ func TestSelfHosted_AllFeaturesAvailable(t *testing.T) {
 		}
 	}
 
-	// Verify that all presets are allowed on enterprise.
 	enterpriseLimits := GetPlanLimits(domain.PlanEnterprise)
-	for _, preset := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"} {
-		if !enterpriseLimits.IsPresetAllowed(preset) {
-			t.Errorf("Enterprise should allow preset %q", preset)
-		}
-	}
 
 	// Verify unlimited limits.
 	if enterpriseLimits.MaxConcurrentRuns != -1 {

@@ -3,9 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"strait/internal/domain"
 )
@@ -126,6 +130,68 @@ func TestAuditReadAccess_VerifyChain(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected audit.chain_verified event to be emitted")
+	}
+}
+
+func TestAuditReadAccess_EnvironmentScopedKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	ctx := adminCtx("proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	srv := newTestServer(t, &APIStoreMock{
+		ListAuditEventsFunc: func(context.Context, string, string, string, string, int, *time.Time, *time.Time, *time.Time, bool) ([]domain.AuditEvent, error) {
+			t.Fatal("ListAuditEvents must not be called for environment-scoped audit access")
+			return nil, nil
+		},
+		GetAuditEventFunc: func(context.Context, string, string) (*domain.AuditEvent, error) {
+			t.Fatal("GetAuditEvent must not be called for environment-scoped audit access")
+			return nil, nil
+		},
+		VerifyAuditChainFunc: func(context.Context, string) (*domain.AuditChainVerification, error) {
+			t.Fatal("VerifyAuditChain must not be called for environment-scoped audit access")
+			return nil, nil
+		},
+	}, nil, nil)
+
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "list",
+			call: func() error {
+				_, err := srv.handleListAuditEvents(ctx, &ListAuditEventsInput{})
+				return err
+			},
+		},
+		{
+			name: "get",
+			call: func() error {
+				_, err := srv.handleGetAuditEvent(ctx, &GetAuditEventInput{ID: "ev-1"})
+				return err
+			},
+		},
+		{
+			name: "verify",
+			call: func() error {
+				_, err := srv.handleVerifyAuditChain(ctx, &VerifyAuditChainInput{})
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			var statusErr huma.StatusError
+			if !errors.As(err, &statusErr) {
+				t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
+			}
+			if statusErr.GetStatus() != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403", statusErr.GetStatus())
+			}
+		})
 	}
 }
 

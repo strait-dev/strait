@@ -23,11 +23,9 @@ type SchedulerStore interface {
 	ReaperStore
 	IndexMaintenanceStore
 	StatsAggregatorStore
-	CostEstimateRefresherStore
 	MemoryCleanupStore
 	store.DebounceStore
 	store.BatchStore
-	store.RunComputeUsageStore
 }
 
 type Scheduler struct {
@@ -43,9 +41,9 @@ type Scheduler struct {
 	usageFlusher             *UsageFlusher
 	concurrentReconciler     *ConcurrentReconciler
 	downgradeApplier         *DowngradeApplier
-	costEstimateRefresher    *CostEstimateRefresher
 	memoryCleanup            *MemoryCleanup
 	gracePeriodEnforcer      *GracePeriodEnforcer
+	quotaResumeEnforcer      *QuotaResumeEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
@@ -81,13 +79,13 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithAuditDLQReclaimBatch(cfg.AuditDLQReclaimBatch).
 			WithAuditDLQMaxAgeDays(cfg.AuditDLQMaxAgeDays).
 			WithAuditDLQMaxReclaimAttempts(cfg.AuditDLQMaxReclaimAttempts).
-			WithArchiveEnabled(cfg.TerminalArchiveEnabled),
+			WithArchiveEnabled(cfg.TerminalArchiveEnabled).
+			WithAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
 		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
 		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
 		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
 		statsAggregator:          NewStatsAggregator(s),
 		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
-		costEstimateRefresher:    NewCostEstimateRefresher(s, time.Hour),
 		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
@@ -104,14 +102,6 @@ type SchedulerOption func(*Scheduler)
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithMetrics(m)
-	}
-}
-
-// WithMachineStopper attaches a container runtime to the cron scheduler
-// for stopping managed containers on cancel_running overlap policy.
-func WithMachineStopper(ms MachineStopper) SchedulerOption {
-	return func(s *Scheduler) {
-		s.cron.machineStopper = ms
 	}
 }
 
@@ -237,6 +227,14 @@ func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	}
 }
 
+// WithQuotaResumeEnforcer enables periodic resumption of jobs paused due to quota
+// exhaustion at the billing-period boundary.
+func WithQuotaResumeEnforcer(enforcer *QuotaResumeEnforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.quotaResumeEnforcer = enforcer
+	}
+}
+
 // WithStaleSubscriptionChecker enables periodic detection of stale subscriptions.
 func WithStaleSubscriptionChecker(checker *StaleSubscriptionChecker) SchedulerOption {
 	return func(s *Scheduler) {
@@ -276,6 +274,14 @@ func WithIndexMaintainerAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
 	}
 }
 
+// WithReaperAdvisoryLocker enables single-leader execution of side-effectful
+// reaper maintenance across scheduler replicas.
+func WithReaperAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithAdvisoryLocker(locker)
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
@@ -289,7 +295,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.tracker.track(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
 	s.tracker.track(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
 	s.tracker.track(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
-	s.tracker.track(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
 	s.tracker.track(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
 	if s.usageFlusher != nil {
 		s.tracker.track(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
@@ -305,6 +310,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.gracePeriodEnforcer != nil {
 		s.tracker.track(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+	}
+	if s.quotaResumeEnforcer != nil {
+		s.tracker.track(&s.wg, "quota_resume_enforcer", func() { s.quotaResumeEnforcer.Run(ctx) })
 	}
 	if s.staleSubscriptionChecker != nil {
 		s.tracker.track(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })

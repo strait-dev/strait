@@ -168,15 +168,16 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, machine_id, metadata,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback
+			execution_mode, queue_name, metadata,
+			is_rollback
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb, $32, $33, $34, $35
+			$29, $30, $31::jsonb,
+			$32
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -184,6 +185,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 	if execMode == "" {
 		execMode = domain.ExecutionModeHTTP
 	}
+	queueName := runQueueName(run.QueueName)
 
 	args := []any{
 		run.ID,
@@ -215,11 +217,8 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
-		dbscan.NilIfEmptyString(run.MachineID),
+		queueName,
 		metadataJSON,
-		dbscan.NilIfEmptyString(run.DeploymentID),
-		dbscan.NilIfEmptyString(run.PinnedImageURI),
-		dbscan.NilIfEmptyString(run.PinnedImageDigest),
 		run.IsRollback,
 	}
 
@@ -361,8 +360,8 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
-	"execution_mode", "machine_id", "metadata",
-	"deployment_id", "pinned_image_uri", "pinned_image_digest", "is_rollback",
+	"execution_mode", "queue_name", "metadata",
+	"is_rollback",
 }
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
@@ -398,6 +397,9 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		}
 		if run.TriggeredBy == "" {
 			run.TriggeredBy = domain.TriggerManual
+		}
+		if run.ExecutionMode == "" {
+			run.ExecutionMode = domain.ExecutionModeHTTP
 		}
 		run.Status = domain.StatusQueued
 		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
@@ -455,11 +457,8 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			dbscan.NilIfEmptyString(run.ConcurrencyKey),
 			dbscan.NilIfEmptyString(run.BatchID),
 			string(run.ExecutionMode),
-			dbscan.NilIfEmptyString(run.MachineID),
+			runQueueName(run.QueueName),
 			metadataJSON,
-			dbscan.NilIfEmptyString(run.DeploymentID),
-			dbscan.NilIfEmptyString(run.PinnedImageURI),
-			dbscan.NilIfEmptyString(run.PinnedImageDigest),
 			run.IsRollback,
 		}
 	}
@@ -483,10 +482,17 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	return n, nil
 }
 
+func runQueueName(queueName string) string {
+	if queueName == "" {
+		return "default"
+	}
+	return queueName
+}
+
 // dequeueColumns is the shared column list for all dequeue RETURNING/SELECT clauses.
 const dequeueColumns = `id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id`
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id`
 
 // concurrencyCTEs is the fallback concurrency-checking path used when
 // QUEUE_USE_DENORMALIZED_DEQUEUE is false. It scans all active runs
@@ -865,16 +871,17 @@ var claimDeleteSQL = "/* action=dequeue */ " + `
 		WHERE COALESCE(q.job_enabled, true) = true
 		  AND COALESCE(q.job_paused, false) = false
 		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
-		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
-		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
-		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
-		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
-		       OR q.concurrency_key IS NULL
-		       OR q.concurrency_key = ''
-		       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
-		ORDER BY q.priority DESC, q.created_at ASC
-		FOR UPDATE OF q SKIP LOCKED
-		LIMIT $1
+	  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+	  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
+	       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
+	  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
+	       OR q.concurrency_key IS NULL
+	       OR q.concurrency_key = ''
+	       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
+	  AND COALESCE(q.execution_mode, 'http') = 'http'
+	ORDER BY q.priority DESC, q.created_at ASC
+	FOR UPDATE OF q SKIP LOCKED
+	LIMIT $1
 	)
 	RETURNING run_id`
 
@@ -892,18 +899,18 @@ var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
 // claimInsertFromJobSQL inserts a claim row using a subquery against jobs
 // so enabled/paused/concurrency reflect the current job config.
 const claimInsertFromJobSQL = `
-	INSERT INTO job_run_queue (
-		run_id, job_id, project_id, priority, created_at,
-		scheduled_at, next_retry_at, concurrency_key,
-		job_max_concurrency, job_max_concurrency_per_key,
-		job_enabled, job_paused
-	)
-	SELECT $1, $2, $3, $4, $5, $6, $7, $8,
-		j.max_concurrency, j.max_concurrency_per_key,
-		j.enabled, j.paused
-	FROM jobs j
-	WHERE j.id = $2
-	ON CONFLICT (run_id) DO NOTHING`
+		INSERT INTO job_run_queue (
+			run_id, job_id, project_id, priority, created_at,
+			scheduled_at, next_retry_at, concurrency_key,
+			job_max_concurrency, job_max_concurrency_per_key,
+			job_enabled, job_paused, execution_mode, queue_name
+		)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8,
+			j.max_concurrency, j.max_concurrency_per_key,
+			j.enabled, j.paused, j.execution_mode, j.queue_name
+		FROM jobs j
+		WHERE j.id = $2
+		ON CONFLICT (run_id) DO NOTHING`
 
 // InsertClaimRow inserts a claim row into job_run_queue for the given run.
 func (q *PostgresQueue) InsertClaimRow(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
@@ -931,6 +938,209 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 		return nil
 	}
 	return nil
+}
+
+// workerClaimDeleteSQL returns a parameterised DELETE FROM job_run_queue that
+// additionally restricts candidate rows to execution_mode='worker' and the
+// queue/environment scopes represented by parallel pgx text-array args.
+//
+// $1 = LIMIT n  |  $2 = queue names  |  $3 = environment ids.
+func workerClaimDeleteSQL() string {
+	return "/* action=dequeue */ " + `
+	DELETE FROM job_run_queue
+	WHERE run_id IN (
+		SELECT q.run_id
+		FROM job_run_queue q
+		JOIN jobs j ON j.id = q.job_id
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = q.job_id AND jac_job.concurrency_key = ''
+		LEFT JOIN job_active_counts jac_key
+		  ON jac_key.job_id = q.job_id
+		  AND jac_key.concurrency_key = COALESCE(q.concurrency_key, '')
+		WHERE COALESCE(q.job_enabled, true) = true
+		  AND COALESCE(q.job_paused, false) = false
+		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
+		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
+		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
+		       OR q.concurrency_key IS NULL
+		       OR q.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
+		  AND q.execution_mode = 'worker'
+		  AND EXISTS (
+		      SELECT 1
+		      FROM unnest($2::text[], $3::text[]) AS wq(queue_name, environment_id)
+		      WHERE wq.queue_name = q.queue_name
+		        AND (wq.environment_id = '' OR j.environment_id = wq.environment_id)
+		  )
+		ORDER BY q.priority DESC, q.created_at ASC
+		FOR UPDATE OF q SKIP LOCKED
+		LIMIT $1
+	)
+	RETURNING run_id`
+}
+
+// DequeueNForWorker claims up to n worker-mode runs whose queue_name is in
+// the provided queues list. It mirrors DequeueNClaim but adds the
+// execution_mode + queue_name filter so each replica only claims runs that
+// have a connected worker on this instance.
+//
+// On empty queues slice it returns nil immediately — no claim is attempted.
+func (q *PostgresQueue) DequeueNForWorker(ctx context.Context, n int, queues []string) ([]domain.JobRun, error) {
+	refs := make([]domain.WorkerQueueRef, 0, len(queues))
+	for _, queueName := range queues {
+		refs = append(refs, domain.WorkerQueueRef{QueueName: queueName})
+	}
+	return q.DequeueNForWorkerQueues(ctx, n, refs)
+}
+
+// DequeueNForWorkerQueues claims up to n worker-mode runs for the supplied
+// queue/environment scopes. Empty EnvironmentID scopes match all environments
+// for that queue; non-empty scopes only match jobs in that environment.
+func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNForWorker")
+	defer span.End()
+
+	queueNames, environmentIDs := workerQueueRefArgs(queues)
+	if n <= 0 || len(queueNames) == 0 {
+		return nil, nil
+	}
+
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return q.dequeueNForWorkerFallback(ctx, n, queueNames, environmentIDs)
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if q.statementTimeout > 0 {
+		ms := int(q.statementTimeout.Milliseconds())
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err != nil {
+			return nil, fmt.Errorf("dequeue worker claim: set statement timeout: %w", err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, workerClaimDeleteSQL(), n, queueNames, environmentIDs)
+	if err != nil {
+		// Undefined table = pre-migration; fall back to simple filter variant.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
+			_ = tx.Rollback(ctx)
+			return q.dequeueNForWorkerFallback(ctx, n, queueNames, environmentIDs)
+		}
+		return nil, fmt.Errorf("dequeue worker claim: delete: %w", err)
+	}
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("dequeue worker claim: scan id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: rows: %w", err)
+	}
+
+	if len(ids) == 0 {
+		_ = tx.Commit(ctx)
+		return nil, nil
+	}
+
+	fetchRows, err := tx.Query(ctx, claimUpdateFetchSQL, ids)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: update+fetch: %w", err)
+	}
+	defer fetchRows.Close()
+
+	runs := make([]domain.JobRun, 0, len(ids))
+	for fetchRows.Next() {
+		run, err := dbscan.ScanRun(fetchRows)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue worker claim: fetch scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+	if err := fetchRows.Err(); err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: fetch rows: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("dequeue worker claim: commit: %w", err)
+	}
+
+	for i := range runs {
+		q.recordClaimMetrics(ctx, &runs[i])
+	}
+	return runs, nil
+}
+
+func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
+	queueNames := make([]string, 0, len(refs))
+	environmentIDs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.QueueName == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		queueNames = append(queueNames, ref.QueueName)
+		environmentIDs = append(environmentIDs, ref.EnvironmentID)
+	}
+	return queueNames, environmentIDs
+}
+
+// dequeueNForWorkerFallback is used when the claim table is not yet available.
+// It falls back to the job_runs scan path with execution_mode and queue_name filters.
+func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, queueNames, environmentIDs []string) ([]domain.JobRun, error) {
+	orderBy := q.dequeueOrderByClause()
+	return executeDequeue(ctx, q, n, dequeueSpec{
+		spanName:            "queue.DequeueNForWorkerFallback",
+		skipConcurrencyCTEs: true,
+		candidatesSQL: fmt.Sprintf(`
+			SELECT jr.id, jr.created_at
+			FROM job_runs jr
+			JOIN jobs j ON j.id = jr.job_id
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = '%s'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			  AND jr.execution_mode = 'worker'
+			  AND EXISTS (
+			      SELECT 1
+			      FROM unnest($2::text[], $3::text[]) AS wq(queue_name, environment_id)
+			      WHERE wq.queue_name = jr.queue_name
+			        AND (wq.environment_id = '' OR j.environment_id = wq.environment_id)
+			  )
+			ORDER BY %s
+			FOR UPDATE OF jr SKIP LOCKED
+			LIMIT $1`, domain.StatusQueued, orderBy),
+		extraArgs: []any{queueNames, environmentIDs},
+	})
 }
 
 // DequeueNClaim deletes from the thin job_run_queue table,

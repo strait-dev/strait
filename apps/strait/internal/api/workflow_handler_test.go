@@ -8,12 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -486,10 +484,10 @@ func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T
 	if resp["previous_version_id"] != "v-old" {
 		t.Fatalf("previous_version_id = %v, want v-old", resp["previous_version_id"])
 	}
-	// Post-STR-373: workflow updates always emit a generic workflow.updated
-	// audit event, even without a breaking_change flag. The breaking-change
-	// path still emits workflow.updated_breaking; this asserts the default
-	// path emits the generic action.
+	// Workflow updates always emit a generic workflow.updated audit event,
+	// even without a breaking_change flag. The breaking-change path still
+	// emits workflow.updated_breaking; this asserts the default path emits
+	// the generic action.
 	if !auditCalled {
 		t.Fatal("expected workflow.updated audit event even without breaking_change")
 	}
@@ -585,9 +583,9 @@ func TestHandleUpdateWorkflow_BreakingChangeFalseEmitsGenericAudit(t *testing.T)
 	if int(resp["active_runs_on_previous_version"].(float64)) != 5 {
 		t.Fatalf("active_runs_on_previous_version = %v, want 5", resp["active_runs_on_previous_version"])
 	}
-	// Post-STR-373: breaking_change=false still emits workflow.updated (the
-	// generic action). The breaking variant is only emitted when
-	// breaking_change=true AND there are active runs on the previous version.
+	// breaking_change=false still emits workflow.updated (the generic
+	// action). The breaking variant is only emitted when breaking_change=true
+	// AND there are active runs on the previous version.
 	if capturedAction != "workflow.updated" {
 		t.Fatalf("audit action = %q, want workflow.updated", capturedAction)
 	}
@@ -633,9 +631,9 @@ func TestHandleUpdateWorkflow_NoActiveRunsEmitsGenericAudit(t *testing.T) {
 	if _, ok := resp["active_runs_on_previous_version"]; ok {
 		t.Fatal("expected no active_runs_on_previous_version when count is 0")
 	}
-	// Post-STR-373: even with breaking_change=true, when there are zero active
-	// runs on the previous version the handler falls back to the generic
-	// workflow.updated action rather than workflow.updated_breaking.
+	// Even with breaking_change=true, when there are zero active runs on the
+	// previous version the handler falls back to the generic workflow.updated
+	// action rather than workflow.updated_breaking.
 	if capturedAction != "workflow.updated" {
 		t.Fatalf("audit action = %q, want workflow.updated", capturedAction)
 	}
@@ -3588,194 +3586,6 @@ func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected ListWorkflowRunsByTag to be called")
-	}
-}
-
-// newWorkflowTestServerWithRuntime creates a workflow test server with a container runtime.
-func newWorkflowTestServerWithRuntime(t *testing.T, s APIStore, q *mockQueue, rt compute.ContainerRuntime) *Server {
-	t.Helper()
-	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
-		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       testJWTSigningKey,
-	}
-	srv := NewServer(ServerDeps{
-		Config:           cfg,
-		Store:            s,
-		Queue:            q,
-		ContainerRuntime: rt,
-	})
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-func TestHandleCancelWorkflowRun_StopsAllManagedContainers(t *testing.T) {
-	t.Parallel()
-
-	var mu sync.Mutex
-	stoppedMachines := make(map[string]bool)
-
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, machineID string) error {
-			mu.Lock()
-			stoppedMachines[machineID] = true
-			mu.Unlock()
-			return nil
-		},
-	}
-
-	ms := &APIStoreMock{
-		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			return &domain.WorkflowRun{
-				ID:         id,
-				WorkflowID: "wf-1",
-				ProjectID:  "proj-1",
-				Status:     domain.WfStatusRunning,
-			}, nil
-		},
-		UpdateWorkflowRunStatusFunc: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-			return nil
-		},
-		CancelNonTerminalStepRunsFunc: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
-			return 2, nil
-		},
-		CancelJobRunsByWorkflowRunFunc: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
-			return 2, nil
-		},
-		CancelEventTriggersByWorkflowRunFunc: func(_ context.Context, _ string) (int64, error) {
-			return 0, nil
-		},
-		ListManagedMachineIDsByWorkflowRunFunc: func(_ context.Context, _ string) ([]string, error) {
-			return []string{"m-1", "m-2", "m-3"}, nil
-		},
-	}
-
-	srv := newWorkflowTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wfr-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	for _, mid := range []string{"m-1", "m-2", "m-3"} {
-		if !stoppedMachines[mid] {
-			t.Errorf("expected Stop(%s) to be called", mid)
-		}
-	}
-}
-
-func TestHandleCancelWorkflowRun_PartialStopFailure(t *testing.T) {
-	t.Parallel()
-
-	var mu sync.Mutex
-	stoppedMachines := make(map[string]bool)
-
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, machineID string) error {
-			if machineID == "m-2" {
-				return errors.New("fly API timeout")
-			}
-			mu.Lock()
-			stoppedMachines[machineID] = true
-			mu.Unlock()
-			return nil
-		},
-	}
-
-	ms := &APIStoreMock{
-		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			return &domain.WorkflowRun{
-				ID:         id,
-				WorkflowID: "wf-1",
-				ProjectID:  "proj-1",
-				Status:     domain.WfStatusRunning,
-			}, nil
-		},
-		UpdateWorkflowRunStatusFunc: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-			return nil
-		},
-		CancelNonTerminalStepRunsFunc: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
-			return 0, nil
-		},
-		CancelJobRunsByWorkflowRunFunc: func(_ context.Context, _ string, _ time.Time, _ string) (int64, error) {
-			return 0, nil
-		},
-		CancelEventTriggersByWorkflowRunFunc: func(_ context.Context, _ string) (int64, error) {
-			return 0, nil
-		},
-		ListManagedMachineIDsByWorkflowRunFunc: func(_ context.Context, _ string) ([]string, error) {
-			return []string{"m-1", "m-2", "m-3"}, nil
-		},
-	}
-
-	srv := newWorkflowTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wfr-1", ""))
-
-	// Cancel should still succeed despite one Stop failure.
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !stoppedMachines["m-1"] {
-		t.Error("expected Stop(m-1) to be called")
-	}
-	if !stoppedMachines["m-3"] {
-		t.Error("expected Stop(m-3) to be called")
-	}
-}
-
-func TestHandlePauseWorkflowRun_StopsManagedContainers(t *testing.T) {
-	t.Parallel()
-
-	var mu sync.Mutex
-	stoppedMachines := make(map[string]bool)
-
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, machineID string) error {
-			mu.Lock()
-			stoppedMachines[machineID] = true
-			mu.Unlock()
-			return nil
-		},
-	}
-
-	getCalls := 0
-	ms := &APIStoreMock{
-		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			getCalls++
-			if getCalls == 1 {
-				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusRunning}, nil
-			}
-			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
-		},
-		UpdateWorkflowRunStatusFunc: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-			return nil
-		},
-		ListManagedMachineIDsByWorkflowRunFunc: func(_ context.Context, _ string) ([]string, error) {
-			return []string{"m-1", "m-2"}, nil
-		},
-	}
-
-	srv := newWorkflowTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	for _, mid := range []string{"m-1", "m-2"} {
-		if !stoppedMachines[mid] {
-			t.Errorf("expected Stop(%s) to be called on pause", mid)
-		}
 	}
 }
 

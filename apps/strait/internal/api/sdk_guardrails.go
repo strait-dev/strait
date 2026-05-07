@@ -67,7 +67,16 @@ func (s *Server) handleSDKIteration(ctx context.Context, input *SDKIterationInpu
 		Iteration:   req.Iteration,
 		Description: req.Description,
 	}
-	if err := s.store.CreateRunIteration(ctx, iter); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunIterationForActiveRun(ctx, iter, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunIteration(ctx, iter)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create run iteration")
 	}
 

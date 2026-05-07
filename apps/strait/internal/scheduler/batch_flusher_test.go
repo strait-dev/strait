@@ -72,6 +72,8 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 				Version:         1,
 				VersionID:       "v-1",
 				Tags:            map[string]string{"env": "prod"},
+				ExecutionMode:   domain.ExecutionModeWorker,
+				Queue:           "priority",
 			},
 		},
 	}
@@ -105,6 +107,12 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	}
 	if run.Tags["env"] != "prod" {
 		t.Fatalf("expected tags from job, got %v", run.Tags)
+	}
+	if run.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("expected execution_mode worker, got %q", run.ExecutionMode)
+	}
+	if run.QueueName != "priority" {
+		t.Fatalf("expected queue_name priority, got %q", run.QueueName)
 	}
 
 	var payload map[string]any

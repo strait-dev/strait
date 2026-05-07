@@ -16,10 +16,10 @@ func TestCreateWorkflowRunLabels(t *testing.T) {
 
 	projectID := "project-wf-run-labels-create"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	labels := map[string]string{
@@ -52,10 +52,10 @@ func TestCreateWorkflowRunLabels_Upsert(t *testing.T) {
 
 	projectID := "project-wf-run-labels-upsert"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "staging"}); err != nil {

@@ -20,8 +20,8 @@ func TestDequeueNWithCursor_HappyPath(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-cursor-happy")
 	q := mustQueue(t)
 
-	const N = 50
-	for i := 0; i < N; i++ {
+	const n = 50
+	for range n {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -42,8 +42,8 @@ func TestDequeueNWithCursor_HappyPath(t *testing.T) {
 			seen[r.ID] = true
 		}
 	}
-	if len(seen) != N {
-		t.Errorf("claimed %d runs, want %d", len(seen), N)
+	if len(seen) != n {
+		t.Errorf("claimed %d runs, want %d", len(seen), n)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestDequeueNWithCursor_ResetsOnEmpty(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-cursor-reset")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -136,7 +136,7 @@ func TestDequeueNWithCursor_NilCursorFallsBackToBaseBehaviour(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-cursor-nil")
 	q := mustQueue(t)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -158,8 +158,8 @@ func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-cursor-workers")
 	q := mustQueue(t)
 
-	const N = 40
-	for i := 0; i < N; i++ {
+	const n = 40
+	for range n {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -196,7 +196,7 @@ func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
 
 	total := 0
 	seen := make(map[string]bool)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		r := <-ch
 		if r.err != nil {
 			t.Fatalf("worker err: %v", r.err)
@@ -209,7 +209,7 @@ func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
 			total++
 		}
 	}
-	if total != N {
-		t.Errorf("total claimed = %d, want %d", total, N)
+	if total != n {
+		t.Errorf("total claimed = %d, want %d", total, n)
 	}
 }

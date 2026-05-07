@@ -31,9 +31,3 @@ func TestWriteOutboxInTx_MissingJobIDRejected(t *testing.T) {
 		t.Error("missing job_id should error")
 	}
 }
-
-func TestThrottledError_Round2Phase11Placeholder(t *testing.T) {
-	// Placeholder kept to ensure the outbox tests coexist with the
-	// backpressure tests in the same package.
-	_ = &ThrottledError{}
-}

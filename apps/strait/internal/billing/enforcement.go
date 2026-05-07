@@ -32,6 +32,7 @@ var (
 	ErrSpendingLimitReached          = errors.New("spending limit reached")
 	ErrProjectBudgetReached          = errors.New("project budget reached")
 	ErrGracePeriodExpired            = errors.New("payment grace period expired")
+	ErrDispatchPriorityExceeded      = errors.New("dispatch priority exceeds plan cap")
 	ErrPaymentRestricted             = errors.New("payment restricted")
 	ErrProjectSuspended              = errors.New("project suspended due to plan downgrade")
 )
@@ -332,6 +333,9 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits = EffectiveLimits(limits, addons)
 	}
 
+	// Apply subscription-level add-on adjustments (add_ons JSONB column).
+	limits = applySubscriptionAddOns(limits, sub.AddOns)
+
 	// Apply per-org overrides from support.
 	if sub.OverrideDailyRunLimit != nil {
 		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
@@ -477,10 +481,32 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// CheckManagedRunLimit checks if an org has exceeded the legacy monthly managed
-// execution cap. Newer plan enforcement uses compute credits instead, so this
-// path only applies when FreeManagedRunsPerMonth > 0.
-func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error {
+// monthlyRunKey returns the Redis key for the org's monthly run counter.
+// Key is scoped to the calendar month (UTC) and expires after 62 days.
+func monthlyRunKey(orgID string, t time.Time) string {
+	return fmt.Sprintf("strait:org_monthly_runs:%s:%s", orgID, t.UTC().Format("2006-01"))
+}
+
+// DecrMonthlyRunCount decrements the monthly run counter (for rollback on failure).
+// Uses decrFloorScript to prevent negative values from double-decrements.
+// Call this on any enqueue-abort path that happened AFTER CheckMonthlyRunLimit incremented
+// the counter but BEFORE the run was successfully persisted.
+func (e *Enforcer) DecrMonthlyRunCount(ctx context.Context, orgID string) {
+	if orgID == "" || e.rdb == nil {
+		return
+	}
+	key := monthlyRunKey(orgID, time.Now())
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
+		e.logger.Warn("failed to decrement org monthly run counter", "org_id", orgID, "error", err)
+	}
+}
+
+const monthlyRunCounterTTLSecs = int(62 * 24 * time.Hour / time.Second)
+
+// CheckMonthlyRunLimit checks if the org has exceeded its monthly run quota.
+// Free-tier orgs are hard-capped; paid plans enter overage (counted but not rejected).
+// Returns a *LimitError with code "plan_cap_reached" when the free cap is hit.
+func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error {
 	if orgID == "" || e.rdb == nil {
 		return nil
 	}
@@ -493,39 +519,56 @@ func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		e.logger.Warn("failed to get org plan limits for managed run check", "org_id", orgID, "error", err)
+		e.logger.Warn("failed to get org plan limits for monthly run check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "monthly_run", "db_error")
+	}
+	e.resetFailOpen(orgID, "monthly_run")
+
+	if e.checkEnforcementMode(orgID, "monthly_run") {
 		return nil
 	}
 
-	if limits.FreeManagedRunsPerMonth <= 0 {
-		return nil // paid plan or unlimited
+	if limits.MaxRunsPerMonth == -1 {
+		return nil // unlimited
 	}
 
-	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
-	managedTTLSecs := int(35 * 24 * time.Hour / time.Second)
+	key := monthlyRunKey(orgID, time.Now())
 	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
-		limits.FreeManagedRunsPerMonth, managedTTLSecs).Result()
+		int64(limits.MaxRunsPerMonth), int64(monthlyRunCounterTTLSecs)).Result()
 	if err != nil {
-		e.logger.Warn("failed to run atomic managed run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "managed_run", "redis_error")
+		e.logger.Warn("failed to run atomic monthly run check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
-		e.logger.Warn("unexpected result from atomic managed run check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "managed_run", "redis_error")
+		e.logger.Warn("unexpected result from atomic monthly run check", "org_id", orgID)
+		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
 	}
 
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
 
 	if allowed == 0 {
-		e.recordRejection(ctx, "managed_run_limit", limits.PlanTier)
+		// Paid plans allow overage — track but don't reject.
+		if limits.PlanTier != domain.PlanFree {
+			e.logger.Info("monthly run cap exceeded on paid plan (overage allowed)",
+				"org_id", orgID,
+				"plan", limits.DisplayName,
+				"limit", limits.MaxRunsPerMonth,
+				"current", currentCount,
+			)
+			e.emitBillingEvent(orgID, "monthly_run_overage", string(limits.PlanTier))
+			return nil
+		}
+
+		// Free tier: hard reject.
+		e.recordRejection(ctx, "monthly_run_limit", limits.PlanTier)
 		return &LimitError{
-			Code:         "managed_run_limit_exceeded",
-			Message:      fmt.Sprintf("Your free plan allows %d managed runs per month. Upgrade for unlimited managed execution.", limits.FreeManagedRunsPerMonth),
+			Code:         "plan_cap_reached",
+			Message:      fmt.Sprintf("Your %s plan allows %d runs per month. You've used %d. Upgrade to continue.", limits.DisplayName, limits.MaxRunsPerMonth, currentCount),
 			CurrentUsage: currentCount,
-			Limit:        int64(limits.FreeManagedRunsPerMonth),
+			Limit:        int64(limits.MaxRunsPerMonth),
 			Plan:         string(limits.PlanTier),
 			UpgradeURL:   "/upgrade",
 		}
@@ -534,16 +577,95 @@ func (e *Enforcer) CheckManagedRunLimit(ctx context.Context, orgID string) error
 	return nil
 }
 
-// DecrManagedRunCount decrements the monthly managed run counter (for rollback on failure).
-// Uses decrFloorScript to prevent negative values from double-decrements.
-func (e *Enforcer) DecrManagedRunCount(ctx context.Context, orgID string) {
+// GetMonthlyRunCount returns the current monthly run count for an org from Redis.
+// Returns 0 on any error or if no key exists.
+func (e *Enforcer) GetMonthlyRunCount(ctx context.Context, orgID string) (int64, error) {
 	if orgID == "" || e.rdb == nil {
-		return
+		return 0, nil
 	}
-	key := fmt.Sprintf("strait:org_managed_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01"))
-	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
-		e.logger.Warn("failed to decrement managed run counter", "org_id", orgID, "error", err)
+	key := monthlyRunKey(orgID, time.Now())
+	count, err := e.rdb.Get(ctx, key).Int64()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("getting monthly run count: %w", err)
 	}
+	return count, nil
+}
+
+// PauseJobsForQuotaExceeded pauses all HTTP-mode jobs for an org with reason
+// "quota_exceeded". Called when the org exceeds their monthly cap on free tier.
+func (e *Enforcer) PauseJobsForQuotaExceeded(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+	paused, err := e.store.PauseHTTPJobsByOrg(ctx, orgID, "quota_exceeded")
+	if err != nil {
+		return fmt.Errorf("pausing jobs for quota exceeded (org=%s): %w", orgID, err)
+	}
+	e.logger.Info("paused jobs for quota exceeded",
+		"org_id", orgID,
+		"jobs_paused", paused,
+	)
+	e.emitBillingEvent(orgID, "jobs_paused_quota_exceeded", "")
+	return nil
+}
+
+// ResumeJobsAfterQuotaReset unpauses jobs that were paused due to quota exceeded.
+// Call this at the start of a new billing period.
+func (e *Enforcer) ResumeJobsAfterQuotaReset(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+	resumed, err := e.store.UnpauseJobsByPauseReason(ctx, orgID, "quota_exceeded")
+	if err != nil {
+		return fmt.Errorf("resuming jobs after quota reset (org=%s): %w", orgID, err)
+	}
+	e.logger.Info("resumed jobs after quota reset",
+		"org_id", orgID,
+		"jobs_resumed", resumed,
+	)
+	e.emitBillingEvent(orgID, "jobs_resumed_quota_reset", "")
+	return nil
+}
+
+// Check80PercentMonthlyWarning returns true when the org has used 80% or more of
+// its monthly run cap and a warning email has not yet been sent this period.
+// Returns (false, nil) for unlimited plans.
+func (e *Enforcer) Check80PercentMonthlyWarning(ctx context.Context, orgID string) (bool, error) {
+	if orgID == "" || e.rdb == nil {
+		return false, nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("getting org plan limits for monthly warning: %w", err)
+	}
+
+	if limits.MaxRunsPerMonth == -1 {
+		return false, nil
+	}
+
+	count, err := e.GetMonthlyRunCount(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("getting monthly run count for warning check: %w", err)
+	}
+
+	threshold := int64(float64(limits.MaxRunsPerMonth) * 0.8)
+	if count < threshold {
+		return false, nil
+	}
+
+	// Only send once per billing period — use a Redis key to track.
+	periodKey := fmt.Sprintf("strait:billing_email:%s:monthly_80pct:%s",
+		orgID, time.Now().UTC().Format("2006-01"))
+	set, err := e.rdb.SetNX(ctx, periodKey, "1", 32*24*time.Hour).Result()
+	if err != nil {
+		// Fail open: surface the warning if we can't track dedup.
+		return true, err
+	}
+	return set, nil
 }
 
 // concurrentCheckScript is a Lua script that atomically increments the counter
@@ -649,6 +771,70 @@ func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 	}
 }
 
+// CheckMaxDispatchPriority checks whether requestedPriority is within the cap
+// allowed by the org's current plan. Call this at enqueue time before writing
+// the run to the queue.
+//
+// MaxDispatchPriority semantics:
+//   - -1  unlimited (Enterprise)
+//   - 0   only the default priority (Free, Starter)
+//   - N>0 priorities 0..N are allowed (Pro: 10, Scale: 50)
+//
+// projectID is used to resolve the org. Returns a *LimitError when the
+// requested priority exceeds the cap; nil on success or fail-open.
+func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, requestedPriority int) error {
+	if e == nil || projectID == "" || requestedPriority <= 0 {
+		return nil // priority 0 is always valid
+	}
+
+	orgID, err := e.store.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to resolve org for dispatch priority check",
+			"project_id", projectID, "error", err)
+		// Fail closed: a lookup failure must not grant elevated priority.
+		return &LimitError{
+			Code:    "dispatch_priority_exceeded",
+			Message: fmt.Sprintf("could not verify plan limits: %v", err),
+		}
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for dispatch priority check",
+			"org_id", orgID, "error", err)
+		// Fail closed with the most-restrictive default (Free tier: cap = 0).
+		// Any non-zero requestedPriority is rejected.
+		return &LimitError{
+			Code: "dispatch_priority_exceeded",
+			Message: fmt.Sprintf(
+				"could not verify plan limits: %v. Requested priority %d exceeds the default cap of 0.",
+				err, requestedPriority,
+			),
+		}
+	}
+
+	if limits.MaxDispatchPriority == -1 {
+		return nil // unlimited
+	}
+
+	if requestedPriority > limits.MaxDispatchPriority {
+		e.recordRejection(ctx, "dispatch_priority", limits.PlanTier)
+		return &LimitError{
+			Code: "dispatch_priority_exceeded",
+			Message: fmt.Sprintf(
+				"Your %s plan allows a maximum dispatch priority of %d. Requested: %d. Upgrade to use higher priority values.",
+				limits.DisplayName, limits.MaxDispatchPriority, requestedPriority,
+			),
+			CurrentUsage: int64(requestedPriority),
+			Limit:        int64(limits.MaxDispatchPriority),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
 // CheckProjectLimit checks if org can create another project.
 func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	if e == nil || orgID == "" {
@@ -738,7 +924,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_spend_error")
 	}
 
-	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+	overageSpend := computeOverageSpend(periodSpend, 0)
 
 	// Send spending alerts (async with 24h cooldown per org).
 	if e.billingEmails != nil && sub.SpendingLimitMicrousd > 0 {
@@ -764,7 +950,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 			defer cancel()
 			e.billingEmails.SendOverageAlert(emailCtx, adminEmails, sub.PlanTier,
 				fmt.Sprintf("$%.2f", float64(overageSpend)/1e6),
-				fmt.Sprintf("$%.2f", float64(limits.ComputeCreditMicrousd)/1e6))
+				"$0.00")
 		}()
 	}
 
@@ -785,7 +971,6 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 }
 
 func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string, sub *OrgSubscription) error {
-	limits := GetPlanLimits(domain.PlanFree)
 	periodStart, _ := usagePeriodWindow(time.Now().UTC(), domain.PlanFree, sub)
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
@@ -793,65 +978,21 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 		return nil
 	}
 
-	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+	// Free tier has no included compute credit; any spend is overage.
+	overageSpend := computeOverageSpend(periodSpend, 0)
 	if !isOverageLimitReached(0, overageSpend) {
 		return nil
 	}
 
-	e.recordRejection(ctx, "spending_limit", limits.PlanTier)
+	e.recordRejection(ctx, "spending_limit", domain.PlanFree)
 	return &LimitError{
 		Code:         "spending_limit_reached",
-		Message:      fmt.Sprintf("Your free plan monthly compute budget of $%.2f has been reached.", float64(limits.ComputeCreditMicrousd)/1000000),
+		Message:      "Your free plan monthly compute budget has been reached.",
 		CurrentUsage: periodSpend,
-		Limit:        limits.ComputeCreditMicrousd,
-		Plan:         string(limits.PlanTier),
+		Limit:        0,
+		Plan:         string(domain.PlanFree),
 		UpgradeURL:   "/upgrade",
 	}
-}
-
-// CheckProjectBudgetLimit checks if a project has exceeded its monthly budget.
-// Returns ErrProjectBudgetReached if the budget is exceeded and action is "reject".
-// Fails open on any store errors.
-func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string) error {
-	if projectID == "" {
-		return nil
-	}
-
-	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
-	if err != nil {
-		e.logger.Warn("failed to get project budget", "project_id", projectID, "error", err)
-		return e.boundedFailOpen(ctx, projectID, "project_budget", "db_error")
-	}
-
-	if budget < 0 {
-		return nil // no budget set
-	}
-
-	periodStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC)
-	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
-	if err != nil {
-		e.logger.Warn("failed to get project period spend", "project_id", projectID, "error", err)
-		return e.boundedFailOpen(ctx, projectID, "project_budget", "db_spend_error")
-	}
-
-	if budget == 0 || spend >= budget {
-		if action == "reject" {
-			return &LimitError{
-				Code:         "project_budget_reached",
-				Message:      fmt.Sprintf("This project's monthly budget of $%.2f has been reached.", float64(budget)/1000000),
-				CurrentUsage: spend,
-				Limit:        budget,
-				UpgradeURL:   "/settings/billing",
-			}
-		}
-		e.logger.Warn("project budget reached (notify mode)",
-			"project_id", projectID,
-			"spend_microusd", spend,
-			"budget_microusd", budget,
-		)
-	}
-
-	return nil
 }
 
 // GetProjectOrgID resolves the org ID for a project via the billing store.
@@ -1026,7 +1167,7 @@ func (e *Enforcer) ReconcileDailyRunCounts(ctx context.Context, counter DailyRun
 
 // concurrentCounterTTL is the TTL for concurrent run counters.
 // The reconciler runs every 5 minutes to correct drift; 24h is a backstop
-// for total Redis failure. Managed runs can last many hours, so shorter
+// for total Redis failure. Runs can last many hours, so shorter
 // TTLs cause keys to expire mid-run and undercount active concurrency.
 const concurrentCounterTTL = 24 * time.Hour
 
@@ -1248,4 +1389,106 @@ func (e *Enforcer) SuspendExcessProjects(ctx context.Context, orgID string, maxP
 // initialize a free-tier subscription row for the given org.
 func (e *Enforcer) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	return e.store.EnsureOrgSubscription(ctx, orgID)
+}
+
+// usagePeriodWindow returns the billing period start and end times for an org.
+// For free-tier or missing subscriptions the calendar month is used; for paid
+// plans the Stripe billing period anchors are preferred when available.
+func usagePeriodWindow(now time.Time, tier domain.PlanTier, sub *OrgSubscription) (time.Time, time.Time) {
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, -1)
+
+	if tier == domain.PlanFree || sub == nil {
+		return monthStart, monthEnd
+	}
+
+	start := monthStart
+	end := monthEnd
+	if sub.CurrentPeriodStart != nil {
+		start = *sub.CurrentPeriodStart
+	}
+	if sub.CurrentPeriodEnd != nil {
+		end = *sub.CurrentPeriodEnd
+	}
+	return start, end
+}
+
+// computeOverageSpend returns the portion of periodSpend that exceeds includedCredit.
+// Returns 0 if spend is within the included credit.
+func computeOverageSpend(periodSpend, includedCredit int64) int64 {
+	return max(periodSpend-includedCredit, 0)
+}
+
+// isOverageLimitReached reports whether the overage spend has reached the configured limit.
+// A limitMicrousd of -1 means uncapped; 0 means any overage triggers the limit.
+func isOverageLimitReached(limitMicrousd, overageSpendMicrousd int64) bool {
+	switch {
+	case limitMicrousd < 0:
+		return false
+	case limitMicrousd == 0:
+		return overageSpendMicrousd > 0
+	default:
+		return overageSpendMicrousd >= limitMicrousd
+	}
+}
+
+// MaxSpendingLimit returns the maximum allowed spending limit for a plan tier.
+func MaxSpendingLimit(tier domain.PlanTier) int64 {
+	switch tier {
+	case domain.PlanStarter:
+		return MaxSpendingStarter
+	case domain.PlanPro:
+		return MaxSpendingPro
+	case domain.PlanScale:
+		return MaxSpendingScale
+	case domain.PlanEnterprise:
+		return -1 // custom
+	default:
+		return 0 // free: no spending limit
+	}
+}
+
+// SpendingLimitResponse is the API response for spending limit queries.
+type SpendingLimitResponse struct {
+	OrgID             string  `json:"org_id"`
+	PlanTier          string  `json:"plan_tier"`
+	SpendingLimitUsd  float64 `json:"spending_limit_usd"`
+	LimitAction       string  `json:"limit_action"`
+	CurrentSpendUsd   float64 `json:"current_spend_usd"`
+	IncludedCreditUsd float64 `json:"included_credit_usd"`
+	OverageSpendUsd   float64 `json:"overage_spend_usd"`
+	IsHardCapped      bool    `json:"is_hard_capped"`
+}
+
+// prioritySlotPackIncrement is the number of additional MaxDispatchPriority levels
+// granted per priority_slot_pack unit.
+const prioritySlotPackIncrement = 10
+
+// applySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
+// add-ons stored in the add_ons JSONB column. Enforcement points for limits that
+// don't yet exist are annotated with TODO comments.
+func applySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
+	result := base
+
+	// Extra data retention: each pack adds retentionPackDays days.
+	if addOns.RetentionPack > 0 && result.RetentionDays > 0 {
+		result.RetentionDays += addOns.RetentionPack * retentionPackDays
+	}
+
+	// Priority slot packs: each pack extends MaxDispatchPriority by prioritySlotPackIncrement.
+	if addOns.PrioritySlotPack > 0 && result.MaxDispatchPriority != -1 {
+		result.MaxDispatchPriority += addOns.PrioritySlotPack * prioritySlotPackIncrement
+	}
+
+	// Log drain volume: extends base log drain capacity. Not yet wired into
+	// the log-drain volume meter — pending per-org volume tracking in
+	// internal/logdrain.
+	_ = addOns.LogDrainVolumeGB
+
+	// Additional worker connections: extends WorkerConnections limit.
+	if addOns.WorkerConnections > 0 && result.WorkerConnections != -1 {
+		result.WorkerConnections += addOns.WorkerConnections
+	}
+
+	return result
 }

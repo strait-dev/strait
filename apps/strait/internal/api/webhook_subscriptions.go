@@ -16,14 +16,16 @@ import (
 
 // validWebhookEventTypes is the allowed set of event types for webhook subscriptions.
 var validWebhookEventTypes = map[string]bool{
-	domain.WebhookEventRunCompleted:         true,
-	domain.WebhookEventRunFailed:            true,
-	domain.WebhookEventRunTimedOut:          true,
-	domain.WebhookEventRunCanceled:          true,
-	domain.WebhookEventWorkflowCompleted:    true,
-	domain.WebhookEventWorkflowFailed:       true,
-	domain.WebhookEventComputeBudgetWarning: true,
-	domain.WebhookEventSLOBudgetWarning:     true,
+	domain.WebhookEventRunCompleted:      true,
+	domain.WebhookEventRunFailed:         true,
+	domain.WebhookEventRunTimedOut:       true,
+	domain.WebhookEventRunCanceled:       true,
+	domain.WebhookEventWorkflowCompleted: true,
+	domain.WebhookEventWorkflowFailed:    true,
+	domain.WebhookEventSLOBudgetWarning:  true,
+	domain.WebhookEventQuotaExceeded:     true,
+	domain.WebhookEventCronPausedQuota:   true,
+	domain.WebhookEventCronResumed:       true,
 }
 
 type CreateWebhookSubscriptionRequest struct {
@@ -42,6 +44,10 @@ type CreateWebhookSubscriptionOutput struct {
 	Body *domain.WebhookSubscription
 }
 
+type webhookSubscriptionLimitCreator interface {
+	CreateWebhookSubscriptionWithOrgLimit(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints int) error
+}
+
 func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *CreateWebhookSubscriptionInput) (*CreateWebhookSubscriptionOutput, error) {
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -50,7 +56,11 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
-	if err := s.checkWebhookEndpointLimit(ctx, req.ProjectID); err != nil {
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
+	}
+	orgID, maxEndpoints, _, err := s.resolveWebhookEndpointCreateLimit(ctx, req.ProjectID)
+	if err != nil {
 		return nil, err
 	}
 	for _, et := range req.EventTypes {
@@ -61,7 +71,8 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := s.checkWebhookEventTypes(ctx, req.ProjectID, req.EventTypes); err != nil {
 		return nil, err
 	}
-	if err := validateURL(req.WebhookURL); err != nil {
+	requireTLS := s.config != nil && s.config.WebhookRequireTLS
+	if err := validateURLWithTLS(req.WebhookURL, requireTLS); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	active := true
@@ -83,8 +94,8 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 		Secret:     secret,
 		Active:     active,
 	}
-	if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
-		return nil, huma.Error500InternalServerError("failed to create webhook subscription")
+	if err := s.createWebhookSubscriptionWithLimit(ctx, sub, req.ProjectID, orgID, maxEndpoints); err != nil {
+		return nil, err
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionWebhookSubscriptionCreated, "webhook_subscription", sub.ID, map[string]any{
 		"url_host":    urlHost(req.WebhookURL),
@@ -94,6 +105,34 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	return &CreateWebhookSubscriptionOutput{Body: sub}, nil
 }
 
+func (s *Server) createWebhookSubscriptionWithLimit(ctx context.Context, sub *domain.WebhookSubscription, projectID, orgID string, maxEndpoints int) error {
+	if orgID == "" || maxEndpoints < 0 {
+		if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+			return huma.Error500InternalServerError("failed to create webhook subscription")
+		}
+		return nil
+	}
+
+	limitedStore, ok := s.store.(webhookSubscriptionLimitCreator)
+	if !ok {
+		if err := s.checkWebhookEndpointLimit(ctx, projectID); err != nil {
+			return err
+		}
+		if err := s.store.CreateWebhookSubscription(ctx, sub); err != nil {
+			return huma.Error500InternalServerError("failed to create webhook subscription")
+		}
+		return nil
+	}
+
+	if err := limitedStore.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints); err != nil {
+		if errors.Is(err, store.ErrWebhookEndpointLimitExceeded) {
+			return huma.Error400BadRequest("webhook endpoint limit exceeded")
+		}
+		return huma.Error500InternalServerError("failed to create webhook subscription")
+	}
+	return nil
+}
+
 type ListWebhookSubscriptionsInput struct{}
 
 type ListWebhookSubscriptionsOutput struct {
@@ -101,6 +140,9 @@ type ListWebhookSubscriptionsOutput struct {
 }
 
 func (s *Server) handleListWebhookSubscriptions(ctx context.Context, _ *ListWebhookSubscriptionsInput) (*ListWebhookSubscriptionsOutput, error) {
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
+	}
 	projectID := projectIDFromContext(ctx)
 	subs, err := s.store.ListWebhookSubscriptions(ctx, projectID)
 	if err != nil {
@@ -116,6 +158,9 @@ type DeleteWebhookSubscriptionInput struct {
 func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *DeleteWebhookSubscriptionInput) (*struct{}, error) {
 	if input.ID == "" {
 		return nil, huma.Error400BadRequest("subscription id is required")
+	}
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
 	}
 
 	sub, err := s.store.GetWebhookSubscription(ctx, input.ID)
@@ -165,6 +210,9 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 	if graceMins > 10080 { // 7 days
 		return nil, huma.Error400BadRequest("grace_period_minutes must be <= 10080")
 	}
+	if err := requireProjectWideWebhookAccess(ctx); err != nil {
+		return nil, err
+	}
 
 	sub, err := s.store.GetWebhookSubscription(ctx, input.ID)
 	if err != nil {
@@ -211,4 +259,11 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 		"grace_expires_at":     graceExpiresAt,
 		"grace_period_minutes": graceMins,
 	}}, nil
+}
+
+func requireProjectWideWebhookAccess(ctx context.Context) error {
+	if environmentIDFromContext(ctx) != "" {
+		return huma.Error403Forbidden("webhook subscriptions require a project-wide key")
+	}
+	return nil
 }

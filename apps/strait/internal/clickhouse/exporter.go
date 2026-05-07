@@ -39,7 +39,6 @@ type RunAnalyticsRecord struct {
 	ProjectID           string
 	Status              string
 	ExecutionMode       string
-	MachinePreset       string
 	Attempt             int
 	DurationMs          uint64
 	QueueWaitMs         uint64
@@ -51,18 +50,6 @@ type RunAnalyticsRecord struct {
 	CreatedAt           time.Time
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
-}
-
-// ComputeUsageRecord maps to the compute_usage ClickHouse table.
-type ComputeUsageRecord struct {
-	RunID         string
-	ProjectID     string
-	MachinePreset string
-	MachineID     string
-	DurationSecs  float64
-	CostMicrousd  int64
-	StartedAt     time.Time
-	FinishedAt    time.Time
 }
 
 // RunUsageEventRecord maps to the run_usage_events ClickHouse table.
@@ -352,7 +339,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 
 	var events []RunEventRecord
 	var analytics []RunAnalyticsRecord
-	var usage []ComputeUsageRecord
 	var runUsage []RunUsageEventRecord
 	var approvals []WorkflowApprovalEventRecord
 	var jobMeta []JobMetadataRecord
@@ -368,8 +354,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 			events = append(events, r)
 		case RunAnalyticsRecord:
 			analytics = append(analytics, r)
-		case ComputeUsageRecord:
-			usage = append(usage, r)
 		case RunUsageEventRecord:
 			runUsage = append(runUsage, r)
 		case WorkflowApprovalEventRecord:
@@ -400,11 +384,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	if len(analytics) > 0 {
 		if err := e.insertRunAnalytics(ctx, analytics); err != nil {
 			errs = append(errs, fmt.Errorf("run_analytics: %w", err))
-		}
-	}
-	if len(usage) > 0 {
-		if err := e.insertComputeUsage(ctx, usage); err != nil {
-			errs = append(errs, fmt.Errorf("compute_usage: %w", err))
 		}
 	}
 	if len(runUsage) > 0 {
@@ -459,7 +438,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	e.logger.Debug("clickhouse exporter flushed batch",
 		"events", len(events),
 		"analytics", len(analytics),
-		"usage", len(usage),
 		"run_usage", len(runUsage),
 		"approvals", len(approvals),
 		"job_metadata", len(jobMeta),
@@ -487,30 +465,16 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 }
 
 func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
-	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, machine_preset, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
-	args := make([]any, 0, len(records)*17)
+	args := make([]any, 0, len(records)*16)
 
 	for i, r := range records {
 		placeholders[i] = row
-		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode, r.MachinePreset,
+		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode,
 			r.Attempt, r.DurationMs, r.QueueWaitMs, r.CostMicrousd, r.ComputeCostMicrousd, r.TriggeredBy,
 			r.Tags, r.JobVersionID, r.CreatedAt, r.StartedAt, r.FinishedAt)
-	}
-
-	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
-}
-
-func (e *Exporter) insertComputeUsage(ctx context.Context, records []ComputeUsageRecord) error {
-	const row = "(?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO compute_usage (run_id, project_id, machine_preset, machine_id, duration_secs, cost_microusd, started_at, finished_at) VALUES "
-	placeholders := make([]string, len(records))
-	args := make([]any, 0, len(records)*8)
-
-	for i, r := range records {
-		placeholders[i] = row
-		args = append(args, r.RunID, r.ProjectID, r.MachinePreset, r.MachineID, r.DurationSecs, r.CostMicrousd, r.StartedAt, r.FinishedAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
@@ -642,4 +606,16 @@ func (e *Exporter) PendingCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.pending)
+}
+
+// PendingSnapshot returns a copy of queued records for diagnostics and tests.
+func (e *Exporter) PendingSnapshot() []any {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]any, len(e.pending))
+	copy(out, e.pending)
+	return out
 }

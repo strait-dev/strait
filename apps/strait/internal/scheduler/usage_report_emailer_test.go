@@ -31,6 +31,14 @@ func (m *mockReportStore) GetOrgSubscription(_ context.Context, orgID string) (*
 	return nil, billing.ErrSubscriptionNotFound
 }
 
+func (m *mockReportStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+
+func (m *mockReportStore) GetOrgSubscriptionByStripeSubscriptionID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+
 func (m *mockReportStore) GetOrgUsageForPeriod(context.Context, string, time.Time, time.Time) ([]billing.UsageRecord, error) {
 	return m.usageRecords, nil
 }

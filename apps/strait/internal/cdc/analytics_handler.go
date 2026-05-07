@@ -46,7 +46,6 @@ func (h *AnalyticsHandler) Handle(_ context.Context, msg Message) error {
 		ProjectID     string `json:"project_id"`
 		Status        string `json:"status"`
 		ExecutionMode string `json:"execution_mode"`
-		MachinePreset string `json:"machine_preset"`
 		Attempt       int    `json:"attempt"`
 		TriggeredBy   string `json:"triggered_by"`
 		Tags          string `json:"tags"`
@@ -93,7 +92,6 @@ func (h *AnalyticsHandler) Handle(_ context.Context, msg Message) error {
 		ProjectID:     record.ProjectID,
 		Status:        record.Status,
 		ExecutionMode: record.ExecutionMode,
-		MachinePreset: record.MachinePreset,
 		Attempt:       record.Attempt,
 		DurationMs:    durationMs,
 		TriggeredBy:   record.TriggeredBy,

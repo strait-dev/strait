@@ -294,7 +294,7 @@ func (q *Queries) ListRunsByOrg(ctx context.Context, orgID string, limit int, cu
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)`
 
@@ -337,9 +337,8 @@ func (q *Queries) ListJobsByOrg(ctx context.Context, orgID string, limit int, cu
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, machine_preset, image_uri, region, preferred_regions, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
-		       paused, paused_at, pause_reason,
-		       source_type, active_deployment_id, rollback_source_deployment_id
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       paused, paused_at, pause_reason, endpoint_signing_secret
 		FROM jobs
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)`
 
@@ -380,13 +379,13 @@ func (q *Queries) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID stri
 	query := `
 		UPDATE api_keys
 		SET replaced_by_key_id = $2, grace_expires_at = $3
-		WHERE id = $1 AND revoked_at IS NULL`
+		WHERE id = $1 AND revoked_at IS NULL AND replaced_by_key_id IS NULL`
 	tag, err := q.db.Exec(ctx, query, oldKeyID, newKeyID, graceExpiresAt)
 	if err != nil {
 		return fmt.Errorf("mark api key rotated: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("api key not found or already revoked")
+		return fmt.Errorf("api key not found, already revoked, or already rotated")
 	}
 	return nil
 }

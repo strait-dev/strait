@@ -95,19 +95,19 @@ func TestGetApprovalStats(t *testing.T) {
 
 	projectID := "project-approval-stats"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   testutil.Ptr(stepJob.ID),
-		StepRef: testutil.Ptr("approval-stats-step"),
+		JobID:   new(stepJob.ID),
+		StepRef: new("approval-stats-step"),
 	})
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
 	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status:  testutil.Ptr(domain.StepPending),
-		StepRef: testutil.Ptr(step.StepRef),
+		StepRef: new(step.StepRef),
 	})
 
 	now := time.Now().UTC()

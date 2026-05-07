@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// unmarshalJSON is a thin wrapper so callers don't need to import encoding/json.
+func unmarshalJSON(data []byte, v any) error {
+	return json.Unmarshal(data, v)
+}
 
 var ErrSubscriptionNotFound = errors.New("organization subscription not found")
 
@@ -38,8 +44,27 @@ func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error
 }
 
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
+	return s.getOrgSubscriptionWhere(ctx, "org_id = $1", orgID)
+}
+
+func (s *PgStore) GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
+	if stripeSubscriptionID == "" {
+		return nil, ErrSubscriptionNotFound
+	}
+	return s.getOrgSubscriptionWhere(ctx, "stripe_subscription_id = $1", stripeSubscriptionID)
+}
+
+func (s *PgStore) GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error) {
+	if stripeCustomerID == "" {
+		return nil, ErrSubscriptionNotFound
+	}
+	return s.getOrgSubscriptionWhere(ctx, "stripe_customer_id = $1", stripeCustomerID)
+}
+
+func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg string) (*OrgSubscription, error) {
 	var sub OrgSubscription
-	err := s.pool.QueryRow(ctx, `
+	var addOnsJSON []byte
+	query := `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
@@ -49,10 +74,11 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 			override_daily_run_limit, override_concurrent_run_limit,
 			COALESCE(enforcement_mode, 'enforce'),
 			COALESCE(monthly_usage_email, false),
+			COALESCE(add_ons, '{}'::jsonb),
 			created_at, updated_at
 		FROM organization_subscriptions
-		WHERE org_id = $1
-	`, orgID).Scan(
+		WHERE ` + where
+	err := s.pool.QueryRow(ctx, query, arg).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
 		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
@@ -62,6 +88,7 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
 		&sub.EnforcementMode,
 		&sub.MonthlyUsageEmail,
+		&addOnsJSON,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -69,6 +96,11 @@ func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSub
 	}
 	if err != nil {
 		return nil, fmt.Errorf("getting org subscription: %w", err)
+	}
+	if len(addOnsJSON) > 0 {
+		if jsonErr := unmarshalJSON(addOnsJSON, &sub.AddOns); jsonErr != nil {
+			return nil, fmt.Errorf("unmarshalling add_ons for org %s: %w", sub.OrgID, jsonErr)
+		}
 	}
 	return &sub, nil
 }
@@ -483,23 +515,6 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), compute_usage AS (
-			SELECT p.org_id,
-				rcu.project_id,
-				DATE(rcu.created_at) AS period_date,
-				0::bigint AS runs_count,
-				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
-				MIN(rcu.created_at) AS created_at,
-				MAX(rcu.created_at) AS updated_at
-			FROM run_compute_usage rcu
-			JOIN projects p ON p.id = rcu.project_id
-			WHERE p.org_id = $1
-			  AND rcu.created_at >= $2
-			  AND rcu.created_at < $3
-			  AND rcu.status = 'committed'
-			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		), ai_usage AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -530,8 +545,6 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			MAX(updated_at) AS updated_at
 		FROM (
 			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM compute_usage
 			UNION ALL
 			SELECT * FROM ai_usage
 		) usage
@@ -565,23 +578,6 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), compute_usage AS (
-			SELECT p.org_id,
-				rcu.project_id,
-				DATE(rcu.created_at) AS period_date,
-				0::bigint AS runs_count,
-				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
-				MIN(rcu.created_at) AS created_at,
-				MAX(rcu.created_at) AS updated_at
-			FROM run_compute_usage rcu
-			JOIN projects p ON p.id = rcu.project_id
-			WHERE rcu.project_id = $1
-			  AND rcu.created_at >= $2
-			  AND rcu.created_at < $3
-			  AND rcu.status = 'committed'
-			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		), ai_usage AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -613,8 +609,6 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 		FROM (
 			SELECT * FROM run_counts
 			UNION ALL
-			SELECT * FROM compute_usage
-			UNION ALL
 			SELECT * FROM ai_usage
 		) usage
 		GROUP BY org_id, project_id, period_date
@@ -644,22 +638,6 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			WHERE p.org_id = $1
 			  AND DATE(jr.created_at) = $2
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), compute_usage AS (
-			SELECT p.org_id,
-				rcu.project_id,
-				DATE(rcu.created_at) AS period_date,
-				0::bigint AS runs_count,
-				COALESCE(SUM(rcu.cost_microusd), 0)::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
-				MIN(rcu.created_at) AS created_at,
-				MAX(rcu.created_at) AS updated_at
-			FROM run_compute_usage rcu
-			JOIN projects p ON p.id = rcu.project_id
-			WHERE p.org_id = $1
-			  AND DATE(rcu.created_at) = $2
-			  AND rcu.status = 'committed'
-			GROUP BY p.org_id, rcu.project_id, DATE(rcu.created_at)
 		), ai_usage AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -690,8 +668,6 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 		FROM (
 			SELECT * FROM run_counts
 			UNION ALL
-			SELECT * FROM compute_usage
-			UNION ALL
 			SELECT * FROM ai_usage
 		) usage
 		GROUP BY org_id, project_id, period_date
@@ -703,20 +679,13 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 	return scanUsageRecords(rows)
 }
 
-func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
-	var total int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(rcu.cost_microusd), 0)
-		FROM run_compute_usage rcu
-		JOIN projects p ON p.id = rcu.project_id
-		WHERE p.org_id = $1
-		  AND rcu.created_at >= $2
-		  AND rcu.status = 'committed'
-	`, orgID, from).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("summing org period spend: %w", err)
-	}
-	return total, nil
+func (s *PgStore) SumOrgPeriodSpend(_ context.Context, orgID string, from time.Time) (int64, error) {
+	// run_compute_usage was dropped in migration 000227. Compute spend is now
+	// tracked via usage_records (flat per-run cost). Return 0 until the new
+	// usage_records aggregation is wired in.
+	_ = orgID
+	_ = from
+	return 0, nil
 }
 
 func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
@@ -750,19 +719,12 @@ func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budget
 	return nil
 }
 
-func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
-	var total int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(rcu.cost_microusd), 0)
-		FROM run_compute_usage rcu
-		WHERE rcu.project_id = $1
-		  AND rcu.created_at >= $2
-		  AND rcu.status = 'committed'
-	`, projectID, from).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("summing project period spend: %w", err)
-	}
-	return total, nil
+func (s *PgStore) GetProjectPeriodSpend(_ context.Context, projectID string, from time.Time) (int64, error) {
+	// run_compute_usage was dropped in migration 000227. Return 0 until the new
+	// per-run cost aggregation is wired in.
+	_ = projectID
+	_ = from
+	return 0, nil
 }
 
 func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error {
@@ -1150,7 +1112,7 @@ func (s *PgStore) CountActiveAddonsByType(ctx context.Context, orgID string, add
 // RecordProcessedWebhook records a webhook message ID as processed for idempotency.
 func (s *PgStore) RecordProcessedWebhook(ctx context.Context, msgID string) error {
 	_, err := s.pool.Exec(ctx,
-		"INSERT INTO processed_webhook_messages (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO NOTHING",
+		"INSERT INTO processed_webhook_messages (msg_id, status) VALUES ($1, 'processed') ON CONFLICT (msg_id) DO UPDATE SET status = 'processed', processed_at = NOW()",
 		msgID)
 	if err != nil {
 		return fmt.Errorf("record processed webhook: %w", err)
@@ -1158,11 +1120,91 @@ func (s *PgStore) RecordProcessedWebhook(ctx context.Context, msgID string) erro
 	return nil
 }
 
+func (s *PgStore) ClaimWebhookForProcessing(ctx context.Context, msgID string, staleAfter time.Duration) (bool, error) {
+	if msgID == "" {
+		return true, nil
+	}
+	if staleAfter <= 0 {
+		staleAfter = 10 * time.Minute
+	}
+	cutoff := time.Now().UTC().Add(-staleAfter)
+	var claimed bool
+	err := s.pool.QueryRow(ctx, `
+		WITH inserted AS (
+			INSERT INTO processed_webhook_messages (msg_id, status, processed_at)
+			VALUES ($1, 'processing', NOW())
+			ON CONFLICT (msg_id) DO NOTHING
+			RETURNING 1
+		),
+		reclaimed AS (
+			UPDATE processed_webhook_messages
+			SET status = 'processing', processed_at = NOW()
+			WHERE msg_id = $1
+			  AND status = 'processing'
+			  AND processed_at < $2
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			RETURNING 1
+		)
+		SELECT EXISTS (SELECT 1 FROM inserted UNION ALL SELECT 1 FROM reclaimed)
+	`, msgID, cutoff).Scan(&claimed)
+	if err != nil {
+		return false, fmt.Errorf("claim webhook for processing: %w", err)
+	}
+	return claimed, nil
+}
+
+func (s *PgStore) MarkWebhookProcessed(ctx context.Context, msgID string) error {
+	if msgID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE processed_webhook_messages
+		SET status = 'processed', processed_at = NOW()
+		WHERE msg_id = $1
+	`, msgID)
+	if err != nil {
+		return fmt.Errorf("mark webhook processed: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) ReleaseWebhookClaim(ctx context.Context, msgID string) error {
+	if msgID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM processed_webhook_messages
+		WHERE msg_id = $1 AND status = 'processing'
+	`, msgID)
+	if err != nil {
+		return fmt.Errorf("release webhook claim: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) GetWebhookProcessingStatus(ctx context.Context, msgID string) (string, error) {
+	if msgID == "" {
+		return "", nil
+	}
+	var status string
+	err := s.pool.QueryRow(ctx,
+		`SELECT status FROM processed_webhook_messages WHERE msg_id = $1`,
+		msgID,
+	).Scan(&status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get webhook processing status: %w", err)
+	}
+	return status, nil
+}
+
 // IsWebhookProcessed checks whether a webhook message ID has already been processed.
 func (s *PgStore) IsWebhookProcessed(ctx context.Context, msgID string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM processed_webhook_messages WHERE msg_id = $1)",
+		"SELECT EXISTS(SELECT 1 FROM processed_webhook_messages WHERE msg_id = $1 AND status = 'processed')",
 		msgID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check webhook processed: %w", err)

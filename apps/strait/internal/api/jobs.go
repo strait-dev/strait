@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"strait/internal/clickhouse"
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -30,6 +30,7 @@ type CreateJobRequest struct {
 	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                      map[string]string `json:"tags,omitempty"`
 	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
+	EndpointSigningSecret     string            `json:"endpoint_signing_secret,omitempty" validate:"omitempty,min=16,max=4096"`
 	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
 	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
@@ -52,10 +53,8 @@ type CreateJobRequest struct {
 	DebounceWindowSecs        int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
-	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
-	MachinePreset             string            `json:"machine_preset,omitempty"`
-	ImageURI                  string            `json:"image_uri,omitempty"`
-	Region                    string            `json:"region,omitempty"`
+	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
+	QueueName                 string            `json:"queue_name,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
@@ -65,6 +64,8 @@ type CreateJobRequest struct {
 	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
 	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
 }
+
+const defaultJobQueueName = "default"
 
 type UpdateJobRequest struct {
 	Name                      *string            `json:"name,omitempty"`
@@ -99,10 +100,8 @@ type UpdateJobRequest struct {
 	DebounceWindowSecs        *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchWindowSecs           *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
-	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http managed"`
-	MachinePreset             *string            `json:"machine_preset,omitempty"`
-	ImageURI                  *string            `json:"image_uri,omitempty"`
-	Region                    *string            `json:"region,omitempty"`
+	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
+	QueueName                 *string            `json:"queue_name,omitempty"`
 	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
@@ -123,134 +122,16 @@ type CreateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*CreateJobOutput, error) {
 	req := input.Body
 
-	if err := s.validate.Struct(&req); err != nil {
-		return nil, newValidationError(err)
-	}
-	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
-		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
-	}
-	if err := validateJobName(req.Name); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	if err := validateJobSlug(req.Slug); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	if req.EndpointURL != "" {
-		if err := validateURL(req.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
-		}
-	}
-	if req.FallbackEndpointURL != "" {
-		if err := validateURL(req.FallbackEndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
-		}
-	}
-
-	if req.MaxAttempts == 0 {
-		req.MaxAttempts = s.defaultJobMaxAttempts()
-	}
-	if req.TimeoutSecs == 0 {
-		req.TimeoutSecs = s.defaultJobTimeoutSecs()
-	}
-	if req.TimeoutSecs > 86400 {
-		return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
-	}
-	if req.RetryPriorityBoost == 0 {
-		req.RetryPriorityBoost = 1
-	}
-
-	if req.Cron != "" {
-		if err := validateCronFieldCount(req.Cron); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(req.Cron); err != nil {
-			return nil, huma.Error400BadRequest("invalid cron expression")
-		}
-	}
-
-	if req.ExecutionWindowCron != "" {
-		if err := validateCronFieldCount(req.ExecutionWindowCron); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
-			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
-		}
-	}
-
-	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	if len(req.Tags) > 0 {
-		if err := validateTags(req.Tags); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-
-	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
-		return nil, huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
-	}
-
-	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	// Region and plan-based gating validation.
-	if err := s.checkRegionForPlan(ctx, req.ProjectID, req.Region); err != nil {
-		return nil, err
-	}
-	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
+	if err := s.validateCreateJobFields(ctx, &req); err != nil {
 		return nil, err
 	}
 
-	// Execution mode validation.
-	execMode := domain.ExecutionMode(req.ExecutionMode)
-	if execMode == "" {
-		execMode = domain.ExecutionModeHTTP
-	}
-	switch execMode {
-	case domain.ExecutionModeManaged:
-		if s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none" {
-			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
-		}
-		if req.ImageURI == "" {
-			return nil, huma.Error400BadRequest("image_uri is required for managed execution")
-		}
-		if len(s.config.AllowedImageRegistries) == 0 {
-			return nil, huma.Error400BadRequest("ALLOWED_IMAGE_REGISTRIES must be configured for managed execution")
-		}
-		if err := compute.ValidateImageRegistry(req.ImageURI, s.config.AllowedImageRegistries); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if s.config.RequireImageDigest {
-			if err := compute.ValidateImageDigest(req.ImageURI); err != nil {
-				return nil, huma.Error400BadRequest(err.Error())
-			}
-		}
-		preset := domain.MachinePreset(req.MachinePreset)
-		if req.MachinePreset != "" && !preset.IsValid() {
-			return nil, huma.Error400BadRequest("invalid machine_preset")
-		}
-		if req.MachinePreset == "" {
-			req.MachinePreset = string(domain.PresetMicro)
-		}
-		if err := s.checkPresetAllowed(ctx, req.ProjectID, req.MachinePreset); err != nil {
-			return nil, err
-		}
-	case domain.ExecutionModeHTTP:
-		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if err := s.checkHTTPModeAllowed(ctx, execMode, req.ProjectID); err != nil {
-			return nil, err
-		}
+	execMode, err := s.resolveAndCheckExecMode(ctx, &req)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnCompleteTriggerJob, req.OnCompleteTriggerWorkflow); err != nil {
@@ -273,6 +154,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		PayloadSchema:             req.PayloadSchema,
 		Tags:                      req.Tags,
 		EndpointURL:               req.EndpointURL,
+		EndpointSigningSecret:     req.EndpointSigningSecret,
 		FallbackEndpointURL:       req.FallbackEndpointURL,
 		MaxAttempts:               req.MaxAttempts,
 		TimeoutSecs:               req.TimeoutSecs,
@@ -295,9 +177,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchWindowSecs:           req.BatchWindowSecs,
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
-		MachinePreset:             domain.MachinePreset(req.MachinePreset),
-		ImageURI:                  req.ImageURI,
-		Region:                    req.Region,
+		Queue:                     normalizeJobQueueName(req.QueueName),
 		PreferredRegions:          req.PreferredRegions,
 		PoisonPillThreshold:       req.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
@@ -338,6 +218,113 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	return &CreateJobOutput{Body: job}, nil
 }
 
+// validateCreateJobFields validates the scalar and cron fields on a CreateJobRequest,
+// applies defaults, and checks plan gates that do not depend on execution mode.
+// It mutates req to apply defaults (MaxAttempts, TimeoutSecs, RetryPriorityBoost).
+func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequest) error {
+	if err := s.validate.Struct(req); err != nil {
+		return newValidationError(err)
+	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+	if err := validateJobName(req.Name); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validateJobSlug(req.Slug); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if req.EndpointURL != "" {
+		if err := validateURL(req.EndpointURL); err != nil {
+			return huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
+		}
+	}
+	if req.FallbackEndpointURL != "" {
+		if err := validateURL(req.FallbackEndpointURL); err != nil {
+			return huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
+		}
+	}
+	if req.MaxAttempts == 0 {
+		req.MaxAttempts = s.defaultJobMaxAttempts()
+	}
+	if req.TimeoutSecs == 0 {
+		req.TimeoutSecs = s.defaultJobTimeoutSecs()
+	}
+	if req.TimeoutSecs > 86400 {
+		return huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
+	}
+	if req.RetryPriorityBoost == 0 {
+		req.RetryPriorityBoost = 1
+	}
+	if err := validateCreateJobCronFields(req); err != nil {
+		return err
+	}
+	if err := validateRetryConfig(req.RetryStrategy, req.RetryDelaysSecs); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if len(req.Tags) > 0 {
+		if err := validateTags(req.Tags); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	if req.DebounceWindowSecs > 0 && req.BatchWindowSecs > 0 {
+		return huma.Error400BadRequest("debounce_window_secs and batch_window_secs are mutually exclusive")
+	}
+	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
+		return err
+	}
+	if err := validateQueueName(req.QueueName); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	return nil
+}
+
+// validateCreateJobCronFields validates the cron and execution_window_cron expressions.
+func validateCreateJobCronFields(req *CreateJobRequest) error {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	if req.Cron != "" {
+		if err := validateCronFieldCount(req.Cron); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+		if _, err := parser.Parse(req.Cron); err != nil {
+			return huma.Error400BadRequest("invalid cron expression")
+		}
+	}
+	if req.ExecutionWindowCron != "" {
+		if err := validateCronFieldCount(req.ExecutionWindowCron); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+		if _, err := parser.Parse(req.ExecutionWindowCron); err != nil {
+			return huma.Error400BadRequest("invalid execution_window_cron expression")
+		}
+	}
+	return nil
+}
+
+// resolveAndCheckExecMode determines the execution mode and validates it
+// against plan gates. Returns the resolved ExecutionMode.
+func (s *Server) resolveAndCheckExecMode(ctx context.Context, req *CreateJobRequest) (domain.ExecutionMode, error) {
+	execMode := domain.ExecutionMode(req.ExecutionMode)
+	if execMode == "" {
+		execMode = domain.ExecutionModeHTTP
+	}
+	switch execMode {
+	case domain.ExecutionModeHTTP:
+		if err := validateEndpointNotEmpty(req.EndpointURL); err != nil {
+			return "", huma.Error400BadRequest(err.Error())
+		}
+		if err := s.checkHTTPModeAllowed(ctx, execMode, req.ProjectID); err != nil {
+			return "", err
+		}
+	case domain.ExecutionModeWorker:
+		// Worker mode: execution is handled by a connected worker process.
+	}
+	return execMode, nil
+}
+
 // GetJobInput is the typed input for getting a single job.
 type GetJobInput struct {
 	JobID string `path:"jobID"`
@@ -361,6 +348,9 @@ func (s *Server) handleGetJob(ctx context.Context, input *GetJobInput) (*GetJobO
 	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 
@@ -456,6 +446,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 
@@ -631,32 +624,16 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)
-		if mode == domain.ExecutionModeManaged && (s.config.ComputeRuntime == "" || s.config.ComputeRuntime == "none") {
-			return nil, huma.Error400BadRequest("managed execution is not available: COMPUTE_RUNTIME not configured")
-		}
 		if err := s.checkHTTPModeAllowed(ctx, mode, job.ProjectID); err != nil {
 			return nil, err
 		}
 		job.ExecutionMode = mode
 	}
-	if req.MachinePreset != nil {
-		preset := domain.MachinePreset(*req.MachinePreset)
-		if *req.MachinePreset != "" && !preset.IsValid() {
-			return nil, huma.Error400BadRequest("invalid machine_preset")
+	if req.QueueName != nil {
+		if err := validateQueueName(*req.QueueName); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
 		}
-		if err := s.checkPresetAllowed(ctx, job.ProjectID, *req.MachinePreset); err != nil {
-			return nil, err
-		}
-		job.MachinePreset = preset
-	}
-	if req.ImageURI != nil {
-		job.ImageURI = *req.ImageURI
-	}
-	if req.Region != nil {
-		if err := s.checkRegionForPlan(ctx, job.ProjectID, *req.Region); err != nil {
-			return nil, err
-		}
-		job.Region = *req.Region
+		job.Queue = normalizeJobQueueName(*req.QueueName)
 	}
 	if req.PreferredRegions != nil {
 		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
@@ -697,16 +674,17 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	if req.OnFailurePayloadMapping != nil {
 		job.OnFailurePayloadMapping = *req.OnFailurePayloadMapping
 	}
-	// Cross-field validation for managed mode.
-	if job.ExecutionMode == domain.ExecutionModeManaged && job.ImageURI == "" {
-		return nil, huma.Error400BadRequest("image_uri is required for managed execution")
-	}
-
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
 			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
+	if job.ExecutionMode == domain.ExecutionModeHTTP {
+		if err := validateEndpointNotEmpty(job.EndpointURL); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+	}
+	job.Queue = normalizeJobQueueName(job.Queue)
 
 	job.UpdatedBy = actorFromContext(ctx)
 
@@ -757,6 +735,9 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	if err := s.store.DeleteJob(ctx, input.JobID); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
@@ -805,6 +786,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := requireProjectMatch(ctx, source.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, source.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	req := input.Body
 	if req.Name == "" || req.Slug == "" {
@@ -821,9 +805,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := s.checkHTTPModeAllowed(ctx, source.ExecutionMode, source.ProjectID); err != nil {
 		return nil, err
 	}
-	if err := s.checkPresetAllowed(ctx, source.ProjectID, string(source.MachinePreset)); err != nil {
-		return nil, err
-	}
 	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnCompleteTriggerJob, source.OnCompleteTriggerWorkflow); err != nil {
 		return nil, err
 	}
@@ -835,48 +816,61 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	}
 
 	clone := &domain.Job{
-		ProjectID:            source.ProjectID,
-		GroupID:              source.GroupID,
-		Name:                 req.Name,
-		Slug:                 req.Slug,
-		Description:          source.Description,
-		Cron:                 source.Cron,
-		PayloadSchema:        source.PayloadSchema,
-		Tags:                 source.Tags,
-		EndpointURL:          source.EndpointURL,
-		FallbackEndpointURL:  source.FallbackEndpointURL,
-		MaxAttempts:          source.MaxAttempts,
-		TimeoutSecs:          source.TimeoutSecs,
-		MaxConcurrency:       source.MaxConcurrency,
-		MaxConcurrencyPerKey: source.MaxConcurrencyPerKey,
-		ExecutionWindowCron:  source.ExecutionWindowCron,
-		Timezone:             source.Timezone,
-		RateLimitMax:         source.RateLimitMax,
-		RateLimitWindowSecs:  source.RateLimitWindowSecs,
-		DedupWindowSecs:      source.DedupWindowSecs,
-		WebhookURL:           source.WebhookURL,
-		WebhookSecret:        source.WebhookSecret,
-		RunTTLSecs:           source.RunTTLSecs,
-		RetryStrategy:        source.RetryStrategy,
-		RetryDelaysSecs:      source.RetryDelaysSecs,
-		RetryPriorityBoost:   source.RetryPriorityBoost,
-		EnvironmentID:        source.EnvironmentID,
-		DefaultRunMetadata:   source.DefaultRunMetadata,
-		ResultSchema:         source.ResultSchema,
-		DebounceWindowSecs:   source.DebounceWindowSecs,
-		BatchWindowSecs:      source.BatchWindowSecs,
-		BatchMaxSize:         source.BatchMaxSize,
-		Enabled:              true,
-		VersionPolicy:        source.VersionPolicy,
-		BackwardsCompatible:  source.BackwardsCompatible,
-		CronOverlapPolicy:    source.CronOverlapPolicy,
-		ExecutionMode:        source.ExecutionMode,
-		MachinePreset:        source.MachinePreset,
-		ImageURI:             source.ImageURI,
-		Region:               source.Region,
-		PreferredRegions:     source.PreferredRegions,
-		CreatedBy:            actorFromContext(ctx),
-		UpdatedBy:            actorFromContext(ctx),
+		ProjectID:                 source.ProjectID,
+		GroupID:                   source.GroupID,
+		Name:                      req.Name,
+		Slug:                      req.Slug,
+		Description:               source.Description,
+		Cron:                      source.Cron,
+		PayloadSchema:             source.PayloadSchema,
+		Tags:                      source.Tags,
+		EndpointURL:               source.EndpointURL,
+		FallbackEndpointURL:       source.FallbackEndpointURL,
+		MaxAttempts:               source.MaxAttempts,
+		TimeoutSecs:               source.TimeoutSecs,
+		MaxConcurrency:            source.MaxConcurrency,
+		MaxConcurrencyPerKey:      source.MaxConcurrencyPerKey,
+		ExecutionWindowCron:       source.ExecutionWindowCron,
+		Timezone:                  source.Timezone,
+		RateLimitMax:              source.RateLimitMax,
+		RateLimitWindowSecs:       source.RateLimitWindowSecs,
+		DedupWindowSecs:           source.DedupWindowSecs,
+		WebhookURL:                source.WebhookURL,
+		WebhookSecret:             source.WebhookSecret,
+		RunTTLSecs:                source.RunTTLSecs,
+		RetryStrategy:             source.RetryStrategy,
+		RetryDelaysSecs:           source.RetryDelaysSecs,
+		RetryPriorityBoost:        source.RetryPriorityBoost,
+		DLQAlertThreshold:         source.DLQAlertThreshold,
+		QueueDepthAlertThreshold:  source.QueueDepthAlertThreshold,
+		EnvironmentID:             source.EnvironmentID,
+		DefaultRunMetadata:        source.DefaultRunMetadata,
+		ResultSchema:              source.ResultSchema,
+		DebounceWindowSecs:        source.DebounceWindowSecs,
+		BatchWindowSecs:           source.BatchWindowSecs,
+		BatchMaxSize:              source.BatchMaxSize,
+		Enabled:                   true,
+		VersionPolicy:             source.VersionPolicy,
+		BackwardsCompatible:       source.BackwardsCompatible,
+		CronOverlapPolicy:         source.CronOverlapPolicy,
+		ExecutionMode:             source.ExecutionMode,
+		Queue:                     normalizeJobQueueName(source.Queue),
+		PreferredRegions:          source.PreferredRegions,
+		PoisonPillThreshold:       source.PoisonPillThreshold,
+		OnCompleteTriggerWorkflow: source.OnCompleteTriggerWorkflow,
+		OnCompleteTriggerJob:      source.OnCompleteTriggerJob,
+		OnCompletePayloadMapping:  source.OnCompletePayloadMapping,
+		OnFailureTriggerJob:       source.OnFailureTriggerJob,
+		OnFailureTriggerWorkflow:  source.OnFailureTriggerWorkflow,
+		OnFailurePayloadMapping:   source.OnFailurePayloadMapping,
+		MaxTokensPerRun:           source.MaxTokensPerRun,
+		MaxToolCallsPerRun:        source.MaxToolCallsPerRun,
+		MaxIterationsPerRun:       source.MaxIterationsPerRun,
+		AllowedTools:              source.AllowedTools,
+		BlockedTools:              source.BlockedTools,
+		EndpointSigningSecret:     source.EndpointSigningSecret,
+		CreatedBy:                 actorFromContext(ctx),
+		UpdatedBy:                 actorFromContext(ctx),
 	}
 
 	if err := s.store.CreateJob(ctx, clone); err != nil {
@@ -890,6 +884,28 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	})
 
 	return &CloneJobOutput{Body: clone}, nil
+}
+
+// queueNameRe is the allowed pattern for queue names: alphanumerics, dashes, underscores, 1–63 chars.
+var queueNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,63}$`)
+
+// validateQueueName returns an error if the queue name is non-empty and does not match
+// the required pattern ^[A-Za-z0-9_-]{1,63}$.
+func validateQueueName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if !queueNameRe.MatchString(name) {
+		return fmt.Errorf("queue_name must match ^[A-Za-z0-9_-]{1,63}$")
+	}
+	return nil
+}
+
+func normalizeJobQueueName(name string) string {
+	if name == "" {
+		return defaultJobQueueName
+	}
+	return name
 }
 
 func validateTags(tags map[string]string) error {
@@ -1053,18 +1069,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			}
 		}
 
-		// Region validation.
-		if jobReq.Region != "" && !compute.IsValidRegion(jobReq.Region) {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid region: " + jobReq.Region})
-			continue
-		}
-		for _, pr := range jobReq.PreferredRegions {
-			if !compute.IsValidRegion(pr) {
-				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid preferred region: " + pr})
-				continue
-			}
-		}
-
 		job := &domain.Job{
 			ProjectID:           jobReq.ProjectID,
 			GroupID:             jobReq.GroupID,
@@ -1089,7 +1093,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
 			RetryPriorityBoost:  jobReq.RetryPriorityBoost,
 			EnvironmentID:       jobReq.EnvironmentID,
-			Region:              jobReq.Region,
 			PreferredRegions:    jobReq.PreferredRegions,
 			Enabled:             true,
 		}
@@ -1299,6 +1302,9 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	alreadyPaused := job.Paused
 
@@ -1348,6 +1354,9 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 	}
 
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 

@@ -13,7 +13,6 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -34,7 +33,6 @@ type BulkTriggerItem struct {
 type BulkTriggerResult struct {
 	ID             string `json:"id"`
 	Status         string `json:"status"`
-	RunToken       string `json:"run_token"`
 	IdempotencyHit bool   `json:"idempotency_hit"`
 }
 
@@ -71,7 +69,7 @@ type BulkTriggerJobOutput struct {
 	Body BulkTriggerResponse
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen,nestif
+//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJobInput) (*BulkTriggerJobOutput, error) {
 	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
@@ -87,9 +85,6 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 
 	// Validate plan gates on the existing job definition -- catches downgraded orgs.
 	if err := s.checkHTTPModeAllowed(ctx, job.ExecutionMode, job.ProjectID); err != nil {
-		return nil, err
-	}
-	if err := s.checkPresetAllowed(ctx, job.ProjectID, string(job.MachinePreset)); err != nil {
 		return nil, err
 	}
 
@@ -130,254 +125,251 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 
-	// Pre-compute project quotas once (all items target the same job/project).
-	var queuedRuns, activeRuns int
-	if projectQuota != nil {
-		if projectQuota.MaxQueuedRuns > 0 {
-			var countErr error
-			queuedRuns, countErr = s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return nil, huma.Error500InternalServerError("failed to count project queued runs")
-			}
-		}
-		if projectQuota.MaxExecutingRuns > 0 {
-			var countErr error
-			activeRuns, countErr = s.store.CountProjectActiveRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return nil, huma.Error500InternalServerError("failed to count project active runs")
-			}
-		}
-	}
+	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+		ctx := guardCtx
 
-	// Check if any item has an idempotency key -- if none, we can use batch COPY insert.
-	hasIdempotencyKey := false
-	for _, item := range req.Items {
-		if item.IdempotencyKey != "" {
-			hasIdempotencyKey = true
-			break
-		}
-	}
-	var pendingRuns []*domain.JobRun
-
-	enqueuedInBatch := 0
-	for _, item := range req.Items {
-		itemIdx := len(results)
-
-		if len(item.Tags) > 0 {
-			if err := validateTags(item.Tags); err != nil {
-				return nil, huma.Error400BadRequest(fmt.Sprintf("invalid tags for item %d: %v", itemIdx, err))
-			}
-		}
-
-		if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
-			return nil, huma.Error400BadRequest(fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
-		}
-
-		payload, _, payloadErr := canonicalizePayload(item.Payload)
-		if payloadErr != nil {
-			return nil, huma.Error400BadRequest(fmt.Sprintf("invalid payload for item %d: %v", itemIdx, payloadErr))
-		}
-
-		// Per-item idempotency check.
-		if item.IdempotencyKey != "" {
-			if len(item.IdempotencyKey) > maxIdempotencyKeyLength {
-				return nil, huma.Error400BadRequest(
-					fmt.Sprintf("idempotency key for item %d must be %d characters or fewer", itemIdx, maxIdempotencyKeyLength))
-			}
-
-			existingRun, idempErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
-			if idempErr != nil {
-				return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
-			}
-			if existingRun != nil {
-				slog.Info("idempotency hit",
-					"job_id", job.ID,
-					"idempotency_key", item.IdempotencyKey,
-					"existing_run_id", existingRun.ID,
-					"existing_run_status", existingRun.Status,
-					"item_index", itemIdx)
-				results = append(results, BulkTriggerResult{
-					ID:             existingRun.ID,
-					Status:         string(existingRun.Status),
-					IdempotencyHit: true,
-				})
-				continue
-			}
-		}
-
+		// Pre-compute project quotas once under the project trigger lock.
+		var queuedRuns, activeRuns int
 		if projectQuota != nil {
-			if projectQuota.MaxQueuedRuns > 0 && (queuedRuns+enqueuedInBatch) >= projectQuota.MaxQueuedRuns {
-				return nil, huma.Error429TooManyRequests("project queued quota exceeded")
+			if projectQuota.MaxQueuedRuns > 0 {
+				var countErr error
+				queuedRuns, countErr = s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+				if countErr != nil {
+					return huma.Error500InternalServerError("failed to count project queued runs")
+				}
 			}
-			if projectQuota.MaxExecutingRuns > 0 && activeRuns >= projectQuota.MaxExecutingRuns {
-				return nil, huma.Error429TooManyRequests("project executing quota exceeded")
-			}
-		}
-
-		if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
-			since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-			runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
-			if countErr != nil {
-				return nil, huma.Error500InternalServerError("failed to evaluate job rate limit")
-			}
-			if runCount >= job.RateLimitMax {
-				return nil, huma.Error429TooManyRequests("job rate limit exceeded")
-			}
-		}
-
-		if job.DedupWindowSecs > 0 {
-			since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-			existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
-			if findErr != nil {
-				return nil, huma.Error500InternalServerError("failed to evaluate payload deduplication")
-			}
-			if existingRun != nil {
-				results = append(results, BulkTriggerResult{
-					ID:             existingRun.ID,
-					Status:         string(existingRun.Status),
-					RunToken:       "",
-					IdempotencyHit: false,
-				})
-				continue
-			}
-		}
-
-		runID := uuid.Must(uuid.NewV7()).String()
-
-		var expiresAt time.Time
-		if item.TTLSecs != nil && *item.TTLSecs > 0 {
-			expiresAt = now.Add(time.Duration(*item.TTLSecs) * time.Second)
-		} else if job.RunTTLSecs > 0 {
-			expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
-		} else {
-			expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-		}
-
-		claims := jwt.RegisteredClaims{
-			Subject:   runID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(now),
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString([]byte(s.config.JWTSigningKey))
-		if err != nil {
-			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to sign run token for item %d", itemIdx))
-		}
-
-		scheduledAt := item.ScheduledAt
-		if job.ExecutionWindowCron != "" {
-			timezone := job.Timezone
-			if timezone == "" && projectQuota != nil {
-				timezone = projectQuota.Timezone
-			}
-			adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
-			if adjustErr != nil {
-				return nil, huma.Error400BadRequest("execution window validation failed: " + adjustErr.Error())
-			}
-			scheduledAt = adjustedScheduledAt
-		}
-
-		status := domain.StatusQueued
-		if scheduledAt != nil && scheduledAt.After(now) {
-			status = domain.StatusDelayed
-		}
-
-		// Inherit job tags, then overlay per-item tags.
-		runTags := make(map[string]string, len(job.Tags)+len(item.Tags))
-		maps.Copy(runTags, job.Tags)
-		maps.Copy(runTags, item.Tags)
-
-		run := &domain.JobRun{
-			ID:             runID,
-			JobID:          job.ID,
-			ProjectID:      job.ProjectID,
-			Tags:           runTags,
-			Status:         status,
-			Attempt:        1,
-			Payload:        payload,
-			TriggeredBy:    domain.TriggerManual,
-			ScheduledAt:    scheduledAt,
-			Priority:       item.Priority,
-			IdempotencyKey: item.IdempotencyKey,
-			JobVersion:     job.Version,
-			JobVersionID:   job.VersionID,
-			CreatedBy:      actorFromContext(ctx),
-			BatchID:        batchID,
-			ExpiresAt:      &expiresAt,
-		}
-
-		// Merge default run metadata from job. Caller metadata wins on conflicts.
-		if len(job.DefaultRunMetadata) > 0 {
-			if run.Metadata == nil {
-				run.Metadata = make(map[string]string, len(job.DefaultRunMetadata))
-			}
-			for k, v := range job.DefaultRunMetadata {
-				if _, exists := run.Metadata[k]; !exists {
-					run.Metadata[k] = v
+			if projectQuota.MaxExecutingRuns > 0 {
+				var countErr error
+				activeRuns, countErr = s.store.CountProjectActiveRuns(ctx, job.ProjectID)
+				if countErr != nil {
+					return huma.Error500InternalServerError("failed to count project active runs")
 				}
 			}
 		}
-		run.ConcurrencyKey = item.ConcurrencyKey
 
-		if hasIdempotencyKey {
-			// Sequential enqueue with idempotency CTE.
-			if err := s.queue.Enqueue(ctx, run); err != nil {
-				if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
-					existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
-					if retryErr != nil {
-						slog.Error("idempotency conflict retry failed",
-							"job_id", job.ID,
-							"idempotency_key", item.IdempotencyKey,
-							"item_index", itemIdx,
-							"error", retryErr)
-						return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
-					}
-					if existingRun != nil {
-						slog.Warn("idempotency conflict resolved",
-							"job_id", job.ID,
-							"idempotency_key", item.IdempotencyKey,
-							"winning_run_id", existingRun.ID,
-							"item_index", itemIdx)
-						results = append(results, BulkTriggerResult{
-							ID:             existingRun.ID,
-							Status:         string(existingRun.Status),
-							IdempotencyHit: true,
-						})
-						continue
-					}
-					slog.Error("idempotency conflict retry returned nil",
+		// Check if any item has an idempotency key -- if none and no transaction is active, we can use batch COPY insert.
+		hasIdempotencyKey := false
+		for _, item := range req.Items {
+			if item.IdempotencyKey != "" {
+				hasIdempotencyKey = true
+				break
+			}
+		}
+		var pendingRuns []*domain.JobRun
+
+		enqueuedInBatch := 0
+		for _, item := range req.Items {
+			itemIdx := len(results)
+
+			if len(item.Tags) > 0 {
+				if err := validateTags(item.Tags); err != nil {
+					return huma.Error400BadRequest(fmt.Sprintf("invalid tags for item %d: %v", itemIdx, err))
+				}
+			}
+
+			if err := validatePayloadAgainstSchema(item.Payload, job.PayloadSchema); err != nil {
+				return huma.Error400BadRequest(fmt.Sprintf("payload validation failed for item %d: %v", itemIdx, err))
+			}
+
+			payload, _, payloadErr := canonicalizePayload(item.Payload)
+			if payloadErr != nil {
+				return huma.Error400BadRequest(fmt.Sprintf("invalid payload for item %d: %v", itemIdx, payloadErr))
+			}
+
+			// Per-item idempotency check.
+			if item.IdempotencyKey != "" {
+				if len(item.IdempotencyKey) > maxIdempotencyKeyLength {
+					return huma.Error400BadRequest(
+						fmt.Sprintf("idempotency key for item %d must be %d characters or fewer", itemIdx, maxIdempotencyKeyLength))
+				}
+
+				existingRun, idempErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
+				if idempErr != nil {
+					return huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key for item %d", itemIdx))
+				}
+				if existingRun != nil {
+					slog.Info("idempotency hit",
 						"job_id", job.ID,
-						"idempotency_key", item.IdempotencyKey,
+						"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
+						"existing_run_id", existingRun.ID,
+						"existing_run_status", existingRun.Status,
 						"item_index", itemIdx)
+					results = append(results, BulkTriggerResult{
+						ID:             existingRun.ID,
+						Status:         string(existingRun.Status),
+						IdempotencyHit: true,
+					})
+					continue
 				}
+			}
+
+			if projectQuota != nil {
+				if projectQuota.MaxQueuedRuns > 0 && (queuedRuns+enqueuedInBatch) >= projectQuota.MaxQueuedRuns {
+					return huma.Error429TooManyRequests("project queued quota exceeded")
+				}
+				if projectQuota.MaxExecutingRuns > 0 && activeRuns >= projectQuota.MaxExecutingRuns {
+					return huma.Error429TooManyRequests("project executing quota exceeded")
+				}
+			}
+
+			if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+				since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+				runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
+				if countErr != nil {
+					return huma.Error500InternalServerError("failed to evaluate job rate limit")
+				}
+				if runCount >= job.RateLimitMax {
+					return huma.Error429TooManyRequests("job rate limit exceeded")
+				}
+			}
+
+			if job.DedupWindowSecs > 0 {
+				since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
+				existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
+				if findErr != nil {
+					return huma.Error500InternalServerError("failed to evaluate payload deduplication")
+				}
+				if existingRun != nil {
+					results = append(results, BulkTriggerResult{
+						ID:             existingRun.ID,
+						Status:         string(existingRun.Status),
+						IdempotencyHit: false,
+					})
+					continue
+				}
+			}
+
+			runID := uuid.Must(uuid.NewV7()).String()
+
+			var expiresAt time.Time
+			if item.TTLSecs != nil && *item.TTLSecs > 0 {
+				expiresAt = now.Add(time.Duration(*item.TTLSecs) * time.Second)
+			} else if job.RunTTLSecs > 0 {
+				expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+			} else {
+				expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+			}
+
+			scheduledAt := item.ScheduledAt
+			if job.ExecutionWindowCron != "" {
+				timezone := job.Timezone
+				if timezone == "" && projectQuota != nil {
+					timezone = projectQuota.Timezone
+				}
+				adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
+				if adjustErr != nil {
+					return huma.Error400BadRequest("execution window validation failed: " + adjustErr.Error())
+				}
+				scheduledAt = adjustedScheduledAt
+			}
+
+			status := domain.StatusQueued
+			if scheduledAt != nil && scheduledAt.After(now) {
+				status = domain.StatusDelayed
+			}
+
+			// Inherit job tags, then overlay per-item tags.
+			runTags := make(map[string]string, len(job.Tags)+len(item.Tags))
+			maps.Copy(runTags, job.Tags)
+			maps.Copy(runTags, item.Tags)
+
+			run := &domain.JobRun{
+				ID:             runID,
+				JobID:          job.ID,
+				ProjectID:      job.ProjectID,
+				Tags:           runTags,
+				Status:         status,
+				Attempt:        1,
+				Payload:        payload,
+				TriggeredBy:    domain.TriggerManual,
+				ScheduledAt:    scheduledAt,
+				Priority:       item.Priority,
+				IdempotencyKey: item.IdempotencyKey,
+				JobVersion:     job.Version,
+				JobVersionID:   job.VersionID,
+				CreatedBy:      actorFromContext(ctx),
+				BatchID:        batchID,
+				ExpiresAt:      &expiresAt,
+				ExecutionMode:  job.ExecutionMode,
+				QueueName:      job.Queue,
+			}
+
+			// Merge default run metadata from job. Caller metadata wins on conflicts.
+			if len(job.DefaultRunMetadata) > 0 {
+				if run.Metadata == nil {
+					run.Metadata = make(map[string]string, len(job.DefaultRunMetadata))
+				}
+				for k, v := range job.DefaultRunMetadata {
+					if _, exists := run.Metadata[k]; !exists {
+						run.Metadata[k] = v
+					}
+				}
+			}
+			run.ConcurrencyKey = item.ConcurrencyKey
+
+			if hasIdempotencyKey || tx != nil {
+				// Sequential enqueue with idempotency CTE. When a trigger-limit
+				// transaction is active this keeps quota checks and run inserts atomic.
+				if err := s.enqueueTriggerRun(ctx, tx, run); err != nil {
+					if errors.Is(err, domain.ErrIdempotencyConflict) && item.IdempotencyKey != "" {
+						existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, item.IdempotencyKey)
+						if retryErr != nil {
+							slog.Error("idempotency conflict retry failed",
+								"job_id", job.ID,
+								"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
+								"item_index", itemIdx,
+								"error", retryErr)
+							return huma.Error500InternalServerError(fmt.Sprintf("failed to check idempotency key after conflict for item %d", itemIdx))
+						}
+						if existingRun != nil {
+							slog.Warn("idempotency conflict resolved",
+								"job_id", job.ID,
+								"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
+								"winning_run_id", existingRun.ID,
+								"item_index", itemIdx)
+							results = append(results, BulkTriggerResult{
+								ID:             existingRun.ID,
+								Status:         string(existingRun.Status),
+								IdempotencyHit: true,
+							})
+							continue
+						}
+						slog.Error("idempotency conflict retry returned nil",
+							"job_id", job.ID,
+							"idempotency_key_hash", hashIdempotencyKey(item.IdempotencyKey),
+							"item_index", itemIdx)
+					}
+					if apiErr := enqueueAPIError(err); apiErr != nil {
+						return apiErr
+					}
+					return huma.Error500InternalServerError(fmt.Sprintf("failed to enqueue item %d", itemIdx))
+				}
+			} else {
+				// Collect for batch COPY insert.
+				pendingRuns = append(pendingRuns, run)
+			}
+
+			results = append(results, BulkTriggerResult{
+				ID:             run.ID,
+				Status:         string(run.Status),
+				IdempotencyHit: false,
+			})
+			created++
+			enqueuedInBatch++
+		}
+
+		// Batch insert all collected runs via COPY protocol.
+		if len(pendingRuns) > 0 {
+			if _, err := s.queue.EnqueueBatch(ctx, pendingRuns); err != nil {
 				if apiErr := enqueueAPIError(err); apiErr != nil {
-					return nil, apiErr
+					return apiErr
 				}
-				return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to enqueue item %d", itemIdx))
+				return huma.Error500InternalServerError("failed to enqueue batch")
 			}
-		} else {
-			// Collect for batch COPY insert.
-			pendingRuns = append(pendingRuns, run)
 		}
-
-		results = append(results, BulkTriggerResult{
-			ID:             run.ID,
-			Status:         string(run.Status),
-			RunToken:       tokenString,
-			IdempotencyHit: false,
-		})
-		created++
-		enqueuedInBatch++
-	}
-
-	// Batch insert all collected runs via COPY protocol.
-	if len(pendingRuns) > 0 {
-		if _, err := s.queue.EnqueueBatch(ctx, pendingRuns); err != nil {
-			if apiErr := enqueueAPIError(err); apiErr != nil {
-				return nil, apiErr
-			}
-			return nil, huma.Error500InternalServerError("failed to enqueue batch")
-		}
+		return nil
+	}); err != nil {
+		return nil, triggerLimitAPIError(err, "failed to enqueue bulk trigger")
 	}
 
 	if err := s.store.FinalizeBatchOperation(ctx, batchID, created); err != nil {

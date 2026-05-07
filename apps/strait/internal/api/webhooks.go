@@ -8,12 +8,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
+	"fmt"
+
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -37,7 +41,8 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 		return nil, newValidationError(err)
 	}
 	if err := validateURLWithTLS(req.URL, s.config.WebhookRequireTLS); err != nil {
-		return nil, huma.Error400BadRequest("invalid url: " + err.Error())
+		slog.Warn("webhook test URL rejected", "url", httputil.RedactURLForLog(req.URL), "error", err)
+		return nil, huma.Error400BadRequest("invalid webhook URL")
 	}
 	testPayload, _ := json.Marshal(map[string]any{
 		"type":      "webhook.test",
@@ -59,7 +64,25 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 		httpReq.Header.Set("X-Strait-Signature", "v1="+sig)
 	}
 	start := time.Now()
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Re-validate the URL on every hop. Without CheckRedirect the bare http
+	// client follows 3xx by default — a public attacker host can return 302
+	// to http://169.254.169.254/ (cloud metadata) and exfiltrate IAM creds.
+	// The SSRF guard at the entry point only covers the first hop; this
+	// hook covers every redirect target.
+	requireTLS := s.config != nil && s.config.WebhookRequireTLS
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: httputil.NewExternalTransport(s.config != nil && s.config.AllowPrivateEndpoints),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := validateURLWithTLS(req.URL.String(), requireTLS); err != nil {
+				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(httpReq)
 	latencyMs := time.Since(start).Milliseconds()
 	if err != nil {
@@ -116,6 +139,16 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 	if original.JobID != "" {
 		job, jobErr := s.store.GetJob(ctx, original.JobID)
 		if jobErr != nil || job == nil || job.ProjectID != projectIDFromContext(ctx) {
+			return nil, huma.Error404NotFound("webhook delivery not found")
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			return nil, huma.Error404NotFound("webhook delivery not found")
+		}
+	} else {
+		if original.ProjectID != "" && original.ProjectID != projectIDFromContext(ctx) {
+			return nil, huma.Error404NotFound("webhook delivery not found")
+		}
+		if environmentIDFromContext(ctx) != "" {
 			return nil, huma.Error404NotFound("webhook delivery not found")
 		}
 	}

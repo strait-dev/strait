@@ -1,11 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,11 +29,13 @@ import (
 
 const ctxProjectIDKey contextKey = "project_id"
 const ctxOrgIDKey contextKey = "org_id"
+const ctxEnvironmentIDKey contextKey = "environment_id"
 const ctxScopesKey contextKey = "scopes"
 const ctxAPIKeyIDKey contextKey = "api_key_id"
 const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
+const ctxOIDCScopeClaimPresentKey contextKey = "oidc_scope_claim_present"
 
 // ctxInternalCallerKey is set to true by internalSecretAuth after the
 // X-Internal-Secret header passes constant-time comparison. It is the
@@ -62,7 +68,7 @@ func requireJSONAccept(next http.Handler) http.Handler {
 			ok := false
 			for part := range strings.SplitSeq(accept, ",") {
 				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
-				if mt == "application/json" || mt == "application/*" || mt == "*/*" {
+				if mt == "application/json" || mt == "application/*" || mt == "application/x-ndjson" || mt == "text/csv" || mt == "*/*" {
 					ok = true
 					break
 				}
@@ -94,30 +100,103 @@ func requireJSONContentType(next http.Handler) http.Handler {
 	})
 }
 
-// realIP extracts the client IP from the request, preferring the last entry
-// in X-Forwarded-For (the one appended by the first trusted reverse proxy)
-// over RemoteAddr. Returns only the IP, stripping port if present.
-func realIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Use the rightmost (last) entry: this is the IP appended by the
-		// first trusted proxy and cannot be spoofed by the client.
-		parts := strings.Split(xff, ",")
-		ip := strings.TrimSpace(parts[len(parts)-1])
-		if ip != "" {
-			return ip
+// realIP extracts the client IP for rate-limit / lockout accounting.
+//
+// When trustedProxies is non-empty, it walks X-Forwarded-For from right to
+// left, skipping entries whose IP is in the trusted-proxy set, and returns
+// the first untrusted IP it finds (the real client). When trustedProxies is
+// empty, X-Forwarded-For is ignored entirely and the connection's RemoteAddr
+// is returned, because any client can append arbitrary XFF entries and a
+// rightmost-entry policy would let attackers spoof the IP recorded for
+// lockout (rotating it to evade auth-failure throttling).
+func realIP(r *http.Request, trustedProxies []net.IPNet) string {
+	remote := remoteAddrIP(r)
+	if len(trustedProxies) == 0 {
+		return remote
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return remote
+	}
+	if !ipInNets(remote, trustedProxies) {
+		// The connecting peer is not a trusted proxy; ignore its XFF.
+		return remote
+	}
+	parts := strings.Split(xff, ",")
+	for _, raw := range slices.Backward(parts) {
+		candidate := strings.TrimSpace(raw)
+		if candidate == "" {
+			continue
+		}
+		if ipInNets(candidate, trustedProxies) {
+			continue
+		}
+		return candidate
+	}
+	return remote
+}
+
+// rateLimitKeyByIP is an httprate.KeyFunc that derives the rate-limit bucket
+// from the trusted-proxy-aware client IP, instead of httprate's default which
+// can be spoofed by clients in deployments where the server sees X-Forwarded-For.
+func (s *Server) rateLimitKeyByIP(r *http.Request) (string, error) {
+	return realIP(r, s.trustedProxies), nil
+}
+
+// remoteAddrIP returns the IP portion of r.RemoteAddr, stripping the port if
+// present. It correctly handles IPv6 forms like "[::1]:1234".
+func remoteAddrIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// ipInNets reports whether the IP literal ip belongs to any of the given
+// CIDR ranges. Invalid IPs return false.
+func ipInNets(ip string, nets []net.IPNet) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for i := range nets {
+		if nets[i].Contains(parsed) {
+			return true
 		}
 	}
-	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	return false
+}
+
+// parseTrustedProxies converts a list of CIDR strings or bare IPs from
+// configuration into net.IPNet ranges. Invalid entries are dropped; a
+// warning is the caller's responsibility.
+func parseTrustedProxies(entries []string) []net.IPNet {
+	out := make([]net.IPNet, 0, len(entries))
+	for _, raw := range entries {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if _, cidr, err := net.ParseCIDR(raw); err == nil {
+			out = append(out, *cidr)
+			continue
+		}
+		if ip := net.ParseIP(raw); ip != nil {
+			mask := net.CIDRMask(32, 32)
+			if ip.To4() == nil {
+				mask = net.CIDRMask(128, 128)
+			}
+			out = append(out, net.IPNet{IP: ip, Mask: mask})
+		}
 	}
-	return ip
+	return out
 }
 
 // sseTokenAuth extracts auth token from ?token= query param for SSE endpoints
 // where browsers cannot set custom headers (EventSource API limitation).
-// It first tries to parse the token as a short-lived SSE JWT (recommended).
-// If that fails, it falls back to treating it as a raw API key (backward compatible).
+// Query tokens must be short-lived SSE JWTs. Long-lived API keys must be sent
+// in the Authorization header so they do not leak through URLs or access logs.
 func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Internal-Secret") != "" {
@@ -140,8 +219,6 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// Fall back to raw API key in query param (backward compatible).
-		r.Header.Set("Authorization", "Bearer "+token)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -189,7 +266,7 @@ func traceIDFromContext(ctx context.Context) string {
 func (s *Server) attachAuditContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r))
+		ctx = context.WithValue(ctx, ctxRemoteIPKey, realIP(r, s.trustedProxies))
 		ua := r.UserAgent()
 		if len(ua) > auditUserAgentMaxBytes {
 			ua = ua[:auditUserAgentMaxBytes]
@@ -246,25 +323,86 @@ func requireProjectMatch(ctx context.Context, resourceProjectID string) error {
 	return nil
 }
 
+// errEnvironmentMismatch is returned when an API key is bound to an
+// environment that differs from the resource's environment. Handlers
+// should map this to 404 (not 403) to avoid leaking the existence of
+// resources in other environments.
+var errEnvironmentMismatch = errors.New("resource does not belong to the authenticated environment")
+
+// environmentIDFromContext returns the EnvironmentID stamped onto the
+// request by apiKeyAuth. Empty string means the caller is not bound to a
+// specific environment and may access resources in any environment of
+// their project.
+func environmentIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxEnvironmentIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// requireEnvironmentMatch enforces that an environment-scoped API key
+// can only access resources in its own environment. The conservative
+// rule: if the caller is bound to env X, every resource it touches must
+// also be bound to env X. Resources without an EnvironmentID (legacy or
+// unset) are also rejected for env-scoped keys to prevent silent
+// privilege escalation when keys are progressively rolled out.
+// Project-wide keys (empty ctx env) skip the check.
+func requireEnvironmentMatch(ctx context.Context, resourceEnvironmentID string) error {
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv == "" {
+		return nil
+	}
+	if resourceEnvironmentID != callerEnv {
+		return errEnvironmentMismatch
+	}
+	return nil
+}
+
 // requireRunAccess fetches the run by ID and enforces tenant isolation.
 // Returns an appropriate huma error if the caller does not own the run.
 // Internal callers (scheduler, worker) that operate without a project
 // context skip the check.
-func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
+func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.JobRun, error) {
 	if projectIDFromContext(ctx) == "" {
-		return nil // internal caller without project context
+		run, err := s.store.GetRun(ctx, runID)
+		if err != nil {
+			if errors.Is(err, store.ErrRunNotFound) {
+				return nil, huma.Error404NotFound("run not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to get run")
+		}
+		return run, nil
 	}
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			return huma.Error404NotFound("run not found")
+			return nil, huma.Error404NotFound("run not found")
 		}
-		return huma.Error500InternalServerError("failed to get run")
+		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return huma.Error404NotFound("run not found")
+		return nil, huma.Error404NotFound("run not found")
 	}
-	return nil
+	if env := environmentIDFromContext(ctx); env != "" {
+		// Environment scoping: an env-bound key must not reach a run
+		// whose owning job lives in a different environment, even when
+		// the project matches. The debug bundle in particular embeds
+		// raw events/payloads/outputs, so this gate prevents staging
+		// keys from pulling production telemetry.
+		job, jobErr := s.store.GetJob(ctx, run.JobID)
+		if jobErr != nil || job == nil {
+			return nil, huma.Error404NotFound("run not found")
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			return nil, huma.Error404NotFound("run not found")
+		}
+	}
+	return run, nil
+}
+
+func (s *Server) requireRunAccess(ctx context.Context, runID string) error {
+	_, accessErr := s.getRunForAccess(ctx, runID)
+	return accessErr
 }
 
 func orgIDFromContext(ctx context.Context) string {
@@ -276,7 +414,7 @@ func orgIDFromContext(ctx context.Context) string {
 
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r)
+		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
@@ -320,6 +458,11 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		// Successful auth — clear the brute-force counter for this IP so
+		// a legitimate user who fat-fingered their key a few times before
+		// finding the right one isn't held up by the lockout window.
+		s.authLimiter.Reset(r.Context(), clientIP)
+
 		touchCtx := context.WithoutCancel(r.Context())
 		s.bgPool.Submit(func() {
 			ctx, cancel := context.WithTimeout(touchCtx, 2*time.Second)
@@ -337,6 +480,14 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		// Org-scoped keys get org context set so cross-project queries work.
 		if apiKey.OrgID != "" {
 			ctx = context.WithValue(ctx, ctxOrgIDKey, apiKey.OrgID)
+		}
+
+		// Environment-scoped keys carry their bound environment so resource
+		// handlers can reject requests targeting a different environment
+		// (see requireEnvironmentMatch). A key with no EnvironmentID has
+		// project-wide reach and is unaffected.
+		if apiKey.EnvironmentID != "" {
+			ctx = context.WithValue(ctx, ctxEnvironmentIDKey, apiKey.EnvironmentID)
 		}
 
 		// Actor identity: API key requests are always attributed to the key itself.
@@ -373,18 +524,36 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 
 func (s *Server) oidcAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := realIP(r, s.trustedProxies)
+
+		// Check if this IP is locked out from too many failed attempts.
+		// Mirrors apiKeyAuth/internalSecretAuth so all three auth paths
+		// share the same brute-force budget — without this, an attacker
+		// could pivot from API-key brute force to OIDC token brute force
+		// once locked out on one path.
+		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "missing bearer token")
 			return
 		}
 
 		claims, err := s.oidcVerifier.verify(token)
 		if err != nil {
+			s.authLimiter.RecordFailure(r.Context(), clientIP)
 			respondError(w, r, http.StatusUnauthorized, "invalid bearer token")
 			return
 		}
+
+		// Successful OIDC verification — clear the brute-force counter.
+		s.authLimiter.Reset(r.Context(), clientIP)
 
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, ctxActorIDKey, claims.Subject)
@@ -396,6 +565,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		// from the OAuth consent screen.
 		if tokenScopes := claims.Scopes(); tokenScopes != nil {
 			ctx = context.WithValue(ctx, ctxScopesKey, tokenScopes)
+			ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
 		} else {
 			ctx = context.WithValue(ctx, ctxScopesKey, []string{})
 		}
@@ -434,7 +604,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r)
+		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
@@ -449,6 +619,9 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
+
+		// Successful internal-secret auth — clear the brute-force counter.
+		s.authLimiter.Reset(r.Context(), clientIP)
 
 		ctx := r.Context()
 		// Mark the request as authenticated via internal secret. This flag is
@@ -608,8 +781,8 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			// Internal secret auth does not set scopes — those requests are
 			// always allowed regardless of actor headers (actor is for audit only).
 			scopes := scopesFromContext(ctx)
-			if scopes == nil {
-				// No scopes = internal secret auth — allow through.
+			if scopes == nil && isInternalCaller(ctx) {
+				// Verified internal-secret auth is allowed regardless of scopes.
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -619,7 +792,11 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 			switch actorType {
 			case "api_key", "sse_token":
 				// API keys and SSE tokens use scopes directly.
-				if domain.HasScope(scopes, permission) {
+				hasScope := domain.HasScope(scopes, permission)
+				if actorType == "sse_token" {
+					hasScope = domain.HasScopeStrict(scopes, permission)
+				}
+				if hasScope {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -640,14 +817,19 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 				// least privilege from the OAuth consent screen — the token
 				// scopes restrict what the user can do, even if their
 				// database role would allow more.
+				if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+					respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
+					return
+				}
 				if len(scopes) > 0 {
 					if !domain.HasScope(scopes, permission) {
 						respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
 						return
 					}
-					// Token has the required scope — proceed.
-					next.ServeHTTP(w, r)
-					return
+					// Token scopes are an upper bound, not a substitute for
+					// project RBAC. Continue into the normal user permission
+					// checks so a scoped OIDC token cannot grant access the
+					// user does not hold in this project.
 				}
 
 				perms, cached := s.permCache.Get(projectID, actorID)
@@ -667,15 +849,15 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 					respondError(w, r, http.StatusForbidden, "no role assigned in this project")
 					return
 				}
-				if domain.HasScope(perms, permission) {
+				if domain.HasScopeStrict(perms, permission) {
 					next.ServeHTTP(w, r)
 					return
 				}
 
 				// Fallback: check resource-level policies.
 				if resType, resID := resourceFromRequest(r); resType != "" && resID != "" {
-					actions, rpErr := s.store.GetResourcePolicies(ctx, resType, resID, actorID)
-					if rpErr == nil && domain.HasScope(actions, permission) {
+					actions, rpErr := s.store.GetResourcePolicies(ctx, projectID, resType, resID, actorID)
+					if rpErr == nil && domain.HasScopeStrict(actions, permission) {
 						next.ServeHTTP(w, r)
 						return
 					}
@@ -683,7 +865,7 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 					// Fallback: check tag-based policies for matching resources.
 					if tags, ok := s.resourceTags(ctx, resType, resID); ok {
 						tagActions, tpErr := s.store.GetTagPolicyActions(ctx, projectID, resType, actorID, tags)
-						if tpErr == nil && domain.HasScope(tagActions, permission) {
+						if tpErr == nil && domain.HasScopeStrict(tagActions, permission) {
 							next.ServeHTTP(w, r)
 							return
 						}
@@ -802,6 +984,11 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		return s.projectContextMiddleware(next)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bypassRLSTxBuffer(r) {
+			s.projectContextMiddleware(next).ServeHTTP(w, r)
+			return
+		}
+
 		projectID := projectIDFromContext(r.Context())
 		if projectID == "" {
 			// Routes with no project context (public endpoints, health
@@ -841,13 +1028,91 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			}
 		}()
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		bw := newBufferedResponseWriter(maxRLSBufferedResponseBytes)
+		next.ServeHTTP(bw, r.WithContext(ctx))
 
 		panicked = false
+		if err := bw.Err(); err != nil {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+				slog.Warn("failed to rollback RLS tx after oversized response", "error", rbErr)
+			}
+			respondError(w, r, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
+			return
 		}
+		bw.FlushTo(w)
 	})
+}
+
+const maxRLSBufferedResponseBytes = 16 << 20
+
+var errRLSBufferedResponseTooLarge = errors.New("response too large")
+
+func bypassRLSTxBuffer(r *http.Request) bool {
+	if r.URL == nil {
+		return false
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/v1/audit-events/export" {
+		return true
+	}
+	return r.Method == http.MethodPost && r.URL.Path == "/v1/webhooks/test"
+}
+
+type bufferedResponseWriter struct {
+	header      http.Header
+	body        bytes.Buffer
+	status      int
+	wroteHeader bool
+	maxBytes    int
+	err         error
+}
+
+func newBufferedResponseWriter(maxBytes int) *bufferedResponseWriter {
+	return &bufferedResponseWriter{header: make(http.Header), status: http.StatusOK, maxBytes: maxBytes}
+}
+
+func (w *bufferedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *bufferedResponseWriter) WriteHeader(statusCode int) {
+	if w.wroteHeader {
+		return
+	}
+	w.status = statusCode
+	w.wroteHeader = true
+}
+
+func (w *bufferedResponseWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.maxBytes > 0 && w.body.Len()+len(p) > w.maxBytes {
+		w.err = fmt.Errorf("%w: buffered response exceeds %d bytes", errRLSBufferedResponseTooLarge, w.maxBytes)
+		return 0, w.err
+	}
+	return w.body.Write(p)
+}
+
+func (w *bufferedResponseWriter) Err() error {
+	return w.err
+}
+
+func (w *bufferedResponseWriter) FlushTo(dst http.ResponseWriter) {
+	for key, values := range w.header {
+		for _, value := range values {
+			dst.Header().Add(key, value)
+		}
+	}
+	dst.WriteHeader(w.status)
+	_, _ = dst.Write(w.body.Bytes())
 }
 
 // apiVersionHeader injects X-API-Version into every response.
@@ -960,7 +1225,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 6. Fall back to per-IP rate limit when no key/project limits matched.
 	if s.config.RateLimitRequests > 0 {
-		ip := realIP(r)
+		ip := realIP(r, s.trustedProxies)
 		return resolvedRateLimit{s.config.RateLimitRequests, int(time.Minute.Seconds()), "rl:ip:" + ip}
 	}
 

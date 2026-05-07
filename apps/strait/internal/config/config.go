@@ -108,6 +108,13 @@ type Config struct {
 	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `env:"CORS_ALLOW_CREDENTIALS" default:"false"`
 
+	// TrustedProxies is a comma-separated list of CIDR ranges (or single IPs)
+	// that are allowed to set the X-Forwarded-For header. When empty (the
+	// default), X-Forwarded-For is ignored entirely and the connection's
+	// RemoteAddr is used for rate-limit / lockout accounting. This prevents
+	// clients from spoofing their source IP by adding their own XFF entries.
+	TrustedProxies []string `env:"TRUSTED_PROXIES"`
+
 	WorkerPartitions       []string `env:"WORKER_PARTITIONS"`
 	WorkerPartitionWeights string   `env:"WORKER_PARTITION_WEIGHTS"`
 	AdaptiveConcurrencyMin int      `env:"ADAPTIVE_CONCURRENCY_MIN" default:"5"`
@@ -203,30 +210,8 @@ type Config struct {
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
 	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
 	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	// Managed execution (container runtime)
-	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
-	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
-	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"k8s"`
-	ComputeFallbackProvider string        `env:"COMPUTE_FALLBACK_PROVIDER"`
-	DefaultRegion           string        `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL          string        `env:"EXTERNAL_API_URL"`
-	MaxConcurrentMachines   int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
-	WarmPoolEnabled         bool          `env:"WARM_POOL_ENABLED" default:"false"`
-	WarmPoolMaxPerJob       int           `env:"WARM_POOL_MAX_PER_JOB" default:"0"`
-	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
-	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
-
-	// Kubernetes runtime
-	K8sKubeconfig    string        `env:"K8S_KUBECONFIG"`
-	K8sNamespace     string        `env:"K8S_NAMESPACE" default:"default"`
-	K8sPriorityClass string        `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
-	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
-	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
-	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
-	// K8sRuntimeClass sets the RuntimeClassName on all job pods.
-	// Set to "gvisor" to enable gVisor kernel isolation on worker nodes that have
-	// the RuntimeClass installed. Leave empty to use the node default runtime.
-	K8sRuntimeClass string `env:"K8S_RUNTIME_CLASS" default:""`
+	DefaultRegion              string        `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL             string        `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -263,6 +248,22 @@ type Config struct {
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
 
+	// Orchestration-only tier price IDs (new billing model).
+	// Set these to the Stripe Price IDs for each plan's flat monthly subscription.
+	StripeStarterPriceID    string `env:"STRIPE_STARTER_PRICE_ID"`
+	StripeProPriceID        string `env:"STRIPE_PRO_PRICE_ID"`
+	StripeScalePriceID      string `env:"STRIPE_SCALE_PRICE_ID"`
+	StripeEnterprisePriceID string `env:"STRIPE_ENTERPRISE_PRICE_ID"`
+	// Overage meter price IDs — one per paid tier, used for metered billing.
+	StripeStarterOveragePriceID string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
+	StripeProOveragePriceID     string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
+	StripeScaleOveragePriceID   string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
+	// Add-on price IDs for optional per-org upgrades.
+	StripeRetentionPackPriceID    string `env:"STRIPE_RETENTION_PACK_PRICE_ID"`
+	StripePrioritySlotPackPriceID string `env:"STRIPE_PRIORITY_SLOT_PACK_PRICE_ID"`
+	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
+	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
+
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
@@ -286,80 +287,20 @@ type Config struct {
 	// This field exists for config logging but is ignored by domain.ParseEdition.
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 
-	// Code-first build pipeline (STR-385).
+	// gRPC server settings.
+	GRPCEnabled          bool          `env:"GRPC_ENABLED" default:"true"`
+	GRPCBindAddr         string        `env:"GRPC_BIND_ADDR" default:"127.0.0.1"`
+	GRPCPort             int           `env:"GRPC_PORT" default:"50051"`
+	GRPCAllowPlaintext   bool          `env:"GRPC_ALLOW_PLAINTEXT" default:"false"`
+	GRPCTLSCertPath      string        `env:"GRPC_TLS_CERT_PATH"`
+	GRPCTLSKeyPath       string        `env:"GRPC_TLS_KEY_PATH"`
+	GRPCKeepaliveTime    time.Duration `env:"GRPC_KEEPALIVE_TIME" default:"30s"`
+	GRPCKeepaliveTimeout time.Duration `env:"GRPC_KEEPALIVE_TIMEOUT" default:"10s"`
 
-	// BuildKit daemon address. Used by the build orchestrator to submit builds.
-	BuildKitAddress string `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
-	// BuildKitAddresses is an optional comma-separated list of BuildKit daemon
-	// addresses used for multi-node round-robin dispatch. When non-empty it
-	// overrides BuildKitAddress.
-	BuildKitAddresses string `env:"BUILDKIT_ADDRESSES" default:""`
-	BuildKitNamespace string `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
-
-	// Deployment GC removes stale pending and old failed/timed_out deployments.
-	DeploymentGCEnabled    bool          `env:"DEPLOYMENT_GC_ENABLED" default:"true"`
-	DeploymentGCInterval   time.Duration `env:"DEPLOYMENT_GC_INTERVAL" default:"1h"`
-	DeploymentGCPendingTTL time.Duration `env:"DEPLOYMENT_GC_PENDING_TTL" default:"15m"`
-	DeploymentGCFailedAge  time.Duration `env:"DEPLOYMENT_GC_FAILED_AGE" default:"168h"` // 7 days
-
-	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
-	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`
-	BuildTimeout         time.Duration `env:"BUILD_TIMEOUT" default:"10m"`
-
-	// Object store for deployment tarballs.
-	// Type selects the implementation: "s3" (default, works for R2 and MinIO).
-	ObjectStoreType           string `env:"OBJECT_STORE_TYPE" default:"s3"`
-	ObjectStoreBucket         string `env:"OBJECT_STORE_BUCKET"`
-	ObjectStoreEndpoint       string `env:"OBJECT_STORE_ENDPOINT"` // e.g. "https://{account}.r2.cloudflarestorage.com" or "http://minio:9000"
-	ObjectStoreRegion         string `env:"OBJECT_STORE_REGION" default:"auto"`
-	ObjectStoreAccessKey      string `env:"OBJECT_STORE_ACCESS_KEY"`
-	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
-	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
-
-	// Container registry for built images.
-	// Type selects the implementation: "ecr" or "generic" (Docker Registry API v2).
-	ContainerRegistryType   string `env:"CONTAINER_REGISTRY_TYPE" default:"ecr"`
-	ContainerRegistryURL    string `env:"CONTAINER_REGISTRY_URL"`  // for generic
-	ContainerRegistryUser   string `env:"CONTAINER_REGISTRY_USER"` // for generic
-	ContainerRegistryPass   string `env:"CONTAINER_REGISTRY_PASS"` // for generic
-	ContainerRegistryPrefix string `env:"CONTAINER_REGISTRY_PREFIX" default:"strait-jobs"`
-	ECRRegion               string `env:"ECR_REGION" default:"us-east-1"`
-	ECRRegistryID           string `env:"ECR_REGISTRY_ID"` // AWS account ID; defaults to caller account
-	ECRRoleARN              string `env:"ECR_ROLE_ARN"`    // optional IAM role for cross-account access
-	// BuildExtraRegistryAuths is a JSON object mapping registry hostnames to
-	// bearer tokens used for authenticating private base images at build time.
-	// Example: {"private.registry.io": "base64token", "ghcr.io": "ghp_token"}
-	BuildExtraRegistryAuths string `env:"BUILD_EXTRA_REGISTRY_AUTHS" default:"{}"`
-
-	// Dispatcher mode: multi-cluster job routing (--mode dispatcher).
-	// DispatcherClusterRegistryConfigMap is the name of the K8s ConfigMap that
-	// contains the cluster-registry.yaml manifest listing all Strait clusters.
-	// Defaults to the name deployed by the infra repo.
-	DispatcherClusterRegistryConfigMap string `env:"DISPATCHER_CLUSTER_REGISTRY_CONFIGMAP" default:"cluster-registry"`
-	// DispatcherClusterRegistryNamespace is the K8s namespace that contains the
-	// cluster-registry ConfigMap.
-	DispatcherClusterRegistryNamespace string `env:"DISPATCHER_CLUSTER_REGISTRY_NAMESPACE" default:"strait"`
-	// DispatcherRefreshInterval controls how often the dispatcher re-reads cluster
-	// queue depths. Shorter intervals improve routing accuracy at the cost of more
-	// Prometheus queries.
-	DispatcherRefreshInterval time.Duration `env:"DISPATCHER_REFRESH_INTERVAL" default:"5s"`
-
-	// Performance: image pull policy and lazy loading.
-	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.
-	ImagePullPolicy string `env:"IMAGE_PULL_POLICY" default:"IfNotPresent"`
-	// PrePullEnabled deploys a DaemonSet that pre-pulls base runtime images to
-	// all nodes, eliminating cold-start latency on the first run.
-	PrePullEnabled bool `env:"PRE_PULL_ENABLED" default:"false"`
-	// SOCIEnabled enables Seekable OCI (SOCI) lazy image loading via the
-	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
-	// When enabled, container startup begins before the full image is pulled.
-	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
-	// SOCIMinImageBytes is the minimum compressed image size (in bytes) below which
-	// SOCI index generation is skipped — the overhead of lazy loading is not worth it
-	// for small images. Defaults to 10 MiB.
-	// NOTE: size-based skipping is not yet implemented; this config is reserved for
-	// a future optimisation once post-build image size querying is available.
-	SOCIMinImageBytes int64 `env:"SOCI_MIN_IMAGE_SIZE_BYTES" default:"10485760"`
+	// gRPC Worker connection management.
+	WorkerHeartbeatTimeout        time.Duration `env:"WORKER_HEARTBEAT_TIMEOUT" default:"30s"`
+	WorkerDBSyncInterval          time.Duration `env:"WORKER_DB_SYNC_INTERVAL" default:"10s"`
+	WorkerDisconnectSweepInterval time.Duration `env:"WORKER_DISCONNECT_SWEEP_INTERVAL" default:"30s"`
 }
 
 // Load reads configuration from environment variables.
@@ -416,11 +357,10 @@ func Load() (*Config, error) {
 // validateLoaded runs the post-load validation gauntlet on a populated
 // Config: required fields, enumerated values, URL parsing, edition gating,
 // CORS policy, and audit subsystem invariants. It mutates cfg in two
-// well-defined cases (community-edition ComputeRuntime override; no other
-// assignments) to match the pre-refactor behavior of Load. Returns a
+// well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
 //
-//nolint:gocyclo,cyclop,gocognit
+//nolint:gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
@@ -470,37 +410,6 @@ func validateLoaded(cfg *Config) error {
 		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
 		}
-	}
-
-	switch cfg.ComputeRuntime {
-	case "none", "docker", "k8s", "":
-		// valid
-	default:
-		return &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
-	}
-	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
-		if cfg.K8sNamespace == "" {
-			return &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
-		}
-	}
-	if cfg.ComputeFallbackProvider != "" {
-		switch cfg.ComputeFallbackProvider {
-		case "docker", "k8s":
-			// valid
-		default:
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
-		}
-		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
-		}
-		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
-		}
-	}
-	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
-		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
-			"configured", cfg.ComputeRuntime)
-		cfg.ComputeRuntime = "none"
 	}
 
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
@@ -575,7 +484,6 @@ func (c *Config) Redacted() map[string]any {
 		"WorkerConcurrency":      c.WorkerConcurrency,
 		"PollerInterval":         c.PollerInterval.String(),
 		"DBMaxConns":             c.DBMaxConns,
-		"ComputeRuntime":         c.ComputeRuntime,
 		"SentryEnvironment":      c.SentryEnvironment,
 		"DefaultAPIKeyRateLimit": c.DefaultAPIKeyRateLimit,
 		"DatabaseURL":            "[REDACTED]",

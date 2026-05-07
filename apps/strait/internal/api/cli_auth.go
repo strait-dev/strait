@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	deviceCodeExpiresIn    = 900
-	deviceCodePollInterval = 5
+	deviceCodeExpiresIn           = 900
+	deviceCodePollInterval        = 5
+	defaultCLIKeyLifetimeDays int = 90
 )
 const userCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -39,8 +40,8 @@ type deviceTokenResponse struct {
 	Scopes    []string `json:"scopes"`
 }
 type approveDeviceCodeRequest struct {
-	DeviceCode string `json:"device_code" validate:"required"`
-	ProjectID  string `json:"project_id" validate:"required"`
+	UserCode  string `json:"user_code" validate:"required"`
+	ProjectID string `json:"project_id" validate:"required"`
 }
 
 func generateDeviceCode() (string, error) {
@@ -132,7 +133,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
-	row, err := s.store.GetDeviceCodeByDeviceCode(ctx, req.DeviceCode)
+	row, err := s.store.GetDeviceCodeByUserCode(ctx, req.UserCode)
 	if err != nil {
 		if errors.Is(err, store.ErrDeviceCodeNotFound) {
 			return nil, huma.Error404NotFound("device code not found")
@@ -145,15 +146,33 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	if time.Now().After(row.ExpiresAt) {
 		return nil, huma.Error400BadRequest("device code has expired")
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, domain.CLIDefaultScopes); err != nil {
+		return nil, err
+	}
 	rawKey, err := generateAPIKey()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	apiKey := &domain.APIKey{ProjectID: req.ProjectID, Name: "CLI (device-code " + row.UserCode + ")", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: domain.CLIDefaultScopes}
+	expiresAt, err := s.cliAPIKeyExpiry(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	apiKey := &domain.APIKey{
+		ProjectID:     req.ProjectID,
+		Name:          "CLI (device-code " + row.UserCode + ")",
+		KeyHash:       hashAPIKey(rawKey),
+		KeyPrefix:     rawKey[:12],
+		Scopes:        domain.CLIDefaultScopes,
+		ExpiresAt:     expiresAt,
+		EnvironmentID: environmentIDFromContext(ctx),
+	}
 	if err := s.store.CreateAPIKey(ctx, apiKey); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
-	if err := s.store.ApproveDeviceCode(ctx, req.DeviceCode, apiKey.ID, rawKey); err != nil {
+	if err := s.store.ApproveDeviceCodeByUserCode(ctx, req.UserCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
 		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
 	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))
@@ -165,4 +184,19 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	})
 
 	return &ApproveDeviceCodeOutput{Body: map[string]string{"status": "approved"}}, nil
+}
+
+func (s *Server) cliAPIKeyExpiry(ctx context.Context, projectID string) (*time.Time, error) {
+	lifetimeDays := defaultCLIKeyLifetimeDays
+	quota, err := s.store.GetProjectQuota(ctx, projectID)
+	if err != nil {
+		slog.Warn("failed to load project quota while approving device code",
+			"project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load project quota")
+	}
+	if quota != nil && quota.MaxKeyLifetimeDays > 0 && quota.MaxKeyLifetimeDays < lifetimeDays {
+		lifetimeDays = quota.MaxKeyLifetimeDays
+	}
+	expiresAt := time.Now().Add(time.Duration(lifetimeDays) * 24 * time.Hour)
+	return &expiresAt, nil
 }

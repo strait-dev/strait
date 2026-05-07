@@ -96,9 +96,17 @@ func validateGitHubSHA256(secret string, body []byte, headerValue string) error 
 }
 
 // ComputeHMACSHA256 computes a HMAC-SHA256 signature and returns the hex digest.
-// Used by the delivery worker to sign outgoing webhook payloads.
 func ComputeHMACSHA256(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// ComputeTimestampedHMACSHA256 signs "timestamp.body" so receivers can reject
+// stale replay attempts while still validating the exact delivered bytes.
+func ComputeTimestampedHMACSHA256(secret, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp + "."))
+	_, _ = mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
 }

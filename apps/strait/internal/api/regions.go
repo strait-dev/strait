@@ -3,10 +3,10 @@ package api
 import (
 	"context"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 )
 
+// RegionResponse is the public API shape for execution-region metadata.
 type RegionResponse struct {
 	Code         string          `json:"code"`
 	Label        string          `json:"label"`
@@ -16,26 +16,36 @@ type RegionResponse struct {
 	Availability map[string]bool `json:"availability,omitempty"`
 }
 
-type RegionsListResponse struct {
-	Regions []RegionResponse `json:"regions"`
+// GetRegionsOutput is the typed output for the list regions endpoint.
+type GetRegionsOutput struct {
+	Body struct {
+		Regions []RegionResponse `json:"regions"`
+	}
 }
 
-type ListRegionsInput struct{}
-type ListRegionsOutput struct{ Body RegionsListResponse }
-
-func (s *Server) handleListRegions(_ context.Context, _ *ListRegionsInput) (*ListRegionsOutput, error) {
-	allRegions := compute.AllRegions()
-	regions := make([]RegionResponse, len(allRegions))
-	for i, reg := range allRegions {
-		regions[i] = RegionResponse{
-			Code: reg.Code, Label: reg.Label, City: reg.City, Country: reg.Country, Continent: reg.Continent,
-			Availability: map[string]bool{
-				string(domain.PlanFree):       domain.IsRegionAllowed(domain.PlanFree, reg.Code),
-				string(domain.PlanStarter):    domain.IsRegionAllowed(domain.PlanStarter, reg.Code),
-				string(domain.PlanPro):        domain.IsRegionAllowed(domain.PlanPro, reg.Code),
-				string(domain.PlanEnterprise): domain.IsRegionAllowed(domain.PlanEnterprise, reg.Code),
-			},
-		}
+func toRegionResponse(region domain.RegionInfo) RegionResponse {
+	availability := make(map[string]bool, len(domain.AllPlanTiers()))
+	for _, tier := range domain.AllPlanTiers() {
+		availability[string(tier)] = domain.IsRegionAllowed(tier, region.Code)
 	}
-	return &ListRegionsOutput{Body: RegionsListResponse{Regions: regions}}, nil
+
+	return RegionResponse{
+		Code:         region.Code,
+		Label:        region.Label,
+		City:         region.City,
+		Country:      region.Country,
+		Continent:    region.Continent,
+		Availability: availability,
+	}
+}
+
+// handleGetRegions returns all supported execution regions with display metadata.
+func (s *Server) handleGetRegions(_ context.Context, _ *struct{}) (*GetRegionsOutput, error) {
+	regions := domain.AllRegions()
+	out := &GetRegionsOutput{}
+	out.Body.Regions = make([]RegionResponse, 0, len(regions))
+	for _, region := range regions {
+		out.Body.Regions = append(out.Body.Regions, toRegionResponse(region))
+	}
+	return out, nil
 }

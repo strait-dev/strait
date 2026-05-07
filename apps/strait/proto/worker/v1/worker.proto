@@ -1,0 +1,88 @@
+syntax = "proto3";
+package strait.worker.v1;
+
+option go_package = "strait/internal/api/grpc/proto/workerv1;workerv1";
+
+service WorkerService {
+  rpc StreamTasks(stream WorkerMessage) returns (stream ServerMessage);
+}
+
+message WorkerMessage {
+  oneof payload {
+    WorkerRegistration registration = 1;
+    Heartbeat heartbeat = 2;
+    TaskResult task_result = 3;
+    LogLine log_line = 4;
+    Acknowledged ack = 5;
+  }
+}
+
+message ServerMessage {
+  oneof payload {
+    TaskAssignment task_assignment = 1;
+    CancelTask cancel_task = 2;
+    Acknowledged ack = 3;
+  }
+}
+
+message WorkerRegistration {
+  string worker_id = 1;
+  string name = 2;
+  repeated string queues = 3;
+  repeated string job_slugs = 4;
+  string sdk_version = 5;
+  string sdk_language = 6;
+  string hostname = 7;
+  int32 slots_total = 8;
+  int32 slots_available = 9;
+  repeated InFlightTask in_flight_tasks = 10;
+  map<string, string> metadata = 11;
+}
+
+message InFlightTask {
+  string run_id = 1;
+  string status = 2; // completed | failed | abandoned
+  string error_message = 3;
+  bytes output_json = 4;
+}
+
+message TaskAssignment {
+  string run_id = 1;
+  string job_slug = 2;
+  string queue = 3;
+  bytes payload_json = 4;
+  int32 timeout_secs = 5;
+  string run_token_jwt = 6;
+  string hmac_signature = 7;
+  string hmac_timestamp = 8;
+  map<string, string> metadata = 9;
+}
+
+message TaskResult {
+  string run_id = 1;
+  string status = 2; // success | failed
+  bytes output_json = 3;
+  string error_message = 4;
+  int64 duration_ms = 5;
+}
+
+message Heartbeat {
+  int32 slots_available = 1;
+  int64 timestamp_unix = 2;
+}
+
+message LogLine {
+  string run_id = 1;
+  string level = 2;
+  string message = 3;
+  int64 timestamp_unix_ms = 4;
+}
+
+message CancelTask {
+  string run_id = 1;
+  string reason = 2;
+}
+
+message Acknowledged {
+  string id = 1;
+}

@@ -6,17 +6,17 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/strait-dev/strait)](https://goreportcard.com/report/github.com/strait-dev/strait)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-**Production-grade job orchestration for engineering teams and AI agents — in a single binary.**
+**Open-source job orchestration in a single Go binary.**
 
-Strait handles job queuing, scheduling, state tracking, and execution in one Go service backed by Postgres and Redis. No RabbitMQ, no SQS, no Kafka.
+Strait runs your background jobs and orchestrates multi-step workflows. One service, backed by PostgreSQL and Redis. No RabbitMQ, no SQS, no Kafka.
 
-- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and review queue, with a real-time dashboard to match
-- **Workflow engine** — branching, parallel steps, sub-workflows, approval gates, and compensating transactions
-- **Smart retries** — configurable retry strategies with jitter and per-endpoint circuit breakers
-- **Durable workflows** — multi-day sleeps, checkpoints, expected completion tracking, and stage notifications
-- **Observability built in** — OpenTelemetry tracing, Prometheus metrics, structured logging, and real-time streaming
-- **Multi-language SDKs** — [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), [Rust](https://github.com/strait-dev/strait-rust), all with full feature parity
-- **Zero third-party runtime deps for self-host** — everything ships in Docker Compose
+- Full run lifecycle from `queued` to terminal state, plus a review queue for runs that exhaust their retries — visible in a live dashboard.
+- Workflow engine with branching, parallel steps, sub-workflows, approval gates, and compensation steps.
+- Configurable retry strategies (exponential, linear, fixed, custom) with jitter and per-endpoint circuit breakers.
+- Durable workflows that survive multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
+- OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming — built in, not bolted on.
+- SDKs in [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust). Same feature set on each.
+- Self-host needs nothing beyond what's in `docker-compose.selfhost.yml`.
 
 ---
 
@@ -30,7 +30,7 @@ cd strait
 make selfhost
 ```
 
-That boots Postgres, Redis, Sequin, the Strait API, and the dashboard on your own machine. Open http://localhost:3000, sign up, and create your first job. **No Stripe. No billing. No telemetry. No third-party accounts.**
+That boots PostgreSQL, Redis, Sequin, the Strait API, and the dashboard on your machine. Open http://localhost:3000, sign up, and create your first job. No Stripe, no billing, no telemetry, no third-party accounts.
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
@@ -42,9 +42,9 @@ Bun monorepos need one manual setting during the Workers Builds import (`Root di
 
 ---
 
-## Let an AI agent do the setup for you
+## Let an AI agent do the setup
 
-Paste the block below into Claude Code, Cursor, Codex, Aider, or any coding agent and it will clone Strait, bring up the self-host stack, and walk you through triggering your first job — end to end. No manual commands.
+Paste the block below into Claude Code, Cursor, Codex, Aider, or any coding agent. It will clone Strait, bring up the self-host stack, and walk you through triggering your first job — no manual commands on your end.
 
 ~~~
 You are setting up Strait, a self-hosted job orchestration platform, on my
@@ -100,11 +100,11 @@ Important rules:
 | Built-in observability (tracing, metrics, logs) | ✓ | ✓ |
 | Interactive API reference at `/reference` | ✓ | ✓ |
 | Billing, metering, usage limits, Stripe | — | ✓ |
-| Managed multi-region execution | — | ✓ |
+| Multi-region hosted orchestration | — | ✓ |
 | Advanced analytics (ClickHouse) | — | ✓ |
 | SLA + 24/7 support | — | ✓ |
 
-Self-host is the community edition. Billing is compiled out of the dashboard image — there is no way to connect Stripe, view plan limits, or reach an upgrade screen. You own your data, your infrastructure, and your users.
+Self-host is the community edition. Billing is compiled out of the dashboard image — there is no way to connect Stripe, view plan limits, or reach an upgrade screen. Your data and your users stay on your infrastructure.
 
 ---
 

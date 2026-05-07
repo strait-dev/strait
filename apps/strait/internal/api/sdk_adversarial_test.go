@@ -159,18 +159,118 @@ func newAuthTestServer(t *testing.T) *Server {
 }
 
 // signToken creates a JWT signed with the given key and subject.
+//
+// The Issuer is set to "strait:run-token" because runTokenAuth now
+// strictly enforces it (jwt.WithIssuer); a token without that issuer
+// is rejected as "invalid run token".
 func signToken(t *testing.T, key, subject string, expiry time.Time) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   subject,
-		ExpiresAt: jwt.NewNumericDate(expiry),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	return signTokenWithAttempt(t, key, subject, expiry, 1, "")
+}
+
+func signTokenWithAttempt(t *testing.T, key, subject string, expiry time.Time, attempt int, assignmentID string) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, runTokenClaims{
+		Attempt:      attempt,
+		AssignmentID: assignmentID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   subject,
+			ExpiresAt: jwt.NewNumericDate(expiry),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	})
 	signed, err := token.SignedString([]byte(key))
 	if err != nil {
 		t.Fatalf("failed to sign token: %v", err)
 	}
 	return signed
+}
+
+type workerTaskAPIStoreMock struct {
+	*APIStoreMock
+	status    domain.RunStatus
+	attempt   int
+	projectID string
+	stateErr  error
+	task      *domain.WorkerTask
+	err       error
+}
+
+func (m *workerTaskAPIStoreMock) GetRunTokenState(_ context.Context, _ string) (domain.RunStatus, int, string, error) {
+	return m.status, m.attempt, m.projectID, m.stateErr
+}
+
+func (m *workerTaskAPIStoreMock) GetWorkerTask(_ context.Context, _ string) (*domain.WorkerTask, error) {
+	return m.task, m.err
+}
+
+type racingTerminalSDKStore struct {
+	*APIStoreMock
+	stateCalls atomic.Int64
+}
+
+func (m *racingTerminalSDKStore) GetRunTokenState(_ context.Context, runID string) (domain.RunStatus, int, string, error) {
+	if m.stateCalls.Add(1) == 1 {
+		return domain.StatusExecuting, 1, "proj-1", nil
+	}
+	return domain.StatusCompleted, 1, "proj-1", nil
+}
+
+func (m *racingTerminalSDKStore) EnsureRunActiveForAttempt(context.Context, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpdateRunMetadataForActiveRun(context.Context, string, map[string]string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpdateHeartbeatForActiveRun(context.Context, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpsertRunStateForActiveRun(context.Context, *domain.RunState, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) DeleteRunStateForActiveRun(context.Context, string, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpsertJobMemoryWithQuotaForActiveRun(context.Context, string, *domain.JobMemory, int, int, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) DeleteJobMemoryForActiveRun(context.Context, string, string, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunResourceSnapshotForActiveRun(context.Context, *domain.RunResourceSnapshot, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunIterationForActiveRun(context.Context, *domain.RunIteration, int) error {
+	return store.ErrRunConflict
 }
 
 // authRequest builds a request with the given runID in the chi route context.
@@ -235,6 +335,270 @@ func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called")
+	}
+}
+
+// Regression: a token without the "strait:run-token"
+// issuer must be rejected. Without this guard a token issued for a
+// different audience (SSE token, gRPC inter-service token) signed
+// with the same JWT key could be replayed against the SDK plane.
+func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
+	t.Parallel()
+	srv := newAuthTestServer(t)
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "strait:sse",
+		Subject:   "run-1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	})
+	signed, err := token.SignedString([]byte(testSigningKey))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+signed)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong-issuer token, got %d", w.Code)
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called for wrong-issuer token")
+	}
+}
+
+// Regression: a token without an `exp` claim must be
+// rejected (jwt.WithExpirationRequired). Otherwise a forged or
+// misissued token would never time out.
+func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
+	t.Parallel()
+	srv := newAuthTestServer(t)
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:   "strait:run-token",
+		Subject:  "run-1",
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+		// Deliberately no ExpiresAt.
+	})
+	signed, err := token.SignedString([]byte(testSigningKey))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+signed)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for token with no exp, got %d", w.Code)
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called for non-expiring token")
+	}
+}
+
+// Regression: a token bound to a run that has already
+// reached a terminal state must be rejected with 410 Gone, even if
+// the JWT itself is otherwise valid (correct issuer, exp, signature,
+// subject). Without this guard a stolen token outlives the runtime
+// and can keep writing logs/state/memory after the run is dead.
+func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
+	t.Parallel()
+	for _, status := range []domain.RunStatus{
+		domain.StatusCompleted,
+		domain.StatusFailed,
+		domain.StatusCanceled,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
+		domain.StatusExpired,
+		domain.StatusDeadLetter,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				InternalSecret:      "test-secret-value",
+				MaxBulkTriggerItems: 500,
+				JWTSigningKey:       testSigningKey,
+			}
+			ms := &APIStoreMock{
+				GetRunStatusFunc: func(_ context.Context, _ string) (domain.RunStatus, error) {
+					return status, nil
+				},
+			}
+			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+			t.Cleanup(srv.Close)
+			var called atomic.Bool
+			handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+				called.Store(true)
+			}))
+			tok := signToken(t, testSigningKey, "run-1", time.Now().Add(time.Hour))
+			r := authRequest(t, "run-1")
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != http.StatusGone {
+				t.Fatalf("status %s: expected 410 Gone, got %d (body=%s)", status, w.Code, w.Body.String())
+			}
+			if called.Load() {
+				t.Fatalf("status %s: next handler should not have been called", status)
+			}
+		})
+	}
+}
+
+func TestRunTokenAuth_StaleAttemptRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testSigningKey,
+	}
+	ms := &workerTaskAPIStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		status:       domain.StatusExecuting,
+		attempt:      2,
+		projectID:    "proj-1",
+	}
+	srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+	t.Cleanup(srv.Close)
+
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	tok := signTokenWithAttempt(t, testSigningKey, "run-1", time.Now().Add(time.Hour), 1, "")
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for stale attempt token, got %d: %s", w.Code, w.Body.String())
+	}
+	if called.Load() {
+		t.Fatal("next handler should not have been called")
+	}
+}
+
+func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		task *domain.WorkerTask
+		want int
+	}{
+		{
+			name: "matching assigned task",
+			task: &domain.WorkerTask{
+				ID:        "task-1",
+				RunID:     "run-1",
+				ProjectID: "proj-1",
+				Status:    domain.WorkerTaskStatusAssigned,
+			},
+			want: http.StatusOK,
+		},
+		{
+			name: "wrong run",
+			task: &domain.WorkerTask{
+				ID:        "task-1",
+				RunID:     "run-other",
+				ProjectID: "proj-1",
+				Status:    domain.WorkerTaskStatusAssigned,
+			},
+			want: http.StatusUnauthorized,
+		},
+		{
+			name: "terminal task",
+			task: &domain.WorkerTask{
+				ID:        "task-1",
+				RunID:     "run-1",
+				ProjectID: "proj-1",
+				Status:    domain.WorkerTaskStatusCompleted,
+			},
+			want: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				InternalSecret:      "test-secret-value",
+				MaxBulkTriggerItems: 500,
+				JWTSigningKey:       testSigningKey,
+			}
+			base := &APIStoreMock{
+				GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+					return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting, Attempt: 1}, nil
+				},
+			}
+			ms := &workerTaskAPIStoreMock{
+				APIStoreMock: base,
+				status:       domain.StatusExecuting,
+				attempt:      1,
+				projectID:    "proj-1",
+				task:         tt.task,
+			}
+			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+			t.Cleanup(srv.Close)
+
+			handler := srv.runTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			tok := signTokenWithAttempt(t, testSigningKey, "run-1", time.Now().Add(time.Hour), 1, "task-1")
+			r := authRequest(t, "run-1")
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
+			}
+		})
+	}
+}
+
+// Regression: when the run has been deleted between token
+// issuance and use, runTokenAuth must surface a 404 rather than a
+// generic 500. This keeps the failure mode unambiguous for SDK retry
+// classification.
+func TestRunTokenAuth_RunNotFound_Rejected(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testSigningKey,
+	}
+	ms := &APIStoreMock{
+		GetRunStatusFunc: func(_ context.Context, _ string) (domain.RunStatus, error) {
+			return "", store.ErrRunNotFound
+		},
+	}
+	srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
+	t.Cleanup(srv.Close)
+	var called atomic.Bool
+	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+	}))
+	tok := signToken(t, testSigningKey, "run-1", time.Now().Add(time.Hour))
+	r := authRequest(t, "run-1")
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d (body=%s)", w.Code, w.Body.String())
 	}
 	if called.Load() {
 		t.Fatal("next handler should not have been called")
@@ -619,6 +983,66 @@ func TestSDKMemory_KeyAtMaxLength(t *testing.T) {
 	})).ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "log", method: http.MethodPost, path: "/sdk/v1/runs/run-1/log", body: `{"message":"late"}`},
+		{name: "progress", method: http.MethodPost, path: "/sdk/v1/runs/run-1/progress", body: `{"percent":50,"message":"late"}`},
+		{name: "annotate", method: http.MethodPost, path: "/sdk/v1/runs/run-1/annotate", body: `{"annotations":{"late":"true"}}`},
+		{name: "heartbeat", method: http.MethodPost, path: "/sdk/v1/runs/run-1/heartbeat", body: ""},
+		{name: "checkpoint", method: http.MethodPost, path: "/sdk/v1/runs/run-1/checkpoint", body: `{"state":{"cursor":1}}`},
+		{name: "state", method: http.MethodPost, path: "/sdk/v1/runs/run-1/state", body: `{"key":"k","value":{"late":true}}`},
+		{name: "delete-state", method: http.MethodDelete, path: "/sdk/v1/runs/run-1/state/k", body: ""},
+		{name: "usage", method: http.MethodPost, path: "/sdk/v1/runs/run-1/usage", body: `{"provider":"openai","model":"gpt-4","prompt_tokens":1,"completion_tokens":1}`},
+		{name: "tool-call", method: http.MethodPost, path: "/sdk/v1/runs/run-1/tool-call", body: `{"tool_name":"search"}`},
+		{name: "output", method: http.MethodPost, path: "/sdk/v1/runs/run-1/output", body: `{"output_key":"final","value":{"late":true}}`},
+		{name: "memory", method: http.MethodPost, path: "/sdk/v1/runs/run-1/memory/k", body: `{"value":{"late":true}}`},
+		{name: "delete-memory", method: http.MethodDelete, path: "/sdk/v1/runs/run-1/memory/k", body: ""},
+		{name: "stream", method: http.MethodPost, path: "/sdk/v1/runs/run-1/stream", body: `{"chunk":"late"}`},
+		{name: "resource-snapshot", method: http.MethodPost, path: "/sdk/v1/runs/run-1/resource-snapshot", body: `{"cpu_percent":1,"memory_mb":2}`},
+		{name: "iteration", method: http.MethodPost, path: "/sdk/v1/runs/run-1/iteration", body: `{"iteration":1}`},
+		{name: "spawn", method: http.MethodPost, path: "/sdk/v1/runs/run-1/spawn", body: `{"job_slug":"child","project_id":"proj-1"}`},
+		{name: "continue", method: http.MethodPost, path: "/sdk/v1/runs/run-1/continue", body: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ms := &racingTerminalSDKStore{
+				APIStoreMock: &APIStoreMock{
+					GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+						return &domain.JobRun{ID: id, JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusExecuting, Attempt: 1}, nil
+					},
+					GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+						return &domain.Job{ID: id, ProjectID: "proj-1", Slug: "child"}, nil
+					},
+					GetJobBySlugFunc: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
+						return &domain.Job{ID: "child-job", ProjectID: projectID, Slug: slug}, nil
+					},
+					GetProjectQuotaFunc: func(context.Context, string) (*store.ProjectQuota, error) {
+						return nil, nil
+					},
+				},
+			}
+			srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+			w := httptest.NewRecorder()
+			r := sdkRequest(t, tt.method, tt.path, "run-1", tt.body)
+
+			srv.ServeHTTP(w, r)
+
+			if w.Code != http.StatusGone {
+				t.Fatalf("expected 410 after terminal race, got %d: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

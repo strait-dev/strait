@@ -76,30 +76,30 @@ func TestMixed_WriteHeavyWorkload(t *testing.T) {
 			slug := "j-" + newID()
 			tgt.Method = "POST"
 			tgt.URL = baseURL + "/v1/jobs/"
-			tgt.Body = []byte(fmt.Sprintf(
+			tgt.Body = fmt.Appendf(nil,
 				`{"project_id":"%s","name":"mix-%s","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":1,"timeout_secs":30}`,
 				projectID, slug, slug, slug,
-			))
+			)
 		case 1:
 			tgt.Method = "POST"
 			tgt.URL = baseURL + "/v1/jobs/" + jobID + "/trigger"
-			tgt.Body = []byte(fmt.Sprintf(`{"payload":{"i":%d}}`, i))
+			tgt.Body = fmt.Appendf(nil, `{"payload":{"i":%d}}`, i)
 		case 2:
 			slug := "wf-" + newID()
 			tgt.Method = "POST"
 			tgt.URL = baseURL + "/v1/workflows/"
-			tgt.Body = []byte(fmt.Sprintf(
+			tgt.Body = fmt.Appendf(nil,
 				`{"project_id":"%s","name":"mix-wf-%s","slug":"%s","enabled":true}`,
 				projectID, slug, slug,
-			))
+			)
 		case 3:
 			slug := "grp-" + newID()
 			tgt.Method = "POST"
 			tgt.URL = baseURL + "/v1/job-groups/"
-			tgt.Body = []byte(fmt.Sprintf(
+			tgt.Body = fmt.Appendf(nil,
 				`{"project_id":"%s","name":"mix-grp-%s","slug":"%s"}`,
 				projectID, slug, slug,
-			))
+			)
 		}
 		tgt.Header = http.Header{
 			"X-Internal-Secret": []string{"test-secret-value"},
@@ -158,7 +158,7 @@ func TestMixed_ReadWriteRatio(t *testing.T) {
 		} else {
 			tgt.Method = "POST"
 			tgt.URL = baseURL + "/v1/jobs/" + jobID + "/trigger"
-			tgt.Body = []byte(fmt.Sprintf(`{"payload":{"rw":%d}}`, i))
+			tgt.Body = fmt.Appendf(nil, `{"payload":{"rw":%d}}`, i)
 		}
 		return nil
 	}
@@ -301,10 +301,10 @@ func TestMixed_Secrets(t *testing.T) {
 	projectID := "proj-mix-sec-" + newID()
 
 	tgt := newTargeter("POST", "/v1/secrets/", func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","secret_key":"SECRET_%s","value":"supersecret-%s"}`,
 			projectID, newID(), newID(),
-		))
+		)
 	})
 
 	t.Run("baseline-create", func(t *testing.T) {

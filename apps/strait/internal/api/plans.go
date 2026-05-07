@@ -16,11 +16,8 @@ type planResponse struct {
 	MaxProjectsPerOrg       int      `json:"max_projects_per_org"`
 	MaxMembersPerOrg        int      `json:"max_members_per_org"`
 	MaxRunsPerDay           int64    `json:"max_runs_per_day"`
+	MaxRunsPerMonth         int      `json:"max_runs_per_month"`
 	MaxConcurrentRuns       int      `json:"max_concurrent_runs"`
-	ComputeCreditMicrousd   int64    `json:"compute_credit_microusd"`
-	FreeManagedRunsPerMonth int      `json:"free_managed_runs_per_month"`
-	FreeManagedPreset       string   `json:"free_managed_preset,omitempty"`
-	FreeManagedMaxTimeout   int      `json:"free_managed_max_timeout,omitempty"`
 	RetentionDays           int      `json:"retention_days"`
 	AllowedRegions          []string `json:"allowed_regions"`
 	MaxAlertRulesPerProj    int      `json:"max_alert_rules_per_project"`
@@ -42,7 +39,6 @@ type planResponse struct {
 	HasSCIM                 bool     `json:"has_scim"`
 	HasDataResidency        bool     `json:"has_data_residency"`
 	HasCustomRBAC           bool     `json:"has_custom_rbac"`
-	HasReservedCapacity     bool     `json:"has_reserved_capacity"`
 	HasPriorityQueue        bool     `json:"has_priority_queue"`
 	HasIPAllowlisting       bool     `json:"has_ip_allowlisting"`
 	HasSessionManagement    bool     `json:"has_session_management"`
@@ -65,11 +61,8 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 		MaxProjectsPerOrg:       p.MaxProjectsPerOrg,
 		MaxMembersPerOrg:        p.MaxMembersPerOrg,
 		MaxRunsPerDay:           p.MaxRunsPerDay,
+		MaxRunsPerMonth:         p.MaxRunsPerMonth,
 		MaxConcurrentRuns:       p.MaxConcurrentRuns,
-		ComputeCreditMicrousd:   p.ComputeCreditMicrousd,
-		FreeManagedRunsPerMonth: p.FreeManagedRunsPerMonth,
-		FreeManagedPreset:       p.FreeManagedPreset,
-		FreeManagedMaxTimeout:   p.FreeManagedMaxTimeout,
 		RetentionDays:           p.RetentionDays,
 		AllowedRegions:          regions,
 		MaxAlertRulesPerProj:    p.MaxAlertRulesPerProj,
@@ -91,7 +84,6 @@ func toPlanResponse(p billing.OrgPlanLimits) planResponse {
 		HasSCIM:                 p.HasSCIM,
 		HasDataResidency:        p.HasDataResidency,
 		HasCustomRBAC:           p.HasCustomRBAC,
-		HasReservedCapacity:     p.HasReservedCapacity,
 		HasPriorityQueue:        p.HasPriorityQueue,
 		HasIPAllowlisting:       p.HasIPAllowlisting,
 		HasSessionManagement:    p.HasSessionManagement,

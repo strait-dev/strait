@@ -100,17 +100,6 @@ func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentID
 	return 0, nil
 }
 
-type mockMachineStopper struct {
-	stopFn func(ctx context.Context, machineID string) error
-}
-
-func (m *mockMachineStopper) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
-	}
-	return nil
-}
-
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
@@ -371,26 +360,6 @@ func (m *mockReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ t
 
 func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
-}
-
-// mockMachineDestroyer implements MachineDestroyer for testing.
-type mockMachineDestroyer struct {
-	stopFn    func(ctx context.Context, machineID string) error
-	destroyFn func(ctx context.Context, machineID string) error
-}
-
-func (m *mockMachineDestroyer) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
-	}
-	return nil
-}
-
-func (m *mockMachineDestroyer) Destroy(ctx context.Context, machineID string) error {
-	if m.destroyFn != nil {
-		return m.destroyFn(ctx, machineID)
-	}
-	return nil
 }
 
 // mockWorkflowCallback implements WorkflowCallback for testing.

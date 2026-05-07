@@ -21,8 +21,9 @@ type oidcClaims struct {
 
 // Scopes returns the parsed scope claim as a string slice, filtered to only
 // recognized Strait API scopes. Unrecognized scopes (typos, OIDC-only scopes
-// like "openid", or injected values) are silently dropped. Returns nil if no
-// recognized scopes are present (meaning no scope restriction).
+// like "openid", or injected values) are silently dropped. Returns nil only
+// when the scope claim is absent. If a token supplied scopes but every scope is
+// stripped, the empty non-nil slice is an explicit deny-all upper bound.
 func (c *oidcClaims) Scopes() []string {
 	if c.Scope == "" {
 		return nil
@@ -43,7 +44,7 @@ func (c *oidcClaims) Scopes() []string {
 		}
 	}
 	if len(valid) == 0 {
-		return nil
+		return []string{}
 	}
 	return valid
 }
@@ -73,6 +74,9 @@ func newOIDCVerifier(cfg *config.Config) (*oidcVerifier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse oidc public key: %w", err)
 	}
+	if pk.N.BitLen() < 2048 {
+		return nil, fmt.Errorf("oidc public key must be at least 2048 bits")
+	}
 	v.publicKey = pk
 	return v, nil
 }
@@ -90,6 +94,7 @@ func (v *oidcVerifier) verify(token string) (*oidcClaims, error) {
 	},
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAudience(v.audience),
+		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(30*time.Second),
 	)
 	if err != nil {

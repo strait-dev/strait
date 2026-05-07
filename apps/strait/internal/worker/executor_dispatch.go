@@ -10,20 +10,43 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
-	"strings"
 	"time"
 
+	workergrpc "strait/internal/api/grpc"
 	"strait/internal/billing"
-	"strait/internal/compute"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
+
+type redactedHTTPDispatchError struct {
+	message string
+	err     error
+}
+
+func (e *redactedHTTPDispatchError) Error() string {
+	return e.message
+}
+
+func (e *redactedHTTPDispatchError) Unwrap() error {
+	return e.err
+}
+
+// addHMACHeaders injects X-Strait-Signature and X-Strait-Timestamp into
+// headers when the job has an endpoint_signing_secret configured. The
+// signature covers "<unix_timestamp>.<body>" using HMAC-SHA256.
+func addHMACHeaders(headers map[string]string, secret string, body []byte) {
+	if secret == "" {
+		return
+	}
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	headers["X-Strait-Timestamp"] = ts
+	headers["X-Strait-Signature"] = SignHTTPDispatch(secret, ts, body)
+}
 
 // resolveJobForRun loads the job configuration for a run, applying version
 // policy rules. For "pin" (default), returns the enqueue-time version. For
@@ -122,13 +145,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	ec.Job = job
 
-	policy := executionPolicy{
-		maxAttempts:      job.MaxAttempts,
-		timeoutSecs:      job.TimeoutSecs,
-		retryBackoff:     domain.RetryBackoffExponential,
-		retryInitialSecs: 1,
-		retryMaxSecs:     3600,
-	}
+	policy := defaultExecutionPolicy(job)
 	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
 	if policyErr != nil {
 		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
@@ -137,8 +154,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	policy = resolved
 
-	// Billing enforcement: daily and concurrent run limits apply to ALL dispatch modes.
-	// Managed-only limits (managed run cap, spending) are checked in managedDispatch.
+	// Billing enforcement: daily, monthly, and concurrent run limits.
 	if e.billingEnforcer != nil { //nolint:nestif // billing enforcement is inherently nested with multiple sequential checks
 		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
 			e.logger.Warn("project suspended",
@@ -159,10 +175,18 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
+			if err := e.billingEnforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org monthly run limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+				return
+			}
 			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org concurrent run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
 				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+				e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
@@ -173,6 +197,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 				if limErr == nil && !limits.AllowsHTTPMode {
 					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+					e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 					e.handleSystemFailureWithJob(ctx, run, job,
 						"HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
 					return
@@ -185,10 +210,11 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 
 	switch job.ExecutionMode {
-	case domain.ExecutionModeManaged:
-		e.managedDispatch(ctx, run, job)
-		return
 	case domain.ExecutionModeHTTP, "":
+		// HTTP dispatch continues below.
+	case domain.ExecutionModeWorker:
+		e.executeWorkerMode(ctx, run, job, policy)
+		return
 	default:
 		e.logger.Error("unknown execution_mode", "run_id", run.ID, "job_id", run.JobID, "execution_mode", job.ExecutionMode)
 		e.handleSystemFailureWithJob(ctx, run, job, fmt.Sprintf("unknown execution_mode: %s", job.ExecutionMode))
@@ -246,7 +272,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			"circuit breaker check failed",
 			"run_id", run.ID,
 			"job_id", run.JobID,
-			"endpoint", job.EndpointURL,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
 			"error", circuitErr,
 		)
 		e.handleSystemFailureWithJob(ctx, run, job, "circuit breaker unavailable")
@@ -263,7 +289,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		e.logger.Warn(
 			"health score check failed, proceeding with dispatch",
 			"run_id", run.ID,
-			"endpoint", job.EndpointURL,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
 			"error", healthErr,
 		)
 	} else if !healthAllowed {
@@ -271,7 +297,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		e.logger.Info(
 			"endpoint unhealthy, snoozing run",
 			"run_id", run.ID,
-			"endpoint", job.EndpointURL,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
 			"health_score", healthScore.HealthScore,
 		)
 		e.snoozeRun(ctx, run, "endpoint health score below threshold", &healthRetryAt)
@@ -338,7 +364,9 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		if job.FallbackEndpointURL != "" {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
-				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, nil)
+				fallbackHeaders := make(map[string]string)
+				addHMACHeaders(fallbackHeaders, job.EndpointSigningSecret, run.Payload)
+				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
 				if fallbackErr == nil {
 					e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
 					return
@@ -358,793 +386,42 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	// Record HTTP run cost for Stripe billing (cloud only).
+	// Record HTTP run cost for Stripe billing and usage records (cloud only).
 	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
-		e.recordHTTPRunCost(ctx, run, job)
+		if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
+			e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
+		}
+		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
+		if e.runCostRecorder != nil && e.billingEnforcer != nil {
+			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+			if orgErr == nil && orgID != "" {
+				// Tracked on stripeUsageWG so graceful shutdown waits — without this the
+				// goroutine is torn down mid-write and the run completes without a billing row.
+				costCtx := context.WithoutCancel(ctx)
+				e.stripeUsageWG.Go(func() {
+					if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
+						e.logger.Warn("failed to record HTTP run cost",
+							"run_id", run.ID,
+							"org_id", orgID,
+							"error", err,
+						)
+					}
+				})
+			}
+		}
 	}
 
 	e.handleSuccess(ctx, run, job, result, execTrace)
 }
 
-// recordHTTPRunCost records the flat orchestration cost for an HTTP-mode run
-// and ingests a Stripe event for metered billing.
-func (e *Executor) recordHTTPRunCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	cost := billing.HTTPCostPerRunMicrousd
-
-	finishedAt := time.Now()
-	startedAt := run.StartedAt
-	if startedAt == nil {
-		startedAt = &run.CreatedAt
+func defaultExecutionPolicy(job *domain.Job) executionPolicy {
+	return executionPolicy{
+		maxAttempts:      job.MaxAttempts,
+		timeoutSecs:      job.TimeoutSecs,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     3600,
 	}
-
-	usage := &domain.RunComputeUsage{
-		RunID:         run.ID,
-		ProjectID:     job.ProjectID,
-		JobID:         job.ID,
-		MachinePreset: "http",
-		DurationSecs:  finishedAt.Sub(*startedAt).Seconds(),
-		CostMicrousd:  cost,
-		StartedAt:     startedAt,
-		FinishedAt:    &finishedAt,
-	}
-	if err := e.store.CreateRunComputeUsage(ctx, usage); err != nil {
-		e.logger.Warn("failed to record HTTP run cost", "run_id", run.ID, "error", err)
-	}
-
-	if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
-		e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
-	}
-
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, cost)
-}
-
-// managedDispatch dispatches a job run to a container runtime (Fly Machines, Docker).
-//
-//nolint:gocognit,gocyclo,cyclop,funlen,nestif
-func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	dispatchStart := time.Now()
-
-	// 1. Guard: runtime must be configured.
-	if e.containerRuntime == nil {
-		e.logger.Error("managed execution not available: COMPUTE_RUNTIME not configured",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-		)
-		e.handleSystemFailureWithJob(ctx, run, job, "managed execution not available: COMPUTE_RUNTIME not configured")
-		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-		return
-	}
-
-	// 2. Managed-specific billing enforcement (cloud only).
-	// Daily + concurrent limits are already checked in executeInner (shared path).
-	// Here we only check managed run cap (free tier) and spending limit (compute credits).
-	if e.billingEnforcer != nil {
-		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
-		if orgErr != nil {
-			e.logger.Warn("failed to resolve org for managed billing check",
-				"run_id", run.ID, "error", orgErr, "fail_open", true)
-		}
-		if orgID != "" {
-			if err := e.billingEnforcer.CheckManagedRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org managed run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
-			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org spending limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
-			if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
-				e.logger.Warn("project budget limit exceeded",
-					"run_id", run.ID, "project_id", job.ProjectID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrManagedRunCount(ctx, orgID)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				e.recordManagedMetric(ctx, "org_limit_exceeded", dispatchStart)
-				return
-			}
-		}
-	}
-
-	// 3. Semaphore: limit concurrent managed machines.
-	if e.managedSemaphore != nil {
-		if err := e.managedSemaphore.Acquire(ctx, 1); err != nil {
-			// Context cancelled during acquire → backpressure snooze.
-			retryAt := NextRetryAt(run.Attempt)
-			e.snoozeRun(ctx, run, "managed semaphore full", &retryAt)
-			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
-			return
-		}
-		defer e.managedSemaphore.Release(1) // immediately after Acquire to prevent leak on panic
-	}
-
-	if e.metrics != nil {
-		e.metrics.ManagedMachinesActive.Add(ctx, 1)
-		defer e.metrics.ManagedMachinesActive.Add(ctx, -1)
-	}
-
-	// 4a. Resolve preset BEFORE budget check so cost estimation uses the
-	// final preset (including metadata overrides and OOM auto-upgrade).
-	resolvedPreset := string(job.MachinePreset)
-	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
-		if domain.MachinePreset(override).IsValid() {
-			resolvedPreset = override
-		}
-	}
-	if _, hasOverride := run.Metadata["_preset_override"]; !hasOverride {
-		rec, recErr := e.store.GetPresetRecommendation(ctx, job.ID)
-		if recErr == nil && rec != nil {
-			recIdx := compute.PresetIndex(rec.RecommendedPreset)
-			curIdx := compute.PresetIndex(resolvedPreset)
-			if recIdx > curIdx {
-				e.logger.Info("auto-upgrading preset from OOM history",
-					"run_id", run.ID, "job_id", job.ID,
-					"from", resolvedPreset, "to", rec.RecommendedPreset,
-					"oom_count", rec.OOMCount)
-				resolvedPreset = rec.RecommendedPreset
-			}
-		}
-	}
-
-	// 4b. Budget check using the resolved preset.
-	quota, quotaErr := e.store.GetProjectQuota(ctx, job.ProjectID)
-	if quotaErr != nil {
-		e.logger.Warn("failed to load project quota for budget check", "run_id", run.ID, "error", quotaErr)
-		// Non-fatal: proceed without budget enforcement.
-	}
-	if quota != nil && quota.ComputeDailyCostLimitMicrousd > 0 {
-		tz := quota.Timezone
-		if tz == "" {
-			tz = "UTC"
-		}
-		dailyCost, costErr := e.store.SumDailyComputeCost(ctx, job.ProjectID, tz)
-		if costErr != nil {
-			e.logger.Warn("failed to sum daily compute cost", "run_id", run.ID, "error", costErr)
-		} else {
-			estimated, _ := compute.EstimateCost(resolvedPreset, job.TimeoutSecs)
-
-			// Soft-limit warning at threshold percentage.
-			threshold := quota.ComputeDailyCostLimitMicrousd * int64(domain.ComputeBudgetAlertThresholdPct) / 100
-			if dailyCost+estimated > threshold && dailyCost < threshold {
-				e.emitBudgetWarning(ctx, run, job, dailyCost, estimated, quota.ComputeDailyCostLimitMicrousd)
-			}
-
-			if dailyCost+estimated > quota.ComputeDailyCostLimitMicrousd {
-				e.logger.Warn("compute budget exceeded",
-					"run_id", run.ID,
-					"project_id", job.ProjectID,
-					"daily_cost", dailyCost,
-					"estimated", estimated,
-					"limit", quota.ComputeDailyCostLimitMicrousd,
-				)
-				e.handleSystemFailureWithJob(ctx, run, job, "compute budget exceeded")
-				e.recordManagedMetric(ctx, "budget_exceeded", dispatchStart)
-				return
-			}
-		}
-	}
-
-	// 5. Transition: dequeued -> executing (skip if claim table already set it).
-	if run.Status != domain.StatusExecuting {
-		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-			"started_at": time.Now(),
-		})
-		if err != nil {
-			e.logger.Error("failed to transition to executing", "run_id", run.ID, "error", err)
-			return
-		}
-		run.Status = domain.StatusExecuting
-	}
-	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
-
-	// 6. Register heartbeat.
-	e.heartbeat.Register(run.ID)
-	defer e.heartbeat.Deregister(run.ID)
-
-	// 7. Build environment variables.
-	// Both canonical (STRAIT_API_URL, STRAIT_SDK_TOKEN) and legacy aliases
-	// (STRAIT_SDK_URL, STRAIT_RUN_TOKEN) are set for backward compatibility
-	// with existing container images.
-	env := map[string]string{
-		"STRAIT_RUN_ID":   run.ID,
-		"STRAIT_JOB_SLUG": job.Slug,
-		"STRAIT_ATTEMPT":  strconv.Itoa(run.Attempt),
-		"STRAIT_API_URL":  e.externalAPIURL,
-		"STRAIT_SDK_URL":  e.externalAPIURL,
-	}
-
-	// JWT token for SDK callbacks.
-	if e.jwtSigningKey != "" {
-		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-		if run.ExpiresAt != nil {
-			expiresAt = *run.ExpiresAt
-		}
-		claims := jwt.RegisteredClaims{
-			Subject:   run.ID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		}
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
-			env["STRAIT_SDK_TOKEN"] = signed
-			env["STRAIT_RUN_TOKEN"] = signed
-		}
-	}
-
-	// Payload: inline ≤64KB, fetch mode for larger.
-	const maxInlinePayload = 64 * 1024
-	if len(run.Payload) > 0 {
-		if len(run.Payload) <= maxInlinePayload {
-			env["STRAIT_PAYLOAD"] = string(run.Payload)
-		} else {
-			env["STRAIT_PAYLOAD_MODE"] = "fetch"
-		}
-	}
-
-	// Secrets injection.
-	var secrets []domain.JobSecret
-	var secretsErr error
-	secretsCacheKey := "secrets:" + job.ID
-	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
-		secrets = cached
-	} else {
-		secrets, secretsErr = e.store.ListJobSecretsByJob(ctx, job.ID, "production")
-		if secretsErr != nil {
-			e.logger.Warn("failed to load secrets for managed run", "run_id", run.ID, "error", secretsErr)
-		} else {
-			dispatchCacheSet(ctx, secretsCacheKey, secrets)
-		}
-	}
-	for _, secret := range secrets {
-		key := "STRAIT_SECRET_" + strings.ToUpper(secret.SecretKey)
-		env[key] = secret.EncryptedValue
-	}
-
-	// Checkpoint injection for retried runs.
-	if run.Attempt > 1 {
-		checkpointCacheKey := "checkpoint:" + run.ID
-		var cp *domain.RunCheckpoint
-		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
-			cp = cached
-		} else {
-			var cpErr error
-			cp, cpErr = e.store.GetLatestCheckpoint(ctx, run.ID)
-			if cpErr == nil {
-				dispatchCacheSet(ctx, checkpointCacheKey, cp)
-			}
-		}
-		if cp != nil {
-			data, _ := json.Marshal(cp.State)
-			if len(data) <= maxInlinePayload {
-				env["STRAIT_LAST_CHECKPOINT"] = string(data)
-				env["STRAIT_CHECKPOINT_AT"] = cp.CreatedAt.Format(time.RFC3339)
-			}
-		}
-		if run.Error != "" {
-			env["STRAIT_PREVIOUS_ERROR"] = run.Error
-		}
-	}
-
-	// Inject memory limit for in-container resource monitoring (use resolved preset).
-	if presetInfo, pErr := compute.PresetFromName(resolvedPreset); pErr == nil {
-		env["STRAIT_MEMORY_LIMIT_MB"] = strconv.Itoa(presetInfo.MemoryMB)
-	}
-
-	// Inject W3C trace context for OTel SDK auto-instrumentation inside the container.
-	if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {
-		env["TRACEPARENT"] = tp
-		if ts, ok := run.Metadata["_trace_state"]; ok && ts != "" {
-			env["TRACESTATE"] = ts
-		}
-	}
-
-	// 8. Resolve region: job config > project default > run metadata hint > executor default.
-	region := job.Region
-	if region == "" && quota != nil && quota.DefaultRegion != "" && compute.IsValidRegion(quota.DefaultRegion) {
-		region = quota.DefaultRegion
-	}
-	if region == "" {
-		if hint, ok := run.Metadata["_region_hint"]; ok && hint != "" {
-			if validated := compute.NearestRegion(hint); validated != "" {
-				region = validated
-			}
-		}
-	}
-	if region == "" {
-		region = e.defaultRegion
-	}
-
-	// 9. Create the container using the preset resolved in step 4a.
-	// For code-first jobs the image was pinned at queue time; use it instead of
-	// job.ImageURI so retries always execute the same build.
-	imageURI := job.ImageURI
-	if run.PinnedImageURI != "" {
-		imageURI = run.PinnedImageURI
-	}
-	runReq := compute.RunRequest{
-		ImageURI:      imageURI,
-		MachinePreset: resolvedPreset,
-		Region:        region,
-		Env:           env,
-		Labels: map[string]string{
-			"run_id":     run.ID,
-			"job_id":     job.ID,
-			"project_id": job.ProjectID,
-		},
-		TimeoutSecs: job.TimeoutSecs,
-		Reusable:    e.machinePool != nil || job.ExecutionMode == domain.ExecutionModeManaged,
-	}
-
-	var machineID string
-	var createErr error
-	var dispatchSource string // "pool", "pause_reuse", or "cold_start"
-
-	// Try warm pool first (acquire stopped machine and Start with new env).
-	if !e.disableMachinePoolReuse && e.machinePool != nil {
-		if pooledID, ok := e.machinePool.Acquire(job.ProjectID, imageURI, region); ok {
-			env["STRAIT_CLEAN_START"] = "true"
-			if startErr := e.containerRuntime.Start(ctx, pooledID, env); startErr != nil {
-				e.logger.Warn("pooled machine start failed, falling back to create",
-					"machine_id", pooledID, "run_id", run.ID, "error", startErr)
-				delete(env, "STRAIT_CLEAN_START")
-			} else {
-				machineID = pooledID
-				dispatchSource = "pool"
-			}
-		}
-	}
-	// Try reusing a paused machine (machine_id preserved from pause).
-	if machineID == "" && run.MachineID != "" {
-		env["STRAIT_CLEAN_START"] = "true"
-		if startErr := e.containerRuntime.Start(ctx, run.MachineID, env); startErr != nil {
-			e.logger.Warn("paused machine start failed, creating new",
-				"machine_id", run.MachineID, "run_id", run.ID, "error", startErr)
-			delete(env, "STRAIT_CLEAN_START")
-		} else {
-			machineID = run.MachineID
-			dispatchSource = "pause_reuse"
-		}
-	}
-	if machineID == "" {
-		machineID, createErr = e.containerRuntime.Create(ctx, runReq)
-		dispatchSource = "cold_start"
-
-		// Multi-region failover: on 503, try preferred_regions first, then geo-proximate fallbacks.
-		if createErr != nil && job.Region == "" {
-			var re *compute.RuntimeError
-			if errors.As(createErr, &re) && re.StatusCode == 503 {
-				fallbacks := job.PreferredRegions
-				if len(fallbacks) == 0 {
-					fallbacks = compute.RegionFallbackChain(region)
-				}
-				for _, fbRegion := range fallbacks {
-					e.logger.Info("attempting region failover",
-						"run_id", run.ID, "from", region, "to", fbRegion)
-					runReq.Region = fbRegion
-					machineID, createErr = e.containerRuntime.Create(ctx, runReq)
-					if createErr == nil {
-						region = fbRegion // Update region for metadata tracking.
-						break
-					}
-					var fbRE *compute.RuntimeError
-					if !errors.As(createErr, &fbRE) || fbRE.StatusCode != 503 {
-						break // Only fallback on 503.
-					}
-				}
-			}
-		}
-	}
-	if createErr != nil {
-		if compute.IsRetryable(createErr) {
-			backoff := compute.BackoffHint(createErr)
-			retryAt := time.Now().Add(backoff)
-			e.snoozeRunFromExecuting(ctx, run, "infra retry: "+createErr.Error(), &retryAt)
-			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
-			return
-		}
-		e.handleSystemFailureWithJob(ctx, run, job, "container create error: "+createErr.Error())
-		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-		return
-	}
-
-	// Record dispatch source metrics.
-	e.recordManagedMetric(ctx, dispatchSource, dispatchStart)
-	e.logger.Info("managed dispatch resolved machine",
-		"run_id", run.ID,
-		"machine_id", machineID,
-		"source", dispatchSource,
-	)
-
-	// Store machine_id on the run so cancellation can stop it.
-	if machineID != "" {
-		if setErr := e.store.SetRunMachineID(ctx, run.ID, machineID); setErr != nil {
-			e.logger.Warn("failed to store machine_id on run", "run_id", run.ID, "error", setErr)
-		}
-		run.MachineID = machineID
-
-		// Race check: if cancel arrived between Create and now, stop the machine.
-		currentRun, readErr := e.store.GetRun(ctx, run.ID)
-		if readErr == nil && currentRun.Status == domain.StatusCanceled {
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer stopCancel()
-			if stopErr := e.containerRuntime.Stop(stopCtx, machineID); stopErr != nil {
-				e.logger.Warn("failed to stop canceled machine, destroying",
-					"machine_id", machineID, "error", stopErr)
-				_ = e.containerRuntime.Destroy(stopCtx, machineID)
-			}
-			e.recordManagedMetric(ctx, "canceled_race", dispatchStart)
-			return
-		}
-	}
-
-	// 10. Wait for container exit.
-	result, runErr := e.containerRuntime.Wait(ctx, machineID, job.TimeoutSecs)
-
-	if runErr != nil {
-		// Stop the machine before snoozing — avoid orphaned running containers.
-		if machineID != "" {
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if stopErr := e.containerRuntime.Stop(stopCtx, machineID); stopErr != nil {
-				_ = e.containerRuntime.Destroy(stopCtx, machineID)
-			}
-			stopCancel()
-		}
-
-		// Timeout: the executor owns the timeout lifecycle for managed runs.
-		// Handle before the generic retryable check so 408 errors are not snoozed.
-		if compute.IsTimeout(runErr) {
-			now := time.Now()
-			updateErr := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusTimedOut, map[string]any{
-				"finished_at": now,
-				"error":       "execution timed out",
-				"error_class": domain.ErrorClassTimeout,
-			})
-			if updateErr != nil {
-				// Reaper may have already marked it expired -- acceptable.
-				e.logger.Warn("failed to mark managed run timed_out (may already be terminal)",
-					"run_id", run.ID, "error", updateErr)
-			} else {
-				run.Status = domain.StatusTimedOut
-				e.publishEvent(ctx, run, map[string]any{
-					"from":  "executing",
-					"to":    "timed_out",
-					"error": "execution timed out",
-				})
-			}
-			e.recordManagedMetric(ctx, "timed_out", dispatchStart)
-			return
-		}
-
-		if compute.IsRetryable(runErr) {
-			backoff := compute.BackoffHint(runErr)
-			retryAt := time.Now().Add(backoff)
-			e.snoozeRunFromExecuting(ctx, run, "infra retry: "+runErr.Error(), &retryAt)
-			e.recordManagedMetric(ctx, "infra_retry", dispatchStart)
-			return
-		}
-		e.handleSystemFailureWithJob(ctx, run, job, "container runtime error: "+runErr.Error())
-		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-		return
-	}
-
-	// Guard: Wait() returned nil result (shouldn't happen, but prevents nil-deref).
-	if result == nil {
-		e.handleSystemFailureWithJob(ctx, run, job, "container wait returned nil result")
-		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-		return
-	}
-
-	// 11. Record compute usage.
-	e.recordComputeUsage(ctx, run, job, result)
-
-	// 12. Re-read run status from DB with SDK grace period.
-	// The SDK /complete endpoint may still be committing when the container exits.
-	// Poll briefly to avoid a race between container exit and SDK commit.
-	const (
-		sdkGracePeriod  = 3 * time.Second
-		sdkPollInterval = 1 * time.Second
-	)
-	sdkDeadline := time.Now().Add(sdkGracePeriod)
-
-	for {
-		currentRun, readErr := e.store.GetRun(ctx, run.ID)
-		if readErr != nil {
-			e.logger.Error("failed to re-read run after container exit", "run_id", run.ID, "error", readErr)
-			e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-			return
-		}
-
-		// If the SDK already moved the run to a terminal state, we are done.
-		if currentRun.Status.IsTerminal() {
-			e.logger.Info("managed run completed via SDK",
-				"run_id", run.ID, "status", currentRun.Status, "exit_code", result.ExitCode)
-			if !e.disableMachinePoolReuse && e.machinePool != nil && result.ExitCode == 0 {
-				e.machinePool.Release(job.ProjectID, imageURI, region, machineID)
-			}
-			e.recordManagedMetric(ctx, "success", dispatchStart)
-			return
-		}
-
-		// For exit code 0, wait for the SDK to commit before giving up.
-		// Non-zero exits do not need a grace period (SDK won't call /complete).
-		if result.ExitCode != 0 || time.Now().After(sdkDeadline) {
-			break
-		}
-
-		time.Sleep(sdkPollInterval)
-	}
-
-	// 13. Container exited: interpret exit code.
-	if result.ExitCode == 0 {
-		// Exit 0 but SDK did not report completion after grace period.
-		e.handleSystemFailureWithJob(ctx, run, job, "container exited 0 but SDK did not report completion")
-		e.recordManagedMetric(ctx, "system_failed", dispatchStart)
-		return
-	}
-
-	// Non-zero exit → classify signal, capture crash logs, and fail.
-	classification := compute.ClassifyExitCode(result.ExitCode)
-
-	// Belt-and-suspenders: fetch logs if Wait() didn't populate them.
-	if result.Logs == "" && machineID != "" {
-		logCtx, logCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if logs, logErr := e.containerRuntime.GetLogs(logCtx, machineID, 100); logErr == nil && logs != "" {
-			result.Logs = logs
-		}
-		logCancel()
-	}
-
-	// Determine crash event type.
-	eventType := domain.EventType("container_crash_log")
-	if classification.IsOOM {
-		eventType = domain.EventType("container_oom")
-	}
-
-	// Build enriched crash event data.
-	crashData := map[string]any{
-		"exit_code":   result.ExitCode,
-		"error_class": classification.ErrorClass,
-		"preset":      string(job.MachinePreset),
-	}
-	if presetInfo, pErr := compute.PresetFromName(string(job.MachinePreset)); pErr == nil {
-		crashData["memory_mb"] = presetInfo.MemoryMB
-	}
-	if result.ExitSignal != "" {
-		crashData["exit_signal"] = result.ExitSignal
-	} else if classification.Signal != "" {
-		crashData["exit_signal"] = classification.Signal
-	}
-	if result.OOMKilled || classification.IsOOM {
-		crashData["oom_killed"] = true
-	}
-	if result.Logs != "" {
-		crashData["logs"] = result.Logs
-	}
-	// Include last checkpoint time if available.
-	if run.Attempt > 1 {
-		checkpointCacheKey := "checkpoint:" + run.ID
-		var cp *domain.RunCheckpoint
-		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
-			cp = cached
-		} else {
-			cp, _ = e.store.GetLatestCheckpoint(ctx, run.ID)
-			dispatchCacheSet(ctx, checkpointCacheKey, cp)
-		}
-		if cp != nil {
-			crashData["last_checkpoint_at"] = cp.CreatedAt.Format(time.RFC3339)
-		}
-	}
-
-	crashDataJSON, _ := json.Marshal(crashData)
-	crashEvent := &domain.RunEvent{
-		RunID:   run.ID,
-		Type:    eventType,
-		Level:   "error",
-		Message: classification.HumanMessage,
-		Data:    json.RawMessage(crashDataJSON),
-	}
-	if insertErr := e.store.InsertEvent(ctx, crashEvent); insertErr != nil {
-		e.logger.Warn("failed to store crash event", "run_id", run.ID, "error", insertErr)
-	}
-
-	e.handleManagedFailure(ctx, run, job, classification)
-	e.recordManagedMetric(ctx, "failure", dispatchStart)
-}
-
-// snoozeRunFromExecuting transitions a run back to queued from executing state (for managed infra retries).
-func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
-	snoozeCount := 0
-	if run.Metadata != nil {
-		if raw, ok := run.Metadata["snooze_count"]; ok {
-			if parsed, err := strconv.Atoi(raw); err == nil {
-				snoozeCount = parsed
-			}
-		}
-	}
-	snoozeCount++
-
-	if e.maxSnoozeCount > 0 && snoozeCount > e.maxSnoozeCount {
-		e.logger.Warn("max snooze count exceeded during managed dispatch",
-			"run_id", run.ID, "snooze_count", snoozeCount)
-		e.handleSystemFailure(ctx, run, fmt.Sprintf("max snooze count (%d) exceeded: %s", e.maxSnoozeCount, reason))
-		return
-	}
-
-	fields := map[string]any{
-		"error":         reason,
-		"error_class":   "transient",
-		"started_at":    nil,
-		"finished_at":   nil,
-		"next_retry_at": retryAt,
-		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
-	}
-	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
-		e.logger.Error("failed to snooze managed run", "run_id", run.ID, "error", err)
-		return
-	}
-
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventSnoozed, Run: run,
-		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-		Attempt: run.Attempt,
-	})
-}
-
-// handleManagedFailure handles a non-zero exit from a managed container.
-// Retries per max_attempts policy; moves to dead_letter when exhausted.
-func (e *Executor) handleManagedFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, classification compute.ExitClassification) {
-	currentPreset := string(job.MachinePreset)
-	if override, ok := run.Metadata["_preset_override"]; ok && override != "" {
-		currentPreset = override
-	}
-
-	// Record OOM event for historical learning.
-	if classification.IsOOM {
-		if err := e.store.RecordOOMEvent(ctx, job.ID, currentPreset); err != nil {
-			e.logger.Warn("failed to record OOM event", "job_id", job.ID, "error", err)
-		}
-	}
-
-	// OOM at max preset → dead_letter immediately.
-	if classification.IsOOM && compute.IsMaxPreset(currentPreset) {
-		memMB := compute.PresetMemoryMB(currentPreset)
-		errMsg := fmt.Sprintf("OOM on largest preset %s (%dMB); cannot upgrade further", currentPreset, memMB)
-		now := time.Now()
-		run.Status = domain.StatusDeadLetter
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
-			"finished_at": now,
-			"error":       errMsg,
-			"error_class": classification.ErrorClass,
-		}); err != nil {
-			e.logger.Error("failed to mark managed run dead_letter", "run_id", run.ID, "error", err)
-			return
-		}
-		e.emit(ctx, RunLifecycleEvent{
-			Type: EventDeadLettered, Run: run, Job: job,
-			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusDeadLetter,
-			Attempt: run.Attempt,
-		})
-		e.notifyWorkflowCallback(ctx, run)
-		return
-	}
-
-	if run.Attempt < job.MaxAttempts {
-		retryAt := NextRetryAt(run.Attempt)
-		fields := map[string]any{
-			"attempt":       run.Attempt + 1,
-			"next_retry_at": retryAt,
-			"error":         classification.HumanMessage,
-			"error_class":   classification.ErrorClass,
-			"started_at":    nil,
-			"finished_at":   nil,
-		}
-
-		// OOM → upgrade to next preset for the retry.
-		if classification.IsOOM {
-			if nextPreset, ok := compute.NextPreset(currentPreset); ok {
-				nextMemMB := compute.PresetMemoryMB(nextPreset)
-				curMemMB := compute.PresetMemoryMB(currentPreset)
-				fields["metadata"] = map[string]string{
-					"_preset_override":   nextPreset,
-					"_oom_upgraded_from": currentPreset,
-				}
-				fields["error"] = fmt.Sprintf("OOM on %s (%dMB), retrying on %s (%dMB)", currentPreset, curMemMB, nextPreset, nextMemMB)
-			}
-		}
-
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
-			e.logger.Error("failed to re-enqueue managed run", "run_id", run.ID, "error", err)
-			return
-		}
-		e.emit(ctx, RunLifecycleEvent{
-			Type: EventRetried, Run: run, Job: job,
-			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-			Attempt: run.Attempt + 1,
-		})
-		return
-	}
-
-	now := time.Now()
-	run.Status = domain.StatusDeadLetter
-	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
-		"finished_at": now,
-		"error":       classification.HumanMessage,
-		"error_class": classification.ErrorClass,
-	}); err != nil {
-		e.logger.Error("failed to mark managed run dead_letter", "run_id", run.ID, "error", err)
-		return
-	}
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventDeadLettered, Run: run, Job: job,
-		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusDeadLetter,
-		Attempt: run.Attempt,
-	})
-	e.notifyWorkflowCallback(ctx, run)
-}
-
-// recordComputeUsage records wall-clock time and cost for a managed run,
-// and ingests a usage event to Stripe for metered billing.
-func (e *Executor) recordComputeUsage(ctx context.Context, run *domain.JobRun, job *domain.Job, result *compute.RunResult) {
-	var durationSecs float64
-	if result.StartedAt != nil && result.FinishedAt != nil {
-		durationSecs = result.FinishedAt.Sub(*result.StartedAt).Seconds()
-	}
-	cost, _ := compute.CalculateCost(string(job.MachinePreset), durationSecs)
-
-	usage := &domain.RunComputeUsage{
-		RunID:         run.ID,
-		ProjectID:     job.ProjectID,
-		JobID:         job.ID,
-		MachinePreset: string(job.MachinePreset),
-		MachineID:     result.MachineID,
-		DurationSecs:  durationSecs,
-		CostMicrousd:  cost,
-		StartedAt:     result.StartedAt,
-		FinishedAt:    result.FinishedAt,
-	}
-	if err := e.store.CreateRunComputeUsage(ctx, usage); err != nil {
-		e.logger.Warn("failed to record compute usage", "run_id", run.ID, "error", err)
-	}
-
-	// Ingest usage event to Stripe for metered billing (fire-and-forget).
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, cost)
-}
-
-// emitBudgetWarning inserts a run event warning that compute budget is nearing the limit.
-func (e *Executor) emitBudgetWarning(ctx context.Context, run *domain.JobRun, job *domain.Job, dailyCost, estimated, limit int64) {
-	pct := float64(dailyCost+estimated) * 100 / float64(limit)
-	data, _ := json.Marshal(map[string]any{
-		"project_id":          job.ProjectID,
-		"daily_cost_microusd": dailyCost,
-		"estimated_microusd":  estimated,
-		"limit_microusd":      limit,
-		"percentage":          pct,
-	})
-	event := &domain.RunEvent{
-		RunID:   run.ID,
-		Type:    domain.EventType("budget_warning"),
-		Level:   "warn",
-		Message: fmt.Sprintf("compute budget at %.0f%% of daily limit", pct),
-		Data:    json.RawMessage(data),
-	}
-	if err := e.store.InsertEvent(ctx, event); err != nil {
-		e.logger.Warn("failed to insert budget warning event", "run_id", run.ID, "error", err)
-	}
-}
-
-// recordManagedMetric increments managed dispatch counters.
-func (e *Executor) recordManagedMetric(ctx context.Context, status string, start time.Time) {
-	if e.metrics == nil {
-		return
-	}
-	e.metrics.ManagedDispatchTotal.Add(ctx, 1,
-		metric.WithAttributes(attribute.String("status", status)))
-	e.metrics.ManagedDispatchDuration.Record(ctx, time.Since(start).Seconds())
 }
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
@@ -1168,13 +445,14 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		cp         *domain.RunCheckpoint
 	)
 
-	secretsCacheKey := "secrets:" + job.ID
+	secretsEnvironment := job.EnvironmentID
+	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
 	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
 		secrets = cached
 	} else {
 		var dispatchWG conc.WaitGroup
 		dispatchWG.Go(func() {
-			secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, "production")
+			secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, secretsEnvironment)
 		})
 		if run.Attempt > 1 {
 			checkpointCacheKey := "checkpoint:" + run.ID
@@ -1210,16 +488,26 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		if run.ExpiresAt != nil {
 			expiresAt = *run.ExpiresAt
 		}
-		claims := jwt.RegisteredClaims{
-			Subject:   run.ID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		claims := struct {
+			Attempt int `json:"attempt,omitempty"`
+			jwt.RegisteredClaims
+		}{
+			Attempt: run.Attempt,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "strait:run-token",
+				Subject:   run.ID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
 			extraHeaders["X-Run-Token"] = signed
 		}
 	}
+
+	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
+	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
 
 	if run.Attempt > 1 {
 		if cp != nil {
@@ -1268,12 +556,13 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 
 	extraHeaders := make(map[string]string)
 	var secrets []domain.JobSecret
-	secretsCacheKey := "secrets:" + job.ID
+	secretsEnvironment := job.EnvironmentID
+	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
 	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
 		secrets = cached
 	} else {
 		var err error
-		secrets, err = e.store.ListJobSecretsByJob(ctx, job.ID, "production")
+		secrets, err = e.store.ListJobSecretsByJob(ctx, job.ID, secretsEnvironment)
 		if err != nil {
 			return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
 		}
@@ -1289,10 +578,17 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		if run.ExpiresAt != nil {
 			expiresAt = *run.ExpiresAt
 		}
-		claims := jwt.RegisteredClaims{
-			Subject:   run.ID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		claims := struct {
+			Attempt int `json:"attempt,omitempty"`
+			jwt.RegisteredClaims
+		}{
+			Attempt: run.Attempt,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "strait:run-token",
+				Subject:   run.ID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
@@ -1321,6 +617,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}
 
+	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
+	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
+
 	_, dispatchErr := e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
 	return dispatchErr
 }
@@ -1333,7 +632,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, body)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: invalid endpoint URL")
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -1358,7 +657,10 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		if e.metrics != nil {
 			e.metrics.DispatchErrors.Add(ctx, 1)
 		}
-		return nil, fmt.Errorf("http dispatch: %w", err)
+		return nil, &redactedHTTPDispatchError{
+			message: "http dispatch: " + httputil.SanitizeHTTPClientError(err),
+			err:     err,
+		}
 	}
 	defer resp.Body.Close()
 
@@ -1416,6 +718,49 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 	})
 }
 
+// snoozeRunFromExecuting re-queues a run that is currently in the Executing
+// state. This differs from snoozeRun which expects StatusDequeued as the
+// source state.
+//
+//nolint:unparam // retryAt is nil in current callers but retained for symmetry with snoozeRun.
+func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
+	snoozeCount := 0
+	if run.Metadata != nil {
+		if raw, ok := run.Metadata["snooze_count"]; ok {
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				snoozeCount = parsed
+			}
+		}
+	}
+	snoozeCount++
+
+	if e.maxSnoozeCount > 0 && snoozeCount > e.maxSnoozeCount {
+		e.logger.Warn("max snooze count exceeded, marking system_failed",
+			"run_id", run.ID, "snooze_count", snoozeCount)
+		e.handleSystemFailure(ctx, run, fmt.Sprintf("max snooze count (%d) exceeded: %s", e.maxSnoozeCount, reason))
+		return
+	}
+
+	fields := map[string]any{
+		"error":         reason,
+		"error_class":   "transient",
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": retryAt,
+		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+		e.logger.Error("failed to snooze run from executing", "run_id", run.ID, "error", err)
+		return
+	}
+
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventSnoozed, Run: run,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+		Attempt: run.Attempt,
+	})
+}
+
 func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRun, fallback executionPolicy) (executionPolicy, error) {
 	if run.WorkflowStepRunID == "" {
 		return fallback, nil
@@ -1466,6 +811,221 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 	}
 
 	return fallback, nil
+}
+
+// executeWorkerMode dispatches a run to a connected gRPC worker. It mirrors
+// the HTTP dispatch flow for billing, status transitions, and retry logic.
+//
+// If no worker is currently available for the run's queue, the run is left
+// in its current state so it can be re-claimed on the next poll tick.
+//
+// On a successful result, cost is recorded via RecordWorkerRunCost.
+func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job, policies ...executionPolicy) {
+	policy := defaultExecutionPolicy(job)
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+
+	if e.workerDispatcher == nil {
+		e.logger.Warn("worker dispatcher not configured; leaving run queued",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+		)
+		e.requeueWorkerModeRun(ctx, run, "worker dispatcher not configured")
+		return
+	}
+
+	// Transition to executing if not already (claim-table dequeue may have
+	// set it already).
+	if run.Status != domain.StatusExecuting {
+		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		}); err != nil {
+			e.logger.Error("executeWorkerMode: transition to executing failed",
+				"run_id", run.ID,
+				"error", err,
+			)
+			return
+		}
+		run.Status = domain.StatusExecuting
+	}
+	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+	e.heartbeat.Register(run.ID)
+	defer e.heartbeat.Deregister(run.ID)
+
+	timeout := time.Duration(policy.timeoutSecs) * time.Second
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err := e.workerDispatcher.WorkerDispatch(execCtx, run, job)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
+			e.handleTimeout(ctx, run, job, policy, nil)
+			return
+		}
+		if errors.Is(err, context.Canceled) {
+			e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
+			return
+		}
+		// ErrNoWorkerAvailable: leave queued, next tick retries.
+		// Any other error: treat as a dispatch failure.
+		e.logger.Warn("worker dispatch failed",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"error", err,
+		)
+		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
+			e.requeueWorkerModeRun(ctx, run, "no worker available")
+			return
+		}
+		policy := executionPolicy{
+			maxAttempts:      job.MaxAttempts,
+			timeoutSecs:      job.TimeoutSecs,
+			retryBackoff:     domain.RetryBackoffExponential,
+			retryInitialSecs: 1,
+			retryMaxSecs:     3600,
+		}
+		e.handleFailure(ctx, run, job, policy, err, nil)
+		return
+	}
+
+	// Inspect the worker's reported terminal status. Only "success" routes
+	// to the success handler; everything else (including "failed", "" from
+	// a nil/malformed result, or any unexpected sentinel) is routed to
+	// handleFailure with the worker-supplied error message so retry / DLQ
+	// policies kick in. This avoids silently recording worker failures as
+	// successes and bypassing the executor's retry path.
+	status := e.workerDispatcher.ResultStatus(result)
+	if status != "success" {
+		errMsg := e.workerDispatcher.ResultError(result)
+		if errMsg == "" {
+			if status == "" {
+				errMsg = "worker returned malformed or empty result"
+			} else {
+				errMsg = fmt.Sprintf("worker reported terminal status %q without error message", status)
+			}
+		}
+		if e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil) {
+			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
+		}
+		return
+	}
+
+	// Successful result — record cost and complete the run.
+	e.recordWorkerModeCost(ctx, run, job)
+
+	runResult := e.workerDispatcher.ResultOutput(result)
+	if e.handleSuccess(ctx, run, job, runResult, nil) {
+		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
+	}
+}
+
+// FinalizeWorkerRunResult applies worker-mode completion semantics for a result
+// received outside the normal WorkerDispatch wait path, such as a late fallback
+// TaskResult or reconnect-reported in-flight task.
+func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, errorMessage string, output json.RawMessage) (domain.WorkerTaskStatus, error) {
+	run, err := e.store.GetRun(ctx, runID)
+	if err != nil {
+		return "", fmt.Errorf("load run for worker finalization: %w", err)
+	}
+	job, err := e.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return "", fmt.Errorf("load job for worker finalization: %w", err)
+	}
+
+	policy := executionPolicy{
+		maxAttempts:      job.MaxAttempts,
+		timeoutSecs:      job.TimeoutSecs,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     3600,
+	}
+	if status != "success" {
+		if errorMessage == "" {
+			if status == "" {
+				errorMessage = "worker returned malformed or empty result"
+			} else {
+				errorMessage = fmt.Sprintf("worker reported terminal status %q without error message", status)
+			}
+		}
+		if !e.handleFailure(ctx, run, job, policy, errors.New(errorMessage), nil) {
+			return "", fmt.Errorf("worker failure finalization did not transition run")
+		}
+		return domain.WorkerTaskStatusFailed, nil
+	}
+
+	e.recordWorkerModeCost(ctx, run, job)
+	if !e.handleSuccess(ctx, run, job, output, nil) {
+		return "", fmt.Errorf("worker success finalization did not transition run")
+	}
+	return domain.WorkerTaskStatusCompleted, nil
+}
+
+func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+	if e.runCostRecorder != nil && e.billingEnforcer != nil {
+		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+		if orgErr == nil && orgID != "" {
+			costCtx := context.WithoutCancel(ctx)
+			e.stripeUsageWG.Go(func() {
+				if err := e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
+					e.logger.Warn("failed to record worker run cost",
+						"run_id", run.ID,
+						"org_id", orgID,
+						"error", err,
+					)
+				}
+			})
+		}
+	}
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
+}
+
+func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {
+	completer, ok := e.workerDispatcher.(workerTaskCompletionDispatcher)
+	if !ok {
+		return
+	}
+	if err := completer.CompleteWorkerTask(ctx, result, status); err != nil {
+		e.logger.Warn("executeWorkerMode: complete worker task failed",
+			"status", status,
+			"error", err,
+		)
+	}
+}
+
+func (e *Executor) requeueWorkerModeRun(ctx context.Context, run *domain.JobRun, reason string) {
+	from := run.Status
+	if from == "" {
+		from = domain.StatusExecuting
+	}
+	requeueCtx := ctx
+	var cancel context.CancelFunc
+	if ctx.Err() != nil {
+		requeueCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+	}
+	if err := e.store.UpdateRunStatus(requeueCtx, run.ID, from, domain.StatusQueued, queuedRunResetFields()); err != nil {
+		e.logger.Warn("executeWorkerMode: requeue failed",
+			"run_id", run.ID,
+			"from", from,
+			"reason", reason,
+			"error", err,
+		)
+		return
+	}
+	run.Status = domain.StatusQueued
+}
+
+func queuedRunResetFields() map[string]any {
+	return map[string]any{
+		"error":         nil,
+		"error_class":   nil,
+		"finished_at":   nil,
+		"heartbeat_at":  nil,
+		"next_retry_at": nil,
+		"started_at":    nil,
+	}
 }
 
 // ingestStripeUsageEvent sends a usage event to Stripe for metered billing.

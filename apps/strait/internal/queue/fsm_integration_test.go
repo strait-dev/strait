@@ -4,6 +4,7 @@ package queue_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -36,12 +37,7 @@ func isValidTransition(from, to domain.RunStatus) bool {
 	if !ok {
 		return false
 	}
-	for _, t := range targets {
-		if t == to {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(targets, to)
 }
 
 func TestFSM_AllValidTransitionsSucceed(t *testing.T) {
@@ -166,12 +162,22 @@ func TestFSM_StatusPredicateConsistency(t *testing.T) {
 		if !s.IsValid() {
 			t.Errorf("%q should be valid", s)
 		}
-		// Terminal statuses should have no valid transitions (except
-		// dead_letter -> queued and replay_staged -> queued).
+		// Terminal statuses are runs that have reached a final state from
+		// every observer's perspective (SSE, CDC, webhooks, reaper) and may
+		// not transition further -- with two operator-initiated escape
+		// hatches: dead_letter -> queued (DLQ requeue) and replay_staged
+		// -> queued (staged replay activation).
 		if s.IsTerminal() {
 			targets := validTransitions[s]
-			if len(targets) > 0 {
-				t.Errorf("%q is terminal but has %d valid transitions", s, len(targets))
+			switch s {
+			case domain.StatusDeadLetter, domain.StatusReplayStaged:
+				if len(targets) != 1 || targets[0] != domain.StatusQueued {
+					t.Errorf("%q must allow exactly the requeue transition to queued, got %v", s, targets)
+				}
+			default:
+				if len(targets) > 0 {
+					t.Errorf("%q is terminal but has %d valid transitions", s, len(targets))
+				}
 			}
 		}
 		// Active statuses should be dequeued or executing.

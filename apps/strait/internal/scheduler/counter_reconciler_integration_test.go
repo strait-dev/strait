@@ -48,7 +48,7 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r := &domain.JobRun{
 			ID:        uuid.Must(uuid.NewV7()).String(),
 			JobID:     job.ID,
@@ -83,7 +83,7 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r := &domain.JobRun{
 			ID:        uuid.Must(uuid.NewV7()).String(),
 			JobID:     job.ID,
@@ -133,7 +133,7 @@ func TestCounterReconciler_InducedDrift_DLQCounts(t *testing.T) {
 	ctx := context.Background()
 
 	// Directly insert dead_letter rows.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW())
@@ -176,7 +176,7 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("disable trigger: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, started_at)
 			VALUES ($1, $2, $3, 'executing', 1, 'manual', NOW(), NOW())
@@ -221,7 +221,7 @@ func TestCounterReconciler_PropertyRandomOps(t *testing.T) {
 	var runIDs []string
 	const ops = 200
 
-	for i := 0; i < ops; i++ {
+	for range ops {
 		switch rng.IntN(5) {
 		case 0: // enqueue
 			r := &domain.JobRun{

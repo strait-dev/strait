@@ -67,10 +67,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 	switch cfg.Mode {
 	case "api", "worker", "all":
 		// Standard modes — fall through to normal service startup.
-	case "dispatcher":
-		return runDispatcher(ctx, cfg)
 	default:
-		return fmt.Errorf("invalid mode %q: must be api, worker, all, or dispatcher", cfg.Mode)
+		return fmt.Errorf("invalid mode %q: must be api, worker, or all", cfg.Mode)
 	}
 
 	setupLogging(cfg.LogLevel, cfg.LogFormat)
@@ -300,7 +298,11 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// on it, and every subsequent store call inside the request runs on
 	// the same tx.
 	queries := store.NewWithContextRouting(dbPool)
+	if chClient != nil {
+		queries.SetClickHouseDB(chClient.DB())
+	}
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	queries.SetOldSecretEncryptionKeys(cfg.EncryptionKeyOld)
 	if cfg.RunRetentionShort > 0 {
 		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
 	}
@@ -340,10 +342,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
 		webhook.WithConcurrency(cfg.WebhookConcurrency),
 		webhook.WithChExporter(chExporter),
+		webhook.WithAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
 		webhook.WithHTTPTransport(cfg.WebhookTimeout, cfg.WebhookIdleConnTimeout, cfg.WebhookMaxIdleConns, cfg.WebhookMaxIdleConnsPerHost),
 		webhook.WithBatchByURL(cfg.WebhookBatchEnabled),
 		webhook.WithMaxBatchSize(cfg.WebhookMaxBatchSize),
 	)
+	// Webhook signing secrets are stored encrypted at rest when an
+	// encryption key is configured, so the delivery worker must decrypt
+	// before computing the outbound HMAC. Without this the signature is
+	// computed over the AES-GCM ciphertext and cannot be verified by
+	// subscribers.
+	if webhookEnc, encErr := crypto.NewKeyRotatorFromStrings(cfg.EncryptionKey, cfg.EncryptionKeyOld...); cfg.EncryptionKey != "" && encErr == nil {
+		webhookOptions = append(webhookOptions, webhook.WithSecretDecryptor(webhookEnc))
+	} else if cfg.EncryptionKey != "" && encErr != nil {
+		slog.Warn("failed to create encryptor for webhook secrets; webhook signature decryption disabled", "error", encErr)
+	}
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {
@@ -389,7 +402,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
-		enc, encErr := crypto.NewEncryptor(cfg.EncryptionKey)
+		enc, encErr := crypto.NewKeyRotatorFromStrings(cfg.EncryptionKey, cfg.EncryptionKeyOld...)
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for API; event source signature encryption disabled", "error", encErr)
 		} else {
@@ -409,6 +422,11 @@ func runServe(ctx context.Context, modeOverride string) error {
 		}
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
+
+		// Wire webhook delivery cost recording. Each successful outbound delivery
+		// is billed at the same flat rate as an HTTP run (20 micro-USD).
+		webhookCostRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, slog.Default())
+		eventNotifier.SetRunCostRecorder(webhookCostRecorder)
 	}
 
 	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {
@@ -436,8 +454,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
+	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb)
+	if err != nil {
+		return fmt.Errorf("starting grpc server: %w", err)
+	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter, workerPlane)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

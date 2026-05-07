@@ -577,16 +577,13 @@ func (m *covMockRunLimitStore) CreateNotificationDelivery(ctx context.Context, d
 func TestBudgetMonitor_WithRunLimitNotifications(t *testing.T) {
 	t.Parallel()
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
 	rl := &covMockRunLimitStore{
 		listAllSubscribedOrgIDsFn: func(_ context.Context) ([]string, error) {
 			return []string{"org-1"}, nil
 		},
 	}
 	enforcer := newTestEnforcer(t)
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 
 	if bm.runLimitStore == nil {
 		t.Fatal("expected runLimitStore to be set")
@@ -599,16 +596,13 @@ func TestBudgetMonitor_WithRunLimitNotifications(t *testing.T) {
 func TestBudgetMonitor_CheckRunLimitWarnings_ListOrgsError(t *testing.T) {
 	t.Parallel()
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
 	rl := &covMockRunLimitStore{
 		listAllSubscribedOrgIDsFn: func(_ context.Context) ([]string, error) {
 			return nil, errors.New("db error")
 		},
 	}
 	enforcer := newTestEnforcer(t)
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 	// Should not panic.
 	bm.check(context.Background())
 }
@@ -616,9 +610,6 @@ func TestBudgetMonitor_CheckRunLimitWarnings_ListOrgsError(t *testing.T) {
 func TestBudgetMonitor_CheckRunLimitWarnings_NoWarning(t *testing.T) {
 	t.Parallel()
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
 	var deliveries []*domain.NotificationDelivery
 	rl := &covMockRunLimitStore{
 		listAllSubscribedOrgIDsFn: func(_ context.Context) ([]string, error) {
@@ -636,7 +627,7 @@ func TestBudgetMonitor_CheckRunLimitWarnings_NoWarning(t *testing.T) {
 		},
 	}
 	enforcer := newTestEnforcer(t)
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 	bm.check(context.Background())
 
 	// The enforcer will return false for Check80PercentDailyRunWarning with the mock store,
@@ -650,16 +641,13 @@ func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
 	t.Parallel()
 
 	today := time.Now().UTC().Format("2006-01-02")
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
 	rl := &covMockRunLimitStore{
 		listAllSubscribedOrgIDsFn: func(_ context.Context) ([]string, error) {
 			return []string{"org-1"}, nil
 		},
 	}
 	enforcer := newTestEnforcer(t)
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 
 	// Pre-set the alert key as if it was already alerted.
 	alertKey := fmt.Sprintf("runlimit:%s:80:%s", "org-1", today)
@@ -1327,10 +1315,7 @@ func TestBudgetMonitor_SpendingLimit_NilPeriodStart_FallbackToNow(t *testing.T) 
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 
 	// With nil period start, it should use time.Now() as fallback and still alert.
@@ -1351,10 +1336,7 @@ func TestBudgetMonitor_SpendingLimit_SubError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	// Should not panic when GetOrgSubscription returns error.
 	bm.check(context.Background())
 }
@@ -1380,10 +1362,7 @@ func TestBudgetMonitor_SpendingLimit_SpendQueryTimeout(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	// Should not panic on spend query error.
 	bm.check(context.Background())
 }
@@ -1410,10 +1389,7 @@ func TestBudgetMonitor_SpendingLimit_BulkChannelError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	// Should not panic when channel bulk-fetch fails.
 	bm.check(context.Background())
 }
@@ -1436,10 +1412,7 @@ func TestBudgetMonitor_SpendingLimit_ProjectListError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	// Should not panic when project list fails.
 	bm.check(context.Background())
 }
@@ -1500,50 +1473,6 @@ func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Budget monitor: rapid concurrent budget changes
-// ---------------------------------------------------------------------------.
-
-func TestBudgetMonitor_RapidBudgetChanges(t *testing.T) {
-	t.Parallel()
-
-	var costValue atomic.Int64
-	costValue.Store(50_000) // Start below threshold.
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return costValue.Load(), nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-
-	// First check: below threshold.
-	bm.check(context.Background())
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts below threshold, got %d", len(enqueuer.calls))
-	}
-
-	// Change cost above threshold.
-	costValue.Store(90_000)
-	bm.check(context.Background())
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert above threshold, got %d", len(enqueuer.calls))
-	}
-
-	// Third check: still above but already alerted.
-	bm.check(context.Background())
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected still 1 alert (deduped), got %d", len(enqueuer.calls))
-	}
-}
-
-// ---------------------------------------------------------------------------.
 // Spending limit notification: CreateNotificationDelivery error
 // ---------------------------------------------------------------------------.
 
@@ -1573,66 +1502,8 @@ func TestBudgetMonitor_SpendingNotification_DeliveryError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	// Should not panic when delivery creation fails.
-	bm.check(context.Background())
-}
-
-// ---------------------------------------------------------------------------.
-// Budget notification: delivery error in sendBudgetNotification
-// ---------------------------------------------------------------------------.
-
-func TestBudgetMonitor_SendBudgetNotification_DeliveryError(t *testing.T) {
-	t.Parallel()
-
-	ms := &mockNotifierBudgetStore{
-		mockBudgetStore: mockBudgetStore{
-			listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-				return []store.ProjectComputeQuota{
-					{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-				}, nil
-			},
-			sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-				return 85_000, nil
-			},
-		},
-		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
-			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
-		},
-		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
-			return errors.New("notification delivery failed")
-		},
-	}
-
-	bm := NewBudgetMonitor(ms, &mockEnqueuer{}, time.Minute)
-	// Should not panic when notification delivery fails.
-	bm.check(context.Background())
-}
-
-func TestBudgetMonitor_SendBudgetNotification_ListChannelsError(t *testing.T) {
-	t.Parallel()
-
-	ms := &mockNotifierBudgetStore{
-		mockBudgetStore: mockBudgetStore{
-			listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-				return []store.ProjectComputeQuota{
-					{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-				}, nil
-			},
-			sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-				return 85_000, nil
-			},
-		},
-		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
-			return nil, errors.New("channel list error")
-		},
-	}
-
-	bm := NewBudgetMonitor(ms, &mockEnqueuer{}, time.Minute)
-	// Should not panic when channel listing fails.
 	bm.check(context.Background())
 }
 
@@ -1669,10 +1540,7 @@ func TestBudgetMonitor_SpendingLimit_100Then80_DedupCheck(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 
 	// First check: 100% alert fires.
 	bm.check(context.Background())

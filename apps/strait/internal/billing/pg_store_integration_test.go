@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -484,8 +485,8 @@ func TestPgStore_UpsertOrgSubscription(t *testing.T) {
 		ID:                    newID(),
 		OrgID:                 orgID,
 		PlanTier:              "pro",
-		StripeSubscriptionID:   ptr("stripe-sub"),  //nolint:modernize
-		StripeCustomerID:       ptr("stripe-cust"), //nolint:modernize
+		StripeSubscriptionID:  ptr("stripe-sub"),  //nolint:modernize
+		StripeCustomerID:      ptr("stripe-cust"), //nolint:modernize
 		Status:                "active",
 		CurrentPeriodStart:    &ps,
 		CurrentPeriodEnd:      &pe,
@@ -548,6 +549,77 @@ func TestPgStore_UpdateOrgSubscriptionPlan(t *testing.T) {
 	}
 	if sub.Status != "active" {
 		t.Errorf("Status = %q, want %q", sub.Status, "active")
+	}
+}
+
+func TestPgStore_GetOrgSubscriptionByStripeBindings(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-stripe-bindings-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_subscription_id = 'sub_lookup_123',
+		    stripe_customer_id = 'cus_lookup_123'
+		WHERE org_id = $1
+	`, orgID); err != nil {
+		t.Fatalf("update subscription bindings: %v", err)
+	}
+
+	bySub, err := pgStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, "sub_lookup_123")
+	if err != nil {
+		t.Fatalf("GetOrgSubscriptionByStripeSubscriptionID() error = %v", err)
+	}
+	if bySub.OrgID != orgID {
+		t.Fatalf("subscription binding org = %q, want %q", bySub.OrgID, orgID)
+	}
+
+	byCustomer, err := pgStore.GetOrgSubscriptionByStripeCustomerID(ctx, "cus_lookup_123")
+	if err != nil {
+		t.Fatalf("GetOrgSubscriptionByStripeCustomerID() error = %v", err)
+	}
+	if byCustomer.OrgID != orgID {
+		t.Fatalf("customer binding org = %q, want %q", byCustomer.OrgID, orgID)
+	}
+
+	if _, err := pgStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, "sub_missing"); !errors.Is(err, billing.ErrSubscriptionNotFound) {
+		t.Fatalf("missing subscription binding error = %v, want ErrSubscriptionNotFound", err)
+	}
+}
+
+func TestPgStore_StripeBindingsAreGloballyUnique(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgA := "org-stripe-unique-a-" + newID()
+	orgB := "org-stripe-unique-b-" + newID()
+	ensureSub(t, ctx, pgStore, orgA)
+	ensureSub(t, ctx, pgStore, orgB)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_subscription_id = 'sub_unique_123',
+		    stripe_customer_id = 'cus_unique_123'
+		WHERE org_id = $1
+	`, orgA); err != nil {
+		t.Fatalf("seed first binding: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_subscription_id = 'sub_unique_123'
+		WHERE org_id = $1
+	`, orgB); err == nil {
+		t.Fatal("expected duplicate stripe_subscription_id to fail")
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_customer_id = 'cus_unique_123'
+		WHERE org_id = $1
+	`, orgB); err == nil {
+		t.Fatal("expected duplicate stripe_customer_id to fail")
 	}
 }
 
@@ -1178,50 +1250,6 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		t.Errorf("ai_cost = %d, want 600000", ai)
 	}
 }
-
-// --------------------------------------------------------------------------.
-// Test 28: SumOrgPeriodSpend
-// --------------------------------------------------------------------------.
-
-func TestPgStore_SumOrgPeriodSpend(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-sumspend-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	cu := &domain.RunComputeUsage{
-		ID:            newID(),
-		RunID:         run.ID,
-		ProjectID:     p.ID,
-		JobID:         job.ID,
-		MachinePreset: "micro",
-		MachineID:     "m1",
-		DurationSecs:  60,
-		CostMicrousd:  10_000_000,
-	}
-	if err := q.CreateRunComputeUsage(ctx, cu); err != nil {
-		t.Fatalf("CreateRunComputeUsage: %v", err)
-	}
-
-	from := time.Now().UTC().Add(-1 * time.Hour)
-	total, err := pgStore.SumOrgPeriodSpend(ctx, orgID, from)
-	if err != nil {
-		t.Fatalf("SumOrgPeriodSpend error = %v", err)
-	}
-	if total != 10_000_000 {
-		t.Errorf("SumOrgPeriodSpend = %d, want 10000000", total)
-	}
-}
-
-// --------------------------------------------------------------------------.
-// Test 29: GetProjectBudget (no row)
-// --------------------------------------------------------------------------.
-
 func TestPgStore_GetProjectBudget_NoRow(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1276,50 +1304,6 @@ func TestPgStore_SetProjectBudget(t *testing.T) {
 		t.Errorf("action = %q, want %q", action, "suspend")
 	}
 }
-
-// --------------------------------------------------------------------------.
-// Test 31: GetProjectPeriodSpend
-// --------------------------------------------------------------------------.
-
-func TestPgStore_GetProjectPeriodSpend(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-projspend-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	cu := &domain.RunComputeUsage{
-		ID:            newID(),
-		RunID:         run.ID,
-		ProjectID:     p.ID,
-		JobID:         job.ID,
-		MachinePreset: "micro",
-		MachineID:     "m1",
-		DurationSecs:  30,
-		CostMicrousd:  3_000_000,
-	}
-	if err := q.CreateRunComputeUsage(ctx, cu); err != nil {
-		t.Fatalf("CreateRunComputeUsage: %v", err)
-	}
-
-	from := time.Now().UTC().Add(-1 * time.Hour)
-	total, err := pgStore.GetProjectPeriodSpend(ctx, p.ID, from)
-	if err != nil {
-		t.Fatalf("GetProjectPeriodSpend error = %v", err)
-	}
-	if total != 3_000_000 {
-		t.Errorf("GetProjectPeriodSpend = %d, want 3000000", total)
-	}
-}
-
-// --------------------------------------------------------------------------.
-// Test 32: UpdateAnomalyThresholds
-// --------------------------------------------------------------------------.
-
 func TestPgStore_UpdateAnomalyThresholds(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1894,6 +1878,98 @@ func TestPgStore_WebhookIdempotency(t *testing.T) {
 	}
 }
 
+func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	msgID := "msg-claim-" + newID()
+	start := make(chan struct{})
+	results := make(chan bool, 2)
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			<-start
+			claimed, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- claimed
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("ClaimWebhookForProcessing concurrent error: %v", err)
+	}
+	var claimed, skipped int
+	for result := range results {
+		if result {
+			claimed++
+		} else {
+			skipped++
+		}
+	}
+	if claimed != 1 || skipped != 1 {
+		t.Fatalf("claimed/skipped = %d/%d, want 1/1", claimed, skipped)
+	}
+
+	processed, err := pgStore.IsWebhookProcessed(ctx, msgID)
+	if err != nil {
+		t.Fatalf("IsWebhookProcessed(processing) error = %v", err)
+	}
+	if processed {
+		t.Fatal("processing claim must not count as processed")
+	}
+	status, err := pgStore.GetWebhookProcessingStatus(ctx, msgID)
+	if err != nil {
+		t.Fatalf("GetWebhookProcessingStatus(processing) error = %v", err)
+	}
+	if status != "processing" {
+		t.Fatalf("GetWebhookProcessingStatus(processing) = %q, want processing", status)
+	}
+
+	if err := pgStore.ReleaseWebhookClaim(ctx, msgID); err != nil {
+		t.Fatalf("ReleaseWebhookClaim error = %v", err)
+	}
+	status, err = pgStore.GetWebhookProcessingStatus(ctx, msgID)
+	if err != nil {
+		t.Fatalf("GetWebhookProcessingStatus(after release) error = %v", err)
+	}
+	if status != "" {
+		t.Fatalf("GetWebhookProcessingStatus(after release) = %q, want empty", status)
+	}
+	reclaimed, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimWebhookForProcessing(after release) error = %v", err)
+	}
+	if !reclaimed {
+		t.Fatal("claim after release = false, want true")
+	}
+	if err := pgStore.MarkWebhookProcessed(ctx, msgID); err != nil {
+		t.Fatalf("MarkWebhookProcessed error = %v", err)
+	}
+	status, err = pgStore.GetWebhookProcessingStatus(ctx, msgID)
+	if err != nil {
+		t.Fatalf("GetWebhookProcessingStatus(processed) error = %v", err)
+	}
+	if status != "processed" {
+		t.Fatalf("GetWebhookProcessingStatus(processed) = %q, want processed", status)
+	}
+	again, err := pgStore.ClaimWebhookForProcessing(ctx, msgID, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimWebhookForProcessing(after processed) error = %v", err)
+	}
+	if again {
+		t.Fatal("claim after processed = true, want false")
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 47: DeleteOldWebhookMessages
 // --------------------------------------------------------------------------.
@@ -2041,213 +2117,6 @@ func TestPgStore_DeactivateExcessCronJobs(t *testing.T) {
 		t.Errorf("DeactivateExcessCronJobs = %d, want 3", deactivated)
 	}
 }
-
-// --------------------------------------------------------------------------.
-// Existing tests (kept from original file)
-// --------------------------------------------------------------------------.
-
-func TestPgStore_AggregatesComputeAndAIUsage(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-
-	q := mustQueries(t)
-	pgStore := billing.NewPgStore(testDB.Pool)
-
-	orgID := "org-usage"
-	projectA := createProject(t, ctx, q, orgID, "Project A")
-	projectB := createProject(t, ctx, q, orgID, "Project B")
-	_ = createProject(t, ctx, q, "org-other", "Project Other")
-
-	jobA := createJob(t, ctx, q, projectA.ID)
-	jobB := createJob(t, ctx, q, projectB.ID)
-	jobOther := createJob(t, ctx, q, createProject(t, ctx, q, "org-other", "Project Other With Usage").ID)
-
-	day1 := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	day2 := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
-
-	runA1 := createRun(t, ctx, q, jobA, domain.StatusCompleted)
-	runB1 := createRun(t, ctx, q, jobB, domain.StatusCompleted)
-	runA2 := createRun(t, ctx, q, jobA, domain.StatusCompleted)
-	runOther := createRun(t, ctx, q, jobOther, domain.StatusCompleted)
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runA1.ID, day1); err != nil {
-		t.Fatalf("set runA1 created_at error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runB1.ID, day1); err != nil {
-		t.Fatalf("set runB1 created_at error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runA2.ID, day2); err != nil {
-		t.Fatalf("set runA2 created_at error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $2 WHERE id = $1`, runOther.ID, day1); err != nil {
-		t.Fatalf("set runOther created_at error = %v", err)
-	}
-
-	computeA1 := &domain.RunComputeUsage{
-		ID:            newID(),
-		RunID:         runA1.ID,
-		ProjectID:     projectA.ID,
-		JobID:         jobA.ID,
-		MachinePreset: "micro",
-		MachineID:     "machine-a1",
-		DurationSecs:  30,
-		CostMicrousd:  2_000_000,
-	}
-	if err := q.CreateRunComputeUsage(ctx, computeA1); err != nil {
-		t.Fatalf("CreateRunComputeUsage(projectA/day1) error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_compute_usage SET created_at = $2 WHERE id = $1`, computeA1.ID, day1); err != nil {
-		t.Fatalf("set computeA1 created_at error = %v", err)
-	}
-
-	aiA1 := &domain.RunUsage{
-		ID:               newID(),
-		RunID:            runA1.ID,
-		Provider:         "openai",
-		Model:            "gpt-5.4-mini",
-		PromptTokens:     600,
-		CompletionTokens: 400,
-		TotalTokens:      1000,
-		CostMicrousd:     1_000_000,
-	}
-	if err := q.CreateRunUsage(ctx, aiA1); err != nil {
-		t.Fatalf("CreateRunUsage(projectA/day1) error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_usage SET created_at = $2 WHERE id = $1`, aiA1.ID, day1); err != nil {
-		t.Fatalf("set aiA1 created_at error = %v", err)
-	}
-
-	computeB1 := &domain.RunComputeUsage{
-		ID:            newID(),
-		RunID:         runB1.ID,
-		ProjectID:     projectB.ID,
-		JobID:         jobB.ID,
-		MachinePreset: "small",
-		MachineID:     "machine-b1",
-		DurationSecs:  45,
-		CostMicrousd:  3_000_000,
-	}
-	if err := q.CreateRunComputeUsage(ctx, computeB1); err != nil {
-		t.Fatalf("CreateRunComputeUsage(projectB/day1) error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_compute_usage SET created_at = $2 WHERE id = $1`, computeB1.ID, day1); err != nil {
-		t.Fatalf("set computeB1 created_at error = %v", err)
-	}
-
-	aiB1 := &domain.RunUsage{
-		ID:               newID(),
-		RunID:            runB1.ID,
-		Provider:         "openai",
-		Model:            "gpt-5.4-mini",
-		PromptTokens:     300,
-		CompletionTokens: 400,
-		TotalTokens:      700,
-		CostMicrousd:     500_000,
-	}
-	if err := q.CreateRunUsage(ctx, aiB1); err != nil {
-		t.Fatalf("CreateRunUsage(projectB/day1) error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_usage SET created_at = $2 WHERE id = $1`, aiB1.ID, day1); err != nil {
-		t.Fatalf("set aiB1 created_at error = %v", err)
-	}
-
-	aiA2 := &domain.RunUsage{
-		ID:               newID(),
-		RunID:            runA2.ID,
-		Provider:         "openai",
-		Model:            "gpt-5.4-mini",
-		PromptTokens:     100,
-		CompletionTokens: 200,
-		TotalTokens:      300,
-		CostMicrousd:     250_000,
-	}
-	if err := q.CreateRunUsage(ctx, aiA2); err != nil {
-		t.Fatalf("CreateRunUsage(projectA/day2) error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_usage SET created_at = $2 WHERE id = $1`, aiA2.ID, day2); err != nil {
-		t.Fatalf("set aiA2 created_at error = %v", err)
-	}
-
-	aiOther := &domain.RunUsage{
-		ID:               newID(),
-		RunID:            runOther.ID,
-		Provider:         "openai",
-		Model:            "gpt-5.4-mini",
-		PromptTokens:     50,
-		CompletionTokens: 50,
-		TotalTokens:      100,
-		CostMicrousd:     75_000,
-	}
-	if err := q.CreateRunUsage(ctx, aiOther); err != nil {
-		t.Fatalf("CreateRunUsage(projectOther/day1) error = %v", err)
-	}
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE run_usage SET created_at = $2 WHERE id = $1`, aiOther.ID, day1); err != nil {
-		t.Fatalf("set aiOther created_at error = %v", err)
-	}
-
-	orgRecords, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, day1.Add(-time.Hour), day2.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("GetOrgUsageForPeriod() error = %v", err)
-	}
-	if len(orgRecords) != 3 {
-		t.Fatalf("GetOrgUsageForPeriod() len = %d, want 3", len(orgRecords))
-	}
-
-	recordMap := make(map[string]billing.UsageRecord, len(orgRecords))
-	for _, record := range orgRecords {
-		key := record.ProjectID + ":" + record.PeriodDate.Format("2006-01-02")
-		recordMap[key] = record
-	}
-
-	day1A := recordMap[projectA.ID+":2026-03-10"]
-	if day1A.RunsCount != 1 || day1A.ComputeCostMicro != 2_000_000 || day1A.AITokensTotal != 1000 || day1A.AICostMicro != 1_000_000 {
-		t.Fatalf("unexpected project A day 1 aggregate: %+v", day1A)
-	}
-	day1B := recordMap[projectB.ID+":2026-03-10"]
-	if day1B.RunsCount != 1 || day1B.ComputeCostMicro != 3_000_000 || day1B.AITokensTotal != 700 || day1B.AICostMicro != 500_000 {
-		t.Fatalf("unexpected project B day 1 aggregate: %+v", day1B)
-	}
-	day2A := recordMap[projectA.ID+":2026-03-11"]
-	if day2A.RunsCount != 1 || day2A.ComputeCostMicro != 0 || day2A.AITokensTotal != 300 || day2A.AICostMicro != 250_000 {
-		t.Fatalf("unexpected project A day 2 aggregate: %+v", day2A)
-	}
-
-	projectARecords, err := pgStore.GetProjectUsageForPeriod(ctx, projectA.ID, day1.Add(-time.Hour), day2.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("GetProjectUsageForPeriod() error = %v", err)
-	}
-	if len(projectARecords) != 2 {
-		t.Fatalf("GetProjectUsageForPeriod() len = %d, want 2", len(projectARecords))
-	}
-
-	day1Records, err := pgStore.GetOrgDailyUsage(ctx, orgID, day1)
-	if err != nil {
-		t.Fatalf("GetOrgDailyUsage() error = %v", err)
-	}
-	if len(day1Records) != 2 {
-		t.Fatalf("GetOrgDailyUsage() len = %d, want 2", len(day1Records))
-	}
-
-	day1Start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
-	day2Start := time.Date(2026, 3, 11, 0, 0, 0, 0, time.UTC)
-	day3Start := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
-
-	day1Count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, day1Start, day2Start)
-	if err != nil {
-		t.Fatalf("CountAIModelCallsByOrg(day1) error = %v", err)
-	}
-	if day1Count != 2 {
-		t.Fatalf("CountAIModelCallsByOrg(day1) = %d, want 2", day1Count)
-	}
-
-	day2Count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, day2Start, day3Start)
-	if err != nil {
-		t.Fatalf("CountAIModelCallsByOrg(day2) error = %v", err)
-	}
-	if day2Count != 1 {
-		t.Fatalf("CountAIModelCallsByOrg(day2) = %d, want 1", day2Count)
-	}
-}
-
 func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2292,7 +2161,7 @@ func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 
 // ============================================================
 // Enterprise contract integration tests
-// ============================================================
+// ============================================================.
 
 func makeContract(orgID string, tier billing.EnterpriseTier, endDate time.Time) *billing.EnterpriseContract {
 	subID := "sub_" + orgID
@@ -2546,7 +2415,7 @@ func TestPgStore_UpsertEnterpriseContract_NilStripeSubscriptionID(t *testing.T) 
 
 // ============================================================
 // HTTP job downgrade lifecycle integration tests
-// ============================================================
+// ============================================================.
 
 func createHTTPJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
 	t.Helper()
@@ -2567,25 +2436,6 @@ func createHTTPJob(t *testing.T, ctx context.Context, q *store.Queries, projectI
 	return job
 }
 
-func createManagedJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
-	t.Helper()
-	job := &domain.Job{
-		ID:            newID(),
-		ProjectID:     projectID,
-		Name:          "managed-job-" + newID(),
-		Slug:          "managed-slug-" + newID(),
-		EndpointURL:   "https://example.com/managed",
-		MaxAttempts:   3,
-		TimeoutSecs:   60,
-		Enabled:       true,
-		ExecutionMode: domain.ExecutionModeManaged,
-	}
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob(managed) error = %v", err)
-	}
-	return job
-}
-
 func TestPgStore_PauseHTTPJobsByOrg(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2595,12 +2445,9 @@ func TestPgStore_PauseHTTPJobsByOrg(t *testing.T) {
 	orgID := "org-http-pause-" + newID()
 	p := createProject(t, ctx, q, orgID, "P1")
 
-	// Create 3 HTTP + 2 managed jobs.
 	createHTTPJob(t, ctx, q, p.ID)
 	createHTTPJob(t, ctx, q, p.ID)
 	createHTTPJob(t, ctx, q, p.ID)
-	createManagedJob(t, ctx, q, p.ID)
-	createManagedJob(t, ctx, q, p.ID)
 
 	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
 	if err != nil {
@@ -2733,12 +2580,9 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 	orgID := "org-lifecycle-" + newID()
 	p := createProject(t, ctx, q, orgID, "P1")
 
-	// Create 3 HTTP + 2 managed jobs.
 	h1 := createHTTPJob(t, ctx, q, p.ID)
 	createHTTPJob(t, ctx, q, p.ID)
 	createHTTPJob(t, ctx, q, p.ID)
-	m1 := createManagedJob(t, ctx, q, p.ID)
-	createManagedJob(t, ctx, q, p.ID)
 
 	// Step 1: Pause HTTP jobs (simulate downgrade).
 	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
@@ -2749,19 +2593,12 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 		t.Fatalf("step 1: expected 3 paused, got %d", paused)
 	}
 
-	// Verify HTTP job is paused with correct reason.
 	got, _ := q.GetJob(ctx, h1.ID)
 	if !got.Paused {
 		t.Error("step 1: HTTP job should be paused")
 	}
 	if got.PauseReason != "plan_downgrade" {
 		t.Errorf("step 1: pause_reason = %q, want plan_downgrade", got.PauseReason)
-	}
-
-	// Verify managed job is NOT paused.
-	gotM, _ := q.GetJob(ctx, m1.ID)
-	if gotM.Paused {
-		t.Error("step 1: managed job should NOT be paused")
 	}
 
 	// Step 2: Unpause (simulate upgrade back to Pro).
@@ -2785,7 +2622,7 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H1 regression: ListOrgsInGracePeriod must include MonthlyUsageEmail
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListOrgsInGracePeriod_MonthlyUsageEmail(t *testing.T) {
 	ctx := context.Background()
@@ -2822,7 +2659,7 @@ func TestPgStore_ListOrgsInGracePeriod_MonthlyUsageEmail(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H1 regression: ListStaleSubscriptions must include MonthlyUsageEmail
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	ctx := context.Background()
@@ -2856,99 +2693,6 @@ func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	}
 	t.Fatal("org not found in stale subscriptions list")
 }
-
-// --------------------------------------------------------------------------
-// H2/H3: Usage CTE correctness -- non-committed compute excluded
-// --------------------------------------------------------------------------
-
-func TestPgStore_UsageCTE_ExcludesNonCommittedCompute(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-cte-pending-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	now := time.Now().UTC()
-	_, _ = testDB.Pool.Exec(ctx,
-		`INSERT INTO run_compute_usage (id, run_id, project_id, job_id, machine_preset, cost_microusd, status)
-		 VALUES ($1, $2, $3, $4, 'micro', 500000, 'reserved')`,
-		newID(), run.ID, p.ID, job.ID)
-
-	from := now.Add(-1 * time.Hour)
-	to := now.Add(1 * time.Hour)
-	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
-	if err != nil {
-		t.Fatalf("GetOrgUsageForPeriod: %v", err)
-	}
-
-	for _, r := range recs {
-		if r.ComputeCostMicro != 0 {
-			t.Errorf("expected ComputeCostMicro=0 for reserved-only, got %d", r.ComputeCostMicro)
-		}
-	}
-}
-
-// --------------------------------------------------------------------------
-// H2: Compute-only, no AI
-// --------------------------------------------------------------------------
-
-func TestPgStore_UsageCTE_ComputeOnlyNoAI(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-cte-componly-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	now := time.Now().UTC()
-	start := now.Add(-10 * time.Second)
-	cu := &domain.RunComputeUsage{
-		ID: newID(), RunID: run.ID, ProjectID: p.ID, JobID: job.ID,
-		MachinePreset: "micro", DurationSecs: 10, CostMicrousd: 200000,
-		StartedAt: &start, FinishedAt: &now,
-	}
-	if err := q.CreateRunComputeUsage(ctx, cu); err != nil {
-		t.Fatalf("CreateRunComputeUsage: %v", err)
-	}
-
-	from := now.Add(-1 * time.Hour)
-	to := now.Add(1 * time.Hour)
-	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
-	if err != nil {
-		t.Fatalf("GetOrgUsageForPeriod: %v", err)
-	}
-	if len(recs) == 0 {
-		t.Fatal("expected at least one usage record")
-	}
-
-	for _, r := range recs {
-		if r.ProjectID == p.ID {
-			if r.ComputeCostMicro != 200000 {
-				t.Errorf("ComputeCostMicro = %d, want 200000", r.ComputeCostMicro)
-			}
-			if r.AITokensTotal != 0 {
-				t.Errorf("AITokensTotal = %d, want 0", r.AITokensTotal)
-			}
-			if r.AICostMicro != 0 {
-				t.Errorf("AICostMicro = %d, want 0", r.AICostMicro)
-			}
-			return
-		}
-	}
-	t.Fatal("project record not found in usage")
-}
-
-// --------------------------------------------------------------------------
-// H3: AI-only, no compute
-// --------------------------------------------------------------------------
-
 func TestPgStore_UsageCTE_AIOnlyNoCompute(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2997,114 +2741,6 @@ func TestPgStore_UsageCTE_AIOnlyNoCompute(t *testing.T) {
 	}
 	t.Fatal("project record not found in usage")
 }
-
-// --------------------------------------------------------------------------
-// H3: GetOrgDailyUsage per-project values
-// --------------------------------------------------------------------------
-
-func TestPgStore_GetOrgDailyUsage_PerProjectValues(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-daily-pp-" + newID()
-	pA := createProject(t, ctx, q, orgID, "PA")
-	pB := createProject(t, ctx, q, orgID, "PB")
-
-	jobA := createJob(t, ctx, q, pA.ID)
-	jobB := createJob(t, ctx, q, pB.ID)
-
-	now := time.Now().UTC()
-	start := now.Add(-10 * time.Second)
-
-	for range 10 {
-		createRun(t, ctx, q, jobA, domain.StatusCompleted)
-	}
-	for range 5 {
-		createRun(t, ctx, q, jobB, domain.StatusCompleted)
-	}
-
-	cuA := &domain.RunComputeUsage{
-		ID: newID(), RunID: newID(), ProjectID: pA.ID, JobID: jobA.ID,
-		MachinePreset: "micro", DurationSecs: 10, CostMicrousd: 2_000_000,
-		StartedAt: &start, FinishedAt: &now,
-	}
-	if err := q.CreateRunComputeUsage(ctx, cuA); err != nil {
-		t.Fatalf("CreateRunComputeUsage A: %v", err)
-	}
-	cuB := &domain.RunComputeUsage{
-		ID: newID(), RunID: newID(), ProjectID: pB.ID, JobID: jobB.ID,
-		MachinePreset: "small-1x", DurationSecs: 30, CostMicrousd: 3_000_000,
-		StartedAt: &start, FinishedAt: &now,
-	}
-	if err := q.CreateRunComputeUsage(ctx, cuB); err != nil {
-		t.Fatalf("CreateRunComputeUsage B: %v", err)
-	}
-
-	aiA := &domain.RunUsage{
-		ID: newID(), RunID: newID(),
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 600, CompletionTokens: 400, TotalTokens: 1000,
-		CostMicrousd: 100000,
-	}
-	// AI run needs a matching job_run for the join.
-	runForAI_A := createRun(t, ctx, q, jobA, domain.StatusCompleted)
-	aiA.RunID = runForAI_A.ID
-	if err := q.CreateRunUsage(ctx, aiA); err != nil {
-		t.Fatalf("CreateRunUsage A: %v", err)
-	}
-	runForAI_B := createRun(t, ctx, q, jobB, domain.StatusCompleted)
-	aiB := &domain.RunUsage{
-		ID: newID(), RunID: runForAI_B.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 400, CompletionTokens: 300, TotalTokens: 700,
-		CostMicrousd: 70000,
-	}
-	if err := q.CreateRunUsage(ctx, aiB); err != nil {
-		t.Fatalf("CreateRunUsage B: %v", err)
-	}
-
-	recs, err := pgStore.GetOrgDailyUsage(ctx, orgID, now)
-	if err != nil {
-		t.Fatalf("GetOrgDailyUsage: %v", err)
-	}
-	if len(recs) != 2 {
-		t.Fatalf("expected 2 project records, got %d", len(recs))
-	}
-
-	byProject := make(map[string]billing.UsageRecord)
-	for _, r := range recs {
-		byProject[r.ProjectID] = r
-	}
-
-	recA, ok := byProject[pA.ID]
-	if !ok {
-		t.Fatal("project A not found")
-	}
-	if recA.ComputeCostMicro != 2_000_000 {
-		t.Errorf("A compute = %d, want 2000000", recA.ComputeCostMicro)
-	}
-	if recA.AITokensTotal != 1000 {
-		t.Errorf("A AI tokens = %d, want 1000", recA.AITokensTotal)
-	}
-
-	recB, ok := byProject[pB.ID]
-	if !ok {
-		t.Fatal("project B not found")
-	}
-	if recB.ComputeCostMicro != 3_000_000 {
-		t.Errorf("B compute = %d, want 3000000", recB.ComputeCostMicro)
-	}
-	if recB.AITokensTotal != 700 {
-		t.Errorf("B AI tokens = %d, want 700", recB.AITokensTotal)
-	}
-}
-
-// --------------------------------------------------------------------------
-// M1: UpsertOrgSubscription preserves pending_plan_tier
-// --------------------------------------------------------------------------
-
 func TestPgStore_UpsertOrgSubscription_PreservesPendingPlanTier(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -3141,7 +2777,7 @@ func TestPgStore_UpsertOrgSubscription_PreservesPendingPlanTier(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M2: UpdateOrgSubscriptionFull with nil period preserves existing
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_UpdateOrgSubscriptionFull_NilPeriodPreservesExisting(t *testing.T) {
 	ctx := context.Background()
@@ -3175,7 +2811,7 @@ func TestPgStore_UpdateOrgSubscriptionFull_NilPeriodPreservesExisting(t *testing
 
 // --------------------------------------------------------------------------
 // M3: BulkCountExecutingRunsByOrg -- zero-run org absent from map
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_BulkCountExecutingRunsByOrg_ZeroRunOrgAbsent(t *testing.T) {
 	ctx := context.Background()
@@ -3194,7 +2830,7 @@ func TestPgStore_BulkCountExecutingRunsByOrg_ZeroRunOrgAbsent(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M4: ListOrgsWithPendingDowngrade near boundary
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListOrgsWithPendingDowngrade_NearBoundary(t *testing.T) {
 	ctx := context.Background()
@@ -3241,7 +2877,7 @@ func TestPgStore_ListOrgsWithPendingDowngrade_NearBoundary(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M5: ListStaleSubscriptions one-day boundary
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ListStaleSubscriptions_OneDayBoundary(t *testing.T) {
 	ctx := context.Background()
@@ -3288,7 +2924,7 @@ func TestPgStore_ListStaleSubscriptions_OneDayBoundary(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M6: GetProjectOrgID not found
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_GetProjectOrgID_NotFound(t *testing.T) {
 	ctx := context.Background()
@@ -3300,41 +2936,6 @@ func TestPgStore_GetProjectOrgID_NotFound(t *testing.T) {
 		t.Error("expected error for non-existent project")
 	}
 }
-
-// --------------------------------------------------------------------------
-// M7: SumOrgPeriodSpend excludes non-committed
-// --------------------------------------------------------------------------
-
-func TestPgStore_SumOrgPeriodSpend_ExcludesNonCommitted(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-spend-nc-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	_, _ = testDB.Pool.Exec(ctx,
-		`INSERT INTO run_compute_usage (id, run_id, project_id, job_id, machine_preset, cost_microusd, status)
-		 VALUES ($1, $2, $3, $4, 'micro', 1000000, 'reserved')`,
-		newID(), run.ID, p.ID, job.ID)
-
-	from := time.Now().UTC().Add(-1 * time.Hour)
-	total, err := pgStore.SumOrgPeriodSpend(ctx, orgID, from)
-	if err != nil {
-		t.Fatalf("SumOrgPeriodSpend: %v", err)
-	}
-	if total != 0 {
-		t.Errorf("SumOrgPeriodSpend = %d, want 0 (reserved not counted)", total)
-	}
-}
-
-// --------------------------------------------------------------------------
-// M8: ListOrgAdminEmails deduplicates across projects
-// --------------------------------------------------------------------------
-
 func TestPgStore_ListOrgAdminEmails_DedupsAcrossProjects(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -3362,7 +2963,7 @@ func TestPgStore_ListOrgAdminEmails_DedupsAcrossProjects(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // M9: GetOrgUsageForPeriod single day (from == to)
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_GetOrgUsageForPeriod_SingleDay(t *testing.T) {
 	ctx := context.Background()
@@ -3401,7 +3002,7 @@ func TestPgStore_GetOrgUsageForPeriod_SingleDay(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L1: ApplyPendingDowngrade same tier (noop)
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_ApplyPendingDowngrade_SameTier(t *testing.T) {
 	ctx := context.Background()
@@ -3433,7 +3034,7 @@ func TestPgStore_ApplyPendingDowngrade_SameTier(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L2: Usage report dedup -- time truncation
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
 	ctx := context.Background()
@@ -3459,7 +3060,7 @@ func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L3: CountMembersByOrg includes soft-deleted project members
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_CountMembersByOrg_IncludesDeletedProjectMembers(t *testing.T) {
 	ctx := context.Background()
@@ -3487,7 +3088,7 @@ func TestPgStore_CountMembersByOrg_IncludesDeletedProjectMembers(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L4: DeleteOldWebhookMessages with future cutoff
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
 	ctx := context.Background()
@@ -3511,7 +3112,7 @@ func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L5: CountAIModelCallsByOrg multiple rows per run
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
 	ctx := context.Background()
@@ -3548,7 +3149,7 @@ func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L6: SuspendExcessProjects with maxProjects=0 suspends all
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_SuspendExcessProjects_ZeroMax(t *testing.T) {
 	ctx := context.Background()
@@ -3577,7 +3178,7 @@ func TestPgStore_SuspendExcessProjects_ZeroMax(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L7: UpsertOrgSubscription preserves spending_limit
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
 	ctx := context.Background()
@@ -3592,14 +3193,14 @@ func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
 	}
 
 	sub := &billing.OrgSubscription{
-		ID:                   newID(),
-		OrgID:                orgID,
-		PlanTier:             "enterprise",
-		Status:               "active",
+		ID:                    newID(),
+		OrgID:                 orgID,
+		PlanTier:              "enterprise",
+		Status:                "active",
 		SpendingLimitMicrousd: 999,
-		LimitAction:          "notify",
-		CreatedAt:            time.Now().UTC(),
-		UpdatedAt:            time.Now().UTC(),
+		LimitAction:           "notify",
+		CreatedAt:             time.Now().UTC(),
+		UpdatedAt:             time.Now().UTC(),
 	}
 	if err := pgStore.UpsertOrgSubscription(ctx, sub); err != nil {
 		t.Fatalf("UpsertOrgSubscription: %v", err)
@@ -3616,7 +3217,7 @@ func TestPgStore_UpsertOrgSubscription_PreservesSpendingLimit(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // L8: IsProjectSuspended non-existent project
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestPgStore_IsProjectSuspended_NonExistent(t *testing.T) {
 	ctx := context.Background()

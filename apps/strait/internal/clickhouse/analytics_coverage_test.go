@@ -230,43 +230,6 @@ func TestGetTopCosts_InvertedRange(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// GetComputeCostAnalytics
-// ---------------------------------------------------------------------------.
-
-func TestGetComputeCostAnalytics_CanceledCtx(t *testing.T) {
-	t.Parallel()
-	client := newClosedDBClient(t)
-	s := NewAnalyticsStore(client, nil)
-	from, to := longRange()
-	_, err := s.GetComputeCostAnalytics(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
-}
-
-func TestGetComputeCostAnalytics_EmptyProjectID(t *testing.T) {
-	t.Parallel()
-	client := newClosedDBClient(t)
-	s := NewAnalyticsStore(client, nil)
-	from, to := longRange()
-	_, err := s.GetComputeCostAnalytics(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
-}
-
-func TestGetComputeCostAnalytics_InvertedRange(t *testing.T) {
-	t.Parallel()
-	client := newClosedDBClient(t)
-	s := NewAnalyticsStore(client, nil)
-	from, to := invertedRange()
-	_, err := s.GetComputeCostAnalytics(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
-}
-
-// ---------------------------------------------------------------------------.
 // GetCostOutliers
 // ---------------------------------------------------------------------------.
 
@@ -1331,43 +1294,6 @@ func TestGetCostByTrigger_InvertedRange(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// GetCostByMachine
-// ---------------------------------------------------------------------------.
-
-func TestGetCostByMachine_CanceledCtx(t *testing.T) {
-	t.Parallel()
-	client := newClosedDBClient(t)
-	s := NewAnalyticsStore(client, nil)
-	from, to := longRange()
-	_, err := s.GetCostByMachine(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
-}
-
-func TestGetCostByMachine_EmptyProjectID(t *testing.T) {
-	t.Parallel()
-	client := newClosedDBClient(t)
-	s := NewAnalyticsStore(client, nil)
-	from, to := longRange()
-	_, err := s.GetCostByMachine(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
-}
-
-func TestGetCostByMachine_InvertedRange(t *testing.T) {
-	t.Parallel()
-	client := newClosedDBClient(t)
-	s := NewAnalyticsStore(client, nil)
-	from, to := invertedRange()
-	_, err := s.GetCostByMachine(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
-}
-
-// ---------------------------------------------------------------------------.
 // Table-driven: verify every function returns an error containing its
 // expected error substring when called with a closed-db client.
 // This exercises every Query/QueryRow path with real error propagation.
@@ -1406,10 +1332,6 @@ func TestAnalyticsCoverage_ClosedDB_ErrorMessages(t *testing.T) {
 			_, err := s.GetTopCosts(context.Background(), "p1", from, now, 10)
 			return err
 		}, "top costs"},
-		{"GetComputeCostAnalytics", func() error {
-			_, err := s.GetComputeCostAnalytics(context.Background(), "p1", from, now)
-			return err
-		}, "compute cost analytics"},
 		{"GetCostOutliers", func() error {
 			_, err := s.GetCostOutliers(context.Background(), "p1", from, now, 2.0)
 			return err
@@ -1514,10 +1436,6 @@ func TestAnalyticsCoverage_ClosedDB_ErrorMessages(t *testing.T) {
 			_, err := s.GetCostByTrigger(context.Background(), "p1", from, now)
 			return err
 		}, "cost by trigger"},
-		{"GetCostByMachine", func() error {
-			_, err := s.GetCostByMachine(context.Background(), "p1", from, now)
-			return err
-		}, "cost by machine"},
 	}
 
 	for _, tt := range tests {
@@ -1644,10 +1562,6 @@ func TestAnalyticsCoverage_NilClient_AllQueryMethods(t *testing.T) {
 		}},
 		{"GetCostByTrigger", func() error {
 			_, err := s.GetCostByTrigger(context.Background(), "p1", from, now)
-			return err
-		}},
-		{"GetCostByMachine", func() error {
-			_, err := s.GetCostByMachine(context.Background(), "p1", from, now)
 			return err
 		}},
 	}

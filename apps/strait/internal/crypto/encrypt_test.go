@@ -252,6 +252,40 @@ func TestKeyRotator_DecryptWithOldKey(t *testing.T) {
 	}
 }
 
+func TestNewKeyRotatorFromStrings_DecryptsOldStringKey(t *testing.T) {
+	t.Parallel()
+
+	oldEncryptor := mustEncryptor(t, "fedcba9876543210fedcba9876543210")
+	ciphertext, err := oldEncryptor.Encrypt([]byte("legacy-secret"))
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+
+	rotator, err := NewKeyRotatorFromStrings("0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210")
+	if err != nil {
+		t.Fatalf("NewKeyRotatorFromStrings() error = %v", err)
+	}
+	decrypted, err := rotator.Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt() error = %v", err)
+	}
+	if string(decrypted) != "legacy-secret" {
+		t.Fatalf("Decrypt() = %q, want %q", string(decrypted), "legacy-secret")
+	}
+
+	encryptedString, err := rotator.EncryptString("new-secret")
+	if err != nil {
+		t.Fatalf("EncryptString() error = %v", err)
+	}
+	decryptedString, err := rotator.DecryptString(encryptedString)
+	if err != nil {
+		t.Fatalf("DecryptString() error = %v", err)
+	}
+	if decryptedString != "new-secret" {
+		t.Fatalf("DecryptString() = %q, want %q", decryptedString, "new-secret")
+	}
+}
+
 func TestKeyRotator_RotateKeyFlow(t *testing.T) {
 	t.Parallel()
 

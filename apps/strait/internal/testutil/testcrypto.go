@@ -89,10 +89,17 @@ func GenerateTestSignatureSecret() string {
 // GenerateTestRunToken generates a signed JWT run token with the given run ID
 // and signing key, matching the format used by the SDK auth system.
 func GenerateTestRunToken(runID, signingKey string) string {
-	claims := jwt.RegisteredClaims{
-		Subject:   runID,
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	claims := struct {
+		Attempt int `json:"attempt,omitempty"`
+		jwt.RegisteredClaims
+	}{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(signingKey))

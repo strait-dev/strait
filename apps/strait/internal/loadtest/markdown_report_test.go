@@ -36,7 +36,7 @@ func TestWriteMarkdownReport_CreatesFileWithMetrics(t *testing.T) {
 	if filepath.Dir(path) != dir {
 		t.Errorf("wrong dir: %s", path)
 	}
-	body, err := os.ReadFile(path) //nolint:gosec // test-controlled path
+	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestWriteMarkdownReport_ZeroValuesRenderNA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteMarkdownReport: %v", err)
 	}
-	body, err := os.ReadFile(path) //nolint:gosec // test-controlled path
+	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

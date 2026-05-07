@@ -47,12 +47,17 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scope the key to the request path to prevent cross-endpoint replay.
-		compositeKey := r.URL.Path + ":" + key
+		// Scope the key to the request path and caller environment to prevent
+		// cross-endpoint and cross-environment replay. Handler-level environment
+		// checks do not run when a completed key is replayed from cache.
+		compositeKey := r.URL.Path + ":env:" + environmentIDFromContext(r.Context()) + ":" + key
 
 		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
 		if err != nil {
-			slog.Error("idempotency key acquire failed", "key", key, "project_id", projectID, "error", err)
+			slog.Error("idempotency key acquire failed",
+				"idempotency_key_hash", hashIdempotencyKey(key),
+				"project_id", projectID,
+				"error", err)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -89,7 +94,10 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			// row so the client can retry with the same key.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
 				if completeErr := s.store.CompleteIdempotencyKey(r.Context(), projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
-					slog.Error("idempotency key complete failed", "key", key, "project_id", projectID, "error", completeErr)
+					slog.Error("idempotency key complete failed",
+						"idempotency_key_hash", hashIdempotencyKey(key),
+						"project_id", projectID,
+						"error", completeErr)
 				}
 			} else {
 				_, _ = s.store.DeleteIdempotencyKey(r.Context(), projectID, compositeKey)

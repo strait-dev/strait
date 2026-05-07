@@ -8,6 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	grpcserver "strait/internal/api/grpc"
+	"strait/internal/config"
+	"strait/internal/pubsub"
+	"strait/internal/worker"
+
+	"github.com/sourcegraph/conc/pool"
 )
 
 func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
@@ -48,44 +55,6 @@ func TestShutdownReason(t *testing.T) {
 	}
 }
 
-func TestIsPrivateRegistryHost(t *testing.T) {
-	t.Parallel()
-
-	blocked := []string{
-		"localhost",
-		"LOCALHOST",
-		"localhost:5000",
-		"127.0.0.1",
-		"127.0.0.1:5000",
-		"::1",
-		"0.0.0.0",
-		"10.0.0.1",
-		"10.0.0.1:5000",
-		"192.168.1.1",
-		"172.16.0.1",
-		"169.254.0.1", // link-local
-	}
-	for _, host := range blocked {
-		if !isPrivateRegistryHost(host) {
-			t.Errorf("isPrivateRegistryHost(%q) = false, want true (should be blocked)", host)
-		}
-	}
-
-	allowed := []string{
-		"ghcr.io",
-		"ghcr.io:443",
-		"registry.example.com",
-		"123456789.dkr.ecr.us-east-1.amazonaws.com",
-		"gcr.io",
-		"docker.io",
-	}
-	for _, host := range allowed {
-		if isPrivateRegistryHost(host) {
-			t.Errorf("isPrivateRegistryHost(%q) = true, want false (legitimate public registry)", host)
-		}
-	}
-}
-
 func TestNotificationWorkerEnabled(t *testing.T) {
 	t.Helper()
 
@@ -104,4 +73,112 @@ func TestNotificationWorkerEnabled(t *testing.T) {
 			t.Fatalf("notificationWorkerEnabled(%q) = %v, want %v", tt.mode, got, tt.want)
 		}
 	}
+}
+
+func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
+	t.Helper()
+
+	cfg := &config.Config{
+		Mode:        "api",
+		GRPCEnabled: true,
+	}
+
+	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error when GRPC is enabled without pubsub")
+	}
+	if srv != nil {
+		t.Fatal("expected nil grpc server when startup fails")
+	}
+	if !strings.Contains(err.Error(), "no pubsub publisher is configured") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
+	t.Helper()
+
+	cfg := &config.Config{
+		Mode:        "all",
+		GRPCEnabled: false,
+	}
+
+	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("startGRPCServer() error = %v", err)
+	}
+	if srv != nil {
+		t.Fatal("expected nil grpc server when GRPC is disabled")
+	}
+}
+
+func TestApplyWorkerPlaneToExecutorConfig_WiresDispatcherAndSnapshotter(t *testing.T) {
+	t.Helper()
+
+	cfg := &config.Config{
+		GRPCEnabled:          true,
+		GRPCPort:             0,
+		GRPCKeepaliveTime:    30 * time.Second,
+		GRPCKeepaliveTimeout: 10 * time.Second,
+	}
+	plane, err := grpcserver.NewServer(cfg, nil, noopServicePub{})
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	defer plane.GracefulStop()
+
+	execCfg := workerExecutorConfigForTest()
+	applyWorkerPlaneToExecutorConfig(&execCfg, plane, "jwt-signing-key")
+
+	if execCfg.QueueSnapshotter == nil {
+		t.Fatal("QueueSnapshotter was not wired")
+	}
+	if execCfg.WorkerDispatcher == nil {
+		t.Fatal("WorkerDispatcher was not wired")
+	}
+	if got := execCfg.QueueSnapshotter.SnapshotWorkerQueues(); got != nil {
+		t.Fatalf("SnapshotWorkerQueues on empty registry = %v, want nil", got)
+	}
+}
+
+func TestApplyWorkerPlaneToExecutorConfig_NilPlaneLeavesConfigUntouched(t *testing.T) {
+	t.Helper()
+
+	execCfg := workerExecutorConfigForTest()
+	applyWorkerPlaneToExecutorConfig(&execCfg, nil, "jwt-signing-key")
+
+	if execCfg.QueueSnapshotter != nil {
+		t.Fatal("QueueSnapshotter should remain nil without worker plane")
+	}
+	if execCfg.WorkerDispatcher != nil {
+		t.Fatal("WorkerDispatcher should remain nil without worker plane")
+	}
+}
+
+func workerExecutorConfigForTest() worker.ExecutorConfig {
+	return worker.ExecutorConfig{}
+}
+
+type noopServicePub struct{}
+
+func (noopServicePub) Publish(context.Context, string, []byte) error {
+	return nil
+}
+
+func (noopServicePub) PublishBatch(context.Context, []pubsub.PubSubMessage) error {
+	return nil
+}
+
+func (noopServicePub) Subscribe(ctx context.Context, _ string) (*pubsub.Subscription, error) {
+	ch := make(chan []byte)
+	subCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		<-subCtx.Done()
+		close(ch)
+	}()
+	return pubsub.NewSubscription(ch, cancel), nil
+}
+
+func (noopServicePub) Close() error {
+	return nil
 }

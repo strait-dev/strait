@@ -57,11 +57,17 @@ func TestRunStatus_IsTerminal(t *testing.T) {
 		StatusSystemFailed: true,
 		StatusCanceled:     true,
 		StatusExpired:      true,
-		// dead_letter is deliberately not considered terminal for retry
-		// purposes in the existing helper; callers must use IsDeadLetter.
-		StatusDeadLetter: false,
+		// dead_letter is a permanently-failed terminal state. SSE handlers,
+		// CDC notifiers, the reaper, and replay all need it to be terminal;
+		// IsDeadLetter is available when callers need to distinguish DLQ
+		// from normal completion.
+		StatusDeadLetter: true,
 		StatusQueued:     false,
 		StatusExecuting:  false,
+		StatusDelayed:    false,
+		StatusWaiting:    false,
+		StatusDequeued:   false,
+		StatusPaused:     false,
 	}
 	for s, want := range cases {
 		if got := s.IsTerminal(); got != want {

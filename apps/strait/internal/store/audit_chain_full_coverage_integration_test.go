@@ -234,7 +234,7 @@ func TestAuditChain_Concurrent_ProjectsAreIndependent(t *testing.T) {
 	pA := "proj-concurrent-a"
 	pB := "proj-concurrent-b"
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		pID := pA
 		if i%2 == 0 {
 			pID = pB
@@ -271,7 +271,7 @@ func TestAuditChain_Concurrent_ProjectsAreIndependent(t *testing.T) {
 // events appear tampered — because signatures were computed with the
 // old key. SOC 2 key rotation requires either re-signing the chain or
 // anchoring the key change in a forensic marker. Neither is in scope
-// for STR-373; this test exists so the limitation is visible.
+// today; this test exists so the limitation is visible.
 func TestAuditChain_KeyRotation_DetectsOldEventsAsBroken(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -321,7 +321,7 @@ func TestAuditChain_WithDeadletter(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	// Spill a few events to the deadletter (bypasses the chain).
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "dlq-actor",
@@ -359,7 +359,7 @@ func TestAuditChain_WithDeadletter(t *testing.T) {
 func insertTestChain(ctx context.Context, t *testing.T, q *store.Queries, projectID string, n int) []string {
 	t.Helper()
 	ids := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",

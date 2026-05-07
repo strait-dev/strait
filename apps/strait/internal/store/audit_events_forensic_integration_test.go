@@ -155,4 +155,3 @@ func TestAuditForensic_DefaultsForOldEvents(t *testing.T) {
 		t.Fatalf("chain invalid for v1 event: %s (broken at %q)", result.Error, result.BrokenAtID)
 	}
 }
-

@@ -538,20 +538,20 @@
         "bearer"
       ]
     },
-    "code_deployment.confirmed": {
+    "cron.paused_quota": {
       "type": "object",
-      "description": "Code-first deployment confirmed and queued for build.",
+      "description": "Cron jobs paused automatically because the org's quota was exceeded.",
       "properties": {
-        "job_id": {
+        "jobs_paused": {
           "type": "string",
           "description": "required"
         },
-        "runtime": {
+        "org_id": {
           "type": "string",
           "description": "required"
         }
       },
-      "required": ["job_id", "runtime"],
+      "required": ["org_id", "jobs_paused"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -565,43 +565,20 @@
         "bearer"
       ]
     },
-    "code_deployment.created": {
+    "cron.resumed_quota": {
       "type": "object",
-      "description": "Code-first deployment created.",
+      "description": "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
       "properties": {
-        "job_id": {
+        "jobs_resumed": {
           "type": "string",
           "description": "required"
         },
-        "runtime": {
+        "org_id": {
           "type": "string",
           "description": "required"
         }
       },
-      "required": ["job_id", "runtime"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
-    "code_deployment.rolled_back": {
-      "type": "object",
-      "description": "Code-first deployment rolled back.",
-      "properties": {
-        "job_id": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["job_id"],
+      "required": ["org_id", "jobs_resumed"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -745,6 +722,68 @@
       },
       "required": ["monthly_usage_email"],
       "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "endpoint.set": {
+      "type": "object",
+      "description": "Job HTTP endpoint URL updated; a fresh HMAC signing secret was generated.",
+      "properties": {
+        "endpoint_url_host": {
+          "type": "string",
+          "description": "required"
+        },
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id", "endpoint_url_host"],
+      "x-forbidden-keys": [
+        "endpoint_signing_secret",
+        "signing_secret",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "endpoint.verified": {
+      "type": "object",
+      "description": "Signed test ping sent to the job endpoint; result recorded.",
+      "properties": {
+        "endpoint_url_host": {
+          "type": "string",
+          "description": "required"
+        },
+        "job_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "success": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["job_id", "endpoint_url_host", "success"],
+      "x-forbidden-keys": [
+        "endpoint_signing_secret",
+        "signing_secret",
         "secret",
         "value",
         "password",
@@ -1785,6 +1824,33 @@
         "bearer"
       ]
     },
+    "quota.exceeded": {
+      "type": "object",
+      "description": "Org exceeded its quota; cron jobs paused until the next billing period.",
+      "properties": {
+        "org_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "plan_tier": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["org_id", "plan_tier"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "resource_policy.created": {
       "type": "object",
       "description": "Resource-level policy created.",
@@ -2081,7 +2147,7 @@
     },
     "run.paused": {
       "type": "object",
-      "description": "Managed run paused.",
+      "description": "Run paused.",
       "properties": {
         "job_id": {
           "type": "string",
@@ -2181,7 +2247,7 @@
     },
     "run.restarted": {
       "type": "object",
-      "description": "Managed run restarted.",
+      "description": "Run restarted.",
       "properties": {
         "job_id": {
           "type": "string",
@@ -2204,7 +2270,7 @@
     },
     "run.resumed": {
       "type": "object",
-      "description": "Managed run resumed.",
+      "description": "Run resumed.",
       "properties": {
         "job_id": {
           "type": "string",
@@ -2399,6 +2465,33 @@
       "required": ["expires_at"],
       "x-forbidden-keys": [
         "token",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "subscription.changed": {
+      "type": "object",
+      "description": "Org subscription changed (plan upgrade, downgrade, or renewal).",
+      "properties": {
+        "org_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "plan_tier": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["org_id", "plan_tier"],
+      "x-forbidden-keys": [
         "secret",
         "value",
         "password",
@@ -2629,6 +2722,83 @@
       "x-forbidden-keys": [
         "secret",
         "new_secret",
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "worker.connected": {
+      "type": "object",
+      "description": "Worker connected via gRPC streaming.",
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "description": "required"
+        },
+        "worker_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["worker_id", "hostname"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "worker.disconnected": {
+      "type": "object",
+      "description": "Worker disconnected from gRPC stream.",
+      "properties": {
+        "worker_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["worker_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "worker.force_disconnected": {
+      "type": "object",
+      "description": "Worker force-disconnected by operator or revocation broadcast.",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "required"
+        },
+        "worker_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["worker_id", "reason"],
+      "x-forbidden-keys": [
         "secret",
         "value",
         "password",
@@ -3163,5 +3333,5 @@
       ]
     }
   },
-  "version": "2"
+  "version": "3"
 }

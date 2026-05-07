@@ -30,6 +30,9 @@ func (s *Server) handleGetAuditEvent(ctx context.Context, input *GetAuditEventIn
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	if err := requireProjectWideAuditAccess(ctx); err != nil {
+		return nil, err
+	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
 		return nil, err
@@ -49,4 +52,11 @@ func (s *Server) handleGetAuditEvent(ctx context.Context, input *GetAuditEventIn
 	})
 
 	return &GetAuditEventOutput{Body: ev}, nil
+}
+
+func requireProjectWideAuditAccess(ctx context.Context) error {
+	if environmentIDFromContext(ctx) != "" {
+		return huma.Error403Forbidden("audit log access requires a project-wide key")
+	}
+	return nil
 }

@@ -6,8 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"strait/internal/domain"
 )
 
 // TestHandleStraitJSONSchema_Returns200 verifies the schema endpoint returns 200.
@@ -119,58 +117,6 @@ func TestHandleStraitJSONSchema_SchemaIDMatchesRoute(t *testing.T) {
 	}
 }
 
-// TestHandleStraitJSONSchema_RuntimeEnumMatchesDomain verifies that the
-// deploy.runtime enum in the schema contains exactly the runtime values defined
-// in domain.Runtime. This test fails automatically whenever a new runtime is
-// added to the domain so the schema stays in sync.
-func TestHandleStraitJSONSchema_RuntimeEnumMatchesDomain(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/schemas/v1/strait.json", nil)
-	srv.ServeHTTP(w, r)
-
-	var schema map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &schema); err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
-
-	// Drill down: properties -> deploy -> properties -> runtime -> enum
-	enumVals := extractRuntimeEnum(t, schema)
-
-	// Build a set from the schema enum.
-	schemaRuntimes := make(map[string]bool, len(enumVals))
-	for _, v := range enumVals {
-		s, ok := v.(string)
-		if !ok {
-			t.Fatalf("runtime enum value %v is not a string", v)
-		}
-		schemaRuntimes[s] = true
-	}
-
-	// All domain runtimes must appear in the schema. Uses domain.AllRuntimes()
-	// so this test fails automatically whenever a new runtime is added to the
-	// domain without updating the schema.
-	domainRuntimes := domain.AllRuntimes()
-	for _, rt := range domainRuntimes {
-		if !schemaRuntimes[string(rt)] {
-			t.Errorf("domain runtime %q missing from schema deploy.runtime enum", rt)
-		}
-	}
-
-	// The schema enum must not contain values beyond what domain defines.
-	domainSet := make(map[string]bool, len(domainRuntimes))
-	for _, rt := range domain.AllRuntimes() {
-		domainSet[string(rt)] = true
-	}
-	for rt := range schemaRuntimes {
-		if !domainSet[rt] {
-			t.Errorf("schema deploy.runtime enum contains unknown runtime %q (not in domain.Runtime)", rt)
-		}
-	}
-}
-
 // TestHandleStraitJSONSchema_NoAuthRequired verifies the endpoint is public —
 // an unauthenticated request must return 200, not 401.
 func TestHandleStraitJSONSchema_NoAuthRequired(t *testing.T) {
@@ -190,29 +136,27 @@ func TestHandleStraitJSONSchema_NoAuthRequired(t *testing.T) {
 	}
 }
 
-// extractRuntimeEnum navigates the parsed schema to properties.deploy.properties.runtime.enum.
-func extractRuntimeEnum(t *testing.T, schema map[string]any) []any {
-	t.Helper()
+func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("schema.properties is missing or not an object")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/schemas/v1/strait.json", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	deploy, ok := props["deploy"].(map[string]any)
-	if !ok {
-		t.Fatal("schema.properties.deploy is missing or not an object")
+
+	body := w.Body.String()
+	for _, stale := range []string{
+		"container image",
+		"managed container",
+		"COMPUTE_RUNTIME",
+		"strait build",
+	} {
+		if strings.Contains(body, stale) {
+			t.Fatalf("strait.json schema contains removed runtime/build wording %q", stale)
+		}
 	}
-	deployProps, ok := deploy["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("schema.properties.deploy.properties is missing or not an object")
-	}
-	runtime, ok := deployProps["runtime"].(map[string]any)
-	if !ok {
-		t.Fatal("schema.properties.deploy.properties.runtime is missing or not an object")
-	}
-	enum, ok := runtime["enum"].([]any)
-	if !ok {
-		t.Fatal("schema.properties.deploy.properties.runtime.enum is missing or not an array")
-	}
-	return enum
 }

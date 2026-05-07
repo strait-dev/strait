@@ -145,6 +145,82 @@ func TestHandleHealth_NoRegistry_NoSubsystems(t *testing.T) {
 	}
 }
 
+// Regression: /health/ready must not leak subsystem inventory to
+// unauthenticated callers. The ready probe is reachable from any
+// network position (it is a load-balancer health check) and must
+// never reveal "database vs redis vs clickhouse went down" to
+// fingerprinters.
+
+func TestHandleHealthReady_PublicHidesSubsystems(t *testing.T) {
+	t.Parallel()
+	reg := health.NewRegistry()
+	reg.Register(health.NewChecker("database", func(_ context.Context) error { return nil }))
+	reg.Register(health.NewChecker("redis", func(_ context.Context) error { return errors.New("redis is down") }))
+
+	s := &Server{
+		edition:        domain.EditionCommunity,
+		version:        "dev",
+		startedAt:      time.Now(),
+		config:         &config.Config{InternalSecret: "real-secret"},
+		healthRegistry: reg,
+	}
+
+	rr := httptest.NewRecorder()
+	s.handleHealthReady(rr, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+
+	body := rr.Body.String()
+	if rr.Code != http.StatusServiceUnavailable && rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", rr.Code, body)
+	}
+	for _, leak := range []string{"database", "redis", "components", "redis is down", "connection refused"} {
+		if contains := func() bool {
+			for i := 0; i+len(leak) <= len(body); i++ {
+				if body[i:i+len(leak)] == leak {
+					return true
+				}
+			}
+			return false
+		}(); contains {
+			t.Errorf("/health/ready leaked %q to unauthenticated caller: %s", leak, body)
+		}
+	}
+}
+
+func TestHandleHealthReady_InternalSecretShowsDetails(t *testing.T) {
+	t.Parallel()
+	reg := health.NewRegistry()
+	reg.Register(health.NewChecker("database", func(_ context.Context) error { return nil }))
+	reg.Register(health.NewChecker("redis", func(_ context.Context) error { return errors.New("redis is down") }))
+
+	s := &Server{
+		edition:        domain.EditionCommunity,
+		version:        "dev",
+		startedAt:      time.Now(),
+		config:         &config.Config{InternalSecret: "real-secret"},
+		healthRegistry: reg,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req.Header.Set("X-Internal-Secret", "real-secret")
+	rr := httptest.NewRecorder()
+	s.handleHealthReady(rr, req)
+
+	body := rr.Body.String()
+	// With auth, subsystem detail must be present so operators can debug.
+	for _, want := range []string{"database", "redis"} {
+		found := false
+		for i := 0; i+len(want) <= len(body); i++ {
+			if body[i:i+len(want)] == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("internal /health/ready missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestHandleHealth_DegradedSubsystem(t *testing.T) {
 	t.Parallel()
 	reg := health.NewRegistry()

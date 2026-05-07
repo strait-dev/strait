@@ -109,7 +109,7 @@ func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
 	job := hbGCMakeJob(t, st, ctx, projectID)
 	// Create 10 orphan heartbeats.
 	var ids []string
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		id := uuid.Must(uuid.NewV7()).String()
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)

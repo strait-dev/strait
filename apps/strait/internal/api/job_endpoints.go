@@ -1,0 +1,211 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"time"
+
+	"strait/internal/domain"
+	"strait/internal/httputil"
+	"strait/internal/store"
+	"strait/internal/worker"
+
+	"github.com/danielgtaylor/huma/v2"
+)
+
+// SetJobEndpointRequest is the request body for setting a job's HTTP endpoint.
+type SetJobEndpointRequest struct {
+	EndpointURL         string `json:"endpoint_url" validate:"required,url"`
+	FallbackEndpointURL string `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+}
+
+// SetJobEndpointInput is the typed input for the set-endpoint route.
+type SetJobEndpointInput struct {
+	JobID string `path:"jobID"`
+	Body  SetJobEndpointRequest
+}
+
+// SetJobEndpointOutput is the typed output for the set-endpoint route.
+type SetJobEndpointOutput struct {
+	Body *domain.Job
+}
+
+// VerifyJobEndpointInput is the typed input for the verify-endpoint route.
+type VerifyJobEndpointInput struct {
+	JobID string `path:"jobID"`
+}
+
+// VerifyJobEndpointResult is the body returned by the verify-endpoint route.
+type VerifyJobEndpointResult struct {
+	Success    bool   `json:"success"`
+	StatusCode int    `json:"status_code,omitempty"`
+	LatencyMs  int64  `json:"latency_ms"`
+	Error      string `json:"error,omitempty"`
+}
+
+// VerifyJobEndpointOutput is the typed output for the verify-endpoint route.
+type VerifyJobEndpointOutput struct {
+	Body VerifyJobEndpointResult
+}
+
+// handleSetJobEndpoint sets (or replaces) the HTTP endpoint URL for a job,
+// validates against SSRF, and generates a fresh HMAC signing secret.
+func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpointInput) (*SetJobEndpointOutput, error) {
+	if err := s.validate.Struct(&input.Body); err != nil {
+		return nil, newValidationError(err)
+	}
+
+	if err := validateURL(input.Body.EndpointURL); err != nil {
+		return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
+	}
+	if input.Body.FallbackEndpointURL != "" {
+		if err := validateURL(input.Body.FallbackEndpointURL); err != nil {
+			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
+		}
+	}
+
+	job, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return nil, huma.Error500InternalServerError("failed to generate signing secret")
+	}
+	signingSecret := "esec_" + hex.EncodeToString(secretBytes)
+
+	if err := s.store.UpdateJobEndpoint(ctx, input.JobID, input.Body.EndpointURL, input.Body.FallbackEndpointURL, signingSecret); err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to update job endpoint")
+	}
+
+	slog.Info("job endpoint set",
+		"job_id", input.JobID,
+		"endpoint_url_host", urlHost(input.Body.EndpointURL),
+		"actor", actorFromContext(ctx),
+		"project_id", projectIDFromContext(ctx),
+	)
+	s.emitAuditEvent(ctx, domain.AuditActionEndpointSet, "job", input.JobID, map[string]any{
+		"job_id":            input.JobID,
+		"endpoint_url_host": urlHost(input.Body.EndpointURL),
+	})
+
+	updated, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get updated job")
+	}
+
+	return &SetJobEndpointOutput{Body: updated}, nil
+}
+
+// handleVerifyJobEndpoint sends a signed HMAC test ping to the job's stored
+// endpoint URL and returns the outcome. Mirrors handleTestWebhook.
+func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEndpointInput) (*VerifyJobEndpointOutput, error) {
+	job, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if job.EndpointURL == "" {
+		return nil, huma.Error400BadRequest("job has no endpoint_url configured")
+	}
+
+	testPayload := []byte(`{"type":"endpoint.test"}`)
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, job.EndpointURL, bytes.NewReader(testPayload))
+	if err != nil {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("failed to build request: %s", err.Error()))
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "Strait-Endpoint-Verify/1.0")
+	httpReq.Header.Set("X-Strait-Timestamp", ts)
+	if job.EndpointSigningSecret != "" {
+		httpReq.Header.Set("X-Strait-Signature", worker.SignHTTPDispatch(job.EndpointSigningSecret, ts, testPayload))
+	}
+
+	// Re-validate the URL on every hop. Without CheckRedirect, the bare client
+	// follows 3xx by default — an endpoint that registered as a public host can
+	// return 302 to http://169.254.169.254/ (cloud metadata) and exfiltrate
+	// IAM credentials. The SSRF guard at registration time only covers the
+	// first hop; this one covers redirect targets.
+	start := time.Now()
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: httputil.NewExternalTransport(s.config != nil && s.config.AllowPrivateEndpoints),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := validateURL(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
+			}
+			return nil
+		},
+	}
+	resp, doErr := client.Do(httpReq)
+	latencyMs := time.Since(start).Milliseconds()
+
+	success := false
+	statusCode := 0
+	errMsg := ""
+
+	if doErr != nil {
+		errMsg = "connection to endpoint URL failed"
+	} else {
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		statusCode = resp.StatusCode
+		success = resp.StatusCode >= 200 && resp.StatusCode < 300
+	}
+
+	slog.Info("job endpoint verify",
+		"job_id", input.JobID,
+		"endpoint_url_host", urlHost(job.EndpointURL),
+		"success", success,
+		"status_code", statusCode,
+		"actor", actorFromContext(ctx),
+		"project_id", projectIDFromContext(ctx),
+	)
+	s.emitAuditEvent(ctx, domain.AuditActionEndpointVerified, "job", input.JobID, map[string]any{
+		"job_id":            input.JobID,
+		"endpoint_url_host": urlHost(job.EndpointURL),
+		"success":           success,
+	})
+
+	result := VerifyJobEndpointResult{
+		Success:    success,
+		StatusCode: statusCode,
+		LatencyMs:  latencyMs,
+		Error:      errMsg,
+	}
+	return &VerifyJobEndpointOutput{Body: result}, nil
+}

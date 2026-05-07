@@ -11,10 +11,10 @@ import (
 	"strait/internal/domain"
 )
 
-// endpointErrHash returns the error hash for an EndpointError, matching what
-// handleFailure computes from err.Error() (e.g. "endpoint returned 500: body").
+// endpointErrHash returns the error hash for an EndpointError, matching the
+// internal poison-pill hash while keeping the public error string redacted.
 func endpointErrHash(statusCode int, body string) string {
-	return errorHash((&domain.EndpointError{StatusCode: statusCode, Body: body}).Error())
+	return errorHashForError(&domain.EndpointError{StatusCode: statusCode, Body: body})
 }
 
 // --------------------------------------------------------------------------.
@@ -723,8 +723,11 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 	if !strings.Contains(errField, "poison pill detected (same error 3 times)") {
 		t.Errorf("expected poison pill message with count, got %q", errField)
 	}
-	if !strings.Contains(errField, errBody) {
-		t.Errorf("expected original error in message, got %q", errField)
+	if !strings.Contains(errField, "endpoint returned 500") {
+		t.Errorf("expected redacted endpoint status in message, got %q", errField)
+	}
+	if strings.Contains(errField, errBody) {
+		t.Errorf("expected endpoint body to be redacted from message, got %q", errField)
 	}
 
 	// Verify error_class

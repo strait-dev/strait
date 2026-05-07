@@ -12,22 +12,36 @@ import (
 
 var ErrProjectNotFound = errors.New("project not found")
 
-// CreateProject upserts a project row. On conflict (same ID), it updates
-// name and updated_at, clears any prior tombstone, and preserves org_id when
-// the incoming value is empty.
+// ErrProjectOrgMismatch is returned by CreateProject when a project with the
+// requested ID already exists but belongs to a different org. This blocks the
+// org-takeover attack where an upsert would silently move a project from one
+// tenant to another by replaying its ID with an attacker-controlled org_id.
+var ErrProjectOrgMismatch = errors.New("project already exists in a different organization")
+
+// CreateProject upserts a project row. On conflict (same ID), it refreshes
+// name and updated_at and clears any prior tombstone, but only when the
+// supplied org_id matches the existing row's org_id (or is empty, indicating
+// the caller does not want to assert the org). It NEVER changes org_id on
+// conflict — that would let any internal-secret caller seize another tenant's
+// project by replaying its ID with a different org_id.
 func (q *Queries) CreateProject(ctx context.Context, project *domain.Project) error {
 	err := q.db.QueryRow(ctx, `
 		INSERT INTO projects (id, org_id, name, created_at, updated_at, deleted_at)
 		VALUES ($1, $2, $3, CURRENT_TIMESTAMP, NOW(), NULL)
 		ON CONFLICT (id) DO UPDATE SET
-			org_id     = COALESCE(NULLIF(EXCLUDED.org_id, ''), projects.org_id),
 			name       = EXCLUDED.name,
 			updated_at = NOW(),
 			deleted_at = NULL
+		WHERE projects.org_id = EXCLUDED.org_id OR EXCLUDED.org_id = ''
 		RETURNING created_at, updated_at`,
 		project.ID, project.OrgID, project.Name,
 	).Scan(&project.CreatedAt, &project.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// ON CONFLICT WHERE clause filtered out the update because the
+			// existing project's org_id does not match the supplied org_id.
+			return ErrProjectOrgMismatch
+		}
 		return fmt.Errorf("create project: %w", err)
 	}
 	return nil

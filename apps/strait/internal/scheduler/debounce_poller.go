@@ -110,6 +110,8 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 		JobVersionID:   job.VersionID,
 		CreatedBy:      d.CreatedBy,
 		ExpiresAt:      &expiresAt,
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
 	}
 
 	return queue.EnqueueWithRetry(ctx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig())

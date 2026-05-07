@@ -61,9 +61,9 @@ func mustClean(t *testing.T, ctx context.Context) {
 func seedProject(t *testing.T, ctx context.Context, st *store.Queries, projectID string) {
 	t.Helper()
 	project := &domain.Project{
-		ID:   projectID,
+		ID:    projectID,
 		OrgID: "org-" + projectID,
-		Name: "test-project-" + projectID,
+		Name:  "test-project-" + projectID,
 	}
 	if err := st.CreateProject(ctx, project); err != nil {
 		t.Fatalf("CreateProject() error = %v", err)

@@ -155,6 +155,17 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 	switch {
 	case strings.Contains(sql, "pg_try_advisory_xact_lock"):
 		return &fakeScalarRow{val: true}
+	case strings.Contains(sql, "MAX(rotation_epoch)") && strings.Contains(sql, "FROM audit_events"):
+		projectID, _ := args[0].(string)
+		var maxEpoch int
+		for _, row := range f.rows {
+			if row["project_id"] == projectID {
+				if epoch, _ := row["rotation_epoch"].(int); epoch > maxEpoch {
+					maxEpoch = epoch
+				}
+			}
+		}
+		return &fakeScalarRow{val: maxEpoch}
 	case strings.Contains(sql, "SELECT COALESCE(") && strings.Contains(sql, "FROM audit_events"):
 		// Tail read for previous_hash.
 		projectID, _ := args[0].(string)

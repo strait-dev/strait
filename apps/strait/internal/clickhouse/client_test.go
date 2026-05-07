@@ -219,18 +219,11 @@ func TestExporter_InsertBatch_TypeRouting(t *testing.T) {
 		Status:    "completed",
 		CreatedAt: now,
 	})
-	e.Enqueue(ComputeUsageRecord{
-		RunID:        "run-1",
-		ProjectID:    "proj-1",
-		DurationSecs: 10.5,
-		StartedAt:    now,
-		FinishedAt:   now,
-	})
 	// Unknown type should be silently logged.
 	e.Enqueue("unknown-type")
 
-	if e.PendingCount() != 4 {
-		t.Fatalf("pending = %d, want 4", e.PendingCount())
+	if e.PendingCount() != 3 {
+		t.Fatalf("pending = %d, want 3", e.PendingCount())
 	}
 
 	// Flush manually - nil db means Exec is a no-op, so this verifies
@@ -309,10 +302,9 @@ func TestExporter_PlaceholderFormat(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 100}, slog.Default())
 	now := time.Now()
 
-	// Enqueue one of each type to exercise all three insert methods.
+	// Enqueue one of each type to exercise all insert methods.
 	e.Enqueue(RunEventRecord{EventID: "e1", RunID: "r1", ProjectID: "p1", CreatedAt: now})
 	e.Enqueue(RunAnalyticsRecord{RunID: "r1", ProjectID: "p1", CreatedAt: now})
-	e.Enqueue(ComputeUsageRecord{RunID: "r1", ProjectID: "p1", StartedAt: now, FinishedAt: now})
 
 	// Flush succeeds with nil-db client (no-op Exec). The key assertion is
 	// that the code no longer produces $N placeholders. We verify this by

@@ -31,6 +31,19 @@ func mustOIDCKeyPair(t *testing.T) (*rsa.PrivateKey, []byte) {
 	return key, pubPEM
 }
 
+func mustOIDCPublicKeyPEM(t *testing.T, bits int) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal pub key: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+}
+
 func mustSignOIDCToken(t *testing.T, key *rsa.PrivateKey, claims jwt.RegisteredClaims) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -39,6 +52,20 @@ func mustSignOIDCToken(t *testing.T, key *rsa.PrivateKey, claims jwt.RegisteredC
 		t.Fatalf("sign token: %v", err)
 	}
 	return signed
+}
+
+func TestNewOIDCVerifier_RejectsWeakRSAKey(t *testing.T) {
+	t.Parallel()
+
+	_, err := newOIDCVerifier(&config.Config{
+		OIDCEnabled:      true,
+		OIDCIssuer:       "https://issuer.example",
+		OIDCAudience:     "strait-api",
+		OIDCPublicKeyPEM: string(mustOIDCPublicKeyPEM(t, 1024)),
+	})
+	if err == nil {
+		t.Fatal("expected weak RSA key to be rejected")
+	}
 }
 
 func TestOIDCAuth_AllowsValidToken(t *testing.T) {

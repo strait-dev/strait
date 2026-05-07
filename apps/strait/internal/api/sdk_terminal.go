@@ -180,6 +180,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		return nil, huma.Error404NotFound("parent run not found")
 	}
 	isCrossProject := req.ProjectID != parentRun.ProjectID
+	var targetAPIKey *domain.APIKey
 	if isCrossProject {
 		if req.TargetAPIKey == "" {
 			return nil, huma.Error400BadRequest("target_api_key is required for cross-project spawn")
@@ -189,6 +190,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		if keyErr != nil {
 			return nil, huma.Error401Unauthorized("invalid target api key")
 		}
+		targetAPIKey = apiKey
 		if apiKey.RevokedAt != nil {
 			return nil, huma.Error401Unauthorized("target api key has been revoked")
 		}
@@ -199,22 +201,44 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		if apiKey.ProjectID != req.ProjectID {
 			return nil, huma.Error403Forbidden("target api key does not belong to the specified project")
 		}
+		if !domain.HasScope(apiKey.Scopes, domain.ScopeJobsTrigger) {
+			return nil, huma.Error403Forbidden("target api key cannot trigger jobs")
+		}
 	}
 	job, err := s.store.GetJobBySlug(ctx, req.ProjectID, req.JobSlug)
 	if err != nil || job == nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if isCrossProject {
+		if err := requireAPIKeyEnvironmentMatch(targetAPIKey, job.EnvironmentID); err != nil {
+			return nil, huma.Error404NotFound("job not found")
+		}
+	}
 	if err := validateRunCreationJobID(job.ID); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	_ = isCrossProject
+	awaitTimeoutSecs := 0
+	if req.AwaitCompletion {
+		var timeoutErr error
+		awaitTimeoutSecs, timeoutErr = normalizeSDKEventTimeoutSecs(req.AwaitTimeoutSecs)
+		if timeoutErr != nil {
+			return nil, huma.Error400BadRequest("await_" + timeoutErr.Error())
+		}
+	}
 	if req.AwaitCompletion && parentRun.Status == domain.StatusExecuting {
+		if err := s.ensureSDKRunActive(ctx, parentRun.ID); err != nil {
+			return nil, err
+		}
 		if err := s.store.UpdateRunStatus(ctx, parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
 			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err)
 			return nil, huma.Error500InternalServerError("failed to transition parent to waiting")
 		}
 	}
 	run := &domain.JobRun{JobID: job.ID, ProjectID: job.ProjectID, Payload: req.Payload, TriggeredBy: domain.TriggerSpawn, ParentRunID: parentRunID}
+	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
+		return nil, err
+	}
 	if err := s.queue.Enqueue(ctx, run); err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("spawn idempotency conflict", "parent_run_id", parentRunID, "child_run_id", run.ID)
@@ -227,13 +251,9 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 	}
 	if req.AwaitCompletion {
 		eventKey := fmt.Sprintf("spawn-await:%s", run.ID)
-		timeoutSecs := req.AwaitTimeoutSecs
-		if timeoutSecs <= 0 {
-			timeoutSecs = domain.DefaultEventTimeoutSecs
-		}
 		now := time.Now()
-		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
-		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: timeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
+		expiresAt := now.Add(time.Duration(awaitTimeoutSecs) * time.Second)
+		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: awaitTimeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
 		if err := s.store.CreateEventTrigger(ctx, trigger); err != nil {
 			slog.Warn("failed to create await event trigger", "parent_run_id", parentRun.ID, "child_run_id", run.ID, "event_key", eventKey, "error", err)
 		} else if s.metrics != nil {
@@ -246,6 +266,16 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		resp["await_event_key"] = fmt.Sprintf("spawn-await:%s", run.ID)
 	}
 	return &SDKSpawnOutput{Body: resp}, nil
+}
+
+func requireAPIKeyEnvironmentMatch(apiKey *domain.APIKey, resourceEnvironmentID string) error {
+	if apiKey == nil || apiKey.EnvironmentID == "" {
+		return nil
+	}
+	if apiKey.EnvironmentID != resourceEnvironmentID {
+		return errEnvironmentMismatch
+	}
+	return nil
 }
 
 type SDKContinueRequest struct {
@@ -289,6 +319,9 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 		payload = parentRun.Payload
 	}
 	continuationRun := &domain.JobRun{JobID: job.ID, ProjectID: job.ProjectID, Payload: payload, TriggeredBy: domain.TriggerManual, ContinuationOf: parentRunID, LineageDepth: parentRun.LineageDepth + 1, Priority: parentRun.Priority}
+	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
+		return nil, err
+	}
 	if err := s.queue.Enqueue(ctx, continuationRun); err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("continuation idempotency conflict", "parent_run_id", parentRunID, "continuation_run_id", continuationRun.ID)

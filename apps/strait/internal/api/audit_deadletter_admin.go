@@ -182,6 +182,10 @@ type ReplayDeadletterResponse struct {
 	NewEventID   string `json:"new_event_id"`
 }
 
+type auditDeadletterAtomicReplayer interface {
+	ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error)
+}
+
 func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadletterInput) (*ReplayDeadletterOutput, error) {
 	if err := s.requireAdmin(ctx); err != nil {
 		return nil, err
@@ -192,6 +196,27 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 	}
 	if input.ID == "" {
 		return nil, huma.Error400BadRequest("id is required")
+	}
+
+	if replayer, ok := s.store.(auditDeadletterAtomicReplayer); ok {
+		newEventID := uuid.Must(uuid.NewV7()).String()
+		newEvent, replayed, replayErr := replayer.ReplayAuditEventDeadletter(ctx, input.ID, projectID, newEventID)
+		if replayErr != nil {
+			slog.Error("audit deadletter atomic replay failed",
+				"deadletter_id", input.ID, "project_id", projectID, "error", replayErr)
+			return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
+		}
+		if !replayed || newEvent == nil {
+			return nil, huma.Error404NotFound("deadletter entry not found")
+		}
+		s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{
+			"deadletter_id": input.ID,
+			"new_event_id":  newEvent.ID,
+		})
+		return &ReplayDeadletterOutput{Body: ReplayDeadletterResponse{
+			DeadletterID: input.ID,
+			NewEventID:   newEvent.ID,
+		}}, nil
 	}
 
 	// Structural tenant isolation: the store fetch is scoped by project_id,
@@ -214,12 +239,14 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 		return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
 	}
 	if markErr := s.store.MarkAuditDeadletterReclaimed(ctx, input.ID, newEvent.ID); markErr != nil {
-		slog.Warn("failed to mark deadletter as reclaimed",
+		slog.Error("failed to mark deadletter as reclaimed",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", markErr)
+		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
 	}
 	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		slog.Warn("audit deadletter delete failed after successful chain insert",
+		slog.Error("audit deadletter delete failed after successful chain insert",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", delErr)
+		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{

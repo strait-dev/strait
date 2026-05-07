@@ -16,15 +16,63 @@ import (
 )
 
 func validateAuthConfig(authType string, config map[string]string) error {
-	if authType != "header" || config == nil {
+	if config == nil {
 		return nil
 	}
-	for k := range config {
-		if logdrain.ProtectedHeaders[strings.ToLower(k)] {
+	for k, v := range config {
+		// Reject CR/LF/NUL anywhere in keys or values to prevent header
+		// splitting / response injection at delivery time. The drain worker
+		// replays these into req.Header.Set; even though net/http will
+		// panic on CRLF in modern Go versions, we block the value at write
+		// time so it never reaches the database in the first place.
+		if hasHeaderInjectionChars(k) || hasHeaderInjectionChars(v) {
+			return fmt.Errorf("auth_config entries must not contain CR, LF, or NUL characters")
+		}
+		if !isValidHeaderName(k) {
+			return fmt.Errorf("auth_config key %q is not a valid HTTP header name", k)
+		}
+		if authType == "header" && logdrain.ProtectedHeaders[strings.ToLower(k)] {
 			return fmt.Errorf("auth_config key %q is a protected HTTP header and cannot be used", k)
 		}
 	}
 	return nil
+}
+
+// hasHeaderInjectionChars reports whether s contains any byte that would
+// allow HTTP header splitting (\r, \n) or terminate a C string (\x00).
+func hasHeaderInjectionChars(s string) bool {
+	for i := range len(s) {
+		switch s[i] {
+		case '\r', '\n', 0:
+			return true
+		}
+	}
+	return false
+}
+
+// isValidHeaderName mirrors RFC 7230 token grammar for HTTP header names.
+// Empty or names containing whitespace, control characters, or separators
+// are rejected.
+func isValidHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := range len(name) {
+		c := name[i]
+		// token character set: letters, digits, and !#$%&'*+-.^_`|~
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '!', c == '#', c == '$', c == '%', c == '&', c == '\'',
+			c == '*', c == '+', c == '-', c == '.', c == '^', c == '_',
+			c == '`', c == '|', c == '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type CreateLogDrainRequest struct {
@@ -48,6 +96,35 @@ type UpdateLogDrainRequest struct {
 
 type CreateLogDrainInput struct{ Body CreateLogDrainRequest }
 type CreateLogDrainOutput struct{ Body *domain.LogDrain }
+
+// redactLogDrainAuth returns a shallow copy of d with auth_config values
+// replaced by a fixed redaction token. Keys are preserved so callers can see
+// the structure (e.g., which header names were configured) without ever
+// reading the secret back. The original drain is not mutated.
+func redactLogDrainAuth(d *domain.LogDrain) *domain.LogDrain {
+	if d == nil {
+		return nil
+	}
+	out := *d
+	if len(d.AuthConfig) > 0 {
+		out.AuthConfig = make(map[string]string, len(d.AuthConfig))
+		for k := range d.AuthConfig {
+			out.AuthConfig[k] = "***"
+		}
+	}
+	return &out
+}
+
+func redactLogDrainList(in []domain.LogDrain) []domain.LogDrain {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]domain.LogDrain, len(in))
+	for i := range in {
+		out[i] = *redactLogDrainAuth(&in[i])
+	}
+	return out
+}
 
 func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrainInput) (*CreateLogDrainOutput, error) {
 	req := input.Body
@@ -78,7 +155,7 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 		"auth_type":     drain.AuthType,
 		"enabled":       drain.Enabled,
 	})
-	return &CreateLogDrainOutput{Body: drain}, nil
+	return &CreateLogDrainOutput{Body: redactLogDrainAuth(drain)}, nil
 }
 
 type ListLogDrainsInput struct{}
@@ -89,7 +166,7 @@ func (s *Server) handleListLogDrains(ctx context.Context, _ *ListLogDrainsInput)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list log drains")
 	}
-	return &ListLogDrainsOutput{Body: drains}, nil
+	return &ListLogDrainsOutput{Body: redactLogDrainList(drains)}, nil
 }
 
 type GetLogDrainInput struct {
@@ -105,7 +182,7 @@ func (s *Server) handleGetLogDrain(ctx context.Context, input *GetLogDrainInput)
 		}
 		return nil, huma.Error500InternalServerError("failed to get log drain")
 	}
-	return &GetLogDrainOutput{Body: drain}, nil
+	return &GetLogDrainOutput{Body: redactLogDrainAuth(drain)}, nil
 }
 
 type UpdateLogDrainInput struct {
@@ -183,7 +260,7 @@ func (s *Server) handleUpdateLogDrain(ctx context.Context, input *UpdateLogDrain
 		"changed_fields":      changedFields,
 		"auth_config_changed": req.AuthConfig != nil,
 	})
-	return &UpdateLogDrainOutput{Body: drain}, nil
+	return &UpdateLogDrainOutput{Body: redactLogDrainAuth(drain)}, nil
 }
 
 type DeleteLogDrainInput struct {

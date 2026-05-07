@@ -4,7 +4,10 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
+	"sync"
 	"testing"
 
 	"strait/internal/domain"
@@ -62,6 +65,141 @@ func TestCreateWebhookSubscription(t *testing.T) {
 	if got.Active != sub.Active {
 		t.Fatalf("Active = %v, want %v", got.Active, sub.Active)
 	}
+}
+
+func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-webhook-limit-" + newID()
+	projectID := "proj-webhook-limit-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "Webhook Limit"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	const maxEndpoints = 3
+	const attempts = 16
+
+	start := make(chan struct{})
+	errs := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := range attempts {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			sub := &domain.WebhookSubscription{
+				ID:         "sub-webhook-limit-" + newID(),
+				ProjectID:  projectID,
+				WebhookURL: "https://example.com/hook/" + newID(),
+				EventTypes: []string{"run.completed"},
+				Secret:     "whsec_test",
+				Active:     true,
+			}
+			if i%2 == 0 {
+				sub.EventTypes = []string{"run.failed"}
+			}
+			errs <- q.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	var created, limited int
+	for err := range errs {
+		switch {
+		case err == nil:
+			created++
+		case errors.Is(err, store.ErrWebhookEndpointLimitExceeded):
+			limited++
+		default:
+			t.Fatalf("unexpected create error: %v", err)
+		}
+	}
+	if created != maxEndpoints {
+		t.Fatalf("created = %d, want %d", created, maxEndpoints)
+	}
+	if limited != attempts-maxEndpoints {
+		t.Fatalf("limited = %d, want %d", limited, attempts-maxEndpoints)
+	}
+
+	count, err := q.CountWebhookSubscriptionsByOrg(ctx, orgID)
+	if err != nil {
+		t.Fatalf("CountWebhookSubscriptionsByOrg() error = %v", err)
+	}
+	if count != maxEndpoints {
+		t.Fatalf("stored active webhook endpoints = %d, want %d", count, maxEndpoints)
+	}
+}
+
+func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	sub := &domain.WebhookSubscription{
+		ProjectID:  "proj-wd-sub-" + newID(),
+		WebhookURL: "https://example.com/hook",
+		EventTypes: []string{"run.completed"},
+		Secret:     "whsec_test",
+		Active:     true,
+	}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	payload := json.RawMessage(`{"run_id":"run-1","status":"completed"}`)
+	delivery := &domain.WebhookDelivery{
+		SubscriptionID: sub.ID,
+		WebhookURL:     sub.WebhookURL,
+		Status:         domain.WebhookStatusPending,
+		Attempts:       0,
+		MaxAttempts:    3,
+		Payload:        payload,
+		LastError:      string(payload),
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	got, err := q.GetWebhookDelivery(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("GetWebhookDelivery() error = %v", err)
+	}
+	if got.SubscriptionID != sub.ID {
+		t.Fatalf("SubscriptionID = %q, want %q", got.SubscriptionID, sub.ID)
+	}
+	if got.ProjectID != sub.ProjectID {
+		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, sub.ProjectID)
+	}
+	if !jsonPayloadEqual(got.Payload, payload) {
+		t.Fatalf("Payload = %s, want %s", got.Payload, payload)
+	}
+
+	replay, err := q.ReplayWebhookDelivery(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("ReplayWebhookDelivery() error = %v", err)
+	}
+	if replay.SubscriptionID != sub.ID {
+		t.Fatalf("replay SubscriptionID = %q, want %q", replay.SubscriptionID, sub.ID)
+	}
+	if !jsonPayloadEqual(replay.Payload, payload) {
+		t.Fatalf("replay Payload = %s, want %s", replay.Payload, payload)
+	}
+}
+
+func jsonPayloadEqual(a, b json.RawMessage) bool {
+	var av any
+	var bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }
 
 func TestCreateWebhookSubscription_CustomID(t *testing.T) {

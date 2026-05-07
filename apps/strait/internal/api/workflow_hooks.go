@@ -96,12 +96,15 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 				continue
 			}
 			d := &domain.WebhookDelivery{
-				WebhookURL:  sub.WebhookURL,
-				Status:      "pending",
-				Attempts:    0,
-				MaxAttempts: 5,
-				NextRetryAt: &now,
-				LastError:   string(payload),
+				SubscriptionID: sub.ID,
+				ProjectID:      sub.ProjectID,
+				WebhookURL:     sub.WebhookURL,
+				Status:         "pending",
+				Attempts:       0,
+				MaxAttempts:    5,
+				NextRetryAt:    &now,
+				Payload:        payload,
+				LastError:      string(payload),
 			}
 			if createErr := s.store.CreateWebhookDelivery(bgCtx, d); createErr != nil {
 				slog.Warn("failed to enqueue workflow webhook delivery",

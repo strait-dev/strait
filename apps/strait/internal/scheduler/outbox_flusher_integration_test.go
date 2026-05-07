@@ -196,6 +196,47 @@ func TestOutboxFlusher_RetryableFailureLeavesRowUnconsumed(t *testing.T) {
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
+func TestOutboxFlusher_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-worker-routing", func(j *domain.Job) {
+		j.ExecutionMode = domain.ExecutionModeWorker
+		j.Queue = "priority"
+	})
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"n":1}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	var captured *domain.JobRun
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(_ context.Context, _ store.DBTX, run *domain.JobRun) error {
+			cp := *run
+			captured = &cp
+			return nil
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected outbox flusher to enqueue a run")
+	}
+	if captured.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
+	}
+	if captured.QueueName != "priority" {
+		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
+	}
+}
+
 func TestOutboxFlusher_MixedBatchContinuesPastRetryableAndTerminalRows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

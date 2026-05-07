@@ -75,28 +75,6 @@ type Metrics struct {
 	EnforcementFailOpen          metric.Int64Counter
 	NotificationDeliveryFailures metric.Int64Counter
 
-	// Managed dispatch metrics.
-	ManagedDispatchTotal    metric.Int64Counter
-	ManagedDispatchDuration metric.Float64Histogram
-	ManagedMachinesActive   metric.Int64UpDownCounter
-
-	// K8s compute metrics.
-	K8sJobCreateTotal        metric.Int64Counter
-	K8sJobCreateDuration     metric.Float64Histogram
-	K8sJobWaitDuration       metric.Float64Histogram
-	K8sPodSchedulingDuration metric.Float64Histogram
-	K8sJobsActive            metric.Int64UpDownCounter
-	ComputeFallbackTotal     metric.Int64Counter
-
-	// Code deployment build pipeline metrics.
-	CodeDeployTotal         metric.Int64Counter
-	CodeDeployDuration      metric.Float64Histogram
-	CodeDeployBuildDuration metric.Float64Histogram
-	CodeDeployActive        metric.Int64UpDownCounter
-	CodeDeployQueueDepth    metric.Int64Gauge
-	CodeDeployGCCollected   metric.Int64Counter
-	CodeDeployTarballBytes  metric.Int64Histogram
-
 	// DB connection pool metrics.
 	DBPoolTotalConns    metric.Int64ObservableGauge
 	DBPoolIdleConns     metric.Int64ObservableGauge
@@ -118,8 +96,9 @@ type Metrics struct {
 	// Per-tenant run metrics (project_id label). Used for per-tenant capacity
 	// governance, cost attribution, and the Grafana multi-tenant dashboard panels.
 	//
-	// JobDuration records execution wall-clock time by project, machine tier,
-	// and terminal status. Buckets are coarser than RunDuration to limit series count.
+	// JobDuration records execution wall-clock time by project, execution-mode
+	// tier, and terminal status. Buckets are coarser than RunDuration to limit
+	// series count.
 	//
 	// QueueLag records the time each run spent queued before execution began,
 	// by project. Useful for per-tenant SLO monitoring (e.g. p99 queue lag < 5s).
@@ -653,112 +632,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		return nil, nil, nil, fmt.Errorf("create notification delivery failures counter: %w", err)
 	}
 
-	managedDispatchTotal, err := meter.Int64Counter(
-		"strait_managed_dispatch_total",
-		metric.WithDescription("Total managed container dispatches by status"),
-		metric.WithUnit("1"),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create managed dispatch total counter: %w", err)
-	}
-
-	managedDispatchDuration, err := meter.Float64Histogram(
-		"strait_managed_dispatch_duration_seconds",
-		metric.WithDescription("Duration of managed container dispatch operations"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 120, 300, 600),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create managed dispatch duration histogram: %w", err)
-	}
-
-	managedMachinesActive, err := meter.Int64UpDownCounter(
-		"strait_managed_machines_active",
-		metric.WithDescription("Number of managed containers currently running"),
-		metric.WithUnit("1"),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create managed machines active counter: %w", err)
-	}
-
-	k8sJobCreateTotal, _ := meter.Int64Counter(
-		"strait_k8s_job_create_total",
-		metric.WithDescription("Total K8s job creates by status"),
-		metric.WithUnit("1"),
-	)
-
-	k8sJobCreateDuration, _ := meter.Float64Histogram(
-		"strait_k8s_job_create_duration_seconds",
-		metric.WithDescription("Duration of K8s job create API calls"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5),
-	)
-
-	k8sJobWaitDuration, _ := meter.Float64Histogram(
-		"strait_k8s_job_wait_duration_seconds",
-		metric.WithDescription("Duration from job create to completion"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 120, 300, 600),
-	)
-
-	k8sPodSchedulingDuration, _ := meter.Float64Histogram(
-		"strait_k8s_pod_scheduling_duration_seconds",
-		metric.WithDescription("Duration from job create to pod running (cold start metric)"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60, 90),
-	)
-
-	k8sJobsActive, _ := meter.Int64UpDownCounter(
-		"strait_k8s_jobs_active",
-		metric.WithDescription("Number of K8s jobs currently running"),
-		metric.WithUnit("1"),
-	)
-
-	computeFallbackTotal, _ := meter.Int64Counter(
-		"strait_compute_fallback_total",
-		metric.WithDescription("Total compute provider fallback events"),
-		metric.WithUnit("1"),
-	)
-
-	codeDeployTotal, _ := meter.Int64Counter(
-		"strait.code_deploy.total",
-		metric.WithDescription("Total code deployment builds by terminal status (ready, failed, timed_out) and runtime"),
-		metric.WithUnit("1"),
-	)
-	codeDeployDuration, _ := meter.Float64Histogram(
-		"strait.code_deploy.duration",
-		metric.WithDescription("End-to-end code deployment duration from orchestrator claim to terminal state"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(30, 60, 120, 180, 300, 600, 900, 1200),
-	)
-	codeDeployBuildDuration, _ := meter.Float64Histogram(
-		"strait.code_deploy.build_duration",
-		metric.WithDescription("BuildKit build phase duration (excludes store updates), split by runtime and status"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(10, 30, 60, 120, 180, 300, 600, 900),
-	)
-	codeDeployActive, _ := meter.Int64UpDownCounter(
-		"strait.code_deploy.active",
-		metric.WithDescription("Number of code deployments currently being built by the orchestrator"),
-		metric.WithUnit("1"),
-	)
-	codeDeployQueueDepth, _ := meter.Int64Gauge(
-		"strait.code_deploy.queue_depth",
-		metric.WithDescription("Number of confirmed deployments waiting to be claimed by a build node"),
-		metric.WithUnit("1"),
-	)
-	codeDeployGCCollected, _ := meter.Int64Counter(
-		"strait.code_deploy.gc_collected",
-		metric.WithDescription("Total code deployments deleted by the GC worker (expired pending and old failed)"),
-		metric.WithUnit("1"),
-	)
-	codeDeployTarballBytes, _ := meter.Int64Histogram(
-		"strait.code_deploy.tarball_bytes",
-		metric.WithDescription("Source tarball size in bytes at the time of SHA-256 verification"),
-		metric.WithUnit("By"),
-		metric.WithExplicitBucketBoundaries(1024, 10240, 102400, 1048576, 10485760, 52428800, 104857600, 524288000),
-	)
-
 	dbPoolTotal, _ := meter.Int64ObservableGauge("strait_db_pool_total_conns", metric.WithDescription("Total DB pool connections"))
 	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
@@ -801,7 +674,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	// Per-tenant metrics. Coarser buckets than RunDuration to control cardinality.
 	jobDuration, _ := meter.Float64Histogram(
 		"strait.job.duration",
-		metric.WithDescription("Job execution duration by project, machine tier, and terminal status"),
+		metric.WithDescription("Job execution duration by project, execution-mode tier, and terminal status"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(1, 5, 15, 30, 60, 120, 300, 600, 900),
 	)
@@ -1038,22 +911,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		LimitRejections:              limitRejections,
 		EnforcementFailOpen:          enforcementFailOpen,
 		NotificationDeliveryFailures: notifDeliveryFailures,
-		ManagedDispatchTotal:         managedDispatchTotal,
-		ManagedDispatchDuration:      managedDispatchDuration,
-		ManagedMachinesActive:        managedMachinesActive,
-		K8sJobCreateTotal:            k8sJobCreateTotal,
-		K8sJobCreateDuration:         k8sJobCreateDuration,
-		K8sJobWaitDuration:           k8sJobWaitDuration,
-		K8sPodSchedulingDuration:     k8sPodSchedulingDuration,
-		K8sJobsActive:                k8sJobsActive,
-		ComputeFallbackTotal:         computeFallbackTotal,
-		CodeDeployTotal:              codeDeployTotal,
-		CodeDeployDuration:           codeDeployDuration,
-		CodeDeployBuildDuration:      codeDeployBuildDuration,
-		CodeDeployActive:             codeDeployActive,
-		CodeDeployQueueDepth:         codeDeployQueueDepth,
-		CodeDeployGCCollected:        codeDeployGCCollected,
-		CodeDeployTarballBytes:       codeDeployTarballBytes,
 		DBPoolTotalConns:             dbPoolTotal,
 		DBPoolIdleConns:              dbPoolIdle,
 		DBPoolAcquiredConns:          dbPoolAcquired,

@@ -104,44 +104,6 @@ func TestTraceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("WorkflowToManagedDispatch", func(t *testing.T) {
-		// Create a span to get a known trace ID.
-		_, parentSpan := tp.Tracer("test").Start(context.Background(), "workflow.run.managed")
-		sc := parentSpan.SpanContext()
-		traceID := sc.TraceID().String()
-		spanID := sc.SpanID().String()
-		traceparent := fmt.Sprintf("00-%s-%s-01", traceID, spanID)
-		parentSpan.End()
-
-		run := &domain.JobRun{
-			ID:        "run-managed-1",
-			JobID:     "job-managed-1",
-			ProjectID: "proj-1",
-			Attempt:   1,
-			Metadata: map[string]string{
-				"_trace_parent": traceparent,
-			},
-		}
-
-		// Build the env map the same way managedDispatch does:
-		//   env["TRACEPARENT"] = run.Metadata["_trace_parent"]
-		env := make(map[string]string)
-		if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {
-			env["TRACEPARENT"] = tp
-		}
-
-		got, ok := env["TRACEPARENT"]
-		if !ok {
-			t.Fatal("TRACEPARENT not set in env map")
-		}
-		if got != traceparent {
-			t.Errorf("TRACEPARENT = %q, want %q", got, traceparent)
-		}
-		if !strings.Contains(got, traceID) {
-			t.Errorf("TRACEPARENT does not contain trace ID %s", traceID)
-		}
-	})
-
 	t.Run("NoTraceContext_NoLeaks", func(t *testing.T) {
 		exporter.Reset()
 

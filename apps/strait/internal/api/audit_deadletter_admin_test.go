@@ -143,6 +143,15 @@ func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
 			deletedDLQID = id
 			return nil
 		},
+		MarkAuditDeadletterReclaimedFunc: func(_ context.Context, dlqID, newEventID string) error {
+			if dlqID != seed.ID {
+				t.Fatalf("MarkAuditDeadletterReclaimed dlqID = %q, want %q", dlqID, seed.ID)
+			}
+			if newEventID == "" || newEventID == seed.ID {
+				t.Fatalf("MarkAuditDeadletterReclaimed newEventID = %q", newEventID)
+			}
+			return nil
+		},
 	}
 	srv := newTestServer(t, ms, nil, nil)
 
@@ -327,6 +336,85 @@ func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
 	}
 	if selfAuditHit {
 		t.Error("audit.deadletter_replayed must not be emitted when replay fails")
+	}
+}
+
+func TestReplayDeadletter_MarkFailureFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	seed := &domain.AuditEvent{ID: "dlq-1", ProjectID: "proj-a", Action: domain.AuditActionJobTriggered, CreatedAt: time.Now().UTC()}
+	var deleteCalled bool
+	var selfAuditHit bool
+	ms := &APIStoreMock{
+		GetAuditEventDeadletterFunc: func(_ context.Context, id, projectID string) (*domain.AuditEvent, error) {
+			if id == seed.ID && projectID == seed.ProjectID {
+				clone := *seed
+				return &clone, nil
+			}
+			return nil, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action == domain.AuditActionDeadletterReplayed {
+				selfAuditHit = true
+			}
+			return nil
+		},
+		MarkAuditDeadletterReclaimedFunc: func(_ context.Context, _, _ string) error {
+			return errors.New("mark failed")
+		},
+		DeleteAuditEventDeadletterFunc: func(_ context.Context, _, _ string) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
+	if err == nil {
+		t.Fatal("expected error when reclaim marker fails")
+	}
+	if deleteCalled {
+		t.Fatal("DeleteAuditEventDeadletter must not run after reclaim marker failure")
+	}
+	if selfAuditHit {
+		t.Fatal("self-audit must not be emitted when replay finalization fails")
+	}
+}
+
+func TestReplayDeadletter_DeleteFailureFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	seed := &domain.AuditEvent{ID: "dlq-1", ProjectID: "proj-a", Action: domain.AuditActionJobTriggered, CreatedAt: time.Now().UTC()}
+	var selfAuditHit bool
+	ms := &APIStoreMock{
+		GetAuditEventDeadletterFunc: func(_ context.Context, id, projectID string) (*domain.AuditEvent, error) {
+			if id == seed.ID && projectID == seed.ProjectID {
+				clone := *seed
+				return &clone, nil
+			}
+			return nil, nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action == domain.AuditActionDeadletterReplayed {
+				selfAuditHit = true
+			}
+			return nil
+		},
+		MarkAuditDeadletterReclaimedFunc: func(_ context.Context, _, _ string) error {
+			return nil
+		},
+		DeleteAuditEventDeadletterFunc: func(_ context.Context, _, _ string) error {
+			return errors.New("delete failed")
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
+	if err == nil {
+		t.Fatal("expected error when deadletter delete fails")
+	}
+	if selfAuditHit {
+		t.Fatal("self-audit must not be emitted when replay finalization fails")
 	}
 }
 

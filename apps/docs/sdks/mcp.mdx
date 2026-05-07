@@ -118,7 +118,6 @@ Once connected, interact with Strait using natural language. Here are examples b
 | **Diagnostics** | Debug failures, audit security, triage alerts, generate health dashboards |
 | **Cost** | Analyze spend, forecast costs, find optimization opportunities |
 | **Infrastructure** | Manage webhooks, secrets, API keys, environments, notifications |
-| **Deployments** | Validate, diff, deploy, rollback, promote across environments |
 
 **Example prompts:**
 
@@ -175,7 +174,6 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 | `setup-job` | Guided job creation from natural language |
 | `cost-report` | Cost report with trend analysis |
 | `workflow-status` | Workflow run deep-dive with step analysis |
-| `deploy-preview` | Guided deployment with validation and confirmation |
 | `onboard-project` | New project setup wizard |
 | `security-audit` | Security review of keys, secrets, webhooks |
 | `migrate-jobs` | Migrate jobs between environments |
@@ -190,7 +188,7 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 
 ## Tools Overview
 
-The server exposes 133 tools across 9 categories. Each tool maps to a Strait API operation and includes full input validation.
+The server exposes 126 tools across 8 categories. Each tool maps to a Strait API operation and includes full input validation.
 
 | Category | Count | Operations |
 |----------|-------|-----------|
@@ -198,7 +196,6 @@ The server exposes 133 tools across 9 categories. Each tool maps to a Strait API
 | **Runs** | 19 | list, get, logs, events, cancel, retry, watch, diff, review queue, bulk replay, children, outputs, usage, pause/resume |
 | **Workflows** | 15 | list, get, create, update, delete, trigger, DAG, clone, dry-run, plan, simulate, versions, diff |
 | **Workflow Runs** | 15 | list, get, cancel, steps, watch, approve/reject, graph, timeline, resume, retry, explain |
-| **Deployments** | 7 | deploy, list, rollback, validate, diff, finalize, promote |
 | **Analytics** | 10 | performance, costs, trends, failures, reliability, history |
 | **Usage** | 5 | current, history, forecast, project costs, anomalies |
 | **Webhooks** | 7 | list, get, create, delete, deliveries, retry, test |

@@ -178,13 +178,14 @@ const (
 	AuditActionEventTriggerPurged       = "event_trigger.purged"
 
 	// Deployments.
-	AuditActionCodeDeploymentCreated       = "code_deployment.created"
-	AuditActionCodeDeploymentConfirmed     = "code_deployment.confirmed"
-	AuditActionCodeDeploymentRolledBack    = "code_deployment.rolled_back"
 	AuditActionDeploymentVersionCreated    = "deployment_version.created"
 	AuditActionDeploymentVersionFinalized  = "deployment_version.finalized"
 	AuditActionDeploymentVersionPromoted   = "deployment_version.promoted"
 	AuditActionDeploymentVersionRolledBack = "deployment_version.rolled_back"
+
+	// Job endpoints (HMAC signing surface).
+	AuditActionEndpointSet      = "endpoint.set"
+	AuditActionEndpointVerified = "endpoint.verified"
 
 	// Billing / usage / org settings.
 	AuditActionSpendingLimitUpdated    = "spending_limit.updated"
@@ -192,6 +193,17 @@ const (
 	AuditActionUsageExported           = "usage.exported"
 	AuditActionProjectBudgetUpdated    = "project_budget.updated"
 	AuditActionAnomalyConfigUpdated    = "anomaly_config.updated"
+
+	// Worker connections (gRPC streaming).
+	AuditActionWorkerConnected         = "worker.connected"
+	AuditActionWorkerDisconnected      = "worker.disconnected"
+	AuditActionWorkerForceDisconnected = "worker.force_disconnected"
+
+	// Quota and cron lifecycle (billing-period enforcement).
+	AuditActionQuotaExceeded       = "quota.exceeded"
+	AuditActionCronPausedQuota     = "cron.paused_quota"
+	AuditActionCronResumedQuota    = "cron.resumed_quota"
+	AuditActionSubscriptionChanged = "subscription.changed"
 )
 
 // allAuditActions is the set of every action name the emit path will accept.
@@ -318,22 +330,29 @@ var allAuditActions = map[string]struct{}{
 	AuditActionEventSentByPrefix:               {},
 	AuditActionEventTriggerCancelled:           {},
 	AuditActionEventTriggerPurged:              {},
-	AuditActionCodeDeploymentCreated:           {},
-	AuditActionCodeDeploymentConfirmed:         {},
-	AuditActionCodeDeploymentRolledBack:        {},
 	AuditActionDeploymentVersionCreated:        {},
 	AuditActionDeploymentVersionFinalized:      {},
 	AuditActionDeploymentVersionPromoted:       {},
 	AuditActionDeploymentVersionRolledBack:     {},
+	AuditActionEndpointSet:                     {},
+	AuditActionEndpointVerified:                {},
 	AuditActionSpendingLimitUpdated:            {},
 	AuditActionEmailPreferencesUpdated:         {},
 	AuditActionUsageExported:                   {},
 	AuditActionProjectBudgetUpdated:            {},
 	AuditActionAnomalyConfigUpdated:            {},
+	AuditActionWorkerConnected:                 {},
+	AuditActionWorkerDisconnected:              {},
+	AuditActionWorkerForceDisconnected:         {},
+	AuditActionQuotaExceeded:                   {},
+	AuditActionCronPausedQuota:                 {},
+	AuditActionCronResumedQuota:                {},
+	AuditActionSubscriptionChanged:             {},
 }
 
 // IsKnownAuditAction reports whether action is a registered audit action.
-// Used by the emit path to reject typos at runtime.
+// The emit path calls this to reject typos at runtime before they reach
+// the database.
 func IsKnownAuditAction(action string) bool {
 	_, ok := allAuditActions[action]
 	return ok

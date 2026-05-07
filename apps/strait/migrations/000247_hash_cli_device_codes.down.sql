@@ -1,0 +1,1 @@
+-- Irreversible: plaintext CLI device codes cannot be recovered from hashes.

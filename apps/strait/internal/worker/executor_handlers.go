@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/queue"
 	"strait/internal/store"
 
@@ -33,7 +34,7 @@ func recordRetryAttempt(ctx context.Context, attempt int) {
 	qm.RetryAttempts.Record(ctx, float64(attempt))
 }
 
-func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) {
+func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
 
@@ -58,11 +59,11 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", err,
 		)
-		return
+		return false
 	}
 	if e.txPool == nil && job.EndpointURL != "" {
 		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
-			e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 		}
 	}
 
@@ -78,7 +79,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		LatencyMs:    float64(execDur.Milliseconds()),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score success", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Info(
@@ -117,6 +118,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 			}
 		}
 	}
+	return true
 }
 
 func classifyError(err error) string {
@@ -216,6 +218,14 @@ func errorHash(errMsg string) string {
 	return hex.EncodeToString(h[:8])
 }
 
+func errorHashForError(err error) string {
+	var endpointErr *domain.EndpointError
+	if errors.As(err, &endpointErr) {
+		return errorHash(fmt.Sprintf("endpoint returned %d: %s", endpointErr.StatusCode, endpointErr.Body))
+	}
+	return errorHash(err.Error())
+}
+
 // boostPriority adds boost to current priority, capping at 10 and
 // guarding against integer overflow.
 func boostPriority(current, boost int) int {
@@ -244,14 +254,14 @@ func shouldUseFallbackForClass(errClass string) bool {
 	}
 }
 
-func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) {
+func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
 	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
-		e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
+		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
 	}
 
 	// Record health score for failed dispatch.
@@ -261,7 +271,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		LatencyMs:    0,
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score failure", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -284,7 +294,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	// wasting retries and risking circuit breaker trips.
 	var metadataModified bool
 	if shouldRetry && job.PoisonPillThreshold != nil && *job.PoisonPillThreshold > 0 {
-		hash := errorHash(errMsg)
+		hash := errorHashForError(err)
 		prevHash := run.Metadata["_error_hash"]
 		count := 1
 		if prevHash == hash {
@@ -334,23 +344,23 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"job_id", run.JobID,
 				"error", err,
 			)
-		} else {
-			e.logger.Info(
-				"run re-enqueued for retry",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"attempt", run.Attempt+1,
-				"next_retry_at", retryAt,
-			)
-			recordRetryAttempt(ctx, run.Attempt+1)
-			e.emit(ctx, RunLifecycleEvent{
-				Type: EventRetried, Run: run, Job: job,
-				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-				ExecTrace: execTrace, Attempt: run.Attempt + 1,
-				QueueWait: queueWait(run),
-			})
+			return false
 		}
-		return
+		e.logger.Info(
+			"run re-enqueued for retry",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"attempt", run.Attempt+1,
+			"next_retry_at", retryAt,
+		)
+		recordRetryAttempt(ctx, run.Attempt+1)
+		e.emit(ctx, RunLifecycleEvent{
+			Type: EventRetried, Run: run, Job: job,
+			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+			ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			QueueWait: queueWait(run),
+		})
+		return true
 	}
 
 	now := time.Now()
@@ -394,7 +404,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", updateErr,
 		)
-		return
+		return false
 	}
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventDeadLettered, Run: run, Job: job,
@@ -408,6 +418,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	if e.onCompleteTrigger != nil {
 		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, errMsg)
 	}
+	return true
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
@@ -415,7 +426,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	defer span.End()
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
+		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 	}
 
 	// Record health score for timeout (counts as failure with timeout flag).
@@ -426,7 +437,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		LatencyMs:    float64(job.TimeoutSecs * 1000),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score timeout", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -526,6 +537,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 // The run must be in StatusExecuting when this is called.
 func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) error {
 	from := domain.StatusExecuting
+	webhookRun := runForTerminalWebhook(run, to, fields)
 	if e.txPool != nil && job.WebhookURL != "" {
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
@@ -536,15 +548,30 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 					return err
 				}
 			}
-			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
+			_, err := q.EnqueueRunWebhook(ctx, job, webhookRun, e.webhookMaxRetry)
 			return err
 		})
 	}
 	if e.txPool == nil && job.WebhookURL != "" {
 		e.logger.Warn("txPool not configured, webhook delivery skipped for completed run",
-			"run_id", run.ID, "job_id", job.ID, "webhook_url", job.WebhookURL)
+			"run_id", run.ID, "job_id", job.ID, "webhook_url", httputil.RedactURLForLog(job.WebhookURL))
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
+}
+
+func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields map[string]any) *domain.JobRun {
+	webhookRun := *run
+	webhookRun.Status = status
+	if result, ok := fields["result"].(json.RawMessage); ok {
+		webhookRun.Result = result
+	}
+	if errMsg, ok := fields["error"].(string); ok {
+		webhookRun.Error = errMsg
+	}
+	if finishedAt, ok := fields["finished_at"].(time.Time); ok {
+		webhookRun.FinishedAt = &finishedAt
+	}
+	return &webhookRun
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {

@@ -255,20 +255,94 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 	}
 }
 
-func TestSSETokenAuth_RawAPIKey_StillWorks(t *testing.T) {
+func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+			t.Fatal("raw API key query token must not be promoted into Authorization")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
 
-	// Raw API key in query param should still work (backward compatible).
-	// It will fail auth (mock returns nil key) but should get 401 not 500.
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token=strait_someapikey", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	// 401 is expected (invalid key), not 500 or panic.
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("raw API key fallback: status = %d, want 401", w.Code)
+		t.Errorf("raw API key query token: status = %d, want 401", w.Code)
+	}
+	if len(ms.GetAPIKeyByHashCalls()) != 0 {
+		t.Fatal("raw API key query token reached API key lookup")
+	}
+}
+
+func TestRequirePermission_SSETokenEmptyScopesRejected(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/key/stream", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "sse:proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_SSETokenNilScopesRejected(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/key/stream", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "sse:proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_SSETokenExplicitScopeAllowed(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/key/stream", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "sse:proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsRead})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 

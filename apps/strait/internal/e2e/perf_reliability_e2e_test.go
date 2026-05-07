@@ -48,7 +48,12 @@ func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
 		t.Fatalf("create webhook delivery: %v", err)
 	}
 
-	worker := webhook.NewDeliveryWorker(testStore, slog.Default())
+	worker := webhook.NewDeliveryWorker(
+		testStore,
+		slog.Default(),
+		webhook.WithAllowPrivateEndpoints(true),
+		webhook.WithHTTPTransport(2*time.Second, 30*time.Second, 10, 10),
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

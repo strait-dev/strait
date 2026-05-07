@@ -142,6 +142,12 @@ func webhookPayload(t *testing.T, eventType string, data any) []byte {
 	return payload
 }
 
+func withTestMetadataFallback() WebhookOption {
+	return func(h *WebhookHandler) {
+		h.allowTestMetadata = true
+	}
+}
+
 // ============================================================.
 // 1. Double-charge / duplicate webhook events
 // ============================================================.
@@ -152,7 +158,7 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	secret := testSecret
-	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_dup_1",
@@ -228,7 +234,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                 "sub_upd_dup",
@@ -456,25 +462,29 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 
 	periodStart := time.Now().Add(-7 * 24 * time.Hour)
 	periodEnd := time.Now().Add(23 * 24 * time.Hour)
+	subID := "sub_defer_1"
+	customerID := "cust_defer"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"00000000-0000-0000-0000-000000000022": {
-				OrgID:              "00000000-0000-0000-0000-000000000022",
-				PlanTier:           string(domain.PlanPro),
-				Status:             "active",
-				CurrentPeriodStart: &periodStart,
-				CurrentPeriodEnd:   &periodEnd,
+				OrgID:                "00000000-0000-0000-0000-000000000022",
+				PlanTier:             string(domain.PlanPro),
+				Status:               "active",
+				CurrentPeriodStart:   &periodStart,
+				CurrentPeriodEnd:     &periodEnd,
+				StripeSubscriptionID: &subID,
+				StripeCustomerID:     &customerID,
 			},
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// Downgrade from pro -> starter.
 	data := testSubscriptionData{
-		ID:                 "sub_defer_1",
+		ID:                 subID,
 		Status:             "active",
-		CustomerID:         "cust_defer",
+		CustomerID:         customerID,
 		ProductID:          "starter-id",
 		CurrentPeriodStart: &periodStart,
 		CurrentPeriodEnd:   &periodEnd,
@@ -511,7 +521,7 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                "sub_cancel_free",
@@ -553,7 +563,7 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	data := testSubscriptionData{
@@ -632,7 +642,7 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_no_org",
@@ -658,7 +668,7 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_cust_meta",
@@ -736,7 +746,7 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_unknown_prod",
@@ -759,7 +769,7 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// ProductID is empty but Product.ID is set.
 	data := testSubscriptionData{
@@ -785,6 +795,257 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 	}
 }
 
+func TestWebhook_SubscriptionCreatedRejectsMetadataOrgRebinding(t *testing.T) {
+	t.Parallel()
+
+	boundOrg := "00000000-0000-0000-0000-000000000040"
+	attackerOrg := "00000000-0000-0000-0000-000000000041"
+	subID := "sub_bound"
+	customerID := "cust_bound"
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		boundOrg: {
+			OrgID:                boundOrg,
+			PlanTier:             string(domain.PlanStarter),
+			StripeSubscriptionID: &subID,
+			StripeCustomerID:     &customerID,
+			Status:               "active",
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := testSubscriptionData{
+		ID:         subID,
+		ProductID:  "pro-id",
+		CustomerID: customerID,
+		Metadata:   map[string]string{"org_id": attackerOrg},
+	}
+	body := webhookPayload(t, "customer.subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 for attempted Stripe binding rebinding", rr.Code)
+	}
+	if _, err := store.GetOrgSubscription(context.Background(), attackerOrg); !errors.Is(err, ErrSubscriptionNotFound) {
+		t.Fatalf("attacker org subscription lookup error = %v, want ErrSubscriptionNotFound", err)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
+	if err != nil {
+		t.Fatalf("bound org subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanStarter) {
+		t.Fatalf("bound org plan = %q, want unchanged starter", sub.PlanTier)
+	}
+}
+
+func TestWebhook_SubscriptionCreatedUsesExistingCustomerBindingWhenMetadataMissing(t *testing.T) {
+	t.Parallel()
+
+	boundOrg := "00000000-0000-0000-0000-000000000042"
+	customerID := "cust_existing"
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		boundOrg: {
+			OrgID:            boundOrg,
+			PlanTier:         string(domain.PlanStarter),
+			StripeCustomerID: &customerID,
+			Status:           "active",
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := testSubscriptionData{
+		ID:         "sub_new_for_existing_customer",
+		ProductID:  "pro-id",
+		CustomerID: customerID,
+		Metadata:   map[string]string{},
+	}
+	body := webhookPayload(t, "customer.subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
+	if err != nil {
+		t.Fatalf("bound org subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("bound org plan = %q, want pro", sub.PlanTier)
+	}
+}
+
+func TestWebhook_SubscriptionCreatedRejectsUnboundMetadataOrg(t *testing.T) {
+	t.Parallel()
+
+	victimOrg := "00000000-0000-0000-0000-000000000043"
+	pendingTier := string(domain.PlanStarter)
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		victimOrg: {
+			OrgID:           victimOrg,
+			PlanTier:        string(domain.PlanFree),
+			Status:          "active",
+			PendingPlanTier: &pendingTier,
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := testSubscriptionData{
+		ID:         "sub_unbound_metadata",
+		ProductID:  "pro-id",
+		CustomerID: "cust_attacker",
+		Metadata:   map[string]string{"org_id": victimOrg},
+	}
+	body := webhookPayload(t, "customer.subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 for unbound metadata-only subscription", rr.Code)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), victimOrg)
+	if err != nil {
+		t.Fatalf("victim subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanFree) {
+		t.Fatalf("victim plan = %q, want unchanged free", sub.PlanTier)
+	}
+}
+
+func TestWebhook_SubscriptionCreatedAllowsPendingPlanIntent(t *testing.T) {
+	t.Parallel()
+
+	orgID := "00000000-0000-0000-0000-000000000044"
+	pendingTier := string(domain.PlanPro)
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		orgID: {
+			OrgID:           orgID,
+			PlanTier:        string(domain.PlanFree),
+			Status:          "active",
+			PendingPlanTier: &pendingTier,
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	data := testSubscriptionData{
+		ID:         "sub_pending_intent",
+		ProductID:  "pro-id",
+		CustomerID: "cust_pending_intent",
+		Metadata:   map[string]string{"org_id": orgID},
+	}
+	body := webhookPayload(t, "customer.subscription.created", data)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for pending plan intent", rr.Code)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), orgID)
+	if err != nil {
+		t.Fatalf("subscription: %v", err)
+	}
+	if sub.PlanTier != string(domain.PlanPro) {
+		t.Fatalf("plan = %q, want pro", sub.PlanTier)
+	}
+	if sub.StripeCustomerID == nil || *sub.StripeCustomerID != "cust_pending_intent" {
+		t.Fatalf("stripe customer binding = %v, want cust_pending_intent", sub.StripeCustomerID)
+	}
+}
+
+func TestWebhook_InvoicePaymentFailedRejectsMetadataOrgWithoutBinding(t *testing.T) {
+	t.Parallel()
+
+	victimOrg := "00000000-0000-0000-0000-000000000045"
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		victimOrg: {
+			OrgID:         victimOrg,
+			PlanTier:      string(domain.PlanPro),
+			Status:        "active",
+			PaymentStatus: "ok",
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	inv := testInvoiceData{
+		ID:         "inv_metadata_attack",
+		CustomerID: "cust_unbound_attacker",
+		SubID:      "sub_unbound_attacker",
+		Metadata:   map[string]string{"org_id": victimOrg},
+	}
+	body := webhookPayload(t, "invoice.payment_failed", inv)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 for unbound invoice metadata", rr.Code)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), victimOrg)
+	if err != nil {
+		t.Fatalf("victim subscription: %v", err)
+	}
+	if sub.PaymentStatus != "ok" {
+		t.Fatalf("victim payment status = %q, want unchanged ok", sub.PaymentStatus)
+	}
+}
+
+func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *testing.T) {
+	t.Parallel()
+
+	boundOrg := "00000000-0000-0000-0000-000000000046"
+	attackerOrg := "00000000-0000-0000-0000-000000000047"
+	customerID := "cust_invoice_bound"
+	store := &mockBillingStore{subscriptions: map[string]*OrgSubscription{
+		boundOrg: {
+			OrgID:            boundOrg,
+			PlanTier:         string(domain.PlanPro),
+			Status:           "active",
+			PaymentStatus:    "ok",
+			StripeCustomerID: &customerID,
+		},
+		attackerOrg: {
+			OrgID:         attackerOrg,
+			PlanTier:      string(domain.PlanPro),
+			Status:        "active",
+			PaymentStatus: "ok",
+		},
+	}}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+
+	conflict := testInvoiceData{
+		ID:         "inv_conflict",
+		CustomerID: customerID,
+		SubID:      "sub_invoice_bound",
+		Metadata:   map[string]string{"org_id": attackerOrg},
+	}
+	conflictBody := webhookPayload(t, "invoice.payment_failed", conflict)
+	conflictRR := httptest.NewRecorder()
+	handler.ServeHTTP(conflictRR, buildSignedWebhookRequest(t, testSecret, conflictBody))
+	if conflictRR.Code != http.StatusInternalServerError {
+		t.Fatalf("conflict status = %d, want 500", conflictRR.Code)
+	}
+
+	valid := testInvoiceData{
+		ID:         "inv_bound",
+		CustomerID: customerID,
+		SubID:      "sub_invoice_bound",
+		Metadata:   map[string]string{"org_id": boundOrg},
+	}
+	validBody := webhookPayload(t, "invoice.payment_failed", valid)
+	validRR := httptest.NewRecorder()
+	handler.ServeHTTP(validRR, buildSignedWebhookRequest(t, testSecret, validBody))
+	if validRR.Code != http.StatusOK {
+		t.Fatalf("valid status = %d, want 200", validRR.Code)
+	}
+	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
+	if err != nil {
+		t.Fatalf("bound subscription: %v", err)
+	}
+	if sub.PaymentStatus != "grace" {
+		t.Fatalf("bound payment status = %q, want grace", sub.PaymentStatus)
+	}
+}
+
 // ============================================================.
 // 5. Concurrent operations on billing state
 // ============================================================.
@@ -799,6 +1060,18 @@ func (s *syncMockBillingStore) GetOrgSubscription(ctx context.Context, orgID str
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.mockBillingStore.GetOrgSubscription(ctx, orgID)
+}
+
+func (s *syncMockBillingStore) GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, stripeSubscriptionID)
+}
+
+func (s *syncMockBillingStore) GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.GetOrgSubscriptionByStripeCustomerID(ctx, stripeCustomerID)
 }
 
 func (s *syncMockBillingStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
@@ -844,7 +1117,7 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 		mockBillingStore: mockBillingStore{subscriptions: make(map[string]*OrgSubscription)},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_conc_1",
@@ -962,7 +1235,7 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 		upsertErr: errors.New("db connection lost"),
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_err_create",
@@ -986,7 +1259,7 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 		getSubErr: errors.New("timeout connecting to database"),
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_err_update",
@@ -1021,7 +1294,7 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 		updateFullErr: ErrSubscriptionNotFound,
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_fallback",
@@ -1050,7 +1323,7 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	auditStore := &advMockAuditStore{err: errors.New("audit table locked")}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_audit_err",
@@ -1178,15 +1451,32 @@ func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
 
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
-			"org-no-sub": 500_000, // within free credit
+			// Orchestration-only: no included credit; any spend triggers the cap.
+			"org-no-sub": 500_000,
 		},
 	}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	// No subscription -> free tier path.
+	// No subscription -> free tier path -> any spend blocks.
 	err := e.CheckSpendingLimit(context.Background(), "org-no-sub")
+	if err == nil {
+		t.Fatal("expected spending limit error for no-subscription org with non-zero spend")
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_NoSubscription_ZeroSpend_Passes(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		periodSpendByOrg: map[string]int64{
+			"org-no-sub-zero": 0,
+		},
+	}
+	e := NewEnforcer(store, nil, slog.Default())
+
+	err := e.CheckSpendingLimit(context.Background(), "org-no-sub-zero")
 	if err != nil {
-		t.Fatalf("expected nil for under-credit free tier, got %v", err)
+		t.Fatalf("expected nil for no-spend no-subscription org, got %v", err)
 	}
 }
 
@@ -1279,57 +1569,6 @@ func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckProjectBudget_NotifyMode(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budget: 100000, action: "notify", spend: 200000}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	// Notify mode should not reject even when over budget.
-	err := e.CheckProjectBudgetLimit(context.Background(), "proj-notify")
-	if err != nil {
-		t.Fatalf("expected nil for notify mode, got %v", err)
-	}
-}
-
-func TestEnforcer_CheckProjectBudget_DBError(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budgetErr: errors.New("db down")}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	// Should fail open.
-	err := e.CheckProjectBudgetLimit(context.Background(), "proj-db-err")
-	if err != nil {
-		t.Fatalf("expected fail-open (nil), got %v", err)
-	}
-}
-
-func TestEnforcer_CheckProjectBudget_SpendDBError(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budget: 100000, action: "reject", spendErr: errors.New("spend query failed")}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	// Should fail open on spend query error.
-	err := e.CheckProjectBudgetLimit(context.Background(), "proj-spend-err")
-	if err != nil {
-		t.Fatalf("expected fail-open (nil), got %v", err)
-	}
-}
-
-func TestEnforcer_CheckProjectBudget_EmptyProjectID(t *testing.T) {
-	t.Parallel()
-
-	store := &mockBudgetAdversarialStore{budget: 0, action: "reject"}
-	e := NewEnforcer(store, nil, slog.Default())
-
-	err := e.CheckProjectBudgetLimit(context.Background(), "")
-	if err != nil {
-		t.Fatalf("expected nil for empty project ID, got %v", err)
-	}
-}
-
 // ============================================================.
 // Payment status / grace period paths
 // ============================================================.
@@ -1353,7 +1592,7 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// Stripe fires invoice.payment_failed when a payment attempt fails.
 	invData := testInvoiceData{
@@ -1398,7 +1637,7 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                 "sub_recover",
@@ -1426,14 +1665,18 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	t.Parallel()
 
 	graceEnd := time.Now().Add(48 * time.Hour)
+	subID := "sub_paid"
+	customerID := "cust_paid"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"00000000-0000-0000-0000-00000000002f": {
-				OrgID:          "00000000-0000-0000-0000-00000000002f",
-				PlanTier:       string(domain.PlanStarter),
-				Status:         "active",
-				PaymentStatus:  "restricted",
-				GracePeriodEnd: &graceEnd,
+				OrgID:                "00000000-0000-0000-0000-00000000002f",
+				PlanTier:             string(domain.PlanStarter),
+				Status:               "active",
+				PaymentStatus:        "restricted",
+				GracePeriodEnd:       &graceEnd,
+				StripeSubscriptionID: &subID,
+				StripeCustomerID:     &customerID,
 			},
 		},
 	}
@@ -1442,9 +1685,9 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 
 	// Stripe fires customer.subscription.updated with active status when payment recovers.
 	data := testSubscriptionData{
-		ID:         "sub_paid",
+		ID:         subID,
 		ProductID:  "starter-id",
-		CustomerID: "cust_paid",
+		CustomerID: customerID,
 		Status:     "active",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002f"},
 	}
@@ -1464,13 +1707,17 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 	t.Parallel()
 
+	subID := "sub_ok"
+	customerID := "cust_ok"
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"00000000-0000-0000-0000-000000000030": {
-				OrgID:         "00000000-0000-0000-0000-000000000030",
-				PlanTier:      string(domain.PlanStarter),
-				Status:        "active",
-				PaymentStatus: "ok",
+				OrgID:                "00000000-0000-0000-0000-000000000030",
+				PlanTier:             string(domain.PlanStarter),
+				Status:               "active",
+				PaymentStatus:        "ok",
+				StripeSubscriptionID: &subID,
+				StripeCustomerID:     &customerID,
 			},
 		},
 	}
@@ -1478,9 +1725,9 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
 	data := testSubscriptionData{
-		ID:         "sub_ok",
+		ID:         subID,
 		ProductID:  "starter-id",
-		CustomerID: "cust_ok",
+		CustomerID: customerID,
 		Status:     "active",
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000030"},
 	}
@@ -1506,7 +1753,7 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_multisig",
@@ -1812,7 +2059,7 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	}
 
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
-		WithWelcomeEmail(welcomeFn))
+		WithWelcomeEmail(welcomeFn), withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_welcome",
@@ -1859,7 +2106,7 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 	}
 
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
-		WithWelcomeEmail(welcomeFn))
+		WithWelcomeEmail(welcomeFn), withTestMetadataFallback())
 
 	// No customer email set => welcome email should not be sent.
 	data := testSubscriptionData{
@@ -2289,7 +2536,7 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 
 	store := &mockBillingStore{} // no subscriptions
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_cancel_noexist",
@@ -2372,7 +2619,7 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_unk_prod_upd",
@@ -2413,7 +2660,7 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                 "sub_empty_status",

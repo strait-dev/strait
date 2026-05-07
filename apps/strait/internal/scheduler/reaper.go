@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
@@ -93,6 +95,7 @@ type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	RevokeAPIKey(ctx context.Context, id string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -133,14 +136,12 @@ type AdvisoryLocker interface {
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) error
 }
 
+type AdvisoryLockRunner interface {
+	RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error)
+}
+
 // reaperAdvisoryLockID is the pg_advisory_lock key for single-leader reaper.
 const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
-
-// MachineDestroyer can stop and destroy container machines (used for orphan cleanup).
-type MachineDestroyer interface {
-	Stop(ctx context.Context, machineID string) error
-	Destroy(ctx context.Context, machineID string) error
-}
 
 // ApprovalReminderStore is an optional interface for querying approvals past their reminder point.
 type ApprovalReminderStore interface {
@@ -166,7 +167,6 @@ type Reaper struct {
 	longRetention              time.Duration
 	retentionEnabled           bool
 	workflowCallback           WorkflowCallback
-	machineDestroyer           MachineDestroyer
 	chExporter                 *clickhouse.Exporter
 	metrics                    *telemetry.Metrics
 	logger                     *slog.Logger
@@ -180,6 +180,8 @@ type Reaper struct {
 	auditDLQMaxAgeDays         int
 	auditDLQMaxReclaimAttempts int
 	archiveEnabled             bool
+	allowPrivateEndpoints      bool
+	rotationWebhookClient      *http.Client
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -230,6 +232,14 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 // WithMetrics sets the telemetry metrics for the reaper.
 func (r *Reaper) WithMetrics(m *telemetry.Metrics) *Reaper {
 	r.metrics = m
+	return r
+}
+
+// WithAllowPrivateEndpoints allows scheduler-originated webhooks to target
+// private addresses. It is intended for explicitly configured self-hosted
+// deployments and tests; production defaults to the SSRF-safe external policy.
+func (r *Reaper) WithAllowPrivateEndpoints(allow bool) *Reaper {
+	r.allowPrivateEndpoints = allow
 	return r
 }
 
@@ -294,12 +304,6 @@ func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
 	return r
 }
 
-// WithMachineDestroyer sets the container runtime for orphaned machine cleanup.
-func (r *Reaper) WithMachineDestroyer(d MachineDestroyer) *Reaper {
-	r.machineDestroyer = d
-	return r
-}
-
 // WithChExporter attaches the ClickHouse exporter for event trigger timeout analytics.
 func (r *Reaper) WithChExporter(e *clickhouse.Exporter) *Reaper {
 	r.chExporter = e
@@ -323,6 +327,56 @@ func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun)
 
 // ReapOnce runs all reaper passes exactly once. Exported for integration tests.
 func (r *Reaper) ReapOnce(ctx context.Context) {
+	r.runMaintenanceCycle(ctx)
+}
+
+func (r *Reaper) Run(ctx context.Context) {
+	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
+	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
+		runCycle := func(ctx context.Context) error {
+			r.runMaintenanceCycle(ctx)
+			if r.retentionEnabled {
+				r.reapTerminalRetention(ctx)
+				r.reapPerOrgRetention(ctx)
+			}
+			return nil
+		}
+
+		if r.advisoryLocker != nil {
+			if runner, ok := r.advisoryLocker.(AdvisoryLockRunner); ok {
+				acquired, err := runner.RunWithAdvisoryLock(loopCtx, reaperAdvisoryLockID, runCycle)
+				if err != nil {
+					r.logger.Error("advisory locked reaper cycle failed", "error", err)
+					return
+				}
+				if !acquired {
+					r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
+				}
+				return
+			}
+
+			acquired, err := r.advisoryLocker.TryAdvisoryLock(loopCtx, reaperAdvisoryLockID)
+			if err != nil {
+				r.logger.Error("advisory lock check failed, skipping cycle", "error", err)
+				return
+			}
+			if !acquired {
+				r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
+				return
+			}
+			defer func() {
+				if err := r.advisoryLocker.ReleaseAdvisoryLock(loopCtx, reaperAdvisoryLockID); err != nil {
+					r.logger.Warn("failed to release advisory lock", "error", err)
+				}
+			}()
+		}
+
+		_ = runCycle(loopCtx)
+	})
+	loop.Run(ctx)
+}
+
+func (r *Reaper) runMaintenanceCycle(ctx context.Context) {
 	r.reapStaleDequeued(ctx)
 	r.reapStale(ctx)
 	r.reapExpired(ctx)
@@ -342,48 +396,6 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapAuditEvents(ctx)
 	r.reclaimAuditDeadletter(ctx)
 	r.reapDeadletter(ctx)
-}
-
-func (r *Reaper) Run(ctx context.Context) {
-	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
-	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
-		if r.advisoryLocker != nil {
-			acquired, err := r.advisoryLocker.TryAdvisoryLock(loopCtx, reaperAdvisoryLockID)
-			if err != nil {
-				r.logger.Error("advisory lock check failed, skipping cycle", "error", err)
-				return
-			}
-			if !acquired {
-				r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
-				return
-			}
-			defer func() {
-				if err := r.advisoryLocker.ReleaseAdvisoryLock(loopCtx, reaperAdvisoryLockID); err != nil {
-					r.logger.Warn("failed to release advisory lock", "error", err)
-				}
-			}()
-		}
-
-		r.reapStaleDequeued(loopCtx)
-		r.reapStale(loopCtx)
-		r.reapExpired(loopCtx)
-		r.reapTimedOutWorkflows(loopCtx)
-		r.reapExpiredApprovals(loopCtx)
-		r.reapApprovalReminders(loopCtx)
-		r.reapExpiredEventTriggers(loopCtx)
-		r.reapInconsistentEventTriggers(loopCtx)
-		r.reapStalledWorkflows(loopCtx)
-		r.reapOldWorkflowRuns(loopCtx)
-		r.reapOldEventTriggers(loopCtx)
-		if r.retentionEnabled {
-			r.reapTerminalRetention(loopCtx)
-			r.reapPerOrgRetention(loopCtx)
-		}
-		r.reapAuditEvents(loopCtx)
-		r.reclaimAuditDeadletter(loopCtx)
-		r.reapDeadletter(loopCtx)
-	})
-	loop.Run(ctx)
 }
 
 func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
@@ -949,22 +961,6 @@ func (r *Reaper) reapStale(ctx context.Context) {
 		}
 		run.Status = domain.StatusCrashed
 
-		// Clean up orphaned machines for managed runs.
-		if r.machineDestroyer != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
-			cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			if stopErr := r.machineDestroyer.Stop(cleanCtx, run.MachineID); stopErr != nil {
-				r.logger.Warn("failed to stop orphaned machine, attempting destroy",
-					"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-			}
-			if destroyErr := r.machineDestroyer.Destroy(cleanCtx, run.MachineID); destroyErr != nil {
-				r.logger.Warn("failed to destroy orphaned machine",
-					"run_id", run.ID, "machine_id", run.MachineID, "error", destroyErr)
-			} else {
-				r.logger.Info("destroyed orphaned machine", "run_id", run.ID, "machine_id", run.MachineID)
-			}
-			cleanCancel()
-		}
-
 		r.notifyWorkflowCallback(ctx, &run)
 
 		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
@@ -1297,6 +1293,11 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 	}
 
 	for _, oldKey := range keys {
+		if oldKey.RotationWebhookURL == "" {
+			r.logger.Warn("skipping api key auto-rotation without rotation webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID)
+			continue
+		}
+
 		// Generate new key material.
 		rawBytes := make([]byte, 32)
 		if _, err := rand.Read(rawBytes); err != nil {
@@ -1308,6 +1309,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 
 		newKey := &domain.APIKey{
 			ProjectID:            oldKey.ProjectID,
+			OrgID:                oldKey.OrgID,
 			Name:                 oldKey.Name + " (auto-rotated)",
 			KeyHash:              hex.EncodeToString(keyHash[:]),
 			KeyPrefix:            rawKey[:12],
@@ -1328,9 +1330,22 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			continue
 		}
 
+		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
+			r.logger.Warn("rotation webhook notification failed; keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if newKey.ID != "" {
+				if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+					r.logger.Warn("failed to revoke undelivered rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+				}
+			}
+			continue
+		}
+
 		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
 		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
 			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				r.logger.Warn("failed to revoke unlinked rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+			}
 			continue
 		}
 
@@ -1351,19 +1366,21 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			ResourceID:   oldKey.ID,
 			Details:      details,
 		})
-
-		// Notify rotation webhook if configured.
-		if oldKey.RotationWebhookURL != "" {
-			r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, newKey.KeyPrefix, oldKey.ProjectID)
-		}
 	}
 }
 
-func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKeyPrefix, projectID string) {
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
+	logURL := httputil.RedactURLForLog(webhookURL)
+	if err := validateRotationWebhookURL(webhookURL, r.allowPrivateEndpoints); err != nil {
+		r.logger.Warn("rotation webhook URL blocked", "url", logURL, "error", err)
+		return err
+	}
+
 	payload, _ := json.Marshal(map[string]any{
 		"event":          "api_key.auto_rotated",
 		"old_key_id":     oldKeyID,
 		"new_key_id":     newKeyID,
+		"new_key":        newKey,
 		"new_key_prefix": newKeyPrefix,
 		"project_id":     projectID,
 		"rotated_at":     time.Now().UTC(),
@@ -1371,23 +1388,57 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
-		r.logger.Error("failed to create rotation webhook request", "url", webhookURL, "error", err)
-		return
+		r.logger.Error("failed to create rotation webhook request", "url", logURL, "error", err)
+		return fmt.Errorf("create rotation webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	client := r.rotationWebhookClient
+	if client == nil {
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
+		}
+	}
+	requestClient := *client
+	requestClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return fmt.Errorf("too many redirects")
+		}
+		if err := validateRotationWebhookURL(req.URL.String(), r.allowPrivateEndpoints); err != nil {
+			return fmt.Errorf("redirect blocked: %w", err)
+		}
+		return nil
+	}
+	resp, err := requestClient.Do(req)
 	if err != nil {
-		r.logger.Warn("rotation webhook notification failed", "url", webhookURL, "error", err)
-		return
+		safeErr := httputil.SanitizeHTTPClientError(err)
+		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", safeErr)
+		return fmt.Errorf("send rotation webhook: %s", safeErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		r.logger.Warn("rotation webhook returned non-success", "url", webhookURL, "status", resp.StatusCode)
+		r.logger.Warn("rotation webhook returned non-success", "url", logURL, "status", resp.StatusCode)
+		return fmt.Errorf("rotation webhook returned status %d", resp.StatusCode)
 	}
+
+	return nil
+}
+
+func validateRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse rotation webhook url: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("rotation webhook must use https")
+	}
+	if err := httputil.ValidateExternalURL(rawURL); err != nil && !allowPrivateEndpoints {
+		return fmt.Errorf("ssrf guard rejected rotation webhook url: %w", err)
+	}
+	return nil
 }
 
 func (r *Reaper) monitorQueueDepth(ctx context.Context) {

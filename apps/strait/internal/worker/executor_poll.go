@@ -25,30 +25,26 @@ type claimTableDequeuer interface {
 	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
+// workerQueueDequeuer claims worker-mode runs for specific queues.
+type workerQueueDequeuer interface {
+	DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error)
+}
+
+// QueueSnapshotter returns the environment-qualified queues that have active
+// workers connected to this replica. Implemented by grpc.ConnectionRegistry via
+// an adapter to avoid a circular import.
+type QueueSnapshotter interface {
+	SnapshotWorkerQueues() []domain.WorkerQueueRef
+}
+
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
-	if e.memoryPressureThreshold > 0 {
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
-		if heapPct > e.memoryPressureThreshold {
-			e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
-			return
-		}
-	}
-	available := e.pool.Available()
-	if e.concurrencyLimit != nil {
-		target := max(e.concurrencyLimit.CurrentLimit(), 1)
-		adaptiveAvailable := target - e.pool.ActiveCount()
-		if adaptiveAvailable < available {
-			available = adaptiveAvailable
-		}
-	}
-	if available <= 0 {
+	if e.checkMemoryPressure() {
 		return
 	}
-	if e.maxDequeueBatchSize > 0 && available > e.maxDequeueBatchSize {
-		available = e.maxDequeueBatchSize
+	available := e.computeAvailable()
+	if available <= 0 {
+		return
 	}
 
 	// Short-circuit when the DB circuit breaker is open so
@@ -62,19 +58,7 @@ func (e *Executor) poll(ctx context.Context) {
 	var err error
 
 	dequeueErr := e.dbCircuit.Do(ctx, func(innerCtx context.Context) error {
-		switch {
-		case len(e.partitionCycle) > 0:
-			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
-		default:
-			// Prefer claim_table > two_phase > DequeueN.
-			if cq, ok := e.queue.(claimTableDequeuer); ok {
-				runs, err = cq.DequeueNClaim(innerCtx, available)
-			} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
-				runs, err = tp.DequeueNTwoPhase(innerCtx, available)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
-		}
+		runs, err = e.dequeueRuns(innerCtx, available)
 		return err
 	})
 	if e.metrics != nil {
@@ -145,6 +129,94 @@ func (e *Executor) poll(ctx context.Context) {
 			e.execute(execCtx, &run)
 		})
 	}
+}
+
+// checkMemoryPressure returns true (and logs) when heap pressure exceeds the configured threshold.
+func (e *Executor) checkMemoryPressure() bool {
+	if e.memoryPressureThreshold <= 0 {
+		return false
+	}
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
+	if heapPct > e.memoryPressureThreshold {
+		e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
+		return true
+	}
+	return false
+}
+
+// computeAvailable returns the number of runs that can be dequeued this cycle,
+// bounded by pool availability, the adaptive concurrency limit, and the max batch size.
+func (e *Executor) computeAvailable() int {
+	available := e.pool.Available()
+	if e.concurrencyLimit != nil {
+		target := max(e.concurrencyLimit.CurrentLimit(), 1)
+		adaptiveAvailable := target - e.pool.ActiveCount()
+		if adaptiveAvailable < available {
+			available = adaptiveAvailable
+		}
+	}
+	if e.maxDequeueBatchSize > 0 && available > e.maxDequeueBatchSize {
+		available = e.maxDequeueBatchSize
+	}
+	return available
+}
+
+// dequeueRuns fetches up to capacity runs from the queue.
+// In fair-share mode it round-robins across partitions; otherwise it performs
+// a two-pass dequeue: HTTP-eligible runs first, then worker-eligible runs.
+func (e *Executor) dequeueRuns(ctx context.Context, capacity int) ([]domain.JobRun, error) {
+	if len(e.partitionCycle) > 0 {
+		return e.dequeueAcrossPartitions(ctx, capacity)
+	}
+
+	// Pass 1: HTTP-eligible runs (any replica can dispatch these).
+	// Prefer claim_table > two_phase > DequeueN.
+	var runs []domain.JobRun
+	var err error
+	if cq, ok := e.queue.(claimTableDequeuer); ok {
+		runs, err = cq.DequeueNClaim(ctx, capacity)
+	} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
+		runs, err = tp.DequeueNTwoPhase(ctx, capacity)
+	} else {
+		runs, err = e.queue.DequeueN(ctx, capacity)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Pass 2: Worker-eligible runs — only attempt if this replica has
+	// connected workers and capacity remains after the HTTP pass.
+	runs = e.appendWorkerRuns(ctx, runs, capacity)
+	return runs, nil
+}
+
+// appendWorkerRuns dequeues worker-mode runs and appends them to runs when
+// connected workers are available and remaining capacity allows it.
+func (e *Executor) appendWorkerRuns(ctx context.Context, runs []domain.JobRun, capacity int) []domain.JobRun {
+	if e.queueSnapshotter == nil {
+		return runs
+	}
+	workerQueues := e.queueSnapshotter.SnapshotWorkerQueues()
+	if len(workerQueues) == 0 {
+		return runs
+	}
+	remaining := capacity - len(runs)
+	if remaining <= 0 {
+		return runs
+	}
+	wq, ok := e.queue.(workerQueueDequeuer)
+	if !ok {
+		return runs
+	}
+	workerRuns, wErr := wq.DequeueNForWorkerQueues(ctx, remaining, workerQueues)
+	if wErr != nil {
+		// Log but don't block the HTTP pass result.
+		e.logger.Warn("worker dequeue failed", "error", wErr)
+		return runs
+	}
+	return append(runs, workerRuns...)
 }
 
 func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([]domain.JobRun, error) {

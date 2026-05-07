@@ -61,7 +61,6 @@ func TestEnterpriseLimits_AllEnterpriseFeatureFlags(t *testing.T) {
 		{"HasSCIM", e.HasSCIM},
 		{"HasDataResidency", e.HasDataResidency},
 		{"HasCustomRBAC", e.HasCustomRBAC},
-		{"HasReservedCapacity", e.HasReservedCapacity},
 		{"HasPriorityQueue", e.HasPriorityQueue},
 		{"HasIPAllowlisting", e.HasIPAllowlisting},
 		{"HasSessionManagement", e.HasSessionManagement},
@@ -130,19 +129,6 @@ func TestEnterpriseLimits_NoRequiredCreditCard(t *testing.T) {
 	}
 }
 
-func TestEnterpriseLimits_AllPresetsAllowed(t *testing.T) {
-	t.Parallel()
-	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.AllowedPresets != nil {
-		t.Error("Enterprise.AllowedPresets should be nil (all presets)")
-	}
-	for _, preset := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"} {
-		if !e.IsPresetAllowed(preset) {
-			t.Errorf("Enterprise.IsPresetAllowed(%q) = false", preset)
-		}
-	}
-}
-
 func TestEnterpriseLimits_AllRegions(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
@@ -188,7 +174,6 @@ func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
 			{"HasSCIM", limits.HasSCIM},
 			{"HasDataResidency", limits.HasDataResidency},
 			{"HasCustomRBAC", limits.HasCustomRBAC},
-			{"HasReservedCapacity", limits.HasReservedCapacity},
 			{"HasPriorityQueue", limits.HasPriorityQueue},
 			{"HasIPAllowlisting", limits.HasIPAllowlisting},
 			{"HasSessionManagement", limits.HasSessionManagement},

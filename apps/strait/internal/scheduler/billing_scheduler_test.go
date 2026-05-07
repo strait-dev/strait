@@ -12,140 +12,11 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
-	"strait/internal/store"
 )
 
 // Section separator.
 // BudgetMonitor extended tests.
 // Section separator.
-
-func TestBudgetMonitor_ThresholdBoundary_ExactlyAtThreshold_Alerts(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			// Exactly at 80% threshold: 100_000 * 80 / 100 = 80_000
-			return 80_000, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert at exactly 80%% threshold, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_OneBelow80Pct_NoAlert(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			// One micro below threshold
-			return 79_999, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts below 80%% threshold, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_ZeroDailyCost_NoAlert(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 0, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts for zero cost, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_FullyCost100Pct_Alerts(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 100_000, nil // 100% of limit
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert at 100%%, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_CostErrorRevertsAlertedState(t *testing.T) {
-	t.Parallel()
-
-	callCount := 0
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-err", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			callCount++
-			if callCount == 1 {
-				return 0, errors.New("query timeout")
-			}
-			return 90_000, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	// First check: cost query fails, should revert alerted state.
-	bm.check(context.Background())
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts after cost error, got %d", len(enqueuer.calls))
-	}
-
-	// Second check: cost query succeeds, should alert because alerted state was reverted.
-	bm.check(context.Background())
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert after retry, got %d", len(enqueuer.calls))
-	}
-}
 
 func TestBudgetMonitor_SpendingLimit_DedupPerDay(t *testing.T) {
 	t.Parallel()
@@ -175,10 +46,7 @@ func TestBudgetMonitor_SpendingLimit_DedupPerDay(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 
 	// Check twice in the same day.
 	bm.check(context.Background())
@@ -207,10 +75,7 @@ func TestBudgetMonitor_SpendingLimit_NilSubscription_Skips(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 
 	if deliveryCalled {
@@ -232,10 +97,7 @@ func TestBudgetMonitor_SpendingLimit_ListOrgsError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 
 	if deliveryCalled {
@@ -247,13 +109,7 @@ func TestBudgetMonitor_OldAlertKeys_PrunedOnNextCheck(t *testing.T) {
 	t.Parallel()
 
 	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return nil, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
+	bm := NewBudgetMonitor(struct{}{}, enqueuer, time.Minute)
 
 	// Seed with stale keys from a past date.
 	bm.alertedMu.Lock()
@@ -275,7 +131,7 @@ func TestBudgetMonitor_OldAlertKeys_PrunedOnNextCheck(t *testing.T) {
 func TestBudgetMonitor_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
-	bm := NewBudgetMonitor(&mockBudgetStore{}, nil, 0)
+	bm := NewBudgetMonitor(struct{}{}, nil, 0)
 	if bm.interval != 5*time.Minute {
 		t.Fatalf("expected default interval 5m, got %v", bm.interval)
 	}
@@ -284,7 +140,7 @@ func TestBudgetMonitor_DefaultInterval(t *testing.T) {
 func TestBudgetMonitor_NegativeInterval_DefaultsTo5Min(t *testing.T) {
 	t.Parallel()
 
-	bm := NewBudgetMonitor(&mockBudgetStore{}, nil, -1*time.Minute)
+	bm := NewBudgetMonitor(struct{}{}, nil, -1*time.Minute)
 	if bm.interval != 5*time.Minute {
 		t.Fatalf("expected default interval 5m, got %v", bm.interval)
 	}

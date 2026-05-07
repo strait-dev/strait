@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
@@ -36,6 +38,48 @@ func (q *Queries) CreateRunResourceSnapshot(ctx context.Context, snapshot *domai
 	).Scan(&snapshot.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create run resource snapshot: %w", err)
+	}
+
+	return nil
+}
+
+func (q *Queries) CreateRunResourceSnapshotForActiveRun(ctx context.Context, snapshot *domain.RunResourceSnapshot, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunResourceSnapshotForActiveRun")
+	defer span.End()
+
+	if snapshot.ID == "" {
+		snapshot.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $8
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		)
+		INSERT INTO run_resource_snapshots (id, run_id, cpu_percent, memory_mb, memory_limit_mb, network_rx_bytes, network_tx_bytes)
+		SELECT $1, id, $3, $4, $5, $6, $7
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query,
+		snapshot.ID,
+		snapshot.RunID,
+		snapshot.CPUPercent,
+		snapshot.MemoryMB,
+		snapshot.MemoryLimitMB,
+		snapshot.NetworkRxBytes,
+		snapshot.NetworkTxBytes,
+		attempt,
+	).Scan(&snapshot.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, snapshot.RunID, attempt)
+		}
+		return fmt.Errorf("create active run resource snapshot: %w", err)
 	}
 
 	return nil

@@ -18,7 +18,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // Helpers local to this file
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func covStore(t *testing.T) *store.Queries {
 	t.Helper()
@@ -54,12 +54,12 @@ func covID() string {
 }
 
 func ptr[T any](v T) *T {
-	return &v
+	return new(v)
 }
 
 // ---------------------------------------------------------------------------
 // Workflow operations
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestBulkCancelWorkflowRuns(t *testing.T) {
 	ctx := context.Background()
@@ -68,16 +68,16 @@ func TestBulkCancelWorkflowRuns(t *testing.T) {
 
 	projectID := "proj-bulk-cancel-" + covID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: ptr(projectID),
-		Name:      ptr("wf-bulk-cancel"),
-		Slug:      ptr("wf-bulk-cancel-" + covID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-bulk-cancel"),
+		Slug:      new("wf-bulk-cancel-" + covID()),
 	})
 
 	// Create three runs: two pending (cancellable) and one already completed.
-	run1 := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: ptr(projectID)})
-	run2 := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: ptr(projectID)})
+	run1 := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
+	run2 := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	run3 := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: ptr(projectID),
+		ProjectID: new(projectID),
 		Status:    ptr(domain.WfStatusCompleted),
 	})
 
@@ -135,11 +135,11 @@ func TestListWorkflowRunLabels(t *testing.T) {
 
 	projectID := "proj-wf-labels-" + covID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: ptr(projectID),
-		Name:      ptr("wf-labels"),
-		Slug:      ptr("wf-labels-" + covID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-labels"),
+		Slug:      new("wf-labels-" + covID()),
 	})
-	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: ptr(projectID)})
+	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 
 	// Empty labels initially.
 	labels, err := q.ListWorkflowRunLabels(ctx, run.ID)
@@ -187,9 +187,9 @@ func TestListWorkflowSnapshotsByWorkflow(t *testing.T) {
 
 	projectID := "proj-wf-snap-" + covID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: ptr(projectID),
-		Name:      ptr("wf-snap"),
-		Slug:      ptr("wf-snap-" + covID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-snap"),
+		Slug:      new("wf-snap-" + covID()),
 	})
 
 	// Create two snapshots with distinct version IDs.
@@ -243,26 +243,26 @@ func TestListWorkflowStepDecisions(t *testing.T) {
 
 	projectID := "proj-step-decisions-" + covID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: ptr(projectID),
-		Name:      ptr("wf-decisions"),
-		Slug:      ptr("wf-decisions-" + covID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-decisions"),
+		Slug:      new("wf-decisions-" + covID()),
 	})
-	jobA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	jobA := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	stepA := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   ptr(jobA.ID),
-		StepRef: ptr("step-a"),
+		JobID:   new(jobA.ID),
+		StepRef: new("step-a"),
 	})
-	jobB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	jobB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	stepB := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   ptr(jobB.ID),
-		StepRef: ptr("step-b"),
+		JobID:   new(jobB.ID),
+		StepRef: new("step-b"),
 	})
-	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: ptr(projectID)})
+	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	srA := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, stepA.ID, &testutil.WorkflowStepRunOpts{
-		StepRef: ptr("step-a"),
+		StepRef: new("step-a"),
 	})
 	srB := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, stepB.ID, &testutil.WorkflowStepRunOpts{
-		StepRef: ptr("step-b"),
+		StepRef: new("step-b"),
 	})
 
 	d1 := &domain.WorkflowStepDecision{
@@ -340,16 +340,16 @@ func TestListOrphanedStepRuns(t *testing.T) {
 
 	// Create a workflow with a step, a run, and a step run.
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: ptr(projectID),
-		Name:      ptr("wf-orphaned"),
-		Slug:      ptr("wf-orphaned-" + covID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-orphaned"),
+		Slug:      new("wf-orphaned-" + covID()),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
-		JobID:   ptr(stepJob.ID),
-		StepRef: ptr("step-orphan-" + covID()),
+		JobID:   new(stepJob.ID),
+		StepRef: new("step-orphan-" + covID()),
 	})
-	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: ptr(projectID)})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 
 	// Create a job run that is finished (completed) and its finished_at is old.
 	finishedAt := time.Now().UTC().Add(-5 * time.Minute)
@@ -366,7 +366,7 @@ func TestListOrphanedStepRuns(t *testing.T) {
 	// job run is already completed.
 	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status:  ptr(domain.StepRunning),
-		StepRef: ptr(step.StepRef),
+		StepRef: new(step.StepRef),
 	})
 
 	// Link job run to step run.
@@ -396,7 +396,7 @@ func TestListOrphanedStepRuns(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Job operations
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestDeleteExpiredJobMemory(t *testing.T) {
 	ctx := context.Background()
@@ -404,7 +404,7 @@ func TestDeleteExpiredJobMemory(t *testing.T) {
 	covClean(t, ctx)
 
 	projectID := "proj-expire-mem-" + covID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 
 	// Insert a memory row with an already-expired TTL.
 	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)
@@ -448,7 +448,7 @@ func TestDeleteExpiredJobMemory(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Event operations
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetEventTriggerStats(t *testing.T) {
 	ctx := context.Background()
@@ -467,7 +467,7 @@ func TestGetEventTriggerStats(t *testing.T) {
 	}
 
 	// Create a job + run to link triggers to.
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	run := testutil.BuildRun(job, nil)
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
@@ -523,7 +523,7 @@ func TestGetEventTriggerStats(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Audit events: StreamAuditEvents
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStreamAuditEvents(t *testing.T) {
 	ctx := context.Background()
@@ -643,7 +643,7 @@ func TestGetAuditEvent(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Store utilities
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestAdvisoryXactLock(t *testing.T) {
 	ctx := context.Background()
@@ -681,60 +681,8 @@ func TestReindexIndexConcurrently_ValidIndex(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Cost / analytics
-// ---------------------------------------------------------------------------
-
-func TestGetCostByMachine_ReturnsEmpty(t *testing.T) {
-	ctx := context.Background()
-	q := covStore(t)
-
-	// GetCostByMachine is a stub that returns empty results.
-	result, err := q.GetCostByMachine(ctx, "any-project", time.Now().Add(-24*time.Hour), time.Now())
-	if err != nil {
-		t.Fatalf("GetCostByMachine() error = %v", err)
-	}
-	if len(result) != 0 {
-		t.Fatalf("expected empty result, got %d", len(result))
-	}
-}
-
-func TestListActiveJobIDs(t *testing.T) {
-	ctx := context.Background()
-	q := covStore(t)
-	covClean(t, ctx)
-
-	// No jobs -- empty result.
-	ids, err := q.ListActiveJobIDs(ctx)
-	if err != nil {
-		t.Fatalf("ListActiveJobIDs() error = %v", err)
-	}
-	if len(ids) != 0 {
-		t.Fatalf("expected 0 IDs, got %d", len(ids))
-	}
-
-	// Create one enabled and one disabled job.
-	enabled := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr("proj-active-ids")})
-	disabled := testutil.BuildJob(&testutil.JobOpts{ProjectID: ptr("proj-active-ids")})
-	disabled.Enabled = false
-	if err := q.CreateJob(ctx, disabled); err != nil {
-		t.Fatalf("CreateJob(disabled) error = %v", err)
-	}
-
-	ids, err = q.ListActiveJobIDs(ctx)
-	if err != nil {
-		t.Fatalf("ListActiveJobIDs() error = %v", err)
-	}
-	if len(ids) != 1 {
-		t.Fatalf("expected 1 active ID, got %d", len(ids))
-	}
-	if ids[0] != enabled.ID {
-		t.Fatalf("active ID = %q, want %q", ids[0], enabled.ID)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // CRUD: DeleteRunState
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestDeleteRunState(t *testing.T) {
 	ctx := context.Background()
@@ -742,7 +690,7 @@ func TestDeleteRunState(t *testing.T) {
 	covClean(t, ctx)
 
 	projectID := "proj-del-state-" + covID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	run := testutil.BuildRun(job, nil)
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
@@ -789,7 +737,7 @@ func TestDeleteRunState(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Circuit breaker: RecordEndpointCircuitSuccess
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestRecordEndpointCircuitSuccess(t *testing.T) {
 	ctx := context.Background()
@@ -827,7 +775,7 @@ func TestRecordEndpointCircuitSuccess(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Webhook operations
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetWebhookSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -878,7 +826,7 @@ func TestResetStuckWebhookDeliveries(t *testing.T) {
 	covClean(t, ctx)
 
 	projectID := "proj-stuck-webhooks-" + covID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 	run := testutil.BuildRun(job, nil)
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
@@ -925,7 +873,7 @@ func TestResetStuckWebhookDeliveries(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Health: AtomicRecordHealthResult
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestAtomicRecordHealthResult(t *testing.T) {
 	ctx := context.Background()
@@ -938,7 +886,7 @@ func TestAtomicRecordHealthResult(t *testing.T) {
 	result, err := q.AtomicRecordHealthResult(ctx,
 		endpoint,
 		1.0, 0.0, 1.0, // success, timeout, latency signals
-		0.3,            // alpha (EMA weight)
+		0.3,           // alpha (EMA weight)
 		0.5, 0.3, 0.2, // weights: success, timeout, latency
 		42.0, // last latency ms
 	)
@@ -979,7 +927,7 @@ func TestAtomicRecordHealthResult(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SLO: PruneSLOEvaluations
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestPruneSLOEvaluations(t *testing.T) {
 	ctx := context.Background()
@@ -987,7 +935,7 @@ func TestPruneSLOEvaluations(t *testing.T) {
 	covClean(t, ctx)
 
 	projectID := "proj-slo-prune-" + covID()
-	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr(projectID)})
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
 
 	slo := &domain.JobSLO{
 		ID:          covID(),
@@ -1002,7 +950,7 @@ func TestPruneSLOEvaluations(t *testing.T) {
 	}
 
 	// Insert 5 evaluations.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		eval := &domain.JobSLOEvaluation{
 			ID:              covID(),
 			SLOID:           slo.ID,
@@ -1036,7 +984,7 @@ func TestPruneSLOEvaluations(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // GetCostOutliers (requires run_usage + job_runs)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetCostOutliers_EmptyResult(t *testing.T) {
 	ctx := context.Background()
@@ -1057,7 +1005,7 @@ func TestGetCostOutliers_EmptyResult(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // ScanAll generic helper
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestScanAll(t *testing.T) {
 	ctx := context.Background()
@@ -1066,8 +1014,8 @@ func TestScanAll(t *testing.T) {
 	q := covStore(t)
 
 	// Create two jobs.
-	testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr("proj-scanall")})
-	testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: ptr("proj-scanall")})
+	testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new("proj-scanall")})
+	testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new("proj-scanall")})
 
 	type idRow struct {
 		ID string `db:"id"`

@@ -236,3 +236,13 @@ linters:
         linters: [funlen, gocognit, gocyclo, cyclop, nestif, nolintlint, reassign]
       - path: test/
         linters: [cyclop, funlen, gocognit, nestif]
+      # Generated protobuf files use naming conventions (e.g. WorkerId, RunId)
+      # that differ from Go idioms (WorkerID, RunID). Both revive and staticcheck
+      # ST1003 are excluded here. The "// Code generated" marker in these files
+      # suppresses most linters, but the path exclusion provides an extra safety net.
+      # gosec G103 fires on the unsafe.Slice / unsafe.StringData pair that
+      # protoc-gen-go emits in newer versions to expose RawDescriptor; it's
+      # generated boilerplate, not user-authored unsafe usage.
+      # Source: proto/worker/v1/worker.proto; regenerate with: make proto
+      - path: internal/api/grpc/proto/
+        linters: [revive, staticcheck, gosec]

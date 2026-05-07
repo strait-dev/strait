@@ -741,8 +741,8 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 	if resp["id"] == nil || resp["id"] == "" {
 		t.Fatal("expected non-empty run id")
 	}
-	if resp["run_token"] == nil || resp["run_token"] == "" {
-		t.Fatal("expected non-empty run_token")
+	if _, ok := resp["run_token"]; ok {
+		t.Fatal("trigger response must not expose SDK run_token")
 	}
 	if resp["status"] != "queued" {
 		t.Fatalf("expected status=queued, got %v", resp["status"])
@@ -905,8 +905,8 @@ func TestHandleTriggerJob_WaitingDependencyConflictLookupError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "idempotency key") {
-		t.Fatalf("expected idempotency key error, got %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "internal server error") {
+		t.Fatalf("expected sanitized internal error, got %s", w.Body.String())
 	}
 }
 
@@ -1652,6 +1652,9 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 
 	if resp.Job == nil || resp.Job.ID != "job-123" {
 		t.Fatal("expected non-nil job with id=job-123")
+	}
+	if raw := w.Body.String(); strings.Contains(raw, "endpoint_url") || strings.Contains(raw, "https://example.com/callback") {
+		t.Fatalf("dry-run response leaked endpoint details: %s", raw)
 	}
 	if resp.PayloadHash == "" {
 		t.Fatal("expected non-empty payload_hash")

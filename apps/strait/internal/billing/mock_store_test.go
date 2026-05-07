@@ -52,8 +52,14 @@ type mockBillingStore struct {
 	periodSpendByOrg           map[string]int64
 	sumSpendErr                error
 	recordWebhookErr           error
+	claimWebhookErr            error
+	claimWebhookResult         *bool
+	webhookProcessingStatus    string
+	webhookProcessingStatusErr error
+	releasedWebhookIDs         []string
 	recordedWebhookIDs         []string
 	getOrgSubscriptionFn       func(ctx context.Context, orgID string) (*OrgSubscription, error)
+	getProjectOrgIDFn          func(ctx context.Context, projectID string) (string, error)
 	enterpriseContracts        map[string]*EnterpriseContract
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
@@ -69,6 +75,28 @@ func (m *mockBillingStore) GetOrgSubscription(ctx context.Context, orgID string)
 	if m.subscriptions != nil {
 		if sub, ok := m.subscriptions[orgID]; ok {
 			return sub, nil
+		}
+	}
+	return nil, ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) GetOrgSubscriptionByStripeSubscriptionID(_ context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
+	if m.subscriptions != nil {
+		for _, sub := range m.subscriptions {
+			if sub.StripeSubscriptionID != nil && *sub.StripeSubscriptionID == stripeSubscriptionID {
+				return sub, nil
+			}
+		}
+	}
+	return nil, ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) GetOrgSubscriptionByStripeCustomerID(_ context.Context, stripeCustomerID string) (*OrgSubscription, error) {
+	if m.subscriptions != nil {
+		for _, sub := range m.subscriptions {
+			if sub.StripeCustomerID != nil && *sub.StripeCustomerID == stripeCustomerID {
+				return sub, nil
+			}
 		}
 	}
 	return nil, ErrSubscriptionNotFound
@@ -191,7 +219,10 @@ func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]Or
 	return subs, nil
 }
 
-func (m *mockBillingStore) GetProjectOrgID(_ context.Context, _ string) (string, error) {
+func (m *mockBillingStore) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
+	if m.getProjectOrgIDFn != nil {
+		return m.getProjectOrgIDFn(ctx, projectID)
+	}
 	return "", nil
 }
 
@@ -384,6 +415,30 @@ func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, _ string, 
 func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, msgID string) error {
 	m.recordedWebhookIDs = append(m.recordedWebhookIDs, msgID)
 	return m.recordWebhookErr
+}
+
+func (m *mockBillingStore) ClaimWebhookForProcessing(_ context.Context, _ string, _ time.Duration) (bool, error) {
+	if m.claimWebhookErr != nil {
+		return false, m.claimWebhookErr
+	}
+	if m.claimWebhookResult != nil {
+		return *m.claimWebhookResult, nil
+	}
+	return true, nil
+}
+
+func (m *mockBillingStore) MarkWebhookProcessed(_ context.Context, msgID string) error {
+	m.recordedWebhookIDs = append(m.recordedWebhookIDs, msgID)
+	return m.recordWebhookErr
+}
+
+func (m *mockBillingStore) ReleaseWebhookClaim(_ context.Context, msgID string) error {
+	m.releasedWebhookIDs = append(m.releasedWebhookIDs, msgID)
+	return nil
+}
+
+func (m *mockBillingStore) GetWebhookProcessingStatus(_ context.Context, _ string) (string, error) {
+	return m.webhookProcessingStatus, m.webhookProcessingStatusErr
 }
 
 func (m *mockBillingStore) IsWebhookProcessed(_ context.Context, _ string) (bool, error) {

@@ -58,8 +58,20 @@ func TestGetDebugBundle(t *testing.T) {
 		if !strings.Contains(sql, "FROM job_runs") {
 			t.Fatalf("unexpected queryRow SQL: %s", sql)
 		}
+		// GetDebugBundle now probes visibility (visible_until) before
+		// fetching the full run row; serve a "visible" answer here so
+		// the bundle proceeds to its existing happy-path fetch.
+		if strings.Contains(sql, "visible_until") {
+			return &mockRow{scanFn: func(dest ...any) error {
+				if len(dest) != 1 {
+					t.Fatalf("visible_until probe: unexpected scan dest count: %d", len(dest))
+				}
+				*dest[0].(**time.Time) = nil
+				return nil
+			}}
+		}
 		return &mockRow{scanFn: func(dest ...any) error {
-			if len(dest) != 39 {
+			if len(dest) != 35 {
 				t.Fatalf("unexpected scan dest count: %d", len(dest))
 			}
 			*dest[0].(*string) = "run-1"
@@ -211,4 +223,27 @@ func TestUpdateRunDebugMode(t *testing.T) {
 			t.Fatalf("expected ErrRunNotFound, got %v", err)
 		}
 	})
+}
+
+// Regression: GetDebugBundle must return ErrRunNotFound when the run
+// has been masked via visible_until <= NOW(). The DLQ age-out flow
+// uses this column to take rich-PII rows out of circulation; the
+// debug-bundle endpoint must not undo that decision.
+func TestGetDebugBundle_MaskedRun_ReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	masked := time.Now().Add(-time.Minute)
+	db := &mockDBTX{queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+		if !strings.Contains(sql, "visible_until") {
+			t.Fatalf("expected visibility probe first, got: %s", sql)
+		}
+		return &mockRow{scanFn: func(dest ...any) error {
+			*dest[0].(**time.Time) = &masked
+			return nil
+		}}
+	}}
+	q := New(db)
+	bundle, err := q.GetDebugBundle(context.Background(), "run-1")
+	if !errors.Is(err, ErrRunNotFound) {
+		t.Fatalf("expected ErrRunNotFound for masked run, got bundle=%v err=%v", bundle, err)
+	}
 }

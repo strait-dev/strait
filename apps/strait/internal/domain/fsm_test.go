@@ -49,11 +49,28 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 
 func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 	t.Parallel()
+	// dead_letter is terminal from the perspective of automatic state
+	// progression (SSE handlers, CDC notifiers, the reaper, replay
+	// idempotency). It still has FSM out-edges for OPERATOR-INITIATED
+	// replay via dead_letter -> queued or dead_letter -> replay_staged.
+	// Allow that pair only; every other terminal status must be a sink.
+	deadLetterAllowed := map[RunStatus]struct{}{
+		StatusQueued:       {},
+		StatusReplayStaged: {},
+	}
 	for _, status := range TerminalStatuses() {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validTransitions[status]
 			if !ok {
 				t.Errorf("terminal status %s not found in validTransitions", status)
+			}
+			if status == StatusDeadLetter {
+				for _, to := range transitions {
+					if _, ok := deadLetterAllowed[to]; !ok {
+						t.Errorf("dead_letter transitions include unexpected target %s; only manual replay (queued, replay_staged) is allowed", to)
+					}
+				}
+				return
 			}
 			if len(transitions) != 0 {
 				t.Errorf("terminal status %s transitions = %v, want []", status, transitions)
@@ -80,7 +97,7 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		{StatusSystemFailed, true},
 		{StatusCanceled, true},
 		{StatusExpired, true},
-		{StatusDeadLetter, false},
+		{StatusDeadLetter, true},
 		{StatusReplayStaged, false},
 	}
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,13 +17,11 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
-	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/httputil"
 	"strait/internal/logdrain"
-	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/ratelimit"
@@ -63,7 +62,6 @@ type APIStore interface {
 	RunStore
 	WorkflowStore
 	DeploymentStore
-	CodeDeploymentStore
 	EventTriggerStore
 	AuthStore
 	RBACStore
@@ -71,6 +69,14 @@ type APIStore interface {
 	EventSourceStore
 	ProjectStore
 	NotificationChannelStore
+	WorkerStore
+}
+
+// WorkerStore handles worker read operations needed by the API.
+type WorkerStore interface {
+	GetWorker(ctx context.Context, workerID, projectID string) (*domain.Worker, error)
+	ListWorkers(ctx context.Context, projectID, queueName string, limit, offset int) ([]domain.Worker, error)
+	ListWorkerTasksByWorker(ctx context.Context, workerID, projectID string, status domain.WorkerTaskStatus, limit, offset int) ([]domain.WorkerTask, error)
 }
 
 // ProjectStore handles project CRUD operations.
@@ -124,11 +130,13 @@ type JobStore interface {
 	ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 	PauseJob(ctx context.Context, id, reason string) error
 	ResumeJob(ctx context.Context, id string) error
+	UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error
 }
 
 // RunStore handles job runs, events, checkpoints, and related data.
 type RunStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetRunStatus(ctx context.Context, id string) (domain.RunStatus, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
@@ -182,7 +190,6 @@ type RunStore interface {
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
 	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
 	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
-	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
 	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
 	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
@@ -281,7 +288,6 @@ type WorkflowStore interface {
 	GetWorkflowPolicyByProject(ctx context.Context, projectID string) (*domain.WorkflowPolicy, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
-	ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error)
 	BulkCancelWorkflowRuns(ctx context.Context, projectID string, ids []string, now time.Time) ([]string, error)
 	MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
@@ -294,38 +300,6 @@ type WorkflowStore interface {
 	GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
 	UpdateCanaryDeploymentTraffic(ctx context.Context, workflowID string, trafficPct int) error
 	CompleteCanaryDeployment(ctx context.Context, workflowID, status string) error
-}
-
-// CodeDeploymentStore handles code-first job deployment lifecycle operations.
-// Each deployment corresponds to one `strait deploy` invocation.
-type CodeDeploymentStore interface {
-	CreateCodeDeployment(ctx context.Context, d *domain.CodeDeployment) error
-	GetCodeDeployment(ctx context.Context, id, projectID string) (*domain.CodeDeployment, error)
-	ListCodeDeployments(ctx context.Context, jobID, projectID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
-	// ConfirmCodeDeployment atomically transitions the deployment from pending to
-	// building. Returns ErrCodeDeploymentNotFound if the deployment is not found
-	// or is already in a non-pending state. This prevents TOCTOU double-builds
-	// when two concurrent confirm requests race at the handler layer.
-	ConfirmCodeDeployment(ctx context.Context, id string) error
-	// ClaimBuildingDeployment atomically selects and claims the oldest unclaimed
-	// building deployment for the given workerID. Returns nil, nil when there is
-	// nothing to claim. Uses FOR UPDATE SKIP LOCKED to prevent duplicate dispatch
-	// across multiple orchestrator replicas.
-	ClaimBuildingDeployment(ctx context.Context, workerID string) (*domain.CodeDeployment, error)
-	// ReleaseStaleClaimedDeployments resets the claim on building deployments
-	// whose build_node_claimed_at is older than olderThan. This recovers work
-	// orphaned by crashed orchestrator workers.
-	ReleaseStaleClaimedDeployments(ctx context.Context, olderThan time.Duration) (int64, error)
-	// DeleteExpiredDeployments removes pending deployments created before
-	// pendingBefore and failed/timed_out deployments finished before failedBefore.
-	// Never deletes the active deployment of any job.
-	DeleteExpiredDeployments(ctx context.Context, pendingBefore, failedBefore time.Time) (int64, error)
-	UpdateCodeDeploymentStatus(ctx context.Context, id string, status domain.DeploymentBuildStatus, fields map[string]any) error
-	SetActiveDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
-	RollbackToDeployment(ctx context.Context, jobID, deploymentID, projectID string) error
-	// ListCodeDeploymentsByOrg returns deployments across all projects in an org,
-	// ordered newest-first. Used by internal admin tooling only.
-	ListCodeDeploymentsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.CodeDeployment, error)
 }
 
 // DeploymentStore handles deployment version lifecycle operations.
@@ -374,7 +348,9 @@ type AuthStore interface {
 	CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
-	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey string) error
+	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*store.DeviceCodeRow, error)
+	ApproveDeviceCode(ctx context.Context, deviceCode, apiKeyID, rawAPIKey, projectID string, scopes []string) error
+	ApproveDeviceCodeByUserCode(ctx context.Context, userCode, apiKeyID, rawAPIKey, projectID string, scopes []string) error
 	ExchangeDeviceCode(ctx context.Context, deviceCode string) (string, error)
 	CleanupExpiredDeviceCodes(ctx context.Context) (int64, error)
 }
@@ -394,12 +370,12 @@ type RBACStore interface {
 	ListProjectMembers(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.ProjectMemberRole, error)
 	SeedProjectSystemRoles(ctx context.Context, projectID string) error
 	CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error
-	GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error)
-	DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error)
-	ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
+	GetResourcePolicies(ctx context.Context, projectID, resourceType, resourceID, userID string) ([]string, error)
+	DeleteResourcePolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error)
+	ListResourcePolicies(ctx context.Context, projectID, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error)
 	CreateTagPolicy(ctx context.Context, p *domain.TagPolicy) error
 	ListTagPolicies(ctx context.Context, projectID, resourceType, userID string, limit int, cursor *time.Time) ([]domain.TagPolicy, error)
-	DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error)
+	DeleteTagPolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error)
 	GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	CreateAuditEventDeadletter(ctx context.Context, ev *domain.AuditEvent, lastErr string, retryCount int) error
@@ -507,7 +483,6 @@ type AnalyticsStore interface {
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
 	GetCostTrends(ctx context.Context, projectID string, from, to time.Time) ([]store.CostTrendPoint, error)
 	GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error)
-	GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error)
 	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
 
@@ -548,7 +523,6 @@ type AnalyticsStore interface {
 	// Cost analytics (new)
 	GetCostForecast(ctx context.Context, projectID string, from, to time.Time) (*store.CostForecast, error)
 	GetCostByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error)
-	GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error)
 }
 
 type Server struct {
@@ -577,7 +551,6 @@ type Server struct {
 	rateLimiter        *ratelimit.RedisRateLimiter
 	authLimiter        *ratelimit.AuthLimiter
 	encryptor          Encryptor
-	containerRuntime   compute.ContainerRuntime
 	stripeWebhook      http.Handler
 	billingEnforcer    BillingEnforcer
 	usageService       UsageService
@@ -587,7 +560,11 @@ type Server struct {
 	startedAt          time.Time
 	cdcWebhookReceiver http.Handler
 	cachedOpenAPISpec  []byte
-	objectStore        objectstore.ObjectStore // Optional: enables code-first deployments.
+
+	// trustedProxies is the parsed CIDR list of reverse proxies whose
+	// X-Forwarded-For header is trusted for client IP attribution. Empty
+	// means XFF is ignored entirely (fail-safe default).
+	trustedProxies []net.IPNet
 
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
@@ -629,17 +606,15 @@ func (s *Server) acquireSSEConn(projectID string) bool {
 		maxProject = 100
 	}
 
-	if s.sseGlobalConns.Load() >= maxGlobal {
+	if !atomicIncrementBelow(&s.sseGlobalConns, maxGlobal) {
 		return false
 	}
 
 	counter := s.projectSSECounter(projectID)
-	if counter.Load() >= maxProject {
+	if !atomicIncrementBelow(counter, maxProject) {
+		s.sseGlobalConns.Add(-1)
 		return false
 	}
-
-	s.sseGlobalConns.Add(1)
-	counter.Add(1)
 	return true
 }
 
@@ -655,6 +630,18 @@ func (s *Server) releaseSSEConn(projectID string) {
 func (s *Server) projectSSECounter(projectID string) *atomic.Int64 {
 	val, _ := s.sseProjectConns.LoadOrStore(projectID, &atomic.Int64{})
 	return val.(*atomic.Int64)
+}
+
+func atomicIncrementBelow(counter *atomic.Int64, limit int64) bool {
+	for {
+		current := counter.Load()
+		if current >= limit {
+			return false
+		}
+		if counter.CompareAndSwap(current, current+1) {
+			return true
+		}
+	}
 }
 
 // analytics returns the ClickHouse analytics store when available, falling back to Postgres.
@@ -689,7 +676,7 @@ type BillingEnforcer interface {
 	CheckProjectLimit(ctx context.Context, orgID string) error
 	CheckMemberLimit(ctx context.Context, orgID string) error
 	CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error
-	CheckProjectBudgetLimit(ctx context.Context, projectID string) error
+	CheckMaxDispatchPriority(ctx context.Context, projectID string, requestedPriority int) error
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
@@ -735,7 +722,6 @@ type ServerDeps struct {
 	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
 	RedisClient          *redis.Client            // Optional: enables per-project/key rate limiting.
 	Encryptor            Encryptor                // Optional: enables event source signature encryption.
-	ContainerRuntime     compute.ContainerRuntime // Optional: enables managed container stop on cancel.
 	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
 	UsageService         UsageService             // Optional: enables usage endpoint.
@@ -743,7 +729,6 @@ type ServerDeps struct {
 	Edition              domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version              string                   // Build version (injected via ldflags).
 	CDCWebhookReceiver   http.Handler             // Optional: enables CDC webhook push endpoint.
-	ObjectStore          objectstore.ObjectStore  // Optional: enables code-first deployments (tarball storage).
 	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
 	SIEMDrain            *logdrain.AuditSIEMDrain // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
@@ -791,7 +776,6 @@ func NewServer(deps ServerDeps) *Server {
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
 		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
 		encryptor:          deps.Encryptor,
-		containerRuntime:   deps.ContainerRuntime,
 		stripeWebhook:      deps.StripeWebhook,
 		billingEnforcer:    deps.BillingEnforcer,
 		usageService:       deps.UsageService,
@@ -800,7 +784,6 @@ func NewServer(deps ServerDeps) *Server {
 		version:            deps.Version,
 		startedAt:          time.Now(),
 		cdcWebhookReceiver: deps.CDCWebhookReceiver,
-		objectStore:        deps.ObjectStore,
 		siemDrain:          deps.SIEMDrain,
 	}
 	if srv.siemDrain != nil && deps.Metrics != nil {
@@ -814,6 +797,13 @@ func NewServer(deps ServerDeps) *Server {
 	}
 
 	globalAllowPrivateEndpoints.Store(deps.Config != nil && deps.Config.AllowPrivateEndpoints)
+
+	if deps.Config != nil {
+		srv.trustedProxies = parseTrustedProxies(deps.Config.TrustedProxies)
+		if len(deps.Config.TrustedProxies) > 0 && len(srv.trustedProxies) == 0 {
+			slog.Warn("TRUSTED_PROXIES configured but no valid CIDR/IP entries parsed; X-Forwarded-For will be ignored")
+		}
+	}
 
 	if deps.TxPool != nil {
 		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
@@ -932,29 +922,54 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request) {
+	// Detailed subsystem inventory (db, redis, clickhouse, ...) and per-
+	// component status is only exposed to authenticated internal callers.
+	// The public endpoint returns a minimal {status} body so an
+	// unauthenticated probe cannot fingerprint our infrastructure or
+	// learn which dependency is currently degraded.
+	secret := r.Header.Get("X-Internal-Secret")
+	isInternal := secret != "" && s.config != nil && s.config.InternalSecret != "" &&
+		subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) == 1
+
 	if s.healthRegistry != nil {
 		result := s.healthRegistry.CheckAll(r.Context())
 		if result.Status == health.StatusDown {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				slog.Warn("failed to encode health check response", "error", err)
+			if isInternal {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				if err := json.NewEncoder(w).Encode(result); err != nil {
+					slog.Warn("failed to encode health check response", "error", err)
+				}
+				return
 			}
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 			return
 		}
-		respondJSON(w, http.StatusOK, result)
+		if isInternal {
+			respondJSON(w, http.StatusOK, result)
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 		return
 	}
 
 	_, err := s.store.QueueStats(r.Context())
 	if err != nil {
-		respondError(w, r, http.StatusServiceUnavailable, "database not ready")
+		if isInternal {
+			respondError(w, r, http.StatusServiceUnavailable, "database not ready")
+			return
+		}
+		respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 		return
 	}
 
 	if s.pinger != nil {
 		if err := s.pinger.Ping(r.Context()); err != nil {
-			respondError(w, r, http.StatusServiceUnavailable, "redis not ready")
+			if isInternal {
+				respondError(w, r, http.StatusServiceUnavailable, "redis not ready")
+				return
+			}
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 			return
 		}
 	}

@@ -73,7 +73,6 @@ Jobs can trigger follow-up jobs upon completion or failure without requiring a f
 - Chained jobs inherit context from the parent job run
 
 Learn more: https://docs.strait.dev/concepts/job-chaining
-Related: https://docs.strait.dev/guides/job-dependencies
 
 ### Compensating Transactions (Saga Pattern)
 Strait supports saga-pattern rollback for workflow steps:
@@ -119,12 +118,12 @@ Jobs support cron-based scheduling with full timezone support. Schedules are man
 
 Learn more: https://docs.strait.dev/concepts/scheduling
 
-### Versioning and Deployments
-Atomic deployment pipeline for job and workflow versions:
-1. Create deployment version (upload artifact)
-2. Finalize (validate)
-3. Promote (activate)
-4. Rollback (revert to previous)
+### Versioning
+Job and workflow versions let you change definitions without disrupting in-flight runs:
+1. Existing runs stay pinned to the version they started with.
+2. New runs pick up the active version.
+3. Canary rollout can shift traffic gradually when enabled.
+4. Rollback restores the previous active version.
 
 Learn more: https://docs.strait.dev/concepts/versioning
 Related: https://docs.strait.dev/guides/deployment
@@ -140,10 +139,10 @@ Gradual rollout of new job versions with automatic health monitoring:
 
 Learn more: https://docs.strait.dev/concepts/canary-deployments
 
-### Managed Execution
-Strait can execute job code directly using Kubernetes or Docker runtimes, instead of calling external HTTP endpoints. Useful for running user-provided code in isolated containers.
+### Execution Modes
+Strait is orchestration-only. It dispatches work to customer-owned HTTP endpoints or connected worker-mode clients; it does not run job code in a built-in container runtime.
 
-Learn more: https://docs.strait.dev/concepts/managed-execution
+Learn more: https://docs.strait.dev/concepts/execution-modes
 
 ### Batch Operations
 Bulk trigger and batch management for jobs:
@@ -181,7 +180,7 @@ Full observability stack built on open standards:
 - **Audit Logging**: All administrative actions are recorded with actor, action, resource, and timestamp
 - **Log Drains**: Forward structured logs to external systems
 
-Learn more: https://docs.strait.dev/operations/monitoring-and-alerts
+Learn more: https://docs.strait.dev/operations/alert-runbooks
 Related: https://docs.strait.dev/concepts/clickhouse-analytics, https://docs.strait.dev/concepts/audit-logging, https://docs.strait.dev/concepts/log-drains
 
 ### Resilience
@@ -230,30 +229,20 @@ Learn more: https://docs.strait.dev/concepts/cdc
 
 - Authentication: https://docs.strait.dev/guides/authentication
 - RBAC: https://docs.strait.dev/guides/rbac
-- OIDC: https://docs.strait.dev/guides/oidc
-- API Key Rotation: https://docs.strait.dev/guides/api-key-rotation
 - Security: https://docs.strait.dev/guides/security
 - SDK Integration: https://docs.strait.dev/guides/sdk-integration
 - Idempotency: https://docs.strait.dev/guides/idempotency
-- Performance Tuning: https://docs.strait.dev/guides/performance-tuning
-- Capacity Planning: https://docs.strait.dev/guides/capacity-planning
 - Deployment: https://docs.strait.dev/guides/deployment
 - Workflow Approvals: https://docs.strait.dev/guides/workflow-approvals
 - DAG Operations Playbook: https://docs.strait.dev/guides/dag-operations-playbook
-- Debug Bundles: https://docs.strait.dev/guides/debug-bundles
+- Debug Bundles: https://docs.strait.dev/concepts/debug-bundles
 - Event Triggers Guide: https://docs.strait.dev/guides/event-triggers
-- Job Dependencies: https://docs.strait.dev/guides/job-dependencies
-- Job Groups: https://docs.strait.dev/guides/job-groups
 - Audit Events: https://docs.strait.dev/guides/audit-events
 
 ## Operations Runbooks
 
-- Monitoring and Alerts: https://docs.strait.dev/operations/monitoring-and-alerts
-- Audit Runbook: https://docs.strait.dev/operations/audit-runbook
-- API Key Rotation Rollout: https://docs.strait.dev/operations/api-key-rotation-rollout
-- RBAC Policy Rollout: https://docs.strait.dev/operations/rbac-policy-rollout
-- OIDC Rollout: https://docs.strait.dev/operations/oidc-rollout
-- Incident Response (AuthZ): https://docs.strait.dev/operations/incident-response-authz
+- Alert Runbooks: https://docs.strait.dev/operations/alert-runbooks
+- DLQ Recovery: https://docs.strait.dev/operations/dlq-recovery
 
 ## Dashboard
 
@@ -285,9 +274,9 @@ All 5 SDKs follow the same 5-layer architecture:
 ```
 Authoring DSL (defineJob / defineWorkflow)
 |
-Composition Helpers (retry, wait, paginate, deploy)
+Composition Helpers (retry, wait, paginate)
 |
-Domain Operations (19 services, 186 endpoints)
+Domain Operations (typed services for jobs, runs, workflows, and related resources)
 |
 HTTP Client + Middleware (auth, headers, error mapping)
 |
@@ -444,7 +433,7 @@ The three most common errors and how to handle them:
 ### strait.json
 ```json
 {
-  "$schema": "https://strait.dev/schema/strait.json",
+  "$schema": "https://api.strait.dev/schemas/v1/strait.json",
   "project": { "id": "proj_xxx", "name": "My Project" },
   "sdk": { "base_url": "https://api.strait.dev", "auth_type": "apiKey", "timeout_ms": 30000 }
 }
@@ -463,9 +452,9 @@ Full env var reference: https://docs.strait.dev/configuration/environment-variab
 
 ## API Reference
 
-186 endpoints across 19 domain services. Full OpenAPI spec available.
+Full OpenAPI spec available for all public API endpoints.
 
-- Interactive reference: https://docs.strait.dev/api-reference
+- Interactive reference: https://docs.strait.dev/api-reference/overview
 - Self-hosted: http://localhost:8080/reference
 
 ## Links
@@ -475,7 +464,6 @@ Full env var reference: https://docs.strait.dev/configuration/environment-variab
 - Docs: https://docs.strait.dev
 - Quickstart: https://docs.strait.dev/quickstart
 - Introduction: https://docs.strait.dev/introduction
-- Migrations: https://docs.strait.dev/migrations
 - GitHub: https://github.com/strait-dev/strait
 
 ## Contact

@@ -50,15 +50,22 @@ func NewAuthLimiter(client *redis.Client, enabled bool) *AuthLimiter {
 }
 
 // RecordFailure increments the failure count for the given IP.
+//
+// We use TxPipelined (MULTI/EXEC) so the INCR and PExpire either both
+// succeed or both fail. With a plain Pipeline a race could leave the
+// key incremented but without a TTL — meaning a single failed login
+// from a client at the right moment could permanently lock that IP
+// out, since the counter would never expire on its own.
 func (a *AuthLimiter) RecordFailure(ctx context.Context, ip string) {
 	if !a.isActive() {
 		return
 	}
 	key := authFailKeyPrefix + ip
-	pipe := a.client.Pipeline()
-	pipe.Incr(ctx, key)
-	pipe.PExpire(ctx, key, authFailWindow())
-	_, _ = pipe.Exec(ctx) // best-effort; fail open
+	_, _ = a.client.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.Incr(ctx, key)
+		p.PExpire(ctx, key, authFailWindow())
+		return nil
+	})
 }
 
 // IsBlocked checks whether the IP is currently locked out due to excessive

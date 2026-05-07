@@ -219,11 +219,21 @@ func TestOIDCScopeFiltering(t *testing.T) {
 		}
 	})
 
-	t.Run("all privileged scopes stripped returns nil", func(t *testing.T) {
+	t.Run("all privileged scopes stripped returns empty upper bound", func(t *testing.T) {
 		c := &oidcClaims{Scope: "* api-keys:manage rbac:manage"}
 		scopes := c.Scopes()
-		if scopes != nil {
-			t.Fatalf("scopes = %v, want nil (all privileged stripped)", scopes)
+		if scopes == nil {
+			t.Fatal("scopes = nil, want explicit empty upper bound")
+		}
+		if len(scopes) != 0 {
+			t.Fatalf("scopes = %v, want empty upper bound", scopes)
+		}
+	})
+
+	t.Run("absent scope returns nil", func(t *testing.T) {
+		c := &oidcClaims{}
+		if scopes := c.Scopes(); scopes != nil {
+			t.Fatalf("scopes = %v, want nil for absent claim", scopes)
 		}
 	})
 

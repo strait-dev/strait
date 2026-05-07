@@ -57,15 +57,116 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 	if len(resp.Results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(resp.Results))
 	}
+	var rawResp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &rawResp); err != nil {
+		t.Fatalf("invalid raw JSON: %v", err)
+	}
+	rawResults, ok := rawResp["results"].([]any)
+	if !ok || len(rawResults) != 3 {
+		t.Fatalf("expected 3 raw results, got %#v", rawResp["results"])
+	}
+	for idx, rawResult := range rawResults {
+		result, ok := rawResult.(map[string]any)
+		if !ok {
+			t.Fatalf("result %d was not an object: %#v", idx, rawResult)
+		}
+		if _, ok := result["run_token"]; ok {
+			t.Fatalf("bulk trigger result %d must not expose SDK run_token", idx)
+		}
+	}
 	for _, r := range resp.Results {
 		if r.ID == "" {
 			t.Error("expected non-empty id")
 		}
-		if r.RunToken == "" {
-			t.Error("expected non-empty run_token")
-		}
 		if r.Status != string(domain.StatusQueued) {
 			t.Errorf("expected queued, got %s", r.Status)
+		}
+	}
+}
+
+func TestHandleTriggerJob_WorkerModePropagatesExecutionModeAndQueue(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.JobRun
+	job := testEnabledJob("job-worker")
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = "priority"
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != job.ID {
+				t.Fatalf("GetJob id = %q, want %q", id, job.ID)
+			}
+			return job, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			cp := *run
+			captured = &cp
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-worker/trigger", `{"payload":{"ok":true}}`))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if captured == nil {
+		t.Fatal("expected run to be enqueued")
+	}
+	if captured.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
+	}
+	if captured.QueueName != "priority" {
+		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
+	}
+}
+
+func TestHandleBulkTrigger_WorkerModePropagatesExecutionModeAndQueue(t *testing.T) {
+	t.Parallel()
+
+	var captured []*domain.JobRun
+	job := testEnabledJob("job-worker")
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = "priority"
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != job.ID {
+				t.Fatalf("GetJob id = %q, want %q", id, job.ID)
+			}
+			return job, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			cp := *run
+			captured = append(captured, &cp)
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-worker/trigger/bulk", `{"items":[{"payload":{"n":1}},{"payload":{"n":2}}]}`))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(captured) != 2 {
+		t.Fatalf("captured runs = %d, want 2", len(captured))
+	}
+	for i, run := range captured {
+		if run.ExecutionMode != domain.ExecutionModeWorker {
+			t.Fatalf("run %d ExecutionMode = %q, want %q", i, run.ExecutionMode, domain.ExecutionModeWorker)
+		}
+		if run.QueueName != "priority" {
+			t.Fatalf("run %d QueueName = %q, want priority", i, run.QueueName)
 		}
 	}
 }

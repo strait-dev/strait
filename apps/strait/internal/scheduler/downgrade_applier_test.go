@@ -91,6 +91,12 @@ func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) e
 func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 	return nil, billing.ErrSubscriptionNotFound
 }
+func (m *mockEnforcerStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+func (m *mockEnforcerStore) GetOrgSubscriptionByStripeSubscriptionID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
 func (m *mockEnforcerStore) UpsertOrgSubscription(_ context.Context, _ *billing.OrgSubscription) error {
 	return nil
 }
@@ -338,38 +344,6 @@ func TestDowngradeApplier_NilEnforcer(t *testing.T) {
 	}
 }
 
-func TestDowngradeApplier_PausesHTTPJobsWhenNewPlanDisallows(t *testing.T) {
-	t.Parallel()
-
-	// Pro -> Starter: Starter disallows HTTP mode, so HTTP jobs must be paused.
-	starter := "starter"
-	pastEnd := time.Now().Add(-1 * time.Hour)
-	store := &mockDowngradeStore{
-		pendingOrgs: []billing.OrgSubscription{
-			{OrgID: "org-http", PlanTier: "pro", PendingPlanTier: &starter, CurrentPeriodEnd: &pastEnd},
-		},
-		pauseHTTPCount: 3,
-	}
-
-	enforcer := newTestEnforcer(t)
-	applier := NewDowngradeApplier(store, enforcer, time.Minute)
-	applier.apply(context.Background())
-
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 downgrade applied, got %d", len(store.appliedOrgIDs))
-	}
-	if len(store.pauseHTTPCalls) != 1 {
-		t.Fatalf("expected 1 PauseHTTPJobsByOrg call, got %d", len(store.pauseHTTPCalls))
-	}
-	call := store.pauseHTTPCalls[0]
-	if call.orgID != "org-http" {
-		t.Errorf("expected orgID %q, got %q", "org-http", call.orgID)
-	}
-	if call.reason != "plan_downgrade" {
-		t.Errorf("expected reason %q, got %q", "plan_downgrade", call.reason)
-	}
-}
-
 func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
 	t.Parallel()
 
@@ -391,58 +365,5 @@ func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
 	}
 	if len(store.pauseHTTPCalls) != 0 {
 		t.Errorf("expected 0 PauseHTTPJobsByOrg calls, got %d", len(store.pauseHTTPCalls))
-	}
-}
-
-func TestDowngradeApplier_HTTPPauseErrorDoesNotBlockDowngrade(t *testing.T) {
-	t.Parallel()
-
-	// Even if PauseHTTPJobsByOrg fails, the downgrade should still complete.
-	free := "free"
-	pastEnd := time.Now().Add(-1 * time.Hour)
-	store := &mockDowngradeStore{
-		pendingOrgs: []billing.OrgSubscription{
-			{OrgID: "org-err", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
-			{OrgID: "org-ok", PlanTier: "starter", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
-		},
-		pauseHTTPErr: fmt.Errorf("database connection lost"),
-	}
-
-	enforcer := newTestEnforcer(t)
-	applier := NewDowngradeApplier(store, enforcer, time.Minute)
-	applier.apply(context.Background())
-
-	if len(store.appliedOrgIDs) != 2 {
-		t.Fatalf("expected 2 downgrades applied despite pause error, got %d", len(store.appliedOrgIDs))
-	}
-	// Both orgs should have attempted pause (both downgrading to free which disallows HTTP).
-	if len(store.pauseHTTPCalls) != 2 {
-		t.Errorf("expected 2 PauseHTTPJobsByOrg calls, got %d", len(store.pauseHTTPCalls))
-	}
-}
-
-func TestDowngradeApplier_NoHTTPJobsToPause(t *testing.T) {
-	t.Parallel()
-
-	// Downgrade to a tier that disallows HTTP, but no HTTP jobs exist (count=0).
-	free := "free"
-	pastEnd := time.Now().Add(-1 * time.Hour)
-	store := &mockDowngradeStore{
-		pendingOrgs: []billing.OrgSubscription{
-			{OrgID: "org-clean", PlanTier: "starter", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
-		},
-		pauseHTTPCount: 0,
-	}
-
-	enforcer := newTestEnforcer(t)
-	applier := NewDowngradeApplier(store, enforcer, time.Minute)
-	applier.apply(context.Background())
-
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 downgrade applied, got %d", len(store.appliedOrgIDs))
-	}
-	// Pause should still be called (the store returns 0 rows affected).
-	if len(store.pauseHTTPCalls) != 1 {
-		t.Errorf("expected 1 PauseHTTPJobsByOrg call, got %d", len(store.pauseHTTPCalls))
 	}
 }

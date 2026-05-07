@@ -62,6 +62,10 @@ func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int
 	return 0, nil
 }
 
+func (m *mockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return nil
+}
+
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 
 type mockUsageService struct {
@@ -501,20 +505,6 @@ func TestGetProjectCosts_Success(t *testing.T) {
 	}
 }
 
-func TestGetCostEstimate_InvalidPreset_400(t *testing.T) {
-	t.Parallel()
-
-	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
-	req := authedRequest(http.MethodGet, "/v1/cost-estimate?preset=nonexistent&timeout_secs=60", "")
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid preset, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
 	t.Parallel()
 
@@ -586,85 +576,6 @@ func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for cross-tenant usage history, got %d", w.Code)
-	}
-}
-
-// Cost estimate cross-tenant tests.
-
-func TestCostEstimate_APIKey_CrossTenantForbidden(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: enforcer,
-		usageSvc: &mockUsageService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/cost-estimate?org_id=org-B&preset=micro&timeout_secs=60", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-tenant cost estimate, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCostEstimate_APIKey_SameTenantAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: enforcer,
-		usageSvc: &mockUsageService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/cost-estimate?org_id=org-A&preset=micro&timeout_secs=60", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for same-tenant cost estimate, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCostEstimate_APIKey_NoOrgID_Allowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: enforcer,
-		usageSvc: &mockUsageService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/cost-estimate?preset=micro&timeout_secs=60", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 without org_id, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCostEstimate_InternalSecret_AllowsAnyOrg(t *testing.T) {
-	t.Parallel()
-
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: &mockBillingEnforcer{},
-		usageSvc: &mockUsageService{},
-	})
-
-	req := authedRequest(http.MethodGet, "/v1/cost-estimate?org_id=any-org&preset=micro&timeout_secs=60", "")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for internal secret cost estimate, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

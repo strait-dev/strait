@@ -254,6 +254,28 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 	}
 }
 
+// Regression: every RecordFailure must leave a TTL on the
+// counter key. The previous implementation used a non-transactional
+// Pipeline so a partial failure between INCR and PExpire could leave
+// a TTL-less key, which would never expire and effectively lock out
+// the IP forever. We now use TxPipelined (MULTI/EXEC).
+func TestAuthLimiter_RecordFailure_AlwaysSetsTTL(t *testing.T) {
+	t.Parallel()
+	limiter, mr := newTestAuthLimiter(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	limiter.RecordFailure(ctx, "9.9.9.9")
+
+	ttl := mr.TTL("auth:fail:9.9.9.9")
+	if ttl <= 0 {
+		t.Fatalf("RecordFailure left key without TTL: ttl=%s (key would never expire)", ttl)
+	}
+	if ttl > authFailWindow() {
+		t.Fatalf("RecordFailure TTL %s longer than configured window %s", ttl, authFailWindow())
+	}
+}
+
 func TestAuthLimiter_Reset(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)

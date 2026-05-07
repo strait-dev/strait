@@ -4,3 +4,4 @@ docs/openapi.json
 internal/loadtest/reports/
 gremlins_*.json
 queue_health_bench*.json
+.audit/

@@ -66,21 +66,25 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, machine_id, metadata,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback
-		)
-		SELECT
-			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			$21, $22, $23,
-			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb, $32, $33, $34, $35
-		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
-		RETURNING created_at`
+				execution_mode, queue_name, metadata,
+				is_rollback
+			)
+			SELECT
+				$1, $2, $3, $4, $5, $6, $7, $8,
+				$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+				$21, $22, $23,
+				$24::jsonb, $25, $26, $27, $28,
+				$29, $30, $31::jsonb, $32
+			WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
+			RETURNING created_at`
 
 	execMode := run.ExecutionMode
 	if execMode == "" {
 		execMode = domain.ExecutionModeHTTP
+	}
+	queueName := run.QueueName
+	if queueName == "" {
+		queueName = defaultJobQueueName
 	}
 
 	err := q.db.QueryRow(
@@ -115,11 +119,8 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.ConcurrencyKey),
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
-		dbscan.NilIfEmptyString(run.MachineID),
+		queueName,
 		metadataJSON,
-		dbscan.NilIfEmptyString(run.DeploymentID),
-		dbscan.NilIfEmptyString(run.PinnedImageURI),
-		dbscan.NilIfEmptyString(run.PinnedImageDigest),
 		run.IsRollback,
 	).Scan(&run.CreatedAt)
 	if err != nil {
@@ -132,6 +133,73 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 	return nil
 }
 
+func (q *Queries) GetRunStatus(ctx context.Context, id string) (domain.RunStatus, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunStatus")
+	defer span.End()
+
+	var status domain.RunStatus
+	err := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, id).Scan(&status)
+	if err == nil {
+		return status, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("get run status: %w", err)
+	}
+	if err := q.db.QueryRow(ctx, `SELECT status FROM job_runs_history WHERE id = $1`, id).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrRunNotFound
+		}
+		return "", fmt.Errorf("get run status: history fallback: %w", err)
+	}
+	return status, nil
+}
+
+func (q *Queries) GetRunTokenState(ctx context.Context, id string) (domain.RunStatus, int, string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunTokenState")
+	defer span.End()
+
+	var status domain.RunStatus
+	var attempt int
+	var projectID string
+	err := q.db.QueryRow(ctx, `SELECT status, attempt, project_id FROM job_runs WHERE id = $1`, id).Scan(&status, &attempt, &projectID)
+	if err == nil {
+		return status, attempt, projectID, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", 0, "", fmt.Errorf("get run token state: %w", err)
+	}
+	err = q.db.QueryRow(ctx, `SELECT status, attempt, project_id FROM job_runs_history WHERE id = $1`, id).Scan(&status, &attempt, &projectID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", 0, "", ErrRunNotFound
+		}
+		return "", 0, "", fmt.Errorf("get run token state: history fallback: %w", err)
+	}
+	return status, attempt, projectID, nil
+}
+
+func (q *Queries) EnsureRunActiveForAttempt(ctx context.Context, id string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.EnsureRunActiveForAttempt")
+	defer span.End()
+
+	var exists bool
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $2
+			  AND status IN ('executing', 'waiting')
+		 )`, id, attempt).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("ensure active run: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+	}
+	return nil
+}
+
 func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRun")
 	defer span.End()
@@ -139,7 +207,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE id = $1`
 
@@ -171,13 +239,13 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE job_id = $1
 		  AND idempotency_key = $2
 		  AND (
 		    status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
-		    OR (status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled') AND finished_at > NOW() - INTERVAL '24 hours')
+		    OR (status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'dead_letter') AND finished_at > NOW() - INTERVAL '24 hours')
 		  )
 		ORDER BY created_at DESC
 		LIMIT 1`
@@ -201,7 +269,7 @@ func (q *Queries) FindRecentRunByPayload(ctx context.Context, jobID string, payl
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE job_id = $1
 		  AND payload = $2::jsonb
@@ -347,6 +415,55 @@ func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.Ru
 	return nil
 }
 
+func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoint *domain.RunCheckpoint, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunCheckpointForActiveRun")
+	defer span.End()
+
+	if checkpoint.ID == "" {
+		checkpoint.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if checkpoint.Source == "" {
+		checkpoint.Source = "sdk"
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $5
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		),
+		next_seq AS (
+			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
+			FROM run_checkpoints
+			WHERE run_id = $1
+		)
+		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
+		SELECT $2, active_run.id, next_seq.seq, $3, $4
+		FROM active_run, next_seq
+		RETURNING sequence, created_at`
+
+	err := q.db.QueryRow(
+		ctx,
+		query,
+		checkpoint.RunID,
+		checkpoint.ID,
+		checkpoint.Source,
+		dbscan.NilIfEmptyRawMessage(checkpoint.State),
+		attempt,
+	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, checkpoint.RunID, attempt)
+		}
+		return fmt.Errorf("create active run checkpoint: %w", err)
+	}
+
+	return nil
+}
+
 func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunCheckpoints")
 	defer span.End()
@@ -461,6 +578,49 @@ func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) er
 	return nil
 }
 
+func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.RunUsage, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsageForActiveRun")
+	defer span.End()
+
+	if usage.ID == "" {
+		usage.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if usage.CostMicrousd == 0 {
+		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
+		if err != nil {
+			return err
+		}
+		if inputCost > 0 || outputCost > 0 {
+			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
+		}
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $9
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
+		SELECT $1, id, $3, $4, $5, $6, $7, $8
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, usage.ID, usage.RunID, usage.Provider, usage.Model, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CostMicrousd, attempt).Scan(&usage.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, usage.RunID, attempt)
+		}
+		return fmt.Errorf("create active run usage: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunUsage")
 	defer span.End()
@@ -542,6 +702,40 @@ func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCal
 	return nil
 }
 
+func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domain.RunToolCall, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCallForActiveRun")
+	defer span.End()
+
+	if call.ID == "" {
+		call.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if call.Status == "" {
+		call.Status = "completed"
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $8
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
+		SELECT $1, id, $3, $4, $5, $6, $7
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, call.ID, call.RunID, call.ToolName, dbscan.NilIfEmptyRawMessage(call.Input), dbscan.NilIfEmptyRawMessage(call.Output), dbscan.NilIfZeroInt(call.DurationMs), call.Status, attempt).Scan(&call.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, call.RunID, attempt)
+		}
+		return fmt.Errorf("create active run tool call: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunToolCalls")
 	defer span.End()
@@ -617,6 +811,39 @@ func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput)
 		return fmt.Errorf("upsert run output: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) UpsertRunOutputForActiveRun(ctx context.Context, output *domain.RunOutput, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertRunOutputForActiveRun")
+	defer span.End()
+
+	if output.ID == "" {
+		output.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $6
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_outputs (id, run_id, output_key, schema, value)
+		SELECT $1, id, $3, $4, $5
+		FROM active_run
+		ON CONFLICT (run_id, output_key)
+		DO UPDATE SET schema = EXCLUDED.schema, value = EXCLUDED.value, created_at = NOW()
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, output.ID, output.RunID, output.OutputKey, dbscan.NilIfEmptyRawMessage(output.Schema), dbscan.NilIfEmptyRawMessage(output.Value), attempt).Scan(&output.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, output.RunID, attempt)
+		}
+		return fmt.Errorf("upsert active run output: %w", err)
+	}
 	return nil
 }
 
@@ -825,7 +1052,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE job_id = $1
 		ORDER BY created_at DESC
@@ -860,7 +1087,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	baseQuery := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id = $1`
 
@@ -946,6 +1173,133 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	return runs, nil
 }
 
+// ListRunsByProjectFiltered applies the full /runs filter set in SQL. This
+// avoids page-by-page post-filtering and per-job environment lookups in the API
+// layer for real stores.
+func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID string, status *domain.RunStatus, statuses []domain.RunStatus, tagKey, tagValue string, environmentID *string, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunsByProjectFiltered")
+	defer span.End()
+
+	baseQuery := `
+		SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		       jr.triggered_by, jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
+		       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, jr.concurrency_key, jr.execution_mode, jr.is_rollback, jr.replayed_run_id
+		FROM job_runs jr`
+
+	args := []any{projectID}
+	param := 2
+
+	if environmentID != nil && *environmentID != "" {
+		baseQuery += " JOIN jobs j ON j.id = jr.job_id"
+	}
+
+	baseQuery += " WHERE jr.project_id = $1"
+
+	if status != nil {
+		baseQuery += fmt.Sprintf(" AND jr.status = $%d", param)
+		args = append(args, string(*status))
+		param++
+	} else if len(statuses) > 0 {
+		statusVals := make([]string, 0, len(statuses))
+		for _, s := range statuses {
+			statusVals = append(statusVals, string(s))
+		}
+		baseQuery += fmt.Sprintf(" AND jr.status = ANY($%d)", param)
+		args = append(args, statusVals)
+		param++
+	}
+
+	if tagKey != "" {
+		if tagValue == "" {
+			baseQuery += fmt.Sprintf(" AND jr.tags ? $%d", param)
+			args = append(args, tagKey)
+			param++
+		} else {
+			baseQuery += fmt.Sprintf(" AND jr.tags ->> $%d = $%d", param, param+1)
+			args = append(args, tagKey, tagValue)
+			param += 2
+		}
+	}
+
+	if environmentID != nil && *environmentID != "" {
+		baseQuery += fmt.Sprintf(" AND j.environment_id = $%d", param)
+		args = append(args, *environmentID)
+		param++
+	}
+
+	if metadataKey != nil {
+		if metadataValue == nil {
+			baseQuery += fmt.Sprintf(" AND jr.metadata ? $%d", param)
+			args = append(args, *metadataKey)
+			param++
+		} else {
+			baseQuery += fmt.Sprintf(" AND jr.metadata ->> $%d = $%d", param, param+1)
+			args = append(args, *metadataKey, *metadataValue)
+			param += 2
+		}
+	}
+
+	if triggeredBy != nil {
+		baseQuery += fmt.Sprintf(" AND jr.triggered_by = $%d", param)
+		args = append(args, *triggeredBy)
+		param++
+	}
+
+	if batchID != nil {
+		baseQuery += fmt.Sprintf(" AND jr.batch_id = $%d", param)
+		args = append(args, *batchID)
+		param++
+	}
+
+	if len(payloadContains) > 0 {
+		baseQuery += fmt.Sprintf(" AND jr.payload @> $%d::jsonb", param)
+		args = append(args, payloadContains)
+		param++
+	}
+
+	if executionMode != nil {
+		baseQuery += fmt.Sprintf(" AND jr.execution_mode = $%d", param)
+		args = append(args, string(*executionMode))
+		param++
+	}
+
+	if errorClass != nil {
+		baseQuery += fmt.Sprintf(" AND jr.error_class = $%d", param)
+		args = append(args, *errorClass)
+		param++
+	}
+
+	if cursor != nil {
+		baseQuery += fmt.Sprintf(" AND jr.created_at < $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY jr.created_at DESC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list runs by project filtered: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.JobRun, 0, limit)
+	for rows.Next() {
+		run, err := dbscan.ScanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list runs by project filtered scan: %w", err)
+		}
+		runs = append(runs, *run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list runs by project filtered rows: %w", err)
+	}
+
+	return runs, nil
+}
+
 func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, since time.Time, sinceRunID string, limit int) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListFinishedRunsSince")
 	defer span.End()
@@ -957,7 +1311,7 @@ func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, s
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id = $1
 		  AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')
@@ -998,7 +1352,7 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 	const query = `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id = $1
 		  AND status = 'dead_letter'
@@ -1050,7 +1404,7 @@ func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID stri
 	const query = `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id = $1
 		  AND status = 'dead_letter'
@@ -1122,7 +1476,7 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 		WHERE id = $1 AND status = 'dead_letter'
 		RETURNING id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		          triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id`
+		          next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id`
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, updateQuery, runID))
 	if err == nil {
@@ -1171,7 +1525,6 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		"lineage_depth":        {},
 		"priority":             {},
 		"metadata":             {},
-		"machine_id":           {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -1284,6 +1637,34 @@ func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations 
 	return nil
 }
 
+func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, annotations map[string]string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunMetadataForActiveRun")
+	defer span.End()
+
+	encoded, err := json.Marshal(annotations)
+	if err != nil {
+		return fmt.Errorf("marshal annotations: %w", err)
+	}
+
+	query := `
+		UPDATE job_runs
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+		WHERE id = $2
+		  AND attempt = $3
+		  AND status IN ('executing', 'waiting')`
+
+	tag, err := q.db.Exec(ctx, query, encoded, id, attempt)
+	if err != nil {
+		return fmt.Errorf("update active run metadata: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+	}
+
+	return nil
+}
+
 func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateHeartbeat")
 	defer span.End()
@@ -1302,6 +1683,29 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	return nil
 }
 
+func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateHeartbeatForActiveRun")
+	defer span.End()
+
+	query := `
+		UPDATE job_runs
+		SET heartbeat_at = NOW()
+		WHERE id = $1
+		  AND attempt = $2
+		  AND status IN ('executing', 'waiting')`
+
+	tag, err := q.db.Exec(ctx, query, id, attempt)
+	if err != nil {
+		return fmt.Errorf("update active run heartbeat: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+	}
+
+	return nil
+}
+
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleRuns")
 	defer span.End()
@@ -1309,7 +1713,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	query := "/* action=reaper */ " + fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE status = '%s' AND (heartbeat_at < NOW() - $1::interval OR heartbeat_at IS NULL) AND finished_at IS NULL AND started_at IS NOT NULL
 		ORDER BY heartbeat_at ASC
@@ -1344,7 +1748,7 @@ func (q *Queries) ListDueRuns(ctx context.Context) ([]domain.JobRun, error) {
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE status = '%s' AND scheduled_at <= NOW()
 		ORDER BY scheduled_at ASC
@@ -1379,7 +1783,7 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	query := fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE status IN ('%s', '%s')
 		  AND expires_at IS NOT NULL
@@ -1416,7 +1820,7 @@ func (q *Queries) ListChildRuns(ctx context.Context, parentRunID string, limit i
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE parent_run_id = $1`
 
@@ -1461,7 +1865,7 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	query := "/* action=reaper */ " + fmt.Sprintf(`
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE status = '%s' AND started_at < NOW() - $1::interval AND finished_at IS NULL AND started_at IS NOT NULL
 		ORDER BY started_at ASC
@@ -1611,6 +2015,23 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetDebugBundle")
 	defer span.End()
 
+	// Refuse to materialize a debug bundle for runs that the DLQ
+	// age-out / explicit mask flow has hidden. Masked rows carry rich
+	// PII (raw payloads, prompts, tool outputs) that operators have
+	// already chosen to take out of circulation; surfacing them via
+	// the debug endpoint would defeat that decision. UnmaskDLQRun is
+	// the supported path back to visibility.
+	var visibleUntil *time.Time
+	if err := q.db.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, runID).Scan(&visibleUntil); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrRunNotFound
+		}
+		return nil, fmt.Errorf("get debug bundle visibility: %w", err)
+	}
+	if visibleUntil != nil && !visibleUntil.After(time.Now()) {
+		return nil, ErrRunNotFound
+	}
+
 	run, err := q.GetRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -1657,22 +2078,6 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 	}, nil
 }
 
-// SetRunMachineID stores the container machine ID on a run.
-func (q *Queries) SetRunMachineID(ctx context.Context, runID, machineID string) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetRunMachineID")
-	defer span.End()
-
-	query := `UPDATE job_runs SET machine_id = $1 WHERE id = $2`
-	tag, err := q.db.Exec(ctx, query, machineID, runID)
-	if err != nil {
-		return fmt.Errorf("set run machine_id: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", ErrRunNotFound, runID)
-	}
-	return nil
-}
-
 func (q *Queries) UpdateRunDebugMode(ctx context.Context, runID string, debugMode bool) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunDebugMode")
 	defer span.End()
@@ -1717,19 +2122,19 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 		WITH RECURSIVE lineage AS (
 			SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 			       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+			       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 			FROM job_runs
 			WHERE id = $1
 			UNION ALL
 			SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
 			       jr.triggered_by, jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
-			       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, jr.concurrency_key, jr.execution_mode, jr.machine_id, jr.deployment_id, jr.pinned_image_uri, jr.pinned_image_digest, jr.is_rollback, jr.replayed_run_id
+			       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, jr.concurrency_key, jr.execution_mode, jr.is_rollback, jr.replayed_run_id
 			FROM job_runs jr
 			JOIN lineage l ON jr.continuation_of = l.id
 		)
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM lineage
 		ORDER BY lineage_depth ASC
 		LIMIT $2`
@@ -1763,7 +2168,7 @@ func (q *Queries) ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue
 	base := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
 		WHERE project_id = $1`
 
@@ -1839,56 +2244,19 @@ func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID 
 	return tag.RowsAffected(), nil
 }
 
-// ListManagedMachineIDsByWorkflowRun returns machine IDs for managed runs linked
-// to a workflow run that have a non-empty machine_id (for stopping on cancel).
-func (q *Queries) ListManagedMachineIDsByWorkflowRun(ctx context.Context, workflowRunID string) ([]string, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListManagedMachineIDsByWorkflowRun")
-	defer span.End()
-
-	query := `
-		SELECT r.machine_id
-		FROM job_runs r
-		JOIN workflow_step_runs wsr ON wsr.job_run_id = r.id
-		WHERE wsr.workflow_run_id = $1
-		  AND r.execution_mode = 'managed'
-		  AND r.machine_id IS NOT NULL
-		  AND r.machine_id != ''`
-
-	rows, err := q.db.Query(ctx, query, workflowRunID)
-	if err != nil {
-		return nil, fmt.Errorf("list managed machine ids: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan machine id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-// MarkJobRunsPausedByWorkflowRun transitions executing managed job runs linked
-// to this workflow run to paused status, storing the machine_id in metadata
-// so resume knows to re-dispatch them.
+// MarkJobRunsPausedByWorkflowRun transitions executing job runs linked to this
+// workflow run to paused status.
 func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkJobRunsPausedByWorkflowRun")
 	defer span.End()
 
 	query := `
 		UPDATE job_runs r
-		SET status = 'paused',
-		    metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('_paused_machine_id', r.machine_id)
+		SET status = 'paused'
 		FROM workflow_step_runs wsr
 		WHERE wsr.job_run_id = r.id
 		  AND wsr.workflow_run_id = $1
-		  AND r.status = 'executing'
-		  AND r.execution_mode = 'managed'
-		  AND r.machine_id IS NOT NULL
-		  AND r.machine_id != ''`
+		  AND r.status = 'executing'`
 
 	tag, err := q.db.Exec(ctx, query, workflowRunID)
 	if err != nil {
@@ -1907,8 +2275,7 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 		UPDATE job_runs r
 		SET status = 'queued',
 		    started_at = NULL,
-		    finished_at = NULL,
-		    metadata = metadata - '_paused_machine_id'
+		    finished_at = NULL
 		FROM workflow_step_runs wsr
 		WHERE wsr.job_run_id = r.id
 		  AND wsr.workflow_run_id = $1
@@ -1956,7 +2323,7 @@ func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*d
 	rows, err := q.db.Query(ctx,
 		`SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		 FROM job_runs WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("get runs by ids: %w", err)
@@ -2152,7 +2519,6 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		"lineage_depth":        {},
 		"priority":             {},
 		"metadata":             {},
-		"machine_id":           {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -2418,11 +2784,9 @@ func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int,
 	return count, err
 }
 
-// CanceledRun holds metadata about a run that was canceled, allowing callers
-// to perform side effects like stopping managed containers.
+// CanceledRun holds metadata about a run that was canceled.
 type CanceledRun struct {
 	ID            string
-	MachineID     string
 	ExecutionMode domain.ExecutionMode
 }
 
@@ -2436,7 +2800,7 @@ func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reas
 		SET status = 'canceled', finished_at = NOW(), error = $2
 		WHERE job_id = $1
 		  AND status IN ('queued', 'dequeued', 'executing', 'waiting', 'delayed')
-		RETURNING id, COALESCE(machine_id, ''), COALESCE(execution_mode, 'http')`
+		RETURNING id, COALESCE(execution_mode, 'http')`
 	rows, err := q.db.Query(ctx, query, jobID, reason)
 	if err != nil {
 		return nil, fmt.Errorf("cancel active runs for job: %w", err)
@@ -2447,7 +2811,7 @@ func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reas
 	for rows.Next() {
 		var cr CanceledRun
 		var execMode string
-		if err := rows.Scan(&cr.ID, &cr.MachineID, &execMode); err != nil {
+		if err := rows.Scan(&cr.ID, &execMode); err != nil {
 			return nil, fmt.Errorf("scan canceled run: %w", err)
 		}
 		cr.ExecutionMode = domain.ExecutionMode(execMode)
@@ -2515,6 +2879,38 @@ func (q *Queries) CreateRunIteration(ctx context.Context, iter *domain.RunIterat
 	err := q.db.QueryRow(ctx, query, iter.ID, iter.RunID, iter.Iteration, iter.Description).Scan(&iter.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create run iteration: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) CreateRunIterationForActiveRun(ctx context.Context, iter *domain.RunIteration, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunIterationForActiveRun")
+	defer span.End()
+
+	if iter.ID == "" {
+		iter.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $5
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		)
+		INSERT INTO run_iterations (id, run_id, iteration, description)
+		SELECT $1, id, $3, $4
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, iter.ID, iter.RunID, iter.Iteration, iter.Description, attempt).Scan(&iter.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, iter.RunID, attempt)
+		}
+		return fmt.Errorf("create active run iteration: %w", err)
 	}
 	return nil
 }

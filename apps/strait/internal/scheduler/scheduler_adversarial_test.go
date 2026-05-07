@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"strait/internal/billing"
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -279,78 +278,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_CancelError(t *testing.T) {
 	if enqueued.Load() != 0 {
 		t.Fatal("expected cancel error to prevent enqueue")
 	}
-}
-
-func TestCronScheduler_TriggerJob_CancelRunning_WithMachineStopper(t *testing.T) {
-	t.Parallel()
-
-	var stopped []string
-	var mu sync.Mutex
-	stopper := &mockMachineStopper{
-		stopFn: func(_ context.Context, machineID string) error {
-			mu.Lock()
-			stopped = append(stopped, machineID)
-			mu.Unlock()
-			return nil
-		},
-	}
-
-	ms := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
-			return []store.CanceledRun{
-				{ID: "run-1", ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"},
-				{ID: "run-2", ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-2"},
-				{ID: "run-3", ExecutionMode: "standard", MachineID: ""},
-			}, nil
-		},
-	}
-	q := &mockQueue{}
-	cs := NewCronScheduler(context.Background(), ms, q, nil).
-		WithMachineStopper(stopper)
-
-	job := domain.Job{
-		ID:                "job-cancel-managed",
-		ProjectID:         "p1",
-		CronOverlapPolicy: domain.OverlapPolicyCancelRunning,
-		Cron:              "* * * * *",
-	}
-	cs.triggerJob(context.Background(), job)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(stopped) != 2 {
-		t.Fatalf("expected 2 machines stopped, got %d", len(stopped))
-	}
-}
-
-func TestCronScheduler_TriggerJob_CancelRunning_MachineStopError(t *testing.T) {
-	t.Parallel()
-
-	stopper := &mockMachineStopper{
-		stopFn: func(_ context.Context, _ string) error {
-			return errors.New("machine not found")
-		},
-	}
-
-	ms := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
-			return []store.CanceledRun{
-				{ID: "run-1", ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-dead"},
-			}, nil
-		},
-	}
-	q := &mockQueue{}
-	cs := NewCronScheduler(context.Background(), ms, q, nil).
-		WithMachineStopper(stopper)
-
-	job := domain.Job{
-		ID:                "job-cancel-stop-err",
-		ProjectID:         "p1",
-		CronOverlapPolicy: domain.OverlapPolicyCancelRunning,
-		Cron:              "* * * * *",
-	}
-	// Should not panic even when machine stop fails.
-	cs.triggerJob(context.Background(), job)
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallback(t *testing.T) {
@@ -840,83 +767,6 @@ func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Pool management
-// ---------------------------------------------------------------------------.
-
-func TestPoolPruner_ZeroInterval_Clamped(t *testing.T) {
-	t.Parallel()
-	pool := compute.NewMachinePool(1)
-	p := NewPoolPruner(pool, nil, 0, 0)
-	if p.interval != 60*time.Second {
-		t.Fatalf("expected zero interval clamped to 60s, got %v", p.interval)
-	}
-	if p.ttl != 10*time.Minute {
-		t.Fatalf("expected zero TTL clamped to 10m, got %v", p.ttl)
-	}
-}
-
-func TestPoolPruner_NegativeInterval_Clamped(t *testing.T) {
-	t.Parallel()
-	pool := compute.NewMachinePool(1)
-	p := NewPoolPruner(pool, nil, -time.Second, -time.Second)
-	if p.interval != 60*time.Second {
-		t.Fatalf("expected negative interval clamped, got %v", p.interval)
-	}
-	if p.ttl != 10*time.Minute {
-		t.Fatalf("expected negative TTL clamped, got %v", p.ttl)
-	}
-}
-
-func TestPoolPruner_NilRuntime(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	pool.Release("test-project", "img:latest", "iad", "m-1")
-
-	pruner := NewPoolPruner(pool, nil, 50*time.Millisecond, time.Nanosecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	pruner.Run(ctx)
-
-	if pool.Size() != 0 {
-		t.Errorf("expected pool emptied even with nil runtime, got size %d", pool.Size())
-	}
-}
-
-func TestPoolPruner_ConcurrentAccess(t *testing.T) {
-	t.Parallel()
-
-	var destroyed atomic.Int32
-	rt := &mockPrunerRuntime{
-		destroyFn: func(_ context.Context, _ string) error {
-			destroyed.Add(1)
-			return nil
-		},
-	}
-
-	pool := compute.NewMachinePool(20)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	pruner := NewPoolPruner(pool, rt, 20*time.Millisecond, time.Nanosecond)
-
-	var wg conc.WaitGroup
-	wg.Go(func() {
-		pruner.Run(ctx)
-	})
-
-	for i := range 10 {
-		wg.Go(func() {
-			pool.Release("proj", "img:latest", "iad", "m-concurrent-"+string(rune('0'+i)))
-			time.Sleep(50 * time.Millisecond)
-		})
-	}
-
-	wg.Wait()
-}
-
-// ---------------------------------------------------------------------------.
 // Anomaly detection edge cases
 // ---------------------------------------------------------------------------.
 
@@ -1106,19 +956,7 @@ func TestCooldownKey_Format(t *testing.T) {
 func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 	t.Parallel()
 
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-				{ProjectID: "proj-2", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 200_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 90_000, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, &mockEnqueuer{}, time.Minute)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute)
 
 	bm.alertedMu.Lock()
 	bm.alerted["proj-x:1970-01-01"] = true
@@ -1140,75 +978,6 @@ func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 		}
 	}
 	bm.alertedMu.Unlock()
-}
-
-func TestBudgetMonitor_ExactlyAtThreshold_Alerts(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 80_000, nil // exactly at 80% threshold
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert at exact threshold, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_NegativeCost_NoAlert(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return -50_000, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts for negative cost, got %d", len(enqueuer.calls))
-	}
-}
-
-func TestBudgetMonitor_MaxInt64Cost(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-1", Timezone: "UTC", ComputeDailyCostLimitMicrousd: 100_000},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return math.MaxInt64, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 alert for extreme cost, got %d", len(enqueuer.calls))
-	}
 }
 
 // ---------------------------------------------------------------------------.
@@ -1249,10 +1018,7 @@ func TestBudgetMonitor_SpendingLimit_NilPeriodStart(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1268,10 +1034,7 @@ func TestBudgetMonitor_SpendingLimit_SubscriptionError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1296,10 +1059,7 @@ func TestBudgetMonitor_SpendingLimit_SpendError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1312,10 +1072,7 @@ func TestBudgetMonitor_SpendingLimit_OrgListError(t *testing.T) {
 		},
 	}
 
-	bs := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) { return nil, nil },
-	}
-	bm := NewBudgetMonitor(bs, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 }
 
@@ -1473,55 +1230,6 @@ func TestMemoryCleanup_DeletesExpired(t *testing.T) {
 	}
 	mc := NewMemoryCleanup(s, time.Minute)
 	mc.cleanup(context.Background())
-}
-
-// ---------------------------------------------------------------------------.
-// Cost estimate refresher edge cases
-// ---------------------------------------------------------------------------.
-
-func TestCostEstimateRefresher_ZeroInterval_Clamped(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{}
-	r := NewCostEstimateRefresher(s, 0)
-	if r.interval != time.Hour {
-		t.Fatalf("expected zero interval clamped to 1h, got %v", r.interval)
-	}
-}
-
-func TestCostEstimateRefresher_Refresh_StoreError(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{
-		listActiveJobIDsFn: func(_ context.Context) ([]string, error) {
-			return nil, errors.New("db error")
-		},
-	}
-	r := NewCostEstimateRefresher(s, time.Hour)
-	r.refresh(context.Background())
-}
-
-func TestCostEstimateRefresher_Refresh_UpsertError(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{
-		listActiveJobIDsFn: func(_ context.Context) ([]string, error) {
-			return []string{"job-1", "job-2"}, nil
-		},
-		upsertFn: func(_ context.Context, _ string) error {
-			return errors.New("upsert failed")
-		},
-	}
-	r := NewCostEstimateRefresher(s, time.Hour)
-	r.refresh(context.Background())
-}
-
-func TestCostEstimateRefresher_Refresh_EmptyJobs(t *testing.T) {
-	t.Parallel()
-	s := &advMockCostEstimateStore{
-		listActiveJobIDsFn: func(_ context.Context) ([]string, error) {
-			return nil, nil
-		},
-	}
-	r := NewCostEstimateRefresher(s, time.Hour)
-	r.refresh(context.Background())
 }
 
 // ---------------------------------------------------------------------------.
@@ -1853,25 +1561,6 @@ func (m *advMockMemoryStore) DeleteExpiredJobMemory(ctx context.Context) (int64,
 		return m.deleteExpiredFn(ctx)
 	}
 	return 0, nil
-}
-
-type advMockCostEstimateStore struct {
-	listActiveJobIDsFn func(ctx context.Context) ([]string, error)
-	upsertFn           func(ctx context.Context, jobID string) error
-}
-
-func (m *advMockCostEstimateStore) ListActiveJobIDs(ctx context.Context) ([]string, error) {
-	if m.listActiveJobIDsFn != nil {
-		return m.listActiveJobIDsFn(ctx)
-	}
-	return nil, nil
-}
-
-func (m *advMockCostEstimateStore) UpsertJobCostEstimate(ctx context.Context, jobID string) error {
-	if m.upsertFn != nil {
-		return m.upsertFn(ctx, jobID)
-	}
-	return nil
 }
 
 type advMockStaleSubStore struct {

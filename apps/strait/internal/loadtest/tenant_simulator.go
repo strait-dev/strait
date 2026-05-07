@@ -30,7 +30,7 @@ type TenantProfile struct {
 	RunsPerMinute   float64    `json:"runs_per_minute"`   // Base rate
 	BurstProb       float64    `json:"burst_probability"` // Chance of 10x burst per minute
 	HTTPPercent     float64    `json:"http_percent"`      // Fraction of HTTP-mode jobs
-	ManagedPercent  float64    `json:"managed_percent"`   // Fraction of managed (Docker) jobs
+	WorkerPercent   float64    `json:"worker_percent"`    // Fraction of worker-mode jobs
 	WorkflowPercent float64    `json:"workflow_percent"`  // Fraction of workflow triggers
 }
 
@@ -177,8 +177,8 @@ func (ts *TenantSimulator) pickJobType(tenant TenantProfile) string {
 	if r < tenant.HTTPPercent {
 		return "http"
 	}
-	if r < tenant.HTTPPercent+tenant.ManagedPercent {
-		return "managed"
+	if r < tenant.HTTPPercent+tenant.WorkerPercent {
+		return "worker"
 	}
 	return "workflow"
 }
@@ -261,7 +261,7 @@ func GenerateTenants(count int) []TenantProfile {
 			RunsPerMinute:   runsPerMin,
 			BurstProb:       0.05, // 5% chance of burst
 			HTTPPercent:     0.6,  // 60% HTTP
-			ManagedPercent:  0.3,  // 30% managed/Docker
+			WorkerPercent:   0.3,  // 30% worker
 			WorkflowPercent: 0.1,  // 10% workflow
 		}
 	}

@@ -74,12 +74,14 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 		},
 		jobs: map[string]*domain.Job{
 			"job-1": {
-				ID:          "job-1",
-				ProjectID:   "proj-1",
-				Enabled:     true,
-				TimeoutSecs: 300,
-				Version:     2,
-				VersionID:   "v-2",
+				ID:            "job-1",
+				ProjectID:     "proj-1",
+				Enabled:       true,
+				TimeoutSecs:   300,
+				Version:       2,
+				VersionID:     "v-2",
+				ExecutionMode: domain.ExecutionModeWorker,
+				Queue:         "priority",
 			},
 		},
 	}
@@ -113,6 +115,12 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	}
 	if string(run.Payload) != `{"action":"reindex"}` {
 		t.Fatalf("expected payload preserved, got %s", string(run.Payload))
+	}
+	if run.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("expected execution_mode worker, got %q", run.ExecutionMode)
+	}
+	if run.QueueName != "priority" {
+		t.Fatalf("expected queue_name priority, got %q", run.QueueName)
 	}
 
 	if len(ds.deleted) != 1 || ds.deleted[0] != "dp-1" {

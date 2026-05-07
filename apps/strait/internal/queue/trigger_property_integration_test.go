@@ -80,7 +80,7 @@ func TestTriggerAlgebra_RandomOps(t *testing.T) {
 	rng := rand.New(rand.NewPCG(11, 13))
 	const ops = 500
 
-	for i := 0; i < ops; i++ {
+	for i := range ops {
 		switch rng.IntN(8) {
 		case 0, 1: // enqueue (more frequent)
 			r := &domain.JobRun{
@@ -243,15 +243,15 @@ func TestTriggerAlgebra_ConcurrentSameJobTransitions(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-trig-conc")
 	q := mustQueue(t)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
 	// 4 concurrent workers claim and complete runs.
 	errCh := make(chan error, 4)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		go func() {
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				batch, err := q.DequeueN(ctx, 2)
 				if err != nil {
 					errCh <- err
@@ -269,7 +269,7 @@ func TestTriggerAlgebra_ConcurrentSameJobTransitions(t *testing.T) {
 			errCh <- nil
 		}()
 	}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if err := <-errCh; err != nil {
 			t.Fatalf("worker: %v", err)
 		}
@@ -298,7 +298,7 @@ func TestTriggerAlgebra_MixedBagInvariantPreserved(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewPCG(1, 2))
-	for i := 0; i < 400; i++ {
+	for range 400 {
 		job := jobs[rng.IntN(len(jobs))]
 		switch rng.IntN(6) {
 		case 0:

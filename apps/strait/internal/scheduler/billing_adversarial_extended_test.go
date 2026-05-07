@@ -12,7 +12,6 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
-	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
 )
@@ -20,61 +19,6 @@ import (
 // Section separator.
 // Adversarial tests: try to break scheduler components through edge cases.
 // Section separator.
-
-func TestAdv_BudgetMonitor_Int64Overflow(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-overflow", Timezone: "UTC", ComputeDailyCostLimitMicrousd: math.MaxInt64},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return math.MaxInt64, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	// Should not panic on near-MaxInt64 values.
-	bm.check(context.Background())
-
-	// The threshold calculation (MaxInt64 * 80 / 100) would overflow if done naively.
-	// Verify that the monitor handles it without crashing.
-	// Whether it alerts or not depends on overflow handling; the key assertion is no panic.
-}
-
-func TestAdv_BudgetMonitor_AllProjectsFail(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	projects := make([]store.ProjectComputeQuota, 10)
-	for i := range projects {
-		projects[i] = store.ProjectComputeQuota{
-			ProjectID:                     fmt.Sprintf("proj-fail-%d", i),
-			Timezone:                      "UTC",
-			ComputeDailyCostLimitMicrousd: 100_000,
-		}
-	}
-
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return projects, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 0, errors.New("query timeout")
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	// All project checks fail: must not panic, no alerts.
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts when all projects fail, got %d", len(enqueuer.calls))
-	}
-}
 
 func TestAdv_DowngradeApplier_ConcurrentApply(t *testing.T) {
 	t.Parallel()

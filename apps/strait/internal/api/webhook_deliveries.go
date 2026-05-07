@@ -124,11 +124,20 @@ func (s *Server) verifyDeliveryProjectAccess(ctx context.Context, d *domain.Webh
 		return nil // internal caller without project context
 	}
 	if d.JobID == "" {
+		if environmentIDFromContext(ctx) != "" {
+			return errEnvironmentMismatch
+		}
+		if d.ProjectID != "" && d.ProjectID != projectID {
+			return errProjectMismatch
+		}
 		return nil // no job association to verify
 	}
 	job, err := s.store.GetJob(ctx, d.JobID)
 	if err != nil || job == nil {
 		return errProjectMismatch
 	}
-	return requireProjectMatch(ctx, job.ProjectID)
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return err
+	}
+	return requireEnvironmentMatch(ctx, job.EnvironmentID)
 }

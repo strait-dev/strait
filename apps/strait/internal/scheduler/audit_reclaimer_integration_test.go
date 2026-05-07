@@ -17,7 +17,7 @@ import (
 // seedDLQ inserts n deadletter audit events for the given project.
 func seedDLQ(t *testing.T, ctx context.Context, q *store.Queries, projectID string, n int) {
 	t.Helper()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor-dlq",

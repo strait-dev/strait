@@ -66,9 +66,10 @@ func (s RunStatus) IsClaimable() bool {
 	return s == StatusQueued
 }
 
-// IsDeadLetter returns true for the dead_letter status, kept separate
-// from IsTerminal so callers can distinguish permanently-failed from
-// normally-completed runs without a direct string compare.
+// IsDeadLetter returns true for the dead_letter status. Dead-letter runs
+// are also terminal (see IsTerminal); use this predicate when callers need
+// to distinguish a permanently-failed run from a normally-completed one
+// without a direct string compare.
 func (s RunStatus) IsDeadLetter() bool {
 	return s == StatusDeadLetter
 }

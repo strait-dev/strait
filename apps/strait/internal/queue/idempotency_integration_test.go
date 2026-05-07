@@ -77,14 +77,12 @@ func TestIdempotency_ConcurrentSameKey10Goroutines(t *testing.T) {
 	var wg sync.WaitGroup
 	var successes atomic.Int64
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			r := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, IdempotencyKey: "key-race"}
 			if err := q.Enqueue(ctx, r); err == nil && !r.CreatedAt.IsZero() {
 				successes.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	var count int
@@ -130,13 +128,11 @@ func TestIdempotency_BackpressureTryConsumeAtomic(t *testing.T) {
 	var allowed atomic.Int64
 	var wg sync.WaitGroup
 	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := bp.TryConsume(ctx, project); err == nil {
 				allowed.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if allowed.Load() != 1 {
@@ -156,14 +152,12 @@ func TestIdempotency_SKIPLOCKEDExactlyOneClaimer(t *testing.T) {
 	var claimed atomic.Int64
 	var wg sync.WaitGroup
 	for range 30 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			r, err := q.Dequeue(ctx)
 			if err == nil && r != nil {
 				claimed.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if claimed.Load() != 1 {

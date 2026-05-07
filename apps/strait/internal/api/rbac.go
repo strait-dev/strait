@@ -338,6 +338,9 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 		}
 		return nil, huma.Error500InternalServerError("failed to verify role")
 	}
+	if targetRole.ProjectID != "" && targetRole.ProjectID != projectIDFromContext(ctx) {
+		return nil, huma.Error400BadRequest("role not found")
+	}
 	if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
 		return nil, err
 	}
@@ -366,12 +369,25 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "user_id and role_id are required"})
 			continue
 		}
-		if _, err := s.store.GetProjectRole(ctx, item.RoleID); err != nil {
+		if actor != "" && actor == item.UserID {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "cannot assign a role to yourself"})
+			continue
+		}
+		targetRole, err := s.store.GetProjectRole(ctx, item.RoleID)
+		if err != nil {
 			if errors.Is(err, store.ErrRoleNotFound) {
 				results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "role not found"})
 				continue
 			}
 			return nil, huma.Error500InternalServerError("failed to verify role")
+		}
+		if targetRole.ProjectID != "" && targetRole.ProjectID != projectID {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "role not found"})
+			continue
+		}
+		if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: err.Error()})
+			continue
 		}
 		m := &domain.ProjectMemberRole{ProjectID: projectID, UserID: item.UserID, RoleID: item.RoleID, GrantedBy: actor}
 		if err := s.store.AssignMemberRole(ctx, m); err != nil {
@@ -476,10 +492,16 @@ func (s *Server) handleCreateResourcePolicy(ctx context.Context, input *CreateRe
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	for _, action := range req.Actions {
 		if !domain.ValidScopes[action] {
 			return nil, huma.Error400BadRequest("invalid action: " + action)
 		}
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, req.Actions); err != nil {
+		return nil, err
 	}
 	policy := &domain.ResourcePolicy{ProjectID: req.ProjectID, ResourceType: req.ResourceType, ResourceID: req.ResourceID, UserID: req.UserID, Actions: req.Actions}
 	if err := s.store.CreateResourcePolicy(ctx, policy); err != nil {
@@ -506,7 +528,7 @@ func (s *Server) handleListResourcePolicies(ctx context.Context, input *ListReso
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	policies, err := s.store.ListResourcePolicies(ctx, input.ResourceType, input.ResourceID, limit+1, cursor)
+	policies, err := s.store.ListResourcePolicies(ctx, projectIDFromContext(ctx), input.ResourceType, input.ResourceID, limit+1, cursor)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list resource policies")
 	}
@@ -518,7 +540,7 @@ type DeleteResourcePolicyInput struct {
 }
 
 func (s *Server) handleDeleteResourcePolicy(ctx context.Context, input *DeleteResourcePolicyInput) (*struct{}, error) {
-	projectID, userID, err := s.store.DeleteResourcePolicy(ctx, input.PolicyID)
+	projectID, userID, err := s.store.DeleteResourcePolicy(ctx, projectIDFromContext(ctx), input.PolicyID)
 	if err != nil {
 		if errors.Is(err, store.ErrResourcePolicyNotFound) {
 			return nil, huma.Error404NotFound("resource policy not found")
@@ -549,6 +571,9 @@ func (s *Server) handleCreateTagPolicy(ctx context.Context, input *CreateTagPoli
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
+	}
 	if err := validateTags(map[string]string{req.TagKey: req.TagValue}); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
@@ -556,6 +581,9 @@ func (s *Server) handleCreateTagPolicy(ctx context.Context, input *CreateTagPoli
 		if !domain.ValidScopes[action] {
 			return nil, huma.Error400BadRequest("invalid action: " + action)
 		}
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, req.Actions); err != nil {
+		return nil, err
 	}
 	policy := &domain.TagPolicy{ProjectID: req.ProjectID, ResourceType: req.ResourceType, UserID: req.UserID, TagKey: req.TagKey, TagValue: req.TagValue, Actions: req.Actions}
 	if err := s.store.CreateTagPolicy(ctx, policy); err != nil {
@@ -595,7 +623,7 @@ type DeleteTagPolicyInput struct {
 }
 
 func (s *Server) handleDeleteTagPolicy(ctx context.Context, input *DeleteTagPolicyInput) (*struct{}, error) {
-	projectID, userID, err := s.store.DeleteTagPolicy(ctx, input.PolicyID)
+	projectID, userID, err := s.store.DeleteTagPolicy(ctx, projectIDFromContext(ctx), input.PolicyID)
 	if err != nil {
 		if errors.Is(err, store.ErrTagPolicyNotFound) {
 			return nil, huma.Error404NotFound("tag policy not found")
@@ -625,6 +653,9 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if err := requireProjectWideAuditAccess(ctx); err != nil {
+		return nil, err
 	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
@@ -697,6 +728,9 @@ func (s *Server) handleVerifyAuditChain(ctx context.Context, input *VerifyAuditC
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if err := requireProjectWideAuditAccess(ctx); err != nil {
+		return nil, err
 	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {

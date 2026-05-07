@@ -26,7 +26,7 @@ var exitFunc = func(code int) { os.Exit(code) }
 // safeGo wraps a goroutine with panic recovery. If the function panics,
 // the panic is logged with a stack trace, reported to Sentry, and the
 // process is terminated. A silently dead scheduler component is worse
-// than a restart, so we crash to let the orchestrator (systemd/k8s)
+// than a restart, so we crash to let the process manager
 // restart us.
 func safeGo(wg *conc.WaitGroup, name string, fn func()) {
 	wg.Go(func() {
@@ -84,9 +84,8 @@ func (t *componentTracker) track(wg *conc.WaitGroup, name string, fn func()) {
 //
 // Waits run concurrently under one deadline: if N components each can
 // take up to `timeout` to drain, total wall-clock is ~timeout, not
-// N*timeout. This keeps scheduler shutdown within the k8s
-// terminationGracePeriodSeconds envelope even when several components
-// are slow to unwind.
+// N*timeout. This keeps scheduler shutdown within the configured shutdown
+// deadline even when several components are slow to unwind.
 //
 // Uses context.WithTimeout rather than a shared time.After channel
 // because a time.After value can only be consumed once: if any watcher

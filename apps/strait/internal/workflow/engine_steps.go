@@ -56,6 +56,9 @@ func (e *WorkflowEngine) startStep(
 		if timeoutSecs <= 0 {
 			timeoutSecs = domain.DefaultEventTimeoutSecs
 		}
+		if timeoutSecs > domain.MaxEventTimeoutSecs {
+			timeoutSecs = domain.MaxEventTimeoutSecs
+		}
 		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 		trigger := &domain.EventTrigger{
 			ID:                fmt.Sprintf("evt:approval:%s", stepRun.ID),
@@ -104,6 +107,9 @@ func (e *WorkflowEngine) startStep(
 			timeoutSecs := step.CostGateTimeoutSecs
 			if timeoutSecs <= 0 {
 				timeoutSecs = domain.DefaultEventTimeoutSecs
+			}
+			if timeoutSecs > domain.MaxEventTimeoutSecs {
+				timeoutSecs = domain.MaxEventTimeoutSecs
 			}
 			expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
@@ -259,6 +265,9 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	timeoutSecs := step.EventTimeoutSecs
 	if timeoutSecs <= 0 {
 		timeoutSecs = domain.DefaultEventTimeoutSecs
+	}
+	if timeoutSecs > domain.MaxEventTimeoutSecs {
+		timeoutSecs = domain.MaxEventTimeoutSecs
 	}
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 

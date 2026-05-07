@@ -10,14 +10,11 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
-	"strait/internal/store"
 )
 
-// BudgetMonitorStore defines the store operations needed by BudgetMonitor.
-type BudgetMonitorStore interface {
-	ListProjectsWithComputeLimit(ctx context.Context) ([]store.ProjectComputeQuota, error)
-	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
-}
+// BudgetMonitorStore is the store interface required by BudgetMonitor.
+// The compute-budget monitoring path was removed when run_compute_usage was dropped.
+type BudgetMonitorStore = any
 
 // BudgetMonitorWebhookEnqueuer enqueues webhook deliveries for budget alerts.
 type BudgetMonitorWebhookEnqueuer interface {
@@ -103,15 +100,9 @@ func (bm *BudgetMonitor) Run(ctx context.Context) {
 }
 
 func (bm *BudgetMonitor) check(ctx context.Context) {
-	projects, err := bm.store.ListProjectsWithComputeLimit(ctx)
-	if err != nil {
-		bm.logger.Warn("budget monitor: failed to list projects", "error", err)
-		return
-	}
-
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// Cleanup old entries in a single pass under the lock.
+	// Cleanup stale alerted-today entries under the lock.
 	bm.alertedMu.Lock()
 	for k := range bm.alerted {
 		if len(k) > 10 {
@@ -123,66 +114,6 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 	}
 	bm.alertedMu.Unlock()
 
-	for _, pq := range projects {
-		alertKey := pq.ProjectID + ":" + today
-
-		// Optimistic lock: set alerted before the expensive query, revert on failure.
-		bm.alertedMu.Lock()
-		if bm.alerted[alertKey] {
-			bm.alertedMu.Unlock()
-			continue
-		}
-		bm.alerted[alertKey] = true
-		bm.alertedMu.Unlock()
-
-		revert := func() {
-			bm.alertedMu.Lock()
-			delete(bm.alerted, alertKey)
-			bm.alertedMu.Unlock()
-		}
-
-		dailyCost, costErr := bm.store.SumDailyComputeCost(ctx, pq.ProjectID, pq.Timezone)
-		if costErr != nil {
-			bm.logger.Warn("budget monitor: failed to sum daily cost",
-				"project_id", pq.ProjectID, "error", costErr)
-			revert()
-			continue
-		}
-
-		threshold := pq.ComputeDailyCostLimitMicrousd * int64(domain.ComputeBudgetAlertThresholdPct) / 100
-		if dailyCost < threshold {
-			revert()
-			continue
-		}
-
-		bm.logger.Warn("compute budget threshold reached",
-			"project_id", pq.ProjectID,
-			"daily_cost_microusd", dailyCost,
-			"limit_microusd", pq.ComputeDailyCostLimitMicrousd,
-			"threshold_pct", domain.ComputeBudgetAlertThresholdPct,
-		)
-
-		if bm.enqueuer != nil {
-			payload, _ := json.Marshal(map[string]any{
-				"event":               domain.WebhookEventComputeBudgetWarning,
-				"project_id":          pq.ProjectID,
-				"daily_cost_microusd": dailyCost,
-				"limit_microusd":      pq.ComputeDailyCostLimitMicrousd,
-				"threshold_pct":       domain.ComputeBudgetAlertThresholdPct,
-				"timestamp":           time.Now().UTC(),
-			})
-			if enqErr := bm.enqueuer.EnqueueBudgetAlert(ctx, pq.ProjectID, payload); enqErr != nil {
-				bm.logger.Warn("budget monitor: failed to enqueue alert",
-					"project_id", pq.ProjectID, "error", enqErr)
-				revert()
-				continue
-			}
-		}
-
-		bm.sendBudgetNotification(ctx, pq.ProjectID, dailyCost, pq.ComputeDailyCostLimitMicrousd)
-		// Alert succeeded — keep alertKey set (optimistic lock confirmed).
-	}
-
 	// Check org-level spending limits if the store is configured.
 	if bm.spendingStore != nil {
 		bm.checkSpendingLimits(ctx, today)
@@ -191,43 +122,6 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 	// Check 80% daily run limit and fire proactive notifications.
 	if bm.runLimitStore != nil && bm.enforcer != nil {
 		bm.checkRunLimitWarnings(ctx, today)
-	}
-}
-
-// sendBudgetNotification sends budget threshold alerts via notification channels.
-func (bm *BudgetMonitor) sendBudgetNotification(ctx context.Context, projectID string, dailyCost, limitMicrousd int64) {
-	ns, ok := bm.store.(ApprovalNotifierStore)
-	if !ok {
-		return
-	}
-
-	channels, err := ns.ListEnabledNotificationChannels(ctx, projectID)
-	if err != nil {
-		bm.logger.Warn("budget monitor: failed to list notification channels", "project_id", projectID, "error", err)
-		return
-	}
-
-	payload, _ := json.Marshal(map[string]any{
-		"project_id":          projectID,
-		"daily_cost_microusd": dailyCost,
-		"limit_microusd":      limitMicrousd,
-		"threshold_pct":       domain.ComputeBudgetAlertThresholdPct,
-		"timestamp":           time.Now().UTC(),
-	})
-
-	for _, ch := range channels {
-		d := &domain.NotificationDelivery{
-			ChannelID:   ch.ID,
-			ProjectID:   projectID,
-			EventType:   domain.NotificationEventBudgetThreshold,
-			Payload:     payload,
-			Status:      "pending",
-			MaxAttempts: 3,
-		}
-		if err := ns.CreateNotificationDelivery(ctx, d); err != nil {
-			bm.logger.Warn("budget monitor: failed to create notification delivery",
-				"channel_id", ch.ID, "project_id", projectID, "error", err)
-		}
 	}
 }
 
@@ -257,8 +151,8 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 			continue
 		}
 
-		limits := billing.GetPlanLimits(domain.PlanTier(sub.PlanTier))
-		includedCredit := limits.ComputeCreditMicrousd
+		// Included compute credit is zero in orchestration-only mode; all spend is overage.
+		var includedCredit int64
 
 		periodStart := sub.CurrentPeriodStart
 		if periodStart == nil {

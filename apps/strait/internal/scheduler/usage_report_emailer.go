@@ -169,7 +169,6 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		periodEnd.Format("Jan 2, 2006"))
 
 	// Get plan details and addon info for the report.
-	limits := billing.GetPlanLimits(domain.PlanTier(sub.PlanTier))
 	var addonCount int
 	if addons, err := re.store.ListActiveAddons(ctx, orgID); err == nil {
 		addonCount = len(addons)
@@ -178,9 +177,9 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 	if spend, err := re.store.SumOrgPeriodSpend(ctx, orgID, periodStart); err == nil {
 		periodSpend = spend
 	}
-	overage := max(periodSpend-limits.ComputeCreditMicrousd, 0)
+	overage := max(periodSpend, 0)
 
-	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd, limits.ComputeCreditMicrousd, addonCount, overage)
+	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd, 0, addonCount, overage)
 
 	req := &resend.SendEmailRequest{
 		From:    re.fromEmail,

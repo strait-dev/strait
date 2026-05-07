@@ -342,7 +342,7 @@ func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePo
 	query := `
 		INSERT INTO resource_policies (id, project_id, resource_type, resource_id, user_id, actions)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (resource_type, resource_id, user_id) DO UPDATE SET actions = EXCLUDED.actions
+			ON CONFLICT (project_id, resource_type, resource_id, user_id) DO UPDATE SET actions = EXCLUDED.actions
 		RETURNING created_at`
 
 	err := q.db.QueryRow(ctx, query, p.ID, p.ProjectID, p.ResourceType, p.ResourceID, p.UserID, p.Actions).Scan(&p.CreatedAt)
@@ -353,17 +353,17 @@ func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePo
 	return nil
 }
 
-func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error) {
+func (q *Queries) GetResourcePolicies(ctx context.Context, projectID, resourceType, resourceID, userID string) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetResourcePolicies")
 	defer span.End()
 
 	query := `
 		SELECT actions
 		FROM resource_policies
-		WHERE resource_type = $1 AND resource_id = $2 AND user_id = $3`
+		WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3 AND user_id = $4`
 
 	var actions []string
-	err := q.db.QueryRow(ctx, query, resourceType, resourceID, userID).Scan(&actions)
+	err := q.db.QueryRow(ctx, query, projectID, resourceType, resourceID, userID).Scan(&actions)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -374,31 +374,31 @@ func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourc
 	return actions, nil
 }
 
-func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error) {
+func (q *Queries) DeleteResourcePolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteResourcePolicy")
 	defer span.End()
 
-	query := `DELETE FROM resource_policies WHERE id = $1 RETURNING project_id, user_id`
-	err = q.db.QueryRow(ctx, query, id).Scan(&projectID, &userID)
+	query := `DELETE FROM resource_policies WHERE project_id = $1 AND id = $2 RETURNING project_id, user_id`
+	err = q.db.QueryRow(ctx, query, projectID, id).Scan(&deletedProjectID, &userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", ErrResourcePolicyNotFound
 		}
 		return "", "", fmt.Errorf("delete resource policy: %w", err)
 	}
-	return projectID, userID, nil
+	return deletedProjectID, userID, nil
 }
 
-func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
+func (q *Queries) ListResourcePolicies(ctx context.Context, projectID, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListResourcePolicies")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, resource_type, resource_id, user_id, actions, created_at
 		FROM resource_policies
-		WHERE resource_type = $1 AND resource_id = $2`
-	args := []any{resourceType, resourceID}
-	param := 3
+		WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3`
+	args := []any{projectID, resourceType, resourceID}
+	param := 4
 
 	if cursor != nil {
 		query += fmt.Sprintf(" AND created_at < $%d", param)
@@ -495,19 +495,19 @@ func (q *Queries) ListTagPolicies(ctx context.Context, projectID, resourceType, 
 	return policies, rows.Err()
 }
 
-func (q *Queries) DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error) {
+func (q *Queries) DeleteTagPolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteTagPolicy")
 	defer span.End()
 
-	query := `DELETE FROM tag_policies WHERE id = $1 RETURNING project_id, user_id`
-	err = q.db.QueryRow(ctx, query, id).Scan(&projectID, &userID)
+	query := `DELETE FROM tag_policies WHERE project_id = $1 AND id = $2 RETURNING project_id, user_id`
+	err = q.db.QueryRow(ctx, query, projectID, id).Scan(&deletedProjectID, &userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", ErrTagPolicyNotFound
 		}
 		return "", "", fmt.Errorf("delete tag policy: %w", err)
 	}
-	return projectID, userID, nil
+	return deletedProjectID, userID, nil
 }
 
 func (q *Queries) GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error) {

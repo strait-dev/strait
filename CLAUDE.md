@@ -14,7 +14,7 @@ The same content lives in `CLAUDE.md` — keep both files in sync.
 
 ## 1. What Strait is
 
-Strait is a job execution and workflow orchestration platform shipped as a single Go binary. PostgreSQL is the source of truth and the queue (`SELECT ... FOR UPDATE SKIP LOCKED`); Redis powers pub/sub and SSE; container workloads run on Docker or Kubernetes. The binary runs in `api`, `worker`, or `all` mode. Two editions (community and cloud) are selected at compile time via Go build tags.
+Strait is a job orchestration and workflow platform shipped as a single Go binary. PostgreSQL is the source of truth and the queue (`SELECT ... FOR UPDATE SKIP LOCKED`); Redis powers pub/sub and SSE. Strait does not run user code itself — job code lives on the customer's infrastructure and is reached either via an HTTP endpoint Strait POSTs to, or via a long-lived worker process that connects to the API over gRPC and streams runs back. The binary runs in `api`, `worker`, or `all` mode. Two editions (community and cloud) are selected at compile time via Go build tags.
 
 Read first:
 - `README.md`
@@ -32,7 +32,7 @@ Read first:
 - **Database**: PostgreSQL via `jackc/pgx/v5` — no ORM. Migrations are embedded SQL.
 - **Cache / pub-sub**: `redis/go-redis/v9`, `eko/gocache`, `maypok86/otter`
 - **Concurrency**: `sourcegraph/conc`, `alitto/pond/v2`, `failsafe-go` for retries / circuit breakers
-- **Container runtimes**: `k8s.io/client-go`, Docker, BuildKit
+- **Worker plane (gRPC)**: `google.golang.org/grpc` + `protobuf` for bidirectional streaming between API and connected workers
 - **Analytics (optional)**: `ClickHouse/clickhouse-go/v2`
 - **Observability**: OpenTelemetry, Prometheus, Pyroscope, Sentry
 - **Helpers**: `samber/lo`, `samber/oops`, `samber/slog-multi`
@@ -63,20 +63,18 @@ Inside `apps/strait/`:
 - `cmd/strait/` — entrypoint, server wiring, migration runner (`main.go`, `server.go`, `services.go`, `migrate.go`)
 - `migrations/` — embedded SQL migrations
 - `schemas/strait.json` — generated OpenAPI spec
-- `k8s/` — example manifests + Grafana dashboards
+- `monitoring/` — Prometheus rules and Grafana dashboards
 - `internal/` — application code:
 
 | Package | Purpose |
 |---|---|
-| `api/` | HTTP handlers (chi + Huma), auth, RBAC, idempotency, request validation |
-| `worker/` | Dequeue loop, executor pool, dispatch, graceful drain |
-| `dispatcher/` | Routes runs to the correct compute runtime |
+| `api/` | HTTP handlers (chi + Huma), auth, RBAC, idempotency, request validation. Includes the gRPC worker-plane server under `api/grpc/`. |
+| `worker/` | Dequeue loop, executor pool, HTTP dispatch, gRPC worker-mode dispatch, graceful drain |
 | `workflow/` | DAG engine, step progression, conditionals, compensation/saga, durable waits |
-| `compute/` | K8s / Docker / HTTP runtimes, warm pool, cost estimation, signal classification |
 | `queue/` | Lock-free claim, concurrency control |
 | `scheduler/` | Cron, reaper, retention, pool pruner background loops |
 | `store/` | Raw `pgx/v5` data access, one file per table area |
-| `domain/` | Types, FSM states, edition gating |
+| `domain/` | Types, FSM states, execution modes (`http`, `worker`), edition gating |
 | `clickhouse/` | Optional analytics export, schema, exporter |
 | `webhook/` | HMAC delivery, retry, circuit breaker, review queue |
 | `cdc/` | Sequin-backed change data capture |
@@ -85,9 +83,6 @@ Inside `apps/strait/`:
 | `eventfilter/` | Event-trigger matching rules |
 | `notification/` | Slack / email / PagerDuty channels |
 | `health/` | Health checks and scoring |
-| `bundle/` | Code bundle upload + deploy pipeline |
-| `registry/` | Container registry abstraction (ECR, Docker Registry v2) |
-| `objectstore/` | S3-compatible storage |
 | `cache/` | Multi-layer caching primitives |
 | `dbscan/` | Anomaly detection on run metrics |
 | `debug/` | Debug bundle generation |
@@ -110,7 +105,7 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 
 **Execution and runs**
 - Jobs and run lifecycle — `apps/docs/concepts/jobs.mdx`, `apps/docs/concepts/runs.mdx`
-- Managed execution (K8s/Docker/HTTP runtimes, warm pool) — `apps/docs/concepts/managed-execution.mdx`
+- Execution modes (HTTP and gRPC worker) — `apps/docs/concepts/execution-modes.mdx`
 - Versioning and policies — `apps/docs/concepts/versioning.mdx`
 - Job chaining — `apps/docs/concepts/job-chaining.mdx`
 - Batch operations — `apps/docs/concepts/batch-operations.mdx`
@@ -166,8 +161,8 @@ If you have unresolved questions about scope, schema, API contracts, or user-fac
 
 Edition is set at compile time via Go build tags. The `STRAIT_EDITION` env var is ignored.
 
-- **Community** (`go build`): self-hosted, open source. Docker + K8s runtimes, no billing.
-- **Cloud** (`go build -tags cloud`): SaaS at strait.dev. All features, Stripe billing, multi-region.
+- **Community** (`go build`): self-hosted, open source. No billing.
+- **Cloud** (`go build -tags cloud`): hosted orchestrator at strait.dev (API + Postgres + Redis + scheduler + gRPC worker plane). Stripe billing, multi-region, advanced analytics. Customer code still runs on customer infra.
 
 `domain.ParseEdition()` returns the compile-time edition. See `apps/strait/internal/domain/edition_community.go` and `edition_cloud.go`. Cloud-only files use `//go:build cloud`. Docker: `docker build --build-arg BUILD_TAGS=cloud`.
 

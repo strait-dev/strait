@@ -65,6 +65,54 @@ func TestOpenAPISchema_IncludesAuditAdminEndpoints(t *testing.T) {
 	}
 }
 
+func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	raw := w.Body.String()
+	for _, stale := range []string{
+		"/v1/jobs/{jobID}/deployments",
+		"code-deployment",
+		"stream-deployment-logs",
+		"machine_id",
+	} {
+		if strings.Contains(raw, stale) {
+			t.Fatalf("openapi spec contains removed code-deployment surface %q", stale)
+		}
+	}
+}
+
+func TestOpenAPISchema_IncludesRegionsEndpoint(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var spec struct {
+		Paths map[string]map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("unmarshal openapi spec: %v", err)
+	}
+	if _, ok := spec.Paths["/v1/regions"]["get"]; !ok {
+		t.Fatal("openapi spec is missing GET /v1/regions")
+	}
+}
+
 // TestOpenAPISchema_ErrorEnvelope guards the error contract surfaced through
 // /reference/openapi.json:
 //   - the canonical APIError schema is present with the full code enum

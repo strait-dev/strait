@@ -148,7 +148,7 @@ func TestCrashRecovery_ProjectQuotaAtomicity(t *testing.T) {
 
 	// Concurrently update the quota.
 	var wg conc.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		val := i
 		wg.Go(func() {
 			_, execErr := testEnv.DB.Pool.Exec(ctx,
@@ -320,7 +320,7 @@ func TestCrashRecovery_PubSubLossResilience(t *testing.T) {
 	}
 
 	// Publish some messages.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := client.Publish(ctx, channel, fmt.Sprintf("msg-%d", i)).Err(); err != nil {
 			t.Fatalf("publish message %d: %v", i, err)
 		}
@@ -392,7 +392,7 @@ func TestCrashRecovery_ExporterFlushRetry(t *testing.T) {
 	channel := "test:exporter:flush:" + newID()
 
 	// Publish 100 messages to a channel with no subscriber.
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if err := client.Publish(ctx, channel, fmt.Sprintf(`{"record":%d}`, i)).Err(); err != nil {
 			t.Fatalf("publish record %d: %v", i, err)
 		}

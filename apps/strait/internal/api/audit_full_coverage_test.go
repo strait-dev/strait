@@ -105,9 +105,6 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 		"canary_deployment.rolled_back",
 		// workflow policy
 		"workflow_policy.upserted",
-		// code deployments
-		"code_deployment.created", "code_deployment.confirmed",
-		"code_deployment.rolled_back",
 		// deployment versions
 		"deployment_version.created", "deployment_version.finalized",
 		"deployment_version.promoted", "deployment_version.rolled_back",

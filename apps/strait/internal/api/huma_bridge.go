@@ -70,6 +70,12 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 		// Store w and r in context for streaming/export handlers that need raw access.
 		ctx := context.WithValue(r.Context(), ctxKeyResponseWriter, w)
 		ctx = context.WithValue(ctx, ctxKeyRequest, r)
+		if strings.HasPrefix(r.URL.Path, "/sdk/") {
+			if err := s.revalidateRunTokenState(ctx); err != nil {
+				writeTypedError(w, r, err)
+				return
+			}
+		}
 
 		output, err := handler(ctx, &input)
 		if err != nil {
@@ -266,7 +272,13 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 	// Check for huma status errors (e.g., huma.Error404NotFound).
 	var se huma.StatusError
 	if errors.As(err, &se) {
-		respondError(w, r, se.GetStatus(), se.Error())
+		status := se.GetStatus()
+		if status >= http.StatusInternalServerError {
+			slog.Error("typed handler returned 5xx status error", "status", status, "error", err, "path", r.URL.Path)
+			respondError(w, r, status, "internal server error")
+			return
+		}
+		respondError(w, r, status, se.Error())
 		return
 	}
 	// Check for billing limit errors.

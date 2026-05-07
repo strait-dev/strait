@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -19,6 +21,7 @@ var (
 	ErrJobNotFound                  = errors.New("job not found")
 	ErrJobGroupNotFound             = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
+	ErrWebhookEndpointLimitExceeded = errors.New("webhook endpoint limit exceeded")
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
 	ErrAuditEventNotFound           = errors.New("audit event not found")
@@ -154,25 +157,24 @@ type RunStore interface {
 }
 
 type ProjectQuota struct {
-	ProjectID                     string
-	MaxQueuedRuns                 int
-	MaxExecutingRuns              int
-	MaxJobs                       int
-	Timezone                      string
-	MaxCostPerRunMicrousd         int64
-	MaxDailyCostMicrousd          int64
-	ComputeDailyCostLimitMicrousd int64
-	MaxActiveEventTriggers        int // 0 = unlimited
-	RateLimitRequests             int
-	RateLimitWindowSecs           int
-	DefaultRegion                 string
-	PlanTier                      string
-	MaxTokensPerRun               int64
-	MaxToolCallsPerRun            int
-	MaxIterationsPerRun           int
-	MaxMemoryPerKeyBytes          int
-	MaxMemoryPerJobBytes          int
-	MaxKeyLifetimeDays            int
+	ProjectID              string
+	MaxQueuedRuns          int
+	MaxExecutingRuns       int
+	MaxJobs                int
+	Timezone               string
+	MaxCostPerRunMicrousd  int64
+	MaxDailyCostMicrousd   int64
+	MaxActiveEventTriggers int // 0 = unlimited
+	RateLimitRequests      int
+	RateLimitWindowSecs    int
+	DefaultRegion          string
+	PlanTier               string
+	MaxTokensPerRun        int64
+	MaxToolCallsPerRun     int
+	MaxIterationsPerRun    int
+	MaxMemoryPerKeyBytes   int
+	MaxMemoryPerJobBytes   int
+	MaxKeyLifetimeDays     int
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -202,6 +204,8 @@ type WebhookDeliveryStore interface {
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun, maxAttempts int) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	ClaimPendingWebhookRetries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.WebhookDelivery, error)
+	UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error)
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
@@ -366,13 +370,6 @@ type JobMemoryStore interface {
 	DeleteExpiredJobMemory(ctx context.Context) (int64, error)
 }
 
-// CostEstimateStore defines operations for job cost estimates.
-type CostEstimateStore interface {
-	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
-	UpsertJobCostEstimate(ctx context.Context, jobID string) error
-	ListActiveJobIDs(ctx context.Context) ([]string, error)
-}
-
 // NotificationStore handles notification channel and delivery operations.
 type NotificationStore interface {
 	CreateNotificationChannel(ctx context.Context, ch *domain.NotificationChannel) error
@@ -408,17 +405,24 @@ type Store interface {
 	DeploymentStore
 	LogDrainStore
 	EventSourceStore
-	CostEstimateStore
+	GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
 	JobMemoryStore
 	NotificationStore
 	QueueStats(ctx context.Context) (*QueueStats, error)
 }
 
 type Queries struct {
-	db                  DBTX
-	secretEncryptionKey string
-	auditSigningKey     []byte
-	maxSLOWindowHours   int
+	db                      DBTX
+	secretEncryptionKey     string
+	oldSecretEncryptionKeys []string
+	auditSigningKey         []byte
+	maxSLOWindowHours       int
+
+	// chDB is an optional *sql.DB connected to ClickHouse. When non-nil,
+	// GetJobCostEstimate queries run_analytics for a rolling average instead
+	// of falling back to the flat-rate constant. May be nil when ClickHouse
+	// is disabled.
+	chDB *sql.DB
 
 	// tombstoneInsertHook is a test-only injection point invoked inside
 	// writeRetentionTombstone immediately before the anchor insert. When
@@ -442,8 +446,25 @@ func New(db DBTX) *Queries {
 	return &Queries{db: db}
 }
 
+func (q *Queries) withDB(db DBTX) *Queries {
+	return &Queries{
+		db:                       db,
+		secretEncryptionKey:      q.secretEncryptionKey,
+		oldSecretEncryptionKeys:  append([]string(nil), q.oldSecretEncryptionKeys...),
+		auditSigningKey:          q.auditSigningKey,
+		maxSLOWindowHours:        q.maxSLOWindowHours,
+		chDB:                     q.chDB,
+		tombstoneInsertHook:      q.tombstoneInsertHook,
+		auditEventPostInsertHook: q.auditEventPostInsertHook,
+	}
+}
+
 func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 	q.secretEncryptionKey = secretEncryptionKey
+}
+
+func (q *Queries) SetOldSecretEncryptionKeys(oldSecretEncryptionKeys []string) {
+	q.oldSecretEncryptionKeys = append([]string(nil), oldSecretEncryptionKeys...)
 }
 
 func (q *Queries) SetAuditSigningKey(key []byte) {
@@ -454,6 +475,13 @@ func (q *Queries) SetMaxSLOWindowHours(hours int) {
 	q.maxSLOWindowHours = hours
 }
 
+// SetClickHouseDB wires an optional ClickHouse *sql.DB into the store so that
+// GetJobCostEstimate can derive rolling-average costs from run_analytics.
+// Pass nil to disable (falls back to the flat-rate constant).
+func (q *Queries) SetClickHouseDB(db *sql.DB) {
+	q.chDB = db
+}
+
 type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
@@ -462,6 +490,10 @@ type TxBeginner interface {
 // transaction with explicit TxOptions. Implemented by both concrete types.
 type TxBeginnerOptions interface {
 	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
+type connAcquirer interface {
+	Acquire(ctx context.Context) (*pgxpool.Conn, error)
 }
 
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
@@ -489,6 +521,44 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 	}
 	committed = true
 
+	return nil
+}
+
+func (q *Queries) WithTx(ctx context.Context, fn func(context.Context, DBTX) error) error {
+	if q == nil {
+		return fmt.Errorf("with transaction: queries is nil")
+	}
+	if fn == nil {
+		return fmt.Errorf("with transaction: fn is nil")
+	}
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("with transaction: underlying db does not support transactions")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("failed to rollback transaction", "error", rbErr)
+		}
+	}()
+
+	txCtx := ContextWithTx(ctx, tx)
+	if err := fn(txCtx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -542,6 +612,60 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 		return fmt.Errorf("pg_advisory_unlock: %w", err)
 	}
 	return nil
+}
+
+// RunWithAdvisoryLock keeps a session-level advisory lock pinned to the same
+// PostgreSQL connection for the full duration of fn. Use this for long-running
+// leader-election sections; TryAdvisoryLock/ReleaseAdvisoryLock can acquire and
+// release on different pooled connections when the underlying DBTX is a pool.
+func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error) {
+	if q == nil {
+		return false, fmt.Errorf("run with advisory lock: queries is nil")
+	}
+	if fn == nil {
+		return false, fmt.Errorf("run with advisory lock: fn is nil")
+	}
+
+	acquirer, ok := advisoryConnAcquirer(q.db)
+	if !ok {
+		return false, fmt.Errorf("run with advisory lock: underlying db does not support pinned connections")
+	}
+
+	conn, err := acquirer.Acquire(ctx)
+	if err != nil {
+		return false, fmt.Errorf("acquire advisory lock connection: %w", err)
+	}
+	defer conn.Release()
+
+	var acquired bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
+		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
+	}
+	if !acquired {
+		return false, nil
+	}
+
+	runErr := fn(ctx)
+
+	var released bool
+	if err := conn.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", lockID).Scan(&released); err != nil {
+		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: %w", err))
+	}
+	if !released {
+		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: lock %d was not held by pinned connection", lockID))
+	}
+
+	return true, runErr
+}
+
+func advisoryConnAcquirer(db DBTX) (connAcquirer, bool) {
+	if c, ok := db.(connAcquirer); ok {
+		return c, true
+	}
+	if routed, ok := db.(*ctxAwareDBTX); ok {
+		return advisoryConnAcquirer(routed.pool)
+	}
+	return nil, false
 }
 
 // SetProjectContext sets the app.current_project_id session variable for RLS policies.

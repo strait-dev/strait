@@ -3,32 +3,27 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"strait/internal/api"
+	grpcserver "strait/internal/api/grpc"
 	"strait/internal/billing"
-	"strait/internal/build"
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
-	"strait/internal/compute"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
+	"strait/internal/httputil"
 	"strait/internal/logdrain"
 	"strait/internal/notification"
-	"strait/internal/objectstore"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
-	"strait/internal/registry"
+	"strait/internal/ratelimit"
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
@@ -51,35 +46,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc/pool"
 )
-
-// validRegistryHostnameRe matches a Docker-style registry host[:port] key used in
-// BUILD_EXTRA_REGISTRY_AUTHS. Allows letters, digits, dots, hyphens, and an optional
-// colon-separated port. Rejects embedded credentials, path-traversal sequences, and
-// protocol prefixes that could be used to redirect auth to an attacker-controlled host.
-var validRegistryHostnameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*(:[0-9]{1,5})?$`)
-
-// isPrivateRegistryHost reports whether host is a loopback address, a private or
-// link-local IP, or the "localhost" name. Such hosts are rejected from
-// BUILD_EXTRA_REGISTRY_AUTHS because a user-supplied bearer token sent to a
-// localhost registry would be forwarded inside the build worker, giving an
-// attacker-controlled base-image server the ability to harvest registry credentials
-// via SSRF.
-func isPrivateRegistryHost(host string) bool {
-	// Strip optional port before checking.
-	h, _, err := net.SplitHostPort(host)
-	if err != nil {
-		// No port — treat the whole string as the host.
-		h = host
-	}
-	if strings.EqualFold(h, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(h)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
-}
 
 func shutdownReason(err error) string {
 	if err == nil {
@@ -127,58 +93,6 @@ func logWorkerShutdownComplete(logger *slog.Logger, metrics *telemetry.Metrics, 
 
 	if metrics != nil {
 		metrics.ShutdownTotal.Add(context.Background(), 1, metric.WithAttributes(attribute.String("reason", reason)))
-	}
-}
-
-// buildComputeRuntime constructs the container runtime based on config.
-// If a fallback provider is configured, wraps both in a RuntimeRouter.
-func buildComputeRuntime(cfg *config.Config, metrics *telemetry.Metrics) compute.ContainerRuntime {
-	primary := buildSingleRuntime(cfg.ComputeRuntime, cfg, metrics)
-	if primary == nil {
-		return nil
-	}
-
-	if cfg.ComputeFallbackProvider == "" {
-		return primary
-	}
-
-	fallback := buildSingleRuntime(cfg.ComputeFallbackProvider, cfg, metrics)
-	if fallback == nil {
-		slog.Warn("fallback runtime failed to initialize, running without fallback",
-			"primary", cfg.ComputeRuntime,
-			"fallback", cfg.ComputeFallbackProvider,
-		)
-		return primary
-	}
-
-	slog.Info("compute runtime with fallback enabled",
-		"primary", cfg.ComputeRuntime,
-		"fallback", cfg.ComputeFallbackProvider,
-	)
-	return compute.NewRuntimeRouter(primary, fallback)
-}
-
-func buildSingleRuntime(provider string, cfg *config.Config, metrics *telemetry.Metrics) compute.ContainerRuntime {
-	switch provider {
-	case "docker":
-		slog.Info("container runtime enabled", "runtime", "docker")
-		return compute.NewDockerRuntime()
-	case "k8s":
-		rt, err := compute.NewK8sRuntime(cfg.K8sKubeconfig, cfg.K8sNamespace, cfg.K8sPriorityClass, cfg.ImagePullPolicy)
-		if err != nil {
-			slog.Error("CRITICAL: k8s runtime init failed", "error", err)
-			return nil
-		}
-		rt.SetMetrics(telemetry.NewK8sMetricsAdapter(metrics))
-		if cfg.K8sRuntimeClass != "" {
-			rt.SetRuntimeClass(cfg.K8sRuntimeClass)
-			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace, "runtime_class", cfg.K8sRuntimeClass)
-		} else {
-			slog.Info("container runtime enabled", "runtime", "k8s", "namespace", cfg.K8sNamespace)
-		}
-		return rt
-	default:
-		return nil
 	}
 }
 
@@ -421,8 +335,14 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 		return
 	}
 
-	httpClient := &http.Client{Timeout: 15 * time.Second}
-	notifWorker := notification.NewWorker(queries, httpClient)
+	httpClient := &http.Client{
+		Timeout:   15 * time.Second,
+		Transport: httputil.NewExternalTransport(cfg.AllowPrivateEndpoints),
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	notifWorker := notification.NewWorker(queries, httpClient, notification.WithWebhookAllowPrivateEndpoints(cfg.AllowPrivateEndpoints))
 	if metrics != nil {
 		notifWorker.WithDeliveriesCounter(metrics.NotificationDeliveriesTotal)
 	}
@@ -498,8 +418,6 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		}))
 	}
 
-	apiContainerRuntime := buildComputeRuntime(cfg, metrics)
-
 	billingStore := billing.NewPgStore(dbPool)
 
 	posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default())
@@ -518,6 +436,11 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
 			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
 			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
+			// Orchestration-only flat tier prices (new billing model).
+			billing.WithStarterFlatPrice(cfg.StripeStarterPriceID),
+			billing.WithProFlatPrice(cfg.StripeProPriceID),
+			billing.WithScaleFlatPrice(cfg.StripeScalePriceID),
+			billing.WithEnterpriseFlatPrice(cfg.StripeEnterprisePriceID),
 		)
 		var webhookOpts []billing.WebhookOption
 		if posthogClient != nil {
@@ -575,7 +498,6 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		TxPool:             txPool,
 		RedisClient:        rdb,
 		Encryptor:          encryptor,
-		ContainerRuntime:   apiContainerRuntime,
 		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:       usageSvc,
@@ -583,7 +505,6 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		Edition:            domain.ParseEdition(cfg.Edition),
 		Version:            version,
 		CDCWebhookReceiver: cdcWebhookReceiver,
-		ObjectStore:        buildObjectStore(cfg),
 		SIEMDrain:          siemDrain,
 	})
 	if metrics != nil {
@@ -624,8 +545,42 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	})
 }
 
+// startGRPCServer starts the gRPC server for the Worker streaming API.
+// It is symmetric to startAPIServer: the server shuts down before the HTTP
+// server on SIGTERM so that connected workers can reconnect to other replicas
+// before the HTTP surface disappears.
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client) (*grpcserver.Server, error) {
+	if cfg.Mode != "api" && cfg.Mode != "all" {
+		return nil, nil
+	}
+	if !cfg.GRPCEnabled {
+		return nil, nil
+	}
+	if pub == nil {
+		// Refuse to boot rather than serve a worker stream that will panic
+		// the first time a worker connects (subscribe / publish on a nil
+		// publisher). Operators see a clear cause instead of a recovered
+		// internal error after the fact.
+		return nil, fmt.Errorf("grpc worker plane is enabled but no pubsub publisher is configured: set REDIS_URL or disable GRPC_ENABLED")
+	}
+
+	srv, err := grpcserver.NewServer(cfg, queries, pub,
+		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("grpc server: %w", err)
+	}
+	g.Go(func(ctx context.Context) error {
+		if err := srv.Serve(ctx); err != nil {
+			return fmt.Errorf("grpc server: %w", err)
+		}
+		return nil
+	})
+	return srv, nil
+}
+
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -660,33 +615,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		partitionWeights = cfg.WorkerPartitionWeights
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
-	containerRuntime := buildComputeRuntime(cfg, metrics)
-
-	// Start K8s job garbage collector if using K8s runtime.
-	if (cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s") && cfg.K8sGCEnabled {
-		if k8sRT, ok := containerRuntime.(*compute.K8sRuntime); ok {
-			gc := compute.NewK8sJobGC(k8sRT.Clientset(), cfg.K8sNamespace, cfg.K8sGCMaxAge, cfg.K8sGCInterval)
-			g.Go(func(ctx context.Context) error {
-				gc.Run(ctx)
-				return nil
-			})
-			slog.Info("k8s job GC enabled", "max_age", cfg.K8sGCMaxAge, "interval", cfg.K8sGCInterval)
-		} else if router, ok := containerRuntime.(*compute.RuntimeRouter); ok {
-			_ = router // GC runs against whichever runtime is K8s — extract clientset from primary or fallback
-			clientset, err := compute.BuildK8sClientset(cfg.K8sKubeconfig)
-			if err != nil {
-				slog.Error("failed to build k8s client for GC", "error", err)
-			} else {
-				gc := compute.NewK8sJobGC(clientset, cfg.K8sNamespace, cfg.K8sGCMaxAge, cfg.K8sGCInterval)
-				g.Go(func(ctx context.Context) error {
-					gc.Run(ctx)
-					return nil
-				})
-				slog.Info("k8s job GC enabled (via router)", "max_age", cfg.K8sGCMaxAge, "interval", cfg.K8sGCInterval)
-			}
-		}
-	}
-
 	execCfg := worker.ExecutorConfig{
 		Pool:                    p,
 		Queue:                   q,
@@ -704,15 +632,15 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		PartitionWeights:        partitionWeights,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
+		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
 		JWTSigningKey:           cfg.JWTSigningKey,
-		ContainerRuntime:        containerRuntime,
 		ExternalAPIURL:          cfg.ExternalAPIURL,
-		MaxConcurrentMachines:   cfg.MaxConcurrentMachines,
 		DefaultRegion:           cfg.DefaultRegion,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
+	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 
 	// Only wire billing enforcement in the executor when explicitly enabled.
 	// The enforcer may exist for webhook cache invalidation without executor enforcement.
@@ -731,6 +659,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	}
 
 	exec := worker.NewExecutor(execCfg)
+	if workerPlane != nil {
+		workerPlane.SetRunResultFinalizer(exec)
+	}
 
 	exec.Use(worker.TracingMiddleware())
 	if metrics != nil {
@@ -745,8 +676,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	}
 	if chExporter != nil {
 		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
-			UsageLister:        queries,
-			ComputeUsageLister: queries,
+			UsageLister: queries,
 		}))
 	}
 
@@ -852,16 +782,14 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		return nil
 	})
 
-	// Start build orchestrator for code-first deployments.
-	startBuildOrchestrator(g, cfg, queries, pub, metrics)
-
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
-		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter(queries)
+		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter()
 		schedOpts := []scheduler.SchedulerOption{
 			scheduler.WithSchedulerMetrics(metrics),
 			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
+			scheduler.WithReaperAdvisoryLocker(queries),
 			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
 			scheduler.WithPriorityPromoter(
 				scheduler.NewPriorityPromoter(dbPool, scheduler.PriorityPromoterConfig{
@@ -917,9 +845,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				}).WithAdvisoryLocker(queries),
 			),
 		}
-		if containerRuntime != nil {
-			schedOpts = append(schedOpts, scheduler.WithMachineStopper(containerRuntime))
-		}
 		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
 			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
 				Interval:     cfg.PartitionReclaimInterval,
@@ -953,6 +878,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
 			slog.Info("per-org plan retention enabled")
+
+			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(billingStore, billingEnforcer, time.Hour).
+				WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
+			slog.Info("quota resume enforcer enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this
@@ -989,149 +919,12 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 }
 
-// buildObjectStore constructs an object store from config, or returns nil if
-// object store is not configured (bucket is empty).
-func buildObjectStore(cfg *config.Config) objectstore.ObjectStore {
-	if cfg.ObjectStoreBucket == "" {
-		return nil
-	}
-	s, err := objectstore.NewS3Store(objectstore.S3StoreConfig{
-		Bucket:         cfg.ObjectStoreBucket,
-		Region:         cfg.ObjectStoreRegion,
-		Endpoint:       cfg.ObjectStoreEndpoint,
-		AccessKey:      cfg.ObjectStoreAccessKey,
-		SecretKey:      cfg.ObjectStoreSecretKey,
-		ForcePathStyle: cfg.ObjectStoreForcePathStyle,
-	})
-	if err != nil {
-		slog.Warn("object store configuration invalid, code-first deployments disabled", "error", err)
-		return nil
-	}
-	return s
-}
-
-// buildContainerRegistry constructs a container registry from config, or returns
-// nil if no registry is configured.
-func buildContainerRegistry(cfg *config.Config) registry.ContainerRegistry {
-	ctx := context.Background()
-	switch cfg.ContainerRegistryType {
-	case "ecr", "":
-		reg, err := registry.NewECRRegistry(ctx, registry.ECRConfig{
-			Region:           cfg.ObjectStoreRegion,
-			RepositoryPrefix: cfg.ContainerRegistryPrefix,
-		})
-		if err != nil {
-			slog.Warn("ECR registry configuration invalid, code-first deployments disabled", "error", err)
-			return nil
-		}
-		return reg
-	case "generic":
-		if cfg.ContainerRegistryURL == "" {
-			slog.Warn("CONTAINER_REGISTRY_URL not set for generic registry, code-first deployments disabled")
-			return nil
-		}
-		reg, err := registry.NewGenericRegistry(registry.GenericConfig{
-			RegistryURL:      cfg.ContainerRegistryURL,
-			Username:         cfg.ContainerRegistryUser,
-			Password:         cfg.ContainerRegistryPass,
-			RepositoryPrefix: cfg.ContainerRegistryPrefix,
-		})
-		if err != nil {
-			slog.Warn("generic registry configuration invalid, code-first deployments disabled", "error", err)
-			return nil
-		}
-		return reg
-	default:
-		slog.Warn("unknown CONTAINER_REGISTRY_TYPE, code-first deployments disabled",
-			"type", cfg.ContainerRegistryType)
-		return nil
-	}
-}
-
-// startBuildOrchestrator starts the build orchestrator that picks up deployments
-// in "building" status and executes the BuildKit build pipeline.
-// No-ops if the worker mode is not enabled or if object store / registry are not configured.
-func startBuildOrchestrator(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, metrics *telemetry.Metrics) {
-	if cfg.Mode != "worker" && cfg.Mode != "all" {
+func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {
+	if execCfg == nil || workerPlane == nil {
 		return
 	}
-
-	objStore := buildObjectStore(cfg)
-	reg := buildContainerRegistry(cfg)
-
-	if objStore == nil || reg == nil {
-		slog.Info("build orchestrator disabled (object store or registry not configured)")
-		return
-	}
-
-	builder := build.NewBuilder(
-		cfg.BuildKitAddress,
-		objStore,
-		reg,
-		cfg.BuildKitCacheEnabled,
-		cfg.BuildTimeout,
-	)
-	if pub != nil {
-		builder = builder.WithLogPublisher(pub)
-	}
-	if cfg.SOCIEnabled {
-		builder = builder.WithSOCI(true)
-		slog.Info("soci lazy image loading enabled")
-	}
-	if cfg.BuildExtraRegistryAuths != "" && cfg.BuildExtraRegistryAuths != "{}" {
-		var extraAuths map[string]string
-		if err := json.Unmarshal([]byte(cfg.BuildExtraRegistryAuths), &extraAuths); err != nil {
-			slog.Warn("failed to parse BUILD_EXTRA_REGISTRY_AUTHS, skipping extra registry auth", "error", err)
-		} else {
-			// Validate each hostname key before passing to the builder. Reject entries
-			// whose host contains protocol prefixes, path-traversal sequences, embedded
-			// credentials, or other patterns that could redirect auth to a rogue registry.
-			for host := range extraAuths {
-				if !validRegistryHostnameRe.MatchString(host) || isPrivateRegistryHost(host) {
-					slog.Warn("BUILD_EXTRA_REGISTRY_AUTHS: skipping entry with invalid hostname", "host", host)
-					delete(extraAuths, host)
-				}
-			}
-			if len(extraAuths) > 0 {
-				builder = builder.WithExtraRegistryAuths(extraAuths)
-			}
-		}
-	}
-	addrPool := build.NewAddressPool(cfg.BuildKitAddress, cfg.BuildKitAddresses)
-	orchOpts := []build.OrchestratorOption{
-		build.WithOrchestratorLogger(slog.Default()),
-		build.WithAddressPool(addrPool),
-		build.WithOrchestratorMetrics(metrics),
-	}
-	orch := build.NewOrchestrator(queries, builder, orchOpts...)
-
-	g.Go(func(ctx context.Context) error {
-		slog.Info("build orchestrator started",
-			"buildkit_addresses", addrPool.Len(),
-			"buildkit_addr", cfg.BuildKitAddress,
-		)
-		orch.Run(ctx)
-		return nil
-	})
-
-	if cfg.DeploymentGCEnabled {
-		gc := build.NewDeploymentGC(queries,
-			build.WithGCInterval(cfg.DeploymentGCInterval),
-			build.WithGCPendingTTL(cfg.DeploymentGCPendingTTL),
-			build.WithGCFailedAge(cfg.DeploymentGCFailedAge),
-			build.WithGCLogger(slog.Default()),
-			build.WithGCMetrics(metrics),
-		)
-		g.Go(func(ctx context.Context) error {
-			slog.Info("deployment GC started",
-				"interval", cfg.DeploymentGCInterval,
-				"pending_ttl", cfg.DeploymentGCPendingTTL,
-				"failed_age", cfg.DeploymentGCFailedAge,
-			)
-			gc.Run(ctx)
-			return nil
-		})
-	}
+	execCfg.QueueSnapshotter = workerPlane.Registry()
+	execCfg.WorkerDispatcher = workerPlane.WorkerDispatcher(jwtSigningKey)
 }
 
 func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {

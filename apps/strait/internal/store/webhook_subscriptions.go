@@ -43,6 +43,56 @@ func (q *Queries) CreateWebhookSubscription(ctx context.Context, sub *domain.Web
 	return nil
 }
 
+// CreateWebhookSubscriptionWithOrgLimit serializes quota enforcement and row
+// creation for active webhook endpoints across all projects in an org. The
+// per-org advisory lock prevents concurrent creates from all observing the same
+// pre-insert count and overshooting the plan limit.
+func (q *Queries) CreateWebhookSubscriptionWithOrgLimit(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWebhookSubscriptionWithOrgLimit")
+	defer span.End()
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+	}
+
+	return WithTx(ctx, beginner, func(txq *Queries) error {
+		return txq.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+	})
+}
+
+func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints int) error {
+	if maxEndpoints < 0 {
+		return q.CreateWebhookSubscription(ctx, sub)
+	}
+
+	if _, err := q.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "webhook_endpoint_limit:"+orgID); err != nil {
+		return fmt.Errorf("lock webhook endpoint limit: %w", err)
+	}
+
+	var count int
+	if err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM webhook_subscriptions ws
+		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND ws.active = TRUE
+	`, orgID).Scan(&count); err != nil {
+		return fmt.Errorf("count webhook subscriptions before create: %w", err)
+	}
+	if count >= maxEndpoints {
+		return ErrWebhookEndpointLimitExceeded
+	}
+
+	return q.CreateWebhookSubscription(ctx, sub)
+}
+
 func (q *Queries) ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWebhookSubscriptions")
 	defer span.End()

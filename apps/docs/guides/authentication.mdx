@@ -57,11 +57,12 @@ curl -X POST https://strait.example.com/v1/api-keys \
   -d '{
     "project_id": "proj_123",
     "name": "ci-deploy-key",
-    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
+    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"],
+    "expires_in_days": 90
   }'
 ```
 
-The response includes the raw key once. Store it in your secret manager immediately.
+API keys must expire. If the project has a `max_key_lifetime_days` policy, omitted expirations are auto-capped to that policy; otherwise provide a positive `expires_in_days` value. The response includes the raw key once. Store it in your secret manager immediately.
 
 ```json
 {

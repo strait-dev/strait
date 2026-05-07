@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -63,6 +64,22 @@ func (c *ctxAwareDBTX) QueryRow(ctx context.Context, sql string, args ...any) pg
 		return tx.QueryRow(ctx, sql, args...)
 	}
 	return c.pool.QueryRow(ctx, sql, args...)
+}
+
+func (c *ctxAwareDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
+	beginner, ok := c.pool.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("underlying db does not support transactions")
+	}
+	return beginner.Begin(ctx)
+}
+
+func (c *ctxAwareDBTX) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	beginner, ok := c.pool.(TxBeginnerOptions)
+	if !ok {
+		return nil, fmt.Errorf("underlying db does not support transaction options")
+	}
+	return beginner.BeginTx(ctx, opts)
 }
 
 // NewWithContextRouting constructs a Queries whose underlying DBTX routes

@@ -10,15 +10,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,8 +27,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
@@ -48,32 +51,78 @@ type DeliveryStore interface {
 	GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
 }
 
+// SecretDecryptor decrypts webhook signing secrets that were stored encrypted
+// at rest. When STRAIT_ENCRYPTION_KEY is set, the API persists secrets as
+// AES-GCM ciphertext; the delivery worker must decrypt before computing the
+// outbound HMAC signature, otherwise subscribers cannot verify signatures.
+type SecretDecryptor interface {
+	Decrypt(ciphertext []byte) ([]byte, error)
+}
+
 const (
 	defaultDeliveryConcurrency    = 50
 	defaultWebhookMaxPayloadBytes = 1 << 20 // 1 MB
 	defaultMaxBatchSize           = 50
+	defaultDeliveryClaimLimit     = 100
+	defaultDeliveryClaimLease     = 2 * time.Minute
 	maxResponseBodyDrainBytes     = 1 << 20 // 1 MB — cap response body drain to prevent memory exhaustion
 )
+
+// webhookRand is a process-local PRNG used only for retry-backoff jitter.
+// It's seeded from crypto/rand to avoid the deterministic default seed in
+// math/rand/v2's NewPCG, which would make jitter predictable across pods.
+// We don't need cryptographic randomness here — just enough to break up
+// synchronized retry storms — so a non-blocking PCG is appropriate.
+//
+// math/rand/v2's *rand.Rand over PCG is not safe for concurrent use, so the
+// delivery worker dispatches retries from many goroutines in parallel; guard
+// access with webhookRandMu.
+var webhookRand = func() *rand.Rand {
+	var seed [16]byte
+	_, _ = cryptorand.Read(seed[:])
+	s1 := binary.LittleEndian.Uint64(seed[0:8])
+	s2 := binary.LittleEndian.Uint64(seed[8:16])
+	return rand.New(rand.NewPCG(s1, s2)) //nolint:gosec // jitter only; seeded from crypto/rand
+}()
+
+var webhookRandMu sync.Mutex
+var newDefaultDeliveryTransport = httputil.NewExternalTransport
+
+type webhookDeliveryClaimer interface {
+	ClaimPendingWebhookRetries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.WebhookDelivery, error)
+}
+
+type claimedWebhookDeliveryUpdater interface {
+	UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error)
+}
 
 type DeliveryWorker struct {
 	client *http.Client
 	store  DeliveryStore
 	logger *slog.Logger
 
-	concurrency        int
-	defaultRetryPolicy string
-	circuitBreaker     WebhookCircuitBreaker
-	metrics            *telemetry.Metrics
-	chExporter         *clickhouse.Exporter
-	maxPayloadBytes    int64
-	batchByURL         bool
-	maxBatchSize       int
-	stop               chan struct{}
-	done               chan struct{}
-	stopOnce           sync.Once
-	pollWG             sync.WaitGroup
-	pollInFlight       atomic.Int64
-	runStarted         atomic.Bool
+	concurrency           int
+	defaultRetryPolicy    string
+	circuitBreaker        WebhookCircuitBreaker
+	metrics               *telemetry.Metrics
+	chExporter            *clickhouse.Exporter
+	costRecorder          *billing.RunCostRecorder
+	secretDecryptor       SecretDecryptor
+	maxPayloadBytes       int64
+	batchByURL            bool
+	maxBatchSize          int
+	allowPrivateEndpoints bool
+	httpTimeout           time.Duration
+	httpIdleConnTimeout   time.Duration
+	httpMaxIdleConns      int
+	httpMaxIdleConnsHost  int
+	httpTransportTuned    bool
+	stop                  chan struct{}
+	done                  chan struct{}
+	stopOnce              sync.Once
+	pollWG                sync.WaitGroup
+	pollInFlight          atomic.Int64
+	runStarted            atomic.Bool
 }
 
 type EventNotifier = DeliveryWorker
@@ -115,6 +164,16 @@ func WithChExporter(exporter *clickhouse.Exporter) DeliveryWorkerOption {
 	}
 }
 
+// WithRunCostRecorder wires a billing cost recorder so that each successful
+// webhook delivery is recorded as a billable event (flat 20 micro-USD).
+// Failed deliveries that are retried and eventually succeed are billed once;
+// deliveries that never succeed are not billed.
+func WithRunCostRecorder(recorder *billing.RunCostRecorder) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.costRecorder = recorder
+	}
+}
+
 func WithMaxPayloadBytes(maxPayloadBytes int64) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
 		if maxPayloadBytes > 0 {
@@ -125,21 +184,28 @@ func WithMaxPayloadBytes(maxPayloadBytes int64) DeliveryWorkerOption {
 
 func WithHTTPTransport(timeout, idleConnTimeout time.Duration, maxIdleConns, maxIdleConnsPerHost int) DeliveryWorkerOption {
 	return func(w *DeliveryWorker) {
-		w.client = &http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-				TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
-				MaxIdleConns:        maxIdleConns,
-				MaxIdleConnsPerHost: maxIdleConnsPerHost,
-				IdleConnTimeout:     idleConnTimeout,
-				ForceAttemptHTTP2:   true,
-			},
-		}
+		w.httpTimeout = timeout
+		w.httpIdleConnTimeout = idleConnTimeout
+		w.httpMaxIdleConns = maxIdleConns
+		w.httpMaxIdleConnsHost = maxIdleConnsPerHost
+		w.httpTransportTuned = true
+		w.rebuildHTTPClient()
 	}
+}
+
+func WithAllowPrivateEndpoints(allow bool) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.allowPrivateEndpoints = allow
+		w.rebuildHTTPClient()
+	}
+}
+
+// noFollowRedirects refuses to follow HTTP redirects on outbound webhook
+// deliveries. Following 3xx without re-validating the destination IP would
+// allow a public webhook target to bounce the request to internal addresses
+// (cloud metadata, 10.x, 127.x) after the initial SSRF check has passed.
+func noFollowRedirects(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func WithBatchByURL(enabled bool) DeliveryWorkerOption {
@@ -156,12 +222,21 @@ func WithMaxBatchSize(n int) DeliveryWorkerOption {
 	}
 }
 
+// WithSecretDecryptor wires a decryptor for webhook signing secrets stored
+// encrypted at rest. Required when the API server is configured with a
+// STRAIT_ENCRYPTION_KEY so that the outbound HMAC is computed over the
+// plaintext secret subscribers know about, not the AES-GCM ciphertext.
+func WithSecretDecryptor(dec SecretDecryptor) DeliveryWorkerOption {
+	return func(w *DeliveryWorker) {
+		w.secretDecryptor = dec
+	}
+}
+
 func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	w := &DeliveryWorker{
-		client:             &http.Client{}, // Per-request timeout via context; see attemptDelivery.
 		store:              store,
 		logger:             logger,
 		concurrency:        defaultDeliveryConcurrency,
@@ -171,15 +246,64 @@ func NewDeliveryWorker(store DeliveryStore, logger *slog.Logger, opts ...Deliver
 		stop:               make(chan struct{}),
 		done:               make(chan struct{}),
 	}
+	w.rebuildHTTPClient()
 	for _, opt := range opts {
 		opt(w)
 	}
 	return w
 }
 
+func (n *DeliveryWorker) rebuildHTTPClient() {
+	// Per-request timeout via context; see attemptDelivery. Redirect following
+	// is disabled to keep the SSRF guard intact on every hop.
+	transport := newDefaultDeliveryTransport(n.allowPrivateEndpoints)
+	if n.httpTransportTuned {
+		transport = httputil.NewExternalTransport(n.allowPrivateEndpoints)
+	}
+	if n.httpIdleConnTimeout > 0 {
+		transport.IdleConnTimeout = n.httpIdleConnTimeout
+	}
+	if n.httpMaxIdleConns > 0 {
+		transport.MaxIdleConns = n.httpMaxIdleConns
+	}
+	if n.httpMaxIdleConnsHost > 0 {
+		transport.MaxIdleConnsPerHost = n.httpMaxIdleConnsHost
+	}
+	n.client = &http.Client{
+		Timeout:       n.httpTimeout,
+		Transport:     transport,
+		CheckRedirect: noFollowRedirects,
+	}
+}
+
 // NewEventNotifier creates a new event notifier.
 func NewEventNotifier(store DeliveryStore, logger *slog.Logger, opts ...DeliveryWorkerOption) *DeliveryWorker {
 	return NewDeliveryWorker(store, logger, opts...)
+}
+
+// maybeDecryptSecret attempts to decrypt a webhook signing secret if a
+// decryptor is wired. Returns the plaintext on success; returns the raw
+// value with a warning log if decryption fails or no decryptor is set
+// (the latter is the legitimate operating mode when STRAIT_ENCRYPTION_KEY
+// is not configured).
+func (n *DeliveryWorker) maybeDecryptSecret(deliveryID, kind, secret string) string {
+	if secret == "" || n.secretDecryptor == nil {
+		return secret
+	}
+	plain, err := n.secretDecryptor.Decrypt([]byte(secret))
+	if err != nil {
+		n.logger.Warn("failed to decrypt webhook signing secret; subscriber will not be able to verify signature",
+			"delivery_id", deliveryID, "secret_kind", kind, "error", err)
+		return secret
+	}
+	return string(plain)
+}
+
+// SetRunCostRecorder sets the billing cost recorder after construction.
+// This allows wiring the recorder when it is created after the worker
+// (e.g. main.go creates the worker before the billing store is initialised).
+func (n *DeliveryWorker) SetRunCostRecorder(recorder *billing.RunCostRecorder) {
+	n.costRecorder = recorder
 }
 
 // NotifyAsync persists a webhook delivery for the given trigger.
@@ -216,6 +340,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 		Attempts:       0,
 		MaxAttempts:    5,
 		NextRetryAt:    &now,
+		Payload:        payload,
 	}
 
 	// Store the payload as the last_error field temporarily — the worker reads
@@ -224,7 +349,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 	// We need to stash the payload somewhere. Since the existing schema doesn't
 	// have a payload column, we'll reconstruct it from the trigger in the worker.
 	// For now, store a marker so the worker can look up the trigger.
-	d.LastError = string(payload) // stash payload in last_error temporarily on creation
+	d.LastError = string(payload) // backward-compatible stash for older rows.
 
 	createCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -234,7 +359,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 	}
 
 	// Clear the last_error now that we've stored it (the worker will use it as payload).
-	n.logger.Info("webhook delivery enqueued", "delivery_id", d.ID, "trigger_id", trigger.ID, "url", trigger.NotifyURL)
+	n.logger.Info("webhook delivery enqueued", "delivery_id", d.ID, "trigger_id", trigger.ID, "url_host", extractDomain(trigger.NotifyURL))
 }
 
 func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *domain.JobRun) error {
@@ -261,15 +386,17 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 
 	now := time.Now()
 	d := &domain.WebhookDelivery{
-		RunID:       run.ID,
-		JobID:       run.JobID,
-		WebhookURL:  job.WebhookURL,
-		RetryPolicy: n.defaultRetryPolicy,
-		Status:      domain.WebhookStatusPending,
-		Attempts:    0,
-		MaxAttempts: 5,
-		NextRetryAt: &now,
-		LastError:   string(payload),
+		RunID:         run.ID,
+		JobID:         run.JobID,
+		WebhookURL:    job.WebhookURL,
+		WebhookSecret: job.WebhookSecret,
+		RetryPolicy:   n.defaultRetryPolicy,
+		Status:        domain.WebhookStatusPending,
+		Attempts:      0,
+		MaxAttempts:   5,
+		NextRetryAt:   &now,
+		Payload:       payload,
+		LastError:     string(payload),
 	}
 
 	if err := n.store.CreateWebhookDelivery(ctx, d); err != nil {
@@ -331,7 +458,7 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.ProcessBatch")
 	defer span.End()
 
-	deliveries, err := n.store.ListPendingWebhookRetries(ctx)
+	deliveries, err := n.claimPendingDeliveries(ctx)
 	if err != nil {
 		n.logger.Error("failed to list pending webhook deliveries", "error", err)
 		return
@@ -343,6 +470,13 @@ func (n *DeliveryWorker) processBatch(ctx context.Context) {
 	}
 
 	n.processBatched(ctx, deliveries)
+}
+
+func (n *DeliveryWorker) claimPendingDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error) {
+	if claimer, ok := n.store.(webhookDeliveryClaimer); ok {
+		return claimer.ClaimPendingWebhookRetries(ctx, defaultDeliveryClaimLimit, defaultDeliveryClaimLease)
+	}
+	return n.store.ListPendingWebhookRetries(ctx)
 }
 
 // processIndividual dispatches each delivery as a separate HTTP request.
@@ -366,18 +500,26 @@ func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain
 	groups := groupByURL(deliveries)
 
 	p := concpool.New().WithContext(ctx).WithMaxGoroutines(n.concurrency)
-	for url, group := range groups {
-		if len(group) == 1 {
-			delivery := group[0]
-			p.Go(func(ctx context.Context) error {
-				n.attemptDelivery(ctx, &delivery)
-				return nil
-			})
+	for _, group := range groups {
+		if len(group) == 1 || hasSignedDelivery(group) {
+			// Signed webhooks require per-delivery HMAC headers and replay keys,
+			// so they must stay on the individual delivery path. Batching is
+			// safe only for unsigned legacy run/event deliveries.
+			for i := range group {
+				delivery := group[i]
+				p.Go(func(ctx context.Context) error {
+					n.attemptDelivery(ctx, &delivery)
+					return nil
+				})
+			}
 			continue
 		}
 
+		// Within a group, all deliveries share the same (org_id, url) per
+		// groupByURL, so the first entry's URL is correct for the HTTP
+		// request and its OrgID is correct for circuit-breaker scoping.
+		batchURL := group[0].WebhookURL
 		for _, chunk := range chunkDeliveries(group, n.maxBatchSize) {
-			batchURL := url
 			p.Go(func(ctx context.Context) error {
 				n.attemptBatchDelivery(ctx, batchURL, chunk)
 				return nil
@@ -390,6 +532,15 @@ func (n *DeliveryWorker) processBatched(ctx context.Context, deliveries []domain
 	}
 }
 
+func hasSignedDelivery(deliveries []domain.WebhookDelivery) bool {
+	for i := range deliveries {
+		if deliveries[i].SubscriptionID != "" || deliveries[i].WebhookSecret != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // batchPayloadItem is a single entry in a batch webhook POST.
 type batchPayloadItem struct {
 	DeliveryID string          `json:"delivery_id"`
@@ -397,14 +548,12 @@ type batchPayloadItem struct {
 }
 
 // attemptBatchDelivery sends multiple deliveries to the same URL as a JSON array.
-//
-//nolint:funlen
 func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()
 
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptBatchDelivery", trace.WithAttributes(
-		attribute.String("webhook.url", webhookURL),
+		attribute.String("webhook.host", extractDomain(webhookURL)),
 		attribute.Int("batch.size", len(deliveries)),
 	))
 	defer span.End()
@@ -420,22 +569,8 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 		}
 	}()
 
-	// Circuit breaker check (once per batch, same URL).
-	if n.circuitBreaker != nil {
-		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, webhookURL)
-		if err != nil {
-			n.logger.Warn("webhook circuit breaker check failed", "url", webhookURL, "error", err)
-		} else if !canDeliver {
-			n.recordCircuitBreakerState(ctx, webhookURL, "open")
-			for i := range deliveries {
-				deliveries[i].Attempts++
-				n.recordFailure(ctx, &deliveries[i], now, true, "circuit breaker is open")
-			}
-			span.SetStatus(codes.Error, "circuit breaker is open")
-			return
-		} else {
-			n.recordCircuitBreakerState(ctx, webhookURL, "closed")
-		}
+	if blocked := n.checkBatchCircuitBreaker(ctx, webhookURL, deliveries, now, span); blocked {
+		return
 	}
 
 	// Extract payloads first, preserving them so we can restore on fallback.
@@ -462,7 +597,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	// Check aggregate payload size; fall back to individual delivery if too large.
 	if n.maxPayloadBytes > 0 && int64(len(batchBody)) > n.maxPayloadBytes {
 		n.logger.Warn("batch payload too large, falling back to individual delivery",
-			"url", webhookURL, "batch_size", len(deliveries), "payload_bytes", len(batchBody))
+			"url_host", extractDomain(webhookURL), "batch_size", len(deliveries), "payload_bytes", len(batchBody))
 		// Reset attempts and restore payloads; attemptDelivery will re-increment
 		// attempts and re-extract from LastError.
 		for i := range deliveries {
@@ -511,9 +646,9 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	resp, err := n.client.Do(req)
 	if err != nil {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, webhookURL)
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
 		}
-		errMsg := fmt.Sprintf("http request: %v", err)
+		errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
 		for i := range deliveries {
 			n.recordFailure(ctx, &deliveries[i], now, true, errMsg)
 		}
@@ -528,9 +663,45 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	statusCode := resp.StatusCode
 	span.SetAttributes(attribute.Int("status_code", statusCode))
 
+	if n.handleBatchResponseStatus(ctx, webhookURL, deliveries, now, statusCode, span) {
+		return
+	}
+
+	n.markBatchDelivered(ctx, webhookURL, deliveries, now, statusCode)
+	n.logger.Info("webhook batch delivered", "url_host", extractDomain(webhookURL), "batch_size", len(deliveries))
+}
+
+// checkBatchCircuitBreaker checks the circuit breaker for webhookURL and records failures
+// for all deliveries if the circuit is open. Returns true if the caller should return early.
+func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, span trace.Span) bool {
+	if n.circuitBreaker == nil {
+		return false
+	}
+	cbKey := breakerKey(batchOrgID(deliveries), webhookURL)
+	canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
+	if err != nil {
+		n.logger.Warn("webhook circuit breaker check failed", "url_host", extractDomain(webhookURL), "error", err)
+		return false
+	}
+	if !canDeliver {
+		n.recordCircuitBreakerState(ctx, webhookURL, "open")
+		for i := range deliveries {
+			deliveries[i].Attempts++
+			n.recordFailure(ctx, &deliveries[i], now, true, "circuit breaker is open")
+		}
+		span.SetStatus(codes.Error, "circuit breaker is open")
+		return true
+	}
+	n.recordCircuitBreakerState(ctx, webhookURL, "closed")
+	return false
+}
+
+// handleBatchResponseStatus processes non-2xx HTTP responses for a batch delivery.
+// Returns true if the caller should return early (error path).
+func (n *DeliveryWorker) handleBatchResponseStatus(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int, span trace.Span) bool {
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, webhookURL)
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
 		}
 		errMsg := fmt.Sprintf("server error: status %d", statusCode)
 		for i := range deliveries {
@@ -538,7 +709,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 			n.recordFailure(ctx, &deliveries[i], now, true, errMsg)
 		}
 		span.SetStatus(codes.Error, errMsg)
-		return
+		return true
 	}
 	if statusCode >= 400 {
 		errMsg := fmt.Sprintf("client error: status %d", statusCode)
@@ -547,33 +718,62 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 			n.recordFailure(ctx, &deliveries[i], now, false, errMsg)
 		}
 		span.SetStatus(codes.Error, errMsg)
-		return
+		return true
 	}
+	if statusCode >= 300 {
+		// 3xx: redirect. We deliberately do not follow redirects to defend
+		// against SSRF-via-redirect, so a 3xx is a configuration error on
+		// the receiver side and should not be treated as success.
+		errMsg := fmt.Sprintf("redirect not followed: status %d", statusCode)
+		for i := range deliveries {
+			deliveries[i].LastStatusCode = &statusCode
+			n.recordFailure(ctx, &deliveries[i], now, false, errMsg)
+		}
+		span.SetStatus(codes.Error, errMsg)
+		return true
+	}
+	return false
+}
 
-	// Success: mark all delivered.
+// markBatchDelivered records a successful batch delivery for all deliveries.
+func (n *DeliveryWorker) markBatchDelivered(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int) {
 	if n.circuitBreaker != nil {
-		n.circuitBreaker.RecordSuccess(ctx, webhookURL)
+		n.circuitBreaker.RecordSuccess(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
 	}
 	for i := range deliveries {
-		deliveries[i].Status = domain.WebhookStatusDelivered
-		deliveries[i].DeliveredAt = &now
-		deliveries[i].LastError = ""
-		deliveries[i].LastStatusCode = &statusCode
-		if err := n.store.UpdateWebhookDelivery(ctx, &deliveries[i]); err != nil {
-			n.logger.Error("failed to mark webhook delivered", "delivery_id", deliveries[i].ID, "error", err)
-		}
-		if n.metrics != nil {
-			n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
-				attribute.String("status", "delivered"),
-				attribute.String("retry_policy", n.retryPolicyForDelivery(&deliveries[i])),
-			))
-		}
-		if deliveries[i].EventTriggerID != "" {
-			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, deliveries[i].EventTriggerID, "sent")
+		n.markSingleDelivered(ctx, &deliveries[i], now, statusCode)
+	}
+}
+
+// markSingleDelivered persists a delivered status for one webhook delivery.
+func (n *DeliveryWorker) markSingleDelivered(ctx context.Context, d *domain.WebhookDelivery, now time.Time, statusCode int) {
+	d.Status = domain.WebhookStatusDelivered
+	d.DeliveredAt = &now
+	d.LastError = ""
+	d.LastStatusCode = &statusCode
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
+		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
+		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook delivered update after lost claim", "delivery_id", d.ID)
+		return
+	}
+	if n.costRecorder != nil && d.OrgID != "" && d.ProjectID != "" {
+		if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, d.OrgID, d.ProjectID, d.ID); err != nil {
+			n.logger.Warn("failed to record webhook delivery cost", "delivery_id", d.ID, "error", err)
 		}
 	}
-
-	n.logger.Info("webhook batch delivered", "url", webhookURL, "batch_size", len(deliveries))
+	if n.metrics != nil {
+		n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("status", "delivered"),
+			attribute.String("retry_policy", n.retryPolicyForDelivery(d)),
+		))
+	}
+	if d.EventTriggerID != "" {
+		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
+	}
 }
 
 // enqueueBatchDeliveryEvents emits a ClickHouse event for each delivery in a batch.
@@ -603,13 +803,39 @@ func extractPayload(d *domain.WebhookDelivery) json.RawMessage {
 	return fallback
 }
 
-// groupByURL groups deliveries by their webhook URL.
+// groupByURL groups deliveries by (org_id, webhook_url). Including the
+// org_id keeps cross-tenant deliveries to the same external URL out of the
+// same batch and out of the same circuit-breaker bucket — otherwise one
+// tenant's failing endpoint would silently trip the breaker for every other
+// tenant pointing at the same host.
 func groupByURL(deliveries []domain.WebhookDelivery) map[string][]domain.WebhookDelivery {
 	groups := make(map[string][]domain.WebhookDelivery, len(deliveries))
 	for i := range deliveries {
-		groups[deliveries[i].WebhookURL] = append(groups[deliveries[i].WebhookURL], deliveries[i])
+		key := breakerKey(deliveries[i].OrgID, deliveries[i].WebhookURL)
+		groups[key] = append(groups[key], deliveries[i])
 	}
 	return groups
+}
+
+// breakerKey composes a tenant-scoped key for circuit-breaker / batching
+// lookups. An empty orgID (only happens in tests / legacy rows) falls
+// back to the URL alone so behaviour matches pre-tenant-scoping code.
+func breakerKey(orgID, url string) string {
+	if orgID == "" {
+		return url
+	}
+	return orgID + "|" + url
+}
+
+// batchOrgID returns the OrgID shared by every delivery in a batch.
+// groupByURL guarantees homogeneity, so the first non-empty value wins.
+func batchOrgID(deliveries []domain.WebhookDelivery) string {
+	for i := range deliveries {
+		if deliveries[i].OrgID != "" {
+			return deliveries[i].OrgID
+		}
+	}
+	return ""
 }
 
 // chunkDeliveries splits a slice into chunks of at most size elements.
@@ -643,7 +869,7 @@ func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, duratio
 		DeliveryID:     d.ID,
 		RunID:          d.RunID,
 		JobID:          d.JobID,
-		ProjectID:      "", // WebhookDelivery does not carry project_id; left empty.
+		ProjectID:      d.ProjectID,
 		WebhookURL:     d.WebhookURL,
 		Status:         d.Status,
 		Attempts:       uint8(min(d.Attempts, 255)), //nolint:gosec // clamped to uint8 range
@@ -671,7 +897,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptDelivery", trace.WithAttributes(
 		attribute.String("delivery.id", d.ID),
-		attribute.String("webhook.url", d.WebhookURL),
+		attribute.String("webhook.host", extractDomain(d.WebhookURL)),
 		attribute.Int("attempt", d.Attempts),
 		attribute.Int("max_attempts", d.MaxAttempts),
 		attribute.Int("status_code", 0),
@@ -695,9 +921,10 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	}()
 
 	if n.circuitBreaker != nil {
-		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, d.WebhookURL)
+		cbKey := breakerKey(d.OrgID, d.WebhookURL)
+		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
 		if err != nil {
-			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url", d.WebhookURL, "error", err)
+			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "error", err)
 		} else if !canDeliver {
 			n.recordCircuitBreakerState(ctx, d.WebhookURL, "open")
 			n.recordFailure(ctx, d, now, true, "circuit breaker is open")
@@ -711,12 +938,13 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	// Reconstruct payload from last_error (where we stashed it on creation)
 	// or build a minimal payload from what we know.
 	var body []byte
-	if d.LastError != "" {
+	if len(d.Payload) > 0 {
+		body = d.Payload
+	} else if d.LastError != "" {
 		// Try to parse as JSON — if it is, it's our stashed payload.
 		var js json.RawMessage
 		if json.Unmarshal([]byte(d.LastError), &js) == nil {
 			body = []byte(d.LastError)
-			d.LastError = "" // clear so failed attempts use the error message
 		}
 	}
 	if len(body) == 0 {
@@ -767,43 +995,63 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
 	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
+	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
+	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
 
-	// Look up the subscription's HMAC secret up-front so we can both sign
-	// the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
-	// replay key is stable across retries of the same physical delivery
-	// row so subscribers can dedup independently of the attempt
-	// counter-based idempotency key; binding it to the secret prevents
-	// leaking raw internal delivery ids in the clear.
-	var subSecret, subPrevSecret string
+	// Look up or read the delivery's HMAC secret up-front so we can both
+	// sign the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
+	// replay key is stable across retries of the same physical delivery row
+	// so subscribers can dedup independently of the attempt counter-based
+	// idempotency key.
+	var signingSecret, subSecret, subPrevSecret string
 	var subGraceExpires *time.Time
 	if d.SubscriptionID != "" {
 		secret, prevSecret, graceExpires, lookupErr := n.store.GetWebhookSubscriptionSecrets(ctx, d.SubscriptionID)
 		if lookupErr != nil {
 			n.logger.Warn("failed to look up webhook signing secret", "delivery_id", d.ID, "subscription_id", d.SubscriptionID, "error", lookupErr)
 		} else {
-			subSecret = secret
-			subPrevSecret = prevSecret
+			// Secrets are stored encrypted when STRAIT_ENCRYPTION_KEY is set.
+			// HMAC must be computed over the plaintext that subscribers
+			// share, not the ciphertext. If decryption fails (corrupted
+			// row, key rotation gone wrong) we fall back to the raw value
+			// so signing still produces something non-empty, but log so
+			// an operator can investigate.
+			subSecret = n.maybeDecryptSecret(d.ID, "current", secret)
+			subPrevSecret = n.maybeDecryptSecret(d.ID, "previous", prevSecret)
 			subGraceExpires = graceExpires
 		}
+	} else if d.WebhookSecret != "" {
+		signingSecret = n.maybeDecryptSecret(d.ID, "job", d.WebhookSecret)
+	}
+	if d.SubscriptionID != "" && subSecret == "" {
+		errMsg := "webhook subscription signing secret unavailable"
+		n.recordFailure(ctx, d, now, true, errMsg)
+		span.SetStatus(codes.Error, errMsg)
+		return
+	}
+	if subSecret != "" {
+		signingSecret = subSecret
 	}
 
-	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(subSecret), d.ID))
+	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(signingSecret), d.ID))
 
-	if subSecret != "" {
-		sig := ComputeHMACSHA256(subSecret, body)
-		req.Header.Set("X-Webhook-Signature", "sha256="+sig)
+	if signingSecret != "" {
+		sig := ComputeTimestampedHMACSHA256(signingSecret, signatureTimestamp, body)
+		req.Header.Set("X-Strait-Signature", "v1="+sig)
+		req.Header.Set("X-Webhook-Signature", "v1="+sig)
 		if subPrevSecret != "" && subGraceExpires != nil && time.Now().Before(*subGraceExpires) {
-			oldSig := ComputeHMACSHA256(subPrevSecret, body)
-			req.Header.Set("X-Webhook-Signature-Old", "sha256="+oldSig)
+			oldSig := ComputeTimestampedHMACSHA256(subPrevSecret, signatureTimestamp, body)
+			req.Header.Set("X-Strait-Signature-Old", "v1="+oldSig)
+			req.Header.Set("X-Webhook-Signature-Old", "v1="+oldSig)
 		}
 	}
 
 	resp, err := n.client.Do(req)
 	if err != nil {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, d.WebhookURL)
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
 		}
-		errMsg := fmt.Sprintf("http request: %v", err)
+		errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
 		n.recordFailure(ctx, d, now, true, errMsg)
 		span.SetStatus(codes.Error, errMsg)
 		return
@@ -819,7 +1067,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, d.WebhookURL)
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
 		}
 		errMsg := fmt.Sprintf("server error: status %d", statusCode)
 		n.recordFailure(ctx, d, now, true, errMsg)
@@ -833,18 +1081,38 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		span.SetStatus(codes.Error, errMsg)
 		return
 	}
+	if statusCode >= 300 {
+		// 3xx: redirect. We deliberately do not follow redirects to defend
+		// against SSRF-via-redirect, so a 3xx is a configuration error on
+		// the receiver side and should not be treated as success.
+		errMsg := fmt.Sprintf("redirect not followed: status %d", statusCode)
+		n.recordFailure(ctx, d, now, false, errMsg)
+		span.SetStatus(codes.Error, errMsg)
+		return
+	}
 
 	// Success.
 	if n.circuitBreaker != nil {
-		n.circuitBreaker.RecordSuccess(ctx, d.WebhookURL)
+		n.circuitBreaker.RecordSuccess(ctx, breakerKey(d.OrgID, d.WebhookURL))
 	}
 	d.Status = domain.WebhookStatusDelivered
 	d.DeliveredAt = &now
 	d.LastError = ""
-	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
 		n.logger.Error("failed to mark webhook delivered", "delivery_id", d.ID, "error", err)
 		span.SetStatus(codes.Error, "failed to persist delivered webhook")
 		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook delivered update after lost claim", "delivery_id", d.ID)
+		span.SetStatus(codes.Error, "webhook delivery claim lost before success update")
+		return
+	}
+	if n.costRecorder != nil && d.OrgID != "" && d.ProjectID != "" {
+		if err := n.costRecorder.RecordWebhookDeliveryCost(ctx, d.OrgID, d.ProjectID, d.ID); err != nil {
+			n.logger.Warn("failed to record webhook delivery cost", "delivery_id", d.ID, "error", err)
+		}
 	}
 	if n.metrics != nil {
 		n.metrics.WebhookDeliveriesTotal.Add(ctx, 1, metric.WithAttributes(
@@ -855,7 +1123,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	if d.EventTriggerID != "" {
 		_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "sent")
 	}
-	n.logger.Info("webhook delivered", "delivery_id", d.ID, "url", d.WebhookURL, "attempt", d.Attempts)
+	n.logger.Info("webhook delivered", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "attempt", d.Attempts)
 }
 
 // recordFailure handles a failed delivery attempt. For retryable errors, schedules
@@ -893,14 +1161,20 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 			scope.SetFingerprint([]string{"webhook_dead_lettered"})
 			sentry.CaptureMessage(fmt.Sprintf("webhook delivery dead-lettered: %s", errMsg))
 		})
-		if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+		updated, err := n.updateWebhookDelivery(ctx, d)
+		if err != nil {
 			n.logger.Error("failed to dead-letter webhook", "delivery_id", d.ID, "error", err)
+			return
+		}
+		if !updated {
+			n.logger.Warn("skipped webhook dead-letter update after lost claim", "delivery_id", d.ID)
+			return
 		}
 		if d.EventTriggerID != "" {
 			_ = n.store.UpdateEventTriggerNotifyStatus(ctx, d.EventTriggerID, "failed")
 		}
 		n.logger.Error("webhook delivery dead-lettered",
-			"delivery_id", d.ID, "url", d.WebhookURL,
+			"delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL),
 			"attempts", d.Attempts, "max_attempts", d.MaxAttempts, "error", errMsg)
 		return
 	}
@@ -910,14 +1184,32 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 	d.NextRetryAt = &nextAttempt
 	d.Status = domain.WebhookStatusPending
 
-	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
 		n.logger.Error("failed to schedule webhook retry", "delivery_id", d.ID, "error", err)
+		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook retry update after lost claim", "delivery_id", d.ID)
+		return
 	}
 
 	n.logger.Warn("webhook delivery failed, scheduled retry",
-		"delivery_id", d.ID, "url", d.WebhookURL,
+		"delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL),
 		"attempt", d.Attempts, "max_attempts", d.MaxAttempts,
 		"next_attempt", nextAttempt, "error", errMsg)
+}
+
+func (n *DeliveryWorker) updateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error) {
+	if d.ClaimToken != "" {
+		if updater, ok := n.store.(claimedWebhookDeliveryUpdater); ok {
+			return updater.UpdateClaimedWebhookDelivery(ctx, d)
+		}
+	}
+	if err := n.store.UpdateWebhookDelivery(ctx, d); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url string, currentState string) {
@@ -932,10 +1224,25 @@ func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url stri
 			value = 1
 		}
 		n.metrics.WebhookCircuitBreaker.Record(ctx, value, metric.WithAttributes(
-			attribute.String("url", url),
+			attribute.String("url_host", extractDomain(url)),
 			attribute.String("state", state),
 		))
 	}
+}
+
+func sanitizeHTTPClientError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			var nested *url.Error
+			if errors.As(urlErr.Err, &nested) {
+				return sanitizeHTTPClientError(urlErr.Err)
+			}
+			return fmt.Sprintf("%s: %v", urlErr.Op, urlErr.Err)
+		}
+		return urlErr.Op
+	}
+	return err.Error()
 }
 
 // pow computes base^exp for small positive integers.
@@ -972,10 +1279,31 @@ func backoffForRetryPolicy(policy string, attempts int) time.Duration {
 	}
 
 	if backoff > 30*time.Minute {
-		return 30 * time.Minute
+		backoff = 30 * time.Minute
 	}
 
-	return backoff
+	// Decorrelated jitter (+/- 20%) prevents thundering-herd retries when a
+	// downstream goes down: without it, every failed delivery from the same
+	// poll cycle reschedules at identical timestamps and DDoSes the
+	// recovering endpoint in synchronized waves.
+	return jitterBackoff(backoff)
+}
+
+// jitterBackoff applies a uniform +/- 20% jitter to a backoff duration. The
+// fraction is intentionally bounded so the average stays at the configured
+// value while breaking up retry synchronization.
+func jitterBackoff(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	webhookRandMu.Lock()
+	jitter := webhookRand.Int64N(int64(d) / 5) // up to 20%
+	sign := webhookRand.Int64N(2)
+	webhookRandMu.Unlock()
+	if sign == 0 {
+		return d - time.Duration(jitter)
+	}
+	return d + time.Duration(jitter)
 }
 
 // EnqueueSubscriptionWebhooks creates webhook delivery records for all
@@ -991,13 +1319,16 @@ func (n *DeliveryWorker) EnqueueSubscriptionWebhooks(ctx context.Context, subs [
 
 		now := time.Now()
 		delivery := &domain.WebhookDelivery{
-			WebhookURL:  sub.WebhookURL,
-			RetryPolicy: n.defaultRetryPolicy,
-			Status:      domain.WebhookStatusPending,
-			Attempts:    0,
-			MaxAttempts: 3,
-			NextRetryAt: &now,
-			LastError:   string(payload),
+			SubscriptionID: sub.ID,
+			ProjectID:      sub.ProjectID,
+			WebhookURL:     sub.WebhookURL,
+			RetryPolicy:    n.defaultRetryPolicy,
+			Status:         domain.WebhookStatusPending,
+			Attempts:       0,
+			MaxAttempts:    3,
+			NextRetryAt:    &now,
+			Payload:        payload,
+			LastError:      string(payload),
 		}
 
 		if err := n.store.CreateWebhookDelivery(ctx, delivery); err != nil {
@@ -1065,11 +1396,9 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for
-// deliveries where no subscription secret is available — currently the
-// run-terminal webhook path in internal/worker/webhook.go, which fires
-// against a job-level URL and has no subscription row to bind against.
-// The returned key is stable across retries of the same underlying id
-// but is NOT HMAC-bound; subscribers must treat it as an opaque replay
+// deliveries where no subscription or job webhook secret is available.
+// The returned key is stable across retries of the same underlying id but
+// is NOT HMAC-bound; subscribers must treat it as an opaque replay
 // discriminator rather than a proof of origin.
 func ComputeReplayKeyUnsigned(id string) string {
 	if id == "" {

@@ -301,15 +301,8 @@ func TestOIDCVerify_NoExpiryRejected(t *testing.T) {
 		t.Fatalf("sign token: %v", err)
 	}
 
-	// golang-jwt/v5 does not reject missing exp by default, but the token
-	// should still be verifiable. This documents current behavior.
-	claims, err := v.verify(signed)
-	if err != nil {
-		// If rejected, that's a stricter (safer) behavior — acceptable
-		return
-	}
-	if claims.Subject != "user-no-exp" {
-		t.Errorf("subject = %q, want %q", claims.Subject, "user-no-exp")
+	if _, err := v.verify(signed); err == nil {
+		t.Fatal("expected token without exp to be rejected")
 	}
 }
 

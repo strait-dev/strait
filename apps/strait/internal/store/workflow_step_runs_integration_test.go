@@ -25,7 +25,7 @@ func TestListRunningStepRunsByWorkflowRun(t *testing.T) {
 	// Create a second step run in pending status.
 	pendingSR := testutil.BuildWorkflowStepRun(wfRun.ID, stepRun.WorkflowStepID, &testutil.WorkflowStepRunOpts{
 		Status:  testutil.Ptr(domain.StepPending),
-		StepRef: testutil.Ptr("pending-step"),
+		StepRef: new("pending-step"),
 	})
 	if err := q.CreateWorkflowStepRun(ctx, pendingSR); err != nil {
 		t.Fatalf("CreateWorkflowStepRun(pending) error = %v", err)
@@ -273,11 +273,11 @@ func TestListRunnableStepRunsByWorkflowRun(t *testing.T) {
 
 	projectID := "project-runnable-step-runs"
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: testutil.Ptr(projectID),
+		ProjectID: new(projectID),
 	})
-	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: testutil.Ptr(projectID)})
-	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: testutil.Ptr(stepJob.ID), StepRef: testutil.Ptr("runnable-step")})
-	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: testutil.Ptr(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: new(stepJob.ID), StepRef: new("runnable-step")})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 
 	// Create a step run with deps_completed == deps_required (runnable).
 	sr := &domain.WorkflowStepRun{

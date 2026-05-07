@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -37,41 +39,97 @@ func DeriveAuditSigningKey(secret string) ([]byte, error) {
 }
 
 // ComputeAuditSignature computes the HMAC-SHA256 signature for an audit event.
-// The canonical form is pipe-separated fields including the previous_hash,
-// ensuring any modification to any field invalidates the signature.
+// The canonical form includes the previous_hash, ensuring any modification
+// to any signed field invalidates the signature.
 //
-// The canonical form branches on SchemaVersion:
-//   - v1 (default): original form, 10 fields. Used by events written before
-//     the forensic-columns migration.
-//   - v2: extends v1 with RemoteIP, UserAgent, RequestID, TraceID,
-//     SchemaVersion. Used by new events after migration 000185.
+// The canonical form branches on SchemaVersion. All versions use
+// length-delimited fields so adjacent values containing separator bytes cannot
+// collide. v3 extends v2 with IsAnchor and RotationEpoch so forensic metadata
+// is HMAC-bound.
 //
 // Verify runs the same branching logic so both versions coexist in the same
 // chain without any bulk re-signing.
 func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	mac := hmac.New(sha256.New, key)
 	var canonical string
-	if ev.SchemaVersion >= 2 {
-		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d",
-			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
-			ev.Action, ev.ResourceType, ev.ResourceID,
-			string(ev.Details),
-			ev.CreatedAt.UTC().Format(time.RFC3339Nano),
-			ev.PreviousHash,
-			ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID,
-			ev.SchemaVersion,
-		)
+	if ev.SchemaVersion >= 3 {
+		canonical = auditSignatureCanonicalV3(ev)
+	} else if ev.SchemaVersion >= 2 {
+		canonical = auditSignatureCanonicalV2(ev)
 	} else {
-		canonical = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
-			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType,
-			ev.Action, ev.ResourceType, ev.ResourceID,
-			string(ev.Details),
-			ev.CreatedAt.UTC().Format(time.RFC3339Nano),
-			ev.PreviousHash,
-		)
+		canonical = auditSignatureCanonicalV1(ev)
 	}
 	mac.Write([]byte(canonical))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func auditSignatureCanonicalV1(ev *domain.AuditEvent) string {
+	return lengthDelimitedAuditCanonical("audit:v1\n", []string{
+		ev.ID,
+		ev.ProjectID,
+		ev.ActorID,
+		ev.ActorType,
+		ev.Action,
+		ev.ResourceType,
+		ev.ResourceID,
+		string(ev.Details),
+		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ev.PreviousHash,
+	})
+}
+
+func auditSignatureCanonicalV2(ev *domain.AuditEvent) string {
+	return lengthDelimitedAuditCanonical("audit:v2\n", []string{
+		ev.ID,
+		ev.ProjectID,
+		ev.ActorID,
+		ev.ActorType,
+		ev.Action,
+		ev.ResourceType,
+		ev.ResourceID,
+		string(ev.Details),
+		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ev.PreviousHash,
+		ev.RemoteIP,
+		ev.UserAgent,
+		ev.RequestID,
+		ev.TraceID,
+		strconv.FormatUint(uint64(ev.SchemaVersion), 10),
+	})
+}
+
+func auditSignatureCanonicalV3(ev *domain.AuditEvent) string {
+	return lengthDelimitedAuditCanonical("audit:v3\n", []string{
+		ev.ID,
+		ev.ProjectID,
+		ev.ActorID,
+		ev.ActorType,
+		ev.Action,
+		ev.ResourceType,
+		ev.ResourceID,
+		string(ev.Details),
+		ev.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ev.PreviousHash,
+		ev.RemoteIP,
+		ev.UserAgent,
+		ev.RequestID,
+		ev.TraceID,
+		strconv.FormatUint(uint64(ev.SchemaVersion), 10),
+		strconv.FormatBool(ev.IsAnchor),
+		strconv.Itoa(ev.RotationEpoch),
+	})
+}
+
+func lengthDelimitedAuditCanonical(prefix string, fields []string) string {
+	var b strings.Builder
+	b.WriteString(prefix)
+	for _, field := range fields {
+		b.WriteString(strconv.Itoa(len(field)))
+		b.WriteByte(':')
+		b.WriteString(field)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {
@@ -87,14 +145,6 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		details = json.RawMessage(`{}`)
 	}
 	ev.Details = details
-
-	// Use client-side timestamp so all fields are known for signature computation.
-	// Truncate to microseconds: Postgres TIMESTAMPTZ stores microsecond precision,
-	// so the signature must be computed from the same precision that will be read
-	// back by VerifyAuditChain. Without this, the nanosecond remainder in the Go
-	// time.Time gets truncated on the Postgres round-trip and the recomputed
-	// signature no longer matches.
-	ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 
 	// Default schema version for new events.
 	if ev.SchemaVersion == 0 {
@@ -114,6 +164,21 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	// inline when q is already tx-backed (e.g. called from rotation or
 	// from the retention tombstone path inside an outer transaction).
 	return q.withTxInheritKeys(ctx, func(tx *Queries) error {
+		if err := acquireProjectRotationLock(ctx, tx, ev.ProjectID); err != nil {
+			return fmt.Errorf("create audit event: rotation lock: %w", err)
+		}
+		if ev.RotationEpoch == 0 && !ev.IsAnchor {
+			var currentEpoch int
+			if err := tx.db.QueryRow(ctx, `
+				SELECT COALESCE(MAX(rotation_epoch), 0)
+				FROM audit_events
+				WHERE project_id = $1
+			`, ev.ProjectID).Scan(&currentEpoch); err != nil {
+				return fmt.Errorf("create audit event: read current epoch: %w", err)
+			}
+			ev.RotationEpoch = currentEpoch
+		}
+
 		// Chain lock. AdvisoryLockNsAuditChain namespaces the hash so it
 		// cannot collide with AdvisoryLockNsAuditRotate — both touch
 		// audit_events for the same project but serialize on their own
@@ -121,6 +186,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		if err := AcquireAdvisoryLock(ctx, tx, AdvisoryLockNsAuditChain, ev.ProjectID); err != nil {
 			return fmt.Errorf("create audit event: chain lock: %w", err)
 		}
+
+		// Assign the timestamp under the chain lock so chronological verifier
+		// order matches serialized insertion order even when concurrent writers
+		// waited on the same project lock.
+		ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 
 		// Read the tail signature under the lock so no concurrent writer
 		// can slip a row between this read and our insert.
@@ -229,6 +299,9 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	if stored != nil {
 		return stored, nil
 	}
+	if epoch != 0 {
+		return nil, fmt.Errorf("resolve signing key: no stored key for project %s epoch %d", projectID, epoch)
+	}
 	// Bootstrap: derive a per-(project, epoch) HMAC key from INTERNAL_SECRET
 	// and persist it as the stable per-epoch key. This guarantees that every
 	// project receives a cryptographically independent signing key even for
@@ -237,7 +310,7 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	// The global key remains only as the legacy fallback in VerifyAuditChain
 	// for chains written before per-epoch keys existed (epoch 0 with no row).
 	// Races are resolved by ON CONFLICT DO NOTHING followed by a re-read.
-	derivedKey, err := DeriveAuditSigningKeyForEpoch(q.secretEncryptionKey, projectID, epoch)
+	derivedKey, err := DeriveAuditSigningKeyForEpochFromRoot(q.auditSigningKey, projectID, epoch)
 	if err != nil {
 		return nil, fmt.Errorf("resolve signing key: derive: %w", err)
 	}
@@ -451,6 +524,7 @@ func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error
 	return WithTx(ctx, begin, func(txQ *Queries) error {
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
 		txQ.tombstoneInsertHook = q.tombstoneInsertHook
 		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
 		return fn(txQ)
@@ -471,6 +545,7 @@ func (q *Queries) withTxInheritKeysOptions(ctx context.Context, opts pgx.TxOptio
 	return WithTxOptions(ctx, begin, opts, func(txQ *Queries) error {
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
 		txQ.tombstoneInsertHook = q.tombstoneInsertHook
 		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
 		return fn(txQ)
@@ -543,10 +618,31 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		return fmt.Errorf("tombstone: read prev_hash: %w", err)
 	}
 
+	var firstSurvivingID, chainStart string
+	if err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(
+			(SELECT id FROM audit_events
+			 WHERE project_id = $1
+			 ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1),
+			''
+		),
+		COALESCE(
+			(SELECT previous_hash FROM audit_events
+			 WHERE project_id = $1
+			 ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1),
+			$2
+		)
+	`, projectID, ZeroHash).Scan(&firstSurvivingID, &chainStart); err != nil {
+		return fmt.Errorf("tombstone: read surviving head: %w", err)
+	}
+
 	details, err := json.Marshal(map[string]any{
-		"deleted_count":  deleted,
-		"trimmed_before": cutoff.UTC().Format(time.RFC3339),
-		"previous_hash":  prevHash,
+		"chain_start":              chainStart,
+		"deleted_count":            deleted,
+		"first_surviving_event_id": firstSurvivingID,
+		"surviving_tail_signature": prevHash,
+		"trimmed_before":           cutoff.UTC().Format(time.RFC3339),
+		"previous_hash":            prevHash,
 	})
 	if err != nil {
 		return fmt.Errorf("tombstone: marshal details: %w", err)
@@ -762,6 +858,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 
 	var expectedPrevHash string
 	first := true
+	retentionTombstoneJustifiesStart := false
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -774,6 +871,10 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			result.FirstEventID = ev.ID
 		}
 		result.LastEventID = ev.ID
+		if ev.Action == domain.AuditActionRetentionTrimmed && ev.IsAnchor {
+			retentionTombstoneJustifiesStart = retentionTombstoneJustifiesStart ||
+				auditRetentionTombstoneJustifiesStart(ev, result.FirstEventID, result.ChainStart)
+		}
 
 		if first {
 			expectedPrevHash = ev.PreviousHash
@@ -792,10 +893,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		if keyErr != nil {
 			return nil, keyErr
 		}
-		expected := ComputeAuditSignature(&ev, key)
-		// Constant-time comparison to avoid leaking the HMAC digest via a
-		// byte-wise early-return timing side channel.
-		if !hmac.Equal([]byte(ev.Signature), []byte(expected)) {
+		if !q.auditSignatureMatchesEpoch(&ev, key) {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
 			result.Error = fmt.Sprintf("signature mismatch at event %s: event may have been tampered with", ev.ID)
@@ -808,8 +906,45 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("verify audit chain rows: %w", err)
 	}
+	if result.EventsChecked > 0 && result.ChainStart != ZeroHash && !retentionTombstoneJustifiesStart {
+		result.Valid = false
+		result.BrokenAtID = result.FirstEventID
+		result.Error = fmt.Sprintf("chain starts from non-zero previous_hash %s without a matching signed retention tombstone", result.ChainStart)
+	}
 
 	return result, nil
+}
+
+func (q *Queries) auditSignatureMatchesEpoch(ev *domain.AuditEvent, key []byte) bool {
+	expected := ComputeAuditSignature(ev, key)
+	// Constant-time comparison to avoid leaking the HMAC digest via a
+	// byte-wise early-return timing side channel.
+	if hmac.Equal([]byte(ev.Signature), []byte(expected)) {
+		return true
+	}
+	if ev.RotationEpoch != 0 || q.auditSigningKey == nil {
+		return false
+	}
+	// Legacy epoch-0 rows created before per-project audit_signing_keys
+	// existed were signed with q.auditSigningKey. A later bootstrap row for
+	// epoch 0 must not invalidate those historical rows; mixed epoch-0 chains
+	// can contain legacy rows followed by newly bootstrapped per-project rows.
+	legacyExpected := ComputeAuditSignature(ev, q.auditSigningKey)
+	return hmac.Equal([]byte(ev.Signature), []byte(legacyExpected))
+}
+
+func auditRetentionTombstoneJustifiesStart(ev domain.AuditEvent, firstEventID, chainStart string) bool {
+	if firstEventID == "" || chainStart == "" {
+		return false
+	}
+	var details struct {
+		ChainStart            string `json:"chain_start"`
+		FirstSurvivingEventID string `json:"first_surviving_event_id"`
+	}
+	if err := json.Unmarshal(ev.Details, &details); err != nil {
+		return false
+	}
+	return details.ChainStart == chainStart && details.FirstSurvivingEventID == firstEventID
 }
 
 // preloadEpochKeys fetches all distinct rotation epochs for a project
@@ -854,6 +989,9 @@ func (q *Queries) keyForEpoch(cache map[int][]byte, epoch int) ([]byte, error) {
 	if k, ok := cache[epoch]; ok {
 		if k != nil {
 			return k, nil
+		}
+		if epoch != 0 {
+			return nil, fmt.Errorf("verify audit chain: no stored key for epoch %d", epoch)
 		}
 		return q.auditSigningKey, nil
 	}

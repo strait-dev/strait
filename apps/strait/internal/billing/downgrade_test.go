@@ -169,6 +169,9 @@ func TestPreviewDowngrade_IncludesRegions(t *testing.T) {
 }
 
 func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
+	// HTTP mode is available on all tiers; downgrading between any two tiers
+	// does not remove HTTP mode access. The http_mode_jobs impact is therefore
+	// never emitted regardless of the source/target tier combination.
 	store := &mockDowngradeStore{
 		mockBillingStore: mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
@@ -184,23 +187,10 @@ func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var found bool
 	for _, imp := range impact.Impacts {
 		if imp.Resource == "http_mode_jobs" {
-			found = true
-			if imp.Current != 3 {
-				t.Errorf("http_mode_jobs.Current = %d, want 3", imp.Current)
-			}
-			if imp.Limit != 0 {
-				t.Errorf("http_mode_jobs.Limit = %d, want 0", imp.Limit)
-			}
-			if imp.Action != ResourceActionRemove {
-				t.Errorf("http_mode_jobs.Action = %s, want remove", imp.Action)
-			}
+			t.Error("unexpected http_mode_jobs impact: HTTP mode is available on all tiers")
 		}
-	}
-	if !found {
-		t.Error("expected http_mode_jobs impact when downgrading from pro to free")
 	}
 }
 

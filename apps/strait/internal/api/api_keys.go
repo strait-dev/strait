@@ -57,41 +57,37 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if err := requireAPIKeyCreationScope(ctx, req); err != nil {
+		return nil, err
+	}
 	rawKey, err := generateAPIKey()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	if req.Scopes == nil {
-		req.Scopes = []string{}
+	if len(req.Scopes) == 0 {
+		return nil, huma.Error400BadRequest("scopes must contain at least one explicit permission")
 	}
-	if len(req.Scopes) > 0 {
-		if err := domain.ValidateScopes(req.Scopes); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		// Prevent scope escalation: the caller cannot create a key with
-		// scopes broader than their own effective permissions.
-		if err := s.validateCallerCanGrantPermissions(ctx, req.Scopes); err != nil {
-			return nil, err
-		}
+	if err := domain.ValidateScopes(req.Scopes); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
+	// Prevent scope escalation: the caller cannot create a key with
+	// scopes broader than their own effective permissions.
+	if err := s.validateCallerCanGrantPermissions(ctx, req.Scopes); err != nil {
+		return nil, err
+	}
+	if req.ExpiresIn != nil && *req.ExpiresIn <= 0 {
+		return nil, huma.Error400BadRequest("expires_in_days must be greater than 0")
+	}
+
 	var expiresAt *time.Time
-	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
+	if req.ExpiresIn != nil {
 		t := time.Now().Add(time.Duration(*req.ExpiresIn) * 24 * time.Hour)
 		expiresAt = &t
 	}
 
-	// Enforce project-level max key lifetime if configured.
-	quota, _ := s.store.GetProjectQuota(ctx, req.ProjectID)
-	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
-		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
-		if expiresAt == nil {
-			expiresAt = &maxExpiry
-			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
-				"project_id", req.ProjectID, "max_days", quota.MaxKeyLifetimeDays)
-		} else if expiresAt.After(maxExpiry) {
-			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
-		}
+	expiresAt, err = s.apiKeyExpiryFromProjectPolicy(ctx, req.ProjectID, expiresAt)
+	if err != nil {
+		return nil, err
 	}
 
 	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
@@ -102,10 +98,6 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
-	if expiresAt == nil {
-		slog.Warn("api key created without expiration; consider setting expires_in_days for security",
-			"key_id", key.ID, "project_id", key.ProjectID, "actor", actorFromContext(ctx))
-	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
 		"name":                   key.Name,
 		"key_prefix":             key.KeyPrefix,
@@ -115,6 +107,31 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		"rotation_interval_days": req.RotationIntervalDays,
 	})
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
+}
+
+func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {
+	expiresAt := requested
+	quota, err := s.store.GetProjectQuota(ctx, projectID)
+	if err != nil {
+		slog.Warn("failed to load project quota while creating api key",
+			"project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load project quota")
+	}
+	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
+		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
+		if expiresAt == nil {
+			expiresAt = &maxExpiry
+			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
+				"project_id", projectID, "max_days", quota.MaxKeyLifetimeDays)
+		} else if expiresAt.After(maxExpiry) {
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
+		}
+	}
+	if expiresAt == nil {
+		return nil, huma.Error400BadRequest("expires_in_days is required when project max_key_lifetime_days is not configured")
+	}
+	return expiresAt, nil
 }
 
 type ListAPIKeysInput struct {
@@ -131,6 +148,14 @@ func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput)
 	}
 	var keys []domain.APIKey
 	if input.OrgID != "" {
+		if err := requireOrgAPIKeyListAccess(ctx, input.OrgID); err != nil {
+			return nil, err
+		}
+		restoreRLS, rlsErr := s.useOrgWideAPIKeyListContext(ctx)
+		if rlsErr != nil {
+			return nil, huma.Error500InternalServerError("failed to initialize org api key list context")
+		}
+		defer restoreRLS()
 		keys, err = s.store.ListAPIKeysByOrg(ctx, input.OrgID, limit+1, cursor)
 	} else {
 		projectID := projectIDFromContext(ctx)
@@ -142,6 +167,7 @@ func (s *Server) handleListAPIKeys(ctx context.Context, input *ListAPIKeysInput)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list api keys")
 	}
+	keys = filterAPIKeysForEnvironment(ctx, keys)
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyListRead, "api_key", "", map[string]any{
 		"count":  len(keys),
 		"org_id": input.OrgID,
@@ -182,6 +208,7 @@ func (s *Server) handleListExpiringKeys(ctx context.Context, input *ListExpiring
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list expiring keys")
 	}
+	keys = filterAPIKeysForEnvironment(ctx, keys)
 
 	now := time.Now()
 	result := make([]ExpiringKeyInfo, 0, len(keys))
@@ -212,16 +239,41 @@ type RevokeAPIKeyOutput struct{ Body map[string]string }
 func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
 	key, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
 	if err != nil || key == nil {
-		return nil, huma.Error404NotFound("api key not found or already revoked")
+		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("api key not found or already revoked")
+		return nil, huma.Error404NotFound("api key not found")
 	}
-	if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
-		return nil, huma.Error404NotFound("api key not found or already revoked")
+	if err := requireEnvironmentMatch(ctx, key.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("api key not found")
 	}
-	slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
-	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
+	if s.config != nil && s.config.GRPCEnabled && s.pubsub == nil {
+		return nil, huma.Error503ServiceUnavailable("api key revocation unavailable: pubsub not configured")
+	}
+	alreadyRevoked := key.RevokedAt != nil
+	if !alreadyRevoked {
+		if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
+			return nil, huma.Error404NotFound("api key not found or already revoked")
+		}
+		slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
+		s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
+	}
+
+	// Broadcast revocation to all gRPC replicas so any worker streams authenticated
+	// with this key are closed immediately.
+	if s.pubsub != nil {
+		revokeChannel := fmt.Sprintf("apikey:revoked:%s", input.KeyID)
+		if pubErr := s.pubsub.Publish(ctx, revokeChannel, []byte(input.KeyID)); pubErr != nil {
+			slog.Error("api key revoke: broadcast publish failed",
+				"key_id", input.KeyID,
+				"error", pubErr,
+			)
+			if s.config != nil && s.config.GRPCEnabled {
+				return nil, huma.Error503ServiceUnavailable("api key revoked but active worker stream broadcast failed")
+			}
+		}
+	}
+
 	return &RevokeAPIKeyOutput{Body: map[string]string{"status": "revoked"}}, nil
 }
 
@@ -246,6 +298,12 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err := requireProjectMatch(ctx, oldKey.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
+	if err := requireEnvironmentMatch(ctx, oldKey.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, apiKeyScopesForGrant(oldKey.Scopes)); err != nil {
+		return nil, err
+	}
 	if oldKey.RevokedAt != nil {
 		return nil, huma.Error409Conflict("api key is already revoked")
 	}
@@ -253,7 +311,7 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL}
+	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
@@ -263,8 +321,82 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	}
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
 	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
+		if newKey.ID != "" {
+			if revokeErr := s.store.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				slog.Error("api key rotation cleanup failed",
+					"old_key_id", oldKey.ID,
+					"new_key_id", newKey.ID,
+					"error", revokeErr,
+				)
+			}
+		}
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
 	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
+}
+
+func requireAPIKeyCreationScope(ctx context.Context, req CreateAPIKeyRequest) error {
+	if callerEnv := environmentIDFromContext(ctx); callerEnv != "" && req.EnvironmentID != callerEnv {
+		return huma.Error404NotFound("environment not found")
+	}
+	if req.OrgID == "" || isInternalCaller(ctx) {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != req.OrgID {
+		return huma.Error403Forbidden("org_id does not match authenticated organization")
+	}
+	return nil
+}
+
+func requireOrgAPIKeyListAccess(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		return nil
+	}
+	if isInternalCaller(ctx) {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
+		return huma.Error403Forbidden("org_id does not match authenticated organization")
+	}
+	return nil
+}
+
+func (s *Server) useOrgWideAPIKeyListContext(ctx context.Context) (func(), error) {
+	setter, ok := s.store.(ProjectContextSetter)
+	if !ok {
+		return func() {}, nil
+	}
+	projectID := projectIDFromContext(ctx)
+	if err := setter.ClearProjectContext(ctx); err != nil {
+		return nil, err
+	}
+	return func() {
+		if projectID != "" {
+			if err := setter.SetProjectContext(ctx, projectID); err != nil {
+				slog.Warn("failed to restore project RLS context after org api key list", "project_id", projectID, "error", err)
+			}
+		}
+	}, nil
+}
+
+func filterAPIKeysForEnvironment(ctx context.Context, keys []domain.APIKey) []domain.APIKey {
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv == "" {
+		return keys
+	}
+	filtered := keys[:0]
+	for _, key := range keys {
+		if key.EnvironmentID == callerEnv {
+			filtered = append(filtered, key)
+		}
+	}
+	return filtered
+}
+
+func apiKeyScopesForGrant(scopes []string) []string {
+	if len(scopes) == 0 {
+		return []string{domain.ScopeAll}
+	}
+	return scopes
 }

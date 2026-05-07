@@ -1,93 +1,40 @@
 ---
 title: "Introduction"
-description: "Open-source job orchestration for background jobs and workflows. One binary, one database, zero message brokers."
+description: "Open-source job orchestration for background jobs and workflows. One binary, one database, no message broker."
 icon: "book-open"
 og:image: "/images/og.png"
 ---
 
-## What is Strait?
+## What is Strait
 
-Strait is an open-source platform that runs your background jobs and orchestrates multi-step workflows. You define what needs to happen. Strait handles the retries, scheduling, dependencies, and monitoring.
+Strait runs your background jobs and orchestrates multi-step workflows. You define the jobs; it handles queuing, retries, scheduling, dependencies, and monitoring.
 
-One Go binary. PostgreSQL for state and queuing. Redis for real-time updates. No RabbitMQ. No SQS. Just deploy and start running jobs.
+One Go binary. PostgreSQL for state and the queue. Redis for live updates. No RabbitMQ, no SQS, no Kafka.
 
-## Why teams switch to Strait
+## Why teams switch
 
-Most teams start with a simple queue and a retry loop. Then they need scheduling. Then workflow dependencies. Then approval gates. Then cost tracking for expensive API calls. Before long, they're maintaining five different systems that don't talk to each other.
+Most teams start with a queue and a retry loop. Then they need scheduling. Then dependencies between jobs. Then approval gates, then cost limits on expensive API calls. Six months later they're maintaining five systems that don't talk to each other.
 
-Strait replaces that patchwork with one system:
+Strait collapses that into one service:
 
-- **Jobs fail predictably.** Every run follows a clear lifecycle from queued to completed (or failed). Retries use exponential backoff, fixed delays, or custom sequences. Exhausted runs go to a review queue so you can inspect and replay them.
-- **Workflows handle complex dependencies.** Define step dependencies, approval gates, sub-workflows, event waits, and sleep delays. Strait validates the graph before running it.
-- **Everything is observable.** You see exactly where every run is, why it failed, how long it took, and what it cost. Real-time streaming, not polling.
-- **Five SDKs, same architecture.** TypeScript, Python, Go, Ruby, and Rust. Pick your language, define your jobs, run them anywhere.
-- **Self-host or use managed.** Deploy on your infrastructure with just PostgreSQL, or use the managed platform at [app.strait.dev](https://app.strait.dev).
+- Every run has a clear lifecycle — `queued` to `executing` to `completed` or `failed`. Retries use exponential, linear, fixed, or custom delays with jitter. Runs that exhaust their retries land in a review queue you can inspect and replay.
+- Workflows handle dependencies, conditional branches, approval gates, sub-workflows, and durable event waits. The graph is validated before it runs.
+- Live observability is built in: where each run is, why it failed, how long it took, what it cost. Streamed over SSE, not polled.
+- Five SDKs with full feature parity: TypeScript, Python, Go, Ruby, Rust.
+- Self-host with PostgreSQL and Redis, or use the hosted version at [app.strait.dev](https://app.strait.dev). Same API either way.
 
-## Key Capabilities
+## What you can build with it
 
-<CardGroup cols={2}>
-  <Card title="Job Lifecycle" icon="engine">
-    Every run moves through a clear set of states — queued, executing, completed, failed, timed out, or sent to the review queue — so you always know where things stand.
-  </Card>
-  <Card title="Workflow Dependencies" icon="diagram-project">
-    Define steps that run in parallel or sequentially, with conditions, data passing between steps, human approval gates, and durable event waits.
-  </Card>
-  <Card title="Smart Retry" icon="rotate">
-    Exponential, linear, fixed, or custom per-attempt delays with jitter to prevent all jobs retrying at the same time. Retries transient failures automatically.
-  </Card>
-  <Card title="Cost Budgets" icon="money-bill">
-    Track costs with micro-USD precision. Enforce per-run and daily project limits to control spend on any job that calls paid APIs.
-  </Card>
-  <Card title="Event Triggers" icon="bell">
-    Pause execution and wait for external events — approvals, webhooks, third-party callbacks — for days or weeks without holding resources. Durable, database-backed waits with timeout support.
-  </Card>
-  <Card title="Real-Time Updates" icon="zap">
-    Your applications react instantly when jobs, workflows, or runs change — no polling required. See [Real-Time Streaming](/concepts/real-time).
-  </Card>
-</CardGroup>
+- **Background jobs** — scheduled imports, report generation, cache warming, cleanup, recurring maintenance.
+- **Webhook consumers** — durable processing of events from external services with retries and a review queue for anything that exhausts its attempts.
+- **Cost-aware AI pipelines** — multi-step workflows with per-run and per-project spend limits, approval gates, and conditional branches. Tracks cost in micro-USD.
+- **Bulk operations** — trigger jobs in batches with priority ordering and idempotency deduplication.
+- **ETL** — DAG workflows with parallel steps and template-driven data flow between stages.
+- **Cron** — five-field expressions with timezone support and execution windows.
 
-For how Strait works internally, see [Architecture](/architecture).
+## Read next
 
-## Use Cases
-
-Strait fits these patterns:
-
-**Background Jobs**: Scheduled data imports, report generation, cache warming, cleanup tasks, and recurring maintenance operations.
-
-**Webhook Consumers**: Process events from external services with retries and delivery guarantees. Failed deliveries go to a review queue so nothing is silently lost.
-
-**Cost-Tracked Pipelines**: Multi-step pipelines with human approval gates, conditional execution, cost tracking per run and per project, and sub-workflow nesting. Use for any workload where you need to control spend.
-
-**Batch Processing**: Bulk job triggering with configurable batch sizes, priority ordering, and idempotency deduplication.
-
-**Data Pipelines**: ETL workflows with parallel steps, transform stages, and aggregation.
-
-**Cron Jobs**: Standard 5-field cron expressions with timezone support and execution windows.
-
-## Getting Started
-
-Not sure whether to use cloud or self-host? See [Choose Your Path](/choose-your-path).
-
-<CardGroup cols={2}>
-  <Card title="Quick Start" icon="bolt" href="/quickstart">
-    Get Strait running in minutes. Clone repository, start infrastructure with Docker Compose, and trigger your first job.
-  </Card>
-  <Card title="Architecture" icon="sitemap" href="/architecture">
-    Understand how Strait works — the queue, run lifecycle, workflow engine, and deployment modes.
-  </Card>
-</CardGroup>
-
-<CardGroup cols={2}>
-  <Card title="SDK Reference" icon="code" href="/sdks/overview">
-    Official SDKs for TypeScript, Python, Go, Ruby, and Rust with full feature parity. Authoring DSL, composition helpers, and typed errors.
-  </Card>
-  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
-    Complete CLI documentation. 48+ commands organized by category with examples and shell completion.
-  </Card>
-</CardGroup>
-
-<CardGroup cols={2}>
-  <Card title="API Reference" icon="api" href="/api-reference/overview">
-    REST API endpoints for job management, triggering, workflow orchestration, and SDK interactions.
-  </Card>
-</CardGroup>
+- [Quick Start](/quickstart) — clone the repo, boot the stack with Docker Compose, trigger your first run.
+- [Architecture](/architecture) — how the queue, run lifecycle, and workflow engine fit together.
+- [Choose Your Path](/choose-your-path) — when self-host makes sense and when cloud does.
+- [SDK Reference](/sdks/overview), [CLI Reference](/cli/overview), [API Reference](/api-reference/overview).

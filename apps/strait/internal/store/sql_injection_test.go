@@ -204,7 +204,7 @@ func TestUpdateRunStatus_AllowlistAcceptsAllKnown(t *testing.T) {
 		"triggered_by", "scheduled_at", "started_at", "finished_at",
 		"heartbeat_at", "next_retry_at", "expires_at", "execution_trace",
 		"workflow_step_run_id", "debug_mode", "continuation_of",
-		"lineage_depth", "priority", "metadata", "machine_id",
+		"lineage_depth", "priority", "metadata",
 	}
 	for _, col := range knownCols {
 		t.Run(col, func(t *testing.T) {

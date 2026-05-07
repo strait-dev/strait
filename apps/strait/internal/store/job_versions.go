@@ -20,9 +20,8 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 
 	query := `
 		INSERT INTO job_versions (id, job_id, version, version_id, backwards_compatible, name, slug, description, cron, payload_schema,
-			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs,
-			machine_preset, image_uri, region)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+			tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, webhook_url, webhook_secret, run_ttl_secs)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING created_at`
 
 	var desc, cronStr, webhookURL, webhookSecret *string
@@ -56,7 +55,6 @@ func (q *Queries) CreateJobVersion(ctx context.Context, v *domain.JobVersion) er
 		v.ID, v.JobID, v.Version, dbscan.NilIfEmptyString(v.VersionID), v.BackwardsCompatible,
 		v.Name, v.Slug, desc, cronStr, payloadSchema,
 		tagsJSON, v.EndpointURL, dbscan.NilIfEmptyString(v.FallbackEndpointURL), v.MaxAttempts, v.TimeoutSecs, webhookURL, webhookSecret, runTTL,
-		v.MachinePreset, v.ImageURI, v.Region,
 	).Scan(&v.CreatedAt)
 }
 
@@ -159,10 +157,8 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       j.batch_window_secs,
 		       j.batch_max_size,
 		       j.execution_mode,
-		       COALESCE(NULLIF(jv.machine_preset, ''), j.machine_preset),
-		       COALESCE(NULLIF(jv.image_uri, ''), j.image_uri),
-		       COALESCE(NULLIF(jv.region, ''), j.region),
 		       j.preferred_regions,
+		       j.queue_name,
 		       j.on_complete_trigger_workflow,
 		       j.on_complete_trigger_job,
 		       j.on_complete_payload_mapping,
@@ -171,7 +167,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       j.on_failure_payload_mapping,
 		       j.max_tokens_per_run, j.max_tool_calls_per_run, j.max_iterations_per_run, j.allowed_tools, j.blocked_tools,
 		       j.paused, j.paused_at, j.pause_reason,
-		       j.source_type, j.active_deployment_id, j.rollback_source_deployment_id
+		       j.endpoint_signing_secret
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id
 		WHERE jv.job_id = $1 AND jv.version = $2`

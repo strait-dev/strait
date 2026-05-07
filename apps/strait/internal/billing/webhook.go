@@ -24,6 +24,8 @@ import (
 var (
 	ErrInvalidSignature = errors.New("invalid webhook signature")
 	ErrUnknownPrice     = errors.New("unknown stripe price ID")
+
+	errUnboundStripeObject = errors.New("stripe object is not bound to an organization")
 )
 
 // AuditStore is the subset of store operations needed for audit logging.
@@ -34,6 +36,22 @@ type AuditStore interface {
 // WelcomeEmailFunc sends a welcome email to a new paid subscriber.
 // The email should mention spending limits and link to billing settings.
 type WelcomeEmailFunc func(ctx context.Context, orgID string, planTier domain.PlanTier, customerEmail string) error
+
+type webhookProcessingStore interface {
+	ClaimWebhookForProcessing(ctx context.Context, msgID string, staleAfter time.Duration) (bool, error)
+	MarkWebhookProcessed(ctx context.Context, msgID string) error
+	ReleaseWebhookClaim(ctx context.Context, msgID string) error
+}
+
+type webhookProcessingStatusStore interface {
+	GetWebhookProcessingStatus(ctx context.Context, msgID string) (string, error)
+}
+
+type webhookClaimState struct {
+	eventID         string
+	claimed         bool
+	processingStore webhookProcessingStore
+}
 
 // WebhookHandler handles incoming Stripe webhook events.
 type WebhookHandler struct {
@@ -49,6 +67,7 @@ type WebhookHandler struct {
 	billingEmails     *BillingEmailSender
 	edition           string
 	devBypassSigCheck bool
+	allowTestMetadata bool
 	replayCache       sync.Map // eventID -> int64 (unix nanos), prevents replay within 10 minutes
 }
 
@@ -84,7 +103,10 @@ func WithEdition(edition string) WebhookOption {
 // This must only be enabled when the STRIPE_WEBHOOK_ALLOW_UNSIGNED env var is explicitly
 // set to "true". Production deployments must never enable this option.
 func WithDevBypassSignatureCheck() WebhookOption {
-	return func(h *WebhookHandler) { h.devBypassSigCheck = true }
+	return func(h *WebhookHandler) {
+		h.devBypassSigCheck = true
+		h.allowTestMetadata = true
+	}
 }
 
 var (
@@ -92,6 +114,8 @@ var (
 	errEmptyPriceID        = errors.New("price ID is empty")
 	errEmptyCustomerID     = errors.New("customer ID is empty")
 )
+
+const webhookProcessingClaimStaleAfter = 10 * time.Minute
 
 // validateStripeSubscription checks that required fields are present on a Stripe subscription.
 func validateStripeSubscription(sub *stripe.Subscription) error {
@@ -243,57 +267,26 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Deduplicate webhook deliveries by event ID to prevent replay attacks.
 	eventID := event.ID
-	if eventID != "" {
-		now := time.Now().UnixNano()
-		if prev, loaded := h.replayCache.LoadOrStore(eventID, now); loaded {
-			prevTime := prev.(int64)
-			if time.Duration(now-prevTime) < 10*time.Minute {
-				h.logger.Warn("duplicate stripe event ID", "event_id", eventID)
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			h.replayCache.Store(eventID, now)
-		}
-
-		// DB-level idempotency check (survives server restarts).
-		processed, dbErr := h.store.IsWebhookProcessed(r.Context(), eventID)
-		if dbErr == nil && processed {
-			h.logger.Info("webhook already processed (DB)", "event_id", eventID)
-			w.WriteHeader(http.StatusOK)
+	claim, duplicate, claimErr := h.claimWebhookForProcessing(r.Context(), eventID)
+	if claimErr != nil {
+		if errors.Is(claimErr, errWebhookAlreadyProcessing) {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "webhook already processing", http.StatusServiceUnavailable)
 			return
 		}
+		http.Error(w, "webhook idempotency unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if duplicate {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
-	ctx := r.Context()
-	switch event.Type {
-	case stripe.EventTypeCustomerSubscriptionCreated:
-		err = h.handleSubscriptionCreated(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionUpdated:
-		err = h.handleSubscriptionUpdated(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionDeleted:
-		err = h.handleSubscriptionDeleted(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoicePaid:
-		err = h.handlePaymentSucceeded(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoicePaymentFailed:
-		err = h.handlePaymentFailed(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionPaused:
-		err = h.handleSubscriptionPaused(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionResumed:
-		err = h.handleSubscriptionResumed(ctx, event.Data.Raw)
-	case stripe.EventTypeCustomerSubscriptionTrialWillEnd:
-		err = h.handleTrialWillEnd(ctx, event.Data.Raw)
-	case stripe.EventTypeChargeDisputeCreated:
-		err = h.handleChargeDisputeCreated(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoiceUpcoming:
-		err = h.handleInvoiceUpcoming(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoiceMarkedUncollectible:
-		err = h.handleInvoiceUncollectible(ctx, event.Data.Raw)
-	case stripe.EventTypeInvoiceFinalizationFailed:
-		err = h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
-	default:
+	err = h.dispatchStripeEvent(r.Context(), event)
+	if errors.Is(err, errUnhandledStripeEvent) {
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
+		h.markIgnoredWebhookProcessed(r.Context(), claim)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -302,22 +295,151 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Clear the in-memory replay cache so Stripe's retry can be processed.
 		// Without this, a partially-failed webhook would be permanently rejected
 		// by the replay cache even though it was never fully processed.
-		if eventID != "" {
-			h.replayCache.Delete(eventID)
-		}
+		h.releaseWebhookClaim(r.Context(), claim)
 		h.logger.Error("failed to handle stripe webhook", "type", event.Type, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// Record successful webhook processing in DB for cross-restart idempotency.
-	if eventID != "" {
-		if recordErr := h.store.RecordProcessedWebhook(r.Context(), eventID); recordErr != nil {
-			h.logger.Warn("failed to record processed webhook", "event_id", eventID, "error", recordErr)
-		}
-	}
+	h.markWebhookProcessed(r.Context(), claim)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+var errUnhandledStripeEvent = errors.New("unhandled stripe event")
+var errWebhookAlreadyProcessing = errors.New("webhook already processing")
+
+const (
+	webhookStatusProcessing = "processing"
+	webhookStatusProcessed  = "processed"
+)
+
+func (h *WebhookHandler) claimWebhookForProcessing(ctx context.Context, eventID string) (webhookClaimState, bool, error) {
+	claim := webhookClaimState{eventID: eventID}
+	if eventID == "" {
+		return claim, false, nil
+	}
+	if prev, loaded := h.replayCache.Load(eventID); loaded {
+		prevTime := prev.(int64)
+		if time.Since(time.Unix(0, prevTime)) < 10*time.Minute {
+			h.logger.Warn("duplicate stripe event ID", "event_id", eventID)
+			return claim, true, nil
+		}
+		h.replayCache.Delete(eventID)
+	}
+
+	ps, ok := h.store.(webhookProcessingStore)
+	if !ok {
+		processed, dbErr := h.store.IsWebhookProcessed(ctx, eventID)
+		if dbErr == nil && processed {
+			h.logger.Info("webhook already processed (DB)", "event_id", eventID)
+			h.replayCache.Store(eventID, time.Now().UnixNano())
+			return claim, true, nil
+		}
+		return claim, false, nil
+	}
+
+	claim.processingStore = ps
+	claimed, err := ps.ClaimWebhookForProcessing(ctx, eventID, webhookProcessingClaimStaleAfter)
+	if err != nil {
+		h.replayCache.Delete(eventID)
+		h.logger.Error("failed to claim stripe webhook", "event_id", eventID, "error", err)
+		return claim, false, err
+	}
+	if !claimed {
+		if statusStore, statusOK := h.store.(webhookProcessingStatusStore); statusOK {
+			status, statusErr := statusStore.GetWebhookProcessingStatus(ctx, eventID)
+			if statusErr != nil {
+				h.replayCache.Delete(eventID)
+				h.logger.Error("failed to load stripe webhook status", "event_id", eventID, "error", statusErr)
+				return claim, false, statusErr
+			}
+			if status == webhookStatusProcessed {
+				h.replayCache.Store(eventID, time.Now().UnixNano())
+				h.logger.Info("webhook already processed", "event_id", eventID)
+				return claim, true, nil
+			}
+		}
+		h.replayCache.Delete(eventID)
+		h.logger.Info("webhook already processing", "event_id", eventID)
+		return claim, false, errWebhookAlreadyProcessing
+	}
+	claim.claimed = true
+	return claim, false, nil
+}
+
+func (h *WebhookHandler) dispatchStripeEvent(ctx context.Context, event stripe.Event) error {
+	switch event.Type {
+	case stripe.EventTypeCustomerSubscriptionCreated:
+		return h.handleSubscriptionCreated(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionUpdated:
+		return h.handleSubscriptionUpdated(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionDeleted:
+		return h.handleSubscriptionDeleted(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoicePaid:
+		return h.handlePaymentSucceeded(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoicePaymentFailed:
+		return h.handlePaymentFailed(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionPaused:
+		return h.handleSubscriptionPaused(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionResumed:
+		return h.handleSubscriptionResumed(ctx, event.Data.Raw)
+	case stripe.EventTypeCustomerSubscriptionTrialWillEnd:
+		return h.handleTrialWillEnd(ctx, event.Data.Raw)
+	case stripe.EventTypeChargeDisputeCreated:
+		return h.handleChargeDisputeCreated(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceUpcoming:
+		return h.handleInvoiceUpcoming(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceMarkedUncollectible:
+		return h.handleInvoiceUncollectible(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceFinalizationFailed:
+		return h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
+	default:
+		return errUnhandledStripeEvent
+	}
+}
+
+func (h *WebhookHandler) markIgnoredWebhookProcessed(ctx context.Context, claim webhookClaimState) {
+	if claim.claimed && claim.processingStore != nil {
+		if err := claim.processingStore.MarkWebhookProcessed(ctx, claim.eventID); err != nil {
+			h.replayCache.Delete(claim.eventID)
+			h.logger.Warn("failed to mark ignored webhook processed", "event_id", claim.eventID, "error", err)
+		} else {
+			h.replayCache.Store(claim.eventID, time.Now().UnixNano())
+		}
+	}
+}
+
+func (h *WebhookHandler) releaseWebhookClaim(ctx context.Context, claim webhookClaimState) {
+	if claim.eventID == "" {
+		return
+	}
+	h.replayCache.Delete(claim.eventID)
+	if claim.claimed && claim.processingStore != nil {
+		if err := claim.processingStore.ReleaseWebhookClaim(ctx, claim.eventID); err != nil {
+			h.logger.Warn("failed to release stripe webhook claim", "event_id", claim.eventID, "error", err)
+		}
+	}
+}
+
+func (h *WebhookHandler) markWebhookProcessed(ctx context.Context, claim webhookClaimState) {
+	if claim.eventID == "" {
+		return
+	}
+	if claim.claimed && claim.processingStore != nil {
+		if err := claim.processingStore.MarkWebhookProcessed(ctx, claim.eventID); err != nil {
+			h.replayCache.Delete(claim.eventID)
+			h.logger.Warn("failed to mark processed webhook", "event_id", claim.eventID, "error", err)
+		} else {
+			h.replayCache.Store(claim.eventID, time.Now().UnixNano())
+		}
+		return
+	}
+	if err := h.store.RecordProcessedWebhook(ctx, claim.eventID); err != nil {
+		h.logger.Warn("failed to record processed webhook", "event_id", claim.eventID, "error", err)
+	} else {
+		h.replayCache.Store(claim.eventID, time.Now().UnixNano())
+	}
 }
 
 func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data json.RawMessage) error {
@@ -344,7 +466,10 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		return ErrUnknownPrice
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveOrgIDForNewSubscription(ctx, &sub, tier)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id from subscription", "subscription_id", sub.ID)
 		return fmt.Errorf("unable to resolve org_id from subscription %s metadata", sub.ID)
@@ -506,7 +631,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return nil
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -687,7 +815,10 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, data jso
 		return h.handleAddonSubscriptionCanceled(ctx, &sub)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -786,15 +917,45 @@ func invoiceSubscription(inv *stripe.Invoice) *stripe.Subscription {
 	return nil
 }
 
-// resolveOrgIDFromInvoice extracts the org_id from a Stripe invoice's subscription or customer metadata.
-func (h *WebhookHandler) resolveOrgIDFromInvoice(inv *stripe.Invoice) string {
+// resolveOrgIDFromInvoice resolves invoices only through persisted Stripe
+// bindings. Metadata is used solely as a conflict check, never as authority.
+func (h *WebhookHandler) resolveOrgIDFromInvoice(ctx context.Context, inv *stripe.Invoice) (string, error) {
+	sub := invoiceSubscription(inv)
+	metadataOrgID := invoiceMetadataOrgID(inv)
+	if sub != nil && sub.ID != "" {
+		existing, err := h.store.GetOrgSubscriptionByStripeSubscriptionID(ctx, sub.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup invoice subscription binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "subscription", sub.ID)
+		}
+	}
+	if inv.Customer != nil && inv.Customer.ID != "" {
+		existing, err := h.store.GetOrgSubscriptionByStripeCustomerID(ctx, inv.Customer.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup invoice customer binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", inv.Customer.ID)
+		}
+	}
+	if h.allowTestMetadata {
+		return metadataOrgID, nil
+	}
+	if metadataOrgID != "" {
+		return "", errUnboundStripeObject
+	}
+	return "", nil
+}
+
+func invoiceMetadataOrgID(inv *stripe.Invoice) string {
 	sub := invoiceSubscription(inv)
 	if sub != nil && sub.Metadata != nil {
 		if id, ok := sub.Metadata["org_id"]; ok && isValidUUID(id) {
 			return id
 		}
 	}
-	// Also check the subscription details metadata (snapshot at invoice creation).
 	if inv.Parent != nil && inv.Parent.SubscriptionDetails != nil && inv.Parent.SubscriptionDetails.Metadata != nil {
 		if id, ok := inv.Parent.SubscriptionDetails.Metadata["org_id"]; ok && isValidUUID(id) {
 			return id
@@ -820,7 +981,10 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		return nil
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -866,7 +1030,10 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		return nil
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -919,7 +1086,10 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -955,7 +1125,10 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -995,7 +1168,10 @@ func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMe
 		return fmt.Errorf("parsing subscription data: %w", err)
 	}
 
-	orgID := h.resolveOrgID(&sub)
+	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1036,12 +1212,9 @@ func (h *WebhookHandler) handleChargeDisputeCreated(ctx context.Context, data js
 		return fmt.Errorf("parsing dispute data: %w", err)
 	}
 
-	// Resolve org from the charge's customer metadata.
-	orgID := ""
-	if dispute.Charge != nil && dispute.Charge.Customer != nil && dispute.Charge.Customer.Metadata != nil {
-		if id, ok := dispute.Charge.Customer.Metadata["org_id"]; ok && isValidUUID(id) {
-			orgID = id
-		}
+	orgID, err := h.resolveOrgIDFromDispute(ctx, &dispute)
+	if err != nil {
+		return err
 	}
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id from dispute", "dispute_id", dispute.ID)
@@ -1075,6 +1248,39 @@ func (h *WebhookHandler) handleChargeDisputeCreated(ctx context.Context, data js
 	return nil
 }
 
+func (h *WebhookHandler) resolveOrgIDFromDispute(ctx context.Context, dispute *stripe.Dispute) (string, error) {
+	if dispute.Charge == nil || dispute.Charge.Customer == nil {
+		return "", nil
+	}
+	customer := dispute.Charge.Customer
+	metadataOrgID := ""
+	if customer.Metadata != nil {
+		if id, ok := customer.Metadata["org_id"]; ok && isValidUUID(id) {
+			metadataOrgID = id
+		}
+	}
+	if customer.ID == "" {
+		if metadataOrgID != "" {
+			return "", errUnboundStripeObject
+		}
+		return "", nil
+	}
+	existing, err := h.store.GetOrgSubscriptionByStripeCustomerID(ctx, customer.ID)
+	if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return "", fmt.Errorf("lookup dispute customer binding: %w", err)
+	}
+	if existing == nil {
+		if h.allowTestMetadata {
+			return metadataOrgID, nil
+		}
+		if metadataOrgID != "" {
+			return "", errUnboundStripeObject
+		}
+		return "", nil
+	}
+	return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", customer.ID)
+}
+
 // handleInvoiceUpcoming fires ~72 hours before an invoice is finalized.
 // Sends a heads-up email so the org knows about the upcoming charge.
 func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.RawMessage) error {
@@ -1083,7 +1289,10 @@ func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.Ra
 		return fmt.Errorf("parsing invoice data: %w", err)
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1124,7 +1333,10 @@ func (h *WebhookHandler) handleInvoiceUncollectible(ctx context.Context, data js
 		return fmt.Errorf("parsing invoice data: %w", err)
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1167,7 +1379,13 @@ func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, da
 		return fmt.Errorf("parsing invoice data: %w", err)
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
+	if orgID == "" {
+		return nil
+	}
 
 	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, map[string]string{
 		"invoice_id": invoice.ID,
@@ -1223,6 +1441,77 @@ func (h *WebhookHandler) resolveOrgID(sub *stripe.Subscription) string {
 	return ""
 }
 
+func (h *WebhookHandler) resolveBoundOrgID(ctx context.Context, sub *stripe.Subscription) (string, error) {
+	metadataOrgID := h.resolveOrgID(sub)
+	if sub.ID != "" {
+		existing, err := h.store.GetOrgSubscriptionByStripeSubscriptionID(ctx, sub.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup subscription binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "subscription", sub.ID)
+		}
+	}
+	if sub.Customer != nil && sub.Customer.ID != "" {
+		existing, err := h.store.GetOrgSubscriptionByStripeCustomerID(ctx, sub.Customer.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup customer binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", sub.Customer.ID)
+		}
+	}
+	if h.allowTestMetadata {
+		return metadataOrgID, nil
+	}
+	if metadataOrgID != "" {
+		return "", errUnboundStripeObject
+	}
+	return "", nil
+}
+
+func validateStripeBindingOrg(metadataOrgID, boundOrgID, bindingType, bindingID string) (string, error) {
+	if boundOrgID == "" {
+		return metadataOrgID, nil
+	}
+	if metadataOrgID != "" && metadataOrgID != boundOrgID {
+		return "", fmt.Errorf("stripe %s %s is already bound to org %s", bindingType, bindingID, boundOrgID)
+	}
+	return boundOrgID, nil
+}
+
+func (h *WebhookHandler) resolveOrgIDForNewSubscription(ctx context.Context, sub *stripe.Subscription, tier domain.PlanTier) (string, error) {
+	orgID, err := h.resolveBoundOrgID(ctx, sub)
+	if err == nil && orgID != "" {
+		return orgID, nil
+	}
+	if err != nil && !errors.Is(err, errUnboundStripeObject) {
+		return "", err
+	}
+
+	metadataOrgID := h.resolveOrgID(sub)
+	if metadataOrgID == "" {
+		return "", errUnboundStripeObject
+	}
+	if h.allowTestMetadata {
+		return metadataOrgID, nil
+	}
+	existing, err := h.store.GetOrgSubscription(ctx, metadataOrgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return "", errUnboundStripeObject
+		}
+		return "", fmt.Errorf("lookup pending subscription intent: %w", err)
+	}
+	if existing.StripeSubscriptionID != nil || existing.StripeCustomerID != nil {
+		return "", errUnboundStripeObject
+	}
+	if existing.PendingPlanTier == nil || *existing.PendingPlanTier != string(tier) {
+		return "", errUnboundStripeObject
+	}
+	return metadataOrgID, nil
+}
+
 // logAuditEvent records an audit event if the audit store is configured.
 // Errors are logged but do not fail the webhook handler.
 func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string, details map[string]string) {
@@ -1253,7 +1542,10 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 // handleAddonSubscriptionCreated creates an addon record when a Stripe addon
 // subscription is created.
 func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType) error {
-	orgID := h.resolveOrgID(sub)
+	orgID, err := h.resolveBoundOrgID(ctx, sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id for addon subscription", "subscription_id", sub.ID)
 		return nil
@@ -1311,7 +1603,10 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 // handleAddonSubscriptionCanceled deactivates an addon record when a Stripe
 // addon subscription is canceled or deleted.
 func (h *WebhookHandler) handleAddonSubscriptionCanceled(ctx context.Context, sub *stripe.Subscription) error {
-	orgID := h.resolveOrgID(sub)
+	orgID, err := h.resolveBoundOrgID(ctx, sub)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}

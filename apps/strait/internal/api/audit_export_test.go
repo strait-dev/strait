@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -96,6 +97,143 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 	sig := w.Header().Get("X-Audit-Signature")
 	if sig != "" {
 		t.Fatalf("expected no X-Audit-Signature when InternalSecret is empty, got %q", sig)
+	}
+}
+
+func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		StreamAuditEventsFunc: func(context.Context, string, string, string, time.Time, time.Time, func(*domain.AuditEvent) error) error {
+			t.Fatal("environment-scoped audit export must be rejected before streaming")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	rawReq := httptest.NewRequest(http.MethodGet,
+		"/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", nil)
+	ctx := context.WithValue(rawReq.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+	ctx = context.WithValue(ctx, ctxKeyResponseWriter, w)
+	ctx = context.WithValue(ctx, ctxKeyRequest, rawReq.WithContext(ctx))
+
+	_, err := srv.handleExportAuditEvents(ctx, &ExportAuditEventsInput{
+		From:   "2026-01-01T00:00:00Z",
+		To:     "2026-02-01T00:00:00Z",
+		Format: "ndjson",
+	})
+	if err == nil {
+		t.Fatal("expected environment-scoped audit export to fail")
+	}
+	if !strings.Contains(err.Error(), "project-wide key") {
+		t.Fatalf("error = %q, want project-wide key message", err.Error())
+	}
+}
+
+func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
+	ms := &APIStoreMock{
+		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
+			return fn(&domain.AuditEvent{
+				ID:           "=ev-1",
+				ProjectID:    "+proj-1",
+				ActorID:      "-user-1",
+				ActorType:    "@user",
+				Action:       "job.created",
+				ResourceType: "job",
+				ResourceID:   "\tjob-1",
+				Details:      json.RawMessage(`=HYPERLINK("https://attacker.test","x")`),
+				CreatedAt:    now,
+				RemoteIP:     "127.0.0.1",
+				UserAgent:    "\rmalicious",
+				RequestID:    "\nrequest",
+				TraceID:      "trace-1",
+			})
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=csv", "", "proj-1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	records, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v\n%s", err, w.Body.String())
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected header and one row, got %d", len(records))
+	}
+	row := records[1]
+	formulaColumns := map[int]string{
+		0:  "id",
+		1:  "project_id",
+		2:  "actor_id",
+		3:  "actor_type",
+		6:  "resource_id",
+		7:  "details",
+		10: "user_agent",
+		11: "request_id",
+	}
+	for idx, name := range formulaColumns {
+		if !strings.HasPrefix(row[idx], "'") {
+			t.Fatalf("column %s was not formula-escaped: %q", name, row[idx])
+		}
+	}
+}
+
+func TestSanitizeCSVCell_EscapesFormulaAfterLeadingWhitespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "plain formula",
+			value: "=HYPERLINK(\"https://attacker.test\",\"x\")",
+			want:  "'=HYPERLINK(\"https://attacker.test\",\"x\")",
+		},
+		{
+			name:  "leading space",
+			value: " =HYPERLINK(\"https://attacker.test\",\"x\")",
+			want:  "' =HYPERLINK(\"https://attacker.test\",\"x\")",
+		},
+		{
+			name:  "leading unicode bom",
+			value: "\ufeff=HYPERLINK(\"https://attacker.test\",\"x\")",
+			want:  "'\ufeff=HYPERLINK(\"https://attacker.test\",\"x\")",
+		},
+		{
+			name:  "leading tab and newline",
+			value: "\t\n@SUM(1,1)",
+			want:  "'\t\n@SUM(1,1)",
+		},
+		{
+			name:  "safe leading whitespace text",
+			value: " safe",
+			want:  " safe",
+		},
+		{
+			name:  "only whitespace",
+			value: " \t\n",
+			want:  " \t\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeCSVCell(tt.value); got != tt.want {
+				t.Fatalf("sanitizeCSVCell(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 

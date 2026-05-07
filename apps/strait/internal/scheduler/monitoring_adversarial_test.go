@@ -68,9 +68,8 @@ func TestAnomalyMonitor_NilLocker(t *testing.T) {
 // TestBudgetMonitor_ZeroBudget verifies construction with a zero budget interval clamps to default.
 func TestBudgetMonitor_ZeroBudget(t *testing.T) {
 	t.Parallel()
-	s := &mockBudgetStore{}
 	e := &mockEnqueuer{}
-	bm := NewBudgetMonitor(s, e, 0)
+	bm := NewBudgetMonitor(struct{}{}, e, 0)
 	if bm.interval != 5*time.Minute {
 		t.Fatalf("expected default interval 5m, got %v", bm.interval)
 	}
@@ -79,9 +78,8 @@ func TestBudgetMonitor_ZeroBudget(t *testing.T) {
 // TestBudgetMonitor_MaxIntBudget verifies construction with math.MaxInt64 interval works.
 func TestBudgetMonitor_MaxIntBudget(t *testing.T) {
 	t.Parallel()
-	s := &mockBudgetStore{}
 	e := &mockEnqueuer{}
-	bm := NewBudgetMonitor(s, e, time.Duration(math.MaxInt64))
+	bm := NewBudgetMonitor(struct{}{}, e, time.Duration(math.MaxInt64))
 	if bm.interval != time.Duration(math.MaxInt64) {
 		t.Fatalf("expected max int interval, got %v", bm.interval)
 	}
@@ -174,9 +172,8 @@ func FuzzMonitorIntervals(f *testing.F) {
 			t.Fatalf("interval should be positive after clamping, got %v", am.interval)
 		}
 
-		bs := &mockBudgetStore{}
 		e := &mockEnqueuer{}
-		bm := NewBudgetMonitor(bs, e, time.Duration(intervalNs))
+		bm := NewBudgetMonitor(struct{}{}, e, time.Duration(intervalNs))
 		if bm.interval <= 0 {
 			t.Fatalf("budget interval should be positive after clamping, got %v", bm.interval)
 		}

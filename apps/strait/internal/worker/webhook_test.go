@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -159,6 +160,46 @@ func TestSendWebhook_EmptyWebhookURL(t *testing.T) {
 	result := SendWebhookWithRetry(context.Background(), &domain.Job{ID: "job-1"}, webhookTestRun(), 3)
 	if !result.Delivered {
 		t.Fatal("expected delivered=true for empty webhook URL")
+	}
+}
+
+func TestRunForTerminalWebhook_IncludesFinalResultAndError(t *testing.T) {
+	t.Parallel()
+
+	finishedAt := time.Now().UTC()
+	run := &domain.JobRun{
+		ID:        "run-123",
+		JobID:     "job-456",
+		ProjectID: "proj-789",
+		Status:    domain.StatusExecuting,
+		Attempt:   2,
+	}
+	success := runForTerminalWebhook(run, domain.StatusCompleted, map[string]any{
+		"result":      json.RawMessage(`{"ok":true}`),
+		"finished_at": finishedAt,
+	})
+	if success.Status != domain.StatusCompleted {
+		t.Fatalf("success status = %s, want completed", success.Status)
+	}
+	if string(success.Result) != `{"ok":true}` {
+		t.Fatalf("success result = %s, want final result", success.Result)
+	}
+	if success.FinishedAt == nil || !success.FinishedAt.Equal(finishedAt) {
+		t.Fatalf("success finished_at = %v, want %v", success.FinishedAt, finishedAt)
+	}
+	if run.Result != nil || run.Error != "" {
+		t.Fatal("source run should not be mutated while preparing webhook payload")
+	}
+
+	failed := runForTerminalWebhook(run, domain.StatusFailed, map[string]any{
+		"error":       "endpoint returned 500",
+		"finished_at": finishedAt,
+	})
+	if failed.Status != domain.StatusFailed {
+		t.Fatalf("failed status = %s, want failed", failed.Status)
+	}
+	if failed.Error != "endpoint returned 500" {
+		t.Fatalf("failed error = %q, want final error", failed.Error)
 	}
 }
 

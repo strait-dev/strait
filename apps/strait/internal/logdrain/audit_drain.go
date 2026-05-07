@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/failsafe-go/failsafe-go"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
@@ -47,6 +48,7 @@ var (
 	siemRetryMaxBackoff     = 1600 * time.Millisecond
 	siemRetryBackoffFactor  = 4.0
 	siemBreakerOpenDuration = 30 * time.Second
+	newAuditSIEMTransport   = httputil.NewExternalTransport
 )
 
 // ErrSIEMCircuitOpen is returned when the SIEM circuit breaker is open and a
@@ -208,11 +210,20 @@ func NewAuditSIEMDrain(endpoint, authToken string, batchSize int, flushInterval 
 		endpoint:          endpoint,
 		endpointSanitized: sanitizeSIEMEndpoint(endpoint),
 		authToken:         authToken,
-		client:            &http.Client{Timeout: 30 * time.Second},
-		logger:            slog.Default(),
-		batchSize:         batchSize,
-		flushInterval:     flushInterval,
-		subDLQ:            newFailureRingBuffer(siemSubDLQCapacity),
+		client: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: newAuditSIEMTransport(false),
+			// SIEM endpoint URL is validated, but a redirect target is not.
+			// Refuse redirects to prevent SSRF pivots from a compromised
+			// or misconfigured SIEM receiver.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		logger:        slog.Default(),
+		batchSize:     batchSize,
+		flushInterval: flushInterval,
+		subDLQ:        newFailureRingBuffer(siemSubDLQCapacity),
 	}
 	d.retryPolicy = retrypolicy.NewBuilder[*http.Response]().
 		WithMaxRetries(siemMaxRetryAttempts-1).
@@ -323,6 +334,16 @@ func (d *AuditSIEMDrain) SetMetrics(forwarded, failed, circuitOpen metric.Int64C
 	d.failedCount = failed
 	d.circuitOpenCnt = circuitOpen
 	d.batchSizeHist = batchSize
+}
+
+// SetHTTPClientForTest replaces the drain HTTP client for tests that use
+// httptest loopback endpoints. Production callers should use the constructor,
+// which installs the SSRF-safe external transport.
+func (d *AuditSIEMDrain) SetHTTPClientForTest(client *http.Client) {
+	if d == nil || client == nil {
+		return
+	}
+	d.client = client
 }
 
 // DrainedFailures returns a snapshot of the in-memory SIEM sub-DLQ. Each

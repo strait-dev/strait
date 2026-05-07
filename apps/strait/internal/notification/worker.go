@@ -29,13 +29,13 @@ type Worker struct {
 const deliveryLeaseDuration = 2 * time.Minute
 
 // NewWorker creates a notification delivery worker.
-func NewWorker(ns store.NotificationStore, client *http.Client) *Worker {
+func NewWorker(ns store.NotificationStore, client *http.Client, webhookOptions ...WebhookSenderOption) *Worker {
 	return &Worker{
 		store: ns,
 		senders: map[string]ChannelSender{
 			domain.ChannelTypeSlack:   NewSlackSender(client),
 			domain.ChannelTypeDiscord: NewDiscordSender(client),
-			domain.ChannelTypeWebhook: NewWebhookSender(client),
+			domain.ChannelTypeWebhook: NewWebhookSender(client, webhookOptions...),
 		},
 		done: make(chan struct{}),
 	}

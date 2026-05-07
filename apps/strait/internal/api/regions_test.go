@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 
 	"strait/internal/config"
@@ -12,10 +13,10 @@ import (
 	"strait/internal/store"
 )
 
-func TestHandleListRegions(t *testing.T) {
+func TestHandleGetRegions(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
 
@@ -23,37 +24,27 @@ func TestHandleListRegions(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp RegionsListResponse
+	var resp struct {
+		Regions []RegionResponse `json:"regions"`
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
+		t.Fatalf("decode response: %v", err)
 	}
-
 	if len(resp.Regions) == 0 {
-		t.Fatal("expected non-empty regions list")
+		t.Fatal("expected at least one region")
+	}
+	if !sort.SliceIsSorted(resp.Regions, func(i, j int) bool {
+		return resp.Regions[i].Code < resp.Regions[j].Code
+	}) {
+		t.Fatalf("expected regions sorted by code, got %#v", resp.Regions)
 	}
 
-	// Verify all regions have required fields.
-	for _, r := range resp.Regions {
-		if r.Code == "" || r.Label == "" || r.City == "" || r.Country == "" || r.Continent == "" {
-			t.Errorf("region %q has empty required field", r.Code)
+	for _, region := range resp.Regions {
+		if region.Code == "" || region.Label == "" || region.City == "" || region.Country == "" || region.Continent == "" {
+			t.Fatalf("expected complete region metadata, got %#v", region)
 		}
-	}
-
-	// Verify sorted by code.
-	for i := 1; i < len(resp.Regions); i++ {
-		if resp.Regions[i].Code <= resp.Regions[i-1].Code {
-			t.Errorf("regions not sorted: %q <= %q", resp.Regions[i].Code, resp.Regions[i-1].Code)
-		}
-	}
-
-	// Verify known regions exist.
-	codeSet := make(map[string]bool)
-	for _, r := range resp.Regions {
-		codeSet[r.Code] = true
-	}
-	for _, expected := range []string{"iad", "lhr", "nrt", "syd", "fra"} {
-		if !codeSet[expected] {
-			t.Errorf("expected region %q not found in list", expected)
+		if len(region.Availability) != len(domain.AllPlanTiers()) {
+			t.Fatalf("expected availability for every plan tier, got %#v", region)
 		}
 	}
 }
@@ -199,7 +190,7 @@ func TestHandleCreateJob_InvalidRegion(t *testing.T) {
 		"name": "Test Job",
 		"slug": "test-job",
 		"endpoint_url": "https://example.com/callback",
-		"region": "invalid-region"
+		"preferred_regions": ["invalid-region"]
 	}`
 
 	w := httptest.NewRecorder()
@@ -215,9 +206,6 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
 			job.ID = "job-123"
-			if job.Region != "lhr" {
-				t.Errorf("expected region=lhr, got %q", job.Region)
-			}
 			return nil
 		},
 	}
@@ -228,7 +216,7 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 		"name": "Test Job",
 		"slug": "test-job",
 		"endpoint_url": "https://example.com/callback",
-		"region": "lhr"
+		"preferred_regions": ["lhr"]
 	}`
 
 	w := httptest.NewRecorder()
@@ -236,52 +224,6 @@ func TestHandleCreateJob_ValidRegion(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleListRegions_IncludesAvailability(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	var resp RegionsListResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-
-	// Find IAD and check availability.
-	for _, r := range resp.Regions {
-		if r.Code == "iad" {
-			if !r.Availability["free"] {
-				t.Error("expected iad available on free plan")
-			}
-			if !r.Availability["starter"] {
-				t.Error("expected iad available on starter plan")
-			}
-			if !r.Availability["pro"] {
-				t.Error("expected iad available on professional plan")
-			}
-			if !r.Availability["enterprise"] {
-				t.Error("expected iad available on enterprise plan")
-			}
-		}
-		if r.Code == "hkg" {
-			if r.Availability["free"] {
-				t.Error("expected hkg NOT available on free plan")
-			}
-			if r.Availability["starter"] {
-				t.Error("expected hkg NOT available on starter plan")
-			}
-			if !r.Availability["pro"] {
-				t.Error("expected hkg available on professional plan")
-			}
-		}
 	}
 }
 
@@ -312,7 +254,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			"name": "Test Job",
 			"slug": "test-job",
 			"endpoint_url": "https://example.com/callback",
-			"region": "lhr"
+			"preferred_regions": ["lhr"]
 		}`
 
 		w := httptest.NewRecorder()
@@ -323,18 +265,16 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 		}
 	})
 
-	t.Run("starter_plan_allowed_region", func(t *testing.T) {
+	t.Run("starter_plan_multi_region_blocked", func(t *testing.T) {
 		t.Parallel()
+		// preferred_regions (multi-region) requires Pro or higher;
+		// starter plan is rejected when region gating is enabled.
 		ms := &APIStoreMock{
 			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
 					ProjectID: projectID,
 					PlanTier:  "starter",
 				}, nil
-			},
-			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
-				job.ID = "job-123"
-				return nil
 			},
 		}
 		cfg := &config.Config{
@@ -351,14 +291,14 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			"name": "Test Job",
 			"slug": "test-job",
 			"endpoint_url": "https://example.com/callback",
-			"region": "lhr"
+			"preferred_regions": ["lhr"]
 		}`
 
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-		if w.Code != http.StatusCreated {
-			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for starter plan with preferred_regions, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
@@ -378,7 +318,7 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 			"name": "Test Job",
 			"slug": "test-job",
 			"endpoint_url": "https://example.com/callback",
-			"region": "hkg"
+			"preferred_regions": ["hkg"]
 		}`
 
 		w := httptest.NewRecorder()
@@ -553,7 +493,7 @@ func TestHandleUpdateJob_InvalidRegion(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123/", `{"region":"invalid-region"}`))
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123/", `{"preferred_regions":["invalid-region"]}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())

@@ -1171,6 +1171,10 @@ func (m *adversarialBillingEnforcer) GetDailyRunCount(_ context.Context, _ strin
 	return 0, nil
 }
 
+func (m *adversarialBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return nil
+}
+
 func (m *adversarialBillingEnforcer) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	if m.ensureOrgSubscriptionFn != nil {
 		return m.ensureOrgSubscriptionFn(ctx, orgID)

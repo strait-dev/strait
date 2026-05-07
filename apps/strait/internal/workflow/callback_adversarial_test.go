@@ -1111,7 +1111,7 @@ func TestAdvisoryXactLockIDForStepRun_Deterministic(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 3: checkStepRetry boundary tests (callback_retry.go)
+// checkStepRetry boundary tests (callback_retry.go)
 // ---------------------------------------------------------------------------.
 
 func TestCheckStepRetry_MaxAttemptsZero(t *testing.T) {
@@ -1210,7 +1210,7 @@ func TestCheckStepRetry_StepNotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 4A: OnJobRunTerminal OutputTransform tests
+// OnJobRunTerminal OutputTransform tests
 // ---------------------------------------------------------------------------.
 
 func TestOnJobRunTerminal_OutputTransformApplied(t *testing.T) {
@@ -1414,7 +1414,7 @@ func TestOnJobRunTerminal_EmptyResult_NoTransform(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 4B: emitEventIfConfigured source type branches
+// emitEventIfConfigured source type branches
 // ---------------------------------------------------------------------------.
 
 func TestEmitEventIfConfigured_JobRunSourceType(t *testing.T) {
@@ -1484,7 +1484,7 @@ func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 5A: scheduleRunnableSteps concurrency key tests
+// scheduleRunnableSteps concurrency key tests
 // ---------------------------------------------------------------------------.
 
 func TestScheduleRunnableSteps_ConcurrencyKeyBlocking(t *testing.T) {
@@ -1572,7 +1572,7 @@ func TestScheduleRunnableSteps_DifferentConcurrencyKeys(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 5B: scheduleRunnableSteps resource class capacity
+// scheduleRunnableSteps resource class capacity
 // ---------------------------------------------------------------------------.
 
 func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
@@ -1620,7 +1620,7 @@ func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 5C: scheduleRunnableSteps DependsOn parent outputs
+// scheduleRunnableSteps DependsOn parent outputs
 // ---------------------------------------------------------------------------.
 
 func TestScheduleRunnableSteps_NoDependsOn_NoParentOutputs(t *testing.T) {
@@ -1697,7 +1697,7 @@ func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 5E: propagateToParent -- direct lookup vs fallback
+// propagateToParent -- direct lookup vs fallback
 // ---------------------------------------------------------------------------.
 
 func TestPropagateToParent_WithParentStepRunID(t *testing.T) {
@@ -1837,7 +1837,7 @@ func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 5F: propagateToParent output aggregation
+// propagateToParent output aggregation
 // ---------------------------------------------------------------------------.
 
 func TestPropagateToParent_CompletedWithOutputs(t *testing.T) {
@@ -1998,7 +1998,7 @@ func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 5G: propagateToParent canceled child
+// propagateToParent canceled child
 // ---------------------------------------------------------------------------.
 
 func TestPropagateToParent_CanceledChild(t *testing.T) {
@@ -2066,7 +2066,7 @@ func TestPropagateToParent_CanceledChild(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// Phase 6: OnEventReceived tests
+// OnEventReceived tests
 // ---------------------------------------------------------------------------.
 
 func TestOnEventReceived_NilTrigger(t *testing.T) {

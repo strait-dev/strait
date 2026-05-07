@@ -1,0 +1,2 @@
+# TODO: replace with buf-generated worker.pb.go and worker_grpc.pb.go once buf is installed in CI.
+# Hand-written stubs live in this package until then.

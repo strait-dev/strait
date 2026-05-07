@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"unicode"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -73,6 +74,9 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
+	}
+	if environmentIDFromContext(ctx) != "" {
+		return nil, huma.Error403Forbidden("audit export requires a project-wide key")
 	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
@@ -271,19 +275,19 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 			return errExportCapReached
 		}
 		record := []string{
-			ev.ID,
-			ev.ProjectID,
-			ev.ActorID,
-			ev.ActorType,
-			ev.Action,
-			ev.ResourceType,
-			ev.ResourceID,
-			string(ev.Details),
+			sanitizeCSVCell(ev.ID),
+			sanitizeCSVCell(ev.ProjectID),
+			sanitizeCSVCell(ev.ActorID),
+			sanitizeCSVCell(ev.ActorType),
+			sanitizeCSVCell(ev.Action),
+			sanitizeCSVCell(ev.ResourceType),
+			sanitizeCSVCell(ev.ResourceID),
+			sanitizeCSVCell(string(ev.Details)),
 			ev.CreatedAt.Format(time.RFC3339Nano),
-			ev.RemoteIP,
-			ev.UserAgent,
-			ev.RequestID,
-			ev.TraceID,
+			sanitizeCSVCell(ev.RemoteIP),
+			sanitizeCSVCell(ev.UserAgent),
+			sanitizeCSVCell(ev.RequestID),
+			sanitizeCSVCell(ev.TraceID),
 			fmt.Sprintf("%d", ev.SchemaVersion),
 		}
 		if err := cw.Write(record); err != nil {
@@ -336,6 +340,30 @@ func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher htt
 		flusher.Flush()
 	}
 	return exported, capped, nil
+}
+
+func sanitizeCSVCell(value string) string {
+	if value == "" {
+		return value
+	}
+	for i, r := range value {
+		if i == 0 {
+			switch r {
+			case '\t', '\r', '\n':
+				return "'" + value
+			}
+		}
+		if r == '\ufeff' || unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		switch r {
+		case '=', '+', '-', '@':
+			return "'" + value
+		default:
+			return value
+		}
+	}
+	return value
 }
 
 func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {

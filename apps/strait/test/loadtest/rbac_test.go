@@ -15,10 +15,10 @@ func TestRBAC_CreateRole(t *testing.T) {
 	mustClean(t)
 
 	tgt := newTargeter("POST", "/v1/roles", func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"name":"load-role-%s","description":"load test role","permissions":["jobs:read","runs:read","stats:read"]}`,
 			newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -93,7 +93,7 @@ func TestRBAC_UpdateRole(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newTargeter("PATCH", "/v1/roles/"+roleID, func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"name":"role-%d","description":"updated role description %d","permissions":["jobs:read","runs:read"]}`, n, n))
+		return fmt.Appendf(nil, `{"name":"role-%d","description":"updated role description %d","permissions":["jobs:read","runs:read"]}`, n, n)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -145,7 +145,7 @@ func TestRBAC_AssignMember(t *testing.T) {
 	roleID := seedRole(t)
 
 	tgt := newTargeter("POST", "/v1/members", func() []byte {
-		return []byte(fmt.Sprintf(`{"user_id":"user-%s","role_id":"%s"}`, newID(), roleID))
+		return fmt.Appendf(nil, `{"user_id":"user-%s","role_id":"%s"}`, newID(), roleID)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -217,10 +217,10 @@ func TestRBAC_CreateAPIKey(t *testing.T) {
 	projectID := "proj-apikey-" + newID()
 
 	tgt := newTargeter("POST", "/v1/api-keys/", func() []byte {
-		return []byte(fmt.Sprintf(
-			`{"project_id":"%s","name":"load-key-%s","scopes":["jobs:read","runs:read"]}`,
+		return fmt.Appendf(nil,
+			`{"project_id":"%s","name":"load-key-%s","scopes":["jobs:read","runs:read"],"expires_in_days":30}`,
 			projectID, newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -345,10 +345,10 @@ func TestRBAC_CreateResourcePolicy(t *testing.T) {
 	seedJob(t, projectID)
 
 	tgt := newProjectTargeter("POST", "/v1/resource-policies", projectID, func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","resource_type":"job","resource_id":"job-%s","user_id":"user-%s","actions":["jobs:read"]}`,
 			projectID, newID(), newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -388,10 +388,10 @@ func TestRBAC_CreateTagPolicy(t *testing.T) {
 	seedJob(t, projectID)
 
 	tgt := newProjectTargeter("POST", "/v1/tag-policies", projectID, func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","resource_type":"job","user_id":"user-%s","tag_key":"env","tag_value":"prod-%s","actions":["jobs:read"]}`,
 			projectID, newID(), newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -430,10 +430,10 @@ func TestRBAC_BulkAssignMembers(t *testing.T) {
 	roleID := seedRole(t)
 
 	tgt := newTargeter("POST", "/v1/members/bulk", func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"items":[{"user_id":"user-%s","role_id":"%s"},{"user_id":"user-%s","role_id":"%s"}]}`,
 			newID(), roleID, newID(), roleID,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {

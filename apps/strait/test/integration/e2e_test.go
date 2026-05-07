@@ -1,7 +1,7 @@
 // Package integration runs end-to-end tests against a live Strait service.
 // It spins up a local HTTP server that acts as a job endpoint (simulating
-// what a real user's code does inside Fly Machines), receives dispatches
-// from the Strait worker, calls back SDK endpoints, and completes.
+// what a real user's HTTP-mode job endpoint does), receives dispatches from
+// the Strait worker, calls back SDK endpoints, and completes.
 package integration
 
 import (
@@ -106,8 +106,8 @@ func (s *sdkClient) get(path string) (int, []byte, error) {
 	return resp.StatusCode, data, nil
 }
 
-// jobEndpoint is a local HTTP server that simulates a real job running inside
-// a Fly Machine. When Strait dispatches to it, it exercises every SDK callback.
+// jobEndpoint is a local HTTP server that simulates a customer's HTTP-mode job
+// endpoint. When Strait dispatches to it, it exercises every SDK callback.
 type jobEndpoint struct {
 	server   *http.Server
 	addr     string
@@ -178,7 +178,7 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] heartbeat failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 2. Report LLM usage (STR-119 guardrails will check this)
+	// 2. Report LLM usage
 	if code, _, err := sdk.post("/usage", map[string]any{
 		"provider":          "openai",
 		"model":             "gpt-4o",
@@ -190,7 +190,7 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] usage failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 3. Report tool call (STR-119 guardrails)
+	// 3. Report tool call
 	if code, _, err := sdk.post("/tool-call", map[string]any{
 		"tool_name":   "web_search",
 		"input":       map[string]any{"query": "strait orchestrator"},
@@ -201,7 +201,7 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] tool-call failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 4. Report resource snapshot (STR-133)
+	// 4. Report resource snapshot
 	if code, _, err := sdk.post("/resource-snapshot", map[string]any{
 		"cpu_percent":      35.5 + rand.Float64()*30,
 		"memory_mb":        256 + rand.Float64()*512,
@@ -225,7 +225,7 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] get-state failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 7. Write persistent memory (STR-122)
+	// 7. Write persistent memory
 	if code, _, err := sdk.post("/memory/last-query", map[string]any{
 		"value":    map[string]any{"query": "test", "ts": time.Now().Unix()},
 		"ttl_secs": 3600,

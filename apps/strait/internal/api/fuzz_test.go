@@ -233,10 +233,10 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 				hasCount, shouldHaveCount, versionID, version, activeCount)
 		}
 
-		// Post-STR-373 invariant: every successful workflow update emits an
-		// audit event. The action is workflow.updated_breaking only when
-		// breaking_change=true AND the version guard passes AND there are
-		// active runs on the previous version; otherwise it is workflow.updated.
+		// Every successful workflow update emits an audit event. The action is
+		// workflow.updated_breaking only when breaking_change=true AND the
+		// version guard passes AND there are active runs on the previous
+		// version; otherwise it is workflow.updated.
 		shouldBeBreaking := breakingChange && versionID != "" && version >= 1 && activeCount > 0
 		wantAction := "workflow.updated"
 		if shouldBeBreaking {

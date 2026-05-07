@@ -401,10 +401,6 @@ func FuzzDomainIsValid_StatusAndModes_NoPanic(f *testing.F) {
 		// CronOverlapPolicy.
 		cop := domain.CronOverlapPolicy(s)
 		_ = cop.IsValid()
-
-		// MachinePreset.
-		mp := domain.MachinePreset(s)
-		_ = mp.IsValid()
 	})
 }
 

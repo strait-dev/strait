@@ -67,16 +67,17 @@ func TestEffectiveLimits_MembersPack(t *testing.T) {
 func TestEffectiveLimits_DataRetention_MaxCap90(t *testing.T) {
 	t.Parallel()
 
-	// Starter has 7 days. One pack adds 30 days = 37.
+	// Starter has RetentionStarter days. One pack adds 30 days.
 	starter := GetPlanLimits(domain.PlanStarter)
 	result := EffectiveLimits(starter, []Addon{
 		{AddonType: AddonDataRetention, Quantity: 1, Active: true},
 	})
-	if result.RetentionDays != 37 {
-		t.Errorf("Starter + 1 retention pack = %d, want 37", result.RetentionDays)
+	want1Pack := RetentionStarter + 30
+	if result.RetentionDays != want1Pack {
+		t.Errorf("Starter + 1 retention pack = %d, want %d", result.RetentionDays, want1Pack)
 	}
 
-	// Three packs would be 7 + 90 = 97, capped at 90.
+	// Enough packs to exceed 90 should be capped at 90.
 	result = EffectiveLimits(starter, []Addon{
 		{AddonType: AddonDataRetention, Quantity: 3, Active: true},
 	})

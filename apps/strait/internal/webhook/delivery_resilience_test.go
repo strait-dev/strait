@@ -91,6 +91,7 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 	store := &mockDeliveryStore{}
 	// Use a short HTTP client timeout so the test completes quickly.
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(2*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -124,19 +125,27 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 }
 
 // TestWebhookResilience_RedirectToLocalhost verifies that a 301 redirect
-// to localhost is handled. The default Go HTTP client follows redirects,
-// so this tests that the redirect target is reachable or fails gracefully.
+// from the receiver is NOT followed. Following redirects would let a
+// receiver coerce the worker into hitting attacker-chosen URLs (SSRF
+// via redirect to 169.254.169.254, internal services, etc.), so the
+// worker treats any 3xx as a permanent delivery failure.
 func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 	t.Parallel()
 
+	var redirectTargetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		redirectTargetHits.Add(1)
+	}))
+	defer target.Close()
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Redirect to a port that should refuse connections.
-		http.Redirect(w, r, "http://127.0.0.1:1/should-not-reach", http.StatusMovedPermanently)
+		http.Redirect(w, r, target.URL+"/should-not-reach", http.StatusMovedPermanently)
 	}))
 	defer ts.Close()
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(3*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -155,14 +164,20 @@ func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 
 	worker.processBatch(context.Background())
 
+	if hits := redirectTargetHits.Load(); hits != 0 {
+		t.Fatalf("redirect target was hit %d times; redirects must not be followed", hits)
+	}
+
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	// The redirect to 127.0.0.1:1 should fail with a connection refused error.
 	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead for redirect to unreachable localhost, got %s", got.Status)
+		t.Fatalf("expected status=dead for unfollowed 3xx, got %s", got.Status)
+	}
+	if got.LastStatusCode == nil || *got.LastStatusCode != http.StatusMovedPermanently {
+		t.Fatalf("expected last_status_code=301, got %v", got.LastStatusCode)
 	}
 	if got.LastError == "" {
-		t.Fatal("expected non-empty error message for failed redirect")
+		t.Fatal("expected non-empty error message for unfollowed redirect")
 	}
 }
 
@@ -191,6 +206,7 @@ func TestWebhookResilience_ResponseBomb(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(10*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -242,6 +258,7 @@ func TestWebhookResilience_ConnectionCloseMidTransfer(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -308,6 +325,7 @@ func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)
@@ -736,6 +754,7 @@ func TestWebhookResilience_SelfSignedTLS(t *testing.T) {
 	store := &mockDeliveryStore{}
 	// Use default transport (does not trust the self-signed cert).
 	worker := NewDeliveryWorker(store, slog.Default(),
+		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, 5*time.Second, 10, 10))
 
 	now := time.Now().Add(-time.Second)

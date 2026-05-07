@@ -27,16 +27,9 @@ type GetRunOutput struct {
 }
 
 func (s *Server) handleGetRun(ctx context.Context, input *GetRunInput) (*GetRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	return &GetRunOutput{Body: run}, nil
@@ -70,22 +63,9 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	var status *domain.RunStatus
-	if input.Status != "" {
-		parsed := domain.RunStatus(input.Status)
-		if !parsed.IsValid() {
-			return nil, huma.Error400BadRequest("status is invalid")
-		}
-		status = &parsed
-	}
-
-	// Support statuses[] multi-value param: use first valid status for the single-status store query.
-	if status == nil && len(input.Statuses) > 0 {
-		parsed := domain.RunStatus(input.Statuses[0])
-		if !parsed.IsValid() {
-			return nil, huma.Error400BadRequest("status is invalid")
-		}
-		status = &parsed
+	statuses, statusQuery, err := buildRunStatusFilter(input.Status, input.Statuses)
+	if err != nil {
+		return nil, err
 	}
 
 	tagKey := input.TagKey
@@ -161,13 +141,32 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	var runs []domain.JobRun
-	if tagKey != "" {
-		runs, err = s.store.ListRunsByTag(ctx, projectID, tagKey, tagValue, limit+1, cursor)
+	var (
+		runs    []domain.JobRun
+		listErr error
+	)
+	if environmentIDFromContext(ctx) != "" || tagKey != "" || len(statuses) > 1 {
+		runs, listErr = s.listRunsWithFilters(
+			ctx,
+			projectID,
+			statusQuery,
+			statuses,
+			tagKey,
+			tagValue,
+			metadataKey,
+			metadataValue,
+			triggeredBy,
+			batchID,
+			payloadContains,
+			executionMode,
+			errorClass,
+			limit+1,
+			cursor,
+		)
 	} else {
-		runs, err = s.store.ListRunsByProject(ctx, projectID, status, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+		runs, listErr = s.store.ListRunsByProject(ctx, projectID, statusQuery, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
 	}
-	if err != nil {
+	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list runs")
 	}
 
@@ -176,6 +175,42 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 			return run.CreatedAt.Format(time.RFC3339Nano)
 		}),
 	}, nil
+}
+
+func buildRunStatusFilter(status string, statuses []string) (map[domain.RunStatus]struct{}, *domain.RunStatus, error) {
+	if status == "" && len(statuses) == 0 {
+		return nil, nil, nil
+	}
+
+	filter := make(map[domain.RunStatus]struct{}, 1+len(statuses))
+	addStatus := func(raw string) error {
+		parsed := domain.RunStatus(raw)
+		if !parsed.IsValid() {
+			return huma.Error400BadRequest("status is invalid")
+		}
+		filter[parsed] = struct{}{}
+		return nil
+	}
+
+	if status != "" {
+		if err := addStatus(status); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, raw := range statuses {
+		if err := addStatus(raw); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if len(filter) == 1 {
+		for parsed := range filter {
+			single := parsed
+			return filter, &single, nil
+		}
+	}
+
+	return filter, nil, nil
 }
 
 // CancelRunInput is the typed input for canceling a run.
@@ -189,16 +224,9 @@ type CancelRunOutput struct {
 }
 
 func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*CancelRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if run.Status.IsTerminal() {
@@ -218,18 +246,6 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 		canceledRun.Error = "canceled by user"
 		if cbErr := s.workflowCallback.OnJobRunTerminal(ctx, &canceledRun); cbErr != nil {
 			slog.Error("workflow callback failed", "error", cbErr)
-		}
-	}
-
-	// Stop managed container if running -- use detached context so client
-	// disconnect doesn't abort the stop, and cap at 10s to avoid blocking
-	// if the Fly API is unresponsive.
-	if s.containerRuntime != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stopCancel()
-		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
-			slog.Warn("failed to stop managed container on cancel",
-				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
 		}
 	}
 
@@ -317,16 +333,9 @@ type GetRunDependencyStatusOutput struct {
 }
 
 func (s *Server) handleGetRunDependencyStatus(ctx context.Context, input *GetRunDependencyStatusInput) (*GetRunDependencyStatusOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	deps, err := s.store.ListJobDependencies(ctx, run.JobID, 1000, nil)
@@ -360,16 +369,9 @@ type ReplayRunOutput struct {
 }
 
 func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*ReplayRunOutput, error) {
-	originalRun, err := s.store.GetRun(ctx, input.RunID)
+	originalRun, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, originalRun.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if !isReplayableRunStatus(originalRun.Status) {
@@ -582,15 +584,8 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 			}
 		}
 		for _, runID := range req.RunIDs {
-			run, err := s.store.GetRun(ctx, runID)
-			if err != nil {
-				if errors.Is(err, store.ErrRunNotFound) {
-					return nil, huma.Error404NotFound("run not found: " + runID)
-				}
-				return nil, huma.Error500InternalServerError("failed to get run")
-			}
-			if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-				return nil, huma.Error404NotFound("run not found: " + runID)
+			if _, err := s.getRunForAccess(ctx, runID); err != nil {
+				return nil, err
 			}
 		}
 	} else {
@@ -608,13 +603,20 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 		}
 	}
 
-	// Scope bulk replay to the caller's project when using project_id mode.
-	effectiveProjectID := req.ProjectID
-	if effectiveProjectID == "" {
-		effectiveProjectID = projectIDFromContext(ctx)
+	var (
+		runs []domain.JobRun
+		err  error
+	)
+	if !hasRunIDs && environmentIDFromContext(ctx) != "" {
+		runs, err = s.bulkReplayDeadLetterRunsForEnvironment(ctx, projectIDFromContext(ctx), req.Limit)
+	} else {
+		// Scope bulk replay to the caller's project when using project_id mode.
+		effectiveProjectID := req.ProjectID
+		if effectiveProjectID == "" {
+			effectiveProjectID = projectIDFromContext(ctx)
+		}
+		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
 	}
-
-	runs, err := s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
 	if err != nil {
 		errMsg := err.Error()
 		switch {
@@ -635,7 +637,7 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunBulkReplayedDeadletter, "run", "", map[string]any{
 		"count":      len(runs),
-		"project_id": effectiveProjectID,
+		"project_id": projectIDFromContext(ctx),
 		"run_ids":    req.RunIDs,
 	})
 
@@ -826,16 +828,9 @@ func (s *Server) handleRescheduleRun(ctx context.Context, input *RescheduleRunIn
 		return nil, newValidationError(err)
 	}
 
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if err := s.store.RescheduleRun(ctx, input.RunID, req.ScheduledAt, req.Payload); err != nil {
@@ -891,12 +886,8 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 	replayed := 0
 
 	for _, runID := range req.RunIDs {
-		original, err := s.store.GetRun(ctx, runID)
+		original, err := s.getRunForAccess(ctx, runID)
 		if err != nil {
-			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
-			continue
-		}
-		if err := requireProjectMatch(ctx, original.ProjectID); err != nil {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "run not found"})
 			continue
 		}
@@ -906,7 +897,7 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 		}
 
 		job, err := s.store.GetJob(ctx, original.JobID)
-		if err != nil || !job.Enabled {
+		if err != nil || job == nil || !job.Enabled {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "job not found or disabled"})
 			continue
 		}
@@ -962,21 +953,11 @@ type PauseRunOutput struct {
 }
 
 func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*PauseRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
+		return nil, err
 	}
 
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
-	}
-
-	if run.ExecutionMode != domain.ExecutionModeManaged {
-		return nil, huma.Error400BadRequest("only managed runs can be paused")
-	}
 	if run.Status == domain.StatusPaused {
 		return &PauseRunOutput{Body: run}, nil
 	}
@@ -985,19 +966,9 @@ func (s *Server) handlePauseRun(ctx context.Context, input *PauseRunInput) (*Pau
 	}
 
 	if err := s.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusPaused, map[string]any{
-		"metadata": map[string]string{"_paused_machine_id": run.MachineID},
+		"metadata": map[string]string{},
 	}); err != nil {
 		return nil, huma.Error409Conflict("failed to pause run")
-	}
-
-	// Stop managed container (non-fatal).
-	if s.containerRuntime != nil && run.MachineID != "" {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stopCancel()
-		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
-			slog.Warn("failed to stop managed container on run pause",
-				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-		}
 	}
 
 	updatedRun, err := s.store.GetRun(ctx, run.ID)
@@ -1023,16 +994,9 @@ type ResumeRunOutput struct {
 }
 
 func (s *Server) handleResumeRun(ctx context.Context, input *ResumeRunInput) (*ResumeRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+		return nil, err
 	}
 
 	if run.Status != domain.StatusPaused {
@@ -1070,55 +1034,22 @@ type RestartRunOutput struct {
 	Body *domain.JobRun
 }
 
-type restartRunRequest struct {
-	MachinePreset string `json:"machine_preset,omitempty"`
-}
+type restartRunRequest struct{}
 
 func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (*RestartRunOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
+	run, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
+		return nil, err
 	}
 
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
-	}
-
-	if run.ExecutionMode != domain.ExecutionModeManaged {
-		return nil, huma.Error400BadRequest("only managed runs can be restarted")
-	}
 	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
 		return nil, huma.Error400BadRequest("run must be executing or paused to restart")
-	}
-
-	req := input.Body
-	if req.MachinePreset != "" && !domain.MachinePreset(req.MachinePreset).IsValid() {
-		return nil, huma.Error400BadRequest("invalid machine_preset")
-	}
-
-	// Stop container if running.
-	if s.containerRuntime != nil && run.MachineID != "" && run.Status == domain.StatusExecuting {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stopCancel()
-		if stopErr := s.containerRuntime.Stop(stopCtx, run.MachineID); stopErr != nil {
-			slog.Warn("failed to stop managed container on restart",
-				"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-		}
-	}
-
-	metadata := map[string]string{}
-	if req.MachinePreset != "" {
-		metadata["_preset_override"] = req.MachinePreset
 	}
 
 	if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusQueued, map[string]any{
 		"started_at":  nil,
 		"finished_at": nil,
-		"machine_id":  nil,
-		"metadata":    metadata,
+		"metadata":    map[string]string{},
 	}); err != nil {
 		return nil, huma.Error409Conflict("failed to restart run")
 	}
@@ -1129,8 +1060,7 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunRestarted, "run", run.ID, map[string]any{
-		"job_id":         run.JobID,
-		"machine_preset": req.MachinePreset,
+		"job_id": run.JobID,
 	})
 
 	return &RestartRunOutput{Body: updatedRun}, nil
@@ -1147,4 +1077,193 @@ func parseBracketParam(param, prefix string) (string, bool) {
 		return "", false
 	}
 	return key, true
+}
+
+func (s *Server) listRunsWithFilters(
+	ctx context.Context,
+	projectID string,
+	statusQuery *domain.RunStatus,
+	statuses map[domain.RunStatus]struct{},
+	tagKey, tagValue string,
+	metadataKey, metadataValue, triggeredBy, batchID *string,
+	payloadContains json.RawMessage,
+	executionMode *domain.ExecutionMode,
+	errorClass *string,
+	limit int,
+	cursor *time.Time,
+) ([]domain.JobRun, error) {
+	if lister, ok := s.store.(interface {
+		ListRunsByProjectFiltered(context.Context, string, *domain.RunStatus, []domain.RunStatus, string, string, *string, *string, *string, *string, *string, json.RawMessage, *domain.ExecutionMode, *string, int, *time.Time) ([]domain.JobRun, error)
+	}); ok {
+		statusList := make([]domain.RunStatus, 0, len(statuses))
+		for status := range statuses {
+			statusList = append(statusList, status)
+		}
+		envID := environmentIDFromContext(ctx)
+		var envFilter *string
+		if envID != "" {
+			envFilter = &envID
+		}
+		return lister.ListRunsByProjectFiltered(
+			ctx,
+			projectID,
+			statusQuery,
+			statusList,
+			tagKey,
+			tagValue,
+			envFilter,
+			metadataKey,
+			metadataValue,
+			triggeredBy,
+			batchID,
+			payloadContains,
+			executionMode,
+			errorClass,
+			limit,
+			cursor,
+		)
+	}
+
+	jobEnvCache := make(map[string]bool)
+	filtered := make([]domain.JobRun, 0, limit)
+	pageCursor := cursor
+	fetchLimit := max(limit, 25)
+
+	for {
+		var (
+			page []domain.JobRun
+			err  error
+		)
+		page, err = s.store.ListRunsByProject(
+			ctx,
+			projectID,
+			statusQuery,
+			metadataKey,
+			metadataValue,
+			triggeredBy,
+			batchID,
+			payloadContains,
+			executionMode,
+			errorClass,
+			fetchLimit,
+			pageCursor,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return filtered, nil
+		}
+
+		for _, run := range page {
+			if !runMatchesTagFilter(run, tagKey, tagValue) || !runMatchesStatusFilter(run, statuses) {
+				continue
+			}
+			if environmentIDFromContext(ctx) != "" {
+				allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+				if err != nil {
+					return nil, err
+				}
+				if !allowed {
+					continue
+				}
+			}
+			filtered = append(filtered, run)
+			if len(filtered) >= limit {
+				return filtered, nil
+			}
+		}
+
+		if len(page) < fetchLimit {
+			return filtered, nil
+		}
+		lastCreatedAt := page[len(page)-1].CreatedAt
+		pageCursor = &lastCreatedAt
+	}
+}
+
+func runMatchesStatusFilter(run domain.JobRun, statuses map[domain.RunStatus]struct{}) bool {
+	if len(statuses) == 0 {
+		return true
+	}
+	_, ok := statuses[run.Status]
+	return ok
+}
+
+func runMatchesTagFilter(run domain.JobRun, tagKey, tagValue string) bool {
+	if tagKey == "" {
+		return true
+	}
+	if len(run.Tags) == 0 {
+		return false
+	}
+	value, ok := run.Tags[tagKey]
+	if !ok {
+		return false
+	}
+	if tagValue == "" {
+		return true
+	}
+	return value == tagValue
+}
+
+func (s *Server) runMatchesEnvironment(ctx context.Context, run domain.JobRun, jobEnvCache map[string]bool) (bool, error) {
+	if environmentIDFromContext(ctx) == "" {
+		return true, nil
+	}
+	if allowed, ok := jobEnvCache[run.JobID]; ok {
+		return allowed, nil
+	}
+
+	job, err := s.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return false, err
+	}
+	if job == nil {
+		return false, huma.Error404NotFound("run not found")
+	}
+
+	allowed := requireEnvironmentMatch(ctx, job.EnvironmentID) == nil
+	jobEnvCache[run.JobID] = allowed
+	return allowed, nil
+}
+
+func (s *Server) bulkReplayDeadLetterRunsForEnvironment(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {
+	cursor := (*time.Time)(nil)
+	jobEnvCache := make(map[string]bool)
+	runIDs := make([]string, 0, limit)
+
+	for len(runIDs) < limit {
+		page, err := s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+
+		for _, run := range page {
+			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+			if err != nil {
+				return nil, err
+			}
+			if allowed {
+				runIDs = append(runIDs, run.ID)
+				if len(runIDs) >= limit {
+					break
+				}
+			}
+		}
+
+		if len(page) < limit+1 {
+			break
+		}
+		lastCreatedAt := page[len(page)-1].CreatedAt
+		cursor = &lastCreatedAt
+	}
+
+	if len(runIDs) == 0 {
+		return []domain.JobRun{}, nil
+	}
+	return s.store.BulkReplayDeadLetterRuns(ctx, runIDs, "", 0)
 }

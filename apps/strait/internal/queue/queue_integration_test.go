@@ -955,6 +955,61 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 	return job
 }
 
+func markWorkerJobQueue(t *testing.T, ctx context.Context, job *domain.Job, queueName string) {
+	t.Helper()
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE jobs SET execution_mode = 'worker', queue_name = $2 WHERE id = $1`,
+		job.ID, queueName,
+	); err != nil {
+		t.Fatalf("mark worker job queue: %v", err)
+	}
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = queueName
+}
+
+func mustCreateEnvironment(t *testing.T, ctx context.Context, st *store.Queries, projectID, slug string) string {
+	t.Helper()
+	env := &domain.Environment{
+		ProjectID: projectID,
+		Name:      slug,
+		Slug:      slug,
+	}
+	if err := st.CreateEnvironment(ctx, env); err != nil {
+		t.Fatalf("CreateEnvironment(%s): %v", slug, err)
+	}
+	return env.ID
+}
+
+func markWorkerJobQueueEnvironment(t *testing.T, ctx context.Context, job *domain.Job, queueName, environmentID string) {
+	t.Helper()
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE jobs SET execution_mode = 'worker', queue_name = $2, environment_id = $3 WHERE id = $1`,
+		job.ID, queueName, environmentID,
+	); err != nil {
+		t.Fatalf("mark worker job queue environment: %v", err)
+	}
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = queueName
+	job.EnvironmentID = environmentID
+}
+
+func assertClaimRouting(t *testing.T, ctx context.Context, runID string, wantMode domain.ExecutionMode, wantQueue string) {
+	t.Helper()
+	var gotMode, gotQueue string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT execution_mode, queue_name FROM job_run_queue WHERE run_id = $1`,
+		runID,
+	).Scan(&gotMode, &gotQueue); err != nil {
+		t.Fatalf("query claim routing: %v", err)
+	}
+	if gotMode != string(wantMode) {
+		t.Fatalf("claim execution_mode = %q, want %q", gotMode, wantMode)
+	}
+	if gotQueue != wantQueue {
+		t.Fatalf("claim queue_name = %q, want %q", gotQueue, wantQueue)
+	}
+}
+
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
 }
@@ -1110,7 +1165,7 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		runs := make([]*domain.JobRun, 500)
 		for j := range runs {
 			runs[j] = &domain.JobRun{
@@ -1134,7 +1189,7 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 	}
 }
 
-// --- Metadata round-trip integration tests ---
+// --- Metadata round-trip integration tests ---.
 
 func TestEnqueue_MetadataRoundTrip(t *testing.T) {
 	ctx := context.Background()
@@ -1304,7 +1359,7 @@ func TestEnqueueBatch_MetadataRoundTrip(t *testing.T) {
 	}
 }
 
-// --- Metadata adversarial integration tests ---
+// --- Metadata adversarial integration tests ---.
 
 func TestEnqueue_MetadataLargeValue(t *testing.T) {
 	ctx := context.Background()
@@ -1378,13 +1433,13 @@ func TestEnqueue_MetadataSpecialChars(t *testing.T) {
 
 	job := mustCreateJob(t, ctx, st, "project-queue-metadata-special")
 	meta := map[string]string{
-		"unicode_key_\u00e9\u00e8\u00ea":       "value with unicode \u2603\u2764",
-		"quotes_key_\"double\"":                 "value with 'single' and \"double\" quotes",
-		"backslash_key_\\\\":                    "back\\slash\\value",
-		"newline_key_\n":                        "value\nwith\nnewlines",
-		"tab_key_\t":                            "value\twith\ttabs",
-		"empty_value":                           "",
-		"json_like":                             `{"nested":"not really"}`,
+		"unicode_key_\u00e9\u00e8\u00ea": "value with unicode \u2603\u2764",
+		"quotes_key_\"double\"":          "value with 'single' and \"double\" quotes",
+		"backslash_key_\\\\":             "back\\slash\\value",
+		"newline_key_\n":                 "value\nwith\nnewlines",
+		"tab_key_\t":                     "value\twith\ttabs",
+		"empty_value":                    "",
+		"json_like":                      `{"nested":"not really"}`,
 	}
 	run := &domain.JobRun{
 		ID:        newID(),
@@ -1553,7 +1608,7 @@ func BenchmarkPostgresQueueDequeueN(b *testing.B) {
 	}
 
 	const preload = 512
-	for i := 0; i < preload; i++ {
+	for i := range preload {
 		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
 		if err := q.Enqueue(ctx, run); err != nil {
 			b.Fatalf("Enqueue() error = %v", err)
@@ -1561,7 +1616,7 @@ func BenchmarkPostgresQueueDequeueN(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		runs, err := q.DequeueN(ctx, 32)
 		if err != nil {
 			b.Fatalf("DequeueN() error = %v", err)
