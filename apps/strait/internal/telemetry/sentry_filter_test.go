@@ -204,6 +204,27 @@ func TestBeforeSendTransaction_SamplesHeavyTransactions(t *testing.T) {
 	}
 }
 
+func TestSentryTracesSamplerDropsHeavyTransactionsEarly(t *testing.T) {
+	t.Parallel()
+
+	sampler := SentryTracesSampler(0.5)
+	heavy := sampler(sentry.SamplingContext{Span: &sentry.Span{Name: "GET /v1/runs/stream"}})
+	if heavy != 0 {
+		t.Fatalf("heavy transaction sample rate = %v, want 0", heavy)
+	}
+	normal := sampler(sentry.SamplingContext{Span: &sentry.Span{Name: "GET /v1/jobs"}})
+	if normal != 0.5 {
+		t.Fatalf("normal transaction sample rate = %v, want 0.5", normal)
+	}
+	parentFalse := sampler(sentry.SamplingContext{
+		Span:          &sentry.Span{Name: "GET /v1/jobs"},
+		ParentSampled: sentry.SampledFalse,
+	})
+	if parentFalse != 0 {
+		t.Fatalf("unsampled parent sample rate = %v, want 0", parentFalse)
+	}
+}
+
 func TestInitSentry_NoDSNNoop(t *testing.T) {
 	t.Parallel()
 

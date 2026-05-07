@@ -34,10 +34,15 @@ var (
 
 // SentryConfig contains the runtime values needed to initialize Sentry.
 type SentryConfig struct {
-	DSN              string
-	Environment      string
-	Release          string
-	TracesSampleRate float64
+	DSN                     string
+	Environment             string
+	Release                 string
+	TracesSampleRate        float64
+	Debug                   bool
+	MaxBreadcrumbs          int
+	MaxSpans                int
+	MaxErrorDepth           int
+	StrictTraceContinuation bool
 }
 
 // InitSentry initializes the process-wide Sentry SDK and returns a shutdown
@@ -46,13 +51,7 @@ func InitSentry(cfg SentryConfig) (func(), error) {
 	if cfg.DSN == "" {
 		return func() {}, nil
 	}
-	tracesSampleRate := cfg.TracesSampleRate
-	if tracesSampleRate < 0 {
-		tracesSampleRate = 0
-	}
-	if tracesSampleRate > 1 {
-		tracesSampleRate = 1
-	}
+	tracesSampleRate := normalizeSentrySampleRate(cfg.TracesSampleRate)
 	if err := sentry.Init(SentryClientOptions(cfg, tracesSampleRate)); err != nil {
 		return nil, fmt.Errorf("init sentry: %w", err)
 	}
@@ -73,17 +72,58 @@ func EnsureSentryHub(ctx context.Context) context.Context {
 // SentryClientOptions returns the SDK options used by InitSentry. Tests use it
 // with a fake transport so classifier behavior is exercised through the SDK.
 func SentryClientOptions(cfg SentryConfig, tracesSampleRate float64) sentry.ClientOptions {
-	return sentry.ClientOptions{
-		Dsn:                   cfg.DSN,
-		Environment:           cfg.Environment,
-		Release:               cfg.Release,
-		AttachStacktrace:      true,
-		SampleRate:            1.0,
-		TracesSampleRate:      tracesSampleRate,
-		BeforeSend:            BeforeSend,
-		BeforeSendTransaction: BeforeSendTransaction,
-		BeforeBreadcrumb:      BeforeBreadcrumb,
+	tracesSampleRate = normalizeSentrySampleRate(tracesSampleRate)
+	opts := sentry.ClientOptions{
+		Dsn:                     cfg.DSN,
+		Environment:             cfg.Environment,
+		Release:                 cfg.Release,
+		Debug:                   cfg.Debug,
+		AttachStacktrace:        true,
+		SampleRate:              1.0,
+		EnableTracing:           tracesSampleRate > 0,
+		BeforeSend:              BeforeSend,
+		BeforeSendTransaction:   BeforeSendTransaction,
+		BeforeBreadcrumb:        BeforeBreadcrumb,
+		MaxBreadcrumbs:          cfg.MaxBreadcrumbs,
+		MaxSpans:                cfg.MaxSpans,
+		MaxErrorDepth:           cfg.MaxErrorDepth,
+		PropagateTraceparent:    true,
+		StrictTraceContinuation: cfg.StrictTraceContinuation,
 	}
+	if tracesSampleRate > 0 {
+		opts.TracesSampler = SentryTracesSampler(tracesSampleRate)
+	}
+	return opts
+}
+
+// SentryTracesSampler drops known high-volume transactions before they are
+// sent and otherwise applies the configured global sample rate.
+func SentryTracesSampler(sampleRate float64) sentry.TracesSampler {
+	sampleRate = normalizeSentrySampleRate(sampleRate)
+	return func(ctx sentry.SamplingContext) float64 {
+		if ctx.Span != nil && isHeavyTransactionName(ctx.Span.Name) &&
+			stableModulo(ctx.Span.Name, sentryHeavyTransactionModulo) != 0 {
+			return 0
+		}
+		switch ctx.ParentSampled {
+		case sentry.SampledTrue:
+			return 1
+		case sentry.SampledFalse:
+			return 0
+		default:
+			return sampleRate
+		}
+	}
+}
+
+func normalizeSentrySampleRate(rate float64) float64 {
+	if rate < 0 {
+		return 0
+	}
+	if rate > 1 {
+		return 1
+	}
+	return rate
 }
 
 // BeforeSend applies Strait's event filter and redaction policy.
@@ -383,10 +423,15 @@ func shouldDropBreadcrumbDataKey(key string) bool {
 }
 
 func isHeavyTransaction(event *sentry.Event) bool {
-	name := strings.ToLower(event.Transaction)
+	name := event.Transaction
 	if name == "" && event.Request != nil {
-		name = strings.ToLower(event.Request.URL)
+		name = event.Request.URL
 	}
+	return isHeavyTransactionName(name)
+}
+
+func isHeavyTransactionName(name string) bool {
+	name = strings.ToLower(name)
 	return strings.Contains(name, "sse") ||
 		strings.Contains(name, "stream") ||
 		strings.Contains(name, "/logs") ||

@@ -138,3 +138,30 @@ func TestSentryClientOptionsCarriesRelease(t *testing.T) {
 		t.Fatalf("Release = %q, want v1.2.3+abc123", opts.Release)
 	}
 }
+
+func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
+	t.Parallel()
+
+	opts := SentryClientOptions(SentryConfig{
+		DSN:                     "https://public@example.com/1",
+		MaxBreadcrumbs:          64,
+		MaxSpans:                256,
+		MaxErrorDepth:           16,
+		StrictTraceContinuation: true,
+	}, 0.25)
+	if !opts.EnableTracing {
+		t.Fatal("expected tracing to be enabled")
+	}
+	if opts.TracesSampler == nil {
+		t.Fatal("expected traces sampler")
+	}
+	if opts.TracesSampleRate != 0 {
+		t.Fatalf("TracesSampleRate = %v, want sampler-only config", opts.TracesSampleRate)
+	}
+	if opts.MaxBreadcrumbs != 64 || opts.MaxSpans != 256 || opts.MaxErrorDepth != 16 {
+		t.Fatalf("Sentry limits = breadcrumbs:%d spans:%d depth:%d", opts.MaxBreadcrumbs, opts.MaxSpans, opts.MaxErrorDepth)
+	}
+	if !opts.StrictTraceContinuation {
+		t.Fatal("expected strict trace continuation")
+	}
+}

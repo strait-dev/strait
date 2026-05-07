@@ -273,10 +273,15 @@ type Config struct {
 	PostHogHost   string `env:"POSTHOG_HOST" default:"https://us.i.posthog.com"`
 
 	// Sentry error tracking
-	SentryDSN              string  `env:"SENTRY_DSN"`
-	SentryEnvironment      string  `env:"SENTRY_ENVIRONMENT" default:"development"`
-	SentryTracesSampleRate float64 `env:"SENTRY_TRACES_SAMPLE_RATE" default:"0.1"`
-	SentryRelease          string  `env:"SENTRY_RELEASE"`
+	SentryDSN                     string  `env:"SENTRY_DSN"`
+	SentryEnvironment             string  `env:"SENTRY_ENVIRONMENT" default:"development"`
+	SentryTracesSampleRate        float64 `env:"SENTRY_TRACES_SAMPLE_RATE" default:"0.1"`
+	SentryRelease                 string  `env:"SENTRY_RELEASE"`
+	SentryDebug                   bool    `env:"SENTRY_DEBUG" default:"false"`
+	SentryMaxBreadcrumbs          int     `env:"SENTRY_MAX_BREADCRUMBS" default:"100"`
+	SentryMaxSpans                int     `env:"SENTRY_MAX_SPANS" default:"1000"`
+	SentryMaxErrorDepth           int     `env:"SENTRY_MAX_ERROR_DEPTH" default:"100"`
+	SentryStrictTraceContinuation bool    `env:"SENTRY_STRICT_TRACE_CONTINUATION" default:"false"`
 
 	// Pyroscope continuous profiling
 	PyroscopeEndpoint  string `env:"PYROSCOPE_ENDPOINT"`

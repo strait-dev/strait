@@ -78,10 +78,15 @@ func runServe(ctx context.Context, modeOverride string) error {
 			release = telemetry.BuildSentryRelease(version, commit)
 		}
 		shutdownSentry, err := telemetry.InitSentry(telemetry.SentryConfig{
-			DSN:              cfg.SentryDSN,
-			Environment:      cfg.SentryEnvironment,
-			Release:          release,
-			TracesSampleRate: cfg.SentryTracesSampleRate,
+			DSN:                     cfg.SentryDSN,
+			Environment:             cfg.SentryEnvironment,
+			Release:                 release,
+			TracesSampleRate:        cfg.SentryTracesSampleRate,
+			Debug:                   cfg.SentryDebug,
+			MaxBreadcrumbs:          cfg.SentryMaxBreadcrumbs,
+			MaxSpans:                cfg.SentryMaxSpans,
+			MaxErrorDepth:           cfg.SentryMaxErrorDepth,
+			StrictTraceContinuation: cfg.SentryStrictTraceContinuation,
 		})
 		if err != nil {
 			return err
