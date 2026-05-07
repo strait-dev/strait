@@ -103,6 +103,12 @@ git diff --check
 
 `bunx mintlify validate` may fail locally if the remote OpenAPI endpoint rejects unauthenticated requests. Treat MDX parse errors as real issues, but do not block on the known OpenAPI `403`.
 
+## Markdown scope
+
+Keep customer documentation in `apps/docs`, `README.md`, and `SELFHOST.md`. These files should explain what customers can do with Strait and how to do it.
+
+Package READMEs are for contributors and should stay short: purpose, entry points, commands, and ownership context. Do not add launch plans, billing cutovers, incident notes, private checklists, or internal runbooks to the repo. Keep those in the team's private workspace.
+
 ## Commit Conventions
 
 We use [Conventional Commits](https://www.conventionalcommits.org/):

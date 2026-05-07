@@ -90,11 +90,11 @@ curl -H "Authorization: Bearer $TOKEN" \
   "https://strait.dev/v1/audit-events/export?from=2025-06-01T00:00:00Z&to=2025-06-30T00:00:00Z&format=ndjson"
 ```
 
-Exports support the same `actor_id` and `resource_type` filters as the list endpoint. Exports are capped at 1,000,000 rows by default and rate-limited to 10 per project per hour.
+Exports support the same `actor_id` and `resource_type` filters as the list endpoint. Large exports should use narrow time windows.
 
 ## Chain Verification
 
-Every audit event is HMAC-SHA256 signed and chained to its predecessor. Verify the chain is intact:
+Verify the audit log when you need evidence that history has not been changed:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
@@ -114,7 +114,7 @@ Run full verification periodically (e.g. weekly) and incremental checks more fre
 
 ## Key Rotation
 
-Rotate the HMAC signing key with `POST /v1/projects/{id}/audit/rotate-key`. The rotation is atomic -- old signatures remain verifiable because the chain verifier detects key epoch boundaries automatically.
+Rotate the audit signing key with `POST /v1/projects/{id}/audit/rotate-key`. Existing audit history remains verifiable after rotation.
 
 ## Retention
 
@@ -128,17 +128,7 @@ curl -X PUT \
   "https://strait.dev/v1/projects/proj_abc/audit/retention"
 ```
 
-Set `days` to `0` to disable retention trimming entirely. When events are deleted, a tombstone anchor preserves chain continuity so verification still passes.
-
-## Failed Audit Events
-
-If an audit event cannot be saved after retries, Strait keeps it separate so an administrator can inspect and replay it.
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/v1/audit/deadletter` | GET | List failed audit rows |
-| `/v1/audit/deadletter/{id}` | GET | Inspect one failed audit row |
-| `/v1/audit/deadletter/{id}/replay` | POST | Replay an event into the primary chain |
+Set `days` to `0` to disable retention trimming entirely.
 
 ## Related
 

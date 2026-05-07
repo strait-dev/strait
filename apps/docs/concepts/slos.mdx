@@ -16,11 +16,7 @@ Strait tracks reliability signals from workflow and run execution. These signals
 
 SLO windows are evaluated over configured intervals such as **24 hours**, **7 days** (168h), or **30 days** (720h), depending on the deployment and analytics configuration.
 
-<Note>
-The current public API does not expose per-job SLO CRUD endpoints. Use the analytics and anomaly endpoints below for the supported API surface, and use exported metrics for alerting.
-</Note>
-
-## Current API Surface
+## API Surface
 
 | Endpoint | Purpose |
 |---|---|
@@ -28,7 +24,7 @@ The current public API does not expose per-job SLO CRUD endpoints. Use the analy
 | `GET /v1/usage/anomalies` | List detected usage and spend anomalies. |
 | `GET /v1/anomaly-config` | Read anomaly detection thresholds. |
 | `PUT /v1/anomaly-config` | Update anomaly detection thresholds. |
-| `GET /metrics` | Export Prometheus metrics for external SLO alerting. |
+| `GET /metrics` | Export Prometheus metrics for external alerting. |
 
 ## Anomaly Detection
 

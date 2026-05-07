@@ -31,13 +31,7 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": [
-              "introduction",
-              "quickstart",
-              "choose-your-path",
-              "architecture",
-              "changelog"
-            ]
+            "pages": ["introduction", "choose-your-path", "quickstart"]
           },
           {
             "group": "Use Cases",
@@ -53,10 +47,13 @@
             "group": "Guides",
             "pages": [
               "guides/production-job",
-              "guides/handle-failed-runs",
               "guides/private-workers",
+              "guides/handle-failed-runs",
               "guides/deployment",
-              "guides/authentication"
+              "guides/authentication",
+              "sdks/typescript-quickstart",
+              "sdks/python-quickstart",
+              "sdks/go-quickstart"
             ]
           },
           {
@@ -82,6 +79,7 @@
               "concepts/retry-strategies",
               "concepts/scheduling",
               "concepts/event-triggers",
+              "concepts/event-sources",
               "concepts/execution-modes",
               "concepts/batch-operations",
               "concepts/job-chaining",
@@ -93,14 +91,12 @@
             "group": "Monitoring",
             "pages": [
               "concepts/real-time",
-              "concepts/audit-logging",
-              "concepts/log-drains",
               "concepts/webhooks",
               "concepts/webhook-subscriptions",
-              "concepts/event-sources",
+              "concepts/log-drains",
               "concepts/clickhouse-analytics",
               "concepts/notifications",
-              "concepts/debug-bundles"
+              "concepts/audit-logging"
             ]
           },
           {
@@ -133,9 +129,12 @@
               "concepts/canary-deployments",
               "concepts/cost-budgets",
               "concepts/slos",
+              "concepts/debug-bundles",
               "concepts/workflow-simulator",
               "concepts/workflow-test-suites",
-              "concepts/workflow-debugger"
+              "concepts/workflow-debugger",
+              "architecture",
+              "changelog"
             ]
           },
           {
