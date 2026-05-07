@@ -112,6 +112,8 @@ app.post("/jobs/process-file", async (req, res) => {
 
 See [SDK Integration](/guides/sdk-integration) for a full handler example.
 
+SDK run-token callbacks are authenticated with JWTs whose issuer is exactly `strait:run-token`. SDKs should reject callback tokens with any other issuer before using them for run-scoped API calls.
+
 ## Repositories
 
 | SDK | Repository |

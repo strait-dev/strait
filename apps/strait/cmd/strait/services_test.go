@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,6 +96,39 @@ func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestWaitForPubsubReady_RetriesUntilHealthy(t *testing.T) {
+	t.Helper()
+
+	var calls atomic.Int32
+	pub := flakyPingPub{
+		pingFn: func(context.Context) error {
+			if calls.Add(1) < 3 {
+				return errors.New("redis warming up")
+			}
+			return nil
+		},
+	}
+	if err := waitForPubsubReady(context.Background(), pub, time.Second); err != nil {
+		t.Fatalf("waitForPubsubReady() error = %v", err)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Fatalf("ping calls = %d, want 3", got)
+	}
+}
+
+func TestWaitForPubsubReady_TimesOut(t *testing.T) {
+	t.Helper()
+
+	pub := flakyPingPub{pingFn: func(context.Context) error { return errors.New("redis down") }}
+	err := waitForPubsubReady(context.Background(), pub, 20*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "pubsub readiness timeout") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
 	t.Helper()
 
@@ -161,6 +195,10 @@ func workerExecutorConfigForTest() worker.ExecutorConfig {
 
 type noopServicePub struct{}
 
+func (noopServicePub) Ping(context.Context) error {
+	return nil
+}
+
 func (noopServicePub) Publish(context.Context, string, []byte) error {
 	return nil
 }
@@ -180,5 +218,17 @@ func (noopServicePub) Subscribe(ctx context.Context, _ string) (*pubsub.Subscrip
 }
 
 func (noopServicePub) Close() error {
+	return nil
+}
+
+type flakyPingPub struct {
+	noopServicePub
+	pingFn func(context.Context) error
+}
+
+func (p flakyPingPub) Ping(ctx context.Context) error {
+	if p.pingFn != nil {
+		return p.pingFn(ctx)
+	}
 	return nil
 }

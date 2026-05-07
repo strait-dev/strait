@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -363,6 +364,18 @@ func TestRegistry_PickWorkerForQueue_WrongQueue(t *testing.T) {
 	_, ok := r.PickWorkerForQueue("proj-a", "q2")
 	if ok {
 		t.Error("expected no worker picked for queue not registered")
+	}
+}
+
+func TestRegistry_ErrNoWorkerForQueueSentinel(t *testing.T) {
+	t.Parallel()
+
+	if !errors.Is(ErrNoWorkerAvailable, ErrNoWorkerForQueue) {
+		t.Fatal("ErrNoWorkerAvailable must match ErrNoWorkerForQueue")
+	}
+	wrapped := fmt.Errorf("dispatch failed: %w", ErrNoWorkerForQueue)
+	if !errors.Is(wrapped, ErrNoWorkerForQueue) {
+		t.Fatal("wrapped no-worker error must match sentinel")
 	}
 }
 

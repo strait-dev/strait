@@ -563,6 +563,11 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 		// internal error after the fact.
 		return nil, fmt.Errorf("grpc worker plane is enabled but no pubsub publisher is configured: set REDIS_URL or disable GRPC_ENABLED")
 	}
+	if err := waitForPubsubReady(context.Background(), pub, cfg.GRPCPubsubStartupTimeout); err != nil {
+		slog.Error("service.startup.gate", "component", "pubsub", "result", "timeout", "error", err)
+		return nil, err
+	}
+	slog.Info("service.startup.gate", "component", "pubsub", "result", "ok")
 
 	srv, err := grpcserver.NewServer(cfg, queries, pub,
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
@@ -577,6 +582,38 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 		return nil
 	})
 	return srv, nil
+}
+
+type pubsubPinger interface {
+	Ping(context.Context) error
+}
+
+func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.Duration) error {
+	pinger, ok := pub.(pubsubPinger)
+	if !ok {
+		return fmt.Errorf("grpc worker plane pubsub publisher does not support readiness ping")
+	}
+	if budget <= 0 {
+		budget = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	backoffs := []time.Duration{100 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, time.Second}
+	attempt := 0
+	for {
+		if err := pinger.Ping(ctx); err == nil {
+			return nil
+		}
+		delay := backoffs[min(attempt, len(backoffs)-1)]
+		attempt++
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("grpc worker plane pubsub readiness timeout after %s: %w", budget, ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.

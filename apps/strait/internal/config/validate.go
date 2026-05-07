@@ -28,20 +28,25 @@ func (c *Config) Validate() error {
 
 	// Positive-required durations.
 	requirePositive := map[string]time.Duration{
-		"HEARTBEAT_INTERVAL":             c.HeartbeatInterval,
-		"REAPER_INTERVAL":                c.ReaperInterval,
-		"STALE_THRESHOLD":                c.StaleThreshold,
-		"POLLER_INTERVAL":                c.PollerInterval,
-		"REQUEST_TIMEOUT":                c.RequestTimeout,
-		"WORKER_DRAIN_TIMEOUT":           c.WorkerDrainTimeout,
-		"DB_STATEMENT_TIMEOUT":           c.DBStatementTimeout,
-		"DB_MAX_CONN_LIFETIME":           c.DBMaxConnLifetime,
-		"DB_MAX_CONN_IDLE_TIME":          c.DBMaxConnIdleTime,
-		"DB_HEALTH_CHECK_PERIOD":         c.DBHealthCheckPeriod,
-		"DB_IDLE_IN_TRANSACTION_TIMEOUT": c.DBIdleInTransactionTimeout,
-		"DB_LOCK_TIMEOUT":                c.DBLockTimeout,
-		"DB_LONG_TXN_ALERT_THRESHOLD":    c.DBLongTxnAlertThreshold,
-		"DB_WATCHDOG_INTERVAL":           c.DBWatchdogInterval,
+		"HEARTBEAT_INTERVAL":               c.HeartbeatInterval,
+		"REAPER_INTERVAL":                  c.ReaperInterval,
+		"STALE_THRESHOLD":                  c.StaleThreshold,
+		"POLLER_INTERVAL":                  c.PollerInterval,
+		"REQUEST_TIMEOUT":                  c.RequestTimeout,
+		"WORKER_DRAIN_TIMEOUT":             c.WorkerDrainTimeout,
+		"DB_STATEMENT_TIMEOUT":             c.DBStatementTimeout,
+		"DB_MAX_CONN_LIFETIME":             c.DBMaxConnLifetime,
+		"DB_MAX_CONN_IDLE_TIME":            c.DBMaxConnIdleTime,
+		"DB_HEALTH_CHECK_PERIOD":           c.DBHealthCheckPeriod,
+		"DB_IDLE_IN_TRANSACTION_TIMEOUT":   c.DBIdleInTransactionTimeout,
+		"DB_LOCK_TIMEOUT":                  c.DBLockTimeout,
+		"DB_LONG_TXN_ALERT_THRESHOLD":      c.DBLongTxnAlertThreshold,
+		"DB_WATCHDOG_INTERVAL":             c.DBWatchdogInterval,
+		"WORKER_DB_SYNC_INTERVAL":          c.WorkerDBSyncInterval,
+		"WORKER_HEARTBEAT_TIMEOUT":         c.WorkerHeartbeatTimeout,
+		"WORKER_DISCONNECT_SWEEP_INTERVAL": c.WorkerDisconnectSweepInterval,
+		"WORKER_DISCONNECT_ACK_TIMEOUT":    c.WorkerDisconnectAckTimeout,
+		"GRPC_PUBSUB_STARTUP_TIMEOUT":      c.GRPCPubsubStartupTimeout,
 	}
 	for name, d := range requirePositive {
 		if d <= 0 {
@@ -70,6 +75,12 @@ func (c *Config) Validate() error {
 	}
 	if c.StaleThreshold < c.HeartbeatInterval*3 {
 		errs = append(errs, fmt.Errorf("STALE_THRESHOLD (%v) must be >= 3 * HEARTBEAT_INTERVAL (%v)", c.StaleThreshold, c.HeartbeatInterval*3))
+	}
+	if c.WorkerDBSyncInterval <= c.HeartbeatInterval {
+		errs = append(errs, fmt.Errorf("WORKER_DB_SYNC_INTERVAL (%v) must be > HEARTBEAT_INTERVAL (%v)", c.WorkerDBSyncInterval, c.HeartbeatInterval))
+	}
+	if c.WorkerDBSyncInterval >= c.StaleThreshold {
+		errs = append(errs, fmt.Errorf("WORKER_DB_SYNC_INTERVAL (%v) must be < STALE_THRESHOLD (%v)", c.WorkerDBSyncInterval, c.StaleThreshold))
 	}
 	if c.DBLockTimeout > c.DBStatementTimeout {
 		errs = append(errs, fmt.Errorf("DB_LOCK_TIMEOUT (%v) must be <= DB_STATEMENT_TIMEOUT (%v)", c.DBLockTimeout, c.DBStatementTimeout))

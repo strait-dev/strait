@@ -4503,6 +4503,47 @@ func TestRunMgmt_ListStaleRuns(t *testing.T) {
 	}
 }
 
+func TestRunMgmt_ListStaleRuns_ExcludesWorkerMode(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-list-stale-runs-worker")
+
+	httpRun := baseRun(job, newID())
+	httpRun.Status = domain.StatusExecuting
+	httpRun.ExecutionMode = domain.ExecutionModeHTTP
+	started := time.Now().UTC().Add(-15 * time.Minute)
+	httpRun.StartedAt = &started
+	if err := q.CreateRun(ctx, httpRun); err != nil {
+		t.Fatalf("CreateRun() http error = %v", err)
+	}
+
+	workerRun := baseRun(job, newID())
+	workerRun.Status = domain.StatusExecuting
+	workerRun.ExecutionMode = domain.ExecutionModeWorker
+	workerRun.StartedAt = &started
+	if err := q.CreateRun(ctx, workerRun); err != nil {
+		t.Fatalf("CreateRun() worker error = %v", err)
+	}
+
+	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
+	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id IN ($2, $3)", oldHeartbeat, httpRun.ID, workerRun.ID); err != nil {
+		t.Fatalf("update heartbeat error = %v", err)
+	}
+
+	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("ListStaleRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("ListStaleRuns() len = %d, want 1", len(runs))
+	}
+	if runs[0].ID != httpRun.ID {
+		t.Fatalf("ListStaleRuns() run ID = %q, want http run %q", runs[0].ID, httpRun.ID)
+	}
+}
+
 func TestRunMgmt_ListDueRuns(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

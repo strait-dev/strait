@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"strait/internal/domain"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -95,7 +97,7 @@ func GenerateTestRunToken(runID, signingKey string) string {
 	}{
 		Attempt: 1,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "strait:run-token",
+			Issuer:    domain.RunTokenIssuer,
 			Subject:   runID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
