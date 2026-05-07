@@ -211,7 +211,7 @@ type racingTerminalSDKStore struct {
 }
 
 func (m *racingTerminalSDKStore) GetRunTokenState(_ context.Context, runID string) (domain.RunStatus, int, string, error) {
-	if m.stateCalls.Add(1) <= 2 {
+	if m.stateCalls.Add(1) == 1 {
 		return domain.StatusExecuting, 1, "proj-1", nil
 	}
 	return domain.StatusCompleted, 1, "proj-1", nil
@@ -241,6 +241,10 @@ func (m *racingTerminalSDKStore) UpsertRunStateForActiveRun(context.Context, *do
 	return store.ErrRunConflict
 }
 
+func (m *racingTerminalSDKStore) DeleteRunStateForActiveRun(context.Context, string, string, int) error {
+	return store.ErrRunConflict
+}
+
 func (m *racingTerminalSDKStore) CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error {
 	return store.ErrRunConflict
 }
@@ -250,6 +254,22 @@ func (m *racingTerminalSDKStore) CreateRunToolCallForActiveRun(context.Context, 
 }
 
 func (m *racingTerminalSDKStore) UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpsertJobMemoryWithQuotaForActiveRun(context.Context, string, *domain.JobMemory, int, int, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) DeleteJobMemoryForActiveRun(context.Context, string, string, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunResourceSnapshotForActiveRun(context.Context, *domain.RunResourceSnapshot, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunIterationForActiveRun(context.Context, *domain.RunIteration, int) error {
 	return store.ErrRunConflict
 }
 
@@ -981,10 +1001,15 @@ func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
 		{name: "heartbeat", method: http.MethodPost, path: "/sdk/v1/runs/run-1/heartbeat", body: ""},
 		{name: "checkpoint", method: http.MethodPost, path: "/sdk/v1/runs/run-1/checkpoint", body: `{"state":{"cursor":1}}`},
 		{name: "state", method: http.MethodPost, path: "/sdk/v1/runs/run-1/state", body: `{"key":"k","value":{"late":true}}`},
+		{name: "delete-state", method: http.MethodDelete, path: "/sdk/v1/runs/run-1/state/k", body: ""},
 		{name: "usage", method: http.MethodPost, path: "/sdk/v1/runs/run-1/usage", body: `{"provider":"openai","model":"gpt-4","prompt_tokens":1,"completion_tokens":1}`},
 		{name: "tool-call", method: http.MethodPost, path: "/sdk/v1/runs/run-1/tool-call", body: `{"tool_name":"search"}`},
 		{name: "output", method: http.MethodPost, path: "/sdk/v1/runs/run-1/output", body: `{"output_key":"final","value":{"late":true}}`},
 		{name: "memory", method: http.MethodPost, path: "/sdk/v1/runs/run-1/memory/k", body: `{"value":{"late":true}}`},
+		{name: "delete-memory", method: http.MethodDelete, path: "/sdk/v1/runs/run-1/memory/k", body: ""},
+		{name: "stream", method: http.MethodPost, path: "/sdk/v1/runs/run-1/stream", body: `{"chunk":"late"}`},
+		{name: "resource-snapshot", method: http.MethodPost, path: "/sdk/v1/runs/run-1/resource-snapshot", body: `{"cpu_percent":1,"memory_mb":2}`},
+		{name: "iteration", method: http.MethodPost, path: "/sdk/v1/runs/run-1/iteration", body: `{"iteration":1}`},
 		{name: "spawn", method: http.MethodPost, path: "/sdk/v1/runs/run-1/spawn", body: `{"job_slug":"child","project_id":"proj-1"}`},
 		{name: "continue", method: http.MethodPost, path: "/sdk/v1/runs/run-1/continue", body: `{}`},
 	}

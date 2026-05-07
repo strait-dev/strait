@@ -126,3 +126,34 @@ func (q *Queries) DeleteRunState(ctx context.Context, runID, key string) error {
 	}
 	return nil
 }
+
+func (q *Queries) DeleteRunStateForActiveRun(ctx context.Context, runID, key string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteRunStateForActiveRun")
+	defer span.End()
+
+	var active bool
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $3
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		),
+		deleted AS (
+			DELETE FROM run_state
+			WHERE run_id = $1
+			  AND state_key = $2
+			  AND EXISTS (SELECT 1 FROM active_run)
+			RETURNING 1
+		)
+		SELECT EXISTS (SELECT 1 FROM active_run)`
+	if err := q.db.QueryRow(ctx, query, runID, key, attempt).Scan(&active); err != nil {
+		return fmt.Errorf("delete active run state: %w", err)
+	}
+	if !active {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+	}
+	return nil
+}

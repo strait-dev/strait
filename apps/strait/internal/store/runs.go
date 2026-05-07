@@ -2882,3 +2882,35 @@ func (q *Queries) CreateRunIteration(ctx context.Context, iter *domain.RunIterat
 	}
 	return nil
 }
+
+func (q *Queries) CreateRunIterationForActiveRun(ctx context.Context, iter *domain.RunIteration, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunIterationForActiveRun")
+	defer span.End()
+
+	if iter.ID == "" {
+		iter.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $5
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		)
+		INSERT INTO run_iterations (id, run_id, iteration, description)
+		SELECT $1, id, $3, $4
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, iter.ID, iter.RunID, iter.Iteration, iter.Description, attempt).Scan(&iter.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, iter.RunID, attempt)
+		}
+		return fmt.Errorf("create active run iteration: %w", err)
+	}
+	return nil
+}

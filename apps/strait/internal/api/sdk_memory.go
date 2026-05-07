@@ -58,12 +58,19 @@ func (s *Server) handleSDKSetMemory(ctx context.Context, input *SDKSetMemoryInpu
 		t := time.Now().Add(time.Duration(*req.TTLSecs) * time.Second)
 		ttlExpiresAt = &t
 	}
-	if err := s.ensureSDKRunActive(ctx, input.RunID); err != nil {
-		return nil, err
-	}
 	mem := &domain.JobMemory{JobID: run.JobID, ProjectID: run.ProjectID, MemoryKey: key, Value: req.Value, SizeBytes: len(req.Value), TTLExpiresAt: ttlExpiresAt}
-	if err := s.store.UpsertJobMemoryWithQuota(ctx, mem, maxPerKey, maxPerJob); err != nil {
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpsertJobMemoryWithQuotaForActiveRun(ctx, input.RunID, mem, maxPerKey, maxPerJob, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpsertJobMemoryWithQuota(ctx, mem, maxPerKey, maxPerJob)
+	}
+	if err != nil {
 		switch {
+		case errors.Is(err, store.ErrRunConflict), errors.Is(err, store.ErrRunNotFound):
+			if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+				return nil, sdkErr
+			}
+			return nil, huma.Error409Conflict("run is not active for this SDK token")
 		case errors.Is(err, store.ErrJobMemoryPerKeyLimitExceeded):
 			return nil, huma.Error400BadRequest("value exceeds per-key memory limit")
 		case errors.Is(err, store.ErrJobMemoryPerJobLimitExceeded):
@@ -132,7 +139,16 @@ func (s *Server) handleSDKDeleteMemory(ctx context.Context, input *SDKDeleteMemo
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-	if err := s.store.DeleteJobMemory(ctx, run.JobID, input.Key); err != nil {
+	var deleteErr error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		deleteErr = guardedStore.DeleteJobMemoryForActiveRun(ctx, input.RunID, run.JobID, input.Key, runTokenAttemptFromContext(ctx))
+	} else {
+		deleteErr = s.store.DeleteJobMemory(ctx, run.JobID, input.Key)
+	}
+	if deleteErr != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, deleteErr); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to delete job memory")
 	}
 	return nil, nil

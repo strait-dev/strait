@@ -50,9 +50,14 @@ type activeRunMutationStore interface {
 	UpdateHeartbeatForActiveRun(context.Context, string, int) error
 	CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error
 	UpsertRunStateForActiveRun(context.Context, *domain.RunState, int) error
+	DeleteRunStateForActiveRun(context.Context, string, string, int) error
 	CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error
 	CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error
 	UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error
+	UpsertJobMemoryWithQuotaForActiveRun(context.Context, string, *domain.JobMemory, int, int, int) error
+	DeleteJobMemoryForActiveRun(context.Context, string, string, string, int) error
+	CreateRunResourceSnapshotForActiveRun(context.Context, *domain.RunResourceSnapshot, int) error
+	CreateRunIterationForActiveRun(context.Context, *domain.RunIteration, int) error
 }
 
 func runTokenAttemptFromContext(ctx context.Context) int {

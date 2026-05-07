@@ -1499,6 +1499,24 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpsertRunOutputForActiveRun(ctx, output, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertRunOutputForActiveRun(active) error = %v", err)
 	}
+	resourceSnapshot := &domain.RunResourceSnapshot{RunID: activeRun.ID, CPUPercent: 10, MemoryMB: 128}
+	if err := q.CreateRunResourceSnapshotForActiveRun(ctx, resourceSnapshot, activeRun.Attempt); err != nil {
+		t.Fatalf("CreateRunResourceSnapshotForActiveRun(active) error = %v", err)
+	}
+	iteration := &domain.RunIteration{RunID: activeRun.ID, Iteration: 1, Description: "active iteration"}
+	if err := q.CreateRunIterationForActiveRun(ctx, iteration, activeRun.Attempt); err != nil {
+		t.Fatalf("CreateRunIterationForActiveRun(active) error = %v", err)
+	}
+	memory := &domain.JobMemory{JobID: activeRun.JobID, ProjectID: activeRun.ProjectID, MemoryKey: "cursor", Value: json.RawMessage(`{"step":1}`), SizeBytes: len(`{"step":1}`)}
+	if err := q.UpsertJobMemoryWithQuotaForActiveRun(ctx, activeRun.ID, memory, 1024, 1024, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuotaForActiveRun(active) error = %v", err)
+	}
+	if err := q.DeleteRunStateForActiveRun(ctx, activeRun.ID, "cursor", activeRun.Attempt); err != nil {
+		t.Fatalf("DeleteRunStateForActiveRun(active) error = %v", err)
+	}
+	if err := q.DeleteJobMemoryForActiveRun(ctx, activeRun.ID, activeRun.JobID, "cursor", activeRun.Attempt); err != nil {
+		t.Fatalf("DeleteJobMemoryForActiveRun(active) error = %v", err)
+	}
 
 	stored, err := q.GetRun(ctx, activeRun.ID)
 	if err != nil {
@@ -1517,6 +1535,15 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.EnsureRunActiveForAttempt(ctx, activeRun.ID, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
 		t.Fatalf("EnsureRunActiveForAttempt(stale attempt) error = %v, want ErrRunConflict", err)
 	}
+	if err := q.CreateRunResourceSnapshotForActiveRun(ctx, &domain.RunResourceSnapshot{RunID: activeRun.ID}, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
+		t.Fatalf("CreateRunResourceSnapshotForActiveRun(stale attempt) error = %v, want ErrRunConflict", err)
+	}
+	if err := q.CreateRunIterationForActiveRun(ctx, &domain.RunIteration{RunID: activeRun.ID, Iteration: 2}, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
+		t.Fatalf("CreateRunIterationForActiveRun(stale attempt) error = %v, want ErrRunConflict", err)
+	}
+	if err := q.UpsertJobMemoryWithQuotaForActiveRun(ctx, activeRun.ID, &domain.JobMemory{JobID: activeRun.JobID, ProjectID: activeRun.ProjectID, MemoryKey: "stale", Value: json.RawMessage(`true`), SizeBytes: 4}, 1024, 1024, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
+		t.Fatalf("UpsertJobMemoryWithQuotaForActiveRun(stale attempt) error = %v, want ErrRunConflict", err)
+	}
 
 	terminalRun := mustCreateRun(t, ctx, q, job)
 	if err := q.UpdateRunStatus(ctx, terminalRun.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
@@ -1530,15 +1557,22 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	}
 
 	for name, err := range map[string]error{
-		"event":      q.InsertEventForActiveRun(ctx, &domain.RunEvent{RunID: terminalRun.ID, Type: domain.EventLog, Message: "late"}, terminalRun.Attempt),
-		"metadata":   q.UpdateRunMetadataForActiveRun(ctx, terminalRun.ID, map[string]string{"late": "true"}, terminalRun.Attempt),
-		"heartbeat":  q.UpdateHeartbeatForActiveRun(ctx, terminalRun.ID, terminalRun.Attempt),
-		"checkpoint": q.CreateRunCheckpointForActiveRun(ctx, &domain.RunCheckpoint{RunID: terminalRun.ID, State: json.RawMessage(`{"late":true}`)}, terminalRun.Attempt),
-		"state":      q.UpsertRunStateForActiveRun(ctx, &domain.RunState{RunID: terminalRun.ID, StateKey: "late", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
-		"usage":      q.CreateRunUsageForActiveRun(ctx, &domain.RunUsage{RunID: terminalRun.ID, Provider: "test", Model: "model"}, terminalRun.Attempt),
-		"tool-call":  q.CreateRunToolCallForActiveRun(ctx, &domain.RunToolCall{RunID: terminalRun.ID, ToolName: "search"}, terminalRun.Attempt),
-		"output":     q.UpsertRunOutputForActiveRun(ctx, &domain.RunOutput{RunID: terminalRun.ID, OutputKey: "final", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
-		"ensure":     q.EnsureRunActiveForAttempt(ctx, terminalRun.ID, terminalRun.Attempt),
+		"event":        q.InsertEventForActiveRun(ctx, &domain.RunEvent{RunID: terminalRun.ID, Type: domain.EventLog, Message: "late"}, terminalRun.Attempt),
+		"metadata":     q.UpdateRunMetadataForActiveRun(ctx, terminalRun.ID, map[string]string{"late": "true"}, terminalRun.Attempt),
+		"heartbeat":    q.UpdateHeartbeatForActiveRun(ctx, terminalRun.ID, terminalRun.Attempt),
+		"checkpoint":   q.CreateRunCheckpointForActiveRun(ctx, &domain.RunCheckpoint{RunID: terminalRun.ID, State: json.RawMessage(`{"late":true}`)}, terminalRun.Attempt),
+		"state":        q.UpsertRunStateForActiveRun(ctx, &domain.RunState{RunID: terminalRun.ID, StateKey: "late", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
+		"usage":        q.CreateRunUsageForActiveRun(ctx, &domain.RunUsage{RunID: terminalRun.ID, Provider: "test", Model: "model"}, terminalRun.Attempt),
+		"tool-call":    q.CreateRunToolCallForActiveRun(ctx, &domain.RunToolCall{RunID: terminalRun.ID, ToolName: "search"}, terminalRun.Attempt),
+		"output":       q.UpsertRunOutputForActiveRun(ctx, &domain.RunOutput{RunID: terminalRun.ID, OutputKey: "final", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
+		"delete-state": q.DeleteRunStateForActiveRun(ctx, terminalRun.ID, "late", terminalRun.Attempt),
+		"memory": q.UpsertJobMemoryWithQuotaForActiveRun(ctx, terminalRun.ID, &domain.JobMemory{
+			JobID: terminalRun.JobID, ProjectID: terminalRun.ProjectID, MemoryKey: "late", Value: json.RawMessage(`true`), SizeBytes: 4,
+		}, 1024, 1024, terminalRun.Attempt),
+		"delete-memory":     q.DeleteJobMemoryForActiveRun(ctx, terminalRun.ID, terminalRun.JobID, "late", terminalRun.Attempt),
+		"resource-snapshot": q.CreateRunResourceSnapshotForActiveRun(ctx, &domain.RunResourceSnapshot{RunID: terminalRun.ID}, terminalRun.Attempt),
+		"iteration":         q.CreateRunIterationForActiveRun(ctx, &domain.RunIteration{RunID: terminalRun.ID, Iteration: 1}, terminalRun.Attempt),
+		"ensure":            q.EnsureRunActiveForAttempt(ctx, terminalRun.ID, terminalRun.Attempt),
 	} {
 		if !errors.Is(err, store.ErrRunConflict) {
 			t.Fatalf("%s terminal mutation error = %v, want ErrRunConflict", name, err)

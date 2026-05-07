@@ -26,7 +26,16 @@ type SDKResourceSnapshotOutput struct{ Body *domain.RunResourceSnapshot }
 func (s *Server) handleSDKResourceSnapshot(ctx context.Context, input *SDKResourceSnapshotInput) (*SDKResourceSnapshotOutput, error) {
 	req := input.Body
 	snapshot := &domain.RunResourceSnapshot{RunID: input.RunID, CPUPercent: req.CPUPercent, MemoryMB: req.MemoryMB, MemoryLimitMB: req.MemoryLimitMB, NetworkRxBytes: req.NetworkRxBytes, NetworkTxBytes: req.NetworkTxBytes}
-	if err := s.store.CreateRunResourceSnapshot(ctx, snapshot); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunResourceSnapshotForActiveRun(ctx, snapshot, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunResourceSnapshot(ctx, snapshot)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create resource snapshot")
 	}
 	if req.MemoryLimitMB > 0 && req.MemoryMB > req.MemoryLimitMB*0.9 {

@@ -79,7 +79,16 @@ type SDKDeleteStateInput struct {
 }
 
 func (s *Server) handleSDKDeleteState(ctx context.Context, input *SDKDeleteStateInput) (*struct{}, error) {
-	if err := s.store.DeleteRunState(ctx, input.RunID, input.Key); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.DeleteRunStateForActiveRun(ctx, input.RunID, input.Key, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.DeleteRunState(ctx, input.RunID, input.Key)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to delete run state")
 	}
 	return nil, nil
