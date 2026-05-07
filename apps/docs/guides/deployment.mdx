@@ -124,6 +124,30 @@ sentry-cli releases finalize "$SENTRY_RELEASE"
 Set `SENTRY_RELEASE` on every deployed API and worker process to keep errors,
 transactions, and breadcrumbs tied to the exact build.
 
+For dashboard deploys, upload sourcemaps after the frontend build and before
+publishing the bundle:
+
+```bash
+cd apps/app
+export STRAIT_VERSION="$STRAIT_VERSION"
+export STRAIT_COMMIT="$STRAIT_COMMIT"
+export SENTRY_ORG=your-org
+export SENTRY_PROJECT=your-dashboard-project
+export SENTRY_AUTH_TOKEN="<sentry-auth-token>"
+
+bun run build
+bun run sentry:upload-sourcemaps
+```
+
+The upload script uses the same release name (`SENTRY_RELEASE`, or
+`STRAIT_VERSION+STRAIT_COMMIT`) as the Go server. It uploads generated `.map`
+files from `.next`, `dist`, or `.output`, then removes `.map` files from public
+output directories so the deployed dashboard bundle does not expose sourcemaps.
+
+Manual smoke check: after deploy, trigger a handled dashboard error in the
+release environment and confirm Sentry shows an un-minified stack trace under
+the same release as the API and worker events.
+
 ## Process Deployment
 
 Run Strait as one or more long-lived processes. For small deployments, run a
