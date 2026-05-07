@@ -33,7 +33,17 @@ Each run moves through clear states: `queued`, `executing`, then `completed`, `f
 
 ## Read next
 
-- [Quick Start](/quickstart) — run Strait locally and trigger your first job.
-- [Architecture](/architecture) — how Strait fits into your application.
-- [Choose Your Path](/choose-your-path) — compare Cloud and self-hosting.
-- [SDK Reference](/sdks/overview), [CLI Reference](/cli/overview), [API Reference](/api-reference/overview).
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run Strait locally, create a job, trigger it, and inspect the run.
+  </Card>
+  <Card title="Create a Production Job" icon="check-circle" href="/guides/production-job">
+    Add retries, timeouts, idempotency, limits, and failure handling.
+  </Card>
+  <Card title="Use Cases" icon="list-checks" href="/use-cases/background-jobs">
+    Start from the problem you want Strait to solve.
+  </Card>
+  <Card title="Compare" icon="scale-balanced" href="/compare/message-queues">
+    Decide whether Strait is the right tool for your workload.
+  </Card>
+</CardGroup>

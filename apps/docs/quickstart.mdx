@@ -1,17 +1,31 @@
 ---
 title: "Quick Start"
-description: "Run Strait locally and trigger your first job in about ten minutes."
+description: "Run Strait locally, create a job, trigger it, and inspect the run."
 icon: "rocket"
 og:image: "/images/og.png"
 ---
 
-This walkthrough runs Strait locally, creates a project, registers a job, triggers a run, and creates a simple workflow. If you use Strait Cloud, skip to [step 4](#step-4-create-a-project). Your base URL is `https://api.strait.dev`, and your API key replaces `INTERNAL_SECRET`.
+This guide gets you to one completed run. After that, you can add retries, schedules, workflows, SDKs, and production settings.
+
+If you use Strait Cloud, use `https://api.strait.dev` as the base URL and your API key as the bearer token. You can skip the local setup steps.
+
+## What You Will Do
+
+1. Start Strait locally.
+2. Create a project.
+3. Create a job.
+4. Trigger a run.
+5. Inspect the result.
 
 ## Prerequisites
 
-You need Go 1.26+ (`go version`), Docker with Compose v2 (`docker compose version`), and `curl` if you want to run the API examples as-is. The CLI is installable later and works for everything `curl` does.
+You need:
 
-## Step 1: start the infrastructure
+- Go 1.26+
+- Docker with Compose v2
+- `curl`
+
+## 1. Start Dependencies
 
 ```bash
 git clone https://github.com/strait-dev/strait.git
@@ -21,33 +35,30 @@ docker compose -f apps/strait/docker-compose.yml up -d
 docker compose -f apps/strait/docker-compose.yml ps
 ```
 
-This starts the local database, Redis, and supporting services. They should all report `(healthy)`. If a port is already in use, edit the port mapping in `apps/strait/docker-compose.yml` or stop the conflicting service.
+The services should report healthy.
 
-## Step 2: configure environment variables
+## 2. Configure Strait
 
 ```bash
 export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
 export REDIS_URL=redis://localhost:16379
-
-# Both must be at least 32 characters. Generate with `openssl rand -base64 32`.
 export INTERNAL_SECRET=my-dev-secret-change-in-production-min-32-chars
 export JWT_SIGNING_KEY=my-jwt-key-change-in-production-min-32-chars
 ```
 
-`INTERNAL_SECRET` is the bearer token for the management API. `JWT_SIGNING_KEY` signs the run tokens that SDK code uses inside a running job. For local work you only interact with `INTERNAL_SECRET`.
+For local development, `INTERNAL_SECRET` is the bearer token for API calls.
 
-## Step 3: build and run Strait
+## 3. Run the Server
 
 ```bash
-cd apps/strait && go build -o strait ./cmd/strait
+cd apps/strait
+go build -o strait ./cmd/strait
 ./strait --mode all
 ```
 
-Mode `all` runs everything needed for local development in one process. For production deployment patterns, see [Deployment](/guides/deployment).
+Mode `all` runs the API, scheduler, and worker in one process.
 
-## Step 4: create a project
-
-Projects scope jobs, workflows, API keys, and quotas.
+## 4. Create a Project
 
 ```bash
 curl -X POST http://localhost:8080/v1/projects \
@@ -56,14 +67,13 @@ curl -X POST http://localhost:8080/v1/projects \
   -d '{ "name": "My Project", "slug": "my-project" }'
 ```
 
-Save the returned `id` (it looks like `proj_01JA...`). You'll pass it as `project_id` for the next two calls.
+Save the returned project ID.
 
-## Step 5: create a job
+## 5. Create a Job
 
-A job is a template: an endpoint URL, a timeout, and a retry budget.
+A job defines where Strait sends work, how long it may run, and how many times it may retry.
 
-<CodeGroup>
-```bash curl
+```bash
 curl -X POST http://localhost:8080/v1/jobs \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -H "Content-Type: application/json" \
@@ -77,101 +87,51 @@ curl -X POST http://localhost:8080/v1/jobs \
   }'
 ```
 
-```bash CLI
-./strait jobs create \
-  --name "Hello World" \
-  --slug "hello-world" \
-  --endpoint "https://httpbin.org/post" \
-  --timeout-secs 60 \
-  --max-attempts 3
-```
-</CodeGroup>
+Replace `proj_abc123` with your project ID.
 
-## Step 6: trigger a run
+## 6. Trigger a Run
 
 ```bash
 curl -X POST http://localhost:8080/v1/jobs/hello-world/trigger \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{ "payload": { "greeting": "Hello from Strait!" } }'
+  -d '{ "payload": { "greeting": "Hello from Strait" } }'
 ```
 
-The response gives you a run ID and `status: queued`. The worker claims it, POSTs the payload to `https://httpbin.org/post`, and writes the result back. A 2xx response transitions the run to `completed`; any other response schedules a retry using the job's retry strategy.
+The response includes a run ID and a status such as `queued`.
 
-## Step 7: watch the run
+## 7. Inspect the Run
 
 ```bash
 curl http://localhost:8080/v1/runs/run_xyz789 \
   -H "Authorization: Bearer $INTERNAL_SECRET"
-
-# Or stream live updates
-./strait runs watch run_xyz789
 ```
 
-Live updates also stream over SSE at `/v1/runs/{runID}/stream`. See [Real-Time Streaming](/concepts/real-time) for the full event format.
+A successful run moves to `completed`. The run record shows the payload, attempts, timing, status, and result.
 
-## Step 8: chain two jobs into a workflow
+## Common Problems
 
-Workflows are ordered sets of steps. Each step has a `step_ref`, a `job_id`, and an optional `depends_on` list.
+**Run stays queued.** Make sure Strait is running with `--mode all` or `--mode worker`.
 
-```bash
-curl -X POST http://localhost:8080/v1/workflows \
-  -H "Authorization: Bearer $INTERNAL_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project_id": "proj_abc123",
-    "name": "Data Pipeline",
-    "slug": "data-pipeline",
-    "steps": [
-      { "step_ref": "extract", "job_id": "job_abc123", "payload": {"action": "extract"} },
-      { "step_ref": "transform", "job_id": "job_abc123", "depends_on": ["extract"], "payload": {"action": "transform"} }
-    ]
-  }'
+**Endpoint times out.** Increase `timeout_secs` or make the endpoint finish faster.
 
-curl -X POST http://localhost:8080/v1/workflows/data-pipeline/trigger \
-  -H "Authorization: Bearer $INTERNAL_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{ "payload": { "source": "quickstart" } }'
-```
+**Private endpoint is rejected.** Strait blocks private IP ranges by default. See [Security](/guides/security#ssrf-protection).
 
-`extract` runs first; `transform` waits for it. Steps with no dependency between them run in parallel.
-
-## Step 9: trigger from your code
-
-```bash
-npm install @strait/ts
-```
-
-```typescript
-import { createClient } from "@strait/ts";
-
-const client = createClient({
-  baseUrl: "http://localhost:8080",
-  auth: { type: "bearer", token: process.env.INTERNAL_SECRET! },
-});
-
-const run = await client.triggerJob({
-  pathParams: { jobID: "hello-world" },
-  body: { payload: { greeting: "Hello from TypeScript!" } },
-});
-
-console.log("Run started:", run.id, run.status);
-```
-
-The other SDKs — Python, Go, Ruby, Rust — are documented under [SDKs](/sdks/overview).
-
-## Common problems
-
-**Run stuck in `queued`.** The worker isn't claiming it. Check that you started Strait with `--mode all` or `--mode worker`, and that `DATABASE_URL` and `REDIS_URL` are set in the same shell that runs the binary.
-
-**Endpoint timing out.** If runs land in `timed_out`, raise `timeout_secs` on the job, or look at the latency of the endpoint itself. The default retry strategy will keep retrying until `max_attempts` is reached.
-
-**SSRF rejection on a private endpoint.** Strait blocks private IP ranges, loopback, and link-local addresses by default. Use a public endpoint, or read [Security](/guides/security#ssrf-protection) for how to configure trusted internal targets.
-
-**Repeated failures.** When a job exhausts `max_attempts` it moves to `dead_letter`. Inspect the request and response in the dashboard, fix the underlying issue, and replay the run.
+**Run moves to `dead_letter`.** Fix the underlying issue, then replay the run. See [Handle Failed Runs](/guides/handle-failed-runs).
 
 ## Next
 
-- [Architecture](/architecture) — how Strait fits into your application.
-- [Concepts](/concepts/jobs) — jobs, runs, workflows, scheduling, retries, cost budgets.
-- [API Reference](/api-reference/overview) and [CLI Reference](/cli/overview).
+<CardGroup cols={2}>
+  <Card title="Create a Production Job" icon="check-circle" href="/guides/production-job">
+    Add idempotency, retry policy, limits, metadata, and failure handling.
+  </Card>
+  <Card title="Use Cases" icon="list-checks" href="/use-cases/background-jobs">
+    Choose the path that matches what you want to build.
+  </Card>
+  <Card title="Workflows" icon="diagram-project" href="/concepts/workflows">
+    Coordinate multi-step work after your first job is running.
+  </Card>
+  <Card title="SDKs" icon="code" href="/sdks/overview">
+    Trigger jobs and report progress from your application.
+  </Card>
+</CardGroup>
