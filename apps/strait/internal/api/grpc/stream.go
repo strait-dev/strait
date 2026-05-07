@@ -431,7 +431,7 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 }
 
 // handleHeartbeat is a no-op on the DB. last_seen_at is refreshed by the
-// dbSync loop (RegisterWorker UPSERT, every WORKER_DB_SYNC_INTERVAL ≈ 10s),
+// dbSync loop (RegisterWorker UPSERT, every WORKER_DB_SYNC_INTERVAL ≈ 15s),
 // which is well inside the WORKER_HEARTBEAT_TIMEOUT sweep window (≈ 30s).
 // Writing on every heartbeat caused N×workers DB writes per HeartbeatInterval
 // without changing observability — the dbSync row already carries the same
@@ -1044,6 +1044,14 @@ func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 	if err := s.queries.SetWorkerStatus(ctx, workerID, domain.WorkerStatusOffline); err != nil {
 		slog.Warn("grpc worker disconnect: failed to mark offline",
 			"worker_id", workerID, "error", err)
+	}
+	ackChannel := fmt.Sprintf("worker:disconnect_ack:%s", workerID)
+	if err := s.pub.Publish(ctx, ackChannel, []byte(workerID)); err != nil {
+		slog.Warn("grpc worker disconnect: failed to publish ack",
+			"worker_id", workerID,
+			"project_id", projectID,
+			"error", err,
+		)
 	}
 	s.emitWorkerAudit(ctx, domain.AuditActionWorkerDisconnected, projectID, workerID, map[string]any{
 		"worker_id": workerID,

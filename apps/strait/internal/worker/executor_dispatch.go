@@ -494,7 +494,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		}{
 			Attempt: run.Attempt,
 			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    "strait:run-token",
+				Issuer:    domain.RunTokenIssuer,
 				Subject:   run.ID,
 				ExpiresAt: jwt.NewNumericDate(expiresAt),
 				IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -584,7 +584,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}{
 			Attempt: run.Attempt,
 			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    "strait:run-token",
+				Issuer:    domain.RunTokenIssuer,
 				Subject:   run.ID,
 				ExpiresAt: jwt.NewNumericDate(expiresAt),
 				IssuedAt:  jwt.NewNumericDate(time.Now()),

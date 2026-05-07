@@ -674,8 +674,8 @@ func registerAllTypedOps(api huma.API, s *Server) {
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "force-disconnect-worker", Method: http.MethodDelete, Path: "/v1/workers/{workerID}",
-		Summary: "Force-disconnect a worker", Description: "Publishes a disconnect signal to the owning replica; the worker stream is closed within milliseconds. Returns 404 for workers in other projects.",
-		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+		Summary: "Force-disconnect a worker", Description: "Publishes a disconnect signal to the owning replica and waits for worker-plane acknowledgement. Returns 503 with Retry-After if the disconnect is still pending. Returns 404 for workers in other projects.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{401, 404, 500, 503},
 	}, s.handleDeleteWorker)
 
 	RegisterTypedOp(api, OpMeta{

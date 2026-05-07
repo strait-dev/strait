@@ -16,7 +16,10 @@ const (
 	defaultMaxWorkerStreamsPerAPIKey  = 100
 )
 
-var ErrWorkerStreamQuotaExceeded = errors.New("worker stream quota exceeded")
+var (
+	ErrWorkerStreamQuotaExceeded = errors.New("worker stream quota exceeded")
+	ErrNoWorkerForQueue          = errors.New("no worker available for queue")
+)
 
 // ConnectedWorker holds in-memory state for a single connected worker stream.
 type ConnectedWorker struct {

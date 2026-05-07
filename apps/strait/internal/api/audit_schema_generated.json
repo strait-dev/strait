@@ -448,6 +448,33 @@
         "bearer"
       ]
     },
+    "auth.run_token.rejected": {
+      "type": "object",
+      "description": "SDK run-token authentication rejected before run-scoped API access.",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "required"
+        },
+        "run_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["reason", "run_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "canary_deployment.created": {
       "type": "object",
       "description": "Workflow canary deployment created.",
@@ -2761,6 +2788,56 @@
         "bearer"
       ]
     },
+    "worker.delete.acked": {
+      "type": "object",
+      "description": "Worker force-disconnect request was acknowledged by the worker-plane replica.",
+      "properties": {
+        "worker_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["worker_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "worker.delete.timeout": {
+      "type": "object",
+      "description": "Worker force-disconnect request timed out waiting for worker-plane acknowledgement.",
+      "properties": {
+        "timeout_ms": {
+          "type": "string",
+          "description": "required"
+        },
+        "worker_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["worker_id", "timeout_ms"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "worker.disconnected": {
       "type": "object",
       "description": "Worker disconnected from gRPC stream.",
@@ -2798,6 +2875,41 @@
         }
       },
       "required": ["worker_id", "reason"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "worker.task_routed": {
+      "type": "object",
+      "description": "Worker-mode run routed to a connected gRPC worker.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "queue": {
+          "type": "string",
+          "description": "required"
+        },
+        "run_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "worker_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["run_id", "worker_id", "queue", "project_id"],
       "x-forbidden-keys": [
         "secret",
         "value",
