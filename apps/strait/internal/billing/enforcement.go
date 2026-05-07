@@ -65,6 +65,9 @@ type Enforcer struct {
 	chExporter      billingEventEnqueuer
 	failOpenTracker sync.Map // "orgID:checkType" -> *failOpenEntry
 	billingEmails   *BillingEmailSender
+	sentryMode      string
+	sentryRegion    string
+	sentryVersion   string
 }
 
 const (
@@ -203,6 +206,15 @@ func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
 	return func(e *Enforcer) { e.billingEmails = sender }
 }
 
+// WithSentryRuntime attaches low-cardinality runtime tags to billing capture paths.
+func WithSentryRuntime(mode, region, version string) EnforcerOption {
+	return func(e *Enforcer) {
+		e.sentryMode = mode
+		e.sentryRegion = region
+		e.sentryVersion = version
+	}
+}
+
 // shouldSendBillingEmail checks if a billing email should be sent (24h cooldown per org+type).
 func (e *Enforcer) shouldSendBillingEmail(ctx context.Context, orgID, emailType string) bool {
 	if e.rdb == nil {
@@ -282,7 +294,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 			})
 			if hub := sentry.GetHubFromContext(ctx); hub != nil {
 				hub.WithScope(func(scope *sentry.Scope) {
-					applyBillingSentryScope(scope, orgID, "plan_limits")
+					e.applyBillingSentryScope(scope, orgID, "plan_limits")
 					scope.SetLevel(sentry.LevelError)
 					scope.SetContext("billing", sentry.Context{
 						"org_id":    orgID,
@@ -1257,13 +1269,19 @@ func addBillingSentryBreadcrumb(ctx context.Context, operation, message string, 
 	telemetry.AddSentryBreadcrumb(ctx, "billing."+operation, message, data)
 }
 
-func applyBillingSentryScope(scope *sentry.Scope, orgID, operation string) {
+func (e *Enforcer) applyBillingSentryScope(scope *sentry.Scope, orgID, operation string) {
+	mode, region, version := "", "", ""
+	if e != nil {
+		mode = e.sentryMode
+		region = e.sentryRegion
+		version = e.sentryVersion
+	}
 	for k, v := range telemetry.RequiredSentryTags(
 		string(domain.BuildEdition()),
 		telemetry.SubsystemBilling,
-		"",
-		"",
-		"",
+		mode,
+		region,
+		version,
 	) {
 		telemetry.SetSentryTag(scope, k, v)
 	}

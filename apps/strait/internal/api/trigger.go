@@ -290,6 +290,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				ExecutionMode: job.ExecutionMode,
 				QueueName:     job.Queue,
 				IsRollback:    false,
+				Metadata:      sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil),
 			}
 			if enqErr := s.enqueueTriggerRun(guardCtx, tx, batchRun); enqErr != nil {
 				slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
@@ -348,6 +349,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	dependencyKey := extractDependencyKey(payload)
+	metadata := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil)
+	if dependencyKey != "" {
+		metadata["dependency_key"] = dependencyKey
+	}
 
 	// Inherit job tags, then overlay with trigger-specific tags.
 	runTags := make(map[string]string, len(job.Tags)+len(req.Tags))
@@ -373,16 +378,11 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		ExecutionMode:  job.ExecutionMode,
 		QueueName:      job.Queue,
 		IsRollback:     false,
-	}
-	if dependencyKey != "" {
-		run.Metadata = map[string]string{"dependency_key": dependencyKey}
+		Metadata:       metadata,
 	}
 
 	// Merge default run metadata from job. Caller metadata wins on conflicts.
 	if len(job.DefaultRunMetadata) > 0 {
-		if run.Metadata == nil {
-			run.Metadata = make(map[string]string, len(job.DefaultRunMetadata))
-		}
 		for k, v := range job.DefaultRunMetadata {
 			if _, exists := run.Metadata[k]; !exists {
 				run.Metadata[k] = v

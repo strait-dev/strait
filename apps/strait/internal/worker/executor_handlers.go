@@ -683,6 +683,36 @@ func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRu
 		telemetry.SetSentryTag(scope, telemetry.TagJobID, run.JobID)
 		telemetry.SetSentryTag(scope, telemetry.TagProjectID, run.ProjectID)
 		telemetry.SetSentryTag(scope, telemetry.TagAttempt, fmt.Sprintf("%d", run.Attempt))
+		if run.CreatedBy != "" {
+			actorType := workerActorType(run)
+			telemetry.SetSentryTag(scope, telemetry.TagActorID, run.CreatedBy)
+			telemetry.SetSentryTag(scope, telemetry.TagActorType, actorType)
+			scope.SetUser(sentry.User{
+				ID: run.CreatedBy,
+				Data: map[string]string{
+					"actor_type": actorType,
+					"project_id": run.ProjectID,
+				},
+			})
+		}
+		requestContext := sentry.Context{
+			"created_by":   run.CreatedBy,
+			"triggered_by": run.TriggeredBy,
+		}
+		if requestID := run.Metadata[domain.RunMetadataSentryRequestID]; requestID != "" {
+			telemetry.SetSentryTag(scope, telemetry.TagRequestID, requestID)
+			requestContext["request_id"] = requestID
+		}
+		route := run.Metadata[domain.RunMetadataSentryRoute]
+		if route == "" {
+			route = "worker.dispatch"
+		}
+		telemetry.SetSentryTag(scope, telemetry.TagRoute, route)
+		requestContext["route"] = route
+		if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
+			requestContext["actor_type"] = actorType
+		}
+		scope.SetContext("dispatch.request", requestContext)
 		scope.SetContext("run", sentry.Context{
 			"run_id":         run.ID,
 			"job_id":         run.JobID,
@@ -697,6 +727,27 @@ func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRu
 		if tag, ok := telemetry.SentryTagFromString(key); ok {
 			telemetry.SetSentryTag(scope, tag, fmt.Sprintf("%v", val))
 		}
+	}
+}
+
+func workerActorType(run *domain.JobRun) string {
+	if run == nil {
+		return ""
+	}
+	if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
+		return actorType
+	}
+	switch {
+	case strings.HasPrefix(run.CreatedBy, "apikey:"):
+		return "api_key"
+	case strings.HasPrefix(run.CreatedBy, "run:"):
+		return "run_token"
+	case strings.HasPrefix(run.CreatedBy, "sse:"):
+		return "sse_token"
+	case run.CreatedBy != "":
+		return "user"
+	default:
+		return ""
 	}
 }
 

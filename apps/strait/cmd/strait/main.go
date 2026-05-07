@@ -388,6 +388,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
 		}
+		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 

@@ -36,7 +36,7 @@ func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
 	ctx := sentry.SetHubOnContext(context.Background(), hub)
 
 	var wg conc.WaitGroup
-	safeGoWithContext(ctx, &wg, "breadcrumb-component", func() {})
+	safeGoWithContext(ctx, sentrySchedulerMetadata{mode: "all", region: "iad", version: "test-version"}, &wg, "breadcrumb-component", func() {})
 	wg.Wait()
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
@@ -45,6 +45,36 @@ func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
 	}
 	if got := event.Breadcrumbs[0].Category; got != "scheduler.component" {
 		t.Fatalf("breadcrumb category = %q, want scheduler.component", got)
+	}
+}
+
+func TestApplySchedulerSentryScopeAddsRuntimeTags(t *testing.T) {
+	t.Parallel()
+
+	scope := sentry.NewScope()
+	applySchedulerSentryScope(scope, sentrySchedulerMetadata{
+		mode:    "all",
+		region:  "iad",
+		version: "test-version",
+	}, "poller", "boom")
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event == nil {
+		t.Fatal("expected event")
+	}
+	wantTags := map[string]string{
+		"subsystem": "scheduler",
+		"mode":      "all",
+		"region":    "iad",
+		"version":   "test-version",
+		"operation": "poller",
+	}
+	for key, want := range wantTags {
+		if got := event.Tags[key]; got != want {
+			t.Fatalf("tag %s = %q, want %q", key, got, want)
+		}
+	}
+	if got := event.Contexts["scheduler.component"]["component"]; got != "poller" {
+		t.Fatalf("scheduler component context = %v, want poller", got)
 	}
 }
 

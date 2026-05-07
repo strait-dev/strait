@@ -31,10 +31,16 @@ var exitFunc = func(code int) { os.Exit(code) }
 // than a restart, so we crash to let the process manager
 // restart us.
 func safeGo(wg *conc.WaitGroup, name string, fn func()) {
-	safeGoWithContext(context.Background(), wg, name, fn)
+	safeGoWithContext(context.Background(), sentrySchedulerMetadata{}, wg, name, fn)
 }
 
-func safeGoWithContext(ctx context.Context, wg *conc.WaitGroup, name string, fn func()) {
+type sentrySchedulerMetadata struct {
+	mode    string
+	region  string
+	version string
+}
+
+func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *conc.WaitGroup, name string, fn func()) {
 	wg.Go(func() {
 		ctx := telemetry.EnsureSentryHub(ctx)
 		telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component started", map[string]any{
@@ -55,20 +61,7 @@ func safeGoWithContext(ctx context.Context, wg *conc.WaitGroup, name string, fn 
 
 				if hub := sentry.GetHubFromContext(ctx); hub != nil {
 					hub.WithScope(func(scope *sentry.Scope) {
-						for k, v := range telemetry.RequiredSentryTags(
-							string(domain.BuildEdition()),
-							telemetry.SubsystemScheduler,
-							"",
-							"",
-							"",
-						) {
-							telemetry.SetSentryTag(scope, k, v)
-						}
-						telemetry.SetSentryTag(scope, telemetry.TagOperation, name)
-						scope.SetContext("scheduler.component", sentry.Context{
-							"component": name,
-							"panic":     fmt.Sprintf("%v", r),
-						})
+						applySchedulerSentryScope(scope, meta, name, r)
 						hub.Recover(r)
 					})
 					sentry.Flush(2 * time.Second)
@@ -81,11 +74,29 @@ func safeGoWithContext(ctx context.Context, wg *conc.WaitGroup, name string, fn 
 	})
 }
 
+func applySchedulerSentryScope(scope *sentry.Scope, meta sentrySchedulerMetadata, name string, panicValue any) {
+	for k, v := range telemetry.RequiredSentryTags(
+		string(domain.BuildEdition()),
+		telemetry.SubsystemScheduler,
+		meta.mode,
+		meta.region,
+		meta.version,
+	) {
+		telemetry.SetSentryTag(scope, k, v)
+	}
+	telemetry.SetSentryTag(scope, telemetry.TagOperation, name)
+	scope.SetContext("scheduler.component", sentry.Context{
+		"component": name,
+		"panic":     fmt.Sprintf("%v", panicValue),
+	})
+}
+
 // componentTracker records per-component done channels so Stop can wait on
 // each one with an individual deadline.
 type componentTracker struct {
-	mu    sync.Mutex
-	items []componentHandle
+	mu     sync.Mutex
+	items  []componentHandle
+	sentry sentrySchedulerMetadata
 }
 
 type componentHandle struct {
@@ -100,7 +111,7 @@ func (t *componentTracker) track(ctx context.Context, wg *conc.WaitGroup, name s
 	t.mu.Lock()
 	t.items = append(t.items, componentHandle{name: name, done: done})
 	t.mu.Unlock()
-	safeGoWithContext(ctx, wg, name, func() {
+	safeGoWithContext(ctx, t.sentry, wg, name, func() {
 		defer close(done)
 		fn()
 	})

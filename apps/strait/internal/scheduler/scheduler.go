@@ -81,12 +81,16 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithAuditDLQMaxReclaimAttempts(cfg.AuditDLQMaxReclaimAttempts).
 			WithArchiveEnabled(cfg.TerminalArchiveEnabled).
 			WithAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
-		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
-		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
-		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator:          NewStatsAggregator(s),
-		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
-		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
+		indexMaintainer: NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator: NewStatsAggregator(s),
+		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
+		memoryCleanup:   NewMemoryCleanup(s, 5*time.Minute),
+		tracker: componentTracker{sentry: sentrySchedulerMetadata{
+			mode:   cfg.Mode,
+			region: cfg.DefaultRegion,
+		}},
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
 	}
 	for _, opt := range opts {
@@ -97,6 +101,13 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 
 // SchedulerOption configures a Scheduler.
 type SchedulerOption func(*Scheduler)
+
+// WithSentryRuntime attaches low-cardinality runtime tags to scheduler panic events.
+func WithSentryRuntime(mode, region, version string) SchedulerOption {
+	return func(s *Scheduler) {
+		s.tracker.sentry = sentrySchedulerMetadata{mode: mode, region: region, version: version}
+	}
+}
 
 // WithSchedulerMetrics attaches telemetry metrics to the reaper.
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {

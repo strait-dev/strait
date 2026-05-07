@@ -18,8 +18,9 @@ func TestBillingSentryBreadcrumbUsesContextHub(t *testing.T) {
 	addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits requested", map[string]any{
 		"org_id": "org-123",
 	})
+	enforcer := &Enforcer{sentryMode: "all", sentryRegion: "iad", sentryVersion: "test-version"}
 	hub.ConfigureScope(func(scope *sentry.Scope) {
-		applyBillingSentryScope(scope, "org-123", "plan_limits")
+		enforcer.applyBillingSentryScope(scope, "org-123", "plan_limits")
 	})
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
@@ -31,6 +32,15 @@ func TestBillingSentryBreadcrumbUsesContextHub(t *testing.T) {
 	}
 	if got := event.Tags[string(telemetry.TagOrgID)]; got != "org-123" {
 		t.Fatalf("org_id tag = %q, want org-123", got)
+	}
+	if got := event.Tags[string(telemetry.TagMode)]; got != "all" {
+		t.Fatalf("mode tag = %q, want all", got)
+	}
+	if got := event.Tags[string(telemetry.TagRegion)]; got != "iad" {
+		t.Fatalf("region tag = %q, want iad", got)
+	}
+	if got := event.Tags[string(telemetry.TagVersion)]; got != "test-version" {
+		t.Fatalf("version tag = %q, want test-version", got)
 	}
 	if len(event.Breadcrumbs) != 1 {
 		t.Fatalf("breadcrumbs = %d, want 1", len(event.Breadcrumbs))

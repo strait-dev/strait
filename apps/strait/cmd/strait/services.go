@@ -914,9 +914,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				}
 			}
 		}
-		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
-			schedOpts...,
-		)
+		schedOpts = append(schedOpts, scheduler.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
+		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, schedOpts...)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
