@@ -923,6 +923,7 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 			Tags:         original.Tags,
 			CreatedBy:    actorFromContext(ctx),
 			ExpiresAt:    &expiresAt,
+			Metadata:     sentryRunMetadata(ctx, "POST /v1/runs/bulk-replay", nil),
 		}
 
 		if err := s.queue.Enqueue(ctx, replayRun); err != nil {

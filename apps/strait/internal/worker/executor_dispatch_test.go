@@ -44,7 +44,7 @@ func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 		},
 	}
 
@@ -85,8 +85,8 @@ func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
-			"_trace_state":  "congo=t61rcWkgMzE",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			domain.RunMetadataTraceState:  "congo=t61rcWkgMzE",
 		},
 	}
 
@@ -220,7 +220,7 @@ func TestHTTPDispatch_EmptyTraceParent(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "",
+			domain.RunMetadataTraceParent: "",
 		},
 	}
 
@@ -301,7 +301,7 @@ func TestHTTPDispatch_TraceHeadersCoexistWithExtraHeaders(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 		},
 	}
 
@@ -348,8 +348,8 @@ func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"secret":        "super-secret-value",
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			"secret":                      "super-secret-value",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 		},
 	}
 

@@ -276,6 +276,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			batchPayload, _ := json.Marshal(map[string]any{"items": payloads})
 			batchNow := time.Now()
 			batchExpiresAt := batchNow.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+			batchMetadata := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil)
+			batchMetadata = applyRunTraceHeaderMetadata(
+				batchMetadata,
+				input.Traceparent,
+				input.Tracestate,
+				input.SentryTrace,
+				input.Baggage,
+			)
 			batchRun := &domain.JobRun{
 				ID:            uuid.Must(uuid.NewV7()).String(),
 				JobID:         job.ID,
@@ -292,7 +300,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				ExecutionMode: job.ExecutionMode,
 				QueueName:     job.Queue,
 				IsRollback:    false,
-				Metadata:      sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil),
+				Metadata:      batchMetadata,
 			}
 			if enqErr := s.enqueueTriggerRun(guardCtx, tx, batchRun); enqErr != nil {
 				slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
@@ -392,23 +400,13 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 	}
 	run.ConcurrencyKey = req.ConcurrencyKey
-
-	// Capture W3C trace context from incoming request headers.
-	if input.Traceparent != "" {
-		if run.Metadata == nil {
-			run.Metadata = make(map[string]string)
-		}
-		run.Metadata["_trace_parent"] = input.Traceparent
-		if input.Tracestate != "" {
-			run.Metadata["_trace_state"] = input.Tracestate
-		}
-	}
-	if input.SentryTrace != "" {
-		run.Metadata[domain.RunMetadataSentryTrace] = input.SentryTrace
-		if input.Baggage != "" {
-			run.Metadata[domain.RunMetadataSentryBaggage] = input.Baggage
-		}
-	}
+	run.Metadata = applyRunTraceHeaderMetadata(
+		run.Metadata,
+		input.Traceparent,
+		input.Tracestate,
+		input.SentryTrace,
+		input.Baggage,
+	)
 
 	waitingRun := false
 	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {

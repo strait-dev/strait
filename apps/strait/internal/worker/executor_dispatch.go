@@ -642,9 +642,9 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
 
 	// Inject W3C trace context headers from run metadata.
-	if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {
+	if tp, ok := run.Metadata[domain.RunMetadataTraceParent]; ok && tp != "" {
 		req.Header.Set("Traceparent", tp)
-		if ts, ok := run.Metadata["_trace_state"]; ok && ts != "" {
+		if ts, ok := run.Metadata[domain.RunMetadataTraceState]; ok && ts != "" {
 			req.Header.Set("Tracestate", ts)
 		}
 	}
