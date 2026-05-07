@@ -130,15 +130,15 @@ curl -X PUT \
 
 Set `days` to `0` to disable retention trimming entirely. When events are deleted, a tombstone anchor preserves chain continuity so verification still passes.
 
-## Review Queue
+## Audit Dead-Letter
 
-Audit events that fail to persist after all retries land in a review queue. Administrators can inspect and replay them:
+Audit events that fail to persist after all retries land in the audit dead-letter table. Administrators can inspect and replay them:
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/v1/audit/review-queue` | GET | List events in the review queue |
-| `/v1/audit/review-queue/{id}/replay` | POST | Replay an event into the primary chain |
-| `/v1/audit/review-queue/{id}` | DELETE | Permanently drop an event |
+| `/v1/audit/deadletter` | GET | List audit dead-letter rows |
+| `/v1/audit/deadletter/{id}` | GET | Inspect one audit dead-letter row |
+| `/v1/audit/deadletter/{id}/replay` | POST | Replay an event into the primary chain |
 
 ## Related
 

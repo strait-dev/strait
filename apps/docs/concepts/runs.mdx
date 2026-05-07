@@ -10,7 +10,7 @@ Every run has a unique ID (UUIDv7), belongs to exactly one job, and records who 
 
 ## Run Lifecycle
 
-Each run moves through a defined set of states. Most runs follow a simple path: **queued**, **executing**, **completed**. When things go wrong, retries and the review queue keep you in control.
+Each run moves through a defined set of states. Most runs follow a simple path: **queued**, **executing**, **completed**. When things go wrong, retries and the dead-letter queue keep you in control.
 
 ### Lifecycle Diagram
 
@@ -34,9 +34,9 @@ Each run moves through a defined set of states. Most runs follow a simple path: 
    │  │ completed failed timed_out crashed          │
    │  │                │                             │
    │  │                v (max attempts reached)      │
-   │  │          ┌──────────────┐                    │
-   │  │          │ review_queue │                    │
-   │  │          └──────────────┘                    │
+   │  │          ┌─────────────┐                     │
+   │  │          │ dead_letter │                     │
+   │  │          └─────────────┘                     │
    │  │                                              │
    │  └── (attempt < max_attempts) ──────────────────┘
    │                                                 │
@@ -52,16 +52,16 @@ Each run moves through a defined set of states. Most runs follow a simple path: 
 | **queued** | Your run is waiting for a worker to pick it up. Under normal load, this takes milliseconds. If workers are saturated or concurrency limits apply, the run stays here until capacity opens. |
 | **executing** | A worker is calling your endpoint right now. The run stays in this state until your endpoint responds, the timeout fires, or the worker crashes. |
 | **completed** | Your endpoint returned a success response (2xx). The run is finished — the response body is stored in `result`. |
-| **failed** | Your endpoint returned an error (non-2xx response or connection failure). If retry attempts remain, Strait re-queues the run automatically. If all attempts are exhausted, the run moves to the review queue. |
+| **failed** | Your endpoint returned an error (non-2xx response or connection failure). If retry attempts remain, Strait re-queues the run automatically. If all attempts are exhausted, the run moves to `dead_letter`. |
 | **timed_out** | Your endpoint did not respond within the configured `timeout_secs`. Like `failed`, this triggers a retry if attempts remain. |
 | **crashed** | The worker process terminated unexpectedly mid-execution. The run is retried if attempts remain. |
 | **waiting** | The run is paused — typically waiting for a child run, an external event, or an approval step in a workflow. No compute is held. |
 | **canceled** | You or an API call canceled this run. Cancellation can happen from any non-terminal state. |
 | **expired** | The run exceeded its `run_ttl_secs` before a worker picked it up. It never executed. |
-| **review_queue** | All retries exhausted. The run is held for inspection. You can view what went wrong and replay it when ready. |
+| **dead_letter** | All retries exhausted, or poison pill detection stopped retries early. The run is held for inspection. You can view what went wrong and replay it when ready. |
 
 <Info>
-**Terminal states**: `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `expired`. Once a run reaches a terminal state, no further automatic transitions occur. The review queue is a special holding state where you can manually replay the run.
+**Terminal states**: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `expired`, `dead_letter`. Once a run reaches a terminal state, no further automatic transitions occur. Dead-lettered runs can be replayed through the DLQ recovery endpoints.
 </Info>
 
 ### Valid Transitions
@@ -70,9 +70,9 @@ Each run moves through a defined set of states. Most runs follow a simple path: 
 | :--- | :--- |
 | `delayed` | `queued`, `canceled`, `expired` |
 | `queued` | `executing`, `canceled`, `expired` |
-| `executing` | `completed`, `failed`, `timed_out`, `crashed`, `canceled`, `waiting`, `queued`, `review_queue` |
+| `executing` | `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `waiting`, `queued`, `dead_letter` |
 | `waiting` | `executing`, `completed`, `failed`, `canceled`, `timed_out` |
-| `review_queue` | `queued` (via replay) |
+| `dead_letter` | `queued` or a cloned replacement run (via replay) |
 
 ## Triggering Runs
 
@@ -84,7 +84,7 @@ Send a POST request to trigger a job:
 
 ```bash
 curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger \
-  -H "Authorization: Bearer sk_live_..." \
+  -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
     "payload": { "user_id": "usr_123", "action": "sync" },
@@ -112,8 +112,8 @@ The response includes the new run's ID and initial status:
 Trigger many runs at once with a single request. Strait creates a [batch operation](/concepts/batch-operations) to track them:
 
 ```bash
-curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger-bulk \
-  -H "Authorization: Bearer sk_live_..." \
+curl -X POST https://your-strait-instance/v1/jobs/{jobID}/trigger/bulk \
+  -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
     "items": [
@@ -150,7 +150,7 @@ Fetch the current state of any run:
 
 ```bash
 curl https://your-strait-instance/v1/runs/{runID} \
-  -H "Authorization: Bearer sk_live_..."
+  -H "Authorization: Bearer strait_..."
 ```
 
 The response includes the run's current status, attempt number, payload, result (if completed), error (if failed), and all timing fields.
@@ -179,11 +179,11 @@ The response includes the run's current status, attempt number, payload, result 
 }
 ```
 
-### List runs for a job
+### List runs by status
 
 ```bash
-curl "https://your-strait-instance/v1/jobs/{jobID}/runs?status=failed&limit=20" \
-  -H "Authorization: Bearer sk_live_..."
+curl "https://your-strait-instance/v1/runs?status=failed&limit=20" \
+  -H "Authorization: Bearer strait_..."
 ```
 
 ### SSE streaming
@@ -192,7 +192,7 @@ Subscribe to real-time run updates using server-sent events:
 
 ```bash
 curl -N "https://your-strait-instance/v1/runs/{runID}/stream" \
-  -H "Authorization: Bearer sk_live_..."
+  -H "Authorization: Bearer strait_..."
 ```
 
 The stream emits events as the run transitions between states. Useful for building live dashboards or waiting for completion in scripts. See [Real-Time Streaming](/concepts/real-time) for the full streaming reference.
@@ -214,19 +214,20 @@ Each retry creates a new execution of the same run, incrementing the `attempt` c
 
 For full configuration details, see [Retry Strategies](/concepts/retry-strategies).
 
-## Review Queue
+## Dead-Letter Queue
 
-When all retry attempts are exhausted and the run still has not succeeded, Strait moves it to the **review queue** (status: `review_queue`). The run stays there indefinitely until you take action.
+When all retry attempts are exhausted and the run still has not succeeded, Strait moves it to the **dead-letter queue** (status: `dead_letter`). The run stays there until it is replayed, unmasked after age-out, or purged by an operator.
 
-From the review queue, you can:
+From the dead-letter queue, you can:
 
 - **Inspect** the failure — view the error message, response body, execution trace, and every previous attempt.
-- **Replay** the run — re-enqueue it for another execution. The run moves back to `queued` with a fresh attempt.
-- **Bulk replay** — replay multiple review queue runs at once via `POST /v1/runs/bulk-review-replay`.
+- **Replay** the run — re-enqueue it for another execution or create a replacement run, depending on the endpoint used.
+- **Bulk replay** — replay multiple dead-lettered runs at once via `POST /v1/runs/bulk-dlq-replay`.
+- **Administer** the queue — operators can list, replay, unmask, or purge entries via `/v1/admin/dlq`.
 
-The review queue prevents failed work from being silently dropped. Nothing is lost — every failure is visible and actionable.
+The dead-letter queue prevents failed work from being silently dropped. Nothing is lost — every failure is visible and actionable.
 
-For operational procedures around the review queue, see [Review Queue Recovery](/operations/dlq-recovery).
+For operational procedures, see [Dead-letter recovery](/operations/dlq-recovery).
 
 ## Run Data
 

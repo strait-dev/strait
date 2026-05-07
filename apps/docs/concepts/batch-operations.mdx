@@ -19,7 +19,7 @@ Any time you need to create many runs of the same job from a single trigger poin
 Send an array of payloads to the bulk trigger endpoint:
 
 ```
-POST /v1/jobs/{jobID}/trigger-bulk
+POST /v1/jobs/{jobID}/trigger/bulk
 ```
 
 ```json
@@ -59,7 +59,7 @@ GET /v1/batch-operations/{batchID}?project_id=...
 To list all runs in a batch:
 
 ```
-GET /v1/jobs/{jobID}/runs?project_id=...&batch_id={batchID}
+GET /v1/runs?batch_id={batchID}
 ```
 
 ## Idempotency

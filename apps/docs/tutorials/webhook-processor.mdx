@@ -168,7 +168,7 @@ app.post("/webhooks/strait-complete", express.json(), (req, res) => {
 
   if (status === "failed") {
     console.error(`Webhook processing failed: run=${run_id} job=${job_id}`);
-    // Alert your team, check the review queue, etc.
+    // Alert your team, check the dead-letter queue, etc.
   }
 
   res.sendStatus(200);
@@ -203,4 +203,4 @@ With this setup, every Stripe webhook is:
 - [Retry strategies](/concepts/retry-strategies) -- tune backoff timing and jitter for your workload
 - [Webhooks](/concepts/webhooks) -- configure additional webhook events and delivery settings
 - [Idempotency](/guides/idempotency) -- understand deduplication windows and key scoping
-- [Dead letter recovery](/operations/dlq-recovery) -- triage runs that exhaust all retries
+- [Dead-letter recovery](/operations/dlq-recovery) -- triage runs that exhaust all retries

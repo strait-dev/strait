@@ -91,10 +91,10 @@ Set `poison_pill_threshold` on the job definition:
 }
 ```
 
-When consecutive failures produce the same error (matched by hashing the first 200 characters), Strait sends the run to the review queue instead of retrying.
+When consecutive failures produce the same error (matched by hashing the first 200 characters), Strait sends the run to `dead_letter` instead of retrying.
 
 - **`null` or `0`**: Disabled (default).
-- **`1`**: First failure goes straight to the review queue.
+- **`1`**: First failure goes straight to `dead_letter`.
 - **`3`** (recommended): Catches persistent failures before wasting retry budget.
 
 ## Retry Jitter

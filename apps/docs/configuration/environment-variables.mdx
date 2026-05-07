@@ -280,6 +280,6 @@ Strait is orchestration-only. Workers connect via gRPC streaming and execute job
 | `AUDIT_SIEM_BATCH_SIZE` | Integer | `100` | Number of audit events to batch per SIEM flush. |
 | `AUDIT_SIEM_FLUSH_INTERVAL` | Duration | `10s` | Maximum time between SIEM flushes. |
 | `AUDIT_EXPORT_ROW_CAP_DEFAULT` | Integer | `1000000` | Default cap on rows returned per audit export call. Per-project overrides live in `project_quotas.audit_export_row_cap`. |
-| `AUDIT_DLQ_RECLAIM_BATCH` | Integer | `200` | Maximum deadletter rows the reclaimer processes per scheduler tick. |
-| `AUDIT_DLQ_MAX_AGE_DAYS` | Integer | `30` | Maximum days a deadletter row may live before the retention reaper drops it. `0` disables the sweep. |
+| `AUDIT_DLQ_RECLAIM_BATCH` | Integer | `200` | Maximum audit dead-letter rows the reclaimer processes per scheduler tick. |
+| `AUDIT_DLQ_MAX_AGE_DAYS` | Integer | `30` | Maximum days an audit dead-letter row may live before the retention reaper drops it. `0` disables the sweep. |
 | `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | Integer | `10` | Maximum reclaim attempts per DLQ row before skipping. `0` disables the cap. |

@@ -52,15 +52,15 @@ This page covers the alerts Strait fires and what to do when you see them. Each 
 
 ## Run alerts
 
-### Review queue growing
+### Dead-letter queue growing
 
-**Trigger.** Review queue depth has a sustained positive slope for 15 minutes.
+**Trigger.** Dead-letter queue depth has a sustained positive slope for 15 minutes.
 
 **Severity.** Warning.
 
 **What to check.**
 
-- Which job types are sending runs to the review queue? Filter by `job_id` via `GET /v1/admin/review-queue`.
+- Which job types are sending runs to `dead_letter`? Filter by `job_id` via `GET /v1/admin/dlq`.
 - Is the failure caused by a code bug, a dependency outage, or a misconfiguration?
 - Cross-reference with webhook delivery failures or external service errors.
 
@@ -68,10 +68,10 @@ This page covers the alerts Strait fires and what to do when you see them. Each 
 
 1. Identify the failure class from the run's `error` and `error_class` fields.
 2. Fix the underlying cause (deploy a patch, restore a dependency).
-3. Replay recoverable runs via `POST /v1/admin/review-queue/{run_id}/replay`.
+3. Replay recoverable runs via `POST /v1/admin/dlq/{run_id}/replay`.
 4. Purge non-recoverable runs after documenting the reason.
 
-See [Review queue recovery](/operations/dlq-recovery) for the full workflow.
+See [Dead-letter recovery](/operations/dlq-recovery) for the full workflow.
 
 **Escalation.** Page the domain owner if the cause is application logic. Otherwise treat as a platform incident.
 
@@ -79,19 +79,19 @@ See [Review queue recovery](/operations/dlq-recovery) for the full workflow.
 
 ### Stale runs detected
 
-**Trigger.** A review queue entry has been waiting for triage for more than 24 hours.
+**Trigger.** A dead-letter entry has been waiting for triage for more than 24 hours.
 
 **Severity.** Low (non-paging).
 
 **What to check.**
 
-- Pull the oldest entries: `GET /v1/admin/review-queue?order=oldest&limit=20`.
+- Pull the oldest entries: `GET /v1/admin/dlq?limit=20`.
 - Is triage blocked on a team or individual?
 
 **How to fix.**
 
 1. Investigate each entry and replay, purge, or explicitly acknowledge it.
-2. Follow the [Review queue recovery](/operations/dlq-recovery) guide.
+2. Follow the [Dead-letter recovery](/operations/dlq-recovery) guide.
 
 **Escalation.** If entries age past 72 hours, escalate to platform lead.
 

@@ -1,12 +1,12 @@
 ---
 title: 'SLOs and Anomaly Detection'
-description: 'Set reliability targets for your jobs and detect cost anomalies automatically.'
+description: 'Track reliability signals and detect cost anomalies automatically.'
 icon: 'chart-line'
 ---
 
 ## Service Level Objectives
 
-SLOs let you define reliability targets per job. Strait tracks three metrics:
+Strait tracks reliability signals from workflow and run execution through CDC and analytics pipelines. These signals are used for dashboards, alerts, and internal breach detection.
 
 | Metric | What it measures |
 |---|---|
@@ -14,64 +14,21 @@ SLOs let you define reliability targets per job. Strait tracks three metrics:
 | `p95_latency_secs` | 95th percentile run duration in seconds |
 | `p99_latency_secs` | 99th percentile run duration in seconds |
 
-Each SLO is evaluated over a configurable window: **24 hours**, **7 days** (168h), or **30 days** (720h).
+SLO windows are evaluated over configured intervals such as **24 hours**, **7 days** (168h), or **30 days** (720h), depending on the deployment and analytics configuration.
 
-## Creating an SLO
+<Note>
+The current public API does not expose per-job SLO CRUD endpoints. Use the analytics and anomaly endpoints below for the supported API surface, and use exported metrics for alerting.
+</Note>
 
-```bash
-curl -X POST https://api.strait.so/v1/jobs/{jobID}/slos \
-  -H "Authorization: Bearer $STRAIT_API_KEY" \
-  -d '{
-    "metric": "success_rate",
-    "target": 0.995,
-    "window_hours": 24
-  }'
-```
+## Current API Surface
 
-```json
-{
-  "id": "slo_abc123",
-  "job_id": "job_xyz",
-  "project_id": "proj_456",
-  "metric": "success_rate",
-  "target": 0.995,
-  "window_hours": 24
-}
-```
-
-You can create multiple SLOs per job — one for success rate and another for latency, for example.
-
-## Evaluating SLOs
-
-Check how a job is performing against its targets:
-
-```bash
-curl https://api.strait.so/v1/jobs/{jobID}/slos/evaluate \
-  -H "Authorization: Bearer $STRAIT_API_KEY"
-```
-
-```json
-{
-  "evaluations": [
-    {
-      "id": "eval_001",
-      "slo_id": "slo_abc123",
-      "current_value": 0.997,
-      "budget_remaining": 0.002,
-      "evaluated_at": "2025-01-15T10:00:00Z"
-    }
-  ]
-}
-```
-
-`budget_remaining` tells you how much room you have before breaching the target. A `success_rate` SLO with target `0.995` and current value `0.997` has `0.002` of error budget left.
-
-## Deleting an SLO
-
-```bash
-curl -X DELETE https://api.strait.so/v1/jobs/{jobID}/slos/{sloID} \
-  -H "Authorization: Bearer $STRAIT_API_KEY"
-```
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/analytics/performance` | Review run duration, throughput, and success trends. |
+| `GET /v1/usage/anomalies` | List detected usage and spend anomalies. |
+| `GET /v1/anomaly-config` | Read anomaly detection thresholds. |
+| `PUT /v1/anomaly-config` | Update anomaly detection thresholds. |
+| `GET /metrics` | Export Prometheus metrics for external SLO alerting. |
 
 ## Anomaly Detection
 
@@ -85,7 +42,7 @@ Strait monitors spending patterns across your usage and flags unusual spikes. Tw
 Set your thresholds with a multiplier. A `warning_threshold` of `1.5` means spending 1.5x above the baseline triggers a warning.
 
 ```bash
-curl -X PUT https://api.strait.so/v1/anomaly-config \
+curl -X PUT https://api.strait.dev/v1/anomaly-config \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -d '{
     "warning_threshold": 1.5,
@@ -96,14 +53,14 @@ curl -X PUT https://api.strait.so/v1/anomaly-config \
 Retrieve current configuration:
 
 ```bash
-curl https://api.strait.so/v1/anomaly-config \
+curl https://api.strait.dev/v1/anomaly-config \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
 ## Checking for anomalies
 
 ```bash
-curl https://api.strait.so/v1/usage/anomalies \
+curl https://api.strait.dev/v1/usage/anomalies \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 

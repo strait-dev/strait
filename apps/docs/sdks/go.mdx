@@ -356,7 +356,7 @@ Add request/response hooks for logging, metrics, or header injection:
 ```go
 client := strait.NewClient(
     strait.WithBaseURL("https://api.strait.dev"),
-    strait.WithBearerToken("sk_live_..."),
+    strait.WithBearerToken("strait_..."),
     strait.WithMiddleware(strait.Middleware{
         OnRequest: func(req *strait.Request) {
             fmt.Printf("-> %s %s\n", req.Method, req.URL)

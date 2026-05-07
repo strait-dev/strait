@@ -17,7 +17,7 @@ Most teams start with a queue and a retry loop. Then they need scheduling. Then 
 
 Strait collapses that into one service:
 
-- Every run has a clear lifecycle — `queued` to `executing` to `completed` or `failed`. Retries use exponential, linear, fixed, or custom delays with jitter. Runs that exhaust their retries land in a review queue you can inspect and replay.
+- Every run has a clear lifecycle -- `queued` to `executing` to `completed` or `failed`. Retries use exponential, linear, fixed, or custom delays with jitter. Runs that exhaust their retries land in `dead_letter` for inspection and replay.
 - Workflows handle dependencies, conditional branches, approval gates, sub-workflows, and durable event waits. The graph is validated before it runs.
 - Live observability is built in: where each run is, why it failed, how long it took, what it cost. Streamed over SSE, not polled.
 - Five SDKs with full feature parity: TypeScript, Python, Go, Ruby, Rust.
@@ -26,7 +26,7 @@ Strait collapses that into one service:
 ## What you can build with it
 
 - **Background jobs** — scheduled imports, report generation, cache warming, cleanup, recurring maintenance.
-- **Webhook consumers** — durable processing of events from external services with retries and a review queue for anything that exhausts its attempts.
+- **Webhook consumers** -- durable processing of events from external services with retries and dead-letter recovery for anything that exhausts its attempts.
 - **Cost-aware AI pipelines** — multi-step workflows with per-run and per-project spend limits, approval gates, and conditional branches. Tracks cost in micro-USD.
 - **Bulk operations** — trigger jobs in batches with priority ordering and idempotency deduplication.
 - **ETL** — DAG workflows with parallel steps and template-driven data flow between stages.

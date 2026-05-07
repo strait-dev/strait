@@ -59,7 +59,7 @@ Strait is a single Go binary that runs your jobs and workflows. It needs Postgre
                     │  - Execute ─> HTTP POST to endpt   │
                     │  - Retry ─> Strategy + jitter      │
                     │  - Trace ─> Execution timing       │
-                    │  - Review queue on exhaust         │
+                    │  - DLQ on exhaust                  │
                     └──────────┬───────────────────────┘
                                │ Webhook / PubSub
                                v
@@ -89,8 +89,8 @@ Strait is a single Go binary that runs your jobs and workflows. It needs Postgre
 
 | Component | Required | Purpose |
 |---|---|---|
-| PostgreSQL 16+ | Yes | Stores jobs, runs, workflows. Also serves as the job queue. |
-| Redis 7+ | Yes | Powers real-time updates (SSE) and pub/sub notifications. |
+| PostgreSQL 18 | Yes | Stores jobs, runs, workflows. Also serves as the job queue. |
+| Redis 8 | Yes | Powers real-time updates (SSE) and pub/sub notifications. |
 | Sequin | Yes (self-host) | Streams database changes for real-time event processing. Included in Docker Compose. |
 | ClickHouse | No | Optional analytics backend for large-scale run metrics. See [ClickHouse Analytics](/concepts/clickhouse-analytics). |
 
@@ -117,13 +117,19 @@ Strait uses PostgreSQL as its job queue. Workers claim available jobs from the q
 
 ## Run Lifecycle
 
-Every run moves through a set of states: **queued** -> **executing** -> **completed** (or **failed** / **timed_out**). Failed runs retry up to the configured max attempts, then move to the review queue for manual inspection.
+Every run moves through a set of states: **queued** -> **executing** -> **completed** (or **failed** / **timed_out**). Failed runs retry up to the configured max attempts, then move to `dead_letter` for manual inspection and replay.
 
 For the full lifecycle diagram and state transition details, see [Runs](/concepts/runs#run-lifecycle).
 
 ## Authentication
 
-There are two auth schemes. The management API at `/v1/*` uses an `Authorization: Bearer <INTERNAL_SECRET>` header — a simple string compare, fast enough for job CRUD, triggering, and run management. The SDK API at `/sdk/v1/*` uses HS256 JWTs signed with `JWT_SIGNING_KEY`. The token's `sub` is the run ID, `exp` is the job's timeout plus 60 seconds, and validation is stateless.
+Strait supports several auth paths because the API serves operators, project clients, browser streams, and job SDKs:
+
+- **Internal secret** -- administrative and service-to-service calls use `Authorization: Bearer <INTERNAL_SECRET>` or `X-Internal-Secret`.
+- **Project API keys** -- project-scoped clients use `Authorization: Bearer strait_...`; scopes and RBAC permissions decide what the key can do.
+- **OIDC bearer tokens** -- optional user tokens are verified when OIDC is configured, then mapped to project membership and checked by RBAC.
+- **SSE stream tokens** -- browser clients can use short-lived query tokens for event streams where custom headers are awkward.
+- **SDK run tokens** -- `/sdk/v1/*` uses HS256 JWTs signed with `JWT_SIGNING_KEY`. The token's `sub` is the run ID, `exp` is the job's timeout plus 60 seconds, and validation is stateless.
 
 ## Execution lifecycle
 
@@ -140,7 +146,7 @@ In both modes, customer code runs on customer infrastructure. Strait only routes
 
 For each run, the executor captures a per-stage timing breakdown — queue wait, dequeue, connection, time-to-first-byte, transfer, total — and stores it on the run for debugging.
 
-A 2xx response transitions the run to `completed` and stores the result. Anything else schedules a retry using the job's retry strategy, or marks the run `failed` if attempts are exhausted. Timeouts are retried until they hit `max_attempts`, then transition to `timed_out`. Once `max_attempts` is reached, the run moves to the review queue rather than sitting as a permanent failure — you can inspect it and replay it from there.
+A 2xx response transitions the run to `completed` and stores the result. Anything else schedules a retry using the job's retry strategy, or marks the run `failed` if attempts are exhausted. Timeouts are retried until they hit `max_attempts`, then transition to `timed_out`. Once `max_attempts` is reached, the run moves to `dead_letter` rather than sitting as a permanent failure -- you can inspect it and replay it from there.
 
 When a run reaches a terminal state, Strait fires the configured webhook. Job-run webhooks retry up to 3 times with exponential backoff. Event-trigger webhooks are durable: deliveries are persisted in `webhook_deliveries`, retried up to 5 times with exponential backoff, and survive process restarts. The full delivery lifecycle lives in [Webhooks](/concepts/webhooks). Every state change is also published on the Redis channel `run:{runID}` so SSE consumers see it immediately.
 
@@ -202,6 +208,7 @@ The scheduler runs five loops:
 - **Stale reaper** — runs on a configurable interval and does several passes: re-queues runs stuck in `claimed`, marks runs `crashed` after heartbeat loss, detects workflow runs that haven't progressed for `WF_STALL_THRESHOLD` and applies `WF_STALL_ACTION` (`log_only`, `reconcile`, or `fail_workflow`), and times out workflow runs that have outlived their budget — cancelling their steps, job runs, and pending event triggers.
 - **Event trigger reaper** — every 30 seconds. Times out expired event triggers, completes sleep triggers when their duration is up, fails expired approvals, and re-resolves `received` triggers whose downstream steps are still `waiting` after a 30-second grace window. In multi-instance deployments, only one instance runs the reaper per cycle; the others skip via database-level coordination.
 - **Retention worker** — every hour, deletes terminal runs in batches: 30 days for `completed` / `failed` / `canceled` / `expired`, 90 days for `timed_out` / `crashed` / `system_failed`, and event triggers on the schedule set by `EVENT_TRIGGER_RETENTION`.
+- **Outbox flusher** -- promotes transactional enqueue rows into the queue. Poisoned rows are quarantined for inspection and can be retried or purged via `/v1/admin/outbox`.
 
 ## Health Endpoints
 

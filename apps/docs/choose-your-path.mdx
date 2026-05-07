@@ -26,7 +26,7 @@ import { createClient } from "@strait/ts";
 
 const client = createClient({
   baseUrl: "https://api.strait.dev",
-  auth: { type: "bearer", token: "sk_live_..." },
+  auth: { type: "bearer", token: "strait_..." },
 });
 
 const run = await client.triggerJob({

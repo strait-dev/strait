@@ -257,11 +257,11 @@ Failed webhook deliveries can be inspected and retried via the API:
 
 ```bash
 # List failed deliveries
-curl "https://strait.dev/v1/webhook-deliveries?project_id=proj_1&status=failed" \
+curl "https://strait.dev/v1/webhooks/deliveries?status=failed" \
   -H "Authorization: Bearer strait_..."
 
 # Retry a failed delivery
-curl -X POST https://strait.dev/v1/webhook-deliveries/{deliveryID}/retry \
+curl -X POST https://strait.dev/v1/webhooks/deliveries/{deliveryID}/retry \
   -H "Authorization: Bearer strait_..."
 ```
 

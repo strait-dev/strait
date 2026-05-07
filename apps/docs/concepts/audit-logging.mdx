@@ -51,7 +51,7 @@ curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1&increm
   -H "Authorization: Bearer strait_..."
 ```
 
-Key rotation is supported via `POST /v1/audit-events/rotate-key`. A tombstone event marks the boundary so verification spans key generations.
+Key rotation is supported via `POST /v1/projects/{id}/audit/rotate-key`. A tombstone event marks the boundary so verification spans key generations.
 
 ## Forwarding to SIEM
 
@@ -61,7 +61,7 @@ Forward audit events to an external security platform in real time by setting `A
 | :--- | :--- | :--- |
 | `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | HTTP(S) URL to POST batched events to. |
 | `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per batch. |
-| `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max time between flushes. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `10s` | Max time between flushes. |
 
 ## Export
 
@@ -83,10 +83,10 @@ Per-project overrides are available:
 | :--- | :--- | :--- |
 | `SECRET_ENCRYPTION_KEY` | _(required)_ | Base key used to derive the audit signing key. |
 | `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default retention window in days. |
-| `AUDIT_ASYNC_BUFFER_SIZE` | `8192` | Capacity of the async emit channel. |
+| `AUDIT_ASYNC_BUFFER_SIZE` | `4096` | Capacity of the async emit channel. |
 | `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | SIEM forwarding target URL. |
 | `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per SIEM batch. |
-| `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max interval between SIEM flushes. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `10s` | Max interval between SIEM flushes. |
 
 ## Related Concepts
 

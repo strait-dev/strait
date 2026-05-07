@@ -21,7 +21,7 @@ The pipeline is near-real-time. Changes typically propagate within milliseconds 
 
 | Table | Events | Use Case |
 | :--- | :--- | :--- |
-| `job_runs` | Status changes (pending, running, completed, failed, timed_out, canceled) | Live run status in dashboards, SSE streaming to clients |
+| `job_runs` | Status changes (`queued`, `executing`, `completed`, `failed`, `timed_out`, `canceled`, `dead_letter`) | Live run status in dashboards, SSE streaming to clients |
 | `workflow_runs` | Step progression, completion, failure | Workflow monitoring, progress indicators |
 | `webhook_deliveries` | Delivery attempts, success, failure | Delivery status tracking |
 | `event_triggers` | Trigger creation, event receipt, timeout, cancellation | Event wait monitoring |

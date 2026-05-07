@@ -30,7 +30,7 @@ use strait::prelude::*;
 async fn main() -> Result<(), StraitError> {
     let client = StraitClient::builder()
         .base_url("https://api.strait.dev")
-        .api_key("sk_live_...")
+        .api_key("strait_...")
         .build()?;
 
     // Create a job
@@ -60,7 +60,7 @@ async fn main() -> Result<(), StraitError> {
 ```rust
 let client = StraitClient::builder()
     .base_url("https://api.strait.dev")
-    .api_key("sk_live_...")
+    .api_key("strait_...")
     .timeout(Duration::from_secs(30))
     .build()?;
 ```
@@ -418,7 +418,7 @@ use strait::middleware::*;
 
 let client = StraitClient::builder()
     .base_url("https://api.strait.dev")
-    .api_key("sk_live_...")
+    .api_key("strait_...")
     .middleware(LoggingMiddleware::new(|event| {
         match event {
             MiddlewareEvent::Request { method, url } =>

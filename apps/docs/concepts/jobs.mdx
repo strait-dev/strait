@@ -145,7 +145,7 @@ Custom example — retry after 10s, then 30s, then 120s:
 }
 ```
 
-If a job hits the same error repeatedly, **poison pill detection** stops retries early and moves the run to the review queue so you can inspect and replay it. Set the threshold with `poison_pill_threshold`. See [Resilience](/concepts/resilience#poison-pill-detection) for details.
+If a job hits the same error repeatedly, **poison pill detection** stops retries early and moves the run to `dead_letter` so you can inspect and replay it. Set the threshold with `poison_pill_threshold`. See [Resilience](/concepts/resilience#poison-pill-detection) for details.
 
 For a full breakdown of each strategy, see [Retry Strategies](/concepts/retry-strategies).
 
@@ -345,7 +345,7 @@ All fields available on a job, organized by category.
 | `timeout_secs` | `int` | Max execution time per attempt in seconds. Default: `300`. |
 | `retry_strategy` | `string` | One of `exponential`, `linear`, `fixed`, or `custom`. Default: `exponential`. |
 | `retry_delays_secs` | `[]int` | Explicit delay sequence for the `custom` strategy. |
-| `poison_pill_threshold` | `*int` | Consecutive identical errors before Strait stops retrying and sends the run to the [review queue](/concepts/resilience#poison-pill-detection). `null` or `0` disables. |
+| `poison_pill_threshold` | `*int` | Consecutive identical errors before Strait stops retrying and sends the run to the [dead-letter queue](/concepts/resilience#poison-pill-detection). `null` or `0` disables. |
 
 ### Scheduling
 
@@ -421,4 +421,4 @@ All fields available on a job, organized by category.
 - [Retry Strategies](/concepts/retry-strategies) — Full breakdown of retry behavior.
 - [Scheduling](/concepts/scheduling) — Advanced scheduling patterns.
 - [Environments](/concepts/environments) — Route jobs to different endpoints per environment.
-- [Resilience](/concepts/resilience) — Poison pill detection and the review queue.
+- [Resilience](/concepts/resilience) — Poison pill detection and the dead-letter queue.
