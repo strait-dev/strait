@@ -5,7 +5,7 @@ icon: "rocket"
 og:image: "/images/og.png"
 ---
 
-This walkthrough sets up Strait on your machine, creates a project, registers a job, triggers a run, and chains two jobs into a workflow. If you're using Strait Cloud, skip to [step 4](#step-4-create-a-project) — your base URL is `https://api.strait.dev` and your API key replaces `INTERNAL_SECRET` below.
+This walkthrough runs Strait locally, creates a project, registers a job, triggers a run, and creates a simple workflow. If you use Strait Cloud, skip to [step 4](#step-4-create-a-project). Your base URL is `https://api.strait.dev`, and your API key replaces `INTERNAL_SECRET`.
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ cd apps/strait && go build -o strait ./cmd/strait
 ./strait --mode all
 ```
 
-Mode `all` runs the API, the worker, and the scheduler in one process. On startup Strait connects to PostgreSQL, applies any pending migrations, opens the HTTP server on `:8080`, and starts the worker pool. In production you'd split this into `--mode api` instances behind a load balancer and `--mode worker` instances on their own pool.
+Mode `all` runs everything needed for local development in one process. For production deployment patterns, see [Deployment](/guides/deployment).
 
 ## Step 4: create a project
 
@@ -112,7 +112,7 @@ Live updates also stream over SSE at `/v1/runs/{runID}/stream`. See [Real-Time S
 
 ## Step 8: chain two jobs into a workflow
 
-Workflows are DAGs of steps. Each step has a `step_ref`, a `job_id`, and an optional `depends_on` list.
+Workflows are ordered sets of steps. Each step has a `step_ref`, a `job_id`, and an optional `depends_on` list.
 
 ```bash
 curl -X POST http://localhost:8080/v1/workflows \
@@ -172,6 +172,6 @@ The other SDKs — Python, Go, Ruby, Rust — are documented under [SDKs](/sdks/
 
 ## Next
 
-- [Architecture](/architecture) — the queue, run lifecycle, workflow engine, and deployment modes.
+- [Architecture](/architecture) — how Strait fits into your application.
 - [Concepts](/concepts/jobs) — jobs, runs, workflows, scheduling, retries, cost budgets.
 - [API Reference](/api-reference/overview) and [CLI Reference](/cli/overview).

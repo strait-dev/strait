@@ -1,40 +1,39 @@
 ---
 title: "Introduction"
-description: "Open-source job orchestration for background jobs and workflows. One binary, one database, no message broker."
+description: "Run background jobs and workflows without adding a message broker."
 icon: "book-open"
 og:image: "/images/og.png"
 ---
 
-## What is Strait
+## What Strait Does
 
-Strait runs your background jobs and orchestrates multi-step workflows. You define the jobs; it handles queuing, retries, scheduling, dependencies, and monitoring.
+Strait runs background jobs and multi-step workflows. You define the work, where it runs, and when it should happen. Strait handles the queue, retries, schedules, dependencies, and run history.
 
-One Go binary. PostgreSQL for state and the queue. Redis for live updates. No RabbitMQ, no SQS, no Kafka.
+It ships as one Go binary. PostgreSQL stores state and queued work. Redis powers live updates. You do not need RabbitMQ, SQS, Kafka, or a separate workflow engine.
 
-## Why teams switch
+## When to Use It
 
-Most teams start with a queue and a retry loop. Then they need scheduling. Then dependencies between jobs. Then approval gates, then cost limits on expensive API calls. Six months later they're maintaining five systems that don't talk to each other.
+Strait is useful when a simple queue is no longer enough:
 
-Strait collapses that into one service:
+- You need retries, timeouts, and dead-letter handling.
+- You need recurring jobs with clear run history.
+- You need workflows where one step waits for another.
+- You need approvals, event waits, or long-running processes.
+- You want to self-host the control plane and keep job code on your own infrastructure.
 
-- Every run has a clear lifecycle -- `queued` to `executing` to `completed` or `failed`. Retries use exponential, linear, fixed, or custom delays with jitter. Runs that exhaust their retries land in `dead_letter` for inspection and replay.
-- Workflows handle dependencies, conditional branches, approval gates, sub-workflows, and durable event waits. The graph is validated before it runs.
-- Live observability is built in: where each run is, why it failed, how long it took, what it cost. Streamed over SSE, not polled.
-- Five SDKs with full feature parity: TypeScript, Python, Go, Ruby, Rust.
-- Self-host with PostgreSQL and Redis, or use the hosted version at [app.strait.dev](https://app.strait.dev). Same API either way.
+Each run moves through clear states: `queued`, `executing`, then `completed`, `failed`, or another terminal state. Failed runs retry according to the job policy. If retries are exhausted, the run moves to `dead_letter` so it can be inspected and replayed.
 
-## What you can build with it
+## Common Uses
 
-- **Background jobs** — scheduled imports, report generation, cache warming, cleanup, recurring maintenance.
-- **Webhook consumers** -- durable processing of events from external services with retries and dead-letter recovery for anything that exhausts its attempts.
-- **Cost-aware AI pipelines** — multi-step workflows with per-run and per-project spend limits, approval gates, and conditional branches. Tracks cost in micro-USD.
-- **Bulk operations** — trigger jobs in batches with priority ordering and idempotency deduplication.
-- **ETL** — DAG workflows with parallel steps and template-driven data flow between stages.
-- **Cron** — five-field expressions with timezone support and execution windows.
+- **Background jobs**: imports, reports, cache warming, cleanup, and recurring maintenance.
+- **Webhook consumers**: process external events with retries and replay for failed work.
+- **Data pipelines**: run steps in order, pass results between steps, and retry only what failed.
+- **AI workflows**: enforce per-run and per-project cost limits, with approval gates when needed.
+- **Scheduled work**: use cron expressions, time zones, and execution windows.
 
 ## Read next
 
-- [Quick Start](/quickstart) — clone the repo, boot the stack with Docker Compose, trigger your first run.
-- [Architecture](/architecture) — how the queue, run lifecycle, and workflow engine fit together.
-- [Choose Your Path](/choose-your-path) — when self-host makes sense and when cloud does.
+- [Quick Start](/quickstart) — run Strait locally and trigger your first job.
+- [Architecture](/architecture) — how Strait fits into your application.
+- [Choose Your Path](/choose-your-path) — compare Cloud and self-hosting.
 - [SDK Reference](/sdks/overview), [CLI Reference](/cli/overview), [API Reference](/api-reference/overview).

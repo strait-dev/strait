@@ -26,7 +26,7 @@ Event triggers let your workflows and runs pause and wait for something to happe
 | Type | Description |
 | :--- | :--- |
 | `event` | Waits for an external event to arrive via API. Default type. |
-| `sleep` | Durable sleep — waits until a specific time. Used internally by `sleep` workflow steps. |
+| `sleep` | Durable sleep — waits until a specific time. Used by `sleep` workflow steps. |
 
 ## Event Sources
 
@@ -87,7 +87,7 @@ Every event trigger has a `timeout_secs` value (default: 3600 seconds / 1 hour).
 - For job runs: the run transitions to `timed_out`
 
 <Tip>
-Set `timeout_secs` to a large value for long-running waits (e.g., `604800` for 7 days). The wait consumes no resources — it's just a database row.
+Set `timeout_secs` to a large value for long-running waits (e.g., `604800` for 7 days). The wait does not keep a worker busy.
 </Tip>
 
 ## Workflow Step: wait_for_event

@@ -74,7 +74,7 @@ Rate limits are applied per IP address:
 |---|---|---|
 |Jobs|`/v1/jobs`|Create, update, trigger, and manage job definitions|
 |Runs|`/v1/runs`|Track, cancel, retry, and inspect job runs|
-|Workflows|`/v1/workflows`|Define and manage workflow DAGs|
+|Workflows|`/v1/workflows`|Define and manage workflows|
 |Workflow Runs|`/v1/workflow-runs`|Monitor and control workflow executions|
 |Events|`/v1/events`|Send events to triggers and dispatch to sources|
 |Event Sources|`/v1/event-sources`|Manage inbound event channels and subscriptions|
@@ -154,20 +154,20 @@ Every error response follows the same shape:
 |`enqueue_throttled`|429|Per-job or per-project enqueue throttle exceeded. Retry with backoff.|
 |`internal_error`|500|Unexpected server-side failure. Quote `request_id` when reporting.|
 |`service_unavailable`|503|Dependency degraded or shedding load. Retry with backoff.|
-## DAG and Dependency Runtime Endpoints
+## Workflow and Dependency Endpoints
 
 ### Planning and Diagnostics
 
 - `POST /v1/workflows/{workflowID}/plan`: Topological plan preview for the current workflow version (supports step overrides).
 - `GET /v1/runs/{runID}/dependency-status`: Returns dependency definitions for a run and whether it is currently unblocked.
-- `GET /v1/workflow-runs/{workflowRunID}/graph`: Runtime graph (nodes, edges, runnable set, critical-path estimates).
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: Workflow graph for a run.
 - `GET /v1/workflow-runs/{workflowRunID}/explain`: Scheduler/condition decision stream with optional `step_ref` and `decision_type` filters.
 
 ### Recovery and Governance
 
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: Reset one terminal step to `pending` and resume progression.
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: Reset the selected step and descendants, then resume progression.
-- `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level DAG governance policy.
+- `GET /v1/workflow-policies/{projectID}` / `PUT /v1/workflow-policies/{projectID}`: Read and update project-level workflow policy.
 
 ### Bulk Operations
 

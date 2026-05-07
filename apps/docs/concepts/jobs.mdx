@@ -258,7 +258,7 @@ For more granular control, `rate_limit_keys` lets you define multiple named rate
 
 ### Debouncing
 
-Debouncing collapses rapid-fire triggers into one run. Set `debounce_window_secs` on the job. When a trigger arrives, Strait waits for the window to pass with no new triggers. If another trigger arrives during the window, the timer resets. When the window expires, one run fires with the last trigger's payload.
+Debouncing turns rapid-fire triggers into one run. Set `debounce_window_secs` on the job. When a trigger arrives, Strait waits for the window to pass with no new triggers. If another trigger arrives during the window, the timer resets. When the window expires, one run fires with the last trigger's payload.
 
 ```json
 {

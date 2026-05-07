@@ -60,9 +60,8 @@
             ]
           },
           {
-            "group": "Workflows",
+            "group": "Advanced Workflows",
             "pages": [
-              "concepts/dag-runtime",
               "concepts/durable-workflows",
               "concepts/compensating-transactions",
               "concepts/workflow-simulator",
@@ -81,7 +80,7 @@
             ]
           },
           {
-            "group": "Execution",
+            "group": "Job Features",
             "pages": [
               "concepts/execution-modes",
               "concepts/batch-operations",
@@ -91,7 +90,7 @@
             ]
           },
           {
-            "group": "Observability",
+            "group": "Monitoring",
             "pages": [
               "concepts/real-time",
               "concepts/audit-logging",

@@ -115,7 +115,7 @@ In-progress runs finish and record results before the process exits.
 
 ## Stale Run Recovery
 
-If a worker crashes, runs that stopped heartbeating are recovered automatically:
+If a worker exits while a run is active, Strait recovers the run automatically:
 
 - Runs in `dequeued` with no heartbeat for 5+ minutes move to `system_failed`.
 - Runs in `waiting` with no heartbeat for 1+ hour move to `system_failed`.

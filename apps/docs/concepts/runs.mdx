@@ -50,7 +50,7 @@ Each run moves through a defined set of states. Most runs follow a simple path: 
 | :--- | :--- |
 | **delayed** | The run is created but scheduled for a future time. It waits until `scheduled_at` arrives, then moves to `queued`. |
 | **queued** | Your run is waiting for a worker to pick it up. Under normal load, this takes milliseconds. If workers are saturated or concurrency limits apply, the run stays here until capacity opens. |
-| **executing** | A worker is calling your endpoint right now. The run stays in this state until your endpoint responds, the timeout fires, or the worker crashes. |
+| **executing** | Strait is calling your endpoint. The run stays in this state until your endpoint responds or the timeout fires. |
 | **completed** | Your endpoint returned a success response (2xx). The run is finished — the response body is stored in `result`. |
 | **failed** | Your endpoint returned an error (non-2xx response or connection failure). If retry attempts remain, Strait re-queues the run automatically. If all attempts are exhausted, the run moves to `dead_letter`. |
 | **timed_out** | Your endpoint did not respond within the configured `timeout_secs`. Like `failed`, this triggers a retry if attempts remain. |
@@ -61,7 +61,7 @@ Each run moves through a defined set of states. Most runs follow a simple path: 
 | **dead_letter** | All retries exhausted, or poison pill detection stopped retries early. The run is held for inspection. You can view what went wrong and replay it when ready. |
 
 <Info>
-**Terminal states**: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `expired`, `dead_letter`. Once a run reaches a terminal state, no further automatic transitions occur. Dead-lettered runs can be replayed through the DLQ recovery endpoints.
+**Terminal states**: `completed`, `failed`, `timed_out`, `crashed`, `system_failed`, `canceled`, `expired`, `dead_letter`. Once a run reaches a terminal state, no further automatic transitions occur. Dead-lettered runs can be replayed.
 </Info>
 
 ### Valid Transitions
@@ -216,7 +216,7 @@ For full configuration details, see [Retry Strategies](/concepts/retry-strategie
 
 ## Dead-Letter Queue
 
-When all retry attempts are exhausted and the run still has not succeeded, Strait moves it to the **dead-letter queue** (status: `dead_letter`). The run stays there until it is replayed, unmasked after age-out, or purged by an operator.
+When all retry attempts are exhausted and the run still has not succeeded, Strait moves it to the **dead-letter queue** (status: `dead_letter`). The run stays there until you replay it or remove it.
 
 From the dead-letter queue, you can:
 

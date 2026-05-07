@@ -55,7 +55,7 @@ When Strait dequeues a worker run:
 1. **Match a worker.** Strait selects a connected worker whose registered queues include the job's `queue_name`.
 2. **Stream the run.** The run payload and an SDK token are streamed to the worker over the gRPC channel.
 3. **Wait for the result.** The worker executes your handler and streams the result back; Strait records duration and the final state on the run.
-4. **Recover.** Worker disconnect cleanup immediately reclaims open assignments; heartbeat sweeps also catch stale processes that stop making progress.
+4. **Recover.** If a worker disconnects, Strait returns unfinished work to the queue.
 
 ### When to use worker mode
 

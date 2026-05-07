@@ -5,7 +5,7 @@ icon: "sitemap"
 og:image: "/images/og.png"
 ---
 
-Strait is an orchestration service for background jobs and workflows. Your application keeps running the business logic; Strait handles triggering, scheduling, retries, workflow state, and visibility.
+Strait coordinates background jobs and workflows. Your application still owns the business logic. Strait handles when work runs, how it is retried, and how each run is tracked.
 
 ## The Model
 
@@ -25,7 +25,7 @@ Strait worker
 Your code
 ```
 
-Strait does not execute customer code inside the Strait process. It dispatches work to code you own, then records the result so you can monitor, retry, replay, and audit it.
+Strait does not run customer code inside the Strait process. It dispatches work to code you own, then records the result so you can monitor, retry, replay, and audit it.
 
 ## What Runs
 
@@ -43,7 +43,7 @@ You can start with `all` and split API and worker processes later as traffic gro
 
 | Service | Purpose |
 |---|---|
-| PostgreSQL | Stores projects, jobs, runs, workflows, and queue state. |
+| PostgreSQL | Stores projects, jobs, runs, workflows, and queued work. |
 | Redis | Powers live updates and pub/sub notifications. |
 
 Self-hosted Docker Compose includes the supporting services Strait needs. For setup instructions, see [Quick Start](/quickstart) and [Deployment](/guides/deployment).
@@ -59,9 +59,9 @@ Use HTTP jobs when your code is already exposed as an endpoint. Use worker jobs 
 
 ## Runs and Workflows
 
-A job trigger creates a run. Most runs move from `queued` to `executing` to `completed`. Failed runs retry according to the job's retry policy. If retries are exhausted, the run moves to `dead_letter` so you can inspect and replay it.
+A job trigger creates a run. Most runs move from `queued` to `executing` to `completed`. Failed runs retry according to the job's retry policy. If retries are exhausted, the run moves to `dead_letter` so it can be inspected and replayed.
 
-Workflows connect multiple jobs into a directed graph. Steps can run in parallel, wait for approvals or external events, pass data between steps, and recover failed branches.
+Workflows connect jobs into ordered steps. Steps can run in parallel, wait for approvals or external events, pass data between steps, and recover failed branches.
 
 ## Observability
 

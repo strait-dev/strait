@@ -1,10 +1,10 @@
 ---
 title: "Choose Your Path"
-description: "Cloud or self-host — which one fits your team."
+description: "Cloud or self-host: choose the setup that fits your team."
 icon: "route"
 ---
 
-Strait runs as a hosted service at [app.strait.dev](https://app.strait.dev) or as a self-hosted binary on your own infrastructure. The API, SDKs, and feature set are the same on both.
+You can use Strait Cloud or run Strait yourself. The API and SDKs are the same, so you can start in one environment and move later if your requirements change.
 
 | | Cloud | Self-host |
 |---|---|---|
@@ -15,7 +15,7 @@ Strait runs as a hosted service at [app.strait.dev](https://app.strait.dev) or a
 | Data | Hosted by Strait | Your servers, your data |
 | Support | Email plus SLA on paid plans | GitHub Issues |
 
-Cloud is the right choice if you want to start in minutes and don't need to keep run data inside your own perimeter. Self-host is the right choice if you have compliance, residency, or air-gap requirements — or if you simply want full control over the stack.
+Choose Cloud when you want the fastest setup and do not need to keep run data inside your own network. Choose self-host when you have compliance, residency, air-gap, or operational control requirements.
 
 ## Cloud setup
 
@@ -47,4 +47,4 @@ make selfhost
 
 That boots PostgreSQL, Redis, the Strait API, and the dashboard via Docker Compose. Open [http://localhost:3000](http://localhost:3000) and sign up.
 
-The full self-host walkthrough — production configuration, hardening, observability — lives in [SELFHOST.md](https://github.com/strait-dev/strait/blob/master/SELFHOST.md). For a step-by-step development setup, see the [Quick Start](/quickstart).
+The full self-host walkthrough lives in [SELFHOST.md](https://github.com/strait-dev/strait/blob/master/SELFHOST.md). For a local development setup, see the [Quick Start](/quickstart).

@@ -8,7 +8,7 @@ There are two ways to self-host. Pick the one that matches how you want to run t
 | Dashboard runs on | Your own Cloudflare account | Your own hardware |
 | API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
 | Postgres | Neon / Supabase / any hosted or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
-| Best for | Zero-ops setups, teams already on Cloudflare | Air-gapped, on-prem, purist Docker users |
+| Best for | Fast setup, teams already on Cloudflare | Air-gapped, on-prem, or Docker-first teams |
 
 Both run the community edition. Every open-source feature is available on either path.
 
@@ -111,9 +111,9 @@ curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
 
 ## Community edition
 
-Self-hosting runs the community edition. It includes job creation and scheduling, HTTP and gRPC worker dispatch, cron with overlap policies, retry strategies (exponential, linear, fixed, custom), workflow DAGs with dependencies, webhook subscriptions and delivery, SSE streaming, API keys and RBAC, full run-lifecycle management (cancel, replay, pause, resume), and the dead-letter queue for runs that exhaust their retries.
+Self-hosting runs the community edition. It includes job creation and scheduling, HTTP and gRPC worker dispatch, cron with overlap policies, retry strategies, workflows with dependencies, webhook delivery, SSE streaming, API keys and RBAC, run management, and dead-letter replay.
 
-The hosted orchestrator at [strait.dev](https://strait.dev) adds multi-region orchestration, advanced analytics, and Stripe-backed metering. Your job code still runs on your own infrastructure on either edition.
+The hosted service at [strait.dev](https://strait.dev) adds managed infrastructure, analytics, and Stripe-backed metering. Your job code still runs on your own infrastructure on either edition.
 
 ## Environment overrides
 

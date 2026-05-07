@@ -1,6 +1,6 @@
 ---
 title: "Workflows"
-description: "Coordinating complex tasks with Directed Acyclic Graphs (DAGs)."
+description: "Coordinate multi-step work with dependencies, approvals, and retries."
 icon: "diagram-project"
 ---
 
@@ -96,18 +96,14 @@ Strait immediately begins executing root steps (those with no dependencies). Eac
 
 ---
 
-## DAG Concepts
+## Workflow Graphs
 
-A workflow is structured as a directed acyclic graph (DAG) — a dependency graph where steps can depend on other steps, but circular dependencies are not allowed:
+A workflow is a dependency graph. Steps can depend on other steps, but circular dependencies are not allowed:
 - **Steps** are the individual units of work (the nodes).
 - **Dependencies** connect steps via the `depends_on` field (the edges).
 - **Fan-out** means one step triggers multiple downstream steps. **Fan-in** means one step waits for multiple upstream steps to finish.
 
 A workflow can include up to **1000** steps.
-
-<Note>
-For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/concepts/dag-runtime).
-</Note>
 
 ## Step Types
 
@@ -121,7 +117,7 @@ For implementation-level behavior (scheduler decisions, explainability APIs, cri
 
 ## Workflow Versioning
 
-Workflows use a snapshotting mechanism. Every time a workflow's steps are updated, the `version` increments. The entire DAG definition is copied to a versioned table, ensuring that running workflows are not disrupted by changes to the definition.
+Workflows are versioned. Every time a workflow's steps are updated, the `version` increments. Runs that already started keep using the version they started with.
 
 When you update a workflow that has active runs on a previous version, the update response includes `active_runs_on_previous_version` and `previous_version_id` so you can assess the impact. Set `breaking_change: true` in the update request to record a `workflow.updated_breaking` audit event. See [Versioning](/concepts/versioning#breaking-change-detection) for details.
 
@@ -198,7 +194,7 @@ The `on_failure` field determines the workflow's behavior when a step fails:
 - `max_concurrent_runs`: Limits how many instances of the workflow can run simultaneously.
 - `max_parallel_steps`: Limits the number of steps that can execute in parallel within a single workflow run.
 - `concurrency_key` (step-level): Serializes steps that share the same key, even if they are otherwise ready to run.
-- `resource_class` (step-level): Assigns a step to a capacity bucket (`small`, `medium`, or `large`). The scheduler respects per-class capacity limits when determining which steps to start.
+- `resource_class` (step-level): Assigns a step to a capacity bucket (`small`, `medium`, or `large`). Strait uses this when deciding which steps can start.
 
 ## Sub-workflow Nesting
 
@@ -231,8 +227,8 @@ For validating a DAG structure without persisting changes, use `POST /v1/workflo
 
 Beyond definition and execution, workflow runs expose runtime control APIs:
 
-- `GET /v1/workflow-runs/{workflowRunID}/graph`: execution graph, runnable set, and critical-path estimate.
-- `GET /v1/workflow-runs/{workflowRunID}/explain`: paginated scheduler/condition decision log.
+- `GET /v1/workflow-runs/{workflowRunID}/graph`: execution graph and currently runnable steps.
+- `GET /v1/workflow-runs/{workflowRunID}/explain`: paginated decision log for a workflow run.
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: retry a single terminal step.
 - `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: replay a branch from a selected step.
 

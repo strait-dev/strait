@@ -14,7 +14,7 @@ Strait runs your background jobs and orchestrates multi-step workflows. One serv
 - Workflow engine with branching, parallel steps, sub-workflows, approval gates, and compensation steps.
 - Configurable retry strategies (exponential, linear, fixed, custom) with jitter and per-endpoint circuit breakers.
 - Durable workflows that survive multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
-- OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming — built in, not bolted on.
+- OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming.
 - SDKs in [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust). Same feature set on each.
 - Self-host needs nothing beyond what's in `docker-compose.selfhost.yml`.
 
@@ -97,7 +97,7 @@ Important rules:
 | Real-time streaming and live updates | ✓ | ✓ |
 | All SDKs (TS, Python, Go, Ruby, Rust) | ✓ | ✓ |
 | Dashboard UI | ✓ | ✓ |
-| Built-in observability (tracing, metrics, logs) | ✓ | ✓ |
+| Tracing, metrics, logs, and live updates | ✓ | ✓ |
 | Interactive API reference at `/reference` | ✓ | ✓ |
 | Billing, metering, usage limits, Stripe | — | ✓ |
 | Multi-region hosted orchestration | — | ✓ |
@@ -114,7 +114,7 @@ Self-host is the community edition. Billing is compiled out of the dashboard ima
 |---|---|
 | Product overview | [`apps/docs/introduction.mdx`](apps/docs/introduction.mdx) |
 | 10-minute quickstart | [`apps/docs/quickstart.mdx`](apps/docs/quickstart.mdx) |
-| Architecture deep dive | [`apps/docs/architecture.mdx`](apps/docs/architecture.mdx) |
+| Architecture | [`apps/docs/architecture.mdx`](apps/docs/architecture.mdx) |
 | Core concepts | [`apps/docs/concepts/jobs.mdx`](apps/docs/concepts/jobs.mdx) |
 | API reference | [`apps/docs/api-reference/overview.mdx`](apps/docs/api-reference/overview.mdx) |
 | SDK reference | [`apps/docs/sdks/overview.mdx`](apps/docs/sdks/overview.mdx) |
