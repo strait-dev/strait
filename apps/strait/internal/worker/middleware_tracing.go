@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 
+	"strait/internal/httputil"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -37,7 +39,7 @@ func TracingMiddleware() ExecutionMiddleware {
 			)
 			if ec.Job != nil {
 				span.SetAttributes(
-					attribute.String("job.endpoint", ec.Job.EndpointURL),
+					attribute.String("job.endpoint", httputil.RedactURLForLog(ec.Job.EndpointURL)),
 					attribute.Int("job.version", ec.Job.Version),
 				)
 			}

@@ -23,6 +23,19 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type redactedHTTPDispatchError struct {
+	message string
+	err     error
+}
+
+func (e *redactedHTTPDispatchError) Error() string {
+	return e.message
+}
+
+func (e *redactedHTTPDispatchError) Unwrap() error {
+	return e.err
+}
+
 // addHMACHeaders injects X-Strait-Signature and X-Strait-Timestamp into
 // headers when the job has an endpoint_signing_secret configured. The
 // signature covers "<unix_timestamp>.<body>" using HMAC-SHA256.
@@ -619,7 +632,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, body)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: invalid endpoint URL")
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -644,7 +657,10 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		if e.metrics != nil {
 			e.metrics.DispatchErrors.Add(ctx, 1)
 		}
-		return nil, fmt.Errorf("http dispatch: %w", err)
+		return nil, &redactedHTTPDispatchError{
+			message: "http dispatch: " + httputil.SanitizeHTTPClientError(err),
+			err:     err,
+		}
 	}
 	defer resp.Body.Close()
 

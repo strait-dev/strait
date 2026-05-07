@@ -1,13 +1,23 @@
 package worker
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 
 	"strait/internal/domain"
 )
+
+type dispatchRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f dispatchRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
 	t.Parallel()
@@ -307,5 +317,35 @@ func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
 	}
 	if tp := capturedHeaders.Get("Traceparent"); tp != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
 		t.Errorf("Traceparent header = %q, want traceparent value", tp)
+	}
+}
+
+func TestHTTPDispatch_RedactsEndpointURLFromClientErrors(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/private/path?token=secret#frag"
+	rootErr := context.DeadlineExceeded
+	client := &http.Client{
+		Transport: dispatchRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, &url.Error{Op: req.Method, URL: rawURL, Err: rootErr}
+		}),
+	}
+	e := &Executor{httpClient: client}
+
+	_, err := e.dispatchToEndpoint(t.Context(), rawURL, &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}, nil)
+	if err == nil {
+		t.Fatal("dispatchToEndpoint returned nil error")
+	}
+	if !errors.Is(err, rootErr) {
+		t.Fatalf("dispatchToEndpoint error does not unwrap deadline: %v", err)
+	}
+	got := err.Error()
+	for _, leaked := range []string{"hooks.example.com", "user:pass", "/private/path", "token=secret", "#frag"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("dispatchToEndpoint leaked endpoint data %q in error %q", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "http dispatch:") || !strings.Contains(got, "context deadline exceeded") {
+		t.Fatalf("dispatchToEndpoint error = %q, want sanitized dispatch context and root error", got)
 	}
 }
