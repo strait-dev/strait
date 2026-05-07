@@ -43,7 +43,7 @@ var _ APIStore = &APIStoreMock{}
 //			BatchReceiveEventTriggersFunc: func(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error) {
 //				panic("mock out the BatchReceiveEventTriggers method")
 //			},
-//			BatchUpdateJobsEnabledFunc: func(ctx context.Context, ids []string, enabled bool) (int64, error) {
+//			BatchUpdateJobsEnabledFunc: func(ctx context.Context, ids []string, enabled bool, projectID string) (int64, error) {
 //				panic("mock out the BatchUpdateJobsEnabled method")
 //			},
 //			BulkCancelByFilterFunc: func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error) {
@@ -906,7 +906,7 @@ type APIStoreMock struct {
 	BatchReceiveEventTriggersFunc func(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
 
 	// BatchUpdateJobsEnabledFunc mocks the BatchUpdateJobsEnabled method.
-	BatchUpdateJobsEnabledFunc func(ctx context.Context, ids []string, enabled bool) (int64, error)
+	BatchUpdateJobsEnabledFunc func(ctx context.Context, ids []string, enabled bool, projectID string) (int64, error)
 
 	// BulkCancelByFilterFunc mocks the BulkCancelByFilter method.
 	BulkCancelByFilterFunc func(ctx context.Context, projectID string, f store.BulkCancelFilter, now time.Time, reason string) ([]string, error)
@@ -1820,6 +1820,8 @@ type APIStoreMock struct {
 			Ids []string
 			// Enabled is the enabled argument value.
 			Enabled bool
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// BulkCancelByFilter holds details about calls to the BulkCancelByFilter method.
 		BulkCancelByFilter []struct {
@@ -4945,15 +4947,17 @@ func (mock *APIStoreMock) BatchReceiveEventTriggersCalls() []struct {
 }
 
 // BatchUpdateJobsEnabled calls BatchUpdateJobsEnabledFunc.
-func (mock *APIStoreMock) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error) {
+func (mock *APIStoreMock) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool, projectID string) (int64, error) {
 	callInfo := struct {
-		Ctx     context.Context
-		Ids     []string
-		Enabled bool
+		Ctx       context.Context
+		Ids       []string
+		Enabled   bool
+		ProjectID string
 	}{
-		Ctx:     ctx,
-		Ids:     ids,
-		Enabled: enabled,
+		Ctx:       ctx,
+		Ids:       ids,
+		Enabled:   enabled,
+		ProjectID: projectID,
 	}
 	mock.lockBatchUpdateJobsEnabled.Lock()
 	mock.calls.BatchUpdateJobsEnabled = append(mock.calls.BatchUpdateJobsEnabled, callInfo)
@@ -4965,7 +4969,7 @@ func (mock *APIStoreMock) BatchUpdateJobsEnabled(ctx context.Context, ids []stri
 		)
 		return nOut, errOut
 	}
-	return mock.BatchUpdateJobsEnabledFunc(ctx, ids, enabled)
+	return mock.BatchUpdateJobsEnabledFunc(ctx, ids, enabled, projectID)
 }
 
 // BatchUpdateJobsEnabledCalls gets all the calls that were made to BatchUpdateJobsEnabled.
@@ -4973,14 +4977,16 @@ func (mock *APIStoreMock) BatchUpdateJobsEnabled(ctx context.Context, ids []stri
 //
 //	len(mockedAPIStore.BatchUpdateJobsEnabledCalls())
 func (mock *APIStoreMock) BatchUpdateJobsEnabledCalls() []struct {
-	Ctx     context.Context
-	Ids     []string
-	Enabled bool
+	Ctx       context.Context
+	Ids       []string
+	Enabled   bool
+	ProjectID string
 } {
 	var calls []struct {
-		Ctx     context.Context
-		Ids     []string
-		Enabled bool
+		Ctx       context.Context
+		Ids       []string
+		Enabled   bool
+		ProjectID string
 	}
 	mock.lockBatchUpdateJobsEnabled.RLock()
 	calls = mock.calls.BatchUpdateJobsEnabled
