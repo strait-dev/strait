@@ -32,6 +32,8 @@ This page documents all environment variables available for configuring Strait.
 | `OTLP_METRIC_ENABLED` | Boolean | `false` | Enable OTLP metric push export. |
 | `SENTRY_DSN` | String | - | Sentry DSN for error tracking. |
 | `SENTRY_ENVIRONMENT` | String | - | Environment tag for Sentry and OTel resources (e.g., `development`, `staging`, `production`). Sets `deployment.environment` on all OTel metrics, traces, and logs. |
+| `SENTRY_TRACES_SAMPLE_RATE` | Float | `0.1` | Sentry trace sample rate from `0.0` to `1.0`. High-volume stream transactions are additionally filtered to a deterministic 1% sample before send. |
+| `SENTRY_RELEASE` | String | - | Release identifier attached to Sentry events. Defaults to the binary version when unset. Use the same value for frontend sourcemap uploads. |
 | `UPSTASH_REDIS_REST_URL` | String | - | Upstash Redis REST API URL. |
 | `UPSTASH_REDIS_REST_TOKEN` | String | - | Upstash Redis REST API token. |
 

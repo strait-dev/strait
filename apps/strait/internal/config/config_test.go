@@ -801,6 +801,8 @@ func TestLoad_StringOverrides(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("SENTRY_DSN", "https://sentry.io/123")
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
+	t.Setenv("SENTRY_TRACES_SAMPLE_RATE", "0.25")
+	t.Setenv("SENTRY_RELEASE", "2026.05.07-sha")
 	t.Setenv("RESEND_API_KEY", "re_123")
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
 	t.Setenv("GRPC_BIND_ADDR", "0.0.0.0")
@@ -818,6 +820,12 @@ func TestLoad_StringOverrides(t *testing.T) {
 	}
 	if cfg.SentryEnvironment != "production" {
 		t.Fatalf("SentryEnvironment = %q, want production", cfg.SentryEnvironment)
+	}
+	if cfg.SentryTracesSampleRate != 0.25 {
+		t.Fatalf("SentryTracesSampleRate = %v, want 0.25", cfg.SentryTracesSampleRate)
+	}
+	if cfg.SentryRelease != "2026.05.07-sha" {
+		t.Fatalf("SentryRelease = %q, want 2026.05.07-sha", cfg.SentryRelease)
 	}
 	if cfg.ResendAPIKey != "re_123" {
 		t.Fatalf("ResendAPIKey = %q, want re_123", cfg.ResendAPIKey)
