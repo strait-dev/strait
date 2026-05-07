@@ -13,7 +13,7 @@ Strait supports two execution modes that control where and how your job code run
 | How it works | Strait POSTs to your endpoint | Strait streams runs to a connected worker over gRPC |
 | Your code runs on | Your servers | Any host running the Strait worker SDK |
 | Setup | Point a job at an endpoint URL | Run the worker SDK and register handlers |
-| Scaling | You scale your endpoint | Add or remove workers; Strait load-balances across them |
+| Capacity | You run enough endpoint capacity | Add or remove workers; Strait distributes runs across them |
 | Best for | Existing APIs, microservices, serverless | Long-lived processes, on-prem fleets, persistent connections |
 
 ---

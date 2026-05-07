@@ -1,0 +1,84 @@
+---
+title: "TypeScript Quickstart"
+description: "Install the TypeScript SDK and trigger your first run."
+icon: "js"
+---
+
+Use the TypeScript SDK when your app, API, or worker is written in TypeScript.
+
+This page shows the shortest path: install the package, create a client, trigger a job, and inspect the run.
+
+## Install
+
+<CodeGroup>
+```bash npm
+npm install @strait/ts
+```
+```bash bun
+bun add @strait/ts
+```
+```bash pnpm
+pnpm add @strait/ts
+```
+</CodeGroup>
+
+## Configure
+
+Set your API key:
+
+```bash
+export STRAIT_API_KEY="strait_..."
+export STRAIT_BASE_URL="https://api.strait.dev"
+```
+
+Create a client from the environment:
+
+```ts
+import { createClientFromEnv } from "@strait/ts/node";
+
+const client = createClientFromEnv();
+```
+
+## Trigger a Job
+
+```ts
+const run = await client.triggerJob({
+  pathParams: { jobID: "send-welcome-email" },
+  body: {
+    payload: {
+      user_id: "usr_123",
+      email: "customer@example.com",
+    },
+  },
+});
+
+console.log(run.id, run.status);
+```
+
+The response returns a run ID. Use it to check status or link to the run in your own UI.
+
+## Write a Job Handler
+
+When Strait calls your endpoint, it sends the payload, run metadata, and an SDK token.
+
+```ts
+app.post("/jobs/send-welcome-email", async (req, res) => {
+  const ctx = createRunContext({
+    token: req.headers["x-sdk-token"],
+  });
+
+  await ctx.log("Sending welcome email");
+
+  const result = await sendWelcomeEmail(req.body.payload);
+
+  res.json({ sent: true, message_id: result.id });
+});
+```
+
+Use the SDK token only inside the running job. It is scoped to that run.
+
+## Next
+
+- [SDK Integration](/guides/sdk-integration)
+- [TypeScript Reference](/sdks/typescript)
+- [Create a Production Job](/guides/production-job)

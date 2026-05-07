@@ -95,7 +95,7 @@ strait = { version = "0.1", features = ["rustls-tls", "tracing", "stream"] }
 | `rustls-tls` | No | Pure-Rust TLS via rustls. Use this for fully static builds or cross-compilation. |
 | `tracing` | No | Integrates with the `tracing` crate. Emits spans for every API call with method, URL, status, and duration. |
 | `stream` | No | Enables `StreamExt`-based pagination and real-time event streaming. |
-| `validation` | No | Compile-time validation of authoring DSL definitions (job schemas, workflow DAGs). |
+| `validation` | No | Compile-time validation of authoring DSL definitions (job schemas, workflow dependencies). |
 
 <Note>
   `native-tls` and `rustls-tls` are mutually exclusive. If both are enabled, `rustls-tls` takes precedence.
@@ -176,7 +176,7 @@ let pipeline = define_workflow! {
     ],
 };
 
-// DAG is validated at definition time
+// Dependency graph is validated at definition time
 pipeline.register(&client).await?;
 ```
 
@@ -407,7 +407,7 @@ match client.jobs().get("job_nonexistent").await {
 | `RateLimited` | 429 | Too many requests; includes `retry_after` duration |
 | `Api` | other | Any other HTTP error |
 | `Cancelled` | -- | Operation cancelled via `CancellationToken` |
-| `DagValidation` | -- | Invalid workflow DAG (cycles, missing dependencies) |
+| `DagValidation` | -- | Invalid workflow dependency graph (cycles, missing dependencies) |
 
 ## Middleware
 
@@ -465,6 +465,6 @@ impl Middleware for MetricsMiddleware {
 | `strait::middleware` | Request/response middleware trait and built-in implementations |
 | `strait::errors` | `StraitError` enum and error types |
 | `strait::ai` | AI agent definitions and `ai_step` helpers |
-| `strait::validation` | Compile-time validation for schemas and DAGs (requires `validation` feature) |
+| `strait::validation` | Compile-time validation for schemas and workflow dependencies (requires `validation` feature) |
 | `strait::testing` | `TestHarness` for local testing without a server |
 | `strait::prelude` | Re-exports of the most commonly used types |

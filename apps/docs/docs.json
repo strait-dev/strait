@@ -152,9 +152,17 @@
         "tab": "SDKs",
         "groups": [
           {
-            "group": "SDK Reference",
+            "group": "Start Here",
             "pages": [
               "sdks/overview",
+              "sdks/typescript-quickstart",
+              "sdks/python-quickstart",
+              "sdks/go-quickstart"
+            ]
+          },
+          {
+            "group": "SDK Reference",
+            "pages": [
               "sdks/configuration",
               "sdks/typescript",
               "sdks/python",

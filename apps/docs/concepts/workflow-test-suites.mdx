@@ -1,20 +1,22 @@
 ---
 title: "Workflow Test Suites"
-description: "Define expected outcomes for workflows and run them automatically. Catch regressions in CI before deploying."
+description: "Check workflow behavior in CI before deploying changes."
 sidebarTitle: "Test Suites"
 ---
 
-Test suites let you define expected outcomes for your workflows and run them automatically. Use them in CI to catch regressions before deploying.
+Test suites let you define expected workflow outcomes and check them automatically.
+
+Use them in CI before deploying workflow changes.
 
 ## When to Use
 
-- Before deploying workflow changes to production
-- In CI pipelines as an automated gate
-- When refactoring workflows that other teams depend on
+- Before deploying workflow changes.
+- In CI as a release check.
+- When changing workflows other teams depend on.
 
 ## Defining a Test Suite
 
-Tests are defined in JSON. Each test specifies a workflow, a sample payload, mock endpoint responses, and assertions about what should happen:
+Each test specifies a workflow, a sample payload, mock responses, and expected outcomes:
 
 ```json
 {
@@ -49,20 +51,20 @@ Tests are defined in JSON. Each test specifies a workflow, a sample payload, moc
 | Workflow status | `workflow_status` | The overall workflow reached the expected outcome |
 | Duration bound | `step` + `duration_under` | Step completed within a time limit |
 
-## Mock Endpoints
+## Mock Responses
 
-Override job endpoints with mock responses during test execution. Each mock accepts:
+Use mock responses so tests do not call real services. Each mock accepts:
 
-- `response` — JSON response body returned to the step
-- `status_code` — HTTP status code (default 200)
-- `headers` — response headers
-- `latency_ms` — simulated response delay in milliseconds
+- `response`: JSON response body returned to the step.
+- `status_code`: HTTP status code. Defaults to 200.
+- `headers`: response headers.
+- `latency_ms`: simulated response delay in milliseconds.
 
-Mocks prevent tests from hitting real services, keeping results deterministic.
+Mocks keep test results repeatable.
 
 ## Running in CI
 
-Test results output as JUnit XML for CI systems:
+Test results can be emitted as JUnit XML for CI systems:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>

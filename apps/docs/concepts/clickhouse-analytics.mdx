@@ -10,14 +10,14 @@ You do not need ClickHouse to run Strait. It exists for deployments where aggreg
 
 ## When to Use It
 
-Enable ClickHouse when:
+Use ClickHouse when:
 
 - You have millions of runs and need aggregate analytics (success rates, p99 durations, cost trends).
 - You want pre-aggregated daily stats without loading your primary database.
 - You need time-series dashboards (Grafana, Metabase) backed by a columnar store.
 - You track AI model usage costs across jobs and want token-level breakdowns.
 
-For smaller deployments, PostgreSQL handles reporting queries fine. ClickHouse adds operational overhead -- only enable it when the query patterns justify it.
+For smaller deployments, PostgreSQL handles reporting queries fine. ClickHouse adds operational overhead, so turn it on only when the query patterns justify it.
 
 ## How It Works
 

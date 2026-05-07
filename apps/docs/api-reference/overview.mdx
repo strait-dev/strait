@@ -13,8 +13,8 @@ og:image: "/images/og.png"
 
 The Strait API supports four authentication methods depending on the client and use case.
 
-### Internal Secret
-Used for administrative tasks and internal service-to-service communication.
+### Server Secret
+Used for trusted backend calls.
 - **Header**: `X-Internal-Secret: <your-secret>`
 - **Bearer Token**: `Authorization: Bearer <your-secret>`
 

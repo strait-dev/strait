@@ -153,7 +153,7 @@ const completed = await syncInventory.triggerAndWait(client, {
 
 ## Define Workflows
 
-Use `defineWorkflow` to declare a multi-step DAG. The SDK validates the dependency graph at definition time — cycles and missing references are caught before any API call.
+Use `defineWorkflow` to declare a multi-step workflow. The SDK validates the dependency graph at definition time, so cycles and missing references are caught before any API call.
 
 ```ts
 import { defineWorkflow, step } from "@strait/ts";
@@ -190,7 +190,7 @@ const pipeline = defineWorkflow({
 | Sleep | `step.sleep(ref, seconds, opts?)` | Pause for a fixed duration. |
 | Sub-workflow | `step.subWorkflow(ref, workflowId, opts?)` | Trigger a child workflow and wait for it to complete. |
 
-All step types accept `dependsOn` to declare edges in the DAG. Steps with no dependencies run immediately when the workflow starts.
+All step types accept `dependsOn` to declare dependencies. Steps with no dependencies run immediately when the workflow starts.
 
 ## Durable AI Agents
 
@@ -457,7 +457,7 @@ All errors extend `Data.TaggedError`, which means you can pattern-match on `_tag
 | `RateLimitedError` | 429 | Rate limit exceeded. The error includes `retryAfterMs`. |
 | `ApiError` | other | Any other HTTP error not covered by a specific type |
 | `TimeoutError` | -- | Polling or wait operation timed out |
-| `DagValidationError` | -- | Invalid workflow DAG (cycles, missing step references) |
+| `DagValidationError` | -- | Invalid workflow dependency graph (cycles, missing step references) |
 
 ### Tagged Errors
 

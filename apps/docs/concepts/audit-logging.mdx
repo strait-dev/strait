@@ -23,7 +23,7 @@ Each event captures the actor:
 
 - **Users** — identity from JWT or OIDC claims (dashboard or CLI actions).
 - **Service accounts** — identity from the API key used.
-- **Internal** — system-initiated actions or service-to-service calls.
+- **System**: actions started by Strait or trusted backend calls.
 
 ## Querying Audit Logs
 
@@ -38,7 +38,7 @@ Each event includes the action, resource type, resource ID, actor, timestamp, an
 
 ## Integrity
 
-Every audit event is signed with HMAC-SHA256 and chained to the previous event in the same project. This creates a tamper-evident log — any insertion, deletion, or modification breaks the cryptographic chain.
+Every audit event is signed and linked to the previous event in the same project. This creates a tamper-evident log. Any insertion, deletion, or modification breaks the chain.
 
 Verify the chain at any time:
 

@@ -35,8 +35,8 @@ Generate unique values per environment. Do not reuse production secrets in stagi
 | Mode | Use it when |
 |---|---|
 | `all` | You are running a small deployment or local environment. |
-| `api` | You want to scale API traffic separately. |
-| `worker` | You want to scale job execution separately. |
+| `api` | You want separate capacity for API traffic. |
+| `worker` | You want separate capacity for job execution. |
 
 Most teams start with `all`, then split into `api` and `worker` when queue volume grows.
 
@@ -87,7 +87,7 @@ All instances share the same PostgreSQL and Redis.
 
 Keep Strait close to PostgreSQL. Database latency affects API calls, scheduling, and worker throughput.
 
-Place workers near the services they call. If a worker talks to private databases or internal APIs, run it in the same network.
+Place workers near the services they call. If a worker talks to private databases or private APIs, run it in the same network.
 
 ## Shutdown
 

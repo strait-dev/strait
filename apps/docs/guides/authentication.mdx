@@ -1,31 +1,31 @@
 ---
 title: "Authentication & Authorization"
-description: "How to authenticate requests to Strait: internal secrets, API keys, OIDC tokens, and role-based access control."
+description: "Choose the right auth method for apps, users, and trusted backend services."
 icon: "key"
 ---
 
-Strait uses three authentication methods: a shared secret for admin access, API keys for applications, and OIDC tokens for user-facing requests.
+Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC tokens for user-facing requests.
 
 ## Quick Decision
 
 | Method | Use when | Example |
 |---|---|---|
-| Internal Secret | Admin and service-to-service calls | `Authorization: Bearer YOUR_SECRET` |
+| Server Secret | Trusted backend calls | `Authorization: Bearer YOUR_SECRET` |
 | API Key | Applications and integrations | `Authorization: Bearer strait_sk_...` |
 | OIDC | User requests from your identity provider | `Authorization: Bearer eyJ...` |
 
 ---
 
-## Internal Secret
+## Server Secret
 
-A shared secret for administrative tasks and internal service-to-service communication. Set via the `INTERNAL_SECRET` environment variable.
+Use the server secret for trusted backend calls. Set it with the `INTERNAL_SECRET` environment variable.
 
 ```bash
 curl -H "Authorization: Bearer $INTERNAL_SECRET" \
   https://strait.example.com/v1/jobs
 ```
 
-Internal secret auth grants full access to all endpoints. No scope or role checks are applied.
+The server secret grants full access to all endpoints. Do not use it from browsers or mobile apps.
 
 Your application uses this path to pass user identity to Strait via headers:
 
@@ -40,7 +40,7 @@ curl -H "Authorization: Bearer $INTERNAL_SECRET" \
 When these headers are present, Strait records the actor for audit logging and applies RBAC checks for that user.
 
 <Warning>
-  The internal secret grants unrestricted access. In production, restrict it to backend services and never expose it to client-side code.
+  The server secret grants unrestricted access. In production, keep it in backend services and secret managers only.
 </Warning>
 
 ---
@@ -143,7 +143,7 @@ When your users authenticate through an identity provider (Clerk, Auth0, Okta), 
 
 ### When to Use
 
-Use OIDC when user requests should carry their own IdP tokens. Service-to-service traffic continues using the internal secret.
+Use OIDC when user requests should carry their own IdP tokens. Backend services can continue using the server secret.
 
 ### Token Routing
 
@@ -151,11 +151,11 @@ Strait resolves bearer tokens in this order:
 
 1. Token starts with `strait_` -- API key auth path.
 2. Other bearer token -- OIDC verifier (if configured).
-3. Internal secret header -- internal secret auth path.
+3. Server secret header -- trusted backend auth path.
 
 ### Configuration
 
-Enable OIDC by configuring your server with:
+Turn on OIDC by configuring your server with:
 
 - **Issuer** -- your IdP's issuer URL (e.g., `https://clerk.example.com`)
 - **Audience** -- expected audience claim
@@ -171,7 +171,7 @@ On successful verification, Strait maps token claims into:
 Authorization still flows through RBAC policies and permission checks.
 
 <Tip>
-  Run OIDC and internal-secret user identity in parallel during migration, then phase out internal headers for user traffic once your app is fully token-based.
+  Run OIDC and server-secret user identity in parallel during migration. Once user traffic carries OIDC tokens, stop sending actor headers for those requests.
 </Tip>
 
 ---
