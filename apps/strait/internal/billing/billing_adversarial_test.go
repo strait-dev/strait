@@ -142,6 +142,12 @@ func webhookPayload(t *testing.T, eventType string, data any) []byte {
 	return payload
 }
 
+func withTestMetadataFallback() WebhookOption {
+	return func(h *WebhookHandler) {
+		h.allowTestMetadata = true
+	}
+}
+
 // ============================================================.
 // 1. Double-charge / duplicate webhook events
 // ============================================================.
@@ -152,7 +158,7 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	secret := testSecret
-	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, secret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_dup_1",
@@ -228,7 +234,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                 "sub_upd_dup",
@@ -472,7 +478,7 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// Downgrade from pro -> starter.
 	data := testSubscriptionData{
@@ -515,7 +521,7 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                "sub_cancel_free",
@@ -557,7 +563,7 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// Stripe fires customer.subscription.deleted with CancelAtPeriodEnd=false for immediate revocation.
 	data := testSubscriptionData{
@@ -636,7 +642,7 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 
 	store := &mockBillingStore{}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_no_org",
@@ -662,7 +668,7 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_cust_meta",
@@ -740,7 +746,7 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_unknown_prod",
@@ -763,7 +769,7 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// ProductID is empty but Product.ID is set.
 	data := testSubscriptionData{
@@ -1099,7 +1105,7 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 		mockBillingStore: mockBillingStore{subscriptions: make(map[string]*OrgSubscription)},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_conc_1",
@@ -1217,7 +1223,7 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 		upsertErr: errors.New("db connection lost"),
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_err_create",
@@ -1241,7 +1247,7 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 		getSubErr: errors.New("timeout connecting to database"),
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_err_update",
@@ -1276,7 +1282,7 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 		updateFullErr: ErrSubscriptionNotFound,
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_fallback",
@@ -1305,7 +1311,7 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	auditStore := &advMockAuditStore{err: errors.New("audit table locked")}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, auditStore, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_audit_err",
@@ -1574,7 +1580,7 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	// Stripe fires invoice.payment_failed when a payment attempt fails.
 	invData := testInvoiceData{
@@ -1619,7 +1625,7 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                 "sub_recover",
@@ -1735,7 +1741,7 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 
 	store := &mockBillingStore{subscriptions: make(map[string]*OrgSubscription)}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_multisig",
@@ -2041,7 +2047,7 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	}
 
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
-		WithWelcomeEmail(welcomeFn))
+		WithWelcomeEmail(welcomeFn), withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_welcome",
@@ -2088,7 +2094,7 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 	}
 
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil,
-		WithWelcomeEmail(welcomeFn))
+		WithWelcomeEmail(welcomeFn), withTestMetadataFallback())
 
 	// No customer email set => welcome email should not be sent.
 	data := testSubscriptionData{
@@ -2518,7 +2524,7 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 
 	store := &mockBillingStore{} // no subscriptions
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_cancel_noexist",
@@ -2601,7 +2607,7 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:         "sub_unk_prod_upd",
@@ -2642,7 +2648,7 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 		},
 	}
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
-	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
+	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil, withTestMetadataFallback())
 
 	data := testSubscriptionData{
 		ID:                 "sub_empty_status",
