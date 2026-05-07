@@ -67,7 +67,16 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 			}
 		}
 	}
-	if err := s.store.CreateRunUsage(ctx, usage); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunUsageForActiveRun(ctx, usage, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunUsage(ctx, usage)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create run usage")
 	}
 	return &SDKUsageOutput{Body: usage}, nil
@@ -117,7 +126,16 @@ func (s *Server) handleSDKToolCall(ctx context.Context, input *SDKToolCallInput)
 		}
 	}
 	call := &domain.RunToolCall{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, ToolName: req.ToolName, Input: req.Input, Output: req.Output, DurationMs: req.DurationMs, Status: req.Status}
-	if err := s.store.CreateRunToolCall(ctx, call); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunToolCallForActiveRun(ctx, call, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunToolCall(ctx, call)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create run tool call")
 	}
 	return &SDKToolCallOutput{Body: call}, nil
@@ -144,7 +162,16 @@ func (s *Server) handleSDKOutput(ctx context.Context, input *SDKOutputInput) (*S
 		return nil, huma.Error400BadRequest("output schema validation failed: " + err.Error())
 	}
 	output := &domain.RunOutput{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, OutputKey: req.OutputKey, Schema: req.Schema, Value: req.Value}
-	if err := s.store.UpsertRunOutput(ctx, output); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpsertRunOutputForActiveRun(ctx, output, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpsertRunOutput(ctx, output)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to upsert run output")
 	}
 	return &SDKOutputOutput{Body: output}, nil

@@ -217,6 +217,10 @@ func (m *racingTerminalSDKStore) GetRunTokenState(_ context.Context, runID strin
 	return domain.StatusCompleted, 1, "proj-1", nil
 }
 
+func (m *racingTerminalSDKStore) EnsureRunActiveForAttempt(context.Context, string, int) error {
+	return store.ErrRunConflict
+}
+
 func (m *racingTerminalSDKStore) InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error {
 	return store.ErrRunConflict
 }
@@ -230,6 +234,22 @@ func (m *racingTerminalSDKStore) UpdateHeartbeatForActiveRun(context.Context, st
 }
 
 func (m *racingTerminalSDKStore) CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpsertRunStateForActiveRun(context.Context, *domain.RunState, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error {
 	return store.ErrRunConflict
 }
 
@@ -960,6 +980,13 @@ func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
 		{name: "annotate", method: http.MethodPost, path: "/sdk/v1/runs/run-1/annotate", body: `{"annotations":{"late":"true"}}`},
 		{name: "heartbeat", method: http.MethodPost, path: "/sdk/v1/runs/run-1/heartbeat", body: ""},
 		{name: "checkpoint", method: http.MethodPost, path: "/sdk/v1/runs/run-1/checkpoint", body: `{"state":{"cursor":1}}`},
+		{name: "state", method: http.MethodPost, path: "/sdk/v1/runs/run-1/state", body: `{"key":"k","value":{"late":true}}`},
+		{name: "usage", method: http.MethodPost, path: "/sdk/v1/runs/run-1/usage", body: `{"provider":"openai","model":"gpt-4","prompt_tokens":1,"completion_tokens":1}`},
+		{name: "tool-call", method: http.MethodPost, path: "/sdk/v1/runs/run-1/tool-call", body: `{"tool_name":"search"}`},
+		{name: "output", method: http.MethodPost, path: "/sdk/v1/runs/run-1/output", body: `{"output_key":"final","value":{"late":true}}`},
+		{name: "memory", method: http.MethodPost, path: "/sdk/v1/runs/run-1/memory/k", body: `{"value":{"late":true}}`},
+		{name: "spawn", method: http.MethodPost, path: "/sdk/v1/runs/run-1/spawn", body: `{"job_slug":"child","project_id":"proj-1"}`},
+		{name: "continue", method: http.MethodPost, path: "/sdk/v1/runs/run-1/continue", body: `{}`},
 	}
 
 	for _, tt := range tests {
@@ -968,7 +995,16 @@ func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
 			ms := &racingTerminalSDKStore{
 				APIStoreMock: &APIStoreMock{
 					GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-						return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting, Attempt: 1}, nil
+						return &domain.JobRun{ID: id, JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusExecuting, Attempt: 1}, nil
+					},
+					GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+						return &domain.Job{ID: id, ProjectID: "proj-1", Slug: "child"}, nil
+					},
+					GetJobBySlugFunc: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
+						return &domain.Job{ID: "child-job", ProjectID: projectID, Slug: slug}, nil
+					},
+					GetProjectQuotaFunc: func(context.Context, string) (*store.ProjectQuota, error) {
+						return nil, nil
 					},
 				},
 			}

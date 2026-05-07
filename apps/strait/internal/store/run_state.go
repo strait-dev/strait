@@ -29,6 +29,35 @@ func (q *Queries) UpsertRunState(ctx context.Context, s *domain.RunState) error 
 	return nil
 }
 
+func (q *Queries) UpsertRunStateForActiveRun(ctx context.Context, s *domain.RunState, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertRunStateForActiveRun")
+	defer span.End()
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $4
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_state (run_id, state_key, value)
+		SELECT id, $2, $3
+		FROM active_run
+		ON CONFLICT (run_id, state_key)
+		DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+		RETURNING updated_at`
+
+	err := q.db.QueryRow(ctx, query, s.RunID, s.StateKey, s.Value, attempt).Scan(&s.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, s.RunID, attempt)
+		}
+		return fmt.Errorf("upsert active run state: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunState")
 	defer span.End()

@@ -58,6 +58,9 @@ func (s *Server) handleSDKSetMemory(ctx context.Context, input *SDKSetMemoryInpu
 		t := time.Now().Add(time.Duration(*req.TTLSecs) * time.Second)
 		ttlExpiresAt = &t
 	}
+	if err := s.ensureSDKRunActive(ctx, input.RunID); err != nil {
+		return nil, err
+	}
 	mem := &domain.JobMemory{JobID: run.JobID, ProjectID: run.ProjectID, MemoryKey: key, Value: req.Value, SizeBytes: len(req.Value), TTLExpiresAt: ttlExpiresAt}
 	if err := s.store.UpsertJobMemoryWithQuota(ctx, mem, maxPerKey, maxPerJob); err != nil {
 		switch {

@@ -178,6 +178,28 @@ func (q *Queries) GetRunTokenState(ctx context.Context, id string) (domain.RunSt
 	return status, attempt, projectID, nil
 }
 
+func (q *Queries) EnsureRunActiveForAttempt(ctx context.Context, id string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.EnsureRunActiveForAttempt")
+	defer span.End()
+
+	var exists bool
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $2
+			  AND status IN ('executing', 'waiting')
+		 )`, id, attempt).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("ensure active run: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+	}
+	return nil
+}
+
 func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRun")
 	defer span.End()
@@ -556,6 +578,49 @@ func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) er
 	return nil
 }
 
+func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.RunUsage, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsageForActiveRun")
+	defer span.End()
+
+	if usage.ID == "" {
+		usage.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if usage.CostMicrousd == 0 {
+		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
+		if err != nil {
+			return err
+		}
+		if inputCost > 0 || outputCost > 0 {
+			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
+		}
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $9
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
+		SELECT $1, id, $3, $4, $5, $6, $7, $8
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, usage.ID, usage.RunID, usage.Provider, usage.Model, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CostMicrousd, attempt).Scan(&usage.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, usage.RunID, attempt)
+		}
+		return fmt.Errorf("create active run usage: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunUsage")
 	defer span.End()
@@ -637,6 +702,40 @@ func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCal
 	return nil
 }
 
+func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domain.RunToolCall, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCallForActiveRun")
+	defer span.End()
+
+	if call.ID == "" {
+		call.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if call.Status == "" {
+		call.Status = "completed"
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $8
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
+		SELECT $1, id, $3, $4, $5, $6, $7
+		FROM active_run
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, call.ID, call.RunID, call.ToolName, dbscan.NilIfEmptyRawMessage(call.Input), dbscan.NilIfEmptyRawMessage(call.Output), dbscan.NilIfZeroInt(call.DurationMs), call.Status, attempt).Scan(&call.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, call.RunID, attempt)
+		}
+		return fmt.Errorf("create active run tool call: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunToolCalls")
 	defer span.End()
@@ -712,6 +811,39 @@ func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput)
 		return fmt.Errorf("upsert run output: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) UpsertRunOutputForActiveRun(ctx context.Context, output *domain.RunOutput, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertRunOutputForActiveRun")
+	defer span.End()
+
+	if output.ID == "" {
+		output.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+			  AND attempt = $6
+			  AND status IN ('executing', 'waiting')
+		)
+		INSERT INTO run_outputs (id, run_id, output_key, schema, value)
+		SELECT $1, id, $3, $4, $5
+		FROM active_run
+		ON CONFLICT (run_id, output_key)
+		DO UPDATE SET schema = EXCLUDED.schema, value = EXCLUDED.value, created_at = NOW()
+		RETURNING created_at`
+
+	err := q.db.QueryRow(ctx, query, output.ID, output.RunID, output.OutputKey, dbscan.NilIfEmptyRawMessage(output.Schema), dbscan.NilIfEmptyRawMessage(output.Value), attempt).Scan(&output.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, output.RunID, attempt)
+		}
+		return fmt.Errorf("upsert active run output: %w", err)
+	}
 	return nil
 }
 

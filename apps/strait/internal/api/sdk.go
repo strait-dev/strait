@@ -44,10 +44,15 @@ type runTokenStateGetter interface {
 }
 
 type activeRunMutationStore interface {
+	EnsureRunActiveForAttempt(context.Context, string, int) error
 	InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error
 	UpdateRunMetadataForActiveRun(context.Context, string, map[string]string, int) error
 	UpdateHeartbeatForActiveRun(context.Context, string, int) error
 	CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error
+	UpsertRunStateForActiveRun(context.Context, *domain.RunState, int) error
+	CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error
+	CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error
+	UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error
 }
 
 func runTokenAttemptFromContext(ctx context.Context) int {
@@ -66,6 +71,19 @@ func (s *Server) guardedSDKMutationError(ctx context.Context, err error) error {
 		return huma.Error404NotFound("run not found")
 	}
 	return nil
+}
+
+func (s *Server) ensureSDKRunActive(ctx context.Context, runID string) error {
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		if err := guardedStore.EnsureRunActiveForAttempt(ctx, runID, runTokenAttemptFromContext(ctx)); err != nil {
+			if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+				return sdkErr
+			}
+			return huma.Error500InternalServerError("failed to verify run status")
+		}
+		return nil
+	}
+	return s.revalidateRunTokenState(ctx)
 }
 
 func sdkVersionFromContext(ctx context.Context) string {

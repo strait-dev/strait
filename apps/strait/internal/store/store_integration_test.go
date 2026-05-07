@@ -1483,6 +1483,22 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if checkpoint.Sequence != 1 {
 		t.Fatalf("checkpoint sequence = %d, want 1", checkpoint.Sequence)
 	}
+	state := &domain.RunState{RunID: activeRun.ID, StateKey: "cursor", Value: json.RawMessage(`{"step":1}`)}
+	if err := q.UpsertRunStateForActiveRun(ctx, state, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertRunStateForActiveRun(active) error = %v", err)
+	}
+	usage := &domain.RunUsage{RunID: activeRun.ID, Provider: "test", Model: "model", PromptTokens: 1, CompletionTokens: 2}
+	if err := q.CreateRunUsageForActiveRun(ctx, usage, activeRun.Attempt); err != nil {
+		t.Fatalf("CreateRunUsageForActiveRun(active) error = %v", err)
+	}
+	toolCall := &domain.RunToolCall{RunID: activeRun.ID, ToolName: "search", Status: "completed"}
+	if err := q.CreateRunToolCallForActiveRun(ctx, toolCall, activeRun.Attempt); err != nil {
+		t.Fatalf("CreateRunToolCallForActiveRun(active) error = %v", err)
+	}
+	output := &domain.RunOutput{RunID: activeRun.ID, OutputKey: "final", Value: json.RawMessage(`{"ok":true}`)}
+	if err := q.UpsertRunOutputForActiveRun(ctx, output, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertRunOutputForActiveRun(active) error = %v", err)
+	}
 
 	stored, err := q.GetRun(ctx, activeRun.ID)
 	if err != nil {
@@ -1497,6 +1513,9 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 
 	if err := q.InsertEventForActiveRun(ctx, &domain.RunEvent{RunID: activeRun.ID, Type: domain.EventLog, Message: "stale"}, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
 		t.Fatalf("InsertEventForActiveRun(stale attempt) error = %v, want ErrRunConflict", err)
+	}
+	if err := q.EnsureRunActiveForAttempt(ctx, activeRun.ID, activeRun.Attempt+1); !errors.Is(err, store.ErrRunConflict) {
+		t.Fatalf("EnsureRunActiveForAttempt(stale attempt) error = %v, want ErrRunConflict", err)
 	}
 
 	terminalRun := mustCreateRun(t, ctx, q, job)
@@ -1515,6 +1534,11 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 		"metadata":   q.UpdateRunMetadataForActiveRun(ctx, terminalRun.ID, map[string]string{"late": "true"}, terminalRun.Attempt),
 		"heartbeat":  q.UpdateHeartbeatForActiveRun(ctx, terminalRun.ID, terminalRun.Attempt),
 		"checkpoint": q.CreateRunCheckpointForActiveRun(ctx, &domain.RunCheckpoint{RunID: terminalRun.ID, State: json.RawMessage(`{"late":true}`)}, terminalRun.Attempt),
+		"state":      q.UpsertRunStateForActiveRun(ctx, &domain.RunState{RunID: terminalRun.ID, StateKey: "late", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
+		"usage":      q.CreateRunUsageForActiveRun(ctx, &domain.RunUsage{RunID: terminalRun.ID, Provider: "test", Model: "model"}, terminalRun.Attempt),
+		"tool-call":  q.CreateRunToolCallForActiveRun(ctx, &domain.RunToolCall{RunID: terminalRun.ID, ToolName: "search"}, terminalRun.Attempt),
+		"output":     q.UpsertRunOutputForActiveRun(ctx, &domain.RunOutput{RunID: terminalRun.ID, OutputKey: "final", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
+		"ensure":     q.EnsureRunActiveForAttempt(ctx, terminalRun.ID, terminalRun.Attempt),
 	} {
 		if !errors.Is(err, store.ErrRunConflict) {
 			t.Fatalf("%s terminal mutation error = %v, want ErrRunConflict", name, err)

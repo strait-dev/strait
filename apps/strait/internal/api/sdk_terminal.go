@@ -227,12 +227,18 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		}
 	}
 	if req.AwaitCompletion && parentRun.Status == domain.StatusExecuting {
+		if err := s.ensureSDKRunActive(ctx, parentRun.ID); err != nil {
+			return nil, err
+		}
 		if err := s.store.UpdateRunStatus(ctx, parentRun.ID, domain.StatusExecuting, domain.StatusWaiting, map[string]any{}); err != nil {
 			slog.Error("failed to transition parent run to waiting", "parent_run_id", parentRun.ID, "error", err)
 			return nil, huma.Error500InternalServerError("failed to transition parent to waiting")
 		}
 	}
 	run := &domain.JobRun{JobID: job.ID, ProjectID: job.ProjectID, Payload: req.Payload, TriggeredBy: domain.TriggerSpawn, ParentRunID: parentRunID}
+	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
+		return nil, err
+	}
 	if err := s.queue.Enqueue(ctx, run); err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("spawn idempotency conflict", "parent_run_id", parentRunID, "child_run_id", run.ID)
@@ -313,6 +319,9 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 		payload = parentRun.Payload
 	}
 	continuationRun := &domain.JobRun{JobID: job.ID, ProjectID: job.ProjectID, Payload: payload, TriggeredBy: domain.TriggerManual, ContinuationOf: parentRunID, LineageDepth: parentRun.LineageDepth + 1, Priority: parentRun.Priority}
+	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
+		return nil, err
+	}
 	if err := s.queue.Enqueue(ctx, continuationRun); err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			slog.Warn("continuation idempotency conflict", "parent_run_id", parentRunID, "continuation_run_id", continuationRun.ID)

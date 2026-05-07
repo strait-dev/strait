@@ -31,7 +31,16 @@ func (s *Server) handleSDKSetState(ctx context.Context, input *SDKSetStateInput)
 		return nil, huma.Error400BadRequest("state value must not exceed 64KB")
 	}
 	state := &domain.RunState{RunID: input.RunID, StateKey: req.Key, Value: req.Value}
-	if err := s.store.UpsertRunState(ctx, state); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpsertRunStateForActiveRun(ctx, state, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpsertRunState(ctx, state)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to upsert run state")
 	}
 	return &SDKSetStateOutput{Body: state}, nil
