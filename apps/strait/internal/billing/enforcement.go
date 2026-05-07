@@ -1276,15 +1276,13 @@ func (e *Enforcer) applyBillingSentryScope(scope *sentry.Scope, orgID, operation
 		region = e.sentryRegion
 		version = e.sentryVersion
 	}
-	for k, v := range telemetry.RequiredSentryTags(
-		string(domain.BuildEdition()),
-		telemetry.SubsystemBilling,
-		mode,
-		region,
-		version,
-	) {
-		telemetry.SetSentryTag(scope, k, v)
-	}
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemBilling,
+		Mode:      mode,
+		Region:    region,
+		Version:   version,
+	})
 	telemetry.SetSentryTag(scope, telemetry.TagOrgID, orgID)
 	telemetry.SetSentryTag(scope, telemetry.TagOperation, operation)
 }

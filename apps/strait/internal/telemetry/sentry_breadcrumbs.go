@@ -16,18 +16,18 @@ const maxBreadcrumbMessageBytes = 512
 type sentryBreadcrumbStartKey struct{}
 type sentryBreadcrumbSQLKey struct{}
 
-// AddSentryBreadcrumb records a sanitized breadcrumb on the request hub when present.
+// AddSentryBreadcrumb records a breadcrumb on the request hub when present.
 func AddSentryBreadcrumb(ctx context.Context, category, message string, data map[string]any) {
-	message = truncateBreadcrumbValue(ScrubSecrets(message), maxBreadcrumbMessageBytes)
-	if message == "" {
-		return
-	}
 	bc := &sentry.Breadcrumb{
 		Type:      "default",
 		Category:  category,
 		Message:   message,
 		Timestamp: time.Now(),
-		Data:      sanitizeBreadcrumbData(data),
+		Data:      data,
+	}
+	bc = sanitizeSentryBreadcrumb(bc)
+	if bc == nil {
+		return
 	}
 	if hub := sentry.GetHubFromContext(ctx); hub != nil {
 		hub.AddBreadcrumb(bc, nil)
@@ -116,6 +116,18 @@ func sanitizeBreadcrumbData(data map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+func sanitizeSentryBreadcrumb(breadcrumb *sentry.Breadcrumb) *sentry.Breadcrumb {
+	if breadcrumb == nil {
+		return nil
+	}
+	breadcrumb.Message = truncateBreadcrumbValue(ScrubSecrets(breadcrumb.Message), maxBreadcrumbMessageBytes)
+	breadcrumb.Data = sanitizeBreadcrumbData(breadcrumb.Data)
+	if breadcrumb.Message == "" && breadcrumb.Category == "" && len(breadcrumb.Data) == 0 {
+		return nil
+	}
+	return breadcrumb
 }
 
 func truncateBreadcrumbValue(value string, maxBytes int) string {

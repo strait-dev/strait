@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"strait/internal/telemetry"
@@ -95,14 +96,17 @@ func configureGRPCSentryScope(ctx context.Context, meta grpcSentryMetadata, tags
 	if hub == nil {
 		return
 	}
+	continueGRPCSentryTrace(ctx, hub)
 	hub.ConfigureScope(func(scope *sentry.Scope) {
-		for k, v := range sentryGRPCContextTags(ctx, tags) {
-			telemetry.SetSentryTag(scope, k, v)
-		}
+		telemetry.ApplySentryTags(scope, sentryGRPCContextTags(ctx, tags))
 		if meta.hasRequiredTags() {
-			for k, v := range telemetry.RequiredSentryTags(meta.edition, telemetry.SubsystemGRPC, meta.mode, meta.region, meta.version) {
-				telemetry.SetSentryTag(scope, k, v)
-			}
+			telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+				Edition:   meta.edition,
+				Subsystem: telemetry.SubsystemGRPC,
+				Mode:      meta.mode,
+				Region:    meta.region,
+				Version:   meta.version,
+			})
 		}
 		if apiKeyID := grpcAPIKeyIDFromContext(ctx); apiKeyID != "" {
 			scope.SetUser(sentry.User{
@@ -122,6 +126,29 @@ func configureGRPCSentryScope(ctx context.Context, meta grpcSentryMetadata, tags
 			"environment_id": grpcEnvironmentIDFromContext(ctx),
 		})
 	})
+}
+
+func continueGRPCSentryTrace(ctx context.Context, hub *sentry.Hub) {
+	if hub == nil {
+		return
+	}
+	sentry.ContinueTrace(
+		hub,
+		firstIncomingMetadataValue(ctx, sentry.SentryTraceHeader),
+		firstIncomingMetadataValue(ctx, sentry.SentryBaggageHeader),
+	)
+}
+
+func firstIncomingMetadataValue(ctx context.Context, key string) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+	values := md.Get(key)
+	if len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 func captureGRPCSentryError(ctx context.Context, meta grpcSentryMetadata, method string, err error) {

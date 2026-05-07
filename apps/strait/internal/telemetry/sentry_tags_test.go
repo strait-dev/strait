@@ -64,6 +64,36 @@ func TestSetSentryTag_SkipsEmptyAndNormalizes(t *testing.T) {
 	}
 }
 
+func TestApplySentryRuntimeScopeSetsRequiredTags(t *testing.T) {
+	t.Parallel()
+
+	scope := sentry.NewScope()
+	ApplySentryRuntimeScope(scope, SentryRuntime{
+		Edition:   "Cloud",
+		Subsystem: "Scheduler",
+		Mode:      "ALL",
+		Region:    "IAD",
+		Version:   "2026.05.07",
+	})
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event == nil {
+		t.Fatal("expected event")
+	}
+
+	want := map[string]string{
+		"edition":   "cloud",
+		"subsystem": "scheduler",
+		"mode":      "all",
+		"region":    "iad",
+		"version":   "2026.05.07",
+	}
+	for key, expected := range want {
+		if got := event.Tags[key]; got != expected {
+			t.Fatalf("tag %s = %q, want %q", key, got, expected)
+		}
+	}
+}
+
 func TestNormalizeHTTPStatusClass(t *testing.T) {
 	t.Parallel()
 

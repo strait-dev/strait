@@ -35,7 +35,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   s.config.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Internal-Secret", "X-Idempotency-Key", "Idempotency-Key"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Internal-Secret", "X-Idempotency-Key", "Idempotency-Key", "Traceparent", "Tracestate", "Sentry-Trace", "Baggage"},
 		ExposedHeaders:   []string{"Link", "X-Request-Id", "X-API-Version", "X-Strait-Plan", "X-Strait-Usage-Limit", "X-Strait-Usage-Remaining"},
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,

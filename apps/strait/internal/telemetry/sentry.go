@@ -82,6 +82,7 @@ func SentryClientOptions(cfg SentryConfig, tracesSampleRate float64) sentry.Clie
 		TracesSampleRate:      tracesSampleRate,
 		BeforeSend:            BeforeSend,
 		BeforeSendTransaction: BeforeSendTransaction,
+		BeforeBreadcrumb:      BeforeBreadcrumb,
 	}
 }
 
@@ -109,6 +110,12 @@ func BeforeSendTransaction(event *sentry.Event, _ *sentry.EventHint) *sentry.Eve
 	}
 	sanitizeSentryEvent(event)
 	return event
+}
+
+// BeforeBreadcrumb applies the same redaction policy to every breadcrumb,
+// including breadcrumbs emitted by SDK integrations.
+func BeforeBreadcrumb(breadcrumb *sentry.Breadcrumb, _ *sentry.BreadcrumbHint) *sentry.Breadcrumb {
+	return sanitizeSentryBreadcrumb(breadcrumb)
 }
 
 // MarkExpectedNotFound wraps err so BeforeSend can drop it as expected control
@@ -355,17 +362,7 @@ func sanitizeSentryEvent(event *sentry.Event) {
 	}
 	event.Message = ScrubSecrets(event.Message)
 	for i := range event.Breadcrumbs {
-		if event.Breadcrumbs[i].Data != nil {
-			for key, value := range event.Breadcrumbs[i].Data {
-				if shouldDropBreadcrumbDataKey(key) {
-					delete(event.Breadcrumbs[i].Data, key)
-					continue
-				}
-				if s, ok := value.(string); ok {
-					event.Breadcrumbs[i].Data[key] = SanitizeValue(key, s)
-				}
-			}
-		}
+		event.Breadcrumbs[i] = sanitizeSentryBreadcrumb(event.Breadcrumbs[i])
 	}
 	for name, ctx := range event.Contexts {
 		for k, v := range ctx {

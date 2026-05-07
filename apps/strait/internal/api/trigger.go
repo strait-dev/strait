@@ -57,6 +57,8 @@ type TriggerJobInput struct {
 	IdempotencyKeyAlt string `header:"Idempotency-Key"`
 	Traceparent       string `header:"Traceparent"`
 	Tracestate        string `header:"Tracestate"`
+	SentryTrace       string `header:"Sentry-Trace"`
+	Baggage           string `header:"Baggage"`
 	Body              TriggerRequest
 }
 
@@ -399,6 +401,12 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		run.Metadata["_trace_parent"] = input.Traceparent
 		if input.Tracestate != "" {
 			run.Metadata["_trace_state"] = input.Tracestate
+		}
+	}
+	if input.SentryTrace != "" {
+		run.Metadata[domain.RunMetadataSentryTrace] = input.SentryTrace
+		if input.Baggage != "" {
+			run.Metadata[domain.RunMetadataSentryBaggage] = input.Baggage
 		}
 	}
 

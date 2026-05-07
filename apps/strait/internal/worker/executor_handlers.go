@@ -669,15 +669,13 @@ func addWorkerRunBreadcrumb(ctx context.Context, category, message string, run *
 }
 
 func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRun, data map[string]any) {
-	for k, v := range telemetry.RequiredSentryTags(
-		string(domain.BuildEdition()),
-		telemetry.SubsystemWorker,
-		e.mode,
-		e.defaultRegion,
-		e.version,
-	) {
-		telemetry.SetSentryTag(scope, k, v)
-	}
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemWorker,
+		Mode:      e.mode,
+		Region:    e.defaultRegion,
+		Version:   e.version,
+	})
 	if run != nil {
 		telemetry.SetSentryTag(scope, telemetry.TagRunID, run.ID)
 		telemetry.SetSentryTag(scope, telemetry.TagJobID, run.JobID)

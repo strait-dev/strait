@@ -18,6 +18,7 @@ import (
 	"strait/internal/httputil"
 	"strait/internal/store"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
@@ -645,6 +646,12 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		req.Header.Set("Traceparent", tp)
 		if ts, ok := run.Metadata["_trace_state"]; ok && ts != "" {
 			req.Header.Set("Tracestate", ts)
+		}
+	}
+	if traceparent, ok := run.Metadata[domain.RunMetadataSentryTrace]; ok && traceparent != "" {
+		req.Header.Set(sentry.SentryTraceHeader, traceparent)
+		if baggage, ok := run.Metadata[domain.RunMetadataSentryBaggage]; ok && baggage != "" {
+			req.Header.Set(sentry.SentryBaggageHeader, baggage)
 		}
 	}
 

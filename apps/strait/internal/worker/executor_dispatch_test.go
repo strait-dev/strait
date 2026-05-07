@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/getsentry/sentry-go"
+
 	"strait/internal/domain"
 )
 
@@ -104,6 +106,50 @@ func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
 	}
 }
 
+func TestHTTPDispatch_InjectsSentryTraceHeaders(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			domain.RunMetadataSentryTrace:   "0123456789abcdef0123456789abcdef-0123456789abcdef-1",
+			domain.RunMetadataSentryBaggage: "sentry-release=test-release,sentry-public_key=public",
+		},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if got := capturedHeaders.Get(sentry.SentryTraceHeader); got != "0123456789abcdef0123456789abcdef-0123456789abcdef-1" {
+		t.Fatalf("sentry-trace header = %q, want Sentry trace metadata", got)
+	}
+	if got := capturedHeaders.Get(sentry.SentryBaggageHeader); got != "sentry-release=test-release,sentry-public_key=public" {
+		t.Fatalf("baggage header = %q, want Sentry baggage metadata", got)
+	}
+}
+
 func TestHTTPDispatch_NoTraceMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -142,6 +188,12 @@ func TestHTTPDispatch_NoTraceMetadata(t *testing.T) {
 	}
 	if ts := capturedHeaders.Get("Tracestate"); ts != "" {
 		t.Errorf("expected no Tracestate header, got %q", ts)
+	}
+	if st := capturedHeaders.Get(sentry.SentryTraceHeader); st != "" {
+		t.Errorf("expected no Sentry trace header, got %q", st)
+	}
+	if baggage := capturedHeaders.Get(sentry.SentryBaggageHeader); baggage != "" {
+		t.Errorf("expected no Sentry baggage header, got %q", baggage)
 	}
 }
 

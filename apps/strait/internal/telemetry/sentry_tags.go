@@ -78,6 +78,16 @@ const (
 	ModeUnknown = "unknown"
 )
 
+// SentryRuntime is the low-cardinality process metadata common to every
+// capture path.
+type SentryRuntime struct {
+	Edition   string
+	Subsystem string
+	Mode      string
+	Region    string
+	Version   string
+}
+
 var knownSentryTags = map[string]SentryTag{
 	string(TagEdition):        TagEdition,
 	string(TagSubsystem):      TagSubsystem,
@@ -144,6 +154,26 @@ func SetSentryTag(scope *sentry.Scope, tag SentryTag, value string) {
 		return
 	}
 	scope.SetTag(string(tag), value)
+}
+
+// ApplySentryRuntimeScope applies the required runtime tags to a scope.
+func ApplySentryRuntimeScope(scope *sentry.Scope, runtime SentryRuntime) {
+	for k, v := range RequiredSentryTags(
+		runtime.Edition,
+		runtime.Subsystem,
+		runtime.Mode,
+		runtime.Region,
+		runtime.Version,
+	) {
+		SetSentryTag(scope, k, v)
+	}
+}
+
+// ApplySentryTags applies documented Sentry tags to a scope.
+func ApplySentryTags(scope *sentry.Scope, tags map[SentryTag]string) {
+	for k, v := range tags {
+		SetSentryTag(scope, k, v)
+	}
 }
 
 // SentryTagStrings converts typed tags to the string map expected by Sentry.

@@ -75,15 +75,13 @@ func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *co
 }
 
 func applySchedulerSentryScope(scope *sentry.Scope, meta sentrySchedulerMetadata, name string, panicValue any) {
-	for k, v := range telemetry.RequiredSentryTags(
-		string(domain.BuildEdition()),
-		telemetry.SubsystemScheduler,
-		meta.mode,
-		meta.region,
-		meta.version,
-	) {
-		telemetry.SetSentryTag(scope, k, v)
-	}
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemScheduler,
+		Mode:      meta.mode,
+		Region:    meta.region,
+		Version:   meta.version,
+	})
 	telemetry.SetSentryTag(scope, telemetry.TagOperation, name)
 	scope.SetContext("scheduler.component", sentry.Context{
 		"component": name,

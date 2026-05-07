@@ -48,6 +48,35 @@ func TestAddSentryBreadcrumbSanitizesData(t *testing.T) {
 	}
 }
 
+func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
+	t.Parallel()
+
+	breadcrumb := BeforeBreadcrumb(&sentry.Breadcrumb{
+		Category: "http.client",
+		Message:  "POST https://user:pass@example.com/private",
+		Data: map[string]any{
+			"authorization": "Bearer secret-token",
+			"url":           "https://user:pass@example.com/private?token=secret",
+			"status_code":   503,
+		},
+	}, nil)
+	if breadcrumb == nil {
+		t.Fatal("expected breadcrumb")
+	}
+	if strings.Contains(breadcrumb.Message, "user:pass") {
+		t.Fatalf("message leaked credentials: %q", breadcrumb.Message)
+	}
+	if _, ok := breadcrumb.Data["authorization"]; ok {
+		t.Fatal("authorization data was not dropped")
+	}
+	if got := breadcrumb.Data["url"]; got != "[REDACTED]" {
+		t.Fatalf("url data = %v, want redacted", got)
+	}
+	if got := breadcrumb.Data["status_code"]; got != 503 {
+		t.Fatalf("status_code = %v, want 503", got)
+	}
+}
+
 func TestSentryPGXTracerAddsSQLBreadcrumbWithoutArgs(t *testing.T) {
 	t.Parallel()
 

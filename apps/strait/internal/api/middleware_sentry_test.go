@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/getsentry/sentry-go"
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	"go.opentelemetry.io/otel/trace"
 
@@ -99,12 +100,13 @@ func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
 	}
 }
 
-func TestSentryScopeMiddlewareCreatesIsolatedHub(t *testing.T) {
+func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
 	t.Parallel()
 
 	srv := &Server{edition: domain.EditionCommunity}
+	sentryHandler := sentryhttp.New(sentryhttp.Options{})
 	var firstHub, secondHub *sentry.Hub
-	handler := srv.sentryScope(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := sentryHandler.Handle(srv.sentryScope(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		hub := sentry.GetHubFromContext(r.Context())
 		if hub == nil {
 			t.Fatal("expected request hub")
@@ -114,7 +116,7 @@ func TestSentryScopeMiddlewareCreatesIsolatedHub(t *testing.T) {
 			return
 		}
 		secondHub = hub
-	}))
+	})))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/a", nil))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/b", nil))

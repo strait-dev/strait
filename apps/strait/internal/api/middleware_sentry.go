@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"maps"
 	"net/http"
 
 	"github.com/getsentry/sentry-go"
@@ -13,17 +12,9 @@ import (
 	"strait/internal/telemetry"
 )
 
-// sentryScope ensures every request has an isolated hub and a baseline scope.
-// Authentication middleware calls serveWithSentryScope again after it stamps
-// actor/project context, so events captured inside handlers include both the
-// transport metadata and the resolved caller.
+// sentryScope enriches the request-specific hub created by sentryhttp.
 func (s *Server) sentryScope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hub := sentry.GetHubFromContext(r.Context())
-		if hub == nil {
-			hub = sentry.CurrentHub().Clone()
-			r = r.WithContext(sentry.SetHubOnContext(r.Context(), hub))
-		}
 		s.configureHTTPSentryScope(r)
 		next.ServeHTTP(w, r)
 	})
@@ -41,10 +32,6 @@ func (s *Server) configureHTTPSentryScope(r *http.Request) {
 	}
 	hub.ConfigureScope(func(scope *sentry.Scope) {
 		applyHTTPSentryScope(scope, r, s.sentryHTTPMetadata())
-		scope.AddEventProcessor(func(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
-			applyHTTPSentryEvent(event, r, s.sentryHTTPMetadata())
-			return event
-		})
 	})
 }
 
@@ -69,10 +56,7 @@ func (s *Server) sentryHTTPMetadata() sentryHTTPMetadata {
 
 func applyHTTPSentryScope(scope *sentry.Scope, r *http.Request, meta sentryHTTPMetadata) {
 	scope.SetRequest(r)
-	tags := sentryHTTPContextTags(r, meta)
-	for k, v := range tags {
-		telemetry.SetSentryTag(scope, k, v)
-	}
+	telemetry.ApplySentryTags(scope, sentryHTTPContextTags(r, meta))
 	if actorID := actorFromContext(r.Context()); actorID != "" {
 		scope.SetUser(sentry.User{
 			ID: actorID,
@@ -88,31 +72,6 @@ func applyHTTPSentryScope(scope *sentry.Scope, r *http.Request, meta sentryHTTPM
 		"route":      chiRoutePattern(r),
 		"request_id": requestIDFromContext(r.Context()),
 	})
-}
-
-func applyHTTPSentryEvent(event *sentry.Event, r *http.Request, meta sentryHTTPMetadata) {
-	if event.Tags == nil {
-		event.Tags = map[string]string{}
-	}
-	maps.Copy(event.Tags, telemetry.SentryTagStrings(sentryHTTPContextTags(r, meta)))
-	if actorID := actorFromContext(r.Context()); actorID != "" && event.User.ID == "" {
-		event.User = sentry.User{
-			ID: actorID,
-			Data: map[string]string{
-				"actor_type": actorTypeFromContext(r.Context()),
-				"project_id": projectIDFromContext(r.Context()),
-			},
-		}
-	}
-	if event.Contexts == nil {
-		event.Contexts = map[string]sentry.Context{}
-	}
-	event.Contexts["http.request"] = sentry.Context{
-		"method":     r.Method,
-		"path":       r.URL.Path,
-		"route":      chiRoutePattern(r),
-		"request_id": requestIDFromContext(r.Context()),
-	}
 }
 
 func sentryHTTPContextTags(r *http.Request, meta sentryHTTPMetadata) map[telemetry.SentryTag]string {

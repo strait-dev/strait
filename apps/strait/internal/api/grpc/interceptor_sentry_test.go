@@ -2,12 +2,14 @@ package grpc
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"strait/internal/domain"
@@ -99,6 +101,31 @@ func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
 	}
 	if !sawHub {
 		t.Fatal("expected wrapped stream context to contain Sentry hub")
+	}
+}
+
+func TestGRPCSentryScopeContinuesIncomingSentryTrace(t *testing.T) {
+	t.Parallel()
+
+	const sentryTrace = "0123456789abcdef0123456789abcdef-0123456789abcdef-1"
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		sentry.SentryTraceHeader, sentryTrace,
+		sentry.SentryBaggageHeader, "sentry-release=test-release,sentry-public_key=public",
+	))
+	hub := sentry.NewHub(nil, sentry.NewScope())
+	ctx = sentry.SetHubOnContext(ctx, hub)
+
+	configureGRPCSentryScope(ctx, grpcSentryMetadata{}, map[telemetry.SentryTag]string{
+		telemetry.TagService: "strait.worker.v1.WorkerService",
+		telemetry.TagRPC:     "StreamTasks",
+	})
+
+	traceparent := hub.GetTraceparent()
+	if !strings.Contains(traceparent, "0123456789abcdef0123456789abcdef") {
+		t.Fatalf("traceparent = %q, want continued incoming Sentry trace", traceparent)
+	}
+	if baggage := hub.GetBaggage(); !strings.Contains(baggage, "sentry-release=test-release") {
+		t.Fatalf("baggage = %q, want continued Sentry baggage", baggage)
 	}
 }
 
