@@ -76,6 +76,13 @@ apps/strait/
 # Build the image
 docker build -t strait apps/strait/
 
+# Build with release metadata for /health and Sentry release tagging
+docker build \
+  --build-arg VERSION=v1.2.3 \
+  --build-arg COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t strait:v1.2.3 apps/strait/
+
 # Run with required environment variables
 docker run \
   -e DATABASE_URL=postgres://... \
@@ -96,6 +103,26 @@ make deploy
 # Or from repo root
 bun run deploy
 ```
+
+## Sentry Releases
+
+When `SENTRY_DSN` is configured, Strait tags events with `SENTRY_RELEASE`.
+If that variable is empty, the server derives the release from the binary
+version and commit injected at build time (`VERSION+COMMIT`). Use the same
+value when creating Sentry releases:
+
+```bash
+export STRAIT_VERSION=v1.2.3
+export STRAIT_COMMIT=$(git rev-parse --short HEAD)
+export SENTRY_RELEASE="${STRAIT_VERSION}+${STRAIT_COMMIT}"
+
+sentry-cli releases new "$SENTRY_RELEASE"
+sentry-cli releases set-commits "$SENTRY_RELEASE" --auto
+sentry-cli releases finalize "$SENTRY_RELEASE"
+```
+
+Set `SENTRY_RELEASE` on every deployed API and worker process to keep errors,
+transactions, and breadcrumbs tied to the exact build.
 
 ## Process Deployment
 

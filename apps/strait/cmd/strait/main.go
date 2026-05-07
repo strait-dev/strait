@@ -75,7 +75,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if cfg.SentryDSN != "" {
 		release := cfg.SentryRelease
 		if release == "" {
-			release = version
+			release = telemetry.BuildSentryRelease(version, commit)
 		}
 		shutdownSentry, err := telemetry.InitSentry(telemetry.SentryConfig{
 			DSN:              cfg.SentryDSN,

@@ -82,6 +82,7 @@ func BeforeSend(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 	if shouldDropSentryEvent(event, hint) {
 		return nil
 	}
+	ApplySentryFingerprint(event, hint)
 	sanitizeSentryEvent(event)
 	return event
 }
