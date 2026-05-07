@@ -1057,9 +1057,10 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)
 		}
-		// The handler still calls logAuditEvent even with empty orgID.
-		if len(audit.events) == 0 {
-			t.Error("expected audit event even without org_id")
+		// Org-less invoices are ignored; metadata is no longer tenant
+		// authority for billing side effects.
+		if len(audit.events) != 0 {
+			t.Error("expected no audit event without a bound org")
 		}
 	})
 

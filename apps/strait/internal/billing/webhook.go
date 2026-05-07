@@ -24,6 +24,8 @@ import (
 var (
 	ErrInvalidSignature = errors.New("invalid webhook signature")
 	ErrUnknownPrice     = errors.New("unknown stripe price ID")
+
+	errUnboundStripeObject = errors.New("stripe object is not bound to an organization")
 )
 
 // AuditStore is the subset of store operations needed for audit logging.
@@ -43,11 +45,6 @@ type webhookProcessingStore interface {
 
 type webhookProcessingStatusStore interface {
 	GetWebhookProcessingStatus(ctx context.Context, msgID string) (string, error)
-}
-
-type stripeBindingStore interface {
-	GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error)
-	GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error)
 }
 
 type webhookClaimState struct {
@@ -70,6 +67,7 @@ type WebhookHandler struct {
 	billingEmails     *BillingEmailSender
 	edition           string
 	devBypassSigCheck bool
+	allowTestMetadata bool
 	replayCache       sync.Map // eventID -> int64 (unix nanos), prevents replay within 10 minutes
 }
 
@@ -105,7 +103,10 @@ func WithEdition(edition string) WebhookOption {
 // This must only be enabled when the STRIPE_WEBHOOK_ALLOW_UNSIGNED env var is explicitly
 // set to "true". Production deployments must never enable this option.
 func WithDevBypassSignatureCheck() WebhookOption {
-	return func(h *WebhookHandler) { h.devBypassSigCheck = true }
+	return func(h *WebhookHandler) {
+		h.devBypassSigCheck = true
+		h.allowTestMetadata = true
+	}
 }
 
 var (
@@ -465,7 +466,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 		return ErrUnknownPrice
 	}
 
-	orgID, err := h.resolveBoundOrgID(ctx, &sub)
+	orgID, err := h.resolveOrgIDForNewSubscription(ctx, &sub, tier)
 	if err != nil {
 		return err
 	}
@@ -916,15 +917,45 @@ func invoiceSubscription(inv *stripe.Invoice) *stripe.Subscription {
 	return nil
 }
 
-// resolveOrgIDFromInvoice extracts the org_id from a Stripe invoice's subscription or customer metadata.
-func (h *WebhookHandler) resolveOrgIDFromInvoice(inv *stripe.Invoice) string {
+// resolveOrgIDFromInvoice resolves invoices only through persisted Stripe
+// bindings. Metadata is used solely as a conflict check, never as authority.
+func (h *WebhookHandler) resolveOrgIDFromInvoice(ctx context.Context, inv *stripe.Invoice) (string, error) {
+	sub := invoiceSubscription(inv)
+	metadataOrgID := invoiceMetadataOrgID(inv)
+	if sub != nil && sub.ID != "" {
+		existing, err := h.store.GetOrgSubscriptionByStripeSubscriptionID(ctx, sub.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup invoice subscription binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "subscription", sub.ID)
+		}
+	}
+	if inv.Customer != nil && inv.Customer.ID != "" {
+		existing, err := h.store.GetOrgSubscriptionByStripeCustomerID(ctx, inv.Customer.ID)
+		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			return "", fmt.Errorf("lookup invoice customer binding: %w", err)
+		}
+		if existing != nil {
+			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", inv.Customer.ID)
+		}
+	}
+	if h.allowTestMetadata {
+		return metadataOrgID, nil
+	}
+	if metadataOrgID != "" {
+		return "", errUnboundStripeObject
+	}
+	return "", nil
+}
+
+func invoiceMetadataOrgID(inv *stripe.Invoice) string {
 	sub := invoiceSubscription(inv)
 	if sub != nil && sub.Metadata != nil {
 		if id, ok := sub.Metadata["org_id"]; ok && isValidUUID(id) {
 			return id
 		}
 	}
-	// Also check the subscription details metadata (snapshot at invoice creation).
 	if inv.Parent != nil && inv.Parent.SubscriptionDetails != nil && inv.Parent.SubscriptionDetails.Metadata != nil {
 		if id, ok := inv.Parent.SubscriptionDetails.Metadata["org_id"]; ok && isValidUUID(id) {
 			return id
@@ -950,7 +981,10 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		return nil
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -996,7 +1030,10 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		return nil
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1175,12 +1212,9 @@ func (h *WebhookHandler) handleChargeDisputeCreated(ctx context.Context, data js
 		return fmt.Errorf("parsing dispute data: %w", err)
 	}
 
-	// Resolve org from the charge's customer metadata.
-	orgID := ""
-	if dispute.Charge != nil && dispute.Charge.Customer != nil && dispute.Charge.Customer.Metadata != nil {
-		if id, ok := dispute.Charge.Customer.Metadata["org_id"]; ok && isValidUUID(id) {
-			orgID = id
-		}
+	orgID, err := h.resolveOrgIDFromDispute(ctx, &dispute)
+	if err != nil {
+		return err
 	}
 	if orgID == "" {
 		h.logger.Warn("cannot resolve org_id from dispute", "dispute_id", dispute.ID)
@@ -1214,6 +1248,39 @@ func (h *WebhookHandler) handleChargeDisputeCreated(ctx context.Context, data js
 	return nil
 }
 
+func (h *WebhookHandler) resolveOrgIDFromDispute(ctx context.Context, dispute *stripe.Dispute) (string, error) {
+	if dispute.Charge == nil || dispute.Charge.Customer == nil {
+		return "", nil
+	}
+	customer := dispute.Charge.Customer
+	metadataOrgID := ""
+	if customer.Metadata != nil {
+		if id, ok := customer.Metadata["org_id"]; ok && isValidUUID(id) {
+			metadataOrgID = id
+		}
+	}
+	if customer.ID == "" {
+		if metadataOrgID != "" {
+			return "", errUnboundStripeObject
+		}
+		return "", nil
+	}
+	existing, err := h.store.GetOrgSubscriptionByStripeCustomerID(ctx, customer.ID)
+	if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return "", fmt.Errorf("lookup dispute customer binding: %w", err)
+	}
+	if existing == nil {
+		if h.allowTestMetadata {
+			return metadataOrgID, nil
+		}
+		if metadataOrgID != "" {
+			return "", errUnboundStripeObject
+		}
+		return "", nil
+	}
+	return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", customer.ID)
+}
+
 // handleInvoiceUpcoming fires ~72 hours before an invoice is finalized.
 // Sends a heads-up email so the org knows about the upcoming charge.
 func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.RawMessage) error {
@@ -1222,7 +1289,10 @@ func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.Ra
 		return fmt.Errorf("parsing invoice data: %w", err)
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1263,7 +1333,10 @@ func (h *WebhookHandler) handleInvoiceUncollectible(ctx context.Context, data js
 		return fmt.Errorf("parsing invoice data: %w", err)
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
 	if orgID == "" {
 		return nil
 	}
@@ -1306,7 +1379,13 @@ func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, da
 		return fmt.Errorf("parsing invoice data: %w", err)
 	}
 
-	orgID := h.resolveOrgIDFromInvoice(&invoice)
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
+	if orgID == "" {
+		return nil
+	}
 
 	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, map[string]string{
 		"invoice_id": invoice.ID,
@@ -1364,13 +1443,8 @@ func (h *WebhookHandler) resolveOrgID(sub *stripe.Subscription) string {
 
 func (h *WebhookHandler) resolveBoundOrgID(ctx context.Context, sub *stripe.Subscription) (string, error) {
 	metadataOrgID := h.resolveOrgID(sub)
-	bindingStore, ok := h.store.(stripeBindingStore)
-	if !ok {
-		return metadataOrgID, nil
-	}
-
 	if sub.ID != "" {
-		existing, err := bindingStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, sub.ID)
+		existing, err := h.store.GetOrgSubscriptionByStripeSubscriptionID(ctx, sub.ID)
 		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
 			return "", fmt.Errorf("lookup subscription binding: %w", err)
 		}
@@ -1379,7 +1453,7 @@ func (h *WebhookHandler) resolveBoundOrgID(ctx context.Context, sub *stripe.Subs
 		}
 	}
 	if sub.Customer != nil && sub.Customer.ID != "" {
-		existing, err := bindingStore.GetOrgSubscriptionByStripeCustomerID(ctx, sub.Customer.ID)
+		existing, err := h.store.GetOrgSubscriptionByStripeCustomerID(ctx, sub.Customer.ID)
 		if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
 			return "", fmt.Errorf("lookup customer binding: %w", err)
 		}
@@ -1387,7 +1461,13 @@ func (h *WebhookHandler) resolveBoundOrgID(ctx context.Context, sub *stripe.Subs
 			return validateStripeBindingOrg(metadataOrgID, existing.OrgID, "customer", sub.Customer.ID)
 		}
 	}
-	return metadataOrgID, nil
+	if h.allowTestMetadata {
+		return metadataOrgID, nil
+	}
+	if metadataOrgID != "" {
+		return "", errUnboundStripeObject
+	}
+	return "", nil
 }
 
 func validateStripeBindingOrg(metadataOrgID, boundOrgID, bindingType, bindingID string) (string, error) {
@@ -1398,6 +1478,38 @@ func validateStripeBindingOrg(metadataOrgID, boundOrgID, bindingType, bindingID 
 		return "", fmt.Errorf("stripe %s %s is already bound to org %s", bindingType, bindingID, boundOrgID)
 	}
 	return boundOrgID, nil
+}
+
+func (h *WebhookHandler) resolveOrgIDForNewSubscription(ctx context.Context, sub *stripe.Subscription, tier domain.PlanTier) (string, error) {
+	orgID, err := h.resolveBoundOrgID(ctx, sub)
+	if err == nil && orgID != "" {
+		return orgID, nil
+	}
+	if err != nil && !errors.Is(err, errUnboundStripeObject) {
+		return "", err
+	}
+
+	metadataOrgID := h.resolveOrgID(sub)
+	if metadataOrgID == "" {
+		return "", errUnboundStripeObject
+	}
+	if h.allowTestMetadata {
+		return metadataOrgID, nil
+	}
+	existing, err := h.store.GetOrgSubscription(ctx, metadataOrgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return "", errUnboundStripeObject
+		}
+		return "", fmt.Errorf("lookup pending subscription intent: %w", err)
+	}
+	if existing.StripeSubscriptionID != nil || existing.StripeCustomerID != nil {
+		return "", errUnboundStripeObject
+	}
+	if existing.PendingPlanTier == nil || *existing.PendingPlanTier != string(tier) {
+		return "", errUnboundStripeObject
+	}
+	return metadataOrgID, nil
 }
 
 // logAuditEvent records an audit event if the audit store is configured.

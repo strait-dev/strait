@@ -61,6 +61,8 @@ type Store interface {
 	// Organization subscriptions
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
+	GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error)
+	GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error)
 	UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error
 	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error

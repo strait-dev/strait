@@ -589,6 +589,40 @@ func TestPgStore_GetOrgSubscriptionByStripeBindings(t *testing.T) {
 	}
 }
 
+func TestPgStore_StripeBindingsAreGloballyUnique(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgA := "org-stripe-unique-a-" + newID()
+	orgB := "org-stripe-unique-b-" + newID()
+	ensureSub(t, ctx, pgStore, orgA)
+	ensureSub(t, ctx, pgStore, orgB)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_subscription_id = 'sub_unique_123',
+		    stripe_customer_id = 'cus_unique_123'
+		WHERE org_id = $1
+	`, orgA); err != nil {
+		t.Fatalf("seed first binding: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_subscription_id = 'sub_unique_123'
+		WHERE org_id = $1
+	`, orgB); err == nil {
+		t.Fatal("expected duplicate stripe_subscription_id to fail")
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET stripe_customer_id = 'cus_unique_123'
+		WHERE org_id = $1
+	`, orgB); err == nil {
+		t.Fatal("expected duplicate stripe_customer_id to fail")
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 6: UpdateOrgSubscriptionPlan not found
 // --------------------------------------------------------------------------.
