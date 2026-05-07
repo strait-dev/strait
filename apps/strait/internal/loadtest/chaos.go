@@ -58,19 +58,61 @@ func NewChaosEngine(h *Harness, loadRate int, projectID, jobSlug string) *ChaosE
 	}
 }
 
-// findContainer finds a running Docker container matching the given service name.
-func findContainer(serviceName string) (string, error) {
-	out, err := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", serviceName), "--format", "{{.Names}}").Output() //nolint:gosec // arguments are not user-controlled
+var listDockerContainerNames = func() ([]string, error) {
+	out, err := exec.Command("docker", "ps", "--format", "{{.Names}}").Output() //nolint:gosec // arguments are fixed
 	if err != nil {
-		return "", fmt.Errorf("docker ps failed: %w", err)
+		return nil, fmt.Errorf("docker ps failed: %w", err)
 	}
-	names := strings.TrimSpace(string(out))
-	if names == "" {
-		return "", fmt.Errorf("no container found matching %q", serviceName)
+	return splitDockerNames(string(out)), nil
+}
+
+func splitDockerNames(out string) []string {
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			names = append(names, name)
+		}
 	}
-	// Take the first match
-	lines := strings.Split(names, "\n")
-	return lines[0], nil
+	return names
+}
+
+func envOrDefault(key, def string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return def
+}
+
+func expectedContainerName(serviceName string) (string, error) {
+	switch serviceName {
+	case "postgres":
+		return envOrDefault("LOADTEST_POSTGRES_CONTAINER", "strait-postgres"), nil
+	case "redis":
+		return envOrDefault("LOADTEST_REDIS_CONTAINER", "strait-redis"), nil
+	case "strait":
+		return envOrDefault("LOADTEST_STRAIT_CONTAINER", "strait-api"), nil
+	default:
+		return "", fmt.Errorf("unknown loadtest container service %q", serviceName)
+	}
+}
+
+// findContainer finds the exact running Docker container for a Strait load-test service.
+func findContainer(serviceName string) (string, error) {
+	expected, err := expectedContainerName(serviceName)
+	if err != nil {
+		return "", err
+	}
+	names, err := listDockerContainerNames()
+	if err != nil {
+		return "", err
+	}
+	for _, name := range names {
+		if name == expected {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no running loadtest container %q for service %q", expected, serviceName)
 }
 
 func (ce *ChaosEngine) findPostgresContainer() (string, error) {

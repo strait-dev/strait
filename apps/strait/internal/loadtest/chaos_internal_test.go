@@ -3,6 +3,7 @@
 package loadtest
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -41,5 +42,83 @@ func TestChaosHarness_RunEventsPressureUsesCurrentSchema(t *testing.T) {
 		if !strings.Contains(source, required) {
 			t.Fatalf("run_events pressure scenario missing expected schema fragment %q", required)
 		}
+	}
+}
+
+func TestFindContainer_RequiresExactLoadtestContainerName(t *testing.T) {
+	restore := stubDockerContainerNames(t, []string{
+		"customer-postgres",
+		"strait-postgres-backup",
+		"strait-postgres",
+		"other-redis",
+	})
+	defer restore()
+
+	got, err := findContainer("postgres")
+	if err != nil {
+		t.Fatalf("findContainer(postgres): %v", err)
+	}
+	if got != "strait-postgres" {
+		t.Fatalf("findContainer(postgres) = %q, want exact strait-postgres", got)
+	}
+}
+
+func TestFindContainer_FailsClosedWhenOnlySubstringMatches(t *testing.T) {
+	restore := stubDockerContainerNames(t, []string{
+		"customer-postgres",
+		"strait-postgres-backup",
+		"project-redis",
+	})
+	defer restore()
+
+	if got, err := findContainer("postgres"); err == nil {
+		t.Fatalf("findContainer(postgres) = %q, want error when only substring matches exist", got)
+	}
+}
+
+func TestFindContainer_UsesExplicitLoadtestOverrideExactly(t *testing.T) {
+	t.Setenv("LOADTEST_REDIS_CONTAINER", "strait-pr-147-redis")
+
+	restore := stubDockerContainerNames(t, []string{
+		"strait-redis",
+		"strait-pr-147-redis-extra",
+		"strait-pr-147-redis",
+	})
+	defer restore()
+
+	got, err := findContainer("redis")
+	if err != nil {
+		t.Fatalf("findContainer(redis): %v", err)
+	}
+	if got != "strait-pr-147-redis" {
+		t.Fatalf("findContainer(redis) = %q, want override exact match", got)
+	}
+}
+
+func TestFindContainer_PropagatesDockerListError(t *testing.T) {
+	want := errors.New("docker unavailable")
+
+	orig := listDockerContainerNames
+	listDockerContainerNames = func() ([]string, error) {
+		return nil, want
+	}
+	t.Cleanup(func() {
+		listDockerContainerNames = orig
+	})
+
+	if _, err := findContainer("postgres"); !errors.Is(err, want) {
+		t.Fatalf("findContainer(postgres) error = %v, want %v", err, want)
+	}
+}
+
+func stubDockerContainerNames(t *testing.T, names []string) func() {
+	t.Helper()
+
+	orig := listDockerContainerNames
+	listDockerContainerNames = func() ([]string, error) {
+		return append([]string(nil), names...), nil
+	}
+	return func() {
+		listDockerContainerNames = orig
 	}
 }
