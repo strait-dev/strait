@@ -124,7 +124,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		workflow_versions, workflow_steps, workflows,
 		webhook_deliveries, webhook_subscriptions,
 		api_keys, cli_device_codes, job_versions, run_events,
-		event_triggers, audit_events, audit_events_deadletter, tag_policies,
+		event_triggers, audit_events, audit_events_deadletter, audit_signing_keys, audit_chain_checkpoints, tag_policies,
 		event_subscriptions, event_sources, log_drains, batch_operations,
 		job_runs, job_secrets, job_dependencies, jobs, job_groups,
 		environments, endpoint_circuit_state, project_quotas,

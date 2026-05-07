@@ -35,8 +35,19 @@ func DeriveAuditSigningKeyForEpoch(secret, projectID string, epoch int) ([]byte,
 	if secret == "" {
 		return nil, fmt.Errorf("audit signing key: secret is empty")
 	}
+	root, err := DeriveAuditSigningKey(secret)
+	if err != nil {
+		return nil, err
+	}
+	return DeriveAuditSigningKeyForEpochFromRoot(root, projectID, epoch)
+}
+
+func DeriveAuditSigningKeyForEpochFromRoot(root []byte, projectID string, epoch int) ([]byte, error) {
+	if len(root) == 0 {
+		return nil, fmt.Errorf("audit signing key: root key is empty")
+	}
 	info := fmt.Appendf(nil, "audit-event-signing:epoch:%d:project:%s", epoch, projectID)
-	reader := hkdf.New(sha256.New, []byte(secret), info, nil)
+	reader := hkdf.New(sha256.New, root, info, nil)
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(reader, key); err != nil {
 		return nil, fmt.Errorf("audit signing key: hkdf derive: %w", err)
@@ -217,12 +228,10 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 		}
 		newEpoch = currentEpoch + 1
 
-		// Derive and store the new per-epoch HMAC key. INTERNAL_SECRET
-		// is carried via secretEncryptionKey here: we reuse the same
-		// string, which is already provisioned for secret envelope
-		// encryption, as the HKDF input for audit key derivation.
-		// Distinct HKDF info parameters prevent cross-purpose key reuse.
-		newKey, err := DeriveAuditSigningKeyForEpoch(txQ.secretEncryptionKey, projectID, newEpoch)
+		// Derive and store the new per-epoch HMAC key from the audit
+		// signing root. secretEncryptionKey is only the envelope key for
+		// the encrypted row and must not be able to derive signatures.
+		newKey, err := DeriveAuditSigningKeyForEpochFromRoot(txQ.auditSigningKey, projectID, newEpoch)
 		if err != nil {
 			return fmt.Errorf("derive new epoch key: %w", err)
 		}

@@ -564,6 +564,46 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 	}
 }
 
+func TestAuditEpochKeys_DeriveFromAuditSigningRootNotEnvelopeKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	projectID := "proj-audit-root-separation"
+	envelopeKey := testEncKey
+
+	qA := mustStore(t)
+	qA.SetSecretEncryptionKey(envelopeKey)
+	auditRootA, _ := store.DeriveAuditSigningKey("audit-root-a")
+	qA.SetAuditSigningKey(auditRootA)
+	insertTestChain(ctx, t, qA, projectID, 1)
+	keyA, err := qA.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil || keyA == nil {
+		t.Fatalf("GetAuditSigningKey(root A): key nil=%v err=%v", keyA == nil, err)
+	}
+
+	mustClean(t, ctx)
+	qB := mustStore(t)
+	qB.SetSecretEncryptionKey(envelopeKey)
+	auditRootB, _ := store.DeriveAuditSigningKey("audit-root-b")
+	qB.SetAuditSigningKey(auditRootB)
+	insertTestChain(ctx, t, qB, projectID, 1)
+	keyB, err := qB.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil || keyB == nil {
+		t.Fatalf("GetAuditSigningKey(root B): key nil=%v err=%v", keyB == nil, err)
+	}
+
+	if string(keyA) == string(keyB) {
+		t.Fatal("epoch keys matched despite different audit signing roots and identical envelope key")
+	}
+	expectedA, err := store.DeriveAuditSigningKeyForEpochFromRoot(auditRootA, projectID, 0)
+	if err != nil {
+		t.Fatalf("DeriveAuditSigningKeyForEpochFromRoot(A): %v", err)
+	}
+	if string(keyA) != string(expectedA) {
+		t.Fatal("epoch key was not derived from the configured audit signing root")
+	}
+}
+
 func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

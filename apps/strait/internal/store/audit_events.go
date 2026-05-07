@@ -310,7 +310,7 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	// The global key remains only as the legacy fallback in VerifyAuditChain
 	// for chains written before per-epoch keys existed (epoch 0 with no row).
 	// Races are resolved by ON CONFLICT DO NOTHING followed by a re-read.
-	derivedKey, err := DeriveAuditSigningKeyForEpoch(q.secretEncryptionKey, projectID, epoch)
+	derivedKey, err := DeriveAuditSigningKeyForEpochFromRoot(q.auditSigningKey, projectID, epoch)
 	if err != nil {
 		return nil, fmt.Errorf("resolve signing key: derive: %w", err)
 	}
