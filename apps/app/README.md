@@ -71,7 +71,7 @@ src/
     (auth)/           Unauthenticated routes (login, signup, 2FA, etc.)
     app/              Authenticated app shell
       billing/        Billing overview
-      dlq/            Dead-letter queue
+      dlq/            Failed run review
       events/         Event stream
       jobs/            Job list + detail
       logs/            Log viewer

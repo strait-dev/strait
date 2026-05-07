@@ -91,6 +91,18 @@ cd apps/app && bun run biome:lint
 lefthook run pre-commit
 ```
 
+## Documentation checks
+
+Run these when changing `apps/docs`, `README.md`, or other public Markdown:
+
+```bash
+jq empty apps/docs/docs.json
+bunx mintlify broken-links
+git diff --check
+```
+
+`bunx mintlify validate` may fail locally if the remote OpenAPI endpoint rejects unauthenticated requests. Treat MDX parse errors as real issues, but do not block on the known OpenAPI `403`.
+
 ## Commit Conventions
 
 We use [Conventional Commits](https://www.conventionalcommits.org/):

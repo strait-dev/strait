@@ -1,4 +1,4 @@
-# AGENTS.md
+# Contributor Operating Guide
 
 Operating guide for contributors and AI agents working on this repository. **Read this before making changes.**
 
@@ -19,7 +19,7 @@ Strait is a job orchestration and workflow platform shipped as a single Go binar
 Read first:
 - `README.md`
 - `apps/docs/introduction.mdx` — feature overview
-- `apps/docs/quickstart.mdx` — 10-minute setup
+- `apps/docs/quickstart.mdx` — first setup
 - `apps/docs/architecture.mdx` — internals and design rationale
 - `SELFHOST.md` — self-hosted deployment
 
@@ -34,7 +34,7 @@ Read first:
 - **Concurrency**: `sourcegraph/conc`, `alitto/pond/v2`, `failsafe-go` for retries / circuit breakers
 - **Worker plane (gRPC)**: `google.golang.org/grpc` + `protobuf` for bidirectional streaming between API and connected workers
 - **Analytics (optional)**: `ClickHouse/clickhouse-go/v2`
-- **Observability**: OpenTelemetry, Prometheus, Pyroscope, Sentry
+- **Monitoring**: OpenTelemetry, Prometheus, Pyroscope, Sentry
 - **Helpers**: `samber/lo`, `samber/oops`, `samber/slog-multi`
 - **CLI internals**: `spf13/cobra` (the user-facing CLI lives in [strait-dev/cli](https://github.com/strait-dev/cli))
 - **JWT**: `golang-jwt/jwt/v5`
@@ -70,7 +70,7 @@ Inside `apps/strait/`:
 |---|---|
 | `api/` | HTTP handlers (chi + Huma), auth, RBAC, idempotency, request validation. Includes the gRPC worker-plane server under `api/grpc/`. |
 | `worker/` | Dequeue loop, executor pool, HTTP dispatch, gRPC worker-mode dispatch, graceful drain |
-| `workflow/` | DAG engine, step progression, conditionals, compensation/saga, durable waits |
+| `workflow/` | Workflow engine, step progression, conditionals, compensation/saga, durable waits |
 | `queue/` | Lock-free claim, concurrency control |
 | `scheduler/` | Cron, reaper, retention, pool pruner background loops |
 | `store/` | Raw `pgx/v5` data access, one file per table area |
@@ -111,7 +111,7 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 - Batch operations — `apps/docs/concepts/batch-operations.mdx`
 
 **Workflows**
-- DAG runtime, sub-workflows, approvals — `apps/docs/concepts/workflows.mdx`, `apps/docs/concepts/dag-runtime.mdx`
+- Workflows, sub-workflows, approvals — `apps/docs/concepts/workflows.mdx`, `apps/docs/guides/workflow-approvals.mdx`
 - Compensating transactions (saga) — `apps/docs/concepts/compensating-transactions.mdx`
 - Durable / long-running workflows — `apps/docs/concepts/durable-workflows.mdx`
 - Workflow simulator — `apps/docs/concepts/workflow-simulator.mdx`
@@ -129,13 +129,11 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 - Scheduling (cron) — `apps/docs/concepts/scheduling.mdx`
 - Event triggers and sources — `apps/docs/concepts/event-triggers.mdx`, `apps/docs/concepts/event-sources.mdx`
 - Outbound webhooks and subscriptions — `apps/docs/concepts/webhooks.mdx`, `apps/docs/concepts/webhook-subscriptions.mdx`
-- CDC — `apps/docs/concepts/cdc.mdx`
 
-**Observability**
+**Monitoring**
 - ClickHouse analytics — `apps/docs/concepts/clickhouse-analytics.mdx`
 - Audit logging — `apps/docs/concepts/audit-logging.mdx`
 - Log drains — `apps/docs/concepts/log-drains.mdx`
-- Alert runbooks — `apps/docs/operations/alert-runbooks.mdx`
 
 **Security and operational guides**
 - Authentication (incl. OIDC, API key rotation) — `apps/docs/guides/authentication.mdx`
@@ -145,7 +143,7 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 - Idempotency — `apps/docs/guides/idempotency.mdx`
 - SDK integration — `apps/docs/guides/sdk-integration.mdx`
 - Deployment — `apps/docs/guides/deployment.mdx`
-- DAG operations playbook — `apps/docs/guides/dag-operations-playbook.mdx`
+- Failed run handling — `apps/docs/guides/handle-failed-runs.mdx`
 - Audit events — `apps/docs/guides/audit-events.mdx`
 - Event triggers guide — `apps/docs/guides/event-triggers.mdx`
 
@@ -289,7 +287,7 @@ Once the plan is approved, execute each phase in order. For every phase:
 5. **Tests.** Use `apps/strait/internal/testutil` helpers. Meaningful assertions, not just "no error".
 6. **Worker / pool consistency.** Reuse existing patterns in `internal/worker`. Don't fork dispatch logic.
 7. **No emojis.** In code, comments, logs, docs, commits, PR text — anywhere.
-8. **Observability is load-bearing.** Preserve traces / metrics / logs in critical paths (worker, queue, workflow, scheduler).
+8. **Monitoring is load-bearing.** Preserve traces / metrics / logs in critical paths (worker, queue, workflow, scheduler).
 9. **Auth boundaries.** Don't weaken SSRF guards, internal management secret flow, or SDK JWT run-token flow.
 10. **Graceful shutdown.** Don't alter shutdown behavior in ways that risk in-flight job loss.
 
