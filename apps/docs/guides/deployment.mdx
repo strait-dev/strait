@@ -1,82 +1,56 @@
 ---
 title: "Deployment"
-description: "Deploy and scale Strait in production with Docker or any container platform."
+description: "Run Strait in production with Docker or any long-running service platform."
 icon: "cloud-arrow-up"
 ---
 
-Strait ships as a single Go binary. Deploy it with Docker or any platform that runs long-lived services.
+Strait runs as a single Go binary. You can run everything in one process or split the API and workers as traffic grows.
 
-## What You Need
+## Required Services
 
-| Service | Required | Purpose |
-| :--- | :--- | :--- |
-| **PostgreSQL** | Yes | Primary data store and job queue |
-| **Redis** | Yes | Pub/sub, SSE streaming, real-time event distribution |
-| **Sequin** | Yes | Streams database changes for real-time updates and webhooks |
+| Service | Purpose |
+|---|---|
+| PostgreSQL | Stores projects, jobs, runs, workflows, and queued work. |
+| Redis | Powers live updates and pub/sub notifications. |
 
-See [Architecture](/architecture) for how these services interact.
+Use managed PostgreSQL and Redis if you want the lowest operational overhead. Self-host them if your environment requires it.
 
-### Hosted Dependency Options
+## Required Secrets
 
-- **PostgreSQL**: RDS, Cloud SQL, or Supabase
-- **Redis**: Upstash, ElastiCache, or Memorystore
-- **Sequin**: Self-hosted Docker image
-
-## Secrets Management
-
-Store secrets in your platform's secret manager or inject them as environment variables.
-
-### Required Environment Variables
+Set these through your platform's secret manager.
 
 | Variable | Description |
-| :--- | :--- |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `INTERNAL_SECRET` | Secret for internal API auth (32+ chars, unique per environment) |
-| `JWT_SIGNING_KEY` | Key for signing SDK run tokens (32+ chars, unique per environment) |
-| `ENCRYPTION_KEY` | Data encryption at rest (unique per environment) |
-| `SECRET_ENCRYPTION_KEY` | Secret values encryption (unique per environment) |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string. |
+| `REDIS_URL` | Redis connection string. |
+| `INTERNAL_SECRET` | Trusted service-to-service secret. |
+| `JWT_SIGNING_KEY` | Signs SDK run tokens. |
+| `ENCRYPTION_KEY` | Encrypts data at rest. |
+| `SECRET_ENCRYPTION_KEY` | Encrypts stored secrets. |
 
-<Warning>
-Never commit secrets to version control. Use your platform's secret injection to provide these at runtime.
-</Warning>
+Generate unique values per environment. Do not reuse production secrets in staging or development.
 
-See [Environment Variables](/configuration/environment-variables) for the full reference.
+## Choose a Mode
 
-## Operation Modes
+| Mode | Use it when |
+|---|---|
+| `all` | You are running a small deployment or local environment. |
+| `api` | You want separate capacity for API traffic. |
+| `worker` | You want separate capacity for job execution. |
 
-Strait can run in three different modes, controlled by the `--mode` flag or the `MODE` environment variable:
+Most teams start with `all`, then split into `api` and `worker` when queue volume grows.
 
-- **`api`**: Runs only the HTTP API server. Stateless and can be scaled horizontally.
-- **`worker`**: Runs only the job execution engine. Scales based on queue depth.
-- **`all`** (Default): Runs both the API and the worker in a single process. Ideal for small deployments or development.
+## Docker
 
-## Docker Deployment
-
-### Docker Compose (Development)
-
-For local development, use `apps/strait/docker-compose.yml`:
+Build the image:
 
 ```bash
-docker compose -f apps/strait/docker-compose.yml up -d
-```
-
-### Building the Image
-
-The Dockerfile uses a multi-stage build: Go compile on Alpine, then copy the binary to a minimal runtime image (~16 MB).
-
-```
-apps/strait/
-├── Dockerfile      # Multi-stage Go build
-├── Makefile        # Build, test, and deploy commands
-└── .dockerignore
-```
-
-```bash
-# Build the image
 docker build -t strait apps/strait/
+```
 
-# Run with required environment variables
+Run a single-process deployment:
+
+```bash
 docker run \
   -e DATABASE_URL=postgres://... \
   -e REDIS_URL=redis://... \
@@ -87,83 +61,57 @@ docker run \
   strait --mode all
 ```
 
-The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing. If any check fails, the deploy is aborted.
-
-```bash
-# From apps/strait/ — runs vet, lint, build, test before deploying
-make deploy
-
-# Or from repo root
-bun run deploy
-```
-
-## Process Deployment
-
-Run Strait as one or more long-lived processes. For small deployments, run a
-single `--mode all` process. For higher throughput, split API and worker
-capacity into separate processes by passing `--mode api` or `--mode worker`.
-
-## Sequin Deployment
-
-Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, using the official `sequin/sequin:latest` image -- no build step needed.
-
-```bash
-# From repo root
-bun run deploy:sequin
-```
-
-Sequin requires the following secrets configured in your deployment platform:
-
-| Secret | Description |
-| :--- | :--- |
-| `PG_HOSTNAME` | PostgreSQL host |
-| `PG_PORT` | PostgreSQL port |
-| `PG_USERNAME` | PostgreSQL user |
-| `PG_PASSWORD` | PostgreSQL password |
-| `PG_DATABASE` | Database name |
-| `PG_SSL` | Enable SSL (`true`) |
-| `REDIS_URL` | Redis connection string |
-| `SECRET_KEY_BASE` | Sequin internal encryption key |
-| `VAULT_KEY` | Sequin vault encryption key |
-
-### Region Strategy
-
-- **Primary region**: Co-locate Strait with your database for lowest latency.
-- **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
-- **Sequin**: Single instance, co-located with the database. Sequin maintains a persistent connection to the database to detect changes, so it must run in the same region. Multiple instances would cause duplicate event processing.
+For local self-hosting, use the root `SELFHOST.md` guide.
 
 ## Scaling
 
-To handle higher traffic, separate the API and worker processes:
+Scale API instances for request volume. Scale worker instances for job throughput.
 
-1. **Scale API**: Add more instances in `api` mode to handle more concurrent HTTP requests.
-2. **Scale Workers**: Add more instances in `worker` mode to process more jobs. Workers safely compete for jobs without double-processing.
+A common production layout:
 
-## Graceful Shutdown
+```text
+Load balancer
+    |
+    +-- strait --mode api
+    +-- strait --mode api
 
-Strait handles shutdown cleanly in both modes:
-- **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
-- **Worker**: Stops claiming new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
-
-<Tip>
-  Always use a process manager or container platform that respects SIGTERM signals so in-flight jobs finish before the process exits.
-</Tip>
-
-## CI/CD
-
-The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deploys when:
-
-1. Code is pushed to `master`
-2. Changes are in `apps/strait/**`
-3. All required workflows pass (`Test`, `Lint`, `Security`)
-
-## Quick Reference
-
-```bash
-# Deploy with Docker
-docker build -t strait apps/strait/
-docker run -e DATABASE_URL=... -e REDIS_URL=... strait --mode all
-
-# Deploy Sequin
-docker run -e PG_HOSTNAME=... sequin/sequin:latest
+Workers
+    |
+    +-- strait --mode worker
+    +-- strait --mode worker
 ```
+
+All instances share the same PostgreSQL and Redis.
+
+## Placement
+
+Keep Strait close to PostgreSQL. Database latency affects API calls, scheduling, and worker throughput.
+
+Place workers near the services they call. If a worker talks to private databases or private APIs, run it in the same network.
+
+## Shutdown
+
+Strait handles `SIGTERM` gracefully:
+
+- API instances stop accepting new requests and finish in-flight requests.
+- Worker instances stop claiming new work and let active runs finish.
+
+Use a process manager or container platform that sends `SIGTERM` and gives the process time to exit.
+
+## Production Checklist
+
+- Use managed PostgreSQL backups or your own backup policy.
+- Store secrets in a secret manager.
+- Set `LOG_LEVEL=info` or `warn`.
+- Configure tracing, metrics, or Sentry if your team uses them.
+- Set job-level timeouts and retry limits.
+- Use idempotency keys for important trigger requests.
+- Run at least two API instances when availability matters.
+- Run enough workers for your expected queue volume.
+
+## Related
+
+- [Environment Variables](/configuration/environment-variables)
+- [Create a Production Job](/guides/production-job)
+- [Run Private Workers](/guides/private-workers)
+- [Choose Your Path](/choose-your-path)

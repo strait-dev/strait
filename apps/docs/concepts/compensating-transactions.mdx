@@ -1,20 +1,22 @@
 ---
 title: "Compensating Transactions"
-description: "Saga-pattern rollback that automatically undoes completed steps when a workflow fails."
+description: "Undo completed workflow steps when a later step fails."
 sidebarTitle: "Compensation"
 ---
 
-When step 3 of your workflow fails, you need to undo steps 1 and 2. Compensating transactions define undo logic for each step so Strait can automatically roll back completed work on failure.
+When a later workflow step fails, earlier steps may need to be undone.
+
+Compensating transactions let you attach an undo job to a step. If the workflow fails, Strait runs the undo jobs for completed steps.
 
 ## When to Use Compensation
 
-Any workflow where steps have real-world side effects that need reversal:
+Use compensation when workflow steps have side effects that may need to be reversed:
 
 - **Payments**: Charge a card, then something fails downstream -- refund the charge.
 - **Reservations**: Reserve inventory or capacity, then a later step fails -- release the reservation.
-- **External API calls**: Create a resource in a third-party system, then roll back -- delete it.
+- **External API calls**: Create a resource in a third-party system, then delete it if a later step fails.
 
-If a step is read-only or idempotent, it does not need a compensation handler.
+If a step is read-only, it usually does not need a compensation job.
 
 ## Example: Order Fulfillment Saga
 
@@ -50,19 +52,19 @@ If a step is read-only or idempotent, it does not need a compensation handler.
 }
 ```
 
-If `reserve-inventory` fails after all retries, Strait automatically:
+If `reserve-inventory` fails after all retries, Strait:
 
 1. Runs `payment-refund` (with the output from `charge-card` as input)
 2. Runs `order-cancel` (with the output from `create-order` as input)
 
-Steps are compensated in reverse dependency order -- latest-completed first. `send-confirmation` has no `compensation_job_id`, so it is skipped. Only steps that actually completed are compensated.
+Only completed steps with a `compensation_job_id` are undone. `send-confirmation` has no compensation job, so Strait skips it.
 
-## How It Works
+## Failure Behavior
 
-1. A workflow step fails after exhausting retries.
-2. Strait collects all completed steps that have a `compensation_job_id`.
-3. Compensation jobs run in reverse dependency order, each receiving the original step's output as input.
-4. The workflow run transitions through compensation states.
+1. A workflow step fails after retries are exhausted.
+2. Strait finds completed steps with compensation jobs.
+3. Each compensation job receives the original step output.
+4. The workflow moves to a terminal compensation state.
 
 ## Workflow Run States
 
@@ -72,10 +74,10 @@ Steps are compensated in reverse dependency order -- latest-completed first. `se
 | `compensated` | All compensation jobs completed. Terminal. |
 | `compensation_failed` | At least one compensation job failed. Terminal. Requires manual intervention. |
 
-Valid transitions: `failed` or `timed_out` → `compensating` → `compensated` or `compensation_failed`.
+Common flow: `failed` or `timed_out` -> `compensating` -> `compensated` or `compensation_failed`.
 
 <Warning>
-Compensation jobs must be idempotent. If a compensation job fails, the run moves to `compensation_failed` and you will need to resolve it manually.
+Compensation jobs should be idempotent. If a compensation job fails, the workflow moves to `compensation_failed` and needs review.
 </Warning>
 
 ## Configuration Reference

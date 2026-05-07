@@ -4,72 +4,73 @@ description: "How Strait handles execution failures."
 icon: "rotate"
 ---
 
-When a job execution fails (non-2xx response or timeout), Strait uses a retry strategy to determine when to attempt the execution again.
+When a job fails because of a timeout, network error, or retryable response, Strait uses the job's retry policy to decide when to try again.
 
 ## Core Strategies
 
 Strait supports four retry strategies.
 
-### 1. Exponential (Default)
+### Exponential
+
 The delay increases exponentially with each attempt.
+
 - **Formula**: `base * 2^(attempt-1)`
-- **Example**:
-    - Attempt 1: ~1s
-    - Attempt 2: ~2s
-    - Attempt 3: ~4s
-    - Attempt 4: ~8s
-- **Use Case**: Best for transient network issues or rate-limited endpoints.
+- **Example**: 1s, 2s, 4s, 8s
+- **Use it for**: temporary outages, network failures, and rate-limited endpoints.
 
-### 2. Linear
+### Linear
+
 The delay increases by a constant amount with each attempt.
+
 - **Formula**: `base * attempt`
-- **Example**:
-    - Attempt 1: ~1s
-    - Attempt 2: ~2s
-    - Attempt 3: ~3s
-- **Use Case**: Predictable, gradually increasing backoff.
+- **Example**: 1s, 2s, 3s
+- **Use it for**: predictable backoff where exponential growth would wait too long.
 
-### 3. Fixed
+### Fixed
+
 The delay remains constant for every attempt.
-- **Formula**: `base`
-- **Example**:
-    - Attempt 1: ~1s
-    - Attempt 2: ~1s
-    - Attempt 3: ~1s
-- **Use Case**: Polling-style retries where the interval should not change.
 
-### 4. Custom
-Uses a user-provided array of delays in seconds.
-- **Behavior**: `[1, 5, 30, 120]`
-    - Attempt 1: 1s
-    - Attempt 2: 5s
-    - Attempt 3: 30s
-    - Attempt 4: 120s
-- **Note**: If the number of attempts exceeds the array length, the last value in the array is repeated.
-- **Use Case**: Full control over the retry sequence.
+- **Formula**: `base`
+- **Example**: 30s, 30s, 30s
+- **Use it for**: polling-style retries where the interval should not change.
+
+### Custom
+
+Use an explicit list of delays in seconds.
+
+```json
+{
+  "retry_delays_secs": [1, 5, 30, 120]
+}
+```
+
+If attempts exceed the list length, Strait reuses the last delay.
 
 ## Common Properties
 
 ### Jitter
-A **plus or minus 20% random variation (jitter)** is applied to all calculated delays. This prevents all failed runs from retrying at the exact same moment, which could overwhelm your endpoint.
+
+Strait adds a small random variation to retry delays so many failed runs do not retry at the exact same moment.
 
 ### Delay Bounds
-- **Minimum delay**: All delays are at least **1 second**, preventing zero or near-zero delays.
-- **Maximum delay**: All delays are capped at **1 hour**, no matter what the formula calculates.
+
+- Minimum delay: 1 second.
+- Maximum delay: 1 hour.
 
 ### How Retries Are Scheduled
-Strait adds the calculated delay to the current time and records it as the run's `next_retry_at`. The run stays in the queue and won't execute again until that time passes.
+
+Strait records the next retry time on the run. The run stays queued until that time passes.
 
 ## Configuration
 
 Retries can be configured at multiple levels:
 
-- **Job Level**: Set `retry_strategy` and `retry_delays_secs` on the Job definition.
-- **Workflow Step Level**: Steps can override the job's strategy using `retry_backoff`, `retry_initial_delay_secs`, and `retry_max_delay_secs`.
-- **Run Override**: Individual runs can be triggered with overrides for `max_attempts`, `retry_backoff`, etc.
+- Job level: set `max_attempts`, `retry_strategy`, and `retry_delays_secs`.
+- Workflow step level: override retry behavior for one step.
+- Run override: trigger a specific run with a different retry policy.
 
-## Review Queue
+## dead_letter
 
-The review queue is a holding area where you can inspect and replay jobs that exhausted all retries. Instead of marking these runs as permanently `failed`, Strait moves them to a review status so you can inspect the failure and manually replay the run once you've fixed the underlying issue.
+`dead_letter` holds runs that exhausted all retries. Inspect the failure and replay the run after the issue is fixed.
 
-Strait can also fast-track runs to the review queue using **poison pill detection**: if you set `poison_pill_threshold` on a job and the same error repeats that many times in a row, Strait stops retrying early instead of burning through all attempts. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.
+Strait can also move repeated identical failures to `dead_letter` early with `poison_pill_threshold`. See [Resilience](/concepts/resilience).

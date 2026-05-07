@@ -1,0 +1,35 @@
+---
+title: "Replay Failed Work"
+description: "Find failed runs, fix the cause, and replay safely."
+icon: "rotate-ccw"
+---
+
+Use Strait when failed work needs to be visible and recoverable.
+
+Instead of losing errors in logs or retrying blindly, each failed run keeps its payload, attempts, timing, status, and error details.
+
+## What You Can Do
+
+- Find failed runs by status.
+- Inspect the payload and last error.
+- Check how many attempts ran.
+- Replay one run after a fix.
+- Replay many `dead_letter` runs when a dependency recovers.
+
+## Safe Replay Checklist
+
+Before replaying, confirm:
+
+- The underlying problem is fixed.
+- The handler is idempotent, or duplicate side effects are acceptable.
+- The payload is still valid.
+- The downstream service can handle the replay volume.
+
+Use bulk replay carefully. Start with a small set when you are recovering from a large outage.
+
+## Read Next
+
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Runs](/concepts/runs)
+- [Retry Strategies](/concepts/retry-strategies)
+- [Resilience](/concepts/resilience)

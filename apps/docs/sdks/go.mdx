@@ -194,7 +194,7 @@ result, err := syncInventory.TriggerAndWait(ctx, client, map[string]any{
 
 ### Defining workflows
 
-Build DAGs with typed step constructors. Dependencies are validated at definition time:
+Build workflows with typed step constructors. Dependencies are validated at definition time:
 
 ```go
 import "github.com/strait-dev/strait-go/authoring"
@@ -356,7 +356,7 @@ Add request/response hooks for logging, metrics, or header injection:
 ```go
 client := strait.NewClient(
     strait.WithBaseURL("https://api.strait.dev"),
-    strait.WithBearerToken("sk_live_..."),
+    strait.WithBearerToken("strait_..."),
     strait.WithMiddleware(strait.Middleware{
         OnRequest: func(req *strait.Request) {
             fmt.Printf("-> %s %s\n", req.Method, req.URL)

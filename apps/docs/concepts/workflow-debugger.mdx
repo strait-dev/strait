@@ -1,37 +1,37 @@
 ---
 title: "Workflow Debugger"
-description: "Inspect what happened during a workflow run — step timing, data flow, errors, and cross-run comparison."
+description: "Inspect workflow runs, step timing, data flow, errors, and run comparisons."
 sidebarTitle: "Debugger"
 ---
 
-The workflow debugger shows you exactly what happened during a workflow run — which steps ran, how long each took, what data flowed between them, and where things went wrong.
+The workflow debugger shows what happened during a workflow run: which steps ran, how long they took, what data moved between them, and where a failure started.
 
 ## What You See
 
-The debug view assembles a timeline of every step in a run:
+The run view shows each step:
 
-- **Status** — completed, failed, pending, waiting, running, skipped, or canceled
-- **Timing** — when each step started, finished, and how long it took
-- **Input/Output** — full JSON payloads passed into and returned from each step
-- **Error details** — error message and classification for failed steps
-- **Attempt count** — which retry attempt this execution represents
-- **Data flow edges** — arrows showing what data passed between dependent steps, with byte sizes
+- **Status**: completed, failed, pending, waiting, running, skipped, or canceled.
+- **Timing**: when each step started, finished, and how long it took.
+- **Input and output**: JSON payloads passed into and returned from each step.
+- **Error details**: error message and class for failed steps.
+- **Attempt count**: which retry attempt this execution represents.
+- **Data flow**: what data passed between dependent steps, with byte sizes.
 
-The debug view works for both completed and in-progress runs. Running workflows show pending and waiting steps with their current status.
+The workflow debugger works for both completed and in-progress runs. Running workflows show pending and waiting steps with their current status.
 
 ## Run Comparison
 
 Compare any two runs of the same workflow to find what changed:
 
-- **Status diff** — highlights steps that reached different terminal states
-- **Duration diff** — timing differences per step, useful for spotting performance regressions
-- **Missing steps** — steps present in only one run, common with conditional branches
+- **Status differences**: steps that reached different final states.
+- **Duration differences**: timing changes per step.
+- **Missing steps**: steps present in only one run, often because of a condition.
 
-Steps with identical status and timing are omitted from the diff to focus on what actually changed.
+Unchanged steps are hidden from the comparison so you can focus on what changed.
 
 ## Data Flow Tracking
 
-Data flow edges show which step's output feeds into which step's input:
+Data flow shows which step output feeds another step:
 
 ```json
 {
@@ -42,4 +42,4 @@ Data flow edges show which step's output feeds into which step's input:
 }
 ```
 
-Use this to trace how data transforms as it moves through the workflow, and to identify steps producing unexpectedly large payloads.
+Use this to trace payload changes and find steps producing unexpectedly large outputs.

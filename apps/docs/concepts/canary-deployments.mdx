@@ -38,7 +38,7 @@ curl -X POST https://your-strait-instance/api/v1/jobs/{jobId}/canary \
   }'
 ```
 
-This creates a canary that starts at 10% traffic. Every 15 minutes, Strait checks health and promotes to the next step if the canary version has <5% failure rate and P99 latency under 10 seconds.
+This creates a canary that starts at 10% traffic. Every 15 minutes, Strait checks health and promotes to the next step if the canary version has less than 5% failure rate and P99 latency under 10 seconds.
 
 ## Promoting Manually
 

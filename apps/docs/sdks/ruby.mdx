@@ -36,7 +36,7 @@ require "strait"
 # Create a client
 client = Strait::Client.new(
   base_url: "https://api.strait.dev",
-  api_key: "sk_live_..."
+  api_key: "strait_..."
 )
 
 # Trigger a job
@@ -63,7 +63,7 @@ Pass values directly to the constructor:
 ```ruby
 client = Strait::Client.new(
   base_url: "https://api.strait.dev",
-  api_key: "sk_live_..."
+  api_key: "strait_..."
 )
 ```
 
@@ -82,7 +82,7 @@ Place a `strait.json` in your working directory:
 ```json
 {
   "base_url": "https://api.strait.dev",
-  "api_key": "sk_live_..."
+  "api_key": "strait_..."
 }
 ```
 
@@ -128,7 +128,7 @@ All service methods return parsed JSON as Ruby hashes and arrays. List endpoints
 
 ## Authoring DSL
 
-Define workflow DAGs using the authoring module. Each step declares its dependencies via `depends_on`, forming a directed acyclic graph that the platform executes in topological order.
+Define workflows using the authoring module. Each step declares its dependencies with `depends_on`, and Strait runs steps in dependency order.
 
 ```ruby
 workflow = Strait::Authoring.define_workflow(
@@ -279,7 +279,7 @@ logger = Strait::Middleware.new(
 
 client = Strait::Client.new(
   base_url: "https://api.strait.dev",
-  api_key: "sk_live_...",
+  api_key: "strait_...",
   middleware: [logger]
 )
 ```

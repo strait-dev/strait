@@ -86,15 +86,15 @@ Failed event trigger deliveries are stored in the database. You can inspect and 
 
 ```bash
 # List failed deliveries
-curl "https://strait.example.com/v1/webhook-deliveries?project_id=proj_1&status=failed" \
+curl "https://strait.example.com/v1/webhooks/deliveries?status=failed" \
   -H "Authorization: Bearer strait_..."
 
 # Retry a specific delivery
-curl -X POST "https://strait.example.com/v1/webhook-deliveries/{deliveryID}/retry" \
+curl -X POST "https://strait.example.com/v1/webhooks/deliveries/{deliveryID}/retry" \
   -H "Authorization: Bearer strait_..."
 ```
 
-For more on handling failed deliveries, see [Recovery](/operations/dlq-recovery).
+The legacy `/v1/webhook-deliveries` path remains available. New integrations should use `/v1/webhooks/deliveries` and `/v1/webhooks/deliveries/{id}/retry`.
 
 <Warning>
 Always use HTTPS for your webhook URLs to protect the payload and signature in transit.

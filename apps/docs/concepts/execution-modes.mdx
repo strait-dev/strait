@@ -13,7 +13,7 @@ Strait supports two execution modes that control where and how your job code run
 | How it works | Strait POSTs to your endpoint | Strait streams runs to a connected worker over gRPC |
 | Your code runs on | Your servers | Any host running the Strait worker SDK |
 | Setup | Point a job at an endpoint URL | Run the worker SDK and register handlers |
-| Scaling | You scale your endpoint | Add or remove workers; Strait load-balances across them |
+| Capacity | You run enough endpoint capacity | Add or remove workers; Strait distributes runs across them |
 | Best for | Existing APIs, microservices, serverless | Long-lived processes, on-prem fleets, persistent connections |
 
 ---
@@ -42,7 +42,7 @@ HTTP is the default execution mode. Strait sends an HTTP POST to your job's `end
 }
 ```
 
-No `execution_mode` field is needed — HTTP is the default. See [Jobs](/concepts/jobs) for the full configuration reference.
+No `execution_mode` field is needed -- HTTP is the default. See [Jobs](/concepts/jobs) for the main job fields and examples.
 
 ---
 
@@ -55,7 +55,7 @@ When Strait dequeues a worker run:
 1. **Match a worker.** Strait selects a connected worker whose registered queues include the job's `queue_name`.
 2. **Stream the run.** The run payload and an SDK token are streamed to the worker over the gRPC channel.
 3. **Wait for the result.** The worker executes your handler and streams the result back; Strait records duration and the final state on the run.
-4. **Recover.** Worker disconnect cleanup immediately reclaims open assignments; heartbeat sweeps also catch stale processes that stop making progress.
+4. **Recover.** If a worker disconnects, Strait returns unfinished work to the queue.
 
 ### When to use worker mode
 

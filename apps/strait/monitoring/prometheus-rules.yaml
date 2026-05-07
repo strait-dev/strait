@@ -14,7 +14,6 @@ groups:
             Max queue depth has exceeded 10000 for 5 minutes. The hottest
             partition is backing up and workers may not be keeping pace
             with enqueue rate.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitqueuedepthhigh
 
       - alert: StraitDLQGrowing
         # strait_dlq_depth is a gauge, so rate() is ill-defined. Use
@@ -32,7 +31,6 @@ groups:
             The dead-letter queue has been monotonically increasing for 15
             minutes. A recurring failure mode is likely parking runs in
             the DLQ faster than operators are replaying or purging them.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitdlqgrowing
 
       - alert: StraitDLQOldestUnmaskedAged
         expr: max(strait_queue_dlq_oldest_unmasked_age_seconds) > 86400
@@ -46,7 +44,6 @@ groups:
             A dead-letter row has been sitting visible (unmasked) for more
             than 24 hours. Operators should triage and replay, purge, or
             mask it; lingering DLQ rows indicate stalled triage.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitdlqoldestunmaskedaged
 
       - alert: StraitCircuitBreakerOpen
         expr: increase(strait_queue_circuit_state_transitions_total{to="open"}[5m]) > 0
@@ -60,7 +57,6 @@ groups:
             The database circuit breaker transitioned to open within the
             last 5 minutes. Queue claim and worker dispatch are likely
             degraded or halted. Investigate Postgres health immediately.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitcircuitbreakeropen
 
       - alert: StraitEventChannelDropping
         expr: sum(rate(strait_worker_event_channel_dropped_total[5m])) > 0
@@ -74,7 +70,6 @@ groups:
             Executor lifecycle events are being dropped because the event
             channel buffer is full or closed. Downstream consumers
             (SSE, audit, CDC fan-out) are losing signal.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straiteventchanneldropping
 
       - alert: StraitSchedulerShutdownTimeout
         expr: increase(strait_scheduler_shutdown_timeouts_total[1h]) > 0
@@ -89,7 +84,6 @@ groups:
             cron, plan-drift monitor, partition tuner) exceeded its
             configured shutdown deadline in the past hour. Risks in-flight
             work loss on the next restart.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitschedulershutdowntimeout
 
       - alert: StraitOutboxLagHigh
         expr: histogram_quantile(0.99, sum(rate(strait_queue_outbox_lag_seconds_bucket[5m])) by (le)) > 60
@@ -103,7 +97,6 @@ groups:
             The 99th percentile outbox row age at flush time is above 60
             seconds for 10 minutes. Webhook / CDC / event-trigger
             propagation is lagging behind run completion.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitoutboxlaghigh
 
       - alert: StraitOutboxQuarantinedRowsAppeared
         expr: increase(strait_queue_outbox_quarantined_total[15m]) > 0
@@ -118,7 +111,6 @@ groups:
             last 15 minutes. Event promotion for those rows will not retry
             until an operator inspects the stored error and fixes the
             underlying cause.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitoutboxquarantinedrowsappeared
 
       - alert: StraitCounterDriftHigh
         expr: max(strait_queue_counter_drift) > 10
@@ -133,7 +125,6 @@ groups:
             trigger-maintained counters (job_active_counts, dlq_counts)
             and the authoritative row counts. Admission control decisions
             may be based on stale numbers.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitcounterdrifthigh
 
       - alert: StraitHeartbeatReclaimsSurge
         expr: sum(rate(strait_queue_heartbeat_reclaims_total[5m])) > 1
@@ -148,7 +139,6 @@ groups:
             rate above 1/s for 10 minutes. Workers are crashing, stuck,
             or losing DB connectivity; schema-version mismatch or runtime
             regressions are likely.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitheartbeatreclaimssurge
 
       - alert: StraitNotifyDroppedSurge
         expr: sum(rate(strait_queue_notify_dropped_total[5m])) > 0
@@ -162,4 +152,3 @@ groups:
             LISTEN/NOTIFY wake events are being dropped because the wake
             channel is saturated. Workers fall back to polling but
             end-to-end latency degrades.
-          runbook_url: https://docs.strait.dev/operations/alert-runbooks#straitnotifydroppedsurge

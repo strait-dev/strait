@@ -1,49 +1,31 @@
 ---
 title: "Resilience"
-description: "Circuit breakers, rate limiting, concurrency caps, and poison pill detection to keep your system stable."
+description: "Protect downstream services with retries, rate limits, concurrency limits, and dead_letter handling."
 ---
 
-Strait protects your endpoints from cascading failures. When a service is overloaded, unhealthy, or receiving bad data, these patterns keep the rest of your system stable.
+Strait gives each job clear limits for how it should retry, how fast it should run, and what should happen when a payload keeps failing.
 
-## Circuit Breaker
+Use these settings to protect the services your jobs call.
 
-When an endpoint fails repeatedly, Strait stops sending it traffic — like a fuse that trips to protect the circuit.
+## Retries
 
-**The problem:** Your payment API goes down. Without protection, Strait keeps dispatching runs to it, piling up timeouts and wasting retries.
+Retries handle temporary failures such as network errors, timeouts, and short service outages.
 
-**How it works:** Strait tracks consecutive failures per endpoint. When failures cross the threshold, the circuit "opens" and Strait stops dispatching to that endpoint. After a cooldown, Strait sends a single test request. If it succeeds, the circuit closes and normal traffic resumes. If it fails, the circuit stays open.
+```json
+{
+  "max_attempts": 5,
+  "retry_strategy": "exponential",
+  "retry_backoff_secs": 30
+}
+```
 
-| State | What happens |
-| :--- | :--- |
-| **Closed** (default) | Runs dispatch normally. Failures are counted. |
-| **Open** | All dispatches skip this endpoint. Runs requeue with backoff. |
-| **Half-open** | One test request fires. Success closes the circuit; failure reopens it. |
+Strait adds jitter to retries so a large batch does not retry all at once.
 
-### Endpoint Health Scoring
+See [Retry Strategies](/concepts/retry-strategies) for the full retry model.
 
-Beyond binary open/closed, Strait computes a health score (0–100) for each endpoint based on three signals:
+## Rate Limits
 
-- **Success rate** (50% weight): Fraction of recent dispatches that succeeded.
-- **Failure/timeout rate** (30% weight): Fraction that failed or timed out.
-- **Latency score** (20% weight): How close P95 latency is to the configured timeout.
-
-| Score | Level | Effect |
-| :--- | :--- | :--- |
-| > 60 | Healthy | Full concurrency allowed |
-| 30–60 | Degraded | Concurrency throttled to 25% of max |
-| < 30 | Unhealthy | Endpoint blocked, runs snoozed with backoff |
-
-### Fallback Endpoint
-
-Set `fallback_endpoint_url` on a job to route runs to a backup URL when the primary fails. The fallback fires after the primary returns a non-retryable error or exhausts retries within the current dispatch cycle. Fallback attempts count against the run's `max_attempts` budget.
-
-## Rate Limiting
-
-Control how fast Strait calls your endpoint by setting rate limits on the job definition.
-
-**The problem:** Your downstream API allows 100 requests per minute. Without rate limiting, a burst of triggered runs could exceed that and get you throttled or blocked.
-
-Set `rate_limit_max` and `rate_limit_window_secs` on a job:
+Use rate limits when a downstream API only allows a certain number of requests in a time window.
 
 ```json
 {
@@ -52,22 +34,11 @@ Set `rate_limit_max` and `rate_limit_window_secs` on a job:
 }
 ```
 
-When a job exceeds its rate limit, runs stay in `queued` status until the window resets.
+When the job reaches its limit, new runs wait in the queue until capacity is available again.
 
-### API-Level Rate Limits
+## Concurrency Limits
 
-Strait also applies rate limits at the API layer:
-
-- **Global**: `RATE_LIMIT_REQUESTS` per `RATE_LIMIT_WINDOW` per IP
-- **Trigger**: `TRIGGER_RATE_LIMIT_REQUESTS` for `/trigger` endpoints
-
-## Concurrency Limiting
-
-Cap how many runs of a single job execute at the same time.
-
-**The problem:** A batch trigger creates 500 runs of the same job. Without a cap, all 500 try to run simultaneously and overwhelm the downstream service.
-
-Set `max_concurrency` on the job definition:
+Use `max_concurrency` to cap how many runs of one job can execute at the same time.
 
 ```json
 {
@@ -75,15 +46,38 @@ Set `max_concurrency` on the job definition:
 }
 ```
 
-Strait checks the count of currently executing runs when dequeuing. If the job is at its limit, the run stays queued until a slot opens.
+This is usually the first setting to add for jobs that call databases, model providers, third-party APIs, or any service with limited capacity.
 
-For dynamic scaling based on system load, see [Adaptive Concurrency](/concepts/adaptive-concurrency).
+## Circuit Breakers
 
-## Poison Pill Detection
+When an endpoint fails repeatedly, Strait can pause dispatches to that endpoint for a short period. Runs are retried later instead of continuing to hit an unhealthy service.
 
-A poison pill is a run that crashes with the same error every time — for example, a malformed payload that always triggers a 500. Without detection, it burns through all retry attempts, wastes capacity, and can trip the circuit breaker for healthy runs on the same endpoint.
+| State | What happens |
+| :--- | :--- |
+| `closed` | Runs dispatch normally. |
+| `open` | Runs wait and retry later. |
+| `half_open` | Strait sends a test request before resuming normal traffic. |
 
-Set `poison_pill_threshold` on the job definition:
+Circuit breakers are useful when a dependency is down and repeated calls would only create more failures.
+
+## Fallback Endpoints
+
+Set `fallback_endpoint_url` when a job can safely use a backup endpoint.
+
+```json
+{
+  "endpoint_url": "https://api.example.com/jobs/send-email",
+  "fallback_endpoint_url": "https://backup.example.com/jobs/send-email"
+}
+```
+
+The fallback should perform the same job and accept the same payload shape as the primary endpoint.
+
+## dead_letter Handling
+
+Some runs should not keep retrying. A malformed payload, missing customer record, or unsupported state can fail the same way every time.
+
+Set `poison_pill_threshold` to move repeated identical failures to `dead_letter`.
 
 ```json
 {
@@ -91,31 +85,26 @@ Set `poison_pill_threshold` on the job definition:
 }
 ```
 
-When consecutive failures produce the same error (matched by hashing the first 200 characters), Strait sends the run to the review queue instead of retrying.
+Use the failed-runs guide to inspect and replay `dead_letter` runs after the underlying issue is fixed.
 
-- **`null` or `0`**: Disabled (default).
-- **`1`**: First failure goes straight to the review queue.
-- **`3`** (recommended): Catches persistent failures before wasting retry budget.
+## Recommended Baseline
 
-## Retry Jitter
+For most production jobs, start with:
 
-All retry strategies add ±20% random jitter to prevent thundering herd when many runs retry simultaneously. For full retry configuration, see [Retry Strategies](/concepts/retry-strategies).
+```json
+{
+  "max_attempts": 5,
+  "retry_strategy": "exponential",
+  "retry_backoff_secs": 30,
+  "max_concurrency": 10,
+  "poison_pill_threshold": 3
+}
+```
 
-## Graceful Shutdown
+Then tune rate limits and concurrency based on the capacity of the service you call.
 
-When Strait receives `SIGINT`/`SIGTERM`, it shuts down in stages:
+## Related
 
-1. Stop accepting new work (polling loop exits).
-2. Drain in-progress runs (30-second timeout).
-3. Stop scheduler, cron, and reaper.
-4. Drain HTTP server (10-second grace period).
-5. Close database and Redis connections, flush telemetry.
-
-In-progress runs finish and record results before the process exits.
-
-## Stale Run Recovery
-
-If a worker crashes, runs that stopped heartbeating are recovered automatically:
-
-- Runs in `dequeued` with no heartbeat for 5+ minutes move to `system_failed`.
-- Runs in `waiting` with no heartbeat for 1+ hour move to `system_failed`.
+- [Retry Strategies](/concepts/retry-strategies)
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Production Job Guide](/guides/production-job)

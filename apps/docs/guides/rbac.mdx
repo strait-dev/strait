@@ -13,7 +13,7 @@ Strait ships with four roles that cover the most common access patterns.
 | Role | What they can do |
 | --- | --- |
 | `admin` | Full access. Create and delete jobs, manage workflows, configure settings, manage team members. |
-| `operator` | Run and monitor. Trigger jobs, view runs, approve workflow steps, replay from the review queue. Cannot delete jobs or manage settings. |
+| `operator` | Run and monitor. Trigger jobs, view runs, approve workflow steps, replay `dead_letter` runs. Cannot delete jobs or manage settings. |
 | `viewer` | Read-only. View jobs, runs, and workflows. Cannot trigger, modify, or delete anything. |
 | `triggerer` | Trigger only. Can trigger existing jobs and view their runs. Cannot create, modify, or delete jobs. |
 

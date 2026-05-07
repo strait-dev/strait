@@ -1,22 +1,24 @@
 ---
 title: "Workflow Simulator"
-description: "Test a workflow without executing real jobs. Validate structure, test conditions, and preview execution paths before deploying."
+description: "Test workflow paths before running production jobs."
 sidebarTitle: "Simulator"
 ---
 
-The workflow simulator lets you test a workflow without executing real jobs. Validate your DAG structure, test conditions, and preview execution paths before deploying.
+The workflow simulator lets you preview workflow behavior before running production jobs.
+
+Use it to check step order, conditions, fallback paths, and compensation behavior.
 
 ## When to Use
 
-- Before deploying a workflow with complex step dependencies
-- After refactoring step ordering or adding conditional branches
-- When you want to verify fallback and compensation paths without triggering real side effects
+- Before deploying a workflow with several dependent steps.
+- After changing step order or adding conditional branches.
+- Before testing fallback or compensation paths against real services.
 
 ## Simulation Modes
 
 ### Dry Run
 
-Walks through the DAG, evaluates conditions, resolves step dependencies, and returns the planned execution order. No endpoints are called.
+Checks conditions, resolves step dependencies, and returns the planned order. No endpoints are called.
 
 ```
 POST /v1/workflows/{id}/simulate
@@ -26,17 +28,17 @@ POST /v1/workflows/{id}/simulate
 }
 ```
 
-Dry run assumes all conditions pass. Use it to verify step ordering and parallelism.
+Dry run assumes all conditions pass. Use it to check step order and parallel branches.
 
 ### Sandbox
 
-Executes against real endpoints but marks all calls with a sandbox flag. Results are not persisted to production run history.
+Calls real endpoints with a sandbox flag. Results do not appear in production run history.
 
-Use sandbox mode when you need to verify actual endpoint responses but don't want runs to appear in production history.
+Use sandbox mode when you need to check endpoint responses without creating production runs.
 
 ### Failure Injection
 
-Injects failures at specific steps to test fallback paths and compensation behavior:
+Inject failures at specific steps to test fallback paths and compensation behavior:
 
 ```json
 {
@@ -54,11 +56,11 @@ The response shows which steps would trigger compensation and which fallback bra
 
 The response includes:
 
-- **Execution plan** — ordered list of steps with parallel groups and estimated durations
-- **Condition results** — which conditional branches were taken
-- **Estimated duration** — critical path calculation
-- **Failure paths** — steps where failures were injected, with compensation indicators
+- **Execution plan**: ordered steps and parallel groups.
+- **Condition results**: branches the workflow would take.
+- **Estimated duration**: expected completion time.
+- **Failure paths**: injected failures and resulting recovery steps.
 
 ## Simulation History
 
-Past simulations are saved per user. You can re-run a previous simulation or compare it against actual workflow executions to verify your assumptions held up in production.
+Past simulations are saved per user. You can run one again or compare it with a real workflow run later.

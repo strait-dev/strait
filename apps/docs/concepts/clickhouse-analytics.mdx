@@ -4,70 +4,35 @@ description: "Optional analytics backend for run metrics, cost data, and event t
 icon: "chart-bar"
 ---
 
-ClickHouse is an optional analytics backend. PostgreSQL remains the source of truth for all state -- jobs, runs, workflows, and configuration. ClickHouse receives copies of run events for fast analytical queries over large time windows.
+ClickHouse is an optional analytics backend for larger Strait deployments. PostgreSQL remains the source of truth. ClickHouse is used for reporting queries over large time windows.
 
 You do not need ClickHouse to run Strait. It exists for deployments where aggregate reporting, cost breakdowns, or time-series dashboards matter at scale.
 
 ## When to Use It
 
-Enable ClickHouse when:
+Use ClickHouse when:
 
 - You have millions of runs and need aggregate analytics (success rates, p99 durations, cost trends).
 - You want pre-aggregated daily stats without loading your primary database.
 - You need time-series dashboards (Grafana, Metabase) backed by a columnar store.
 - You track AI model usage costs across jobs and want token-level breakdowns.
 
-For smaller deployments, PostgreSQL handles reporting queries fine. ClickHouse adds operational overhead -- only enable it when the query patterns justify it.
+For smaller deployments, the default reporting path is usually enough. Turn on ClickHouse when the reporting workload justifies another service.
 
 ## How It Works
 
-Strait uses an async batch pipeline to export data to ClickHouse:
+When enabled, Strait sends run and workflow events to ClickHouse for reporting. Job execution does not depend on ClickHouse being available.
 
-1. **Buffer**: When a run completes, fails, or emits an event, the exporter enqueues a record in memory.
-2. **Flush**: Records are flushed to ClickHouse when the batch reaches `CLICKHOUSE_BATCH_SIZE` (default 1000) or `CLICKHOUSE_FLUSH_INTERVAL` elapses (default 5s), whichever comes first.
-3. **Backpressure**: The buffer is capped at 10x the batch size. If ClickHouse is unreachable and the buffer fills, the oldest records are dropped and a warning is logged.
-4. **Retry**: Failed flushes are retried up to 2 times. After that, the batch is dropped to prevent unbounded memory growth.
+## Reported Data
 
-The exporter runs in a background goroutine. If it crashes, it recovers via panic recovery and logs the error. No run execution is blocked by ClickHouse availability -- exports are best-effort.
+ClickHouse reporting includes:
 
-## Tables
-
-All tables use ClickHouse's `MergeTree` engine family with date-based partitioning.
-
-### Core Tables
-
-| Table | Purpose | TTL |
-| :--- | :--- | :--- |
-| `run_events` | Lifecycle event timeline (created, started, completed, failed) per run. | 90 days |
-| `run_analytics` | Per-run summary: status, duration, queue wait, cost, attempt count. | 365 days |
-| `compute_usage` | Machine-level cost records: preset, duration, cost per run. | 365 days |
-| `run_usage_events` | AI model usage: provider, model, token counts, cost per invocation. | 365 days |
-
-### Workflow Tables
-
-| Table | Purpose | TTL |
-| :--- | :--- | :--- |
-| `workflow_run_analytics` | Per-workflow-run summary: status, step count, duration. | 365 days |
-| `workflow_step_analytics` | Per-step summary: status, duration, attempt count, errors. | 365 days |
-| `workflow_approval_events` | Approval gate lifecycle: requested, approved, timed out. | 365 days |
-
-### Supporting Tables
-
-| Table | Purpose | TTL |
-| :--- | :--- | :--- |
-| `webhook_delivery_events` | Webhook delivery tracking: status, attempts, response codes. | 365 days |
-| `event_trigger_events` | Event trigger lifecycle: wait duration, resolution status. | 365 days |
-| `job_metadata` | Job ID to slug mapping for human-readable queries. | None (ReplacingMergeTree) |
-| `billing_events` | Plan changes, spending limit hits, gate rejections. | 90 days |
-
-### Materialized Views
-
-Two materialized views pre-aggregate data for dashboard queries:
-
-- **`run_stats_daily`**: Daily rollup of run counts (total, completed, failed, timed out), average duration, and total cost per job.
-- **`cost_daily`**: Daily rollup of AI costs, compute costs, token usage, and run counts per project.
-
-These views are backed by `SummingMergeTree` and update automatically as new records arrive.
+- run counts by status, job, project, and time window
+- duration percentiles and queue wait time
+- workflow run and step timing
+- webhook delivery history
+- usage and cost trends
+- approval and event-trigger timing
 
 ## Configuration
 
