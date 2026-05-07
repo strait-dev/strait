@@ -412,10 +412,11 @@ type Store interface {
 }
 
 type Queries struct {
-	db                  DBTX
-	secretEncryptionKey string
-	auditSigningKey     []byte
-	maxSLOWindowHours   int
+	db                      DBTX
+	secretEncryptionKey     string
+	oldSecretEncryptionKeys []string
+	auditSigningKey         []byte
+	maxSLOWindowHours       int
 
 	// chDB is an optional *sql.DB connected to ClickHouse. When non-nil,
 	// GetJobCostEstimate queries run_analytics for a rolling average instead
@@ -449,6 +450,7 @@ func (q *Queries) withDB(db DBTX) *Queries {
 	return &Queries{
 		db:                       db,
 		secretEncryptionKey:      q.secretEncryptionKey,
+		oldSecretEncryptionKeys:  append([]string(nil), q.oldSecretEncryptionKeys...),
 		auditSigningKey:          q.auditSigningKey,
 		maxSLOWindowHours:        q.maxSLOWindowHours,
 		chDB:                     q.chDB,
@@ -459,6 +461,10 @@ func (q *Queries) withDB(db DBTX) *Queries {
 
 func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 	q.secretEncryptionKey = secretEncryptionKey
+}
+
+func (q *Queries) SetOldSecretEncryptionKeys(oldSecretEncryptionKeys []string) {
+	q.oldSecretEncryptionKeys = append([]string(nil), oldSecretEncryptionKeys...)
 }
 
 func (q *Queries) SetAuditSigningKey(key []byte) {

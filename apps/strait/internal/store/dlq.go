@@ -44,6 +44,7 @@ func (q *Queries) ReplayDeadLetterRunWithAudit(ctx context.Context, runID string
 		// chain as the non-transactional path.
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
 
 		run, err := txQ.ReplayDeadLetterRun(ctx, runID)
 		if err != nil {

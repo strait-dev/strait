@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"strait/internal/domain"
 
@@ -77,15 +78,30 @@ func (q *Queries) GetAuditSigningKey(ctx context.Context, projectID string, epoc
 		return nil, fmt.Errorf("get audit signing key: %w", err)
 	}
 
-	envelopeKey, err := q.secretKey()
-	if err != nil {
-		return nil, fmt.Errorf("get audit signing key: envelope key: %w", err)
+	var firstErr error
+	for i, candidate := range q.secretEncryptionKeyCandidates() {
+		envelopeKey, keyErr := deriveSecretKey(candidate)
+		if keyErr != nil {
+			if firstErr == nil {
+				firstErr = keyErr
+			}
+			continue
+		}
+		plaintextHex, decryptErr := decryptAuditKey(ciphertext, envelopeKey)
+		if decryptErr == nil {
+			if i > 0 {
+				slog.Warn("decrypted audit signing key using old encryption key; rotate audit key to re-encrypt", "project_id", projectID, "epoch", epoch)
+			}
+			return plaintextHex, nil
+		}
+		if firstErr == nil {
+			firstErr = decryptErr
+		}
 	}
-	plaintextHex, err := decryptAuditKey(ciphertext, envelopeKey)
-	if err != nil {
-		return nil, fmt.Errorf("get audit signing key: decrypt: %w", err)
+	if firstErr != nil {
+		return nil, fmt.Errorf("get audit signing key: decrypt: %w", firstErr)
 	}
-	return plaintextHex, nil
+	return nil, fmt.Errorf("get audit signing key: envelope key: secret encryption key is not configured")
 }
 
 // storeAuditSigningKey encrypts and inserts the per-epoch HMAC signing

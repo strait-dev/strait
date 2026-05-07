@@ -524,6 +524,7 @@ func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error
 	return WithTx(ctx, begin, func(txQ *Queries) error {
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
 		txQ.tombstoneInsertHook = q.tombstoneInsertHook
 		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
 		return fn(txQ)
@@ -544,6 +545,7 @@ func (q *Queries) withTxInheritKeysOptions(ctx context.Context, opts pgx.TxOptio
 	return WithTxOptions(ctx, begin, opts, func(txQ *Queries) error {
 		txQ.auditSigningKey = q.auditSigningKey
 		txQ.secretEncryptionKey = q.secretEncryptionKey
+		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
 		txQ.tombstoneInsertHook = q.tombstoneInsertHook
 		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
 		return fn(txQ)

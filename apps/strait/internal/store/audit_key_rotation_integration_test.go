@@ -604,6 +604,38 @@ func TestAuditEpochKeys_DeriveFromAuditSigningRootNotEnvelopeKey(t *testing.T) {
 	}
 }
 
+func TestAuditSigningKeyDecryptsWithOldEnvelopeKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	projectID := "proj-audit-old-envelope"
+	oldQ := mustStore(t)
+	oldQ.SetSecretEncryptionKey("old-audit-envelope-key")
+	auditRoot, _ := store.DeriveAuditSigningKey("audit-root-old-envelope")
+	oldQ.SetAuditSigningKey(auditRoot)
+	insertTestChain(ctx, t, oldQ, projectID, 1)
+
+	newQ := mustStore(t)
+	newQ.SetSecretEncryptionKey("new-audit-envelope-key")
+	newQ.SetOldSecretEncryptionKeys([]string{"old-audit-envelope-key"})
+	newQ.SetAuditSigningKey(auditRoot)
+
+	key, err := newQ.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil {
+		t.Fatalf("GetAuditSigningKey(with old envelope): %v", err)
+	}
+	if len(key) == 0 {
+		t.Fatal("GetAuditSigningKey(with old envelope) returned empty key")
+	}
+
+	withoutOld := mustStore(t)
+	withoutOld.SetSecretEncryptionKey("new-audit-envelope-key")
+	withoutOld.SetAuditSigningKey(auditRoot)
+	if _, err := withoutOld.GetAuditSigningKey(ctx, projectID, 0); err == nil {
+		t.Fatal("GetAuditSigningKey(without old envelope) error = nil, want decrypt failure")
+	}
+}
+
 func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

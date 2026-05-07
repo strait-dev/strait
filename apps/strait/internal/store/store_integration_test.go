@@ -1833,6 +1833,45 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 	}
 }
 
+func TestSecret_JobSecretDecryptsWithOldEncryptionKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	oldQ := mustStore(t)
+	oldQ.SetSecretEncryptionKey("old-secret-encryption-key")
+	projectID := "project-secret-old-key"
+	job := mustCreateJob(t, ctx, oldQ, projectID)
+
+	secret := &domain.JobSecret{
+		ProjectID:      projectID,
+		JobID:          job.ID,
+		Environment:    "prod",
+		SecretKey:      "API_TOKEN",
+		EncryptedValue: "legacy-value",
+	}
+	if err := oldQ.CreateJobSecret(ctx, secret); err != nil {
+		t.Fatalf("CreateJobSecret(old key) error = %v", err)
+	}
+
+	newQ := mustStore(t)
+	newQ.SetSecretEncryptionKey("new-secret-encryption-key")
+	newQ.SetOldSecretEncryptionKeys([]string{"old-secret-encryption-key"})
+
+	got, err := newQ.GetJobSecret(ctx, secret.ID)
+	if err != nil {
+		t.Fatalf("GetJobSecret(with old key) error = %v", err)
+	}
+	if got.EncryptedValue != "legacy-value" {
+		t.Fatalf("GetJobSecret(with old key) value = %q, want legacy-value", got.EncryptedValue)
+	}
+
+	withoutOld := mustStore(t)
+	withoutOld.SetSecretEncryptionKey("new-secret-encryption-key")
+	if _, err := withoutOld.GetJobSecret(ctx, secret.ID); err == nil {
+		t.Fatal("GetJobSecret(without old key) error = nil, want decrypt failure")
+	}
+}
+
 func TestSecret_GlobalSecretUniqueness(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

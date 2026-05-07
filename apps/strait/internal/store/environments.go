@@ -9,7 +9,6 @@ import (
 	"maps"
 	"time"
 
-	"strait/internal/crypto"
 	"strait/internal/dbscan"
 	"strait/internal/domain"
 
@@ -33,7 +32,7 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 
 	var variablesEncrypted []byte
 	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for environment variables", "env_id", env.ID, "error", encErr)
 		} else {
@@ -144,7 +143,7 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 
 	var variablesEncrypted []byte
 	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for environment variables", "env_id", env.ID, "error", encErr)
 		} else {
@@ -331,7 +330,7 @@ func (q *Queries) scanEnvironment(scanner scanTarget) (*domain.Environment, erro
 
 	// Prefer encrypted variables if available and we have a key.
 	if len(variablesEncrypted) > 0 && q.secretEncryptionKey != "" {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for decryption, falling back to plaintext", "env_id", env.ID, "error", encErr)
 		} else {

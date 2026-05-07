@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"strait/internal/crypto"
 	"strait/internal/domain"
 
 	"github.com/google/uuid"
@@ -25,7 +24,7 @@ func (q *Queries) CreateNotificationChannel(ctx context.Context, ch *domain.Noti
 
 	configBytes := ch.Config
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for notification channel config", "channel_id", ch.ID, "error", encErr)
 		} else {
@@ -207,7 +206,7 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.Noti
 
 	configBytes := ch.Config
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for notification channel config", "channel_id", ch.ID, "error", encErr)
 		} else {
@@ -461,7 +460,7 @@ func (q *Queries) decryptNotificationConfig(channelID string, config []byte) []b
 	if len(config) == 0 || q.secretEncryptionKey == "" {
 		return config
 	}
-	enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
+	enc, encErr := q.secretEncryptor()
 	if encErr != nil {
 		slog.Warn("failed to create encryptor for notification config decryption", "channel_id", channelID, "error", encErr)
 		return config

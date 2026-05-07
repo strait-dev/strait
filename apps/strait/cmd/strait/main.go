@@ -302,6 +302,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		queries.SetClickHouseDB(chClient.DB())
 	}
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	queries.SetOldSecretEncryptionKeys(cfg.EncryptionKeyOld)
 	if cfg.RunRetentionShort > 0 {
 		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
 	}
@@ -351,8 +352,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// before computing the outbound HMAC. Without this the signature is
 	// computed over the AES-GCM ciphertext and cannot be verified by
 	// subscribers.
-	if webhookEnc, encErr := crypto.NewEncryptor(cfg.EncryptionKey); cfg.EncryptionKey != "" && encErr == nil {
+	if webhookEnc, encErr := crypto.NewKeyRotatorFromStrings(cfg.EncryptionKey, cfg.EncryptionKeyOld...); cfg.EncryptionKey != "" && encErr == nil {
 		webhookOptions = append(webhookOptions, webhook.WithSecretDecryptor(webhookEnc))
+	} else if cfg.EncryptionKey != "" && encErr != nil {
+		slog.Warn("failed to create encryptor for webhook secrets; webhook signature decryption disabled", "error", encErr)
 	}
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
@@ -399,7 +402,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
-		enc, encErr := crypto.NewEncryptor(cfg.EncryptionKey)
+		enc, encErr := crypto.NewKeyRotatorFromStrings(cfg.EncryptionKey, cfg.EncryptionKeyOld...)
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for API; event source signature encryption disabled", "error", encErr)
 		} else {
