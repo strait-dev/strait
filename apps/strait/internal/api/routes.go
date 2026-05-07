@@ -52,6 +52,7 @@ func (s *Server) routes() chi.Router {
 		WaitForDelivery: false,
 	})
 	r.Use(sentryHandler.Handle)
+	r.Use(s.sentryScope)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)
 	if s.poolStatter != nil {

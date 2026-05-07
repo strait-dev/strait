@@ -14,6 +14,7 @@ import (
 func unaryInterceptorChain() []grpc.UnaryServerInterceptor {
 	return []grpc.UnaryServerInterceptor{
 		unaryRecoveryInterceptor(),
+		unarySentryInterceptor(),
 		unaryLoggingInterceptor(),
 	}
 }
@@ -22,6 +23,7 @@ func unaryInterceptorChain() []grpc.UnaryServerInterceptor {
 func streamInterceptorChain() []grpc.StreamServerInterceptor {
 	return []grpc.StreamServerInterceptor{
 		streamRecoveryInterceptor(),
+		streamSentryInterceptor(),
 		streamLoggingInterceptor(),
 	}
 }

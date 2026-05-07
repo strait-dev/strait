@@ -168,15 +168,15 @@ func TestStreamLoggingInterceptor_PassesThrough(t *testing.T) {
 // TestUnaryInterceptorChain_OrderAndCount verifies the chain has the expected interceptors.
 func TestUnaryInterceptorChain_OrderAndCount(t *testing.T) {
 	chain := unaryInterceptorChain()
-	if len(chain) != 2 {
-		t.Errorf("expected 2 interceptors in unary chain, got %d", len(chain))
+	if len(chain) != 3 {
+		t.Errorf("expected 3 interceptors in unary chain, got %d", len(chain))
 	}
 }
 
 // TestStreamInterceptorChain_OrderAndCount verifies the stream chain has the expected interceptors.
 func TestStreamInterceptorChain_OrderAndCount(t *testing.T) {
 	chain := streamInterceptorChain()
-	if len(chain) != 2 {
-		t.Errorf("expected 2 interceptors in stream chain, got %d", len(chain))
+	if len(chain) != 3 {
+		t.Errorf("expected 3 interceptors in stream chain, got %d", len(chain))
 	}
 }

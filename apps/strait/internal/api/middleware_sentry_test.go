@@ -1,0 +1,119 @@
+package api
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/getsentry/sentry-go"
+	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/otel/trace"
+
+	"strait/internal/domain"
+)
+
+func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/runs/run-1", nil)
+	routeCtx := chi.NewRouteContext()
+	routeCtx.RoutePatterns = []string{"/v1", "/runs/{runID}"}
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxRequestIDKey, "req-1")
+	traceID := trace.TraceID{1, 2, 3}
+	spanID := trace.SpanID{4, 5, 6}
+	ctx = trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+		Remote:  true,
+	}))
+	req = req.WithContext(ctx)
+
+	scope := sentry.NewScope()
+	applyHTTPSentryScope(scope, req, domain.EditionCloud)
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event == nil {
+		t.Fatal("expected event")
+	}
+
+	wantTags := map[string]string{
+		"project_id":  "proj-1",
+		"actor_id":    "user-1",
+		"actor_type":  "user",
+		"request_id":  "req-1",
+		"http_method": http.MethodPost,
+		"http_route":  "/v1/runs/{runID}",
+		"edition":     "cloud",
+		"trace_id":    traceID.String(),
+		"span_id":     spanID.String(),
+	}
+	for key, want := range wantTags {
+		if got := event.Tags[key]; got != want {
+			t.Fatalf("tag %s = %q, want %q", key, got, want)
+		}
+	}
+	if event.User.ID != "user-1" {
+		t.Fatalf("user id = %q, want user-1", event.User.ID)
+	}
+	if event.Contexts["http.request"]["route"] != "/v1/runs/{runID}" {
+		t.Fatalf("http.request route = %v, want /v1/runs/{runID}", event.Contexts["http.request"]["route"])
+	}
+}
+
+func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	routeCtx := chi.NewRouteContext()
+	routeCtx.RoutePatterns = []string{"/health"}
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+
+	scope := sentry.NewScope()
+	applyHTTPSentryScope(scope, req, domain.EditionCommunity)
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event == nil {
+		t.Fatal("expected event")
+	}
+
+	if event.Tags["http_method"] != http.MethodGet {
+		t.Fatalf("http_method = %q, want GET", event.Tags["http_method"])
+	}
+	if event.Tags["http_route"] != "/health" {
+		t.Fatalf("http_route = %q, want /health", event.Tags["http_route"])
+	}
+	if event.User.ID != "" {
+		t.Fatalf("anonymous request user id = %q, want empty", event.User.ID)
+	}
+}
+
+func TestSentryScopeMiddlewareCreatesIsolatedHub(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{edition: domain.EditionCommunity}
+	var firstHub, secondHub *sentry.Hub
+	handler := srv.sentryScope(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		hub := sentry.GetHubFromContext(r.Context())
+		if hub == nil {
+			t.Fatal("expected request hub")
+		}
+		if firstHub == nil {
+			firstHub = hub
+			return
+		}
+		secondHub = hub
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/a", nil))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/b", nil))
+
+	if firstHub == nil || secondHub == nil {
+		t.Fatal("expected both request hubs")
+	}
+	if firstHub == secondHub {
+		t.Fatal("request hubs must be isolated")
+	}
+}
