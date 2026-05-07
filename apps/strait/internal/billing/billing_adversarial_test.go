@@ -1062,6 +1062,18 @@ func (s *syncMockBillingStore) GetOrgSubscription(ctx context.Context, orgID str
 	return s.mockBillingStore.GetOrgSubscription(ctx, orgID)
 }
 
+func (s *syncMockBillingStore) GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.GetOrgSubscriptionByStripeSubscriptionID(ctx, stripeSubscriptionID)
+}
+
+func (s *syncMockBillingStore) GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.GetOrgSubscriptionByStripeCustomerID(ctx, stripeCustomerID)
+}
+
 func (s *syncMockBillingStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("setup test env: %v", err)
 	}
 
-	testStore = store.New(testEnv.DB.Pool)
+	testStore = store.NewWithContextRouting(testEnv.DB.Pool)
 	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
 	testServer = api.NewServer(api.ServerDeps{
@@ -662,6 +662,7 @@ func TestE2E_RunEvents(t *testing.T) {
 	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"events":true}}`, "")
 	runID := asString(t, triggerResp, "id")
 	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"type":"log","level":"info","message":"Processing started","data":{"step":1}}`)
 	if w.Code != http.StatusCreated {
@@ -689,6 +690,7 @@ func TestE2E_RunAnnotations(t *testing.T) {
 	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"annotations":true}}`, "")
 	runID := asString(t, triggerResp, "id")
 	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/annotate", runToken, `{"annotations":{"env":"prod","region":"eu"}}`)
 	if w.Code != http.StatusOK {
@@ -723,10 +725,12 @@ func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
 	prodRun := triggerJob(t, jobID, `{"payload":{"run":"prod"}}`, "")
 	prodRunID := asString(t, prodRun, "id")
 	prodRunToken := makeE2ERunToken(t, prodRunID)
+	activateE2ERun(t, prodRunID)
 
 	stageRun := triggerJob(t, jobID, `{"payload":{"run":"stage"}}`, "")
 	stageRunID := asString(t, stageRun, "id")
 	stageRunToken := makeE2ERunToken(t, stageRunID)
+	activateE2ERun(t, stageRunID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+prodRunID+"/annotate", prodRunToken, `{"annotations":{"env":"prod","region":"eu"}}`)
 	if w.Code != http.StatusOK {
@@ -1511,6 +1515,7 @@ func TestSDK_Heartbeat(t *testing.T) {
 	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"hb":true}}`, "")
 	runID := asString(t, triggered, "id")
 	token := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/heartbeat", token, "")
 	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
@@ -1535,6 +1540,7 @@ func TestSDK_LogAndProgress(t *testing.T) {
 	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"sdk":true}}`, "")
 	runID := asString(t, triggered, "id")
 	token := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	logW := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", token, `{"level":"info","message":"test log"}`)
 	if logW.Code != http.StatusCreated {

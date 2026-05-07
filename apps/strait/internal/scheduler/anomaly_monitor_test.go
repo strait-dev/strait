@@ -38,6 +38,14 @@ func (m *mockAnomalyMonitorStore) GetOrgSubscription(ctx context.Context, orgID 
 	return nil, nil
 }
 
+func (m *mockAnomalyMonitorStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+
+func (m *mockAnomalyMonitorStore) GetOrgSubscriptionByStripeSubscriptionID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+
 func (m *mockAnomalyMonitorStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]billing.UsageRecord, error) {
 	if m.getOrgUsageForPeriodFn != nil {
 		return m.getOrgUsageForPeriodFn(ctx, orgID, from, to)

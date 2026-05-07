@@ -31,6 +31,12 @@ func (m *mockBillingEnforcerStore) GetOrgSubscription(_ context.Context, _ strin
 	}
 	return nil, billing.ErrSubscriptionNotFound
 }
+func (m *mockBillingEnforcerStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+func (m *mockBillingEnforcerStore) GetOrgSubscriptionByStripeSubscriptionID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
 func (m *mockBillingEnforcerStore) UpsertOrgSubscription(_ context.Context, _ *billing.OrgSubscription) error {
 	return nil
 }

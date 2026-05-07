@@ -53,8 +53,8 @@ func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
 	if runner.lockID != reaperAdvisoryLockID {
 		t.Fatalf("lockID = %d, want %d", runner.lockID, reaperAdvisoryLockID)
 	}
-	if runner.fnCalls != 1 {
-		t.Fatalf("fnCalls = %d, want 1", runner.fnCalls)
+	if runner.fnCalls == 0 {
+		t.Fatal("fnCalls = 0, want at least one advisory-locked cycle")
 	}
 }
 

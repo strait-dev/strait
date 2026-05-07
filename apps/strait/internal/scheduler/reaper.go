@@ -1401,7 +1401,8 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 			Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
 		}
 	}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+	requestClient := *client
+	requestClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 3 {
 			return fmt.Errorf("too many redirects")
 		}
@@ -1410,7 +1411,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 		}
 		return nil
 	}
-	resp, err := client.Do(req)
+	resp, err := requestClient.Do(req)
 	if err != nil {
 		safeErr := httputil.SanitizeHTTPClientError(err)
 		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", safeErr)

@@ -415,6 +415,7 @@ func TestE2E_CancelPropagation(t *testing.T) {
 	parentRun := advTriggerRun(t, parentJob["id"].(string))
 	parentRunID := parentRun["id"].(string)
 	runToken := makeE2ERunToken(t, parentRunID)
+	activateE2ERun(t, parentRunID)
 
 	spawnBody := fmt.Sprintf(`{"job_slug":"%s","project_id":"%s","payload":{"child":true}}`, childSlug, projectID)
 	sw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+parentRunID+"/spawn", runToken, spawnBody)
@@ -452,6 +453,7 @@ func TestE2E_EventLogging(t *testing.T) {
 	trigger := advTriggerRun(t, job["id"].(string))
 	runID := trigger["id"].(string)
 	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	lw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"hello event","level":"info"}`)
 	if lw.Code != http.StatusCreated {
@@ -482,6 +484,7 @@ func TestE2E_EventFiltering(t *testing.T) {
 	trigger := advTriggerRun(t, job["id"].(string))
 	runID := trigger["id"].(string)
 	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	if w := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"all good","level":"info"}`); w.Code != http.StatusCreated {
 		t.Fatalf("log info status = %d; body = %s", w.Code, w.Body.String())

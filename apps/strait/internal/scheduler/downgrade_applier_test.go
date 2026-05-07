@@ -91,6 +91,12 @@ func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) e
 func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 	return nil, billing.ErrSubscriptionNotFound
 }
+func (m *mockEnforcerStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+func (m *mockEnforcerStore) GetOrgSubscriptionByStripeSubscriptionID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
 func (m *mockEnforcerStore) UpsertOrgSubscription(_ context.Context, _ *billing.OrgSubscription) error {
 	return nil
 }
