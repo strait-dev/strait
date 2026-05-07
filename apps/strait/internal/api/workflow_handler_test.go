@@ -2474,6 +2474,9 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 func TestHandleWorkflowVersionDiffAndImpact(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
 		GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _ string, versionID string) (*domain.WorkflowVersion, error) {
 			if versionID == "v1" {
 				return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
@@ -2511,6 +2514,9 @@ func TestHandleListWorkflowVersions(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			ListWorkflowVersionsFunc: func(_ context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
 				if workflowID != "wf-1" {
 					t.Fatalf("workflowID = %q, want wf-1", workflowID)
@@ -2551,6 +2557,9 @@ func TestHandleListWorkflowVersions(t *testing.T) {
 	t.Run("store error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			ListWorkflowVersionsFunc: func(_ context.Context, _ string, _ int) ([]domain.WorkflowVersion, error) {
 				return nil, errors.New("db down")
 			},
@@ -3486,6 +3495,9 @@ func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
 	t.Run("from_not_found", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
 				return nil, errors.New("not found")
 			},
@@ -3502,6 +3514,9 @@ func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
 	t.Run("to_not_found", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _ string, versionID string) (*domain.WorkflowVersion, error) {
 				if versionID == "v1" {
 					return &domain.WorkflowVersion{ID: "v1", Version: 1}, nil
@@ -3525,6 +3540,9 @@ func TestHandleWorkflowVersionImpact_ErrorPaths(t *testing.T) {
 	t.Run("version_not_found", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+			},
 			GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
 				return nil, errors.New("not found")
 			},

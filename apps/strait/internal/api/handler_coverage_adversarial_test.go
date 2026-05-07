@@ -272,6 +272,9 @@ func TestHandlerRollbackDeploymentVersion_MalformedJSON(t *testing.T) {
 func TestHandlerGetJobVersion_HappyPath(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		GetJobVersionByVersionIDFunc: func(_ context.Context, versionID string) (*domain.JobVersion, error) {
 			return &domain.JobVersion{
 				ID:    versionID,

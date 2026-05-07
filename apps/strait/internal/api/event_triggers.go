@@ -50,6 +50,10 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		return nil, huma.Error400BadRequest(errMsg)
 	}
 	req := input.Body
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
 	trigger, err := s.store.GetEventTriggerByEventKey(ctx, eventKey)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
@@ -57,7 +61,10 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
-	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
+	if trigger.ProjectID != projectID {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
@@ -154,6 +161,10 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 	if errMsg := validateEventKey(input.EventKey); errMsg != "" {
 		return nil, huma.Error400BadRequest(errMsg)
 	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
 	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
@@ -161,7 +172,10 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
-	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
+	if trigger.ProjectID != projectID {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	return &GetEventTriggerOutput{Body: trigger}, nil
@@ -178,6 +192,10 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	if errMsg := validateEventKey(input.EventKey); errMsg != "" {
 		return nil, huma.Error400BadRequest(errMsg)
 	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
 	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
@@ -185,7 +203,10 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
-	if projectID := projectIDFromContext(ctx); projectID != "" && trigger.ProjectID != projectID {
+	if trigger.ProjectID != projectID {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
@@ -340,10 +361,21 @@ func (s *Server) handleSendEventByPrefix(ctx context.Context, input *SendEventBy
 	}
 	req := input.Body
 	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
 	triggers, err := s.store.ListEventTriggersByKeyPrefix(ctx, prefix, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list triggers by prefix")
 	}
+	filtered := triggers[:0]
+	for i := range triggers {
+		if envErr := requireEnvironmentMatch(ctx, triggers[i].EnvironmentID); envErr != nil {
+			continue
+		}
+		filtered = append(filtered, triggers[i])
+	}
+	triggers = filtered
 	if len(triggers) == 0 {
 		return &SendEventByPrefixOutput{Body: map[string]any{"resolved": 0, "triggers": []any{}}}, nil
 	}

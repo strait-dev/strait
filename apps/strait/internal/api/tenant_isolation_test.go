@@ -859,7 +859,7 @@ func TestTenantIsolation_ListEventSourceSubscriptions_CrossProject(t *testing.T)
 	}{
 		{"own project source", "src-b", projectB, http.StatusOK},
 		{"cross project source", "src-a", projectB, http.StatusNotFound},
-		{"no project context (internal)", "src-a", "", http.StatusOK},
+		{"no project context (internal)", "src-a", "", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -912,7 +912,7 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 	}{
 		{"own project source", "src-b", "sub-2", projectB, http.StatusNoContent},
 		{"cross project source", "src-a", "sub-1", projectB, http.StatusNotFound},
-		{"no project context (internal)", "src-a", "sub-1", "", http.StatusNoContent},
+		{"no project context (internal)", "src-a", "sub-1", "", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

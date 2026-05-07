@@ -253,7 +253,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		eventKey := fmt.Sprintf("spawn-await:%s", run.ID)
 		now := time.Now()
 		expiresAt := now.Add(time.Duration(awaitTimeoutSecs) * time.Second)
-		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: awaitTimeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
+		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, EnvironmentID: environmentIDFromContext(ctx), SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: awaitTimeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
 		if err := s.store.CreateEventTrigger(ctx, trigger); err != nil {
 			slog.Warn("failed to create await event trigger", "parent_run_id", parentRun.ID, "child_run_id", run.ID, "event_key", eventKey, "error", err)
 		} else if s.metrics != nil {

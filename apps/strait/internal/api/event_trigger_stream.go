@@ -25,6 +25,12 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	projectID := projectIDFromContext(r.Context())
+	if projectID == "" {
+		respondError(w, r, http.StatusBadRequest, "project context is required -- authenticate with an API key")
+		return
+	}
+
 	trigger, err := s.store.GetEventTriggerByEventKey(r.Context(), eventKey)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
@@ -35,7 +41,12 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if projectID := projectIDFromContext(r.Context()); projectID != "" && trigger.ProjectID != projectID {
+	if trigger.ProjectID != projectID {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
+
+	if err := requireEnvironmentMatch(r.Context(), trigger.EnvironmentID); err != nil {
 		respondError(w, r, http.StatusNotFound, "event trigger not found")
 		return
 	}
