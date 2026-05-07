@@ -480,9 +480,22 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// The result channel is project-scoped so a worker authenticated to a
 	// different project cannot deliver a forged TaskResult into another
 	// project's dispatch goroutine: Send drops the message on project mismatch.
-	if s.resultChannels != nil && s.resultChannels.Send(tr.RunId, projectID, workerID, tr) {
-		// Successfully delivered to the waiting dispatcher — it owns the rest.
-		return nil
+	if s.resultChannels != nil {
+		sent, sendErr := s.resultChannels.SendAfterHandoff(tr.RunId, projectID, workerID, tr, func() (bool, error) {
+			return s.queries.MarkOpenWorkerTaskResultReceivedByRunID(ctx, workerID, projectID, tr.RunId)
+		})
+		if sendErr != nil {
+			slog.Warn("grpc task result: result handoff failed",
+				"worker_id", workerID,
+				"run_id", tr.RunId,
+				"error", sendErr,
+			)
+			return nil
+		}
+		if sent {
+			// Successfully delivered to the waiting dispatcher — it owns the rest.
+			return nil
+		}
 	}
 
 	// No dispatcher is waiting (e.g. timed out or disconnected mid-flight)

@@ -197,6 +197,70 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 	}
 }
 
+// TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue verifies the
+// stream recv path marks the worker_task non-requeueable before delivering the
+// buffered TaskResult to WorkerDispatch. This pins the race where a worker
+// disconnect immediately after sending a result could requeue completed work.
+func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	resultChannels := NewResultChannelRegistry()
+	resultCh := resultChannels.Register(runID, projectID, workerID)
+	t.Cleanup(func() { resultChannels.Deregister(runID) })
+
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: resultChannels,
+	}
+
+	if err := svc.handleTaskResult(ctx, workerID, projectID, &workerv1.TaskResult{
+		RunId:      runID,
+		Status:     "success",
+		OutputJson: []byte(`{"ok":true}`),
+	}); err != nil {
+		t.Fatalf("handleTaskResult: %v", err)
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusResultReceived {
+		t.Fatalf("worker task status after stream handoff = %q, want result_received", task.Status)
+	}
+
+	svc.finalizeDisconnect(projectID, workerID)
+
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("run status after disconnect = %q, want executing", run.Status)
+	}
+
+	select {
+	case got := <-resultCh:
+		if got == nil || got.RunId != runID || got.Status != "success" {
+			t.Fatalf("delivered result = %#v, want success for run %s", got, runID)
+		}
+	default:
+		t.Fatal("expected buffered result to be delivered to dispatcher channel")
+	}
+}
+
 // TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue verifies
 // that a stale stream from a same-ID reconnect cannot run disconnect cleanup
 // for the replacement connection.

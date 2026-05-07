@@ -205,11 +205,40 @@ func (q *Queries) MarkWorkerTaskResultReceived(ctx context.Context, taskID strin
 		`UPDATE worker_tasks
 		 SET status = $1
 		 WHERE id = $2
-		   AND status IN ('assigned', 'accepted')`,
+		   AND status IN ('assigned', 'accepted', 'result_received')`,
 		string(domain.WorkerTaskStatusResultReceived), taskID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("mark worker task result received: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// MarkOpenWorkerTaskResultReceivedByRunID closes the latest open assignment
+// for a worker/run pair to disconnect requeue as soon as its TaskResult reaches
+// the API stream boundary.
+func (q *Queries) MarkOpenWorkerTaskResultReceivedByRunID(ctx context.Context, workerID, projectID, runID string) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkOpenWorkerTaskResultReceivedByRunID")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx,
+		`WITH target AS (
+			SELECT id
+			FROM worker_tasks
+			WHERE worker_id = $1
+			  AND project_id = $2
+			  AND run_id = $3
+			  AND status IN ('assigned', 'accepted')
+			ORDER BY assigned_at DESC
+			LIMIT 1
+		)
+		UPDATE worker_tasks
+		SET status = $4
+		WHERE id IN (SELECT id FROM target)`,
+		workerID, projectID, runID, string(domain.WorkerTaskStatusResultReceived),
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark open worker task result received by run id: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
 }

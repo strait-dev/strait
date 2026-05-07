@@ -102,6 +102,38 @@ func (r *ResultChannelRegistry) Send(runID, projectID, workerID string, result *
 	}
 }
 
+// SendAfterHandoff atomically reserves delivery to a waiting dispatcher, runs
+// the caller's durable handoff, then publishes the result into the buffered
+// channel before disconnect cleanup can observe the task as requeueable.
+func (r *ResultChannelRegistry) SendAfterHandoff(
+	runID, projectID, workerID string,
+	result *workerv1.TaskResult,
+	handoff func() (bool, error),
+) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, ok := r.channels[runID]
+	if !ok || entry.projectID != projectID || entry.workerID != workerID {
+		return false, nil
+	}
+	if len(entry.ch) == cap(entry.ch) {
+		return false, nil
+	}
+
+	handedOff, err := handoff()
+	if err != nil || !handedOff {
+		return false, err
+	}
+
+	select {
+	case entry.ch <- result:
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 // ErrNoWorkerAvailable is returned when no connected worker services the run's queue.
 var ErrNoWorkerAvailable = fmt.Errorf("no worker available for queue")
 
