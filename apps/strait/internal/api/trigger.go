@@ -495,7 +495,7 @@ func hashIdempotencyKey(key string) string {
 func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quota *store.ProjectQuota, fn func(context.Context, store.DBTX) error) error {
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
-			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", triggerLimitAdvisoryLockID(job.ProjectID, job.ID)); err != nil {
+			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", triggerLimitAdvisoryLockID(job.ProjectID)); err != nil {
 				return fmt.Errorf("acquire trigger limit lock: %w", err)
 			}
 			if err := s.checkTriggerLimits(txCtx, job, quota); err != nil {
@@ -555,6 +555,10 @@ func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *doma
 }
 
 func triggerLimitAPIError(err error, fallback string) error {
+	var statusErr huma.StatusError
+	if errors.As(err, &statusErr) {
+		return err
+	}
 	switch {
 	case errors.Is(err, errTriggerProjectQueuedQuotaExceeded):
 		return huma.Error429TooManyRequests("project queued quota exceeded")
@@ -567,12 +571,10 @@ func triggerLimitAPIError(err error, fallback string) error {
 	}
 }
 
-func triggerLimitAdvisoryLockID(projectID, jobID string) int64 {
+func triggerLimitAdvisoryLockID(projectID string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte("trigger-limit:"))
 	_, _ = h.Write([]byte(projectID))
-	_, _ = h.Write([]byte(":"))
-	_, _ = h.Write([]byte(jobID))
 	return int64(h.Sum64()) //nolint:gosec // advisory lock IDs can wrap
 }
 

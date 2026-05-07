@@ -187,3 +187,111 @@ func TestIntegration_TriggerLimitGuard_SerializesJobRateLimit(t *testing.T) {
 		t.Fatalf("rate failures = %d, want 7", rateFailures.Load())
 	}
 }
+
+func TestIntegration_TriggerLimitGuard_SerializesProjectQuotaAcrossJobs(t *testing.T) {
+	ctx := context.Background()
+	db := getTriggerLimitTestDB(t)
+	if err := db.CleanTables(ctx); err != nil {
+		t.Fatalf("CleanTables() error = %v", err)
+	}
+
+	st := store.NewWithContextRouting(db.Pool)
+	q := queue.NewPostgresQueue(db.Pool)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{InternalSecret: "test-secret-value", MaxBulkTriggerItems: 500, JWTSigningKey: testJWTSigningKey},
+		Store:  st, Queue: q, Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	projectID := "project-" + uuid.Must(uuid.NewV7()).String()
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO projects (id, name) VALUES ($1, $2)`, projectID, "trigger cross-job quota project"); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO project_quotas (project_id, max_queued_runs) VALUES ($1, 1)`, projectID); err != nil {
+		t.Fatalf("insert project quota: %v", err)
+	}
+	slugA := "job-a-" + uuid.Must(uuid.NewV7()).String()
+	slugB := "job-b-" + uuid.Must(uuid.NewV7()).String()
+	jobA := testutil.MustCreateJob(t, ctx, st, &testutil.JobOpts{ProjectID: &projectID, Slug: &slugA})
+	jobB := testutil.MustCreateJob(t, ctx, st, &testutil.JobOpts{ProjectID: &projectID, Slug: &slugB})
+
+	reqCtx := context.WithValue(ctx, ctxProjectIDKey, projectID)
+	reqCtx = context.WithValue(reqCtx, ctxActorTypeKey, "api_key")
+	reqCtx = context.WithValue(reqCtx, ctxActorIDKey, "apikey:test")
+
+	var successes atomic.Int64
+	var quotaFailures atomic.Int64
+	var wg sync.WaitGroup
+	for _, job := range []*domain.Job{jobA, jobB} {
+		wg.Add(1)
+		go func(jobID string) {
+			defer wg.Done()
+			_, err := srv.handleTriggerJob(reqCtx, &TriggerJobInput{JobID: jobID, Body: TriggerRequest{Payload: []byte(`{"ok":true}`)}})
+			if err == nil {
+				successes.Add(1)
+				return
+			}
+			var statusErr huma.StatusError
+			if errors.As(err, &statusErr) && statusErr.GetStatus() == http.StatusTooManyRequests &&
+				strings.Contains(err.Error(), "project queued quota exceeded") {
+				quotaFailures.Add(1)
+				return
+			}
+			t.Errorf("handleTriggerJob unexpected error: %v", err)
+		}(job.ID)
+	}
+	wg.Wait()
+
+	if successes.Load() != 1 || quotaFailures.Load() != 1 {
+		t.Fatalf("successes=%d quotaFailures=%d, want 1/1", successes.Load(), quotaFailures.Load())
+	}
+}
+
+func TestIntegration_BulkTriggerLimitGuard_RejectsBatchBeyondQueuedQuota(t *testing.T) {
+	ctx := context.Background()
+	db := getTriggerLimitTestDB(t)
+	if err := db.CleanTables(ctx); err != nil {
+		t.Fatalf("CleanTables() error = %v", err)
+	}
+
+	st := store.NewWithContextRouting(db.Pool)
+	q := queue.NewPostgresQueue(db.Pool)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{InternalSecret: "test-secret-value", MaxBulkTriggerItems: 500, JWTSigningKey: testJWTSigningKey},
+		Store:  st, Queue: q, Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	projectID := "project-" + uuid.Must(uuid.NewV7()).String()
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO projects (id, name) VALUES ($1, $2)`, projectID, "bulk trigger quota project"); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO project_quotas (project_id, max_queued_runs) VALUES ($1, 1)`, projectID); err != nil {
+		t.Fatalf("insert project quota: %v", err)
+	}
+	job := testutil.MustCreateJob(t, ctx, st, &testutil.JobOpts{ProjectID: &projectID})
+
+	reqCtx := context.WithValue(ctx, ctxProjectIDKey, projectID)
+	reqCtx = context.WithValue(reqCtx, ctxActorTypeKey, "api_key")
+	reqCtx = context.WithValue(reqCtx, ctxActorIDKey, "apikey:test")
+	_, err := srv.handleBulkTriggerJob(reqCtx, &BulkTriggerJobInput{
+		JobID: job.ID,
+		Body: BulkTriggerRequest{Items: []BulkTriggerItem{
+			{Payload: []byte(`{"n":1}`)},
+			{Payload: []byte(`{"n":2}`)},
+		}},
+	})
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) || statusErr.GetStatus() != http.StatusTooManyRequests ||
+		!strings.Contains(err.Error(), "project queued quota exceeded") {
+		t.Fatalf("handleBulkTriggerJob error = %v, want queued quota 429", err)
+	}
+
+	queued, countErr := st.CountProjectQueuedRuns(ctx, projectID)
+	if countErr != nil {
+		t.Fatalf("CountProjectQueuedRuns() error = %v", countErr)
+	}
+	if queued != 0 {
+		t.Fatalf("queued runs = %d, want 0 after rolled-back over-quota bulk trigger", queued)
+	}
+}
