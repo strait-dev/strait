@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sourcegraph/conc"
 
@@ -561,6 +562,108 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 	if sameAsGlobalA {
 		t.Fatal("bootstrap key for project A equals global q.auditSigningKey — bootstrap must derive per-epoch key")
 	}
+}
+
+func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	globalKey, _ := store.DeriveAuditSigningKey("legacy-epoch-zero-secret")
+	q.SetAuditSigningKey(globalKey)
+
+	projectID := "proj-legacy-epoch-zero"
+	legacy := insertLegacyEpochZeroAuditEvent(ctx, t, projectID, globalKey)
+
+	ev := &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      "actor-new",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobCreated,
+		ResourceType: "job",
+		ResourceID:   "job-new",
+		Details:      json.RawMessage(`{"new":true}`),
+	}
+	if err := q.CreateAuditEvent(ctx, ev); err != nil {
+		t.Fatalf("CreateAuditEvent(new epoch-0 row): %v", err)
+	}
+	if ev.RotationEpoch != 0 {
+		t.Fatalf("new event rotation_epoch = %d, want 0", ev.RotationEpoch)
+	}
+	if ev.PreviousHash != legacy.Signature {
+		t.Fatalf("new event previous_hash = %q, want legacy signature %q", ev.PreviousHash, legacy.Signature)
+	}
+
+	epochKey, err := q.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil {
+		t.Fatalf("GetAuditSigningKey(epoch 0): %v", err)
+	}
+	if epochKey == nil {
+		t.Fatal("expected epoch-0 bootstrap key")
+	}
+	if string(epochKey) == string(globalKey) {
+		t.Fatal("epoch-0 bootstrap key should differ from legacy global key")
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("VerifyAuditChain valid = false: %s", result.Error)
+	}
+	if result.EventsChecked != 2 {
+		t.Fatalf("EventsChecked = %d, want 2", result.EventsChecked)
+	}
+}
+
+func insertLegacyEpochZeroAuditEvent(ctx context.Context, t *testing.T, projectID string, key []byte) domain.AuditEvent {
+	t.Helper()
+
+	ev := domain.AuditEvent{
+		ID:            "legacy-epoch-zero-" + newID(),
+		ProjectID:     projectID,
+		ActorID:       "actor-legacy",
+		ActorType:     "user",
+		Action:        domain.AuditActionJobCreated,
+		ResourceType:  "job",
+		ResourceID:    "job-legacy",
+		Details:       json.RawMessage(`{"legacy":true}`),
+		PreviousHash:  store.ZeroHash,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond),
+		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
+		RotationEpoch: 0,
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		INSERT INTO audit_events (
+			id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+			details, signature, previous_hash, created_at,
+			remote_ip, user_agent, request_id, trace_id, schema_version,
+			is_anchor, rotation_epoch
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			$8::jsonb, '', $9, $10,
+			$11, $12, $13, $14, $15,
+			$16, $17
+		)
+		RETURNING details
+	`, ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
+		ev.Details, ev.PreviousHash, ev.CreatedAt,
+		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
+		ev.IsAnchor, ev.RotationEpoch).Scan(&ev.Details); err != nil {
+		t.Fatalf("insert legacy audit event: %v", err)
+	}
+	ev.Signature = store.ComputeAuditSignature(&ev, key)
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE audit_events
+		SET signature = $1
+		WHERE id = $2
+	`, ev.Signature, ev.ID); err != nil {
+		t.Fatalf("sign legacy audit event: %v", err)
+	}
+	return ev
 }
 
 // TestRotateAuditSigningKey_WritesCreatedBy asserts migration 000194's

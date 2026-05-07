@@ -891,10 +891,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		if keyErr != nil {
 			return nil, keyErr
 		}
-		expected := ComputeAuditSignature(&ev, key)
-		// Constant-time comparison to avoid leaking the HMAC digest via a
-		// byte-wise early-return timing side channel.
-		if !hmac.Equal([]byte(ev.Signature), []byte(expected)) {
+		if !q.auditSignatureMatchesEpoch(&ev, key) {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
 			result.Error = fmt.Sprintf("signature mismatch at event %s: event may have been tampered with", ev.ID)
@@ -914,6 +911,24 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	}
 
 	return result, nil
+}
+
+func (q *Queries) auditSignatureMatchesEpoch(ev *domain.AuditEvent, key []byte) bool {
+	expected := ComputeAuditSignature(ev, key)
+	// Constant-time comparison to avoid leaking the HMAC digest via a
+	// byte-wise early-return timing side channel.
+	if hmac.Equal([]byte(ev.Signature), []byte(expected)) {
+		return true
+	}
+	if ev.RotationEpoch != 0 || q.auditSigningKey == nil {
+		return false
+	}
+	// Legacy epoch-0 rows created before per-project audit_signing_keys
+	// existed were signed with q.auditSigningKey. A later bootstrap row for
+	// epoch 0 must not invalidate those historical rows; mixed epoch-0 chains
+	// can contain legacy rows followed by newly bootstrapped per-project rows.
+	legacyExpected := ComputeAuditSignature(ev, q.auditSigningKey)
+	return hmac.Equal([]byte(ev.Signature), []byte(legacyExpected))
 }
 
 func auditRetentionTombstoneJustifiesStart(ev domain.AuditEvent, firstEventID, chainStart string) bool {
