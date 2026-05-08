@@ -51,7 +51,7 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	}
 	req := input.Body
 	projectID := projectIDFromContext(ctx)
-	if projectID == "" {
+	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
 	trigger, err := s.store.GetEventTriggerByEventKey(ctx, eventKey)
@@ -61,7 +61,7 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
-	if trigger.ProjectID != projectID {
+	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
@@ -162,7 +162,7 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 		return nil, huma.Error400BadRequest(errMsg)
 	}
 	projectID := projectIDFromContext(ctx)
-	if projectID == "" {
+	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
 	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
@@ -172,7 +172,7 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
-	if trigger.ProjectID != projectID {
+	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
@@ -193,7 +193,7 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 		return nil, huma.Error400BadRequest(errMsg)
 	}
 	projectID := projectIDFromContext(ctx)
-	if projectID == "" {
+	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
 	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
@@ -203,7 +203,7 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
-	if trigger.ProjectID != projectID {
+	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {

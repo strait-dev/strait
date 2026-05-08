@@ -1150,7 +1150,7 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 	}
 
 	projectID := projectIDFromContext(ctx)
-	if projectID == "" {
+	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
 
@@ -1183,7 +1183,7 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 	}
 
 	projectID := projectIDFromContext(ctx)
-	if projectID == "" {
+	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
 

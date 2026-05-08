@@ -26,7 +26,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 	}
 
 	projectID := projectIDFromContext(r.Context())
-	if projectID == "" {
+	if projectID == "" && !isInternalCaller(r.Context()) {
 		respondError(w, r, http.StatusBadRequest, "project context is required -- authenticate with an API key")
 		return
 	}
@@ -41,7 +41,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if trigger.ProjectID != projectID {
+	if projectID != "" && trigger.ProjectID != projectID {
 		respondError(w, r, http.StatusNotFound, "event trigger not found")
 		return
 	}
