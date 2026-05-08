@@ -243,7 +243,7 @@ func TestStripeUsageEnforcement(t *testing.T) {
 
 	t.Run("empty_secret_skipped", func(t *testing.T) {
 		reporter := NewStripeUsageReporter("", slog.Default())
-		err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1700)
+		err := reporter.IngestRunUsage(context.Background(), "cust-1", "run-1")
 		if err != nil {
 			t.Fatalf("expected nil for empty secret key, got: %v", err)
 		}
@@ -251,7 +251,7 @@ func TestStripeUsageEnforcement(t *testing.T) {
 
 	t.Run("empty_customer_skipped", func(t *testing.T) {
 		reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
-		err := reporter.IngestComputeUsage(context.Background(), "", "run-1", 1700)
+		err := reporter.IngestRunUsage(context.Background(), "", "run-1")
 		if err != nil {
 			t.Fatalf("expected nil for empty customer ID, got: %v", err)
 		}
@@ -280,7 +280,7 @@ func TestStripeUsageEnforcement(t *testing.T) {
 
 	t.Run("no_secret_skipped", func(t *testing.T) {
 		reporter := NewStripeUsageReporter("", slog.Default())
-		err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 100)
+		err := reporter.IngestRunUsage(context.Background(), "cust-1", "run-1")
 		if err != nil {
 			t.Errorf("expected nil for no-secret skip, got: %v", err)
 		}

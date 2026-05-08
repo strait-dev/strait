@@ -317,7 +317,7 @@ func TestIngestStripeUsageEvent_NilStripeUsageReporter(t *testing.T) {
 	})
 
 	// Should return immediately without panic.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 5000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
 }
 
 func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
@@ -336,45 +336,7 @@ func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
 	})
 
 	// Should return immediately without panic.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 5000)
-}
-
-func TestIngestStripeUsageEvent_ZeroCost(t *testing.T) {
-	t.Parallel()
-
-	pool := NewPool(1)
-	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:                pool,
-		Queue:               &mockExecQueue{},
-		Store:               &mockExecutorStore{},
-		PollInterval:        time.Millisecond,
-		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
-		// BillingEnforcer is nil -- triggers early return even before cost check
-	})
-
-	// Zero cost should early return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 0)
-}
-
-func TestIngestStripeUsageEvent_NegativeCost(t *testing.T) {
-	t.Parallel()
-
-	pool := NewPool(1)
-	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:                pool,
-		Queue:               &mockExecQueue{},
-		Store:               &mockExecutorStore{},
-		PollInterval:        time.Millisecond,
-		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
-		// BillingEnforcer is nil
-	})
-
-	// Negative cost should early return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", -100)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
 }
 
 func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
@@ -391,7 +353,7 @@ func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
 	})
 
 	// Both nil: should silently return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 10000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
 }
 
 // ---------------------------------------------------------------------------.

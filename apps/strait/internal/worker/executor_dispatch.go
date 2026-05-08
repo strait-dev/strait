@@ -13,7 +13,6 @@ import (
 	"time"
 
 	workergrpc "strait/internal/api/grpc"
-	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/store"
@@ -392,7 +391,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
 			e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
 		}
-		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
+		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID)
 		if e.runCostRecorder != nil && e.billingEnforcer != nil {
 			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 			if orgErr == nil && orgID != "" {
@@ -985,7 +984,7 @@ func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun,
 			})
 		}
 	}
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID)
 }
 
 func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {
@@ -1038,8 +1037,8 @@ func queuedRunResetFields() map[string]any {
 // ingestStripeUsageEvent sends a usage event to Stripe for metered billing.
 // Runs asynchronously to avoid blocking the run completion path.
 // Silently skips if no Stripe usage reporter is configured (self-hosted / dev).
-func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string, costMicroUSD int64) {
-	if e.stripeUsageReporter == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
+func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string) {
+	if e.stripeUsageReporter == nil || e.billingEnforcer == nil {
 		return
 	}
 
@@ -1061,10 +1060,9 @@ func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID 
 	e.stripeUsageWG.Go(func() {
 		ingestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := e.stripeUsageReporter.IngestComputeUsage(ingestCtx, stripeCustomerID, runID, costMicroUSD); err != nil {
+		if err := e.stripeUsageReporter.IngestRunUsage(ingestCtx, stripeCustomerID, runID); err != nil {
 			e.logger.Warn("failed to ingest stripe usage event",
 				"run_id", runID,
-				"cost_microusd", costMicroUSD,
 				"error", err,
 			)
 		}

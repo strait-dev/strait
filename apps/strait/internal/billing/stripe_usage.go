@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"sync"
 	"time"
 
@@ -54,7 +53,7 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	})
 	r := &StripeUsageReporter{
 		secretKey:      secretKey,
-		meterEventName: "compute_overage",
+		meterEventName: "run_overage",
 		logger:         logger,
 	}
 	for _, opt := range opts {
@@ -63,24 +62,24 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	return r
 }
 
-// IngestComputeUsage sends a single usage event to the Stripe compute_overage meter.
-// The costMicroUSD is the cost in micro-USD (1 unit = $0.000001).
+// IngestRunUsage sends a single usage event to the Stripe run_overage meter.
+// One run reports a value of 1; the overage rate is configured on the price record.
 // The runID is used as the identifier for deduplication.
-func (r *StripeUsageReporter) IngestComputeUsage(ctx context.Context, stripeCustomerID, runID string, costMicroUSD int64) error {
+func (r *StripeUsageReporter) IngestRunUsage(ctx context.Context, stripeCustomerID, runID string) error {
 	if r.secretKey == "" || stripeCustomerID == "" {
 		return nil // not configured or no customer, skip silently
 	}
 
-	return r.ingest(ctx, stripeCustomerID, runID, costMicroUSD)
+	return r.ingest(ctx, stripeCustomerID, runID)
 }
 
-func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID string, costMicroUSD int64) error {
+func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID string) error {
 	ts := time.Now().Unix()
 	params := &stripe.BillingMeterEventParams{
 		EventName: stripe.String(r.meterEventName),
 		Payload: map[string]string{
 			"stripe_customer_id": customerID,
-			"value":              strconv.FormatInt(costMicroUSD, 10),
+			"value":              "1",
 		},
 		Timestamp:  &ts,
 		Identifier: stripe.String(runID),

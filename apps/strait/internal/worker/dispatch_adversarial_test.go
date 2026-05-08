@@ -680,8 +680,8 @@ func TestIngestStripeUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T
 		// No BillingEnforcer, no StripeUsageReporter
 	})
 
-	// Positive cost but no enforcer/ingester: silent no-op.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 42000)
+	// No enforcer/ingester: silent no-op.
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
 }
 
 // ---------------------------------------------------------------------------.
