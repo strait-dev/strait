@@ -175,11 +175,8 @@ func dashboardExpressions(t *testing.T, path string) []string {
 }
 
 func validatePromQLShape(expr string) error {
-	if strings.Contains(expr, "rate(") && regexp.MustCompile(`\)\s+by\s*\(`).MatchString(expr) {
-		return fmt.Errorf("aggregation must wrap rate(), e.g. sum by (...) (rate(metric[window]))")
-	}
-	if strings.Contains(expr, "increase(") && regexp.MustCompile(`\)\s+by\s*\(`).MatchString(expr) {
-		return fmt.Errorf("aggregation must wrap increase(), e.g. sum by (...) (increase(metric[window]))")
+	if regexp.MustCompile(`\b(rate|increase)\s*\([^)]*\)\s+by\s*\(`).MatchString(expr) {
+		return fmt.Errorf("aggregation must wrap range functions, e.g. sum by (...) (rate(metric[window]))")
 	}
 	if !balancedPromQLDelimiters(expr, '(', ')') {
 		return fmt.Errorf("unbalanced parentheses")

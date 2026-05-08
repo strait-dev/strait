@@ -152,3 +152,162 @@ groups:
             LISTEN/NOTIFY wake events are being dropped because the wake
             channel is saturated. Workers fall back to polling but
             end-to-end latency degrades.
+
+  - name: strait.workflow
+    interval: 30s
+    rules:
+      - alert: StraitWorkflowStepFailureRateHigh
+        expr: |
+          sum(rate(strait_workflow_step_transitions_total{to="failed"}[5m]))
+          /
+          clamp_min(sum(rate(strait_workflow_step_transitions_total{to=~"completed|failed|skipped|canceled"}[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Workflow step failure rate is high
+          description: |
+            More than 5% of terminal workflow step transitions are failing
+            over a sustained 10 minute window. Inspect the workflow
+            dashboard by step kind and the worker dispatch dashboard for
+            matching error or timeout spikes.
+
+      - alert: StraitWorkflowStepP99High
+        expr: histogram_quantile(0.99, sum(rate(strait_workflow_step_duration_seconds_bucket[5m])) by (le, step_kind)) > 300
+        for: 15m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Workflow step p99 duration exceeds 5m
+          description: |
+            At least one workflow step kind has a 99th percentile runtime
+            above 5 minutes for 15 minutes. Long-running job, approval,
+            sub-workflow, event, or sleep steps may be stalling downstream
+            fan-in and completion.
+
+      - alert: StraitWorkflowDurableWaitP99High
+        expr: histogram_quantile(0.99, sum(rate(strait_workflow_durable_wait_duration_seconds_bucket[5m])) by (le)) > 21600
+        for: 15m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Durable workflow waits exceed 6h at p99
+          description: |
+            Durable wait steps or approvals are completing with very long
+            wait durations. Confirm expected business latency versus
+            stuck approvals, missing external events, or scheduler lag.
+
+      - alert: StraitWorkflowCompensationFailure
+        expr: increase(strait_workflow_compensation_runs_total{outcome="failure"}[15m]) > 0
+        for: 1m
+        labels:
+          app: strait
+          severity: page
+        annotations:
+          summary: Workflow compensation failed to start
+          description: |
+            At least one manual compensation attempt failed while loading
+            workflow state, building the plan, or transitioning the run.
+            Operators should inspect the failed run before retrying.
+
+      - alert: StraitWorkflowActiveRunsSurge
+        expr: sum(strait_workflow_active_runs) > 1000
+        for: 15m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Active workflow runs are unusually high
+          description: |
+            More than 1000 workflow runs are active for a sustained window.
+            This can indicate a trigger burst, dependency fan-in stall,
+            worker dispatch degradation, or long approval/event waits.
+
+      - alert: StraitWorkflowStalledRuns
+        expr: sum(increase(strait_workflow_stalled_runs_total[10m])) > 0
+        for: 1m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Workflow stalled-run detector fired
+          description: |
+            The workflow stalled-run detector found at least one run that
+            could not make progress. Use the scheduler/workflow dashboard
+            and workflow debugger to identify blocked dependencies.
+
+  - name: strait.execution
+    interval: 30s
+    rules:
+      - alert: StraitWorkerDispatchErrorRateHigh
+        expr: |
+          sum(rate(strait_worker_dispatch_duration_seconds_count{outcome=~"error|timeout"}[5m]))
+          /
+          clamp_min(sum(rate(strait_worker_dispatch_duration_seconds_count[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Worker dispatch error rate is high
+          description: |
+            More than 5% of worker dispatch attempts are ending in errors
+            or timeouts. Check HTTP/gRPC split, customer endpoint health,
+            worker stream connectivity, and retry pressure.
+
+      - alert: StraitWorkerPoolSaturated
+        expr: sum(strait_worker_pool_active) / clamp_min(sum(strait_worker_pool_active) + sum(strait_worker_pool_idle), 1) > 0.9
+        for: 10m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Worker pools are saturated
+          description: |
+            Active worker pool slots are above 90% of active plus idle
+            capacity for 10 minutes. Queue latency and retry pressure may
+            increase if enqueue rate remains elevated.
+
+      - alert: StraitGRPCWorkerStreamDisconnects
+        expr: sum(increase(strait_grpc_worker_stream_disconnects_total{reason!="graceful"}[10m])) > 0
+        for: 5m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: gRPC worker streams are disconnecting unexpectedly
+          description: |
+            One or more connected worker streams disconnected for a reason
+            other than graceful shutdown. Investigate worker process
+            health, network stability, and API-side stream errors.
+
+      - alert: StraitSchedulerLoopP99High
+        expr: histogram_quantile(0.99, sum(rate(strait_scheduler_loop_duration_seconds_bucket[5m])) by (le, loop)) > 30
+        for: 10m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Scheduler loop p99 duration exceeds 30s
+          description: |
+            At least one scheduler loop is taking more than 30 seconds at
+            p99. Cron, reaper, retention, pool pruning, or workflow
+            maintenance work may be falling behind.
+
+      - alert: StraitEventTriggerTimeouts
+        expr: sum(rate(strait_event_triggers_timed_out_total[5m])) > 0
+        for: 10m
+        labels:
+          app: strait
+          severity: warning
+        annotations:
+          summary: Event triggers are timing out
+          description: |
+            Workflow or job event triggers are expiring before matching
+            events arrive. Check producer delivery, event keys, trigger
+            expiration policy, and event wait dashboard panels.

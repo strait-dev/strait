@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,19 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+type prometheusRuleDoc struct {
+	Groups []struct {
+		Name  string `yaml:"name"`
+		Rules []struct {
+			Alert       string            `yaml:"alert"`
+			Expr        string            `yaml:"expr"`
+			For         string            `yaml:"for"`
+			Labels      map[string]string `yaml:"labels"`
+			Annotations map[string]string `yaml:"annotations"`
+		} `yaml:"rules"`
+	} `yaml:"groups"`
+}
 
 // TestPrometheusRules_MetricsExist guards against alert-rule / metric
 // drift: every metric name referenced in monitoring/prometheus-rules.yaml must
@@ -23,38 +35,12 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 		t.Fatalf("read rules file %s: %v", rulesPath, err)
 	}
 
-	type ruleDoc struct {
-		Groups []struct {
-			Rules []struct {
-				Alert string `yaml:"alert"`
-				Expr  string `yaml:"expr"`
-			} `yaml:"rules"`
-		} `yaml:"groups"`
-	}
-	var doc ruleDoc
+	var doc prometheusRuleDoc
 	if err := yaml.Unmarshal(rulesBytes, &doc); err != nil {
 		t.Fatalf("parse rules yaml: %v", err)
 	}
 
-	// Collect source corpus from telemetry + queue metrics definitions.
-	sources := []string{
-		filepath.Join(moduleRoot(t), "internal", "telemetry", "metrics.go"),
-		filepath.Join(moduleRoot(t), "internal", "queue", "queue_metrics.go"),
-	}
-	var corpus bytes.Buffer
-	for _, p := range sources {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("read source %s: %v", p, err)
-		}
-		corpus.Write(b)
-		corpus.WriteByte('\n')
-	}
-	// Normalise: OTel instrument names use dots
-	// (e.g. strait.queue.depth) but the Prometheus exporter renames them
-	// with underscores. Compare both forms.
-	dotted := corpus.String()
-	underscored := strings.ReplaceAll(dotted, ".", "_")
+	registered := registeredMetricNames(t)
 
 	// Extract metric identifiers from each expression. We treat any
 	// token starting with "strait_" and composed of [a-z0-9_] as a
@@ -86,15 +72,7 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 				}
 				found := false
 				for _, c := range candidates {
-					// Word-boundary match: avoid false positives where a
-					// shorter metric name is a substring of a longer one
-					// (e.g. strait_queue_depth vs strait_queue_depth_per_job).
-					pattern := `\b` + regexp.QuoteMeta(c) + `\b`
-					matched, err := regexp.MatchString(pattern, underscored)
-					if err != nil {
-						t.Fatalf("compile metric match regex %q: %v", pattern, err)
-					}
-					if matched {
+					if _, ok := registered[c]; ok {
 						found = true
 						break
 					}
@@ -112,6 +90,53 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatalf("did not extract any metric tokens; regex or rule structure is wrong")
+	}
+}
+
+func TestPrometheusRules_Shape(t *testing.T) {
+	doc := loadPrometheusRuleDoc(t)
+	alerts := map[string]struct{}{}
+
+	for _, group := range doc.Groups {
+		if group.Name == "" {
+			t.Error("rule group is missing name")
+		}
+		for _, rule := range group.Rules {
+			if rule.Alert == "" {
+				t.Errorf("group %q has rule with empty alert", group.Name)
+				continue
+			}
+			if _, exists := alerts[rule.Alert]; exists {
+				t.Errorf("duplicate alert name %q", rule.Alert)
+			}
+			alerts[rule.Alert] = struct{}{}
+			if strings.TrimSpace(rule.Expr) == "" {
+				t.Errorf("alert %s has empty expression", rule.Alert)
+			} else if err := validatePromQLShape(rule.Expr); err != nil {
+				t.Errorf("alert %s has invalid expression shape: %v", rule.Alert, err)
+			}
+			if rule.For == "" {
+				t.Errorf("alert %s is missing for duration", rule.Alert)
+			}
+			if rule.Labels["app"] != "strait" {
+				t.Errorf("alert %s must set app=strait", rule.Alert)
+			}
+			switch rule.Labels["severity"] {
+			case "warning", "page":
+			default:
+				t.Errorf("alert %s has unsupported severity %q", rule.Alert, rule.Labels["severity"])
+			}
+			if strings.TrimSpace(rule.Annotations["summary"]) == "" {
+				t.Errorf("alert %s is missing summary annotation", rule.Alert)
+			}
+			if strings.TrimSpace(rule.Annotations["description"]) == "" {
+				t.Errorf("alert %s is missing description annotation", rule.Alert)
+			}
+		}
+	}
+
+	if len(alerts) < 20 {
+		t.Errorf("expected at least 20 alert rules, got %d", len(alerts))
 	}
 }
 
@@ -146,6 +171,19 @@ func TestPrometheusRules_Promtool(t *testing.T) {
 func locateRulesFile(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(moduleRoot(t), "monitoring", "prometheus-rules.yaml")
+}
+
+func loadPrometheusRuleDoc(t *testing.T) prometheusRuleDoc {
+	t.Helper()
+	raw, err := os.ReadFile(locateRulesFile(t))
+	if err != nil {
+		t.Fatalf("read rules file: %v", err)
+	}
+	var doc prometheusRuleDoc
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse rules yaml: %v", err)
+	}
+	return doc
 }
 
 // moduleRoot walks up from the test binary's working directory until it
