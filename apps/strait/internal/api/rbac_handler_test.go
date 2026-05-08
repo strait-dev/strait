@@ -162,6 +162,9 @@ func TestHandleUpdateRole(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: id, Name: "deployer", Permissions: []string{"jobs:read"}}, nil
+	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
 		return nil
 	}
@@ -181,6 +184,9 @@ func TestHandleUpdateRole_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return nil, store.ErrRoleNotFound
+	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return store.ErrRoleNotFound
 	}

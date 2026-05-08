@@ -655,6 +655,9 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 func TestHandleListJobDependencies_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: time.Now()}}, nil
 	}
@@ -1892,17 +1895,19 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 	t.Parallel()
 	var capturedEnabled bool
 	var capturedIDs []string
+	var capturedProject string
 	ms := &APIStoreMock{
-		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool) (int64, error) {
+		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool, projectID string) (int64, error) {
 			capturedIDs = ids
 			capturedEnabled = enabled
+			capturedProject = projectID
 			return int64(len(ids)), nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`, "proj-aaa"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
@@ -1912,6 +1917,9 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 	}
 	if len(capturedIDs) != 3 {
 		t.Fatalf("expected 3 ids, got %d", len(capturedIDs))
+	}
+	if capturedProject != "proj-aaa" {
+		t.Fatalf("expected projectID=proj-aaa, got %q", capturedProject)
 	}
 
 	var resp BatchUpdateResult
@@ -1927,7 +1935,7 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 	t.Parallel()
 	var capturedEnabled bool
 	ms := &APIStoreMock{
-		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool) (int64, error) {
+		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool, _ string) (int64, error) {
 			capturedEnabled = enabled
 			return int64(len(ids)), nil
 		},
@@ -1935,7 +1943,7 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`, "proj-aaa"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())

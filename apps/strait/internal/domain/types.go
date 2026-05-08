@@ -1386,6 +1386,7 @@ type EventTrigger struct {
 	ID                string          `json:"id"`
 	EventKey          string          `json:"event_key"`
 	ProjectID         string          `json:"project_id"`
+	EnvironmentID     string          `json:"environment_id,omitempty"`       // optional env binding; empty means project-wide / legacy
 	SourceType        string          `json:"source_type"`                    // "workflow_step" or "job_run"
 	WorkflowRunID     string          `json:"workflow_run_id,omitempty"`      // set if source_type = workflow_step
 	WorkflowStepRunID string          `json:"workflow_step_run_id,omitempty"` // set if source_type = workflow_step

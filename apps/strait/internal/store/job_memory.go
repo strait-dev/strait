@@ -188,6 +188,39 @@ func (q *Queries) GetJobMemory(ctx context.Context, jobID, key string) (*domain.
 	return &mem, nil
 }
 
+// GetJobMemoryForActiveRun returns a memory row only if the supplied run is
+// active for the given attempt. The job-memory table is keyed on job_id, so
+// we additionally cross-check that the run identifies the same job.
+func (q *Queries) GetJobMemoryForActiveRun(ctx context.Context, runID, jobID, key string, attempt int) (*domain.JobMemory, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobMemoryForActiveRun")
+	defer span.End()
+
+	var active bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+		return nil, fmt.Errorf("check run active for attempt: %w", err)
+	}
+	if !active {
+		return nil, fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+	}
+	return q.GetJobMemory(ctx, jobID, key)
+}
+
+// ListJobMemoryForActiveRun mirrors ListJobMemory but rejects callers whose
+// run/attempt is no longer active.
+func (q *Queries) ListJobMemoryForActiveRun(ctx context.Context, runID, jobID string, attempt int) ([]domain.JobMemory, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobMemoryForActiveRun")
+	defer span.End()
+
+	var active bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+		return nil, fmt.Errorf("check run active for attempt: %w", err)
+	}
+	if !active {
+		return nil, fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+	}
+	return q.ListJobMemory(ctx, jobID)
+}
+
 func (q *Queries) ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobMemory")
 	defer span.End()

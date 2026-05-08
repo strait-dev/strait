@@ -298,13 +298,14 @@ type ListEventSourceSubscriptionsOutput struct {
 
 func (s *Server) handleListEventSourceSubscriptions(ctx context.Context, input *ListEventSourceSubscriptionsInput) (*ListEventSourceSubscriptionsOutput, error) {
 	projectID := projectIDFromContext(ctx)
-	if projectID != "" {
-		if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
-			if errors.Is(err, store.ErrEventSourceNotFound) {
-				return nil, huma.Error404NotFound("event source not found")
-			}
-			return nil, huma.Error500InternalServerError("failed to get event source")
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
+		if errors.Is(err, store.ErrEventSourceNotFound) {
+			return nil, huma.Error404NotFound("event source not found")
 		}
+		return nil, huma.Error500InternalServerError("failed to get event source")
 	}
 	subs, err := s.store.ListEventSubscriptionsBySource(ctx, input.SourceID)
 	if err != nil {
@@ -320,13 +321,14 @@ type DeleteEventSubscriptionInput struct {
 
 func (s *Server) handleDeleteEventSubscription(ctx context.Context, input *DeleteEventSubscriptionInput) (*struct{}, error) {
 	projectID := projectIDFromContext(ctx)
-	if projectID != "" {
-		if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
-			if errors.Is(err, store.ErrEventSourceNotFound) {
-				return nil, huma.Error404NotFound("event source not found")
-			}
-			return nil, huma.Error500InternalServerError("failed to get event source")
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	if _, err := s.store.GetEventSource(ctx, input.SourceID, projectID); err != nil {
+		if errors.Is(err, store.ErrEventSourceNotFound) {
+			return nil, huma.Error404NotFound("event source not found")
 		}
+		return nil, huma.Error500InternalServerError("failed to get event source")
 	}
 	sub, err := s.store.GetEventSubscription(ctx, input.SubID)
 	if err != nil {

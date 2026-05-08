@@ -249,19 +249,10 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 	if err := s.requireAdminScope(ctx, domain.ScopeDLQReplay); err != nil {
 		return nil, err
 	}
-	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
-		return nil, err
-	}
 
-	original, err := s.store.GetRun(ctx, input.RunID)
+	original, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		slog.Error("dlq unmask: load run failed",
-			"action", "dlq.unmask", "run_id", input.RunID, "actor_id", actorID, "err", err,
-		)
-		return nil, huma.Error500InternalServerError("failed to load run")
+		return nil, err
 	}
 	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 
@@ -316,19 +307,10 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 	if err := s.requireAdminScope(ctx, domain.ScopeDLQPurge); err != nil {
 		return nil, err
 	}
-	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
-		return nil, err
-	}
 
-	original, err := s.store.GetRun(ctx, input.RunID)
+	original, err := s.getRunForAccess(ctx, input.RunID)
 	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		slog.Error("dlq purge: load run failed",
-			"action", "dlq.purge", "run_id", input.RunID, "actor_id", actorID, "err", err,
-		)
-		return nil, huma.Error500InternalServerError("failed to load run")
+		return nil, err
 	}
 	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 

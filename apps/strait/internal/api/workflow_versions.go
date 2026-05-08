@@ -24,6 +24,16 @@ func (s *Server) handleListWorkflowVersions(ctx context.Context, input *ListWork
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 	versions, err := s.store.ListWorkflowVersions(ctx, input.WorkflowID, limit)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list workflow versions")
@@ -86,6 +96,16 @@ type WorkflowVersionDiffOutput struct {
 }
 
 func (s *Server) handleWorkflowVersionDiff(ctx context.Context, input *WorkflowVersionDiffInput) (*WorkflowVersionDiffOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 	fromVersion, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.FromVersionID)
 	if err != nil {
 		return nil, huma.Error404NotFound("from workflow version not found")
@@ -135,6 +155,16 @@ type WorkflowVersionImpactOutput struct {
 }
 
 func (s *Server) handleWorkflowVersionImpact(ctx context.Context, input *WorkflowVersionImpactInput) (*WorkflowVersionImpactOutput, error) {
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 	version, err := s.store.GetWorkflowVersionByVersionID(ctx, input.WorkflowID, input.VersionID)
 	if err != nil {
 		return nil, huma.Error404NotFound("workflow version not found")
