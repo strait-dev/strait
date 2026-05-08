@@ -108,12 +108,7 @@ func sanitizeBreadcrumbData(data map[string]any) map[string]any {
 		if shouldDropBreadcrumbDataKey(key) {
 			continue
 		}
-		switch v := value.(type) {
-		case string:
-			out[key] = truncateBreadcrumbValue(SanitizeValue(key, v), maxBreadcrumbMessageBytes)
-		default:
-			out[key] = value
-		}
+		out[key] = sanitizeSentryBreadcrumbValue(key, value, 0)
 	}
 	return out
 }
@@ -128,6 +123,34 @@ func sanitizeSentryBreadcrumb(breadcrumb *sentry.Breadcrumb) *sentry.Breadcrumb 
 		return nil
 	}
 	return breadcrumb
+}
+
+func sanitizeSentryBreadcrumbValue(key string, value any, depth int) any {
+	switch v := sanitizeSentryValue(key, value, depth).(type) {
+	case string:
+		return truncateBreadcrumbValue(v, maxBreadcrumbMessageBytes)
+	case map[string]any:
+		return truncateBreadcrumbMap(v)
+	case []any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, sanitizeSentryBreadcrumbValue(key, item, depth+1))
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func truncateBreadcrumbMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = sanitizeSentryBreadcrumbValue(key, value, 0)
+	}
+	return out
 }
 
 func truncateBreadcrumbValue(value string, maxBytes int) string {

@@ -81,13 +81,17 @@ func (f *OutboxFlusher) Errors() int64     { return f.errors.Load() }
 func (f *OutboxFlusher) Run(ctx context.Context) {
 	ticker := time.NewTicker(f.interval)
 	defer ticker.Stop()
-	_ = f.flushOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, f.interval, func() {
+		_ = f.flushOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = f.flushOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, f.interval, func() {
+				_ = f.flushOnce(ctx)
+			})
 		}
 	}
 }

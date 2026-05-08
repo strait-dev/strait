@@ -28,13 +28,22 @@ var exitFunc = func(code int) { os.Exit(code) }
 
 var captureSchedulerCheckIn = sentry.CaptureCheckIn
 
+type schedulerCheckInContextKey struct{}
+
+type schedulerCheckInContext struct {
+	meta      sentrySchedulerMetadata
+	component string
+}
+
 // safeGo wraps a goroutine with panic recovery. If the function panics,
 // the panic is logged with a stack trace, reported to Sentry, and the
 // process is terminated. A silently dead scheduler component is worse
 // than a restart, so we crash to let the process manager
 // restart us.
 func safeGo(wg *conc.WaitGroup, name string, fn func()) {
-	safeGoWithContext(context.Background(), sentrySchedulerMetadata{}, wg, name, fn)
+	safeGoWithContext(context.Background(), sentrySchedulerMetadata{}, wg, name, func(context.Context) {
+		fn()
+	})
 }
 
 type sentrySchedulerMetadata struct {
@@ -45,15 +54,18 @@ type sentrySchedulerMetadata struct {
 	checkInMonitorPrefix string
 }
 
-func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *conc.WaitGroup, name string, fn func()) {
+func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *conc.WaitGroup, name string, fn func(context.Context)) {
 	wg.Go(func() {
-		ctx := telemetry.EnsureSentryHub(ctx)
-		checkInID := startSchedulerCheckIn(meta, name)
+		ctx := context.WithValue(telemetry.EnsureSentryHub(ctx), schedulerCheckInContextKey{}, schedulerCheckInContext{
+			meta:      meta,
+			component: name,
+		})
+		checkInID := startSchedulerLifecycleCheckIn(meta, name)
 		checkInStart := time.Now()
 		checkInFinished := false
 		defer func() {
 			if !checkInFinished {
-				finishSchedulerCheckIn(meta, name, checkInID, sentry.CheckInStatusOK, time.Since(checkInStart))
+				finishSchedulerLifecycleCheckIn(meta, name, checkInID, sentry.CheckInStatusOK, time.Since(checkInStart))
 			}
 		}()
 		telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component started", map[string]any{
@@ -62,7 +74,7 @@ func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *co
 		defer func() {
 			if r := recover(); r != nil {
 				checkInFinished = true
-				finishSchedulerCheckIn(meta, name, checkInID, sentry.CheckInStatusError, time.Since(checkInStart))
+				finishSchedulerLifecycleCheckIn(meta, name, checkInID, sentry.CheckInStatusError, time.Since(checkInStart))
 				stack := string(debug.Stack())
 				telemetry.AddSentryBreadcrumb(ctx, "scheduler.component", "scheduler component panic", map[string]any{
 					"component": name,
@@ -85,13 +97,13 @@ func safeGoWithContext(ctx context.Context, meta sentrySchedulerMetadata, wg *co
 				exitFunc(1)
 			}
 		}()
-		fn()
+		fn(ctx)
 		checkInFinished = true
-		finishSchedulerCheckIn(meta, name, checkInID, sentry.CheckInStatusOK, time.Since(checkInStart))
+		finishSchedulerLifecycleCheckIn(meta, name, checkInID, sentry.CheckInStatusOK, time.Since(checkInStart))
 	})
 }
 
-func startSchedulerCheckIn(meta sentrySchedulerMetadata, component string) sentry.EventID {
+func startSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component string) sentry.EventID {
 	if !meta.checkInsEnabled {
 		return ""
 	}
@@ -105,7 +117,7 @@ func startSchedulerCheckIn(meta sentrySchedulerMetadata, component string) sentr
 	return *eventID
 }
 
-func finishSchedulerCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration) {
+func finishSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration) {
 	if !meta.checkInsEnabled {
 		return
 	}
@@ -115,6 +127,72 @@ func finishSchedulerCheckIn(meta sentrySchedulerMetadata, component string, chec
 		Status:      status,
 		Duration:    duration,
 	}, nil)
+}
+
+func runSchedulerCycleCheckIn(ctx context.Context, interval time.Duration, fn func()) {
+	checkInCtx, ok := ctx.Value(schedulerCheckInContextKey{}).(schedulerCheckInContext)
+	if !ok || !checkInCtx.meta.checkInsEnabled {
+		fn()
+		return
+	}
+	component := checkInCtx.component + "_cycle"
+	checkInID := startSchedulerCycleCheckIn(checkInCtx.meta, component, interval)
+	started := time.Now()
+	status := sentry.CheckInStatusOK
+	defer func() {
+		if r := recover(); r != nil {
+			status = sentry.CheckInStatusError
+			finishSchedulerCycleCheckIn(checkInCtx.meta, component, checkInID, status, time.Since(started), nil)
+			panic(r)
+		}
+		finishSchedulerCycleCheckIn(checkInCtx.meta, component, checkInID, status, time.Since(started), nil)
+	}()
+	fn()
+}
+
+func startSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, interval time.Duration) sentry.EventID {
+	eventID := captureSchedulerCheckIn(&sentry.CheckIn{
+		MonitorSlug: schedulerCheckInSlug(meta, component),
+		Status:      sentry.CheckInStatusInProgress,
+	}, schedulerMonitorConfig(interval))
+	if eventID == nil {
+		return ""
+	}
+	return *eventID
+}
+
+func finishSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration, monitorConfig *sentry.MonitorConfig) {
+	captureSchedulerCheckIn(&sentry.CheckIn{
+		ID:          checkInID,
+		MonitorSlug: schedulerCheckInSlug(meta, component),
+		Status:      status,
+		Duration:    duration,
+	}, monitorConfig)
+}
+
+func schedulerMonitorConfig(interval time.Duration) *sentry.MonitorConfig {
+	if interval <= 0 {
+		return nil
+	}
+	minutes := int64(interval / time.Minute)
+	if interval%time.Minute != 0 {
+		minutes++
+	}
+	if minutes < 1 {
+		minutes = 1
+	}
+	return &sentry.MonitorConfig{
+		Schedule:      sentry.IntervalSchedule(minutes, sentry.MonitorScheduleUnitMinute),
+		CheckInMargin: maxInt64(1, minutes),
+		MaxRuntime:    maxInt64(1, minutes),
+	}
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func schedulerCheckInSlug(meta sentrySchedulerMetadata, component string) string {
@@ -178,14 +256,14 @@ type componentHandle struct {
 
 // track launches fn with panic recovery (via safeGo) and registers a
 // per-component done channel so Stop can enforce a shutdown deadline.
-func (t *componentTracker) track(ctx context.Context, wg *conc.WaitGroup, name string, fn func()) {
+func (t *componentTracker) track(ctx context.Context, wg *conc.WaitGroup, name string, fn func(context.Context)) {
 	done := make(chan struct{})
 	t.mu.Lock()
 	t.items = append(t.items, componentHandle{name: name, done: done})
 	t.mu.Unlock()
-	safeGoWithContext(ctx, t.sentry, wg, name, func() {
+	safeGoWithContext(ctx, t.sentry, wg, name, func(componentCtx context.Context) {
 		defer close(done)
-		fn()
+		fn(componentCtx)
 	})
 }
 

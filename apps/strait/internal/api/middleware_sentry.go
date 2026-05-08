@@ -95,6 +95,12 @@ func sentryHTTPContextTags(r *http.Request, meta sentryHTTPMetadata) map[telemet
 	if projectID := projectIDFromContext(ctx); projectID != "" {
 		tags[telemetry.TagProjectID] = projectID
 	}
+	if orgID := orgIDFromContext(ctx); orgID != "" {
+		tags[telemetry.TagOrgID] = orgID
+	}
+	if environmentID := environmentIDFromContext(ctx); environmentID != "" {
+		tags[telemetry.TagEnvironmentID] = environmentID
+	}
 	if actorID := actorFromContext(ctx); actorID != "" {
 		tags[telemetry.TagActorID] = actorID
 	}

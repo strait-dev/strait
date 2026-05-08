@@ -120,13 +120,17 @@ func (a *DLQAgeOut) Run(ctx context.Context) {
 	defer a.Close()
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
-	_ = a.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, a.interval, func() {
+		_ = a.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = a.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, a.interval, func() {
+				_ = a.runOnce(ctx)
+			})
 		}
 	}
 }

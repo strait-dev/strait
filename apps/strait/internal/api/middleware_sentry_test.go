@@ -22,6 +22,8 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 	routeCtx.RoutePatterns = []string{"/v1", "/runs/{runID}"}
 	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx)
 	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxOrgIDKey, "org-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-1")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 	ctx = context.WithValue(ctx, ctxRequestIDKey, "req-1")
@@ -47,19 +49,21 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 	}
 
 	wantTags := map[string]string{
-		"project_id": "proj-1",
-		"actor_id":   "user-1",
-		"actor_type": "user",
-		"request_id": "req-1",
-		"method":     http.MethodPost,
-		"route":      "/v1/runs/{runID}",
-		"edition":    "cloud",
-		"subsystem":  "api",
-		"mode":       "all",
-		"region":     "iad",
-		"version":    "test-version",
-		"trace_id":   traceID.String(),
-		"span_id":    spanID.String(),
+		"project_id":     "proj-1",
+		"org_id":         "org-1",
+		"environment_id": "env-1",
+		"actor_id":       "user-1",
+		"actor_type":     "user",
+		"request_id":     "req-1",
+		"method":         http.MethodPost,
+		"route":          "/v1/runs/{runID}",
+		"edition":        "cloud",
+		"subsystem":      "api",
+		"mode":           "all",
+		"region":         "iad",
+		"version":        "test-version",
+		"trace_id":       traceID.String(),
+		"span_id":        spanID.String(),
 	}
 	for key, want := range wantTags {
 		if got := event.Tags[key]; got != want {

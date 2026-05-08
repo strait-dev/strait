@@ -188,10 +188,10 @@ func (e *WorkflowEngine) startStep(
 			jobRun.Metadata = make(map[string]string, 2)
 		}
 		if tp, ok := wfRun.TraceContext["traceparent"]; ok {
-			jobRun.Metadata["_trace_parent"] = tp
+			jobRun.Metadata[domain.RunMetadataTraceParent] = tp
 		}
 		if ts, ok := wfRun.TraceContext["tracestate"]; ok {
-			jobRun.Metadata["_trace_state"] = ts
+			jobRun.Metadata[domain.RunMetadataTraceState] = ts
 		}
 	}
 	if err := queue.EnqueueWithRetry(ctx, e.queue, jobRun, queue.DefaultInternalEnqueueRetryConfig()); err != nil {

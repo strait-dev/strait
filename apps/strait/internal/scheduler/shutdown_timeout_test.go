@@ -58,7 +58,7 @@ func TestComponentTracker_WaitWithTimeout(t *testing.T) {
 
 			for i, fn := range tc.components {
 				name := tc.name + "-" + string(rune('a'+i))
-				tracker.track(context.Background(), &wg, name, fn)
+				tracker.track(context.Background(), &wg, name, func(context.Context) { fn() })
 			}
 
 			start := time.Now()
@@ -92,7 +92,7 @@ func TestComponentTracker_TrackCountsInvocations(t *testing.T) {
 	var ran atomic.Int32
 
 	for range 5 {
-		tracker.track(context.Background(), &wg, "worker", func() { ran.Add(1) })
+		tracker.track(context.Background(), &wg, "worker", func(context.Context) { ran.Add(1) })
 	}
 
 	wg.Wait()

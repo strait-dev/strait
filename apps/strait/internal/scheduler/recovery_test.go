@@ -37,7 +37,7 @@ func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
 	ctx := sentry.SetHubOnContext(context.Background(), hub)
 
 	var wg conc.WaitGroup
-	safeGoWithContext(ctx, sentrySchedulerMetadata{mode: "all", region: "iad", version: "test-version"}, &wg, "breadcrumb-component", func() {})
+	safeGoWithContext(ctx, sentrySchedulerMetadata{mode: "all", region: "iad", version: "test-version"}, &wg, "breadcrumb-component", func(context.Context) {})
 	wg.Wait()
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
@@ -65,7 +65,7 @@ func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
 	safeGoWithContext(context.Background(), sentrySchedulerMetadata{
 		checkInsEnabled:      true,
 		checkInMonitorPrefix: "Strait Scheduler",
-	}, &wg, "Clean Component", func() {})
+	}, &wg, "Clean Component", func(context.Context) {})
 	wg.Wait()
 
 	if len(got) != 2 {
@@ -85,6 +85,80 @@ func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
 	}
 	if got[1].Duration < 0 {
 		t.Fatalf("duration = %v, want non-negative", got[1].Duration)
+	}
+}
+
+func TestSafeGoWithContext_PassesSentryContextToComponent(t *testing.T) {
+	t.Parallel()
+
+	hub := sentry.NewHub(nil, sentry.NewScope())
+	ctx := sentry.SetHubOnContext(context.Background(), hub)
+
+	var wg conc.WaitGroup
+	var gotHub *sentry.Hub
+	var gotCheckIn schedulerCheckInContext
+	safeGoWithContext(ctx, sentrySchedulerMetadata{
+		checkInsEnabled:      true,
+		checkInMonitorPrefix: "strait",
+	}, &wg, "component", func(componentCtx context.Context) {
+		gotHub = sentry.GetHubFromContext(componentCtx)
+		gotCheckIn, _ = componentCtx.Value(schedulerCheckInContextKey{}).(schedulerCheckInContext)
+	})
+	wg.Wait()
+
+	if gotHub == nil {
+		t.Fatal("component context is missing sentry hub")
+	}
+	if gotCheckIn.component != "component" {
+		t.Fatalf("component check-in context = %q, want component", gotCheckIn.component)
+	}
+}
+
+func TestRunSchedulerCycleCheckIn_CapturesConfiguredCycle(t *testing.T) {
+	// Not parallel: mutates package-level captureSchedulerCheckIn.
+	origCapture := captureSchedulerCheckIn
+	defer func() { captureSchedulerCheckIn = origCapture }()
+
+	type captured struct {
+		checkIn sentry.CheckIn
+		config  *sentry.MonitorConfig
+	}
+	var got []captured
+	id := sentry.EventID("cycle-check-in-id")
+	captureSchedulerCheckIn = func(checkIn *sentry.CheckIn, cfg *sentry.MonitorConfig) *sentry.EventID {
+		got = append(got, captured{checkIn: *checkIn, config: cfg})
+		return &id
+	}
+
+	ctx := context.WithValue(context.Background(), schedulerCheckInContextKey{}, schedulerCheckInContext{
+		meta: sentrySchedulerMetadata{
+			checkInsEnabled:      true,
+			checkInMonitorPrefix: "strait",
+		},
+		component: "reaper",
+	})
+	ran := false
+	runSchedulerCycleCheckIn(ctx, 90*time.Second, func() {
+		ran = true
+	})
+
+	if !ran {
+		t.Fatal("cycle body did not run")
+	}
+	if len(got) != 2 {
+		t.Fatalf("check-ins = %d, want 2", len(got))
+	}
+	if got[0].checkIn.MonitorSlug != "strait-reaper-cycle" {
+		t.Fatalf("monitor slug = %q, want strait-reaper-cycle", got[0].checkIn.MonitorSlug)
+	}
+	if got[0].config == nil || got[0].config.CheckInMargin != 2 || got[0].config.MaxRuntime != 2 {
+		t.Fatalf("monitor config = %#v, want 2 minute interval config", got[0].config)
+	}
+	if got[1].checkIn.ID != id {
+		t.Fatalf("finish id = %q, want %q", got[1].checkIn.ID, id)
+	}
+	if got[1].checkIn.Status != sentry.CheckInStatusOK {
+		t.Fatalf("finish status = %q, want ok", got[1].checkIn.Status)
 	}
 }
 
@@ -109,7 +183,7 @@ func TestSafeGoWithContext_CapturesErrorCheckInOnPanic(t *testing.T) {
 	safeGoWithContext(context.Background(), sentrySchedulerMetadata{
 		checkInsEnabled:      true,
 		checkInMonitorPrefix: "strait",
-	}, &wg, "panic_component", func() {
+	}, &wg, "panic_component", func(context.Context) {
 		panic("boom")
 	})
 	wg.Wait()

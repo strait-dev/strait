@@ -19,6 +19,8 @@ import (
 
 const (
 	sentryHeavyTransactionModulo = 100
+	maxSentrySanitizeDepth       = 8
+	maxSentrySanitizeItems       = 50
 )
 
 var (
@@ -139,8 +141,9 @@ func BeforeSend(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 	return event
 }
 
-// BeforeSendTransaction drops high-volume streaming transactions except for a
-// deterministic 1% sample. The SDK's global trace sample rate still applies.
+// BeforeSendTransaction is the final transaction safety filter. TracesSampler
+// handles primary sampling; this hook preserves deterministic heavy-route
+// filtering and redaction for transactions that still reach send time.
 func BeforeSendTransaction(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	if event == nil {
 		return nil
@@ -405,11 +408,69 @@ func sanitizeSentryEvent(event *sentry.Event) {
 		event.Breadcrumbs[i] = sanitizeSentryBreadcrumb(event.Breadcrumbs[i])
 	}
 	for name, ctx := range event.Contexts {
-		for k, v := range ctx {
-			if s, ok := v.(string); ok {
-				event.Contexts[name][k] = SanitizeValue(k, s)
-			}
+		event.Contexts[name] = sanitizeSentryContext(ctx, 0)
+	}
+}
+
+func sanitizeSentryContext(ctx sentry.Context, depth int) sentry.Context {
+	if len(ctx) == 0 {
+		return nil
+	}
+	out := make(sentry.Context, len(ctx))
+	for key, value := range ctx {
+		if shouldDropBreadcrumbDataKey(key) {
+			continue
 		}
+		out[key] = sanitizeSentryValue(key, value, depth+1)
+	}
+	return out
+}
+
+func sanitizeSentryMap(values map[string]any, depth int) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		if shouldDropBreadcrumbDataKey(key) {
+			continue
+		}
+		out[key] = sanitizeSentryValue(key, value, depth+1)
+	}
+	return out
+}
+
+func sanitizeSentrySlice(key string, values []any, depth int) []any {
+	if len(values) == 0 {
+		return nil
+	}
+	limit := min(len(values), maxSentrySanitizeItems)
+	out := make([]any, 0, limit)
+	for i := range limit {
+		out = append(out, sanitizeSentryValue(key, values[i], depth+1))
+	}
+	return out
+}
+
+func sanitizeSentryValue(key string, value any, depth int) any {
+	if depth > maxSentrySanitizeDepth {
+		return "[TRUNCATED]"
+	}
+	switch v := value.(type) {
+	case string:
+		return SanitizeValue(key, v)
+	case map[string]any:
+		return sanitizeSentryMap(v, depth+1)
+	case []any:
+		return sanitizeSentrySlice(key, v, depth+1)
+	case []string:
+		values := make([]any, 0, len(v))
+		for _, item := range v {
+			values = append(values, item)
+		}
+		return sanitizeSentrySlice(key, values, depth+1)
+	default:
+		return value
 	}
 }
 

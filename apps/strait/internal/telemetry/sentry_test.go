@@ -309,6 +309,66 @@ func TestSanitizeValue_NonSensitiveKeyWithSecretPattern(t *testing.T) {
 	}
 }
 
+func TestSanitizeSentryEvent_RedactsNestedContext(t *testing.T) {
+	t.Parallel()
+
+	event := &sentry.Event{
+		Contexts: map[string]sentry.Context{
+			"nested": {
+				"request": map[string]any{
+					"token": "secret-token",
+					"error": "postgres://user:pass@host:5432/db",
+					"items": []any{
+						map[string]any{"authorization": "Bearer abc123"},
+						"redis://default:pass@redis:6379/0",
+					},
+				},
+			},
+		},
+	}
+
+	sanitizeSentryEvent(event)
+
+	request := event.Contexts["nested"]["request"].(map[string]any)
+	if _, ok := request["token"]; ok {
+		t.Fatal("nested token key should be dropped")
+	}
+	if got := request["error"].(string); strings.Contains(got, "postgres://") {
+		t.Fatalf("nested context error was not scrubbed: %q", got)
+	}
+	items := request["items"].([]any)
+	item := items[0].(map[string]any)
+	if _, ok := item["authorization"]; ok {
+		t.Fatal("nested authorization key should be dropped")
+	}
+	if got := items[1].(string); strings.Contains(got, "redis://") {
+		t.Fatalf("nested slice value was not scrubbed: %q", got)
+	}
+}
+
+func TestSanitizeBreadcrumbData_RedactsNestedValues(t *testing.T) {
+	t.Parallel()
+
+	got := sanitizeBreadcrumbData(map[string]any{
+		"headers": "Authorization: Bearer abc",
+		"details": map[string]any{
+			"secret": "value",
+			"error":  "redis://default:pass@redis:6379/0",
+		},
+	})
+
+	if _, ok := got["headers"]; ok {
+		t.Fatal("headers key should be dropped")
+	}
+	details := got["details"].(map[string]any)
+	if _, ok := details["secret"]; ok {
+		t.Fatal("nested secret key should be dropped")
+	}
+	if value := details["error"].(string); strings.Contains(value, "redis://") {
+		t.Fatalf("nested breadcrumb value was not scrubbed: %q", value)
+	}
+}
+
 // --- ScrubSecrets tests.
 
 func TestScrubSecrets_PostgresURL(t *testing.T) {

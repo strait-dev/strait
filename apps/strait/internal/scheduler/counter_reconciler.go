@@ -81,13 +81,17 @@ func (r *CounterReconciler) TotalDrift() int64 { return r.totalDrift.Load() }
 func (r *CounterReconciler) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
-	_ = r.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, r.interval, func() {
+		_ = r.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = r.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, r.interval, func() {
+				_ = r.runOnce(ctx)
+			})
 		}
 	}
 }

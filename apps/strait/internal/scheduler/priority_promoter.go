@@ -91,13 +91,17 @@ func (p *PriorityPromoter) RowsPromoted() int64 { return p.rowsPromoted.Load() }
 func (p *PriorityPromoter) Run(ctx context.Context) {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	_ = p.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, p.interval, func() {
+		_ = p.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = p.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				_ = p.runOnce(ctx)
+			})
 		}
 	}
 }

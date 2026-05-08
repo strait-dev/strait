@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getsentry/sentry-go"
+
 	"strait/internal/pubsub"
 )
 
@@ -39,6 +41,28 @@ func TestConsumerRegisterMultipleHandlers(t *testing.T) {
 
 	if len(consumer.handlers) != 2 {
 		t.Fatalf("len(handlers) = %d, want 2", len(consumer.handlers))
+	}
+}
+
+func TestConsumerBatchPublishFailureSentryScope(t *testing.T) {
+	t.Parallel()
+
+	consumer := NewConsumer(NewClient("http://example.com", "cdc-consumer", ""), ConsumerConfig{ConsumerName: "cdc-consumer"}, slog.Default())
+	scope := sentry.NewScope()
+	consumer.applyBatchPublishFailureSentryScope(scope, 3)
+
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event.Tags["subsystem"] != "cdc" {
+		t.Fatalf("subsystem tag = %q, want cdc", event.Tags["subsystem"])
+	}
+	if event.Tags["consumer"] != "cdc-consumer" {
+		t.Fatalf("consumer tag = %q, want cdc-consumer", event.Tags["consumer"])
+	}
+	if event.Tags["operation"] != "publish_batch" {
+		t.Fatalf("operation tag = %q, want publish_batch", event.Tags["operation"])
+	}
+	if event.Contexts["cdc.batch"]["batch_count"] != 3 {
+		t.Fatalf("batch_count context = %v, want 3", event.Contexts["cdc.batch"]["batch_count"])
 	}
 }
 
