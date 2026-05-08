@@ -1721,21 +1721,21 @@ func TestPgStore_ListActiveAddons(t *testing.T) {
 	a1 := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  5,
 		Active:    true,
 	}
 	a2 := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonMembers,
+		AddonType: billing.AddonEnvironments5,
 		Quantity:  10,
 		Active:    true,
 	}
 	aInactive := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonDataRetention,
+		AddonType: billing.AddonHistory30d,
 		Quantity:  1,
 		Active:    false,
 	}
@@ -1768,7 +1768,7 @@ func TestPgStore_DeactivateAddon(t *testing.T) {
 	a := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  5,
 		Active:    true,
 	}
@@ -1803,7 +1803,7 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 		a := &billing.Addon{
 			ID:        newID(),
 			OrgID:     orgID,
-			AddonType: billing.AddonConcurrentRuns,
+			AddonType: billing.AddonConcurrency100,
 			Quantity:  1,
 			Active:    true,
 		}
@@ -1815,7 +1815,7 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 	aInact := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    false,
 	}
@@ -1823,7 +1823,7 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 		t.Fatalf("CreateAddon inactive error = %v", err)
 	}
 
-	count, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonConcurrentRuns)
+	count, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonConcurrency100)
 	if err != nil {
 		t.Fatalf("CountActiveAddonsByType error = %v", err)
 	}
@@ -1832,12 +1832,12 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 	}
 
 	// Different type should be 0.
-	count2, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonMembers)
+	count2, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonEnvironments5)
 	if err != nil {
-		t.Fatalf("CountActiveAddonsByType members error = %v", err)
+		t.Fatalf("CountActiveAddonsByType environments_5 = %v", err)
 	}
 	if count2 != 0 {
-		t.Errorf("CountActiveAddonsByType members = %d, want 0", count2)
+		t.Errorf("CountActiveAddonsByType environments_5 = %d, want 0", count2)
 	}
 }
 

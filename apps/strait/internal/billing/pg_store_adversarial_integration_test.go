@@ -208,7 +208,7 @@ func TestAdversarial_DoubleDeactivateAddon(t *testing.T) {
 	a := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}
@@ -246,7 +246,7 @@ func TestAdversarial_DuplicateAddonID(t *testing.T) {
 	a := &billing.Addon{
 		ID:        id,
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}

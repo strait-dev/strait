@@ -436,11 +436,6 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithEnterpriseStarterPrice(cfg.StripeEnterpriseStarterYearlyPriceID),
 			billing.WithEnterpriseGrowthPrice(cfg.StripeEnterpriseGrowthYearlyPriceID),
 			billing.WithEnterpriseLargePrice(cfg.StripeEnterpriseLargeYearlyPriceID),
-			billing.WithAddonPrice(cfg.StripeAddonConcurrentRunsID, billing.AddonConcurrentRuns),
-			billing.WithAddonPrice(cfg.StripeAddonMembersID, billing.AddonMembers),
-			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
-			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
-			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
 			// Orchestration-only flat tier prices (new billing model).
 			billing.WithStarterFlatPrice(cfg.StripeStarterPriceID),
 			billing.WithProFlatPrice(cfg.StripeProPriceID),

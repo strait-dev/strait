@@ -200,29 +200,25 @@ func TestAddonEnforcement(t *testing.T) {
 		checkFn   func(OrgPlanLimits) int
 		wantValue int
 	}{
-		{"pro_1_concurrent_pack", domain.PlanPro, []Addon{{AddonType: AddonConcurrentRuns, Quantity: 1, Active: true}},
-			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro + 50},
-		{"pro_2_concurrent_packs", domain.PlanPro, []Addon{{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true}},
+		{"pro_1_concurrency_pack", domain.PlanPro, []Addon{{AddonType: AddonConcurrency100, Quantity: 1, Active: true}},
 			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro + 100},
-		{"pro_5_member_packs", domain.PlanPro, []Addon{{AddonType: AddonMembers, Quantity: 5, Active: true}},
-			func(l OrgPlanLimits) int { return l.MaxMembersPerOrg }, MaxMembersPro + 5},
-		{"starter_1_retention_pack", domain.PlanStarter, []Addon{{AddonType: AddonDataRetention, Quantity: 1, Active: true}},
+		{"pro_2_concurrency_packs", domain.PlanPro, []Addon{{AddonType: AddonConcurrency100, Quantity: 2, Active: true}},
+			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro + 200},
+		{"pro_3_envs_packs", domain.PlanPro, []Addon{{AddonType: AddonEnvironments5, Quantity: 3, Active: true}},
+			func(l OrgPlanLimits) int { return l.MaxEnvironments }, 3 + 15},
+		{"starter_1_history_pack", domain.PlanStarter, []Addon{{AddonType: AddonHistory30d, Quantity: 1, Active: true}},
 			func(l OrgPlanLimits) int { return l.RetentionDays }, RetentionStarter + 30},
-		{"starter_3_retention_capped", domain.PlanStarter, []Addon{{AddonType: AddonDataRetention, Quantity: 3, Active: true}},
-			func(l OrgPlanLimits) int { return l.RetentionDays }, 90},
-		{"pro_1_cron_pack", domain.PlanPro, []Addon{{AddonType: AddonCronSchedules, Quantity: 1, Active: true}},
-			func(l OrgPlanLimits) int { return l.MaxScheduledJobs }, MaxScheduledPro + 25},
-		{"pro_2_webhook_packs", domain.PlanPro, []Addon{{AddonType: AddonWebhookEndpoints, Quantity: 2, Active: true}},
-			func(l OrgPlanLimits) int { return l.MaxWebhookEndpoints }, 10 + 10},
-		{"deactivated_ignored", domain.PlanPro, []Addon{{AddonType: AddonConcurrentRuns, Quantity: 5, Active: false}},
+		{"pro_2_history_packs", domain.PlanPro, []Addon{{AddonType: AddonHistory30d, Quantity: 2, Active: true}},
+			func(l OrgPlanLimits) int { return l.RetentionDays }, RetentionPro + 60},
+		{"deactivated_ignored", domain.PlanPro, []Addon{{AddonType: AddonConcurrency100, Quantity: 5, Active: false}},
 			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro},
-		{"quantity_0_ignored", domain.PlanPro, []Addon{{AddonType: AddonConcurrentRuns, Quantity: 0, Active: true}},
+		{"quantity_0_ignored", domain.PlanPro, []Addon{{AddonType: AddonConcurrency100, Quantity: 0, Active: true}},
 			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro},
-		{"negative_quantity_ignored", domain.PlanPro, []Addon{{AddonType: AddonConcurrentRuns, Quantity: -1, Active: true}},
+		{"negative_quantity_ignored", domain.PlanPro, []Addon{{AddonType: AddonConcurrency100, Quantity: -1, Active: true}},
 			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro},
 		{"unknown_type_ignored", domain.PlanPro, []Addon{{AddonType: AddonType("nonexistent"), Quantity: 10, Active: true}},
 			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, ConcurrentPro},
-		{"enterprise_stays_unlimited", domain.PlanEnterprise, []Addon{{AddonType: AddonConcurrentRuns, Quantity: 10, Active: true}},
+		{"enterprise_stays_unlimited", domain.PlanEnterprise, []Addon{{AddonType: AddonConcurrency100, Quantity: 10, Active: true}},
 			func(l OrgPlanLimits) int { return l.MaxConcurrentRuns }, -1},
 	}
 
@@ -322,9 +318,9 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 
 	t.Run("addon_subscription_creates_record", func(t *testing.T) {
 		t.Parallel()
-		mapping := NewStripeMappingFromOptions(
-			WithAddonPrice("addon-cr", AddonConcurrentRuns),
-		)
+		// Addon resolution now flows through CatalogResolver via lookup_key;
+		// no per-account price-ID mapping required.
+		mapping := NewStripeMappingFromOptions()
 		store := &mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
 				"org-1": {OrgID: "org-1", PlanTier: "pro", Status: "active"},
@@ -332,7 +328,7 @@ func TestStripeWebhookEnforcement(t *testing.T) {
 		}
 		handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
-		body := `{"id":"evt-addon","type":"customer.subscription.created","data":{"object":{"id":"addon-sub-1","status":"active","items":{"data":[{"price":{"id":"addon-cr"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
+		body := `{"id":"evt-addon","type":"customer.subscription.created","data":{"object":{"id":"addon-sub-1","status":"active","items":{"data":[{"price":{"id":"addon-unmapped","lookup_key":"strait_addon_concurrency_100"},"current_period_start":1700000000,"current_period_end":1702592000}]},"customer":{"id":"cust-1","email":"test@example.com","metadata":{"org_id":"00000000-0000-0000-0000-000000000040"}}}}}`
 		req := httptest.NewRequest("POST", "/stripe/webhook", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)

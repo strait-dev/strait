@@ -1110,13 +1110,13 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_create_1",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_1",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-800000000001"},
 		})
@@ -1135,13 +1135,13 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_no_org",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_no_org",
 			Metadata:   map[string]string{},
 		})
@@ -1169,13 +1169,13 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-members-id", AddonMembers),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_idem",
 			ProductID:  "addon-members-id",
+			LookupKey:  "strait_addon_environments_5",
 			CustomerID: "cust_addon_idem",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-800000000002"},
 		})
@@ -1212,13 +1212,13 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_cancel_1",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_cancel_1",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-900000000001"},
 		})
@@ -1237,13 +1237,13 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_cancel_no_org",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_cancel_no_org",
 			Metadata:   map[string]string{},
 		})
@@ -1270,13 +1270,13 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-members-id", AddonMembers),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_cancel_idem",
 			ProductID:  "addon-members-id",
+			LookupKey:  "strait_addon_environments_5",
 			CustomerID: "cust_addon_cancel_idem",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-900000000002"},
 		})
