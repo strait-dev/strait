@@ -1146,21 +1146,7 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 	// Non-retryable or exhausted → dead letter.
 	if !retryable || d.Attempts >= d.MaxAttempts {
 		d.Status = domain.WebhookStatusDead
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("delivery_id", d.ID)
-			scope.SetTag("webhook_url_domain", extractDomain(d.WebhookURL))
-			scope.SetTag("attempt", fmt.Sprintf("%d", d.Attempts))
-			scope.SetLevel(sentry.LevelWarning)
-			scope.SetContext("webhook", map[string]any{
-				"delivery_id":  d.ID,
-				"attempts":     d.Attempts,
-				"max_attempts": d.MaxAttempts,
-				"retryable":    retryable,
-				"error":        errMsg,
-			})
-			scope.SetFingerprint([]string{"webhook_dead_lettered"})
-			sentry.CaptureMessage(fmt.Sprintf("webhook delivery dead-lettered: %s", errMsg))
-		})
+		captureWebhookDeadLetter(ctx, d, retryable, errMsg)
 		updated, err := n.updateWebhookDelivery(ctx, d)
 		if err != nil {
 			n.logger.Error("failed to dead-letter webhook", "delivery_id", d.ID, "error", err)
@@ -1198,6 +1184,57 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 		"delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL),
 		"attempt", d.Attempts, "max_attempts", d.MaxAttempts,
 		"next_attempt", nextAttempt, "error", errMsg)
+}
+
+func captureWebhookDeadLetter(ctx context.Context, d *domain.WebhookDelivery, retryable bool, errMsg string) {
+	if d == nil {
+		return
+	}
+	capture := func(hub *sentry.Hub) {
+		hub.WithScope(func(scope *sentry.Scope) {
+			applyWebhookDeadLetterSentryScope(scope, d, retryable, errMsg)
+			hub.CaptureMessage(fmt.Sprintf("webhook delivery dead-lettered: %s", errMsg))
+		})
+	}
+	if hub := sentry.GetHubFromContext(ctx); hub != nil {
+		capture(hub)
+		return
+	}
+	capture(sentry.CurrentHub())
+}
+
+func applyWebhookDeadLetterSentryScope(scope *sentry.Scope, d *domain.WebhookDelivery, retryable bool, errMsg string) {
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemWebhook,
+	})
+	telemetry.SetSentryTag(scope, telemetry.TagDeliveryID, d.ID)
+	telemetry.SetSentryTag(scope, telemetry.TagRunID, d.RunID)
+	telemetry.SetSentryTag(scope, telemetry.TagJobID, d.JobID)
+	telemetry.SetSentryTag(scope, telemetry.TagProjectID, d.ProjectID)
+	telemetry.SetSentryTag(scope, telemetry.TagOrgID, d.OrgID)
+	telemetry.SetSentryTag(scope, telemetry.TagTriggerID, d.EventTriggerID)
+	telemetry.SetSentryTag(scope, telemetry.TagSubscriptionID, d.SubscriptionID)
+	telemetry.SetSentryTag(scope, telemetry.TagAttempt, strconv.Itoa(d.Attempts))
+	telemetry.SetSentryTag(scope, telemetry.TagOperation, "dead_letter")
+	scope.SetLevel(sentry.LevelWarning)
+	scope.SetContext("webhook.delivery", sentry.Context{
+		"delivery_id":        d.ID,
+		"run_id":             d.RunID,
+		"job_id":             d.JobID,
+		"project_id":         d.ProjectID,
+		"org_id":             d.OrgID,
+		"event_trigger_id":   d.EventTriggerID,
+		"subscription_id":    d.SubscriptionID,
+		"webhook_url_domain": extractDomain(d.WebhookURL),
+		"attempts":           d.Attempts,
+		"max_attempts":       d.MaxAttempts,
+		"retryable":          retryable,
+		"retry_policy":       d.RetryPolicy,
+		"last_status_code":   d.LastStatusCode,
+		"error":              errMsg,
+	})
+	scope.SetFingerprint([]string{"webhook_dead_lettered"})
 }
 
 func (n *DeliveryWorker) updateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error) {

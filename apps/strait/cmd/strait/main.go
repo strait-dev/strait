@@ -23,7 +23,6 @@ import (
 	"strait/internal/webhook"
 	"strait/internal/workflow"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/lmittmann/tint"
 	"github.com/redis/go-redis/v9"
 	concpool "github.com/sourcegraph/conc/pool"
@@ -74,62 +73,36 @@ func runServe(ctx context.Context, modeOverride string) error {
 	setupLogging(cfg.LogLevel, cfg.LogFormat)
 
 	if cfg.SentryDSN != "" {
-		if err := sentry.Init(sentry.ClientOptions{
-			Dsn:              cfg.SentryDSN,
-			Environment:      cfg.SentryEnvironment,
-			Release:          version,
-			AttachStacktrace: true,
-			SampleRate:       1.0,
-			TracesSampleRate: 0.1,
-			IgnoreErrors: []string{
-				"context canceled",
-				"context deadline exceeded",
-				"connection refused",
-				"connection reset by peer",
-				"broken pipe",
-				"use of closed network connection",
-			},
-			BeforeSend: func(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
-				if event.Request != nil {
-					event.Request.Headers = nil
-					event.Request.Cookies = ""
-					event.Request.Data = ""
-					if event.Request.QueryString != "" {
-						event.Request.QueryString = telemetry.SanitizeQueryString(event.Request.QueryString)
-					}
-				}
-				for i := range event.Exception {
-					event.Exception[i].Value = telemetry.ScrubSecrets(event.Exception[i].Value)
-				}
-				event.Message = telemetry.ScrubSecrets(event.Message)
-				for i := range event.Breadcrumbs {
-					if event.Breadcrumbs[i].Data != nil {
-						for _, key := range []string{
-							"request_body", "response_body", "headers",
-							"authorization", "token", "secret",
-						} {
-							delete(event.Breadcrumbs[i].Data, key)
-						}
-					}
-				}
-				for k, v := range event.Contexts["extra"] {
-					if s, ok := v.(string); ok {
-						event.Contexts["extra"][k] = telemetry.SanitizeValue(k, s)
-					}
-				}
-				return event
-			},
-		}); err != nil {
-			return fmt.Errorf("init sentry: %w", err)
+		release := cfg.SentryRelease
+		if release == "" {
+			release = telemetry.BuildSentryRelease(version, commit)
 		}
-		defer sentry.Flush(2 * time.Second)
+		shutdownSentry, err := telemetry.InitSentry(telemetry.SentryConfig{
+			DSN:                     cfg.SentryDSN,
+			Environment:             cfg.SentryEnvironment,
+			Release:                 release,
+			TracesSampleRate:        cfg.SentryTracesSampleRate,
+			Debug:                   cfg.SentryDebug,
+			MaxBreadcrumbs:          cfg.SentryMaxBreadcrumbs,
+			MaxSpans:                cfg.SentryMaxSpans,
+			MaxErrorDepth:           cfg.SentryMaxErrorDepth,
+			StrictTraceContinuation: cfg.SentryStrictTraceContinuation,
+		})
+		if err != nil {
+			return err
+		}
+		defer shutdownSentry()
 
 		// Re-wrap the slog handler to pipe Error-level logs to Sentry.
 		currentHandler := slog.Default().Handler()
 		sentryLogger := slog.New(telemetry.NewSentryHandler(currentHandler))
 		slog.SetDefault(sentryLogger)
 
-		slog.Info("sentry initialized", "environment", cfg.SentryEnvironment)
+		slog.Info("sentry initialized",
+			"environment", cfg.SentryEnvironment,
+			"release", release,
+			"traces_sample_rate", cfg.SentryTracesSampleRate,
+		)
 	}
 
 	slog.Info("starting strait",
@@ -420,6 +393,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
 		}
+		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 
@@ -454,7 +428,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
-	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb)
+	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, version)
 	if err != nil {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}

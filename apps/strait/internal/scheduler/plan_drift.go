@@ -94,13 +94,17 @@ func (m *PlanDriftMonitor) DriftCount() int64 { return m.driftCount.Load() }
 func (m *PlanDriftMonitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
-	_ = m.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, m.interval, func() {
+		_ = m.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = m.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, m.interval, func() {
+				_ = m.runOnce(ctx)
+			})
 		}
 	}
 }

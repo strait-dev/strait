@@ -38,7 +38,9 @@ func (p *DebouncePoller) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.poll(ctx)
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				p.poll(ctx)
+			})
 		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 )
@@ -96,30 +97,34 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority", run.Priority,
 		)
 
-		execCtx := withDispatchCache(context.WithoutCancel(ctx))
+		execCtx := telemetry.EnsureSentryHub(withDispatchCache(context.WithoutCancel(ctx)))
+		addWorkerRunBreadcrumb(execCtx, "queue.claim", "run claimed", &run, nil, map[string]any{
+			"priority": run.Priority,
+		})
 		e.pool.Submit(execCtx, func() {
 			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
+			addWorkerRunBreadcrumb(execCtx, "worker.dispatch", "run dispatch starting", &run, nil, nil)
 			defer func() {
 				if r := recover(); r != nil {
-					sentry.WithScope(func(scope *sentry.Scope) {
-						scope.SetTag("run_id", run.ID)
-						scope.SetTag("job_id", run.JobID)
-						scope.SetTag("project_id", run.ProjectID)
-						scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
-						scope.SetTag("execution_mode", string(run.ExecutionMode))
-						scope.SetLevel(sentry.LevelFatal)
-						scope.SetContext("run", map[string]any{
-							"run_id":         run.ID,
-							"job_id":         run.JobID,
-							"project_id":     run.ProjectID,
-							"attempt":        run.Attempt,
-							"priority":       run.Priority,
-							"execution_mode": run.ExecutionMode,
-							"status":         run.Status,
+					telemetry.AddSentryBreadcrumb(execCtx, "worker.dispatch", "worker panic", map[string]any{
+						"run_id":         run.ID,
+						"job_id":         run.JobID,
+						"project_id":     run.ProjectID,
+						"attempt":        run.Attempt,
+						"execution_mode": string(run.ExecutionMode),
+					})
+					hub := sentry.GetHubFromContext(execCtx)
+					if hub == nil {
+						hub = sentry.CurrentHub()
+					}
+					hub.WithScope(func(scope *sentry.Scope) {
+						e.applyWorkerSentryScope(scope, &run, map[string]any{
+							"execution_mode": string(run.ExecutionMode),
 						})
-						sentry.CurrentHub().Recover(r)
+						scope.SetLevel(sentry.LevelFatal)
+						hub.Recover(r)
 					})
 					sentry.Flush(2 * time.Second)
 					e.logger.Error("panic in executor goroutine", "run_id", run.ID, "panic", r)

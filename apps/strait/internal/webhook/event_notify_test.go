@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getsentry/sentry-go"
+
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/httputil"
@@ -36,6 +38,51 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 func init() {
 	newDefaultDeliveryTransport = func(bool) *http.Transport {
 		return httputil.NewExternalTransport(true)
+	}
+}
+
+func TestApplyWebhookDeadLetterSentryScope(t *testing.T) {
+	t.Parallel()
+
+	statusCode := http.StatusBadGateway
+	delivery := &domain.WebhookDelivery{
+		ID:             "del-1",
+		RunID:          "run-1",
+		JobID:          "job-1",
+		ProjectID:      "proj-1",
+		OrgID:          "org-1",
+		EventTriggerID: "trigger-1",
+		SubscriptionID: "sub-1",
+		WebhookURL:     "https://hooks.example.com/path",
+		RetryPolicy:    domain.WebhookRetryPolicyExponential,
+		Attempts:       3,
+		MaxAttempts:    3,
+		LastStatusCode: &statusCode,
+	}
+
+	scope := sentry.NewScope()
+	applyWebhookDeadLetterSentryScope(scope, delivery, true, "bad gateway")
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+
+	wantTags := map[string]string{
+		"subsystem":       "webhook",
+		"delivery_id":     "del-1",
+		"run_id":          "run-1",
+		"job_id":          "job-1",
+		"project_id":      "proj-1",
+		"org_id":          "org-1",
+		"trigger_id":      "trigger-1",
+		"subscription_id": "sub-1",
+		"attempt":         "3",
+		"operation":       "dead_letter",
+	}
+	for key, want := range wantTags {
+		if got := event.Tags[key]; got != want {
+			t.Fatalf("tag %s = %q, want %q", key, got, want)
+		}
+	}
+	if event.Contexts["webhook.delivery"]["webhook_url_domain"] != "hooks.example.com" {
+		t.Fatalf("webhook_url_domain context = %v, want hooks.example.com", event.Contexts["webhook.delivery"]["webhook_url_domain"])
 	}
 }
 

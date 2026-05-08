@@ -215,7 +215,7 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, ctxScopesKey, claims.Scopes)
 			ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
 			ctx = context.WithValue(ctx, ctxActorIDKey, "sse:"+claims.ProjectID)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			s.serveWithSentryScope(next, w, r.WithContext(ctx))
 			return
 		}
 
@@ -496,7 +496,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:"+apiKey.ID)
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
 }
 
@@ -598,7 +598,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 			})
 		}
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
 }
 
@@ -658,7 +658,7 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
 }
 

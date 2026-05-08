@@ -145,6 +145,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	if err := validateRegistration(reg); err != nil {
 		return err
 	}
+	configureGRPCSentryWorkerScope(ctx, reg.WorkerId, reg.Name, reg.Hostname, reg.SdkLanguage, reg.SdkVersion)
 
 	// Reject cross-project worker_id collisions. The in-memory registry
 	// rejects same-id-different-api-key on this replica, but a separate

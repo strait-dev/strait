@@ -55,7 +55,9 @@ func (uf *UsageFlusher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			uf.flush(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, uf.interval, func() {
+				uf.flush(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }

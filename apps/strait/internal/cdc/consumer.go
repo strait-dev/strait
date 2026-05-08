@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/domain"
 	"strait/internal/pubsub"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
@@ -198,12 +200,7 @@ func (c *Consumer) poll(ctx context.Context) error {
 	// so they are retried instead of being silently lost.
 	if len(batch) > 0 && c.publisher != nil {
 		if err := c.publisher.PublishBatch(ctx, batch); err != nil {
-			sentry.WithScope(func(scope *sentry.Scope) {
-				scope.SetTag("batch_count", fmt.Sprintf("%d", len(batch)))
-				scope.SetLevel(sentry.LevelError)
-				scope.SetFingerprint([]string{"cdc_batch_publish_failed"})
-				sentry.CaptureException(err)
-			})
+			c.captureBatchPublishFailure(ctx, err, len(batch))
 			c.logger.Error("batch publish failed, nacking messages", "count", len(batch), "error", err)
 			nackIDs = append(nackIDs, batchAckIDs...)
 		} else {
@@ -228,6 +225,35 @@ func (c *Consumer) poll(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *Consumer) captureBatchPublishFailure(ctx context.Context, err error, batchCount int) {
+	capture := func(hub *sentry.Hub) {
+		hub.WithScope(func(scope *sentry.Scope) {
+			c.applyBatchPublishFailureSentryScope(scope, batchCount)
+			hub.CaptureException(err)
+		})
+	}
+	if hub := sentry.GetHubFromContext(ctx); hub != nil {
+		capture(hub)
+		return
+	}
+	capture(sentry.CurrentHub())
+}
+
+func (c *Consumer) applyBatchPublishFailureSentryScope(scope *sentry.Scope, batchCount int) {
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemCDC,
+	})
+	telemetry.SetSentryTag(scope, telemetry.TagConsumer, c.config.ConsumerName)
+	telemetry.SetSentryTag(scope, telemetry.TagOperation, "publish_batch")
+	scope.SetLevel(sentry.LevelError)
+	scope.SetContext("cdc.batch", sentry.Context{
+		"consumer":    c.config.ConsumerName,
+		"batch_count": batchCount,
+	})
+	scope.SetFingerprint([]string{"cdc_batch_publish_failed"})
 }
 
 func (c *Consumer) registeredTables() []string {

@@ -48,6 +48,16 @@ Build the image:
 docker build -t strait apps/strait/
 ```
 
+Build with release metadata for `/health` and Sentry release tagging:
+
+```bash
+docker build \
+  --build-arg VERSION=v1.2.3 \
+  --build-arg COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t strait:v1.2.3 apps/strait/
+```
+
 Run a single-process deployment:
 
 ```bash
@@ -60,6 +70,95 @@ docker run \
   -e SECRET_ENCRYPTION_KEY=... \
   strait --mode all
 ```
+
+The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing. If any check fails, the deploy is aborted.
+
+```bash
+# From apps/strait/ — runs vet, lint, build, test before deploying
+make deploy
+
+# Or from repo root
+bun run deploy
+```
+
+## Sentry Releases
+
+When `SENTRY_DSN` is configured, Strait tags events with `SENTRY_RELEASE`.
+If that variable is empty, the server derives the release from the binary
+version and commit injected at build time (`VERSION+COMMIT`). Use the same
+value when creating Sentry releases:
+
+```bash
+export STRAIT_VERSION=v1.2.3
+export STRAIT_COMMIT=$(git rev-parse --short HEAD)
+export SENTRY_RELEASE="${STRAIT_VERSION}+${STRAIT_COMMIT}"
+
+sentry-cli releases new "$SENTRY_RELEASE"
+sentry-cli releases set-commits "$SENTRY_RELEASE" --auto
+sentry-cli releases finalize "$SENTRY_RELEASE"
+```
+
+Set `SENTRY_RELEASE` on every deployed API and worker process to keep errors,
+transactions, and breadcrumbs tied to the exact build.
+
+For dashboard deploys, upload sourcemaps after the frontend build and before
+publishing the bundle:
+
+```bash
+cd apps/app
+export STRAIT_VERSION="$STRAIT_VERSION"
+export STRAIT_COMMIT="$STRAIT_COMMIT"
+export SENTRY_ORG=your-org
+export SENTRY_PROJECT=your-dashboard-project
+export SENTRY_AUTH_TOKEN="<sentry-auth-token>"
+
+bun run build
+bun run sentry:upload-sourcemaps
+```
+
+The upload script uses the same release name (`SENTRY_RELEASE`, or
+`STRAIT_VERSION+STRAIT_COMMIT`) as the Go server. It uploads generated `.map`
+files from `.next`, `dist`, or `.output`, then removes `.map` files from public
+output directories so the deployed dashboard bundle does not expose sourcemaps.
+
+Manual smoke check: after deploy, trigger a handled dashboard error in the
+release environment and confirm Sentry shows an un-minified stack trace under
+the same release as the API and worker events.
+
+## Process Deployment
+
+Run Strait as one or more long-lived processes. For small deployments, run a
+single `--mode all` process. For higher throughput, split API and worker
+capacity into separate processes by passing `--mode api` or `--mode worker`.
+
+## Sequin Deployment
+
+Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, using the official `sequin/sequin:latest` image -- no build step needed.
+
+```bash
+# From repo root
+bun run deploy:sequin
+```
+
+Sequin requires the following secrets configured in your deployment platform:
+
+| Secret | Description |
+| :--- | :--- |
+| `PG_HOSTNAME` | PostgreSQL host |
+| `PG_PORT` | PostgreSQL port |
+| `PG_USERNAME` | PostgreSQL user |
+| `PG_PASSWORD` | PostgreSQL password |
+| `PG_DATABASE` | Database name |
+| `PG_SSL` | Enable SSL (`true`) |
+| `REDIS_URL` | Redis connection string |
+| `SECRET_KEY_BASE` | Sequin internal encryption key |
+| `VAULT_KEY` | Sequin vault encryption key |
+
+### Region Strategy
+
+- **Primary region**: Co-locate Strait with your database for lowest latency.
+- **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
+- **Sequin**: Single instance, co-located with the database. Sequin maintains a persistent connection to the database to detect changes, so it must run in the same region. Multiple instances would cause duplicate event processing.
 
 For local self-hosting, use the root `SELFHOST.md` guide.
 

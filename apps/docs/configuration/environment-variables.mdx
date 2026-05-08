@@ -76,7 +76,16 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `OTLP_METRIC_ENDPOINT` | - | OpenTelemetry endpoint for metrics, if different. |
 | `OTLP_METRIC_ENABLED` | `false` | Enable OTLP metric export. |
 | `SENTRY_DSN` | - | Sentry DSN for error reporting. |
-| `SENTRY_ENVIRONMENT` | - | Environment tag such as `production` or `staging`. |
+| `SENTRY_ENVIRONMENT` | - | Environment tag for Sentry and OTel resources, such as `production` or `staging`. |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Sentry trace sample rate from `0.0` to `1.0`. Tracing is enabled when this is greater than zero, and high-volume stream transactions are dropped by the Sentry sampler before send. |
+| `SENTRY_RELEASE` | - | Release identifier attached to Sentry events. Defaults to the binary version when unset. Use the same value for frontend sourcemap uploads. |
+| `SENTRY_DEBUG` | `false` | Enable Sentry SDK debug logging for troubleshooting. Keep disabled in production unless actively diagnosing ingestion. |
+| `SENTRY_MAX_BREADCRUMBS` | `100` | Maximum breadcrumbs attached to an event. Set negative to disable breadcrumbs. |
+| `SENTRY_MAX_SPANS` | `1000` | Maximum spans attached to a Sentry transaction. |
+| `SENTRY_MAX_ERROR_DEPTH` | `100` | Maximum wrapped-error chain depth reported by the Sentry SDK. |
+| `SENTRY_STRICT_TRACE_CONTINUATION` | `false` | Require incoming Sentry baggage org IDs to match before continuing third-party traces. |
+| `SENTRY_SCHEDULER_CHECKINS` | `false` | Emit Sentry monitor check-ins for scheduler components when enabled. |
+| `SENTRY_SCHEDULER_CHECKIN_PREFIX` | `strait-scheduler` | Prefix used for scheduler component monitor slugs. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
 
 ## Notifications

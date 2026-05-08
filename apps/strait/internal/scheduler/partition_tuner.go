@@ -111,13 +111,17 @@ func (t *PartitionTuner) Run(ctx context.Context) {
 	defer t.Close()
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
-	_ = t.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, t.interval, func() {
+		_ = t.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = t.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, t.interval, func() {
+				_ = t.runOnce(ctx)
+			})
 		}
 	}
 }
