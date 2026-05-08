@@ -21,7 +21,7 @@ var stepQueueDuration otelmetric.Float64Histogram
 func init() {
 	meter := otel.Meter("strait/workflow")
 	stepQueueDuration, _ = meter.Float64Histogram(
-		"strait.workflow.step_queue_seconds",
+		"strait_workflow_step_queue_seconds",
 		otelmetric.WithDescription("Time between step run creation and scheduling"),
 		otelmetric.WithUnit("s"),
 		otelmetric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300),

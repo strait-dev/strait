@@ -59,36 +59,10 @@ func TestMetricsPolicy_HistogramSuffixes(t *testing.T) {
 		if typ != "histogram" {
 			continue
 		}
-		if legacyHistogramName(name) {
-			continue
-		}
-		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") {
+		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") || strings.HasSuffix(name, "_number") {
 			continue
 		}
 		t.Errorf("histogram metric %q must include an explicit unit suffix", name)
-	}
-}
-
-func legacyHistogramName(name string) bool {
-	// Existing names that will be normalized in the follow-up metric
-	// migration phase. Keeping the exception here lets the inventory land
-	// before the runtime rename.
-	switch name {
-	case "strait_dequeue_duration",
-		"strait_dispatch_duration",
-		"strait_event_triggers_wait_duration",
-		"strait_execution_trace_dispatch_duration",
-		"strait_execution_trace_queue_wait_duration",
-		"strait_http_request_duration",
-		"strait_job_duration",
-		"strait_queue_lag",
-		"strait_run_duration",
-		"strait_scheduler_cron_drift",
-		"strait_worker_retry_attempts",
-		"strait_workflow_step_wait_duration":
-		return true
-	default:
-		return false
 	}
 }
 

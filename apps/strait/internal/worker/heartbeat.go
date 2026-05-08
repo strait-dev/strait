@@ -18,13 +18,13 @@ var (
 func init() {
 	meter := otel.Meter("strait/worker")
 	heartbeatFlushDuration, _ = meter.Float64Histogram(
-		"strait.worker.heartbeat_flush_duration_seconds",
+		"strait_worker_heartbeat_flush_duration_seconds",
 		metric.WithDescription("Duration of heartbeat batch flush to database"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
 	)
 	heartbeatFlushErrors, _ = meter.Int64Counter(
-		"strait.worker.heartbeat_flush_errors_total",
+		"strait_worker_heartbeat_flush_errors_total",
 		metric.WithDescription("Heartbeat batch flush failures"),
 	)
 }

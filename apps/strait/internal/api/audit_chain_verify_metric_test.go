@@ -93,7 +93,7 @@ func TestHandleVerifyAuditChain_CountsValid(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 
-	totals := countByReason(t, h.reader, "strait.audit.chain_verify_total")
+	totals := countByReason(t, h.reader, "strait_audit_chain_verify_total")
 	var sum int64
 	for _, v := range totals {
 		sum += v
@@ -101,7 +101,7 @@ func TestHandleVerifyAuditChain_CountsValid(t *testing.T) {
 	if sum != 1 {
 		t.Errorf("chain_verify_total = %d, want 1", sum)
 	}
-	failed := countByReason(t, h.reader, "strait.audit.chain_verify_failed_total")
+	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
 	var failedSum int64
 	for _, v := range failed {
 		failedSum += v
@@ -144,7 +144,7 @@ func TestHandleVerifyAuditChain_CountsBroken(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	failed := countByReason(t, h.reader, "strait.audit.chain_verify_failed_total")
+	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
 	if got := failed["chain_broken"]; got != 1 {
 		t.Errorf("chain_verify_failed_total{reason=chain_broken} = %d, want 1; full map: %+v", got, failed)
 	}
@@ -180,12 +180,12 @@ func TestHandleVerifyAuditChain_CountsVerifierError(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	failed := countByReason(t, h.reader, "strait.audit.chain_verify_failed_total")
+	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
 	if got := failed["verifier_error"]; got != 1 {
 		t.Errorf("chain_verify_failed_total{reason=verifier_error} = %d, want 1; map=%+v", got, failed)
 	}
 
-	totals := countByReason(t, h.reader, "strait.audit.chain_verify_total")
+	totals := countByReason(t, h.reader, "strait_audit_chain_verify_total")
 	var sum int64
 	for _, v := range totals {
 		sum += v

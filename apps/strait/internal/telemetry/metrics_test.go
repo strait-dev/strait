@@ -213,7 +213,7 @@ func TestStraitMetricInstruments(t *testing.T) {
 
 	meter := provider.Meter("strait")
 
-	runTransitions, err := meter.Int64Counter("strait.run.transitions",
+	runTransitions, err := meter.Int64Counter("strait_run_transitions_total",
 		metric.WithDescription("Total run status transitions"),
 		metric.WithUnit("1"),
 	)
@@ -221,7 +221,7 @@ func TestStraitMetricInstruments(t *testing.T) {
 		t.Fatalf("Int64Counter(run.transitions) error = %v", err)
 	}
 
-	dequeueDuration, err := meter.Float64Histogram("strait.dequeue.duration",
+	dequeueDuration, err := meter.Float64Histogram("strait_worker_dequeue_duration_seconds",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
 	)
@@ -229,7 +229,7 @@ func TestStraitMetricInstruments(t *testing.T) {
 		t.Fatalf("Float64Histogram(dequeue.duration) error = %v", err)
 	}
 
-	dispatchDuration, err := meter.Float64Histogram("strait.dispatch.duration",
+	dispatchDuration, err := meter.Float64Histogram("strait_dispatch_duration_seconds",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
 	)
@@ -237,7 +237,7 @@ func TestStraitMetricInstruments(t *testing.T) {
 		t.Fatalf("Float64Histogram(dispatch.duration) error = %v", err)
 	}
 
-	dispatchErrors, err := meter.Int64Counter("strait.dispatch.errors",
+	dispatchErrors, err := meter.Int64Counter("strait_dispatch_errors_total",
 		metric.WithDescription("Total dispatch errors"),
 		metric.WithUnit("1"),
 	)
