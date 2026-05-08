@@ -163,7 +163,7 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_worker_retry_total` | counter | `mode`, `reason` | bounded enums | <=50 series | worker |
 | `strait_worker_retry_attempt_number` | histogram | none | none | <=10 series | worker |
 | `strait_workflow_dependency_waits_total` | counter | `source_type`, `project` | bounded source enum; allowlisted project or `_other` | <=200 series | workflow |
-| `strait_workflow_active_runs` | gauge | `project` | allowlisted project or `_other` | <=100 series | workflow |
+| `strait_workflow_active_runs` | updown_counter | `project` | allowlisted project or `_other` | <=100 series | workflow |
 | `strait_workflow_compensation_runs_total` | counter | `outcome` | `success`, `failure`, `skipped` | <=10 series | workflow |
 | `strait_workflow_durable_wait_duration_seconds` | histogram | none | none | <=10 series | workflow |
 | `strait_workflow_stalled_runs_total` | counter | `reason` | bounded reason enum | <=20 series | workflow |

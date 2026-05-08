@@ -44,6 +44,7 @@ func (e *WorkflowEngine) startStep(
 		if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 			return fmt.Errorf("set approval step waiting: %w", err)
 		}
+		recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 		approval := &domain.WorkflowStepApproval{
 			ID:                fmt.Sprintf("approval:%s", stepRun.ID),
@@ -121,6 +122,7 @@ func (e *WorkflowEngine) startStep(
 			if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 				return fmt.Errorf("set cost gate step waiting: %w", err)
 			}
+			recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 			timeoutSecs := step.CostGateTimeoutSecs
 			if timeoutSecs <= 0 {
@@ -210,6 +212,7 @@ func (e *WorkflowEngine) startStep(
 		)
 		return fmt.Errorf("set step run running (job %s already enqueued): %w", jobRun.ID, err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepRunning))
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 	stepRun.JobRunID = jobRun.ID
@@ -249,6 +252,7 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set sub-workflow step running: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepRunning))
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow subworkflow step running", map[string]any{
@@ -347,6 +351,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set wait_for_event step waiting: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 	if e.onTriggerCreate != nil {
 		e.onTriggerCreate(trigger)
@@ -413,6 +418,7 @@ func (e *WorkflowEngine) startSleepStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set sleep step waiting: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 	if e.onTriggerCreate != nil {
 		e.onTriggerCreate(trigger)

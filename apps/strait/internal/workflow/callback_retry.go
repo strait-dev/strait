@@ -96,6 +96,7 @@ func (s *StepCallback) failWorkflowAndCancel(ctx context.Context, wfRun *domain.
 		if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{"error": stepRun.Error, "finished_at": now}); err != nil {
 			return fmt.Errorf("mark workflow failed: %w", err)
 		}
+		recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 		wfRun.Status = domain.WfStatusFailed
 	}
 	if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {

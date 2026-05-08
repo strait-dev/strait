@@ -254,11 +254,15 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 		}
 	}
 
-	fields["finished_at"] = time.Now()
+	finishedAt := time.Now()
+	fields["finished_at"] = finishedAt
+	previousStatus := stepRun.Status
 	if err := s.store.UpdateStepRunStatusFrom(ctx, stepRun.ID, stepRun.Status, stepStatus, fields); err != nil {
 		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "from", stepRun.Status, "status", stepStatus, "error", err)
 		return fmt.Errorf("update step run terminal status: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(previousStatus), string(stepStatus))
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(stepStatus), stepRun.StartedAt, finishedAt)
 
 	stepRun.Status = stepStatus
 	if out, ok := fields["output"].(json.RawMessage); ok {
@@ -335,9 +339,12 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 		if len(trigger.ResponsePayload) > 0 {
 			fields["output"] = trigger.ResponsePayload
 		}
+		previousStatus := targetStepRun.Status
 		if err := s.store.UpdateStepRunStatusFrom(ctx, targetStepRun.ID, targetStepRun.Status, domain.StepCompleted, fields); err != nil {
 			return fmt.Errorf("update step run status for event trigger: %w", err)
 		}
+		recordWorkflowStepTransition(ctx, string(previousStatus), string(domain.StepCompleted))
+		recordWorkflowDurableWait(ctx, targetStepRun.StartedAt, now)
 		targetStepRun.Status = domain.StepCompleted
 		if len(trigger.ResponsePayload) > 0 {
 			targetStepRun.Output = trigger.ResponsePayload
@@ -351,6 +358,7 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	if wcErr != nil {
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, targetStepRun), workflowStepOutcome(targetStepRun.Status), targetStepRun.StartedAt, time.Now())
 
 	// Auto-emit event if step has event_emit_key configured.
 	s.tryEmitEvent(ctx, targetStepRun, wc)
