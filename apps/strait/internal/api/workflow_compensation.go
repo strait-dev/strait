@@ -33,24 +33,29 @@ func (s *Server) handleCompensateWorkflowRun(ctx context.Context, input *Compens
 	}
 
 	if err := workflow.ValidateCompensationRequest(wfRun); err != nil {
+		workflow.RecordWorkflowCompensation(ctx, "skipped")
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
+		workflow.RecordWorkflowCompensation(ctx, "failure")
 		return nil, huma.Error500InternalServerError("failed to load workflow steps")
 	}
 
 	stepRuns, err := s.store.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 1000, nil)
 	if err != nil {
+		workflow.RecordWorkflowCompensation(ctx, "failure")
 		return nil, huma.Error500InternalServerError("failed to load step runs")
 	}
 
 	plan, err := workflow.BuildCompensationPlan(wfRun.ID, steps, stepRuns)
 	if err != nil {
+		workflow.RecordWorkflowCompensation(ctx, "failure")
 		return nil, huma.Error500InternalServerError("failed to build compensation plan")
 	}
 	if plan == nil {
+		workflow.RecordWorkflowCompensation(ctx, "skipped")
 		return nil, huma.Error400BadRequest("no steps require compensation")
 	}
 
@@ -58,8 +63,10 @@ func (s *Server) handleCompensateWorkflowRun(ctx context.Context, input *Compens
 	if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusCompensating, map[string]any{
 		"error": "compensation triggered manually",
 	}); err != nil {
+		workflow.RecordWorkflowCompensation(ctx, "failure")
 		return nil, huma.Error500InternalServerError("failed to start compensation")
 	}
+	workflow.RecordWorkflowCompensation(ctx, "success")
 
 	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunCompensated, "workflow_run", wfRun.ID, map[string]any{
 		"workflow_id":     wfRun.WorkflowID,

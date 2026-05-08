@@ -1,0 +1,264 @@
+{
+  "dashboard": {
+    "uid": "strait-service-overview",
+    "title": "Strait - Service Overview",
+    "description": "Executive health view for run throughput, end-to-end latency, queue pressure, API latency, and data-plane dependencies.",
+    "tags": ["strait", "overview"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "title": "Run throughput",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (to) (rate(strait_run_transitions_total[$interval]))",
+            "legendFormat": "{{to}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "End-to-end run latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_run_end_to_end_seconds_bucket[$interval])))",
+            "legendFormat": "p50",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_run_end_to_end_seconds_bucket[$interval])))",
+            "legendFormat": "p95",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_run_end_to_end_seconds_bucket[$interval])))",
+            "legendFormat": "p99",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Queue pressure",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (strait_queue_depth)",
+            "legendFormat": "{{queue}} depth",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (queue) (strait_queue_concurrency_utilization)",
+            "legendFormat": "{{queue}} utilization",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "API latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, route) (rate(strait_http_request_duration_seconds_bucket[$interval])))",
+            "legendFormat": "p95 {{route}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Dependency health",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_db_pool_acquired_conns)",
+            "legendFormat": "db acquired",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum(strait_clickhouse_exporter_pending)",
+            "legendFormat": "clickhouse pending",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "sum(rate(strait_pubsub_publish_errors_total[$interval]))",
+            "legendFormat": "pubsub errors",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
+  }
+}

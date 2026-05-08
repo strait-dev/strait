@@ -69,16 +69,21 @@ func (p *Pool) Submit(ctx context.Context, fn func()) {
 
 // ActiveCount returns the number of currently running workers.
 func (p *Pool) ActiveCount() int {
-	return int(p.inner.RunningWorkers())
+	active := int(p.inner.RunningWorkers())
+	recordWorkerPool(context.Background(), "http", int64(active), int64(p.Available()))
+	return active
 }
 
 // Available returns the number of idle worker slots.
 func (p *Pool) Available() int {
 	running := int(p.inner.RunningWorkers())
 	if running >= p.concurrency {
+		recordWorkerPool(context.Background(), "http", int64(running), 0)
 		return 0
 	}
-	return p.concurrency - running
+	idle := p.concurrency - running
+	recordWorkerPool(context.Background(), "http", int64(running), int64(idle))
+	return idle
 }
 
 // RunningWorkers returns the current number of goroutines executing tasks.

@@ -55,11 +55,11 @@ func TestAuditMetrics_Registered(t *testing.T) {
 	// Re-create the two observable gauges on the local meter so we can
 	// assert the callback wiring end-to-end. This mirrors how the
 	// ObserveAuditDrainer callback binds to any passed meter.
-	depth, err := meter.Int64ObservableGauge("strait.audit.drainer_queue_depth")
+	depth, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_depth")
 	if err != nil {
 		t.Fatalf("create depth gauge: %v", err)
 	}
-	capacity, err := meter.Int64ObservableGauge("strait.audit.drainer_queue_capacity")
+	capacity, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_capacity")
 	if err != nil {
 		t.Fatalf("create capacity gauge: %v", err)
 	}
@@ -87,10 +87,10 @@ func TestAuditMetrics_Registered(t *testing.T) {
 			}
 		}
 	}
-	if got := seen["strait.audit.drainer_queue_depth"]; got != 42 {
+	if got := seen["strait_audit_drainer_queue_depth"]; got != 42 {
 		t.Errorf("drainer_queue_depth = %d, want 42", got)
 	}
-	if got := seen["strait.audit.drainer_queue_capacity"]; got != 4096 {
+	if got := seen["strait_audit_drainer_queue_capacity"]; got != 4096 {
 		t.Errorf("drainer_queue_capacity = %d, want 4096", got)
 	}
 
@@ -124,11 +124,11 @@ func TestObserveAuditDrainer_CallbackReflectsLiveState(t *testing.T) {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("audit-drainer-live")
 
-	depth, err := meter.Int64ObservableGauge("strait.audit.drainer_queue_depth")
+	depth, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_depth")
 	if err != nil {
 		t.Fatalf("create depth gauge: %v", err)
 	}
-	capacity, err := meter.Int64ObservableGauge("strait.audit.drainer_queue_capacity")
+	capacity, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_capacity")
 	if err != nil {
 		t.Fatalf("create capacity gauge: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestObserveAuditDrainer_CallbackReflectsLiveState(t *testing.T) {
 		}
 		for _, sm := range rm.ScopeMetrics {
 			for _, inst := range sm.Metrics {
-				if inst.Name == "strait.audit.drainer_queue_depth" {
+				if inst.Name == "strait_audit_drainer_queue_depth" {
 					if g, ok := inst.Data.(metricdata.Gauge[int64]); ok {
 						for _, dp := range g.DataPoints {
 							return dp.Value

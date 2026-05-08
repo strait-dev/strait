@@ -25,7 +25,7 @@ func TestEmitAuditEvent_SyncWriteFailure_IncrementsDroppedMetric(t *testing.T) {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("sync-dropped-harness")
 
-	dropped, err := meter.Int64Counter("strait.audit.events_dropped_total")
+	dropped, err := meter.Int64Counter("strait_audit_events_dropped_total")
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestEmitAuditEvent_SyncWriteFailure_IncrementsDroppedMetric(t *testing.T) {
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, inst := range sm.Metrics {
-			if inst.Name != "strait.audit.events_dropped_total" {
+			if inst.Name != "strait_audit_events_dropped_total" {
 				continue
 			}
 			sum, ok := inst.Data.(metricdata.Sum[int64])
@@ -90,7 +90,7 @@ func TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric(t *testing.T) {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("sync-success-harness")
 
-	dropped, err := meter.Int64Counter("strait.audit.events_dropped_total")
+	dropped, err := meter.Int64Counter("strait_audit_events_dropped_total")
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric(t *testing.T) {
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, inst := range sm.Metrics {
-			if inst.Name != "strait.audit.events_dropped_total" {
+			if inst.Name != "strait_audit_events_dropped_total" {
 				continue
 			}
 			sum, ok := inst.Data.(metricdata.Sum[int64])

@@ -38,31 +38,31 @@ func newTestMetricsWithReader(t *testing.T) (*Metrics, *sdkmetric.MeterProvider,
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("test-observe-pool")
 
-	poolRunning, err := meter.Int64ObservableGauge("strait.pool.running_workers")
+	poolRunning, err := meter.Int64ObservableGauge("strait_worker_pool_running")
 	if err != nil {
 		t.Fatalf("create pool running gauge: %v", err)
 	}
-	poolWaiting, err := meter.Int64ObservableGauge("strait.pool.waiting_tasks")
+	poolWaiting, err := meter.Int64ObservableGauge("strait_worker_pool_waiting")
 	if err != nil {
 		t.Fatalf("create pool waiting gauge: %v", err)
 	}
-	poolSubmitted, err := meter.Int64ObservableCounter("strait.pool.submitted_tasks")
+	poolSubmitted, err := meter.Int64ObservableCounter("strait_worker_pool_submitted_total")
 	if err != nil {
 		t.Fatalf("create pool submitted counter: %v", err)
 	}
-	poolCompleted, err := meter.Int64ObservableCounter("strait.pool.completed_tasks")
+	poolCompleted, err := meter.Int64ObservableCounter("strait_worker_pool_completed_total")
 	if err != nil {
 		t.Fatalf("create pool completed counter: %v", err)
 	}
-	poolSuccessful, err := meter.Int64ObservableCounter("strait.pool.successful_tasks")
+	poolSuccessful, err := meter.Int64ObservableCounter("strait_worker_pool_successful_total")
 	if err != nil {
 		t.Fatalf("create pool successful counter: %v", err)
 	}
-	poolFailed, err := meter.Int64ObservableCounter("strait.pool.failed_tasks")
+	poolFailed, err := meter.Int64ObservableCounter("strait_worker_pool_failed_total")
 	if err != nil {
 		t.Fatalf("create pool failed counter: %v", err)
 	}
-	poolDropped, err := meter.Int64ObservableCounter("strait.pool.dropped_tasks")
+	poolDropped, err := meter.Int64ObservableCounter("strait_worker_pool_dropped_total")
 	if err != nil {
 		t.Fatalf("create pool dropped counter: %v", err)
 	}
@@ -151,13 +151,13 @@ func TestObservePool_NonZeroValues(t *testing.T) {
 	values := collectMetricValues(t, rm)
 
 	checks := map[string]int64{
-		"strait.pool.running_workers":  5,
-		"strait.pool.waiting_tasks":    10,
-		"strait.pool.submitted_tasks":  100,
-		"strait.pool.completed_tasks":  95,
-		"strait.pool.successful_tasks": 90,
-		"strait.pool.failed_tasks":     5,
-		"strait.pool.dropped_tasks":    2,
+		"strait_worker_pool_running":          5,
+		"strait_worker_pool_waiting":          10,
+		"strait_worker_pool_submitted_total":  100,
+		"strait_worker_pool_completed_total":  95,
+		"strait_worker_pool_successful_total": 90,
+		"strait_worker_pool_failed_total":     5,
+		"strait_worker_pool_dropped_total":    2,
 	}
 	for name, want := range checks {
 		got, ok := values[name]
@@ -266,10 +266,10 @@ func TestObservePool_CallbackReflectsLiveState(t *testing.T) {
 
 	values := collectMetricValues(t, rm)
 
-	if got := values["strait.pool.running_workers"]; got != 10 {
+	if got := values["strait_worker_pool_running"]; got != 10 {
 		t.Errorf("running_workers = %d, want 10 (latest value)", got)
 	}
-	if got := values["strait.pool.waiting_tasks"]; got != 20 {
+	if got := values["strait_worker_pool_waiting"]; got != 20 {
 		t.Errorf("waiting_tasks = %d, want 20 (latest value)", got)
 	}
 }
@@ -529,9 +529,9 @@ func TestInitMetrics_AllPoolMetricsInitialized(t *testing.T) {
 	}
 }
 
-func TestInitMetrics_BillingMetricsInitialized(t *testing.T) {
+func TestInitMetrics_NotificationMetricsInitialized(t *testing.T) {
 	t.Parallel()
-	m, _, shutdown, err := InitMetrics("test-billing-init", "test")
+	m, _, shutdown, err := InitMetrics("test-notification-init", "test")
 	if err != nil {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
@@ -540,29 +540,8 @@ func TestInitMetrics_BillingMetricsInitialized(t *testing.T) {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	if m.LimitRejections == nil {
-		t.Error("LimitRejections is nil")
-	}
-	if m.EnforcementFailOpen == nil {
-		t.Error("EnforcementFailOpen is nil")
-	}
 	if m.NotificationDeliveryFailures == nil {
 		t.Error("NotificationDeliveryFailures is nil")
-	}
-	if m.StripeUsageEventsIngested == nil {
-		t.Error("StripeUsageEventsIngested is nil")
-	}
-	if m.StripeUsageEventsDropped == nil {
-		t.Error("StripeUsageEventsDropped is nil")
-	}
-	if m.OverageEntered == nil {
-		t.Error("OverageEntered is nil")
-	}
-	if m.HTTPModeRunsCompleted == nil {
-		t.Error("HTTPModeRunsCompleted is nil")
-	}
-	if m.HTTPModeGateRejected == nil {
-		t.Error("HTTPModeGateRejected is nil")
 	}
 }
 

@@ -32,11 +32,11 @@ func newBackpressureMetricsHarness(t *testing.T) *backpressureMetricsHarness {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("backpressure-metrics-harness")
 
-	dropped, err := meter.Int64Counter("strait.audit.events_dropped_total")
+	dropped, err := meter.Int64Counter("strait_audit_events_dropped_total")
 	if err != nil {
 		t.Fatalf("create dropped counter: %v", err)
 	}
-	syncFallback, err := meter.Int64Counter("strait.audit.events_sync_fallback_total")
+	syncFallback, err := meter.Int64Counter("strait_audit_events_sync_fallback_total")
 	if err != nil {
 		t.Fatalf("create sync_fallback counter: %v", err)
 	}
@@ -330,16 +330,16 @@ func TestBackpressure_MetricSplit_SuccessOutcome(t *testing.T) {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
 	}
 
-	if got := h.sumCounterByAttr(t, "strait.audit.events_dropped_total", "reason", "backpressure_degraded"); got == 0 {
+	if got := h.sumCounterByAttr(t, "strait_audit_events_dropped_total", "reason", "backpressure_degraded"); got == 0 {
 		t.Errorf("AuditEventsDropped{reason=backpressure_degraded} = 0, want > 0")
 	}
-	if got := h.sumCounterByAttr(t, "strait.audit.events_dropped_total", "reason", "backpressure_sync_fallback"); got != 0 {
+	if got := h.sumCounterByAttr(t, "strait_audit_events_dropped_total", "reason", "backpressure_sync_fallback"); got != 0 {
 		t.Errorf("legacy reason backpressure_sync_fallback fired %d times, want 0 (renamed to backpressure_degraded)", got)
 	}
-	if got := h.sumCounterByAttr(t, "strait.audit.events_sync_fallback_total", "outcome", "success"); got == 0 {
+	if got := h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total", "outcome", "success"); got == 0 {
 		t.Errorf("AuditEventsSyncFallback{outcome=success} = 0, want > 0")
 	}
-	if got := h.sumCounterByAttr(t, "strait.audit.events_sync_fallback_total", "outcome", "failure"); got != 0 {
+	if got := h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total", "outcome", "failure"); got != 0 {
 		t.Errorf("AuditEventsSyncFallback{outcome=failure} = %d, want 0 (sync writes succeeded)", got)
 	}
 }
@@ -392,7 +392,7 @@ func TestBackpressure_MetricSplit_FailureOutcome(t *testing.T) {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
 	}
 
-	if got := h.sumCounterByAttr(t, "strait.audit.events_sync_fallback_total", "outcome", "failure"); got == 0 {
+	if got := h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total", "outcome", "failure"); got == 0 {
 		t.Errorf("AuditEventsSyncFallback{outcome=failure} = 0, want > 0 (sync writes always error)")
 	}
 }
@@ -407,11 +407,11 @@ func TestDrainer_RetryMetricIncremented(t *testing.T) {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("retry-metric-harness")
 
-	retryAttempts, err := meter.Int64Counter("strait.audit.retry_attempts_total")
+	retryAttempts, err := meter.Int64Counter("strait_audit_retry_attempts_total")
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
 	}
-	emitted, err := meter.Int64Counter("strait.audit.events_emitted_total")
+	emitted, err := meter.Int64Counter("strait_audit_events_emitted_total")
 	if err != nil {
 		t.Fatalf("create emitted counter: %v", err)
 	}
@@ -442,8 +442,8 @@ func TestDrainer_RetryMetricIncremented(t *testing.T) {
 
 	h := &backpressureMetricsHarness{reader: reader}
 
-	successCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "success")
-	failedCount := h.sumCounterByAttr(t, "strait.audit.retry_attempts_total", "outcome", "failed")
+	successCount := h.sumCounterByAttr(t, "strait_audit_retry_attempts_total", "outcome", "success")
+	failedCount := h.sumCounterByAttr(t, "strait_audit_retry_attempts_total", "outcome", "failed")
 
 	if successCount != 1 {
 		t.Errorf("retry_attempts{outcome=success} = %d, want 1", successCount)

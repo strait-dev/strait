@@ -329,6 +329,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 	wfRun.Status = domain.WfStatusRunning
 	wfRun.StartedAt = &now
+	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, 1)
 	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow run started", map[string]any{
 		"workflow_id":     wfRun.WorkflowID,
 		"workflow_run_id": wfRun.ID,
