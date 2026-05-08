@@ -1069,6 +1069,11 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			}
 		}
 
+		if err := requireProjectMatch(ctx, jobReq.ProjectID); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "project not found"})
+			continue
+		}
+
 		job := &domain.Job{
 			ProjectID:           jobReq.ProjectID,
 			GroupID:             jobReq.GroupID,
@@ -1144,7 +1149,12 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 		return nil, huma.Error400BadRequest(fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true)
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" && !isInternalCaller(ctx) {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
@@ -1172,7 +1182,12 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 		return nil, huma.Error400BadRequest(fmt.Sprintf("too many ids in batch (max %d)", maxBatchSize))
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false)
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" && !isInternalCaller(ctx) {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
 	}
@@ -1205,12 +1220,18 @@ type GetJobHealthOutput struct {
 }
 
 func (s *Server) handleGetJobHealth(ctx context.Context, input *GetJobHealthInput) (*GetJobHealthOutput, error) {
-	_, err := s.store.GetJob(ctx, input.JobID)
+	job, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			return nil, huma.Error404NotFound("job not found")
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
 	}
 
 	window := input.Window

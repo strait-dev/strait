@@ -23,6 +23,19 @@ func (s *Server) handleListJobVersions(ctx context.Context, input *ListJobVersio
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	job, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 	versions, err := s.store.ListJobVersionsByJob(ctx, input.JobID, limit+1, cursor)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list job versions")
@@ -45,6 +58,19 @@ func (s *Server) handleGetJobVersion(ctx context.Context, input *GetJobVersionIn
 		return nil, huma.Error500InternalServerError("failed to get job version")
 	}
 	if version.JobID != input.JobID {
+		return nil, huma.Error404NotFound("version not found")
+	}
+	job, err := s.store.GetJob(ctx, input.JobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("version not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("version not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("version not found")
 	}
 	return &GetJobVersionOutput{Body: version}, nil

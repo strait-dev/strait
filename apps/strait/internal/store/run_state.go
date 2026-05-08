@@ -74,6 +74,43 @@ func (q *Queries) GetRunState(ctx context.Context, runID, key string) (*domain.R
 	return &s, nil
 }
 
+// GetRunStateForActiveRun returns a single state row only if the run is
+// active for the supplied attempt; mirrors UpsertRunStateForActiveRun and
+// guards SDK reads after a run has reached terminal state or been retried.
+func (q *Queries) GetRunStateForActiveRun(ctx context.Context, runID, key string, attempt int) (*domain.RunState, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunStateForActiveRun")
+	defer span.End()
+
+	query := `
+		SELECT rs.run_id, rs.state_key, rs.value, rs.updated_at
+		FROM run_state rs
+		WHERE rs.run_id = $1
+		  AND rs.state_key = $2
+		  AND EXISTS (
+			SELECT 1 FROM job_runs jr
+			WHERE jr.id = $1
+			  AND jr.attempt = $3
+			  AND jr.status IN ('executing', 'waiting')
+		  )`
+	var s domain.RunState
+	err := q.db.QueryRow(ctx, query, runID, key, attempt).Scan(&s.RunID, &s.StateKey, &s.Value, &s.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			var active bool
+			activeErr := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND status IN ('executing', 'waiting'))`, runID, attempt).Scan(&active)
+			if activeErr != nil {
+				return nil, fmt.Errorf("check run active for attempt: %w", activeErr)
+			}
+			if !active {
+				return nil, fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+			}
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get active run state: %w", err)
+	}
+	return &s, nil
+}
+
 func (q *Queries) ListRunState(ctx context.Context, runID string) ([]domain.RunState, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunState")
 	defer span.End()
@@ -90,6 +127,39 @@ func (q *Queries) ListRunState(ctx context.Context, runID string) ([]domain.RunS
 		var s domain.RunState
 		if err := rows.Scan(&s.RunID, &s.StateKey, &s.Value, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("list run state scan: %w", err)
+		}
+		items = append(items, s)
+	}
+	return items, rows.Err()
+}
+
+// ListRunStateForActiveRun returns all state rows for the run only when the
+// run is active for the supplied attempt. SDK readers should prefer this
+// over the unscoped ListRunState so terminal/retried tokens cannot fan-out
+// reads against historical state.
+func (q *Queries) ListRunStateForActiveRun(ctx context.Context, runID string, attempt int) ([]domain.RunState, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunStateForActiveRun")
+	defer span.End()
+
+	var active bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND status IN ('executing', 'waiting'))`, runID, attempt).Scan(&active); err != nil {
+		return nil, fmt.Errorf("check run active for attempt: %w", err)
+	}
+	if !active {
+		return nil, fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+	}
+	query := `SELECT run_id, state_key, value, updated_at FROM run_state WHERE run_id = $1 ORDER BY state_key ASC LIMIT 10000`
+	rows, err := q.db.Query(ctx, query, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list active run state: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]domain.RunState, 0, 16)
+	for rows.Next() {
+		var s domain.RunState
+		if err := rows.Scan(&s.RunID, &s.StateKey, &s.Value, &s.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("list active run state scan: %w", err)
 		}
 		items = append(items, s)
 	}

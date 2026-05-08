@@ -23,13 +23,13 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 
 	query := `
 		INSERT INTO event_triggers (
-			id, event_key, project_id, source_type,
+			id, event_key, project_id, environment_id, source_type,
 			workflow_run_id, workflow_step_run_id, job_run_id,
 			status, request_payload, response_payload,
 			timeout_secs, requested_at, received_at, expires_at, error,
 		       notify_url, notify_status, trigger_type, sent_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
 
 	if _, err := q.db.Exec(
 		ctx,
@@ -37,6 +37,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		trigger.ID,
 		trigger.EventKey,
 		trigger.ProjectID,
+		dbscan.NilIfEmptyString(trigger.EnvironmentID),
 		trigger.SourceType,
 		dbscan.NilIfEmptyString(trigger.WorkflowRunID),
 		dbscan.NilIfEmptyString(trigger.WorkflowStepRunID),
@@ -70,7 +71,7 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -95,7 +96,7 @@ func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID stri
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -120,7 +121,7 @@ func (q *Queries) GetEventTriggerByJobRunID(ctx context.Context, jobRunID string
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -196,7 +197,7 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -235,7 +236,7 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, sta
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -319,7 +320,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 
 	if projectID != "" {
 		query = `
-			SELECT id, event_key, project_id, source_type,
+			SELECT id, event_key, project_id, environment_id, source_type,
 			       workflow_run_id, workflow_step_run_id, job_run_id,
 			       status, request_payload, response_payload,
 			       timeout_secs, requested_at, received_at, expires_at, error,
@@ -333,7 +334,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 		args = []any{escapedPrefix, projectID}
 	} else {
 		query = `
-			SELECT id, event_key, project_id, source_type,
+			SELECT id, event_key, project_id, environment_id, source_type,
 			       workflow_run_id, workflow_step_run_id, job_run_id,
 			       status, request_payload, response_payload,
 			       timeout_secs, requested_at, received_at, expires_at, error,
@@ -376,7 +377,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 	defer span.End()
 
 	query := `
-		(SELECT et.id, et.event_key, et.project_id, et.source_type,
+		(SELECT et.id, et.event_key, et.project_id, et.environment_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
@@ -391,7 +392,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 
 		UNION ALL
 
-		(SELECT et.id, et.event_key, et.project_id, et.source_type,
+		(SELECT et.id, et.event_key, et.project_id, et.environment_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
@@ -520,6 +521,7 @@ func (q *Queries) DeleteEventTriggersFinishedBefore(ctx context.Context, before 
 
 func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var trigger domain.EventTrigger
+	var environmentID *string
 	var workflowRunID *string
 	var workflowStepRunID *string
 	var jobRunID *string
@@ -535,6 +537,7 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		&trigger.ID,
 		&trigger.EventKey,
 		&trigger.ProjectID,
+		&environmentID,
 		&trigger.SourceType,
 		&workflowRunID,
 		&workflowStepRunID,
@@ -556,6 +559,9 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		return nil, err
 	}
 
+	if environmentID != nil {
+		trigger.EnvironmentID = *environmentID
+	}
 	if workflowRunID != nil {
 		trigger.WorkflowRunID = *workflowRunID
 	}

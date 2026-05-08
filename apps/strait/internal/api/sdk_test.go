@@ -498,17 +498,17 @@ func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
 	t.Parallel()
 	var statusCalls atomic.Int32
 	ms := &APIStoreMock{
-		GetRunStatusFunc: func(context.Context, string) (domain.RunStatus, error) {
-			if statusCalls.Add(1) == 1 {
-				return domain.StatusExecuting, nil
-			}
-			return domain.StatusCompleted, nil
-		},
 		UpdateHeartbeatFunc: func(context.Context, string) error {
 			t.Fatal("heartbeat mutation must not run after post-decode terminal revalidation")
 			return nil
 		},
 	}
+	ms.SetRunTokenStateFunc(func(context.Context, string) (domain.RunStatus, int, string, error) {
+		if statusCalls.Add(1) == 1 {
+			return domain.StatusExecuting, 1, "proj-1", nil
+		}
+		return domain.StatusCompleted, 1, "proj-1", nil
+	})
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()

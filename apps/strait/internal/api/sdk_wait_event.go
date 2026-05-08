@@ -73,7 +73,7 @@ func (s *Server) handleSDKWaitForEvent(ctx context.Context, input *SDKWaitForEve
 	}
 	now := time.Now()
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
-	trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: req.EventKey, ProjectID: run.ProjectID, SourceType: domain.EventSourceJobRun, JobRunID: run.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: timeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, NotifyURL: req.NotifyURL}
+	trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: req.EventKey, ProjectID: run.ProjectID, EnvironmentID: environmentIDFromContext(ctx), SourceType: domain.EventSourceJobRun, JobRunID: run.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: timeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, NotifyURL: req.NotifyURL}
 	var quotaErr *quotaExceededError
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
 		if err := txStore.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusWaiting, nil); err != nil {

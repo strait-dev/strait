@@ -43,6 +43,12 @@ type runTokenStateGetter interface {
 	GetRunTokenState(context.Context, string) (domain.RunStatus, int, string, error)
 }
 
+// errRunTokenStateUnsupported is returned when the configured store does not
+// implement runTokenStateGetter. Production stores always do; this sentinel
+// surfaces a misconfigured test fake so runTokenAuth can fail closed (401)
+// rather than fall back to attempt=0 and silently bypass the staleness check.
+var errRunTokenStateUnsupported = errors.New("store does not support run token state lookup")
+
 type activeRunMutationStore interface {
 	EnsureRunActiveForAttempt(context.Context, string, int) error
 	InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error
@@ -50,14 +56,19 @@ type activeRunMutationStore interface {
 	UpdateHeartbeatForActiveRun(context.Context, string, int) error
 	CreateRunCheckpointForActiveRun(context.Context, *domain.RunCheckpoint, int) error
 	UpsertRunStateForActiveRun(context.Context, *domain.RunState, int) error
+	GetRunStateForActiveRun(context.Context, string, string, int) (*domain.RunState, error)
+	ListRunStateForActiveRun(context.Context, string, int) ([]domain.RunState, error)
 	DeleteRunStateForActiveRun(context.Context, string, string, int) error
 	CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error
 	CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error
 	UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error
 	UpsertJobMemoryWithQuotaForActiveRun(context.Context, string, *domain.JobMemory, int, int, int) error
+	GetJobMemoryForActiveRun(context.Context, string, string, string, int) (*domain.JobMemory, error)
+	ListJobMemoryForActiveRun(context.Context, string, string, int) ([]domain.JobMemory, error)
 	DeleteJobMemoryForActiveRun(context.Context, string, string, string, int) error
 	CreateRunResourceSnapshotForActiveRun(context.Context, *domain.RunResourceSnapshot, int) error
 	CreateRunIterationForActiveRun(context.Context, *domain.RunIteration, int) error
+	UpdateRunStatusForActiveRun(context.Context, string, domain.RunStatus, domain.RunStatus, map[string]any, int) error
 }
 
 func runTokenAttemptFromContext(ctx context.Context) int {
@@ -208,6 +219,10 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 				respondError(w, r, http.StatusNotFound, "run not found")
 				return
 			}
+			if errors.Is(statusErr, errRunTokenStateUnsupported) {
+				respondError(w, r, http.StatusUnauthorized, "run token state lookup unavailable")
+				return
+			}
 			respondError(w, r, http.StatusInternalServerError, "failed to verify run status")
 			return
 		}
@@ -263,6 +278,9 @@ func (s *Server) revalidateRunTokenState(ctx context.Context) error {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return huma.Error404NotFound("run not found")
 		}
+		if errors.Is(err, errRunTokenStateUnsupported) {
+			return nil
+		}
 		return huma.Error500InternalServerError("failed to verify run status")
 	}
 	if status.IsTerminal() {
@@ -279,8 +297,7 @@ func (s *Server) getRunTokenState(ctx context.Context, runID string) (domain.Run
 	if getter, ok := s.store.(runTokenStateGetter); ok {
 		return getter.GetRunTokenState(ctx, runID)
 	}
-	status, err := s.store.GetRunStatus(ctx, runID)
-	return status, 0, "", err
+	return "", 0, "", errRunTokenStateUnsupported
 }
 
 func (s *Server) verifyRunTokenAssignment(ctx context.Context, runID, projectID, assignmentID string) error {

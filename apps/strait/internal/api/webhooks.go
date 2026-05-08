@@ -145,7 +145,7 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 			return nil, huma.Error404NotFound("webhook delivery not found")
 		}
 	} else {
-		if original.ProjectID != "" && original.ProjectID != projectIDFromContext(ctx) {
+		if original.ProjectID == "" || original.ProjectID != projectIDFromContext(ctx) {
 			return nil, huma.Error404NotFound("webhook delivery not found")
 		}
 		if environmentIDFromContext(ctx) != "" {

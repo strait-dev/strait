@@ -7,8 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/domain"
 	"strait/internal/store"
 )
+
+func mockAPIStoreWithWorkflow(projectID string) *APIStoreMock {
+	return &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: projectID}, nil
+		},
+	}
+}
 
 func TestHandleWorkflowStepDurations_Success(t *testing.T) {
 	t.Parallel()
@@ -22,7 +31,7 @@ func TestHandleWorkflowStepDurations_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
+	srv := newTestServerWithAnalytics(t, mockAPIStoreWithWorkflow("proj-1"), ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/wf-1/step-durations", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 200 {
@@ -47,7 +56,7 @@ func TestHandleWorkflowStepDurations_StoreError(t *testing.T) {
 			return nil, errors.New("db error")
 		},
 	}
-	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
+	srv := newTestServerWithAnalytics(t, mockAPIStoreWithWorkflow("proj-1"), ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/wf-1/step-durations", validFrom(), validTo()), "", "proj-1"))
 	if w.Code != 500 {

@@ -3278,7 +3278,7 @@ func TestBatchUpdateJobsEnabled(t *testing.T) {
 		t.Fatalf("CreateJob(job3) error = %v", err)
 	}
 
-	updated, err := q.BatchUpdateJobsEnabled(ctx, []string{job1.ID, job2.ID, newID()}, false)
+	updated, err := q.BatchUpdateJobsEnabled(ctx, []string{job1.ID, job2.ID, newID()}, false, projectID)
 	if err != nil {
 		t.Fatalf("BatchUpdateJobsEnabled() disable error = %v", err)
 	}
@@ -3308,7 +3308,7 @@ func TestBatchUpdateJobsEnabled(t *testing.T) {
 		t.Fatal("job3 enabled = false, want true")
 	}
 
-	updated, err = q.BatchUpdateJobsEnabled(ctx, []string{job2.ID}, true)
+	updated, err = q.BatchUpdateJobsEnabled(ctx, []string{job2.ID}, true, projectID)
 	if err != nil {
 		t.Fatalf("BatchUpdateJobsEnabled() re-enable error = %v", err)
 	}
@@ -3324,7 +3324,7 @@ func TestBatchUpdateJobsEnabled(t *testing.T) {
 		t.Fatal("job2 enabled after re-enable = false, want true")
 	}
 
-	updated, err = q.BatchUpdateJobsEnabled(ctx, nil, false)
+	updated, err = q.BatchUpdateJobsEnabled(ctx, nil, false, projectID)
 	if err != nil {
 		t.Fatalf("BatchUpdateJobsEnabled() empty ids error = %v", err)
 	}

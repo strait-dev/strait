@@ -95,7 +95,7 @@ type JobStore interface {
 	ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
 	DeleteJob(ctx context.Context, id string) error
-	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error)
+	BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool, projectID string) (int64, error)
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
 	ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	GetJobVersionByVersionID(ctx context.Context, versionID string) (*domain.JobVersion, error)

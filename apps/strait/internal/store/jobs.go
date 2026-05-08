@@ -484,7 +484,7 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	return nil
 }
 
-func (q *Queries) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool) (int64, error) {
+func (q *Queries) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enabled bool, projectID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchUpdateJobsEnabled")
 	defer span.End()
 
@@ -492,8 +492,17 @@ func (q *Queries) BatchUpdateJobsEnabled(ctx context.Context, ids []string, enab
 		return 0, nil
 	}
 
-	query := `UPDATE jobs SET enabled = $1, updated_at = NOW() WHERE id = ANY($2)`
-	tag, err := q.db.Exec(ctx, query, enabled, ids)
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	if projectID == "" {
+		query := `UPDATE jobs SET enabled = $1, updated_at = NOW() WHERE id = ANY($2)`
+		tag, err = q.db.Exec(ctx, query, enabled, ids)
+	} else {
+		query := `UPDATE jobs SET enabled = $1, updated_at = NOW() WHERE id = ANY($2) AND project_id = $3`
+		tag, err = q.db.Exec(ctx, query, enabled, ids, projectID)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("batch update jobs enabled: %w", err)
 	}

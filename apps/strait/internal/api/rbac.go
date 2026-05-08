@@ -199,6 +199,15 @@ func (s *Server) handleGetRole(ctx context.Context, input *GetRoleInput) (*GetRo
 			}
 			return nil, huma.Error500InternalServerError("failed to load role lineage")
 		}
+		// Stop the lineage walk at the first parent that does not belong to
+		// the caller's project (system roles have empty ProjectID and are
+		// always visible). Without this guard, a misconfigured role chain
+		// could leak the existence and contents of cross-project roles.
+		if parent.ProjectID != "" {
+			if callerProjectID := projectIDFromContext(ctx); callerProjectID != "" && parent.ProjectID != callerProjectID {
+				break
+			}
+		}
 		lineage = append(lineage, *parent)
 		currentParent = parent.ParentRoleID
 	}
@@ -233,11 +242,15 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 		return nil, err
 	}
 	roleID := input.RoleID
-	previousRole, _ := s.store.GetProjectRole(ctx, roleID)
-	if previousRole != nil {
-		if err := requireProjectMatch(ctx, previousRole.ProjectID); err != nil {
+	previousRole, err := s.store.GetProjectRole(ctx, roleID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoleNotFound) {
 			return nil, huma.Error404NotFound("role not found")
 		}
+		return nil, huma.Error500InternalServerError("failed to get role")
+	}
+	if err := requireProjectMatch(ctx, previousRole.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("role not found")
 	}
 	role := &domain.ProjectRole{ID: roleID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.UpdateProjectRole(ctx, role); err != nil {
