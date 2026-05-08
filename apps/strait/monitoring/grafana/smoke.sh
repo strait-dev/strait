@@ -62,4 +62,32 @@ if [[ "$loaded_count" != "$expected_count" ]]; then
   exit 1
 fi
 
-echo "Grafana smoke validation passed: ${loaded_count} dashboards loaded from provisioning."
+uids="$(
+  curl -fsS "http://127.0.0.1:${PORT}/api/search?query=Strait&type=dash-db" |
+    jq -r '.[] | select(.folderUid == "strait") | .uid'
+)"
+for uid in $uids; do
+  dashboard="$(curl -fsS "http://127.0.0.1:${PORT}/api/dashboards/uid/${uid}")"
+  echo "$dashboard" |
+    jq -e '
+      (.dashboard.templating.list // [] | map(.name) | index("datasource")) and
+      (.dashboard.templating.list // [] | map(.name) | index("interval"))
+    ' >/dev/null
+  echo "$dashboard" |
+    jq -e '
+      [
+        .dashboard.panels[]? |
+        select((.targets // []) | length > 0) |
+        select(.datasource.uid != "${datasource}")
+      ] | length == 0
+    ' >/dev/null
+  echo "$dashboard" |
+    jq -e '
+      [
+        .dashboard.panels[]?.targets[]? |
+        select((.expr // "") | test("\\[(5m|1h)\\]"))
+      ] | length == 0
+    ' >/dev/null
+done
+
+echo "Grafana smoke validation passed: ${loaded_count} dashboards loaded with datasource and interval variables."

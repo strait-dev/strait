@@ -110,6 +110,82 @@ func TestGrafanaDashboards_PromQLShape(t *testing.T) {
 	}
 }
 
+func TestGrafanaDashboards_DatasourceAndIntervalVariables(t *testing.T) {
+	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
+	if err != nil {
+		t.Fatalf("glob dashboards: %v", err)
+	}
+	for _, path := range dashboardPaths {
+		doc := loadGrafanaDashboard(t, path)
+		variables := map[string]string{}
+		for _, variable := range doc.Dashboard.Templating.List {
+			variables[variable.Name] = variable.Type
+		}
+		if variables["datasource"] != "datasource" {
+			t.Errorf("%s missing datasource variable", filepath.Base(path))
+		}
+		if variables["interval"] != "interval" {
+			t.Errorf("%s missing interval variable", filepath.Base(path))
+		}
+
+		for _, panel := range doc.Dashboard.Panels {
+			if len(panel.Targets) == 0 {
+				continue
+			}
+			if panel.Datasource.UID != "${datasource}" {
+				t.Errorf("%s panel %q must use datasource variable, got %q", filepath.Base(path), panel.Title, panel.Datasource.UID)
+			}
+			for _, target := range panel.Targets {
+				if target.Expr == "" {
+					continue
+				}
+				if target.Datasource.UID != "${datasource}" {
+					t.Errorf("%s panel %q target %q must use datasource variable, got %q", filepath.Base(path), panel.Title, target.RefID, target.Datasource.UID)
+				}
+				if strings.Contains(target.Expr, "[5m]") || strings.Contains(target.Expr, "[1h]") {
+					t.Errorf("%s panel %q target %q has hard-coded short range selector: %s", filepath.Base(path), panel.Title, target.RefID, target.Expr)
+				}
+			}
+		}
+	}
+}
+
+func TestGrafanaDashboards_MetricRefsRegistered(t *testing.T) {
+	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
+	if err != nil {
+		t.Fatalf("glob dashboards: %v", err)
+	}
+	registered := registeredMetricNames(t)
+	metricTokenRE := regexp.MustCompile(`strait_[a-z0-9_]+`)
+
+	for _, path := range dashboardPaths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, token := range metricTokenRE.FindAllString(string(raw), -1) {
+			base := normalizePrometheusMetricToken(token)
+			candidates := []string{token}
+			if base != token {
+				candidates = append(candidates, base)
+			}
+			if trimmed, ok := strings.CutSuffix(base, "_total"); ok {
+				candidates = append(candidates, trimmed)
+			}
+			found := false
+			for _, candidate := range candidates {
+				if _, ok := registered[candidate]; ok {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s references metric %q that is not registered in source", filepath.Base(path), token)
+			}
+		}
+	}
+}
+
 func TestGrafanaProvisioningFiles(t *testing.T) {
 	root := filepath.Join(moduleRoot(t), "monitoring", "grafana", "provisioning")
 	files := []string{
@@ -147,22 +223,7 @@ func TestGrafanaSmokeScriptSyntax(t *testing.T) {
 
 func dashboardExpressions(t *testing.T, path string) []string {
 	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	var doc struct {
-		Dashboard struct {
-			Panels []struct {
-				Targets []struct {
-					Expr string `json:"expr"`
-				} `json:"targets"`
-			} `json:"panels"`
-		} `json:"dashboard"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("%s does not parse as dashboard JSON: %v", filepath.Base(path), err)
-	}
+	doc := loadGrafanaDashboard(t, path)
 	var exprs []string
 	for _, panel := range doc.Dashboard.Panels {
 		for _, target := range panel.Targets {
@@ -172,6 +233,44 @@ func dashboardExpressions(t *testing.T, path string) []string {
 		}
 	}
 	return exprs
+}
+
+type grafanaDashboardDoc struct {
+	Dashboard struct {
+		Templating struct {
+			List []struct {
+				Name string `json:"name"`
+				Type string `json:"type"`
+			} `json:"list"`
+		} `json:"templating"`
+		Panels []struct {
+			Title      string            `json:"title"`
+			Datasource grafanaDatasource `json:"datasource"`
+			Targets    []struct {
+				RefID      string            `json:"refId"`
+				Expr       string            `json:"expr"`
+				Datasource grafanaDatasource `json:"datasource"`
+			} `json:"targets"`
+		} `json:"panels"`
+	} `json:"dashboard"`
+}
+
+type grafanaDatasource struct {
+	Type string `json:"type"`
+	UID  string `json:"uid"`
+}
+
+func loadGrafanaDashboard(t *testing.T, path string) grafanaDashboardDoc {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var doc grafanaDashboardDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("%s does not parse as dashboard JSON: %v", filepath.Base(path), err)
+	}
+	return doc
 }
 
 func validatePromQLShape(expr string) error {
@@ -240,6 +339,10 @@ func normalizeDashboardMetricRef(name string, inventory map[string]MetricInvento
 	if _, ok := inventory[name]; ok {
 		return name
 	}
+	return normalizePrometheusMetricToken(name)
+}
+
+func normalizePrometheusMetricToken(name string) string {
 	for _, suffix := range []string{"_bucket", "_count", "_sum"} {
 		if trimmed, ok := strings.CutSuffix(name, suffix); ok {
 			return trimmed

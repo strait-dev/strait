@@ -7,78 +7,222 @@
     "schemaVersion": 39,
     "version": 1,
     "refresh": "30s",
-    "time": { "from": "now-6h", "to": "now" },
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
     "panels": [
       {
         "title": "Request rate by route",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (method, route) (rate(strait_http_request_duration_seconds_count[5m]))",
-            "legendFormat": "{{method}} {{route}}"
+            "expr": "sum by (method, route) (rate(strait_http_request_duration_seconds_count[$interval]))",
+            "legendFormat": "{{method}} {{route}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "rps" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "rps"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Latency by status class",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.95, sum by (le, status_class) (rate(strait_http_request_duration_seconds_bucket[5m])))",
-            "legendFormat": "p95 {{status_class}}"
+            "expr": "histogram_quantile(0.95, sum by (le, status_class) (rate(strait_http_request_duration_seconds_bucket[$interval])))",
+            "legendFormat": "p95 {{status_class}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "histogram_quantile(0.99, sum by (le, status_class) (rate(strait_http_request_duration_seconds_bucket[5m])))",
-            "legendFormat": "p99 {{status_class}}"
+            "expr": "histogram_quantile(0.99, sum by (le, status_class) (rate(strait_http_request_duration_seconds_bucket[$interval])))",
+            "legendFormat": "p99 {{status_class}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Inflight requests",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
             "expr": "sum by (method, route) (strait_http_inflight_requests)",
-            "legendFormat": "{{method}} {{route}}"
+            "legendFormat": "{{method}} {{route}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Error-class request rate",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (route, status_class) (rate(strait_http_request_duration_seconds_count{status_class=~\"4xx|5xx\"}[5m]))",
-            "legendFormat": "{{status_class}} {{route}}"
+            "expr": "sum by (route, status_class) (rate(strait_http_request_duration_seconds_count{status_class=~\"4xx|5xx\"}[$interval]))",
+            "legendFormat": "{{status_class}} {{route}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "rps" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "rps"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Slowest routes",
         "type": "table",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "topk(10, histogram_quantile(0.95, sum by (le, route) (rate(strait_http_request_duration_seconds_bucket[5m]))))",
-            "legendFormat": "{{route}}"
+            "expr": "topk(10, histogram_quantile(0.95, sum by (le, route) (rate(strait_http_request_duration_seconds_bucket[$interval]))))",
+            "legendFormat": "{{route}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       }
-    ]
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
   }
 }

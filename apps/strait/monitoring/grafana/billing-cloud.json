@@ -7,103 +7,267 @@
     "schemaVersion": 39,
     "version": 1,
     "refresh": "30s",
-    "time": { "from": "now-6h", "to": "now" },
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
     "panels": [
       {
         "title": "Limit rejections and fail-open",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (reason, plan_tier) (rate(strait_billing_limit_rejections_total[5m]))",
-            "legendFormat": "{{plan_tier}} {{reason}}"
+            "expr": "sum by (reason, plan_tier) (rate(strait_billing_limit_rejections_total[$interval]))",
+            "legendFormat": "{{plan_tier}} {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (check_type, error_type) (rate(strait_billing_enforcement_fail_open_total[5m]))",
-            "legendFormat": "fail-open {{check_type}} {{error_type}}"
+            "expr": "sum by (check_type, error_type) (rate(strait_billing_enforcement_fail_open_total[$interval]))",
+            "legendFormat": "fail-open {{check_type}} {{error_type}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Feature and HTTP gates",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (feature, plan_tier) (rate(strait_billing_feature_gate_rejected_total[5m]))",
-            "legendFormat": "{{feature}} {{plan_tier}}"
+            "expr": "sum by (feature, plan_tier) (rate(strait_billing_feature_gate_rejected_total[$interval]))",
+            "legendFormat": "{{feature}} {{plan_tier}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (plan_tier, source) (rate(strait_billing_http_mode_gate_rejected_total[5m]))",
-            "legendFormat": "http {{plan_tier}} {{source}}"
+            "expr": "sum by (plan_tier, source) (rate(strait_billing_http_mode_gate_rejected_total[$interval]))",
+            "legendFormat": "http {{plan_tier}} {{source}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Usage records",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (mode, outcome) (rate(strait_billing_usage_records_total[5m]))",
-            "legendFormat": "{{mode}} {{outcome}}"
+            "expr": "sum by (mode, outcome) (rate(strait_billing_usage_records_total[$interval]))",
+            "legendFormat": "{{mode}} {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (mode) (rate(strait_billing_idempotency_duplicates_total[5m]))",
-            "legendFormat": "duplicate {{mode}}"
+            "expr": "sum by (mode) (rate(strait_billing_idempotency_duplicates_total[$interval]))",
+            "legendFormat": "duplicate {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Stripe meter events",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (status) (rate(strait_billing_stripe_usage_events_ingested_total[5m]))",
-            "legendFormat": "ingested {{status}}"
+            "expr": "sum by (status) (rate(strait_billing_stripe_usage_events_ingested_total[$interval]))",
+            "legendFormat": "ingested {{status}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (status) (rate(strait_billing_stripe_usage_events_dropped_total[5m]))",
-            "legendFormat": "dropped {{status}}"
+            "expr": "sum by (status) (rate(strait_billing_stripe_usage_events_dropped_total[$interval]))",
+            "legendFormat": "dropped {{status}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Cost and overage",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_billing_usage_record_cost_microusd_bucket[5m])))",
-            "legendFormat": "cost p95 {{mode}}"
+            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_billing_usage_record_cost_microusd_bucket[$interval])))",
+            "legendFormat": "cost p95 {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (plan_tier) (rate(strait_billing_overage_entered_total[5m]))",
-            "legendFormat": "overage {{plan_tier}}"
+            "expr": "sum by (plan_tier) (rate(strait_billing_overage_entered_total[$interval]))",
+            "legendFormat": "overage {{plan_tier}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "C",
-            "expr": "rate(strait_billing_http_mode_runs_completed_total[5m])",
-            "legendFormat": "http mode completed"
+            "expr": "rate(strait_billing_http_mode_runs_completed_total[$interval])",
+            "legendFormat": "http mode completed",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       }
-    ]
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
   }
 }

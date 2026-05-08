@@ -7,118 +7,294 @@
     "schemaVersion": 39,
     "version": 1,
     "refresh": "30s",
-    "time": { "from": "now-6h", "to": "now" },
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
     "panels": [
       {
         "title": "Scheduler loop latency",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.95, sum by (le, loop) (rate(strait_scheduler_loop_duration_seconds_bucket[5m])))",
-            "legendFormat": "p95 {{loop}}"
+            "expr": "histogram_quantile(0.95, sum by (le, loop) (rate(strait_scheduler_loop_duration_seconds_bucket[$interval])))",
+            "legendFormat": "p95 {{loop}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
             "expr": "max by (loop) (strait_scheduler_skew_seconds)",
-            "legendFormat": "skew {{loop}}"
+            "legendFormat": "skew {{loop}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Scheduler work and overruns",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (loop, kind) (rate(strait_scheduler_swept_total[5m]))",
-            "legendFormat": "{{loop}} {{kind}}"
+            "expr": "sum by (loop, kind) (rate(strait_scheduler_swept_total[$interval]))",
+            "legendFormat": "{{loop}} {{kind}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (loop) (rate(strait_scheduler_overrun_total[5m]))",
-            "legendFormat": "overrun {{loop}}"
+            "expr": "sum by (loop) (rate(strait_scheduler_overrun_total[$interval]))",
+            "legendFormat": "overrun {{loop}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Cron and poller",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.95, sum by (le, job) (rate(strait_scheduler_cron_drift_seconds_bucket[5m])))",
-            "legendFormat": "drift {{job}}"
+            "expr": "histogram_quantile(0.95, sum by (le, job) (rate(strait_scheduler_cron_drift_seconds_bucket[$interval])))",
+            "legendFormat": "drift {{job}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (outcome) (rate(strait_scheduler_cron_triggers_total[5m]))",
-            "legendFormat": "cron {{outcome}}"
+            "expr": "sum by (outcome) (rate(strait_scheduler_cron_triggers_total[$interval]))",
+            "legendFormat": "cron {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "C",
-            "expr": "sum by (source) (rate(strait_scheduler_poller_runs_queued_total[5m]))",
-            "legendFormat": "queued {{source}}"
+            "expr": "sum by (source) (rate(strait_scheduler_poller_runs_queued_total[$interval]))",
+            "legendFormat": "queued {{source}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Workflow progression",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (step_kind, outcome) (rate(strait_workflow_step_progressions_total[5m]))",
-            "legendFormat": "{{step_kind}} {{outcome}}"
+            "expr": "sum by (step_kind, outcome) (rate(strait_workflow_step_progressions_total[$interval]))",
+            "legendFormat": "{{step_kind}} {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (from, to) (rate(strait_workflow_step_transitions_total[5m]))",
-            "legendFormat": "{{from}} -> {{to}}"
+            "expr": "sum by (from, to) (rate(strait_workflow_step_transitions_total[$interval]))",
+            "legendFormat": "{{from}} -> {{to}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "C",
             "expr": "sum by (project) (strait_workflow_active_runs)",
-            "legendFormat": "active {{project}}"
+            "legendFormat": "active {{project}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Workflow waits and compensation",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.95, sum by (le, step_kind) (rate(strait_workflow_step_duration_seconds_bucket[5m])))",
-            "legendFormat": "step p95 {{step_kind}}"
+            "expr": "histogram_quantile(0.95, sum by (le, step_kind) (rate(strait_workflow_step_duration_seconds_bucket[$interval])))",
+            "legendFormat": "step p95 {{step_kind}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_workflow_durable_wait_duration_seconds_bucket[5m])))",
-            "legendFormat": "durable wait p95"
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_workflow_durable_wait_duration_seconds_bucket[$interval])))",
+            "legendFormat": "durable wait p95",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "C",
-            "expr": "sum by (outcome) (rate(strait_workflow_compensation_runs_total[5m]))",
-            "legendFormat": "compensation {{outcome}}"
+            "expr": "sum by (outcome) (rate(strait_workflow_compensation_runs_total[$interval]))",
+            "legendFormat": "compensation {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "D",
-            "expr": "sum by (reason) (rate(strait_workflow_stalled_runs_total[5m]))",
-            "legendFormat": "stalled {{reason}}"
+            "expr": "sum by (reason) (rate(strait_workflow_stalled_runs_total[$interval]))",
+            "legendFormat": "stalled {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       }
-    ]
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
   }
 }

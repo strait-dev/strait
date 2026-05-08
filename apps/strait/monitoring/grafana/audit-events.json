@@ -7,21 +7,54 @@
     "schemaVersion": 39,
     "version": 1,
     "refresh": "30s",
-    "time": { "from": "now-6h", "to": "now" },
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
     "timepicker": {},
     "templating": {
       "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
         {
           "name": "interval",
           "type": "interval",
           "label": "Interval",
           "options": [
-            { "selected": false, "text": "1m", "value": "1m" },
-            { "selected": true, "text": "5m", "value": "5m" },
-            { "selected": false, "text": "15m", "value": "15m" },
-            { "selected": false, "text": "1h", "value": "1h" }
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
           ],
-          "current": { "text": "5m", "value": "5m" },
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
           "hide": 0
         }
       ]
@@ -31,208 +64,431 @@
         "title": "Emit pipeline",
         "type": "row",
         "collapsed": false,
-        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        }
       },
       {
         "title": "Emit pipeline rates",
         "description": "Per-second rates across the async emit pipeline. Expect emitted to dominate; dropped/truncated/deadlettered should be near zero.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 16, "x": 0, "y": 1 },
+        "gridPos": {
+          "h": 8,
+          "w": 16,
+          "x": 0,
+          "y": 1
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "rate(strait_audit_events_emitted_total[5m])",
-            "legendFormat": "emitted"
+            "expr": "rate(strait_audit_events_emitted_total[$interval])",
+            "legendFormat": "emitted",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "rate(strait_audit_events_dropped_total[5m])",
-            "legendFormat": "dropped"
+            "expr": "rate(strait_audit_events_dropped_total[$interval])",
+            "legendFormat": "dropped",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "C",
-            "expr": "rate(strait_audit_events_truncated_total[5m])",
-            "legendFormat": "truncated"
+            "expr": "rate(strait_audit_events_truncated_total[$interval])",
+            "legendFormat": "truncated",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "D",
-            "expr": "rate(strait_audit_events_deadlettered_total[5m])",
-            "legendFormat": "deadlettered"
+            "expr": "rate(strait_audit_events_deadlettered_total[$interval])",
+            "legendFormat": "deadlettered",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Drainer queue depth vs capacity",
         "description": "Instantaneous depth of the async audit-emit drain channel against its configured capacity. Sustained ratios above 0.9 trip the AuditDrainerSaturated alert.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 1
+        },
         "targets": [
           {
             "refId": "A",
             "expr": "strait_audit_drainer_queue_depth",
-            "legendFormat": "depth"
+            "legendFormat": "depth",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
             "expr": "strait_audit_drainer_queue_capacity",
-            "legendFormat": "capacity"
+            "legendFormat": "capacity",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Reclaimer",
         "type": "row",
         "collapsed": false,
-        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 9
+        }
       },
       {
         "title": "Reclaimer success vs failure",
         "description": "DLQ reclaim outcomes. Failures are labeled by reason.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 10
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "rate(strait_audit_reclaimer_success_total[5m])",
-            "legendFormat": "success"
+            "expr": "rate(strait_audit_reclaimer_success_total[$interval])",
+            "legendFormat": "success",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (reason) (rate(strait_audit_reclaimer_failed_total[5m]))",
-            "legendFormat": "failed: {{reason}}"
+            "expr": "sum by (reason) (rate(strait_audit_reclaimer_failed_total[$interval]))",
+            "legendFormat": "failed: {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Retention",
         "type": "row",
         "collapsed": false,
-        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 18
+        }
       },
       {
         "title": "Retention deletions per project (hourly)",
         "description": "Sum of retention reaper deletions per project, aggregated at 1h.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 19
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "sum by (project_id) (rate(strait_audit_retention_deleted_total[1h]))",
-            "legendFormat": "{{project_id}}"
+            "expr": "sum by (project_id) (rate(strait_audit_retention_deleted_total[$interval]))",
+            "legendFormat": "{{project_id}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "SIEM",
         "type": "row",
         "collapsed": false,
-        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 27
+        }
       },
       {
         "title": "SIEM batch size (quantiles)",
         "description": "Histogram quantiles of the audit SIEM batch size.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 28
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[5m])))",
-            "legendFormat": "p50"
+            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[$interval])))",
+            "legendFormat": "p50",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[5m])))",
-            "legendFormat": "p95"
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[$interval])))",
+            "legendFormat": "p95",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "C",
-            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[5m])))",
-            "legendFormat": "p99"
+            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[$interval])))",
+            "legendFormat": "p99",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "SIEM forwarded vs failed",
         "description": "Stacked per-second rates of SIEM forwarding outcomes.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 28
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "rate(strait_audit_siem_forwarded_total[5m])",
-            "legendFormat": "forwarded"
+            "expr": "rate(strait_audit_siem_forwarded_total[$interval])",
+            "legendFormat": "forwarded",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "sum by (reason) (rate(strait_audit_siem_failed_total[5m]))",
-            "legendFormat": "failed: {{reason}}"
+            "expr": "sum by (reason) (rate(strait_audit_siem_failed_total[$interval]))",
+            "legendFormat": "failed: {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
         "fieldConfig": {
           "defaults": {
             "unit": "ops",
-            "custom": { "stacking": { "mode": "normal", "group": "A" } }
+            "custom": {
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              }
+            }
           },
           "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
         }
       },
       {
         "title": "SIEM circuit breaker opens",
         "description": "Counter of SIEM circuit breaker open transitions.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 36
+        },
         "targets": [
           {
             "refId": "A",
             "expr": "strait_audit_siem_circuit_open_total",
-            "legendFormat": "circuit_open_total"
+            "legendFormat": "circuit_open_total",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Chain + Export",
         "type": "row",
         "collapsed": false,
-        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 }
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 44
+        }
       },
       {
         "title": "Export caps hit (24h)",
         "description": "Count of audit export streams that terminated because they hit the configured row cap, aggregated per project over the last 24h.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 45
+        },
         "targets": [
           {
             "refId": "A",
             "expr": "sum by (project_id) (increase(strait_audit_events_export_capped_total[24h]))",
-            "legendFormat": "{{project_id}}"
+            "legendFormat": "{{project_id}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       },
       {
         "title": "Chain verify failures",
         "description": "Per-second rate of failed audit chain verification attempts, labeled by reason. Any non-zero value here trips the AuditChainVerificationFailed critical alert.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 45
+        },
         "targets": [
           {
             "refId": "A",
-            "expr": "rate(strait_audit_chain_verify_failed_total[5m])",
-            "legendFormat": "failed: {{reason}}"
+            "expr": "rate(strait_audit_chain_verify_failed_total[$interval])",
+            "legendFormat": "failed: {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           },
           {
             "refId": "B",
-            "expr": "rate(strait_audit_chain_verify_total[5m])",
-            "legendFormat": "total"
+            "expr": "rate(strait_audit_chain_verify_total[$interval])",
+            "legendFormat": "total",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
           }
         ],
-        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
       }
     ]
   }
