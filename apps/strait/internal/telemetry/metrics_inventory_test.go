@@ -8,41 +8,7 @@ import (
 	"testing"
 )
 
-func TestParseMetricInventory(t *testing.T) {
-	t.Parallel()
-
-	doc := "| `strait_queue_depth` | gauge | `queue` | bounded | <=20 | queue |\n"
-	entries, err := ParseMetricInventory(doc)
-	if err != nil {
-		t.Fatalf("ParseMetricInventory: %v", err)
-	}
-	entry, ok := entries["strait_queue_depth"]
-	if !ok {
-		t.Fatal("missing strait_queue_depth")
-	}
-	if entry.Type != "gauge" || entry.Subsystem != "queue" {
-		t.Fatalf("entry = %+v", entry)
-	}
-}
-
-func TestMetricsInventory_AllRegisteredMetricsAreDocumented(t *testing.T) {
-	inventoryPath := filepath.Join(repoRoot(t), "apps", "docs", "operations", "metrics-inventory.mdx")
-	raw, err := os.ReadFile(inventoryPath)
-	if err != nil {
-		t.Fatalf("read inventory: %v", err)
-	}
-	inventory, err := ParseMetricInventory(string(raw))
-	if err != nil {
-		t.Fatalf("parse inventory: %v", err)
-	}
-
-	registered := registeredMetricNames(t)
-	for name := range registered {
-		if _, ok := inventory[name]; !ok {
-			t.Errorf("registered metric %q is missing from metrics-inventory.mdx", name)
-		}
-	}
-}
+var metricNameRE = regexp.MustCompile(`^strait_[a-z0-9_]+$`)
 
 func TestMetricsPolicy_NamingConvention(t *testing.T) {
 	registered := registeredMetricNames(t)
@@ -100,7 +66,7 @@ func registeredMetricTypes(t *testing.T) map[string]string {
 			return err
 		}
 		for _, match := range constructorRE.FindAllStringSubmatch(string(raw), -1) {
-			name := NormalizePrometheusMetricName(match[2])
+			name := normalizePrometheusMetricName(match[2])
 			if !strings.HasPrefix(name, "strait_") {
 				continue
 			}
@@ -115,6 +81,10 @@ func registeredMetricTypes(t *testing.T) map[string]string {
 		t.Fatal("no metric registrations found")
 	}
 	return types
+}
+
+func normalizePrometheusMetricName(name string) string {
+	return strings.ReplaceAll(name, ".", "_")
 }
 
 func metricKindFromConstructor(constructor string) string {

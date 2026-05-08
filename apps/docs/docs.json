@@ -91,8 +91,6 @@
             "group": "Monitoring",
             "pages": [
               "operations/observability",
-              "operations/metrics-inventory",
-              "operations/metrics-policy",
               "concepts/real-time",
               "concepts/webhooks",
               "concepts/webhook-subscriptions",

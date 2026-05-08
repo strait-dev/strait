@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestGrafanaDashboards_JSONValidAndInventoried(t *testing.T) {
+func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
 	if err != nil {
 		t.Fatalf("glob dashboards: %v", err)
@@ -22,7 +22,7 @@ func TestGrafanaDashboards_JSONValidAndInventoried(t *testing.T) {
 		t.Fatalf("dashboard count = %d, want 9: %v", len(dashboardPaths), dashboardPaths)
 	}
 
-	inventory := loadMetricInventory(t)
+	registeredMetrics := registeredMetricNames(t)
 	metricTokenRE := regexp.MustCompile(`strait_[a-z0-9_]+`)
 	seenUIDs := map[string]string{}
 	seenTitles := map[string]string{}
@@ -69,14 +69,14 @@ func TestGrafanaDashboards_JSONValidAndInventoried(t *testing.T) {
 
 		metricRefs := map[string]struct{}{}
 		for _, token := range metricTokenRE.FindAllString(string(raw), -1) {
-			metricRefs[normalizeDashboardMetricRef(token, inventory)] = struct{}{}
+			metricRefs[normalizeDashboardMetricRef(token, registeredMetrics)] = struct{}{}
 		}
 		if len(metricRefs) == 0 {
 			t.Errorf("%s references no Strait metrics", filepath.Base(path))
 		}
 		for metric := range metricRefs {
-			if _, ok := inventory[metric]; !ok {
-				t.Errorf("%s references metric %q that is not in metrics inventory", filepath.Base(path), metric)
+			if _, ok := registeredMetrics[metric]; !ok {
+				t.Errorf("%s references metric %q that is not registered", filepath.Base(path), metric)
 			}
 		}
 	}
@@ -327,21 +327,8 @@ func balancedPromQLDelimiters(expr string, open, close rune) bool {
 	return depth == 0
 }
 
-func loadMetricInventory(t *testing.T) map[string]MetricInventoryEntry {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(moduleRoot(t), "..", "docs", "operations", "metrics-inventory.mdx"))
-	if err != nil {
-		t.Fatalf("read metrics inventory: %v", err)
-	}
-	inventory, err := ParseMetricInventory(string(raw))
-	if err != nil {
-		t.Fatalf("parse metrics inventory: %v", err)
-	}
-	return inventory
-}
-
-func normalizeDashboardMetricRef(name string, inventory map[string]MetricInventoryEntry) string {
-	if _, ok := inventory[name]; ok {
+func normalizeDashboardMetricRef(name string, registeredMetrics map[string]struct{}) string {
+	if _, ok := registeredMetrics[name]; ok {
 		return name
 	}
 	return normalizePrometheusMetricToken(name)
