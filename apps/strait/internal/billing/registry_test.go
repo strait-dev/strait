@@ -155,7 +155,7 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 		{domain.PlanScale, LimitMaxScheduledJobs, MaxScheduledScale},
 
 		{domain.PlanFree, LimitMaxEnvironments, 1},
-		{domain.PlanStarter, LimitMaxEnvironments, 3},
+		{domain.PlanStarter, LimitMaxEnvironments, 1},
 
 		{domain.PlanFree, LimitMaxWebhookEndpoints, 0},
 		{domain.PlanStarter, LimitMaxWebhookEndpoints, 3},

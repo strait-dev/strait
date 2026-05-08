@@ -1509,16 +1509,20 @@ func isOverageLimitReached(limitMicrousd, overageSpendMicrousd int64) bool {
 // MaxSpendingLimit returns the maximum allowed spending limit for a plan tier.
 func MaxSpendingLimit(tier domain.PlanTier) int64 {
 	switch tier {
+	case domain.PlanFree:
+		return MaxSpendingFree
 	case domain.PlanStarter:
 		return MaxSpendingStarter
 	case domain.PlanPro:
 		return MaxSpendingPro
 	case domain.PlanScale:
 		return MaxSpendingScale
+	case domain.PlanBusiness:
+		return MaxSpendingBusiness
 	case domain.PlanEnterprise:
 		return -1 // custom
 	default:
-		return 0 // free: no spending limit
+		return 0
 	}
 }
 

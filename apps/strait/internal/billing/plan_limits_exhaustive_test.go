@@ -90,7 +90,7 @@ func TestStarterEnforcement(t *testing.T) {
 		{"webhook_basic_level", func() bool { return s.WebhookEventLevel == "basic" }, true},
 		{"3_webhook_endpoints", func() bool { return s.MaxWebhookEndpoints == 3 }, true},
 		{"25_schedules", func() bool { return s.MaxScheduledJobs == MaxScheduledStarter }, true},
-		{"3_environments", func() bool { return s.MaxEnvironments == 3 }, true},
+		{"1_environment", func() bool { return s.MaxEnvironments == 1 }, true},
 		{"dag_steps_at_starter_limit", func() bool { return s.MaxWorkflowDAGSteps == MaxDAGStepsStarter }, true},
 		{"basic_rbac", func() bool { return s.RBACLevel == "basic" }, true},
 		{"no_audit_logs", func() bool { return s.HasAuditLogs }, false},
