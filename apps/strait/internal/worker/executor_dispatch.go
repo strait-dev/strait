@@ -197,6 +197,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
 				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 				if limErr == nil && !limits.AllowsHTTPMode {
+					billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "dispatch")
 					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
 					e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 					e.handleSystemFailureWithJob(ctx, run, job,
@@ -389,9 +390,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	// Record HTTP run cost for Stripe billing and usage records (cloud only).
 	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
-		if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
-			e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
-		}
+		billing.RecordHTTPModeRunCompleted(ctx)
 		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
 		if e.runCostRecorder != nil && e.billingEnforcer != nil {
 			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)

@@ -19,8 +19,6 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
 	"github.com/redis/go-redis/v9"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -486,11 +484,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 				"limit", limits.MaxRunsPerDay,
 				"current", currentCount,
 			)
-			if e.metrics != nil && e.metrics.OverageEntered != nil {
-				e.metrics.OverageEntered.Add(ctx, 1,
-					metric.WithAttributes(attribute.String("plan_tier", string(limits.PlanTier))),
-				)
-			}
+			recordBillingOverageEntered(ctx, string(limits.PlanTier))
 			return nil
 		}
 
@@ -1227,38 +1221,20 @@ func (e *Enforcer) GetDailyRunCount(ctx context.Context, orgID string) (int64, e
 	return count, nil
 }
 
-// recordRejection increments the limit rejection Prometheus counter.
 func (e *Enforcer) recordRejection(ctx context.Context, reason string, planTier domain.PlanTier) {
 	addBillingSentryBreadcrumb(ctx, "limit_rejection", "billing limit rejected", map[string]any{
 		"reason":    reason,
 		"plan_tier": string(planTier),
 	})
-	if e.metrics == nil || e.metrics.LimitRejections == nil {
-		return
-	}
-	e.metrics.LimitRejections.Add(ctx, 1,
-		metric.WithAttributes(
-			attribute.String("reason", reason),
-			attribute.String("plan_tier", string(planTier)),
-		),
-	)
+	recordBillingLimitRejection(ctx, reason, string(planTier))
 }
 
-// recordFailOpen increments the fail-open Prometheus counter for ops visibility.
 func (e *Enforcer) recordFailOpen(ctx context.Context, checkType, errorType string) {
 	addBillingSentryBreadcrumb(ctx, "fail_open", "billing enforcement failed open", map[string]any{
 		"check_type": checkType,
 		"error_type": errorType,
 	})
-	if e.metrics == nil || e.metrics.EnforcementFailOpen == nil {
-		return
-	}
-	e.metrics.EnforcementFailOpen.Add(ctx, 1,
-		metric.WithAttributes(
-			attribute.String("check_type", checkType),
-			attribute.String("error_type", errorType),
-		),
-	)
+	recordBillingFailOpen(ctx, checkType, errorType)
 }
 
 func addBillingSentryBreadcrumb(ctx context.Context, operation, message string, data map[string]any) {

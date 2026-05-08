@@ -12,8 +12,6 @@ import (
 
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/billing/meterevent"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // stripeKeyOnce ensures the global stripe.Key is set exactly once,
@@ -94,19 +92,11 @@ func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID stri
 			"customer_id", customerID,
 			"run_id", runID,
 		)
-		if r.metrics != nil && r.metrics.StripeUsageEventsDropped != nil {
-			r.metrics.StripeUsageEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("status", "error")),
-			)
-		}
+		recordBillingStripeUsageDropped(ctx, "error")
 		return fmt.Errorf("stripe meter event ingestion failed: %w", err)
 	}
 
-	if r.metrics != nil && r.metrics.StripeUsageEventsIngested != nil {
-		r.metrics.StripeUsageEventsIngested.Add(ctx, 1,
-			metric.WithAttributes(attribute.String("status", "ok")),
-		)
-	}
+	recordBillingStripeUsageIngested(ctx, "ok")
 
 	r.logger.Debug("stripe meter event ingested",
 		"customer_id", customerID,

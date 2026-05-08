@@ -59,7 +59,7 @@ func TestMetricsPolicy_HistogramSuffixes(t *testing.T) {
 		if typ != "histogram" {
 			continue
 		}
-		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") || strings.HasSuffix(name, "_number") || strings.HasSuffix(name, "_items") {
+		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") || strings.HasSuffix(name, "_number") || strings.HasSuffix(name, "_items") || strings.HasSuffix(name, "_microusd") {
 			continue
 		}
 		t.Errorf("histogram metric %q must include an explicit unit suffix", name)

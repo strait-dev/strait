@@ -13,7 +13,7 @@ Pattern:
 strait_<subsystem>_<measurement>_<unit>
 ```
 
-Counters end in `_total`. Histograms include a unit suffix such as `_seconds`, `_bytes`, `_rows`, or `_ratio`. Gauges use the measured value name without `_total`.
+Counters end in `_total`. Histograms include a unit suffix such as `_seconds`, `_bytes`, `_rows`, `_items`, `_microusd`, or `_ratio`. Gauges use the measured value name without `_total`.
 
 OpenTelemetry instruments may use dotted names internally only when the Prometheus exporter produces the canonical snake-case name. New metrics should be registered with the canonical Prometheus-facing name directly.
 

@@ -70,9 +70,6 @@ type Metrics struct {
 	DLQDepth            metric.Int64Gauge
 	QueueDepthPerJob    metric.Int64Gauge
 
-	// Billing limit rejection metrics.
-	LimitRejections              metric.Int64Counter
-	EnforcementFailOpen          metric.Int64Counter
 	NotificationDeliveryFailures metric.Int64Counter
 
 	// DB connection pool metrics.
@@ -120,13 +117,6 @@ type Metrics struct {
 
 	// Pub/sub metrics.
 	PubSubPublishErrors metric.Int64Counter
-
-	// Billing observability metrics.
-	StripeUsageEventsIngested metric.Int64Counter
-	StripeUsageEventsDropped  metric.Int64Counter
-	OverageEntered            metric.Int64Counter
-	HTTPModeRunsCompleted     metric.Int64Counter
-	HTTPModeGateRejected      metric.Int64Counter
 
 	// Audit event metrics.
 	AuditEventsEmitted      metric.Int64Counter
@@ -605,24 +595,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 
 	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
 
-	limitRejections, err := meter.Int64Counter(
-		"strait_billing_limit_rejections_total",
-		metric.WithDescription("Total billing limit rejections by reason and plan tier"),
-		metric.WithUnit("1"),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create limit rejections counter: %w", err)
-	}
-
-	enforcementFailOpen, err := meter.Int64Counter(
-		"strait_billing_enforcement_fail_open_total",
-		metric.WithDescription("Total enforcement checks that failed open due to infrastructure errors"),
-		metric.WithUnit("1"),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create enforcement fail open counter: %w", err)
-	}
-
 	notifDeliveryFailures, err := meter.Int64Counter(
 		"strait_notification_delivery_failures_total",
 		metric.WithDescription("Total notification delivery creation failures"),
@@ -714,32 +686,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	pubsubPublishErrors, _ := meter.Int64Counter(
 		"strait_pubsub_publish_errors_total",
 		metric.WithDescription("Total pub/sub publish failures"),
-		metric.WithUnit("1"),
-	)
-
-	stripeUsageEventsIngested, _ := meter.Int64Counter(
-		"strait_billing_stripe_usage_events_ingested_total",
-		metric.WithDescription("Total Stripe usage events ingested"),
-		metric.WithUnit("1"),
-	)
-	stripeUsageEventsDropped, _ := meter.Int64Counter(
-		"strait_billing_stripe_usage_events_dropped_total",
-		metric.WithDescription("Total Stripe usage events dropped"),
-		metric.WithUnit("1"),
-	)
-	overageEntered, _ := meter.Int64Counter(
-		"strait_billing_overage_entered_total",
-		metric.WithDescription("Total times a paid plan entered daily run overage"),
-		metric.WithUnit("1"),
-	)
-	httpModeRunsCompleted, _ := meter.Int64Counter(
-		"strait_billing_http_mode_runs_completed_total",
-		metric.WithDescription("Total HTTP mode runs with cost recorded"),
-		metric.WithUnit("1"),
-	)
-	httpModeGateRejected, _ := meter.Int64Counter(
-		"strait_billing_http_mode_gate_rejected_total",
-		metric.WithDescription("Total HTTP mode job creation rejections by plan gating"),
 		metric.WithUnit("1"),
 	)
 
@@ -908,8 +854,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ShutdownTotal:                shutdownTotal,
 		DLQDepth:                     dlqDepth,
 		QueueDepthPerJob:             queueDepthPerJob,
-		LimitRejections:              limitRejections,
-		EnforcementFailOpen:          enforcementFailOpen,
 		NotificationDeliveryFailures: notifDeliveryFailures,
 		DBPoolTotalConns:             dbPoolTotal,
 		DBPoolIdleConns:              dbPoolIdle,
@@ -929,11 +873,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
 		LogDrainEventsTotal:          logDrainEventsTotal,
 		PubSubPublishErrors:          pubsubPublishErrors,
-		StripeUsageEventsIngested:    stripeUsageEventsIngested,
-		StripeUsageEventsDropped:     stripeUsageEventsDropped,
-		OverageEntered:               overageEntered,
-		HTTPModeRunsCompleted:        httpModeRunsCompleted,
-		HTTPModeGateRejected:         httpModeGateRejected,
 		AuditEventsEmitted:           auditEventsEmitted,
 		AuditEventsDropped:           auditEventsDropped,
 		AuditEventsTruncated:         auditEventsTruncated,

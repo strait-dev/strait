@@ -529,9 +529,9 @@ func TestInitMetrics_AllPoolMetricsInitialized(t *testing.T) {
 	}
 }
 
-func TestInitMetrics_BillingMetricsInitialized(t *testing.T) {
+func TestInitMetrics_NotificationMetricsInitialized(t *testing.T) {
 	t.Parallel()
-	m, _, shutdown, err := InitMetrics("test-billing-init", "test")
+	m, _, shutdown, err := InitMetrics("test-notification-init", "test")
 	if err != nil {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
@@ -540,29 +540,8 @@ func TestInitMetrics_BillingMetricsInitialized(t *testing.T) {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	if m.LimitRejections == nil {
-		t.Error("LimitRejections is nil")
-	}
-	if m.EnforcementFailOpen == nil {
-		t.Error("EnforcementFailOpen is nil")
-	}
 	if m.NotificationDeliveryFailures == nil {
 		t.Error("NotificationDeliveryFailures is nil")
-	}
-	if m.StripeUsageEventsIngested == nil {
-		t.Error("StripeUsageEventsIngested is nil")
-	}
-	if m.StripeUsageEventsDropped == nil {
-		t.Error("StripeUsageEventsDropped is nil")
-	}
-	if m.OverageEntered == nil {
-		t.Error("OverageEntered is nil")
-	}
-	if m.HTTPModeRunsCompleted == nil {
-		t.Error("HTTPModeRunsCompleted is nil")
-	}
-	if m.HTTPModeGateRejected == nil {
-		t.Error("HTTPModeGateRejected is nil")
 	}
 }
 
