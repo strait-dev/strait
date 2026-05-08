@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +82,34 @@ func TestGrafanaDashboards_JSONValidAndInventoried(t *testing.T) {
 	}
 }
 
+func TestGrafanaDashboards_PromQLShape(t *testing.T) {
+	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
+	if err != nil {
+		t.Fatalf("glob dashboards: %v", err)
+	}
+	if len(dashboardPaths) == 0 {
+		t.Fatal("no dashboard JSON files found")
+	}
+
+	var checked int
+	for _, path := range dashboardPaths {
+		exprs := dashboardExpressions(t, path)
+		for _, expr := range exprs {
+			checked++
+			if strings.TrimSpace(expr) == "" {
+				t.Errorf("%s has an empty PromQL expression", filepath.Base(path))
+				continue
+			}
+			if err := validatePromQLShape(expr); err != nil {
+				t.Errorf("%s invalid PromQL shape for %q: %v", filepath.Base(path), expr, err)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no dashboard PromQL expressions checked")
+	}
+}
+
 func TestGrafanaProvisioningFiles(t *testing.T) {
 	root := filepath.Join(moduleRoot(t), "monitoring", "grafana", "provisioning")
 	files := []string{
@@ -114,6 +143,87 @@ func TestGrafanaSmokeScriptSyntax(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("bash -n smoke.sh failed: %v\n%s", err, out)
 	}
+}
+
+func dashboardExpressions(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var doc struct {
+		Dashboard struct {
+			Panels []struct {
+				Targets []struct {
+					Expr string `json:"expr"`
+				} `json:"targets"`
+			} `json:"panels"`
+		} `json:"dashboard"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("%s does not parse as dashboard JSON: %v", filepath.Base(path), err)
+	}
+	var exprs []string
+	for _, panel := range doc.Dashboard.Panels {
+		for _, target := range panel.Targets {
+			if target.Expr != "" {
+				exprs = append(exprs, target.Expr)
+			}
+		}
+	}
+	return exprs
+}
+
+func validatePromQLShape(expr string) error {
+	if strings.Contains(expr, "rate(") && regexp.MustCompile(`\)\s+by\s*\(`).MatchString(expr) {
+		return fmt.Errorf("aggregation must wrap rate(), e.g. sum by (...) (rate(metric[window]))")
+	}
+	if strings.Contains(expr, "increase(") && regexp.MustCompile(`\)\s+by\s*\(`).MatchString(expr) {
+		return fmt.Errorf("aggregation must wrap increase(), e.g. sum by (...) (increase(metric[window]))")
+	}
+	if !balancedPromQLDelimiters(expr, '(', ')') {
+		return fmt.Errorf("unbalanced parentheses")
+	}
+	if !balancedPromQLDelimiters(expr, '[', ']') {
+		return fmt.Errorf("unbalanced range selector brackets")
+	}
+	if strings.Count(expr, "\"")%2 != 0 {
+		return fmt.Errorf("unbalanced quotes")
+	}
+	return nil
+}
+
+func balancedPromQLDelimiters(expr string, open, close rune) bool {
+	depth := 0
+	inString := false
+	escaped := false
+	for _, c := range expr {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch c {
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0
 }
 
 func loadMetricInventory(t *testing.T) map[string]MetricInventoryEntry {

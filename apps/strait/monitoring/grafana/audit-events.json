@@ -100,7 +100,7 @@
           },
           {
             "refId": "B",
-            "expr": "rate(strait_audit_reclaimer_failed_total[5m]) by (reason)",
+            "expr": "sum by (reason) (rate(strait_audit_reclaimer_failed_total[5m]))",
             "legendFormat": "failed: {{reason}}"
           }
         ],
@@ -169,7 +169,7 @@
           },
           {
             "refId": "B",
-            "expr": "rate(strait_audit_siem_failed_total[5m]) by (reason)",
+            "expr": "sum by (reason) (rate(strait_audit_siem_failed_total[5m]))",
             "legendFormat": "failed: {{reason}}"
           }
         ],
