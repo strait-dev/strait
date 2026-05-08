@@ -57,6 +57,7 @@ type webhookClaimState struct {
 type WebhookHandler struct {
 	store             Store
 	stripeMapping     *StripeMapping
+	catalogResolver   *CatalogResolver
 	secret            string
 	logger            *slog.Logger
 	enforcer          *Enforcer
@@ -109,6 +110,17 @@ func WithDevBypassSignatureCheck() WebhookOption {
 	}
 }
 
+// WithCatalogResolver overrides the default lookup-key resolver. The default
+// (constructed from PlanCatalogs and AddonPacks) is sufficient for production;
+// this option exists primarily for tests that need a narrower mapping.
+func WithCatalogResolver(r *CatalogResolver) WebhookOption {
+	return func(h *WebhookHandler) {
+		if r != nil {
+			h.catalogResolver = r
+		}
+	}
+}
+
 var (
 	errEmptySubscriptionID = errors.New("subscription ID is empty")
 	errEmptyPriceID        = errors.New("price ID is empty")
@@ -141,6 +153,54 @@ func extractPriceID(sub *stripe.Subscription) string {
 		return ""
 	}
 	return sub.Items.Data[0].Price.ID
+}
+
+// extractLookupKey returns the Stripe lookup_key from the first subscription
+// item's price, or empty when the price has no lookup key set. The lookup key
+// is the cross-account stable identifier used by the catalog resolver.
+func extractLookupKey(sub *stripe.Subscription) string {
+	if sub.Items == nil || len(sub.Items.Data) == 0 {
+		return ""
+	}
+	if sub.Items.Data[0].Price == nil {
+		return ""
+	}
+	return sub.Items.Data[0].Price.LookupKey
+}
+
+// resolveTier returns the plan tier for a subscription, preferring lookup-key
+// resolution (catalog-driven, account-agnostic) and falling back to per-account
+// price ID mapping. Returns the lookup key actually used (empty if fallback).
+func (h *WebhookHandler) resolveTier(sub *stripe.Subscription) (domain.PlanTier, string, bool) {
+	if lk := extractLookupKey(sub); lk != "" {
+		if t, ok := h.catalogResolver.TierForLookupKey(lk); ok {
+			return t, lk, true
+		}
+	}
+	t, ok := h.stripeMapping.TierForPrice(extractPriceID(sub))
+	return t, "", ok
+}
+
+// resolveAddon returns the addon type for a subscription, preferring lookup-key
+// resolution and falling back to per-account price ID mapping. Returns the
+// lookup key actually used (empty if fallback).
+func (h *WebhookHandler) resolveAddon(sub *stripe.Subscription) (AddonType, string, bool) {
+	if lk := extractLookupKey(sub); lk != "" {
+		if a, ok := h.catalogResolver.AddonForLookupKey(lk); ok {
+			return a, lk, true
+		}
+	}
+	a, ok := h.stripeMapping.AddonTypeForPrice(extractPriceID(sub))
+	return a, "", ok
+}
+
+// isAddonSubscription reports whether the subscription resolves to an addon
+// (via lookup key or fallback price ID mapping).
+func (h *WebhookHandler) isAddonSubscription(sub *stripe.Subscription) bool {
+	if lk := extractLookupKey(sub); lk != "" && h.catalogResolver.IsAddonLookupKey(lk) {
+		return true
+	}
+	return h.stripeMapping.IsAddonPrice(extractPriceID(sub))
 }
 
 // extractCustomerEmail returns the email from a Stripe customer object.
@@ -197,12 +257,13 @@ func (h *WebhookHandler) emitBillingEvent(orgID, eventType, planTier string) {
 // The auditStore is optional; when non-nil, audit events are recorded for plan changes.
 func NewWebhookHandler(store Store, mapping *StripeMapping, secret string, logger *slog.Logger, enforcer *Enforcer, auditStore AuditStore, opts ...WebhookOption) *WebhookHandler {
 	h := &WebhookHandler{
-		store:         store,
-		stripeMapping: mapping,
-		secret:        secret,
-		logger:        logger,
-		enforcer:      enforcer,
-		auditStore:    auditStore,
+		store:           store,
+		stripeMapping:   mapping,
+		catalogResolver: NewCatalogResolver(),
+		secret:          secret,
+		logger:          logger,
+		enforcer:        enforcer,
+		auditStore:      auditStore,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -455,14 +516,14 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 
 	priceID := extractPriceID(&sub)
 
-	// Check if this is an addon price first.
-	if addonType, isAddon := h.stripeMapping.AddonTypeForPrice(priceID); isAddon {
-		return h.handleAddonSubscriptionCreated(ctx, &sub, addonType)
+	// Check if this is an addon (lookup-key first, then per-account price ID).
+	if addonType, lookupKey, isAddon := h.resolveAddon(&sub); isAddon {
+		return h.handleAddonSubscriptionCreated(ctx, &sub, addonType, lookupKey)
 	}
 
-	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	tier, lookupKey, ok := h.resolveTier(&sub)
 	if !ok {
-		h.logger.Warn("unknown stripe price ID", "price_id", priceID)
+		h.logger.Warn("unknown stripe price", "price_id", priceID, "lookup_key", extractLookupKey(&sub))
 		return ErrUnknownPrice
 	}
 
@@ -478,12 +539,17 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	now := time.Now()
 	periodStart, periodEnd := extractPeriod(&sub)
 	customerID := sub.Customer.ID
+	var lookupKeyPtr *string
+	if lookupKey != "" {
+		lookupKeyPtr = &lookupKey
+	}
 	orgSub := &OrgSubscription{
 		ID:                    sub.ID,
 		OrgID:                 orgID,
 		PlanTier:              string(tier),
 		StripeSubscriptionID:  &sub.ID,
 		StripeCustomerID:      &customerID,
+		StripeLookupKey:       lookupKeyPtr,
 		Status:                "active",
 		CurrentPeriodStart:    periodStart,
 		CurrentPeriodEnd:      periodEnd,
@@ -623,11 +689,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
-	priceID := extractPriceID(&sub)
-
-	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	tier, lookupKey, ok := h.resolveTier(&sub)
 	if !ok {
-		h.logger.Warn("unknown stripe price ID on update", "price_id", priceID)
+		h.logger.Warn("unknown stripe price on update",
+			"price_id", extractPriceID(&sub), "lookup_key", extractLookupKey(&sub))
 		return nil
 	}
 
@@ -711,12 +776,17 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			now := time.Now()
 			customerID := sub.Customer.ID
+			var lookupKeyPtr *string
+			if lookupKey != "" {
+				lookupKeyPtr = &lookupKey
+			}
 			orgSub := &OrgSubscription{
 				ID:                    sub.ID,
 				OrgID:                 orgID,
 				PlanTier:              string(tier),
 				StripeSubscriptionID:  &sub.ID,
 				StripeCustomerID:      &customerID,
+				StripeLookupKey:       lookupKeyPtr,
 				Status:                status,
 				CurrentPeriodStart:    periodStart,
 				CurrentPeriodEnd:      periodEnd,
@@ -808,10 +878,8 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, data jso
 		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
-	priceID := extractPriceID(&sub)
-
 	// Handle addon subscription cancellation.
-	if h.stripeMapping.IsAddonPrice(priceID) {
+	if h.isAddonSubscription(&sub) {
 		return h.handleAddonSubscriptionCanceled(ctx, &sub)
 	}
 
@@ -1133,8 +1201,7 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 		return nil
 	}
 
-	priceID := extractPriceID(&sub)
-	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	tier, _, ok := h.resolveTier(&sub)
 	if !ok {
 		return nil
 	}
@@ -1540,8 +1607,9 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 }
 
 // handleAddonSubscriptionCreated creates an addon record when a Stripe addon
-// subscription is created.
-func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType) error {
+// subscription is created. lookupKey is the Stripe lookup_key that resolved to
+// this addon (empty when resolution fell back to per-account price ID).
+func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType, lookupKey string) error {
 	orgID, err := h.resolveBoundOrgID(ctx, sub)
 	if err != nil {
 		return err
@@ -1574,12 +1642,17 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 	}
 
 	_, periodEnd := extractPeriod(sub)
+	var lookupKeyPtr *string
+	if lookupKey != "" {
+		lookupKeyPtr = &lookupKey
+	}
 	addon := &Addon{
 		ID:                   sub.ID,
 		OrgID:                orgID,
 		AddonType:            addonType,
 		Quantity:             1,
 		StripeSubscriptionID: &sub.ID,
+		StripeLookupKey:      lookupKeyPtr,
 		Active:               true,
 		ExpiresAt:            periodEnd,
 	}

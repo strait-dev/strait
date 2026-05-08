@@ -158,6 +158,7 @@ type Addon struct {
 	AddonType            AddonType
 	Quantity             int
 	StripeSubscriptionID *string
+	StripeLookupKey      *string
 	Active               bool
 	ExpiresAt            *time.Time
 	CreatedAt            time.Time

@@ -66,6 +66,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 	var addOnsJSON []byte
 	query := `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
+			stripe_lookup_key,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -81,6 +82,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 	err := s.pool.QueryRow(ctx, query, arg).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
 		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
+		&sub.StripeLookupKey,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -109,14 +111,16 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO organization_subscriptions (
 			id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
+			stripe_lookup_key,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, canceled_at,
 			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (org_id) DO UPDATE SET
 			plan_tier = EXCLUDED.plan_tier,
 			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
 			stripe_customer_id = EXCLUDED.stripe_customer_id,
+			stripe_lookup_key = COALESCE(EXCLUDED.stripe_lookup_key, organization_subscriptions.stripe_lookup_key),
 			status = EXCLUDED.status,
 			current_period_start = EXCLUDED.current_period_start,
 			current_period_end = EXCLUDED.current_period_end,
@@ -127,6 +131,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			updated_at = NOW()
 	`, sub.ID, sub.OrgID, sub.PlanTier,
 		sub.StripeSubscriptionID, sub.StripeCustomerID,
+		sub.StripeLookupKey,
 		sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
 		sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
 		sub.CreatedAt, sub.UpdatedAt,
@@ -1053,7 +1058,7 @@ func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 // ListActiveAddons returns all active add-ons for an organization.
 func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at
+		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at
 		FROM organization_addons
 		WHERE org_id = $1 AND active = true
 		ORDER BY created_at
@@ -1066,7 +1071,7 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 	var addons []Addon
 	for rows.Next() {
 		var a Addon
-		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.Active, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.StripeLookupKey, &a.Active, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning addon row: %w", err)
 		}
 		addons = append(addons, a)
@@ -1077,9 +1082,9 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 // CreateAddon inserts a new add-on record.
 func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.Active, addon.ExpiresAt)
+		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.StripeLookupKey, addon.Active, addon.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("creating addon: %w", err)
 	}

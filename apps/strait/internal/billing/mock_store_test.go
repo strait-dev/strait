@@ -63,6 +63,7 @@ type mockBillingStore struct {
 	enterpriseContracts        map[string]*EnterpriseContract
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
+	lastAddonCreated           *Addon
 	httpJobCount               int
 	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
 	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
@@ -400,7 +401,11 @@ func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addo
 	return m.activeAddons, nil
 }
 
-func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
+func (m *mockBillingStore) CreateAddon(_ context.Context, addon *Addon) error {
+	m.lastAddonCreated = addon
+	if addon != nil {
+		m.activeAddons = append(m.activeAddons, *addon)
+	}
 	return nil
 }
 

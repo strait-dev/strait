@@ -39,7 +39,7 @@ func TestAddonCap_UnderLimit_Allows(t *testing.T) {
 		Status:     "active",
 		Metadata:   map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
 	}
-	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrentRuns)
+	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrentRuns, "")
 	if err != nil {
 		t.Fatalf("expected addon to be allowed, got: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
 		Status:     "active",
 		Metadata:   map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
 	}
-	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrentRuns)
+	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrentRuns, "")
 	if err != nil {
 		t.Fatalf("expected addon to be allowed without enforcer, got: %v", err)
 	}

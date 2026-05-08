@@ -22,6 +22,7 @@ type OrgSubscription struct {
 	PlanTier                   string
 	StripeSubscriptionID       *string
 	StripeCustomerID           *string
+	StripeLookupKey            *string
 	Status                     string
 	CurrentPeriodStart         *time.Time
 	CurrentPeriodEnd           *time.Time
