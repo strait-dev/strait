@@ -91,7 +91,9 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_queue_circuit_state_transitions_total` | counter | `from`, `to` | circuit state enum | <=20 series | queue |
 | `strait_queue_claim_table_dead_tuples` | gauge | `table` | bounded table enum | <=20 series | queue |
 | `strait_queue_claim_table_live_tuples` | gauge | `table` | bounded table enum | <=20 series | queue |
+| `strait_queue_claim_duration_seconds` | histogram | `queue`, `result` | bounded queue enum, `success`, `empty`, `error` | <=100 series | queue |
 | `strait_queue_claim_to_start_seconds` | histogram | `queue` | bounded queue enum | <=20 series | queue |
+| `strait_queue_concurrency_utilization` | gauge | `queue` | bounded queue enum | <=20 series | queue |
 | `strait_queue_counter_drift` | gauge | `counter` | bounded counter enum | <=20 series | queue |
 | `strait_queue_dead_tuple_ratio` | gauge | `partition` | bounded partition enum | <=100 series | queue |
 | `strait_queue_depth` | gauge | `queue`, `project` | bounded queue enum; allowlisted project or `_other` | <=200 series | queue |
@@ -107,6 +109,7 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_queue_index_dead_items` | gauge | `index` | bounded index enum | <=50 series | queue |
 | `strait_queue_lag_seconds` | histogram | `project` | allowlisted project or `_other` | <=100 series | queue |
 | `strait_queue_live_tuples` | gauge | `partition` | bounded partition enum | <=100 series | queue |
+| `strait_queue_lock_skipped_total` | counter | `queue` | bounded queue enum | <=20 series | queue |
 | `strait_queue_masked_rows_pending` | gauge | `queue` | bounded queue enum | <=20 series | queue |
 | `strait_queue_notify_degraded_duration_seconds` | histogram | `reason` | bounded reason enum | <=20 series | queue |
 | `strait_queue_notify_dropped_total` | counter | `queue` | bounded queue enum | <=20 series | queue |
@@ -117,6 +120,7 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_queue_outbox_quarantined_total` | counter | `reason` | bounded reason enum | <=20 series | queue |
 | `strait_queue_partition_dequeue_lag_seconds` | histogram | `partition` | bounded partition enum | <=100 series | queue |
 | `strait_queue_retry_schedule_lag_seconds` | histogram | `queue` | bounded queue enum | <=20 series | queue |
+| `strait_queue_visibility_timeout_expirations_total` | counter | `queue` | bounded queue enum | <=20 series | queue |
 | `strait_reaper_operations_total` | counter | `operation`, `outcome` | bounded enums | <=50 series | scheduler |
 | `strait_reaper_records_deleted_total` | counter | `table` | bounded table enum | <=50 series | scheduler |
 | `strait_run_duration_seconds` | histogram | `status`, `project` | status enum; allowlisted project or `_other` | <=200 series | run |
@@ -137,8 +141,13 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_webhook_retry_attempts_total` | counter | `reason` | bounded reason enum | <=20 series | webhook |
 | `strait_worker_event_channel_dropped_total` | counter | `kind` | bounded event kind enum | <=20 series | worker |
 | `strait_worker_event_channel_saturation_ratio` | gauge | none | none | <=10 series | worker |
+| `strait_worker_dispatch_duration_seconds` | histogram | `mode`, `outcome` | `http`, `grpc`; `success`, `timeout`, `error` | <=20 series | worker |
+| `strait_worker_heartbeat_lag_seconds` | histogram | none | none | <=10 series | worker |
 | `strait_worker_heartbeat_flush_duration_seconds` | histogram | none | none | <=10 series | worker |
 | `strait_worker_heartbeat_flush_errors_total` | counter | none | none | <=10 series | worker |
+| `strait_worker_pool_active` | gauge | `mode` | `http`, `grpc`, `unknown` | <=10 series | worker |
+| `strait_worker_pool_idle` | gauge | `mode` | `http`, `grpc`, `unknown` | <=10 series | worker |
+| `strait_worker_retry_total` | counter | `mode`, `reason` | bounded enums | <=50 series | worker |
 | `strait_worker_retry_attempt_number` | histogram | none | none | <=10 series | worker |
 | `strait_workflow_dependency_waits_total` | counter | `source_type`, `project` | bounded source enum; allowlisted project or `_other` | <=200 series | workflow |
 | `strait_workflow_stalled_runs_total` | counter | `reason` | bounded reason enum | <=20 series | workflow |
@@ -146,3 +155,6 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_workflow_step_queue_seconds` | histogram | `step_kind` | bounded step kind enum | <=50 series | workflow |
 | `strait_workflow_step_wait_duration_seconds` | histogram | `workflow`, `step_kind` | bounded workflow/step labels | <=200 series | workflow |
 | `strait_workflow_triggers_total` | counter | `outcome` | bounded outcome enum | <=20 series | workflow |
+| `strait_grpc_run_dispatch_e2e_seconds` | histogram | none | none | <=10 series | grpc |
+| `strait_grpc_worker_stream_disconnects_total` | counter | `reason` | `graceful`, `timeout`, `error`, `forced`, `revoked`, `unknown` | <=10 series | grpc |
+| `strait_grpc_worker_streams_open` | updown_counter | `queue` | bounded queue enum | <=50 series | grpc |

@@ -47,6 +47,10 @@ type QueueMetrics struct {
 	IndexDeadItems                metric.Int64Gauge
 	ClaimTableDeadTuples          metric.Int64Gauge
 	ClaimTableLiveTuples          metric.Int64Gauge
+	ClaimDuration                 metric.Float64Histogram
+	LockSkipped                   metric.Int64Counter
+	VisibilityTimeoutExpirations  metric.Int64Counter
+	ConcurrencyUtilization        metric.Float64Gauge
 }
 
 var (
@@ -360,6 +364,39 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	)
 	if err != nil {
 		return fmt.Errorf("claim table live tuples gauge: %w", err)
+	}
+	m.ClaimDuration, err = meter.Float64Histogram(
+		"strait_queue_claim_duration_seconds",
+		metric.WithDescription("Duration of queue claim attempts by queue and result"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
+	)
+	if err != nil {
+		return fmt.Errorf("claim duration histogram: %w", err)
+	}
+	m.LockSkipped, err = meter.Int64Counter(
+		"strait_queue_lock_skipped_total",
+		metric.WithDescription("Queue rows skipped because another worker held a SKIP LOCKED claim"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("lock skipped counter: %w", err)
+	}
+	m.VisibilityTimeoutExpirations, err = meter.Int64Counter(
+		"strait_queue_visibility_timeout_expirations_total",
+		metric.WithDescription("Runs reclaimed after visibility timeout or heartbeat expiration"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("visibility timeout expirations counter: %w", err)
+	}
+	m.ConcurrencyUtilization, err = meter.Float64Gauge(
+		"strait_queue_concurrency_utilization",
+		metric.WithDescription("Queue concurrency utilization ratio in [0,1]"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("concurrency utilization gauge: %w", err)
 	}
 	return nil
 }

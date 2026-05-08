@@ -59,6 +59,7 @@ type HeartbeatManager struct {
 	store               HeartbeatStore
 	interval            time.Duration
 	active              sync.Map
+	registeredAt        sync.Map
 	now                 func() time.Time
 	consecutiveFailures int
 }
@@ -82,10 +83,12 @@ type HeartbeatSender = HeartbeatManager
 
 func (h *HeartbeatManager) Register(runID string) {
 	h.active.Store(runID, struct{}{})
+	h.registeredAt.Store(runID, h.now())
 }
 
 func (h *HeartbeatManager) Deregister(runID string) {
 	h.active.Delete(runID)
+	h.registeredAt.Delete(runID)
 }
 
 func (h *HeartbeatManager) ActiveCount() int {
@@ -132,6 +135,7 @@ func (h *HeartbeatManager) flush(ctx context.Context) {
 	start := time.Now()
 	err := h.store.BatchUpdateHeartbeat(flushCtx, ids)
 	elapsed := time.Since(start).Seconds()
+	h.recordOldestLag(ctx, ids)
 
 	if heartbeatFlushDuration != nil {
 		heartbeatFlushDuration.Record(ctx, elapsed)
@@ -152,6 +156,27 @@ func (h *HeartbeatManager) flush(ctx context.Context) {
 		return
 	}
 	h.consecutiveFailures = 0
+}
+
+func (h *HeartbeatManager) recordOldestLag(ctx context.Context, ids []string) {
+	var oldest time.Time
+	for _, id := range ids {
+		value, ok := h.registeredAt.Load(id)
+		if !ok {
+			continue
+		}
+		registeredAt, ok := value.(time.Time)
+		if !ok || registeredAt.IsZero() {
+			continue
+		}
+		if oldest.IsZero() || registeredAt.Before(oldest) {
+			oldest = registeredAt
+		}
+	}
+	if oldest.IsZero() {
+		return
+	}
+	recordHeartbeatLag(ctx, h.now().Sub(oldest))
 }
 
 func (h *HeartbeatManager) collectActiveIDs() []string {

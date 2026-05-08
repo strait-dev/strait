@@ -194,6 +194,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 		return status.Errorf(codes.AlreadyExists, "register worker: %v", err)
 	}
+	recordWorkerStreamsOpen(ctx, reg.Queues, 1)
 
 	// Reconcile in-flight tasks from the registration (reconnect recovery).
 	// Passing workerID enables the adversarial ownership check.
@@ -228,7 +229,10 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// goroutine cannot evict a live replacement that registered under the
 	// same WorkerID after a reconnect race.
 	myToken := cw.regToken
+	var streamEndErr error
 	defer func() {
+		recordWorkerStreamsOpen(context.Background(), reg.Queues, -1)
+		recordWorkerStreamDisconnect(context.Background(), streamDisconnectReason(streamEndErr))
 		s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	}()
 
@@ -345,8 +349,26 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// picked us before Deregister still holds a reference and would panic on
 	// send-to-closed.
 	firstErr := <-streamErr
+	streamEndErr = firstErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+func streamDisconnectReason(err error) string {
+	switch {
+	case err == nil:
+		return "graceful"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "graceful"
+	case errors.Is(err, errForceDisconnected):
+		return "forced"
+	case errors.Is(err, errAPIKeyRevoked):
+		return "revoked"
+	default:
+		return "error"
+	}
 }
 
 func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (func(), error) {
