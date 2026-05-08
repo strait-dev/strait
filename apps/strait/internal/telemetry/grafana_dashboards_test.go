@@ -3,6 +3,7 @@ package telemetry
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -98,6 +99,20 @@ func TestGrafanaProvisioningFiles(t *testing.T) {
 		if parsed["apiVersion"] == nil {
 			t.Errorf("%s missing apiVersion", filepath.Base(path))
 		}
+	}
+}
+
+func TestGrafanaSmokeScriptSyntax(t *testing.T) {
+	script := filepath.Join(moduleRoot(t), "monitoring", "grafana", "smoke.sh")
+	if info, err := os.Stat(script); err != nil {
+		t.Fatalf("stat smoke script: %v", err)
+	} else if info.Mode()&0o111 == 0 {
+		t.Fatalf("smoke script is not executable: mode %s", info.Mode())
+	}
+
+	cmd := exec.Command("bash", "-n", script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bash -n smoke.sh failed: %v\n%s", err, out)
 	}
 }
 

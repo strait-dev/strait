@@ -17,3 +17,14 @@ Dashboards:
 Provisioning files under `provisioning/` expect dashboards to be mounted at
 `/var/lib/grafana/dashboards/strait` and a `PROMETHEUS_URL` environment
 variable for the Prometheus datasource.
+
+Run the local provisioning smoke check with:
+
+```bash
+cd apps/strait/monitoring/grafana
+./smoke.sh
+```
+
+The script starts a disposable Grafana container, loads the provisioning files,
+checks the Prometheus datasource, and verifies that all nine dashboards are
+available through Grafana's API.
