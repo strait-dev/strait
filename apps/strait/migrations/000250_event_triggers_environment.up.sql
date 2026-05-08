@@ -4,8 +4,3 @@
 -- environment when applicable.
 ALTER TABLE event_triggers
   ADD COLUMN environment_id TEXT;
-
--- Partial index for env-scoped lookups by status/expiry. Mirrors the
--- existing idx_event_triggers_project pattern but adds the env axis.
-CREATE INDEX idx_event_triggers_project_env_status
-    ON event_triggers(project_id, environment_id, status);
