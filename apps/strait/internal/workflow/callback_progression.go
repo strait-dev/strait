@@ -348,8 +348,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepCompleted, fields); err != nil {
 			return fmt.Errorf("complete parent step run for sub-workflow: %w", err)
 		}
-		recordWorkflowStepTransition(ctx, string(parentStepRun.Status), string(domain.StepCompleted))
-		recordWorkflowStepDuration(ctx, "sub_workflow", workflowStepOutcome(domain.StepCompleted), parentStepRun.StartedAt, now)
+		recordSubWorkflowStepTerminal(ctx, parentStepRun, domain.StepCompleted, now)
 		parentStepRun.Status = domain.StepCompleted
 		if len(outputPayload) > 0 {
 			parentStepRun.Output = outputPayload
@@ -372,8 +371,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepFailed, fields); err != nil {
 			return fmt.Errorf("fail parent step run for sub-workflow: %w", err)
 		}
-		recordWorkflowStepTransition(ctx, string(parentStepRun.Status), string(domain.StepFailed))
-		recordWorkflowStepDuration(ctx, "sub_workflow", workflowStepOutcome(domain.StepFailed), parentStepRun.StartedAt, now)
+		recordSubWorkflowStepTerminal(ctx, parentStepRun, domain.StepFailed, now)
 		parentStepRun.Status = domain.StepFailed
 		parentStepRun.Error = fields["error"].(string)
 
@@ -390,8 +388,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepFailed, fields); err != nil {
 			return fmt.Errorf("fail parent step run for sub-workflow: %w", err)
 		}
-		recordWorkflowStepTransition(ctx, string(parentStepRun.Status), string(domain.StepFailed))
-		recordWorkflowStepDuration(ctx, "sub_workflow", workflowStepOutcome(domain.StepFailed), parentStepRun.StartedAt, now)
+		recordSubWorkflowStepTerminal(ctx, parentStepRun, domain.StepFailed, now)
 		parentStepRun.Status = domain.StepFailed
 		parentStepRun.Error = errMsg
 

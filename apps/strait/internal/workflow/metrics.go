@@ -79,9 +79,7 @@ func recordWorkflowStepDuration(ctx context.Context, stepKind, outcome string, s
 		finishedAt = time.Now()
 	}
 	duration := finishedAt.Sub(*startedAt)
-	if duration < 0 {
-		duration = 0
-	}
+	duration = max(duration, 0)
 	workflowMetrics.stepDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(
 		attribute.String("step_kind", normalizeWorkflowStepKind(stepKind)),
 		attribute.String("outcome", outcome),
@@ -100,9 +98,7 @@ func recordWorkflowDurableWait(ctx context.Context, startedAt *time.Time, finish
 		finishedAt = time.Now()
 	}
 	duration := finishedAt.Sub(*startedAt)
-	if duration < 0 {
-		duration = 0
-	}
+	duration = max(duration, 0)
 	workflowMetrics.durableWait.Record(ctx, duration.Seconds())
 }
 
@@ -156,4 +152,9 @@ func workflowStepOutcome(status domain.StepRunStatus) string {
 	default:
 		return "unknown"
 	}
+}
+
+func recordSubWorkflowStepTerminal(ctx context.Context, stepRun *domain.WorkflowStepRun, status domain.StepRunStatus, finishedAt time.Time) {
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(status))
+	recordWorkflowStepDuration(ctx, "sub_workflow", workflowStepOutcome(status), stepRun.StartedAt, finishedAt)
 }
