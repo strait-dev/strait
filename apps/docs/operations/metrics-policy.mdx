@@ -1,0 +1,53 @@
+---
+title: Metrics Policy
+description: Naming, labeling, histogram, and cardinality rules for Strait Prometheus metrics.
+---
+
+## Naming
+
+Prometheus metric names use snake case and start with `strait_`.
+
+Pattern:
+
+```text
+strait_<subsystem>_<measurement>_<unit>
+```
+
+Counters end in `_total`. Histograms include a unit suffix such as `_seconds`, `_bytes`, `_rows`, or `_ratio`. Gauges use the measured value name without `_total`.
+
+OpenTelemetry instruments may use dotted names internally only when the Prometheus exporter produces the canonical snake-case name. New metrics should be registered with the canonical Prometheus-facing name directly.
+
+## Labels
+
+Labels must be bounded. Preferred labels are enums such as `mode`, `outcome`, `reason`, `loop`, `queue`, `kind`, `status_class`, and `resource`.
+
+Forbidden labels:
+
+- Raw `run_id`
+- Raw `job_id`
+- Raw `workflow_run_id`
+- Raw `worker_id`
+- URLs, SQL text, error messages, request paths, payload values, or arbitrary user input
+
+Tenant labels use `project`, not raw `project_id`. The value must come from a process-local allowlist with `_other` fallback so the number of series is bounded.
+
+## Cardinality
+
+Default budget: at most 100 active series per metric per process. A metric may exceed that only when this inventory documents the higher budget and the label is operationally required.
+
+High-cardinality identifiers belong in logs, traces, audit records, or exemplars, not ordinary Prometheus labels.
+
+## Histograms
+
+Use explicit buckets. Bucket boundaries must match the subsystem's expected scale:
+
+- DB, queue claim, and lock operations: milliseconds to low seconds
+- Dispatch and workflow steps: milliseconds to minutes
+- Durable waits and retention loops: seconds to hours
+- Payload sizes: powers-of-two byte ranges
+
+Do not create histograms without a unit suffix.
+
+## Deprecation
+
+Metric renames are allowed only when the new name is documented in `metrics-inventory.mdx`, dashboards and alerts move in the same change, and old names are removed from rules after one release window unless explicitly retained for compatibility.
