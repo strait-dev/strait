@@ -1,0 +1,124 @@
+{
+  "dashboard": {
+    "uid": "strait-scheduler-workflows",
+    "title": "Strait - Scheduler & Workflows",
+    "description": "Scheduler loop health, cron drift, workflow progression, durable waits, compensation, and stalled workflows.",
+    "tags": ["strait", "scheduler", "workflow"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "Scheduler loop latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, loop) (rate(strait_scheduler_loop_duration_seconds_bucket[5m])))",
+            "legendFormat": "p95 {{loop}}"
+          },
+          {
+            "refId": "B",
+            "expr": "max by (loop) (strait_scheduler_skew_seconds)",
+            "legendFormat": "skew {{loop}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Scheduler work and overruns",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (loop, kind) (rate(strait_scheduler_swept_total[5m]))",
+            "legendFormat": "{{loop}} {{kind}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (loop) (rate(strait_scheduler_overrun_total[5m]))",
+            "legendFormat": "overrun {{loop}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Cron and poller",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, job) (rate(strait_scheduler_cron_drift_seconds_bucket[5m])))",
+            "legendFormat": "drift {{job}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (outcome) (rate(strait_scheduler_cron_triggers_total[5m]))",
+            "legendFormat": "cron {{outcome}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (source) (rate(strait_scheduler_poller_runs_queued_total[5m]))",
+            "legendFormat": "queued {{source}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Workflow progression",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (step_kind, outcome) (rate(strait_workflow_step_progressions_total[5m]))",
+            "legendFormat": "{{step_kind}} {{outcome}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (from, to) (rate(strait_workflow_step_transitions_total[5m]))",
+            "legendFormat": "{{from}} -> {{to}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (project) (strait_workflow_active_runs)",
+            "legendFormat": "active {{project}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Workflow waits and compensation",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, step_kind) (rate(strait_workflow_step_duration_seconds_bucket[5m])))",
+            "legendFormat": "step p95 {{step_kind}}"
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_workflow_durable_wait_duration_seconds_bucket[5m])))",
+            "legendFormat": "durable wait p95"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (outcome) (rate(strait_workflow_compensation_runs_total[5m]))",
+            "legendFormat": "compensation {{outcome}}"
+          },
+          {
+            "refId": "D",
+            "expr": "sum by (reason) (rate(strait_workflow_stalled_runs_total[5m]))",
+            "legendFormat": "stalled {{reason}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      }
+    ]
+  }
+}

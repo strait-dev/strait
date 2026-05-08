@@ -1,0 +1,109 @@
+{
+  "dashboard": {
+    "uid": "strait-triggers-webhooks",
+    "title": "Strait - Triggers & Webhooks",
+    "description": "Event trigger ingestion, trigger waits, webhook delivery latency, retry pressure, circuit breaker state, and backlog.",
+    "tags": ["strait", "triggers", "webhooks"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "Event trigger ingestion",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (source_type) (rate(strait_event_triggers_received_total[5m]))",
+            "legendFormat": "received {{source_type}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (source_type) (rate(strait_event_triggers_created_total[5m]))",
+            "legendFormat": "created {{source_type}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (source_type) (rate(strait_event_triggers_timed_out_total[5m]))",
+            "legendFormat": "timed out {{source_type}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Trigger wait latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, source_type) (rate(strait_event_triggers_wait_duration_seconds_bucket[5m])))",
+            "legendFormat": "p95 {{source_type}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Webhook backlog and breaker",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (project) (strait_webhook_backlog_depth)",
+            "legendFormat": "backlog {{project}}"
+          },
+          {
+            "refId": "B",
+            "expr": "max by (endpoint) (strait_webhook_circuit_breaker_state)",
+            "legendFormat": "breaker {{endpoint}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Webhook outcomes",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (event_type, outcome) (rate(strait_webhook_deliveries_total[5m]))",
+            "legendFormat": "{{event_type}} {{outcome}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (outcome) (rate(strait_webhook_delivery_attempts_total[5m]))",
+            "legendFormat": "attempt {{outcome}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (reason) (rate(strait_webhook_retry_attempts_total[5m]))",
+            "legendFormat": "retry {{reason}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Webhook latency and payloads",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(strait_webhook_delivery_duration_seconds_bucket[5m])))",
+            "legendFormat": "duration p95 {{outcome}}"
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_webhook_payload_bytes_bucket[5m])))",
+            "legendFormat": "payload p95"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      }
+    ]
+  }
+}

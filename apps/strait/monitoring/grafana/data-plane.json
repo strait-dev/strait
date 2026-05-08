@@ -1,0 +1,129 @@
+{
+  "dashboard": {
+    "uid": "strait-data-plane",
+    "title": "Strait - Data Plane",
+    "description": "Postgres pool health, transaction watchdog, replication lag, ClickHouse exporter, pub/sub, notifications, and log drains.",
+    "tags": ["strait", "database", "clickhouse", "redis"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "DB pool",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_db_pool_total_conns)",
+            "legendFormat": "total"
+          },
+          {
+            "refId": "B",
+            "expr": "sum(strait_db_pool_acquired_conns)",
+            "legendFormat": "acquired"
+          },
+          {
+            "refId": "C",
+            "expr": "sum(strait_db_pool_idle_conns)",
+            "legendFormat": "idle"
+          },
+          {
+            "refId": "D",
+            "expr": "sum(strait_db_pool_max_conns)",
+            "legendFormat": "max"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Transaction watchdog",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "max(strait_db_longest_txn_seconds)",
+            "legendFormat": "longest txn"
+          },
+          {
+            "refId": "B",
+            "expr": "sum(strait_db_idle_in_txn_count)",
+            "legendFormat": "idle in txn"
+          },
+          {
+            "refId": "C",
+            "expr": "max(strait_db_oldest_xmin_age_txids)",
+            "legendFormat": "oldest xmin"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Replication slot risk",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_db_stale_replication_slots)",
+            "legendFormat": "stale slots"
+          },
+          {
+            "refId": "B",
+            "expr": "max by (slot) (strait_db_oldest_slot_lag_bytes)",
+            "legendFormat": "{{slot}} lag"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "ClickHouse exporter",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_clickhouse_exporter_pending)",
+            "legendFormat": "pending"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (reason) (rate(strait_clickhouse_dropped_records_total[5m]))",
+            "legendFormat": "dropped {{reason}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (reason) (rate(strait_clickhouse_flush_failures_total[5m]))",
+            "legendFormat": "flush failed {{reason}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Outbound integrations",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (backend, reason) (rate(strait_pubsub_publish_errors_total[5m]))",
+            "legendFormat": "pubsub {{backend}} {{reason}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (channel_type, outcome) (rate(strait_notification_deliveries_total[5m]))",
+            "legendFormat": "notification {{channel_type}} {{outcome}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (destination, outcome) (rate(strait_log_drain_events_total[5m]))",
+            "legendFormat": "log drain {{destination}} {{outcome}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      }
+    ]
+  }
+}

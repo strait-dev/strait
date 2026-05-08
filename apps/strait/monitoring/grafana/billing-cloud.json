@@ -1,0 +1,109 @@
+{
+  "dashboard": {
+    "uid": "strait-billing-cloud",
+    "title": "Strait - Cloud Billing",
+    "description": "Cloud-edition billing enforcement, Stripe ingestion, usage-record idempotency, feature gates, overage, and HTTP-mode gating.",
+    "tags": ["strait", "billing", "cloud"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "Limit rejections and fail-open",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (reason, plan_tier) (rate(strait_billing_limit_rejections_total[5m]))",
+            "legendFormat": "{{plan_tier}} {{reason}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (check_type, error_type) (rate(strait_billing_enforcement_fail_open_total[5m]))",
+            "legendFormat": "fail-open {{check_type}} {{error_type}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Feature and HTTP gates",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (feature, plan_tier) (rate(strait_billing_feature_gate_rejected_total[5m]))",
+            "legendFormat": "{{feature}} {{plan_tier}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (plan_tier, source) (rate(strait_billing_http_mode_gate_rejected_total[5m]))",
+            "legendFormat": "http {{plan_tier}} {{source}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Usage records",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (mode, outcome) (rate(strait_billing_usage_records_total[5m]))",
+            "legendFormat": "{{mode}} {{outcome}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode) (rate(strait_billing_idempotency_duplicates_total[5m]))",
+            "legendFormat": "duplicate {{mode}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Stripe meter events",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (status) (rate(strait_billing_stripe_usage_events_ingested_total[5m]))",
+            "legendFormat": "ingested {{status}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (status) (rate(strait_billing_stripe_usage_events_dropped_total[5m]))",
+            "legendFormat": "dropped {{status}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Cost and overage",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_billing_usage_record_cost_microusd_bucket[5m])))",
+            "legendFormat": "cost p95 {{mode}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (plan_tier) (rate(strait_billing_overage_entered_total[5m]))",
+            "legendFormat": "overage {{plan_tier}}"
+          },
+          {
+            "refId": "C",
+            "expr": "rate(strait_billing_http_mode_runs_completed_total[5m])",
+            "legendFormat": "http mode completed"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      }
+    ]
+  }
+}

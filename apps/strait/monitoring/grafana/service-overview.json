@@ -1,0 +1,104 @@
+{
+  "dashboard": {
+    "uid": "strait-service-overview",
+    "title": "Strait - Service Overview",
+    "description": "Executive health view for run throughput, end-to-end latency, queue pressure, API latency, and data-plane dependencies.",
+    "tags": ["strait", "overview"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "Run throughput",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (to) (rate(strait_run_transitions_total[5m]))",
+            "legendFormat": "{{to}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "End-to-end run latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_run_end_to_end_seconds_bucket[5m])))",
+            "legendFormat": "p50"
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_run_end_to_end_seconds_bucket[5m])))",
+            "legendFormat": "p95"
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_run_end_to_end_seconds_bucket[5m])))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Queue pressure",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (strait_queue_depth)",
+            "legendFormat": "{{queue}} depth"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (queue) (strait_queue_concurrency_utilization)",
+            "legendFormat": "{{queue}} utilization"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "API latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, route) (rate(strait_http_request_duration_seconds_bucket[5m])))",
+            "legendFormat": "p95 {{route}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Dependency health",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_db_pool_acquired_conns)",
+            "legendFormat": "db acquired"
+          },
+          {
+            "refId": "B",
+            "expr": "sum(strait_clickhouse_exporter_pending)",
+            "legendFormat": "clickhouse pending"
+          },
+          {
+            "refId": "C",
+            "expr": "sum(rate(strait_pubsub_publish_errors_total[5m]))",
+            "legendFormat": "pubsub errors"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      }
+    ]
+  }
+}

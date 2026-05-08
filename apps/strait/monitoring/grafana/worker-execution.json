@@ -1,0 +1,119 @@
+{
+  "dashboard": {
+    "uid": "strait-worker-execution",
+    "title": "Strait - Worker Execution",
+    "description": "Worker pool saturation, dispatch duration, retries, gRPC stream health, and execution payload characteristics.",
+    "tags": ["strait", "worker", "grpc", "dispatch"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "Worker pool occupancy",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (mode) (strait_worker_pool_active)",
+            "legendFormat": "active {{mode}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode) (strait_worker_pool_idle)",
+            "legendFormat": "idle {{mode}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (mode) (strait_worker_pool_running)",
+            "legendFormat": "running {{mode}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Dispatch latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, mode, outcome) (rate(strait_worker_dispatch_duration_seconds_bucket[5m])))",
+            "legendFormat": "p95 {{mode}} {{outcome}}"
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_dispatch_duration_seconds_bucket[5m])))",
+            "legendFormat": "legacy p95 {{mode}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Attempts and retries",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (mode, outcome) (rate(strait_dispatch_attempts_total[5m]))",
+            "legendFormat": "{{mode}} {{outcome}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode, reason) (rate(strait_worker_retry_total[5m]))",
+            "legendFormat": "retry {{mode}} {{reason}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "gRPC worker plane",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (strait_grpc_worker_streams_open)",
+            "legendFormat": "open {{queue}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (reason) (rate(strait_grpc_worker_stream_disconnects_total[5m]))",
+            "legendFormat": "disconnect {{reason}}"
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_grpc_run_dispatch_e2e_seconds_bucket[5m])))",
+            "legendFormat": "dispatch e2e p95"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Payload and response profile",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_dispatch_payload_bytes_bucket[5m])))",
+            "legendFormat": "payload p95 {{mode}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode, status_class) (rate(strait_dispatch_response_status_total[5m]))",
+            "legendFormat": "{{mode}} {{status_class}}"
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_worker_heartbeat_lag_seconds_bucket[5m])))",
+            "legendFormat": "heartbeat lag p95"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      }
+    ]
+  }
+}

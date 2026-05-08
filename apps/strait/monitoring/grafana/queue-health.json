@@ -1,0 +1,104 @@
+{
+  "dashboard": {
+    "uid": "strait-queue-health",
+    "title": "Strait - Queue Health",
+    "description": "Postgres queue depth, claim latency, retry lag, lock contention, backpressure, and DLQ age.",
+    "tags": ["strait", "queue", "postgres"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "title": "Depth by queue",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (strait_queue_depth)",
+            "legendFormat": "{{queue}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (status) (strait_queue_depth_by_status)",
+            "legendFormat": "status {{status}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      },
+      {
+        "title": "Claim latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, queue, result) (rate(strait_queue_claim_duration_seconds_bucket[5m])))",
+            "legendFormat": "p95 {{queue}} {{result}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Queue lag",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, project) (rate(strait_queue_lag_seconds_bucket[5m])))",
+            "legendFormat": "p95 {{project}}"
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le, project) (rate(strait_queue_oldest_queued_age_seconds_bucket[5m])))",
+            "legendFormat": "oldest {{project}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      },
+      {
+        "title": "Contention and visibility",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (rate(strait_queue_lock_skipped_total[5m]))",
+            "legendFormat": "lock skipped {{queue}}"
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (queue) (rate(strait_queue_visibility_timeout_expirations_total[5m]))",
+            "legendFormat": "visibility expired {{queue}}"
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (queue) (rate(strait_queue_heartbeat_reclaims_total[5m]))",
+            "legendFormat": "heartbeat reclaims {{queue}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      },
+      {
+        "title": "Backpressure and DLQ",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (project) (strait_queue_backpressure_tokens_available)",
+            "legendFormat": "tokens {{project}}"
+          },
+          {
+            "refId": "B",
+            "expr": "max by (queue) (strait_queue_dlq_oldest_unmasked_age_seconds)",
+            "legendFormat": "oldest dlq {{queue}}"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+      }
+    ]
+  }
+}
