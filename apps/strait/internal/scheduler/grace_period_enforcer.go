@@ -53,7 +53,9 @@ func (g *GracePeriodEnforcer) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			g.enforce(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, g.interval, func() {
+				g.enforce(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }

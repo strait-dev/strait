@@ -158,6 +158,7 @@ func withAPIKeyContext(ctx context.Context, apiKey *domain.APIKey) context.Conte
 	if apiKey.EnvironmentID != "" {
 		ctx = context.WithValue(ctx, grpcCtxEnvironmentIDKey, apiKey.EnvironmentID)
 	}
+	configureGRPCSentryAPIKeyScope(ctx)
 	return ctx
 }
 

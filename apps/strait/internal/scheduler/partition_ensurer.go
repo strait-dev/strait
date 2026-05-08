@@ -78,13 +78,17 @@ func (p *PartitionEnsurer) Errors() int64 { return p.errors.Load() }
 func (p *PartitionEnsurer) Run(ctx context.Context) {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	_ = p.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, p.interval, func() {
+		_ = p.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = p.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				_ = p.runOnce(ctx)
+			})
 		}
 	}
 }

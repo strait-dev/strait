@@ -41,7 +41,9 @@ func (m *MaintenanceLoop) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if m.task != nil {
-				m.task(ctx)
+				runSchedulerCycleCheckIn(ctx, m.interval, func() {
+					m.task(ctx)
+				})
 			}
 		}
 	}

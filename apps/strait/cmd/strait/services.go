@@ -41,6 +41,7 @@ import (
 	pgmigrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
@@ -113,7 +114,10 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	if cfg.DBHealthCheckPeriod > 0 {
 		poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
 	}
-	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
+	poolConfig.ConnConfig.Tracer = multitracer.New(
+		otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
+		telemetry.SentryPGXTracer{},
+	)
 
 	// Apply MVCC horizon guardrails and timeouts (Phase 1).
 	// These runtime params are applied to every connection in the pool via pgx's
@@ -214,6 +218,7 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *r
 		} else {
 			slog.Info("connected to redis")
 		}
+		rdb.AddHook(telemetry.RedisBreadcrumbHook{})
 		pub := pubsub.NewRedisPublisher(rdb)
 		return pub, rdb, nil
 	}
@@ -549,7 +554,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, version string) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -571,6 +576,7 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 
 	srv, err := grpcserver.NewServer(cfg, queries, pub,
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
+		grpcserver.WithVersion(version),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("grpc server: %w", err)
@@ -675,6 +681,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		JWTSigningKey:           cfg.JWTSigningKey,
 		ExternalAPIURL:          cfg.ExternalAPIURL,
 		DefaultRegion:           cfg.DefaultRegion,
+		Mode:                    cfg.Mode,
+		Version:                 version,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
@@ -943,9 +951,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				}
 			}
 		}
-		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine,
-			schedOpts...,
-		)
+		schedOpts = append(schedOpts, scheduler.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
+		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, schedOpts...)
 		if err := sched.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}

@@ -94,7 +94,9 @@ func (bm *BudgetMonitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			bm.check(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, bm.interval, func() {
+				bm.check(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }

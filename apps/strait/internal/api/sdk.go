@@ -246,7 +246,10 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxRunAttemptKey, claims.Attempt)
 		ctx = context.WithValue(ctx, ctxSDKVersionKey, sdkVersion)
 		ctx = context.WithValue(ctx, ctxSDKCapabilitiesKey, sdkCaps)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+		ctx = context.WithValue(ctx, ctxActorTypeKey, "run_token")
+		ctx = context.WithValue(ctx, ctxActorIDKey, "run:"+subject)
+		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
 }
 

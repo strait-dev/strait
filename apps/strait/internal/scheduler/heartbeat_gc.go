@@ -80,13 +80,17 @@ func (h *HeartbeatGC) TotalDeleted() int64 { return h.totalDeleted.Load() }
 func (h *HeartbeatGC) Run(ctx context.Context) {
 	ticker := time.NewTicker(h.interval)
 	defer ticker.Stop()
-	_ = h.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, h.interval, func() {
+		_ = h.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = h.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, h.interval, func() {
+				_ = h.runOnce(ctx)
+			})
 		}
 	}
 }

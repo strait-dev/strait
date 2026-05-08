@@ -18,6 +18,7 @@ import (
 	"strait/internal/httputil"
 	"strait/internal/store"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel"
@@ -641,10 +642,16 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
 
 	// Inject W3C trace context headers from run metadata.
-	if tp, ok := run.Metadata["_trace_parent"]; ok && tp != "" {
+	if tp, ok := run.Metadata[domain.RunMetadataTraceParent]; ok && tp != "" {
 		req.Header.Set("Traceparent", tp)
-		if ts, ok := run.Metadata["_trace_state"]; ok && ts != "" {
+		if ts, ok := run.Metadata[domain.RunMetadataTraceState]; ok && ts != "" {
 			req.Header.Set("Tracestate", ts)
+		}
+	}
+	if traceparent, ok := run.Metadata[domain.RunMetadataSentryTrace]; ok && traceparent != "" {
+		req.Header.Set(sentry.SentryTraceHeader, traceparent)
+		if baggage, ok := run.Metadata[domain.RunMetadataSentryBaggage]; ok && baggage != "" {
+			req.Header.Set(sentry.SentryBaggageHeader, baggage)
 		}
 	}
 

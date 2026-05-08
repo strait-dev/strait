@@ -62,7 +62,9 @@ func (re *UsageReportEmailer) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			re.checkAndSend(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, re.interval, func() {
+				re.checkAndSend(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }

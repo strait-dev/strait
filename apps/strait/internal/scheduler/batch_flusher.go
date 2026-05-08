@@ -38,7 +38,9 @@ func (f *BatchFlusher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			f.poll(ctx)
+			runSchedulerCycleCheckIn(ctx, f.interval, func() {
+				f.poll(ctx)
+			})
 		}
 	}
 }

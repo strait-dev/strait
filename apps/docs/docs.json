@@ -90,6 +90,7 @@
           {
             "group": "Monitoring",
             "pages": [
+              "operations/observability",
               "concepts/real-time",
               "concepts/webhooks",
               "concepts/webhook-subscriptions",

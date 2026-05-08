@@ -58,7 +58,9 @@ func (d *DowngradeApplier) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.apply(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, d.interval, func() {
+				d.apply(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }

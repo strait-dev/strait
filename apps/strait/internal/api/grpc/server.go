@@ -14,6 +14,7 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/config"
+	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
 
@@ -34,6 +35,7 @@ type Server struct {
 	runFinalizer   atomic.Value
 	authLimiter    grpcAuthLimiter
 	gs             *grpc.Server
+	version        string
 }
 
 type ServerOption func(*Server)
@@ -41,6 +43,12 @@ type ServerOption func(*Server)
 func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
 	return func(s *Server) {
 		s.authLimiter = limiter
+	}
+}
+
+func WithVersion(version string) ServerOption {
+	return func(s *Server) {
+		s.version = version
 	}
 }
 
@@ -64,6 +72,7 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher,
 		pub:            pub,
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
+		version:        "unknown",
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -116,8 +125,8 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 		grpc.KeepaliveEnforcementPolicy(kpPolicy),
 		grpc.MaxRecvMsgSize(maxRecvBytes),
 		grpc.MaxSendMsgSize(maxSendBytes),
-		grpc.ChainUnaryInterceptor(unaryInterceptorChain()...),
-		grpc.ChainStreamInterceptor(streamInterceptorChain()...),
+		grpc.ChainUnaryInterceptor(unaryInterceptorChainWithMetadata(s.sentryMetadata())...),
+		grpc.ChainStreamInterceptor(streamInterceptorChainWithMetadata(s.sentryMetadata())...),
 	}
 
 	// TLS is mutually exclusive: either both paths are set and both must load,
@@ -161,6 +170,18 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 	grpc_health_v1.RegisterHealthServer(gs, hs)
 
 	return gs, nil
+}
+
+func (s *Server) sentryMetadata() grpcSentryMetadata {
+	meta := grpcSentryMetadata{
+		edition: string(domain.BuildEdition()),
+		version: s.version,
+	}
+	if s.cfg != nil {
+		meta.mode = s.cfg.Mode
+		meta.region = s.cfg.DefaultRegion
+	}
+	return meta
 }
 
 // Serve starts the gRPC listener and blocks until ctx is cancelled or an error occurs.

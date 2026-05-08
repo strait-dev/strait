@@ -17,6 +17,7 @@ import (
 	"strait/internal/httputil"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
@@ -37,6 +38,9 @@ func recordRetryAttempt(ctx context.Context, attempt int) {
 func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run completed", run, job, map[string]any{
+		"to_status": string(domain.StatusCompleted),
+	})
 
 	now := time.Now()
 	fields := map[string]any{
@@ -260,6 +264,10 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run failed", run, job, map[string]any{
+		"error_class":  errClass,
+		"max_attempts": policy.maxAttempts,
+	})
 	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
 		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
 	}
@@ -322,6 +330,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	if shouldRetry {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
+		addWorkerRunBreadcrumb(ctx, "worker.retry", "run retry scheduled", run, job, map[string]any{
+			"attempt":       run.Attempt + 1,
+			"next_retry_at": retryAt.Format(time.RFC3339),
+			"error_class":   errClass,
+		})
 		fields := map[string]any{
 			"attempt":       run.Attempt + 1,
 			"next_retry_at": retryAt,
@@ -380,11 +393,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = targetStatus
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("error_class", errClass)
-		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": errClass})
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("failure", map[string]any{
 			"error_message": errMsg,
@@ -424,6 +433,10 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run timed out", run, job, map[string]any{
+		"timeout_secs": policy.timeoutSecs,
+		"max_attempts": policy.maxAttempts,
+	})
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
 		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
@@ -494,10 +507,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = domain.StatusTimedOut
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		e.applyWorkerSentryScope(scope, run, nil)
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("timeout", map[string]any{
 			"timeout_secs": policy.timeoutSecs,
@@ -577,21 +587,13 @@ func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields m
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run system failure", run, nil, map[string]any{
+		"error_class": "server",
+	})
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("error_class", "server")
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": "server"})
 		scope.SetLevel(sentry.LevelError)
-		scope.SetContext("run", map[string]any{
-			"run_id":         run.ID,
-			"job_id":         run.JobID,
-			"project_id":     run.ProjectID,
-			"attempt":        run.Attempt,
-			"from_status":    string(run.Status),
-			"execution_mode": string(run.ExecutionMode),
-		})
 		scope.SetFingerprint([]string{"system_failure", reason})
 		sentry.CaptureMessage(fmt.Sprintf("system failure: %s", reason))
 	})
@@ -644,6 +646,107 @@ func durationMillisecondsAtLeastOne(d time.Duration) int64 {
 		return 1
 	}
 	return ms
+}
+
+func addWorkerRunBreadcrumb(ctx context.Context, category, message string, run *domain.JobRun, job *domain.Job, data map[string]any) {
+	if run == nil {
+		return
+	}
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["run_id"] = run.ID
+	data["job_id"] = run.JobID
+	data["project_id"] = run.ProjectID
+	data["attempt"] = run.Attempt
+	data["status"] = string(run.Status)
+	data["execution_mode"] = string(run.ExecutionMode)
+	if job != nil {
+		data["job_version"] = job.Version
+		data["environment_id"] = job.EnvironmentID
+	}
+	telemetry.AddSentryBreadcrumb(ctx, category, message, data)
+}
+
+func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRun, data map[string]any) {
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemWorker,
+		Mode:      e.mode,
+		Region:    e.defaultRegion,
+		Version:   e.version,
+	})
+	if run != nil {
+		telemetry.SetSentryTag(scope, telemetry.TagRunID, run.ID)
+		telemetry.SetSentryTag(scope, telemetry.TagJobID, run.JobID)
+		telemetry.SetSentryTag(scope, telemetry.TagProjectID, run.ProjectID)
+		telemetry.SetSentryTag(scope, telemetry.TagAttempt, fmt.Sprintf("%d", run.Attempt))
+		if run.CreatedBy != "" {
+			actorType := workerActorType(run)
+			telemetry.SetSentryTag(scope, telemetry.TagActorID, run.CreatedBy)
+			telemetry.SetSentryTag(scope, telemetry.TagActorType, actorType)
+			scope.SetUser(sentry.User{
+				ID: run.CreatedBy,
+				Data: map[string]string{
+					"actor_type": actorType,
+					"project_id": run.ProjectID,
+				},
+			})
+		}
+		requestContext := sentry.Context{
+			"created_by":   run.CreatedBy,
+			"triggered_by": run.TriggeredBy,
+		}
+		if requestID := run.Metadata[domain.RunMetadataSentryRequestID]; requestID != "" {
+			telemetry.SetSentryTag(scope, telemetry.TagRequestID, requestID)
+			requestContext["request_id"] = requestID
+		}
+		route := run.Metadata[domain.RunMetadataSentryRoute]
+		if route == "" {
+			route = "worker.dispatch"
+		}
+		telemetry.SetSentryTag(scope, telemetry.TagRoute, route)
+		requestContext["route"] = route
+		if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
+			requestContext["actor_type"] = actorType
+		}
+		scope.SetContext("dispatch.request", requestContext)
+		scope.SetContext("run", sentry.Context{
+			"run_id":         run.ID,
+			"job_id":         run.JobID,
+			"project_id":     run.ProjectID,
+			"attempt":        run.Attempt,
+			"priority":       run.Priority,
+			"execution_mode": string(run.ExecutionMode),
+			"status":         string(run.Status),
+		})
+	}
+	for key, val := range data {
+		if tag, ok := telemetry.SentryTagFromString(key); ok {
+			telemetry.SetSentryTag(scope, tag, fmt.Sprintf("%v", val))
+		}
+	}
+}
+
+func workerActorType(run *domain.JobRun) string {
+	if run == nil {
+		return ""
+	}
+	if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
+		return actorType
+	}
+	switch {
+	case strings.HasPrefix(run.CreatedBy, "apikey:"):
+		return "api_key"
+	case strings.HasPrefix(run.CreatedBy, "run:"):
+		return "run_token"
+	case strings.HasPrefix(run.CreatedBy, "sse:"):
+		return "sse_token"
+	case run.CreatedBy != "":
+		return "user"
+	default:
+		return ""
+	}
 }
 
 // queueWait returns the duration a run spent queued (created_at to started_at).

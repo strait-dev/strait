@@ -51,7 +51,9 @@ func (c *StaleSubscriptionChecker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.check(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, c.interval, func() {
+				c.check(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }
