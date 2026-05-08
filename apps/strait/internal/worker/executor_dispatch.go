@@ -626,6 +626,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 }
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {
+	recordDispatchPayloadBytes(ctx, "http", len(run.Payload))
 	var body io.Reader
 	if len(run.Payload) > 0 {
 		body = bytes.NewReader(run.Payload)
@@ -664,12 +665,14 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		if e.metrics != nil {
 			e.metrics.DispatchErrors.Add(ctx, 1)
 		}
+		recordDispatchAttempt(ctx, "http", "error")
 		return nil, &redactedHTTPDispatchError{
 			message: "http dispatch: " + httputil.SanitizeHTTPClientError(err),
 			err:     err,
 		}
 	}
 	defer resp.Body.Close()
+	recordDispatchResponseStatus(ctx, "http", resp.StatusCode)
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -677,8 +680,10 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		recordDispatchAttempt(ctx, "http", "error")
 		return nil, &domain.EndpointError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
+	recordDispatchAttempt(ctx, "http", "success")
 
 	if len(respBody) > 0 {
 		return json.RawMessage(respBody), nil

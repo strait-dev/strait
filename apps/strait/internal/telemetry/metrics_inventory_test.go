@@ -59,7 +59,7 @@ func TestMetricsPolicy_HistogramSuffixes(t *testing.T) {
 		if typ != "histogram" {
 			continue
 		}
-		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") || strings.HasSuffix(name, "_number") {
+		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") || strings.HasSuffix(name, "_number") || strings.HasSuffix(name, "_items") {
 			continue
 		}
 		t.Errorf("histogram metric %q must include an explicit unit suffix", name)
@@ -80,7 +80,7 @@ func registeredMetricTypes(t *testing.T) map[string]string {
 	t.Helper()
 
 	root := filepath.Join(repoRoot(t), "apps", "strait", "internal")
-	constructorRE := regexp.MustCompile(`(?s)(Int64Counter|Float64Histogram|Int64Gauge|Float64Gauge|Int64ObservableGauge|Int64ObservableCounter|Int64UpDownCounter)\(\s*"([^"]+)"`)
+	constructorRE := regexp.MustCompile(`(?s)(Int64Counter|Int64Histogram|Float64Histogram|Int64Gauge|Float64Gauge|Int64ObservableGauge|Int64ObservableCounter|Int64UpDownCounter)\(\s*"([^"]+)"`)
 	types := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

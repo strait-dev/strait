@@ -140,17 +140,17 @@
         "targets": [
           {
             "refId": "A",
-            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_audit_siem_batch_size_bucket[5m])))",
+            "expr": "histogram_quantile(0.50, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[5m])))",
             "legendFormat": "p50"
           },
           {
             "refId": "B",
-            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_audit_siem_batch_size_bucket[5m])))",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[5m])))",
             "legendFormat": "p95"
           },
           {
             "refId": "C",
-            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_audit_siem_batch_size_bucket[5m])))",
+            "expr": "histogram_quantile(0.99, sum by (le) (rate(strait_audit_siem_batch_size_items_bucket[5m])))",
             "legendFormat": "p99"
           }
         ],

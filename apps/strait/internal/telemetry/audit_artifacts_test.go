@@ -47,7 +47,7 @@ func TestAuditDashboard_JSONValid(t *testing.T) {
 		"strait_audit_reclaimer_success_total",
 		"strait_audit_reclaimer_failed_total",
 		"strait_audit_retention_deleted_total",
-		"strait_audit_siem_batch_size_bucket",
+		"strait_audit_siem_batch_size_items_bucket",
 		"strait_audit_siem_forwarded_total",
 		"strait_audit_siem_failed_total",
 		"strait_audit_siem_circuit_open_total",

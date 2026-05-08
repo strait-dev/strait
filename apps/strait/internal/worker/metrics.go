@@ -17,6 +17,9 @@ type workerRuntimeMetrics struct {
 	poolActive       metric.Int64Gauge
 	poolIdle         metric.Int64Gauge
 	heartbeatLag     metric.Float64Histogram
+	dispatchAttempts metric.Int64Counter
+	payloadBytes     metric.Int64Histogram
+	responseStatus   metric.Int64Counter
 }
 
 func newWorkerMetrics() workerRuntimeMetrics {
@@ -48,12 +51,31 @@ func newWorkerMetrics() workerRuntimeMetrics {
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
 	)
+	dispatchAttempts, _ := meter.Int64Counter(
+		"strait_dispatch_attempts_total",
+		metric.WithDescription("Dispatch attempts by execution mode and outcome"),
+		metric.WithUnit("1"),
+	)
+	payloadBytes, _ := meter.Int64Histogram(
+		"strait_dispatch_payload_bytes",
+		metric.WithDescription("Dispatch payload size by execution mode"),
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(0, 512, 1024, 4096, 16384, 65536, 262144, 1048576),
+	)
+	responseStatus, _ := meter.Int64Counter(
+		"strait_dispatch_response_status_total",
+		metric.WithDescription("HTTP dispatch responses by status class"),
+		metric.WithUnit("1"),
+	)
 	return workerRuntimeMetrics{
 		dispatchDuration: dispatchDuration,
 		retries:          retries,
 		poolActive:       poolActive,
 		poolIdle:         poolIdle,
 		heartbeatLag:     heartbeatLag,
+		dispatchAttempts: dispatchAttempts,
+		payloadBytes:     payloadBytes,
+		responseStatus:   responseStatus,
 	}
 }
 
@@ -85,4 +107,29 @@ func recordHeartbeatLag(ctx context.Context, lag time.Duration) {
 		return
 	}
 	workerMetrics.heartbeatLag.Record(ctx, lag.Seconds())
+}
+
+func recordDispatchAttempt(ctx context.Context, mode, outcome string) {
+	workerMetrics.dispatchAttempts.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("mode", mode),
+		attribute.String("outcome", outcome),
+	))
+}
+
+func recordDispatchPayloadBytes(ctx context.Context, mode string, size int) {
+	workerMetrics.payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", mode)))
+}
+
+func recordDispatchResponseStatus(ctx context.Context, mode string, statusCode int) {
+	workerMetrics.responseStatus.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("mode", mode),
+		attribute.String("status_class", statusClass(statusCode)),
+	))
+}
+
+func statusClass(statusCode int) string {
+	if statusCode < 100 || statusCode > 599 {
+		return "unknown"
+	}
+	return string(rune('0'+statusCode/100)) + "xx"
 }

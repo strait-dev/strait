@@ -814,7 +814,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	auditSIEMBatchSize, _ := meter.Int64Histogram(
-		"strait_audit_siem_batch_size",
+		"strait_audit_siem_batch_size_items",
 		metric.WithDescription("Audit SIEM forwarded batch size in events"),
 		metric.WithUnit("1"),
 	)
