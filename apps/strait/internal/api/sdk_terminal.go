@@ -55,9 +55,16 @@ func (s *Server) handleSDKComplete(ctx context.Context, input *SDKCompleteInput)
 	if len(req.Result) > 0 {
 		fields["result"] = req.Result
 	}
-	err = s.store.UpdateRunStatus(ctx, runID, run.Status, domain.StatusCompleted, fields)
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpdateRunStatusForActiveRun(ctx, runID, run.Status, domain.StatusCompleted, fields, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpdateRunStatus(ctx, runID, run.Status, domain.StatusCompleted, fields)
+	}
 	if err != nil {
 		slog.Error("failed to complete run", "run_id", runID, "error", err)
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		if errors.Is(err, store.ErrRunConflict) {
 			return nil, huma.Error409Conflict("run status conflict")
 		}
@@ -113,9 +120,17 @@ func (s *Server) handleSDKFail(ctx context.Context, input *SDKFailInput) (*SDKFa
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
 	now := time.Now()
-	err = s.store.UpdateRunStatus(ctx, runID, run.Status, domain.StatusFailed, map[string]any{"finished_at": now, "error": req.Error})
+	failFields := map[string]any{"finished_at": now, "error": req.Error}
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpdateRunStatusForActiveRun(ctx, runID, run.Status, domain.StatusFailed, failFields, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpdateRunStatus(ctx, runID, run.Status, domain.StatusFailed, failFields)
+	}
 	if err != nil {
 		slog.Error("failed to fail run", "run_id", runID, "error", err)
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		if errors.Is(err, store.ErrRunConflict) {
 			return nil, huma.Error409Conflict("run status conflict")
 		}

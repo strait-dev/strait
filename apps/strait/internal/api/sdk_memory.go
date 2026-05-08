@@ -99,8 +99,16 @@ func (s *Server) handleSDKGetMemory(ctx context.Context, input *SDKGetMemoryInpu
 	if run == nil {
 		return nil, huma.Error404NotFound("run not found")
 	}
-	mem, err := s.store.GetJobMemory(ctx, run.JobID, input.Key)
+	var mem *domain.JobMemory
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		mem, err = guardedStore.GetJobMemoryForActiveRun(ctx, input.RunID, run.JobID, input.Key, runTokenAttemptFromContext(ctx))
+	} else {
+		mem, err = s.store.GetJobMemory(ctx, run.JobID, input.Key)
+	}
 	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to get job memory")
 	}
 	if mem == nil {
@@ -119,8 +127,16 @@ func (s *Server) handleSDKListMemory(ctx context.Context, input *SDKRunIDInput) 
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-	items, err := s.store.ListJobMemory(ctx, run.JobID)
+	var items []domain.JobMemory
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		items, err = guardedStore.ListJobMemoryForActiveRun(ctx, input.RunID, run.JobID, runTokenAttemptFromContext(ctx))
+	} else {
+		items, err = s.store.ListJobMemory(ctx, run.JobID)
+	}
 	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to list job memory")
 	}
 	return &SDKListMemoryOutput{Body: items}, nil

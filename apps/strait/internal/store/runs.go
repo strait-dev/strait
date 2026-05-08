@@ -1611,6 +1611,129 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	return nil
 }
 
+// UpdateRunStatusForActiveRun mirrors UpdateRunStatus but additionally
+// constrains the WHERE clause to the supplied attempt. SDK terminal handlers
+// route through this so a stale token (run retried, attempt advanced) cannot
+// flip a fresh run's status. When zero rows are affected because the attempt
+// no longer matches, the call is translated to ErrRunConflict.
+func (q *Queries) UpdateRunStatusForActiveRun(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunStatusForActiveRun")
+	defer span.End()
+
+	if err := domain.ValidateTransition(from, to); err != nil {
+		return fmt.Errorf("invalid status transition: %w", err)
+	}
+
+	allowedColumns := map[string]struct{}{
+		"attempt":              {},
+		"payload":              {},
+		"result":               {},
+		"error":                {},
+		"error_class":          {},
+		"triggered_by":         {},
+		"scheduled_at":         {},
+		"started_at":           {},
+		"finished_at":          {},
+		"heartbeat_at":         {},
+		"next_retry_at":        {},
+		"expires_at":           {},
+		"execution_trace":      {},
+		"workflow_step_run_id": {},
+		"debug_mode":           {},
+		"continuation_of":      {},
+		"lineage_depth":        {},
+		"priority":             {},
+		"metadata":             {},
+	}
+
+	setClauses := []string{"status = $1"}
+	args := []any{to, id, from, attempt}
+	param := 5
+
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if _, ok := allowedColumns[key]; !ok {
+			return &domain.FieldError{Field: key}
+		}
+
+		value := fields[key]
+		if raw, ok := value.(json.RawMessage); ok {
+			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "metadata" {
+			if m, ok := value.(map[string]string); ok {
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					return fmt.Errorf("marshal metadata: %w", err)
+				}
+				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				args = append(args, encoded)
+				param++
+				continue
+			}
+		}
+		if key == "execution_trace" {
+			switch trace := value.(type) {
+			case *domain.ExecutionTrace:
+				if trace == nil {
+					value = nil
+				} else {
+					encoded, err := json.Marshal(trace)
+					if err != nil {
+						return fmt.Errorf("marshal execution trace: %w", err)
+					}
+					value = dbscan.NilIfEmptyRawMessage(encoded)
+				}
+			case domain.ExecutionTrace:
+				encoded, err := json.Marshal(trace)
+				if err != nil {
+					return fmt.Errorf("marshal execution trace: %w", err)
+				}
+				value = dbscan.NilIfEmptyRawMessage(encoded)
+			}
+		}
+		if key == "error" || key == "workflow_step_run_id" {
+			if text, ok := value.(string); ok {
+				value = dbscan.NilIfEmptyString(text)
+			}
+		}
+
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		args = append(args, value)
+		param++
+	}
+
+	query := fmt.Sprintf(
+		"UPDATE job_runs SET %s WHERE id = $2 AND status = $3 AND attempt = $4",
+		strings.Join(setClauses, ", "),
+	)
+
+	tag, err := q.db.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update active run status: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		var currentStatus domain.RunStatus
+		var currentAttempt int
+		err := q.db.QueryRow(ctx, "SELECT status, attempt FROM job_runs WHERE id = $1", id).Scan(&currentStatus, &currentAttempt)
+		if err != nil {
+			return fmt.Errorf("checking current status: %w", err)
+		}
+		if currentAttempt != attempt {
+			return fmt.Errorf("%w: run %s active attempt %d, requested %d", ErrRunConflict, id, currentAttempt, attempt)
+		}
+		if currentStatus == to {
+			return nil
+		}
+		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
+	}
+
+	return nil
+}
+
 func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunMetadata")
 	defer span.End()

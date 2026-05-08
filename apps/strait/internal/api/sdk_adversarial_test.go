@@ -274,6 +274,26 @@ func (m *racingTerminalSDKStore) CreateRunIterationForActiveRun(context.Context,
 	return store.ErrRunConflict
 }
 
+func (m *racingTerminalSDKStore) GetRunStateForActiveRun(context.Context, string, string, int) (*domain.RunState, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) ListRunStateForActiveRun(context.Context, string, int) ([]domain.RunState, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) GetJobMemoryForActiveRun(context.Context, string, string, string, int) (*domain.JobMemory, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) ListJobMemoryForActiveRun(context.Context, string, string, int) ([]domain.JobMemory, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *racingTerminalSDKStore) UpdateRunStatusForActiveRun(context.Context, string, domain.RunStatus, domain.RunStatus, map[string]any, int) error {
+	return store.ErrRunConflict
+}
+
 // authRequest builds a request with the given runID in the chi route context.
 func authRequest(t *testing.T, runID string) *http.Request {
 	t.Helper()
@@ -498,10 +518,11 @@ func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
 				MaxBulkTriggerItems: 500,
 				JWTSigningKey:       testSigningKey,
 			}
-			ms := &APIStoreMock{
-				GetRunStatusFunc: func(_ context.Context, _ string) (domain.RunStatus, error) {
-					return status, nil
-				},
+			ms := &workerTaskAPIStoreMock{
+				APIStoreMock: &APIStoreMock{},
+				status:       status,
+				attempt:      1,
+				projectID:    "proj-1",
 			}
 			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
 			t.Cleanup(srv.Close)
@@ -649,10 +670,9 @@ func TestRunTokenAuth_RunNotFound_Rejected(t *testing.T) {
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testSigningKey,
 	}
-	ms := &APIStoreMock{
-		GetRunStatusFunc: func(_ context.Context, _ string) (domain.RunStatus, error) {
-			return "", store.ErrRunNotFound
-		},
+	ms := &workerTaskAPIStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		stateErr:     store.ErrRunNotFound,
 	}
 	srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
 	t.Cleanup(srv.Close)

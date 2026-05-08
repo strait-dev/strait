@@ -1059,6 +1059,9 @@ func TestHandlerCheckOrgLimit_StoreError(t *testing.T) {
 func TestHandlerListRunState_HappyPath(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListRunStateFunc: func(_ context.Context, runID string) ([]domain.RunState, error) {
 			if runID != "run-1" {
 				t.Fatalf("unexpected runID: %s", runID)
@@ -1089,6 +1092,9 @@ func TestHandlerListRunState_HappyPath(t *testing.T) {
 func TestHandlerListRunState_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListRunStateFunc: func(_ context.Context, _ string) ([]domain.RunState, error) {
 			return nil, errors.New("db failure")
 		},
@@ -1106,6 +1112,9 @@ func TestHandlerListRunState_StoreError(t *testing.T) {
 func TestHandlerListRunState_EmptyResult(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListRunStateFunc: func(_ context.Context, _ string) ([]domain.RunState, error) {
 			return []domain.RunState{}, nil
 		},
