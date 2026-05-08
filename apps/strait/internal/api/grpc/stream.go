@@ -279,29 +279,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// API key revocation listener: closes the stream when the authenticating key is revoked.
 	if revokeKeySub != nil {
 		closeRevokeSubOnEarlyReturn = false
-		wg.Go(func() {
-			defer revokeKeySub.Close()
-			select {
-			case <-ctx.Done():
-				streamErr <- nil
-			case <-revokeKeySub.Ch:
-				slog.Info("grpc worker api key revoked, closing stream",
-					"worker_id", reg.WorkerId,
-					"api_key_id", apiKey.ID,
-					"project_id", projectID,
-				)
-				// Also close via registry so co-located streams for the same key are notified.
-				s.registry.CloseByAPIKey(apiKey.ID)
-				streamErr <- errAPIKeyRevoked
-			case <-cw.revokeCh:
-				// Triggered locally by registry.CloseByAPIKey from another goroutine.
-				slog.Info("grpc worker api key revoked (local signal), closing stream",
-					"worker_id", reg.WorkerId,
-					"api_key_id", apiKey.ID,
-				)
-				streamErr <- errAPIKeyRevoked
-			}
-		})
+		s.listenForAPIKeyRevocation(ctx, &wg, streamErr, revokeKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
 	}
 
 	// Send loop: drain sendCh and write to the stream.
@@ -352,6 +330,41 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	streamEndErr = firstErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+func (s *workerService) listenForAPIKeyRevocation(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	revokeKeySub *pubsub.Subscription,
+	cw *ConnectedWorker,
+	apiKeyID string,
+	workerID string,
+	projectID string,
+) {
+	wg.Go(func() {
+		defer revokeKeySub.Close()
+		select {
+		case <-ctx.Done():
+			streamErr <- nil
+		case <-revokeKeySub.Ch:
+			slog.Info("grpc worker api key revoked, closing stream",
+				"worker_id", workerID,
+				"api_key_id", apiKeyID,
+				"project_id", projectID,
+			)
+			// Also close via registry so co-located streams for the same key are notified.
+			s.registry.CloseByAPIKey(apiKeyID)
+			streamErr <- errAPIKeyRevoked
+		case <-cw.revokeCh:
+			// Triggered locally by registry.CloseByAPIKey from another goroutine.
+			slog.Info("grpc worker api key revoked (local signal), closing stream",
+				"worker_id", workerID,
+				"api_key_id", apiKeyID,
+			)
+			streamErr <- errAPIKeyRevoked
+		}
+	})
 }
 
 func streamDisconnectReason(err error) string {
