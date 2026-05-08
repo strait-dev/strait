@@ -473,6 +473,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
+	recordBillingQuotaUsage(ctx, "daily_runs", string(limits.PlanTier), quotaUsageRatio(currentCount, limits.MaxRunsPerDay))
 
 	if allowed == 0 {
 		// Paid plans (Starter/Pro/Enterprise) allow overage — log but don't reject.
@@ -485,6 +486,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 				"current", currentCount,
 			)
 			recordBillingOverageEntered(ctx, string(limits.PlanTier))
+			recordBillingOverageRun(ctx, "daily_runs", string(limits.PlanTier))
 			return nil
 		}
 
@@ -582,6 +584,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
+	recordBillingQuotaUsage(ctx, "monthly_runs", string(limits.PlanTier), quotaUsageRatio(currentCount, int64(limits.MaxRunsPerMonth)))
 
 	if allowed == 0 {
 		// Paid plans allow overage — track but don't reject.
@@ -593,6 +596,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 				"current", currentCount,
 			)
 			e.emitBillingEvent(orgID, "monthly_run_overage", string(limits.PlanTier))
+			recordBillingOverageRun(ctx, "monthly_runs", string(limits.PlanTier))
 			return nil
 		}
 
@@ -753,6 +757,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	if result == -1 {
 		// Script returned -1 meaning at/over limit (DECR already called).
 		currentCount, _ := e.rdb.Get(ctx, key).Int64()
+		recordBillingQuotaUsage(ctx, "concurrent_runs", string(limits.PlanTier), quotaUsageRatio(currentCount, int64(limits.MaxConcurrentRuns)))
 		e.recordRejection(ctx, "concurrent_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "org_concurrent_run_limit_exceeded",
@@ -763,6 +768,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 			UpgradeURL:   "/upgrade",
 		}
 	}
+	recordBillingQuotaUsage(ctx, "concurrent_runs", string(limits.PlanTier), quotaUsageRatio(result, int64(limits.MaxConcurrentRuns)))
 
 	return nil
 }
@@ -892,6 +898,7 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	e.resetFailOpen(orgID, "project_limit")
 
 	if count >= limits.MaxProjectsPerOrg {
+		recordBillingQuotaUsage(ctx, "projects", string(limits.PlanTier), quotaUsageRatio(int64(count), int64(limits.MaxProjectsPerOrg)))
 		e.recordRejection(ctx, "project_limit", limits.PlanTier)
 		return &LimitError{
 			Code:         "project_limit_reached",
@@ -902,6 +909,7 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 			UpgradeURL:   "/upgrade",
 		}
 	}
+	recordBillingQuotaUsage(ctx, "projects", string(limits.PlanTier), quotaUsageRatio(int64(count), int64(limits.MaxProjectsPerOrg)))
 
 	return nil
 }
@@ -959,6 +967,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	}
 
 	overageSpend := computeOverageSpend(periodSpend, 0)
+	recordBillingQuotaUsage(ctx, "spend", string(limits.PlanTier), quotaUsageRatio(overageSpend, sub.SpendingLimitMicrousd))
 
 	// Send spending alerts (async with 24h cooldown per org).
 	if e.billingEmails != nil && sub.SpendingLimitMicrousd > 0 {
@@ -1235,6 +1244,13 @@ func (e *Enforcer) recordFailOpen(ctx context.Context, checkType, errorType stri
 		"error_type": errorType,
 	})
 	recordBillingFailOpen(ctx, checkType, errorType)
+}
+
+func quotaUsageRatio(current, limit int64) float64 {
+	if limit <= 0 {
+		return 0
+	}
+	return float64(current) / float64(limit)
 }
 
 func addBillingSentryBreadcrumb(ctx context.Context, operation, message string, data map[string]any) {

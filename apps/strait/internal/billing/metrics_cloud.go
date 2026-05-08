@@ -18,6 +18,10 @@ type billingRuntimeMetrics struct {
 	stripeIngested        metric.Int64Counter
 	stripeDropped         metric.Int64Counter
 	overageEntered        metric.Int64Counter
+	quotaUsage            metric.Float64Gauge
+	quotaBlock            metric.Int64Counter
+	overageRuns           metric.Int64Counter
+	webhookProcessed      metric.Int64Counter
 	httpModeCompleted     metric.Int64Counter
 	httpModeGateRejected  metric.Int64Counter
 	featureGateRejected   metric.Int64Counter
@@ -51,6 +55,26 @@ func newBillingMetrics() billingRuntimeMetrics {
 	overageEntered, _ := meter.Int64Counter(
 		"strait_billing_overage_entered_total",
 		metric.WithDescription("Total times a paid plan entered daily run overage"),
+		metric.WithUnit("1"),
+	)
+	quotaUsage, _ := meter.Float64Gauge(
+		"strait_billing_quota_usage",
+		metric.WithDescription("Billing quota usage ratio by resource and plan tier"),
+		metric.WithUnit("1"),
+	)
+	quotaBlock, _ := meter.Int64Counter(
+		"strait_billing_quota_block_total",
+		metric.WithDescription("Total billing quota blocks by reason and plan tier"),
+		metric.WithUnit("1"),
+	)
+	overageRuns, _ := meter.Int64Counter(
+		"strait_billing_overage_runs_total",
+		metric.WithDescription("Total paid-plan run quota overages by resource and plan tier"),
+		metric.WithUnit("1"),
+	)
+	webhookProcessed, _ := meter.Int64Counter(
+		"strait_billing_webhook_processed_total",
+		metric.WithDescription("Total Stripe billing webhooks processed by event type and outcome"),
 		metric.WithUnit("1"),
 	)
 	httpModeCompleted, _ := meter.Int64Counter(
@@ -90,6 +114,10 @@ func newBillingMetrics() billingRuntimeMetrics {
 		stripeIngested:        stripeIngested,
 		stripeDropped:         stripeDropped,
 		overageEntered:        overageEntered,
+		quotaUsage:            quotaUsage,
+		quotaBlock:            quotaBlock,
+		overageRuns:           overageRuns,
+		webhookProcessed:      webhookProcessed,
 		httpModeCompleted:     httpModeCompleted,
 		httpModeGateRejected:  httpModeGateRejected,
 		featureGateRejected:   featureGateRejected,
@@ -104,6 +132,7 @@ func recordBillingLimitRejection(ctx context.Context, reason, planTier string) {
 		attribute.String("reason", reason),
 		attribute.String("plan_tier", planTier),
 	))
+	recordBillingQuotaBlock(ctx, reason, planTier)
 }
 
 func recordBillingFailOpen(ctx context.Context, checkType, errorType string) {
@@ -123,6 +152,37 @@ func recordBillingStripeUsageDropped(ctx context.Context, status string) {
 
 func recordBillingOverageEntered(ctx context.Context, planTier string) {
 	billingMetrics.overageEntered.Add(ctx, 1, metric.WithAttributes(attribute.String("plan_tier", planTier)))
+}
+
+func recordBillingQuotaUsage(ctx context.Context, resource, planTier string, usageRatio float64) {
+	if usageRatio < 0 {
+		usageRatio = 0
+	}
+	billingMetrics.quotaUsage.Record(ctx, usageRatio, metric.WithAttributes(
+		attribute.String("resource", normalizeBillingResource(resource)),
+		attribute.String("plan_tier", planTier),
+	))
+}
+
+func recordBillingQuotaBlock(ctx context.Context, reason, planTier string) {
+	billingMetrics.quotaBlock.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reason", normalizeBillingResource(reason)),
+		attribute.String("plan_tier", planTier),
+	))
+}
+
+func recordBillingOverageRun(ctx context.Context, resource, planTier string) {
+	billingMetrics.overageRuns.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("resource", normalizeBillingResource(resource)),
+		attribute.String("plan_tier", planTier),
+	))
+}
+
+func recordBillingWebhookProcessed(ctx context.Context, eventType, outcome string) {
+	billingMetrics.webhookProcessed.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("event_type", normalizeBillingWebhookEventType(eventType)),
+		attribute.String("outcome", normalizeBillingWebhookOutcome(outcome)),
+	))
 }
 
 func RecordHTTPModeRunCompleted(ctx context.Context) {
@@ -168,5 +228,32 @@ func normalizeBillingMode(mode string) string {
 		return mode
 	default:
 		return "unknown"
+	}
+}
+
+func normalizeBillingResource(resource string) string {
+	switch resource {
+	case "daily_runs", "monthly_runs", "concurrent_runs", "projects", "members", "organizations", "spend",
+		"daily_run_limit", "monthly_run_limit", "concurrent_limit", "project_limit", "member_limit",
+		"org_creation_limit", "spending_limit", "dispatch_priority", "project_suspension":
+		return resource
+	default:
+		return "unknown"
+	}
+}
+
+func normalizeBillingWebhookEventType(eventType string) string {
+	if eventType == "" {
+		return "unknown"
+	}
+	return eventType
+}
+
+func normalizeBillingWebhookOutcome(outcome string) string {
+	switch outcome {
+	case "success", "failure", "duplicate", "ignored":
+		return outcome
+	default:
+		return "failure"
 	}
 }

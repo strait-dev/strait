@@ -14,6 +14,14 @@ func recordBillingStripeUsageDropped(context.Context, string) {}
 
 func recordBillingOverageEntered(context.Context, string) {}
 
+func recordBillingQuotaUsage(context.Context, string, string, float64) {}
+
+func recordBillingQuotaBlock(context.Context, string, string) {}
+
+func recordBillingOverageRun(context.Context, string, string) {}
+
+func recordBillingWebhookProcessed(context.Context, string, string) {}
+
 func RecordHTTPModeRunCompleted(context.Context) {}
 
 func RecordHTTPModeGateRejected(context.Context, string, string) {}

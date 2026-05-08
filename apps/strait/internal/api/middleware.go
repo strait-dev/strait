@@ -211,6 +211,10 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 
 		// Try short-lived SSE JWT first (preferred path).
 		if claims := s.parseSSEToken(token); claims != nil {
+			recordAuthDecision(r.Context(), "jwt", "success")
+			if claims.IssuedAt != nil {
+				recordAuthTokenAge(r.Context(), "jwt", claims.IssuedAt.Time)
+			}
 			ctx := context.WithValue(r.Context(), ctxProjectIDKey, claims.ProjectID)
 			ctx = context.WithValue(ctx, ctxScopesKey, claims.Scopes)
 			ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
@@ -418,6 +422,8 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			recordAuthDecision(r.Context(), "api_key", "throttled")
+			recordAuthRateLimitThrottled(r.Context(), "api_key")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
 			return
@@ -426,6 +432,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer strait_") {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing api key")
 			return
 		}
@@ -436,12 +443,14 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
 		if err != nil || apiKey == nil {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
 			return
 		}
 
 		if apiKey.RevokedAt != nil {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key has been revoked")
 			return
 		}
@@ -449,11 +458,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		now := time.Now()
 		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key has expired")
 			return
 		}
 		if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key rotation grace period has ended")
 			return
 		}
@@ -462,6 +473,8 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		// a legitimate user who fat-fingered their key a few times before
 		// finding the right one isn't held up by the lockout window.
 		s.authLimiter.Reset(r.Context(), clientIP)
+		recordAuthDecision(r.Context(), "api_key", "success")
+		recordAuthTokenAge(r.Context(), "api_key", apiKey.CreatedAt)
 
 		touchCtx := context.WithoutCancel(r.Context())
 		s.bgPool.Submit(func() {
@@ -532,6 +545,8 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		// could pivot from API-key brute force to OIDC token brute force
 		// once locked out on one path.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			recordAuthDecision(r.Context(), "oidc", "throttled")
+			recordAuthRateLimitThrottled(r.Context(), "oidc")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
 			return
@@ -541,6 +556,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "oidc", "failure")
 			respondError(w, r, http.StatusUnauthorized, "missing bearer token")
 			return
 		}
@@ -548,12 +564,17 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		claims, err := s.oidcVerifier.verify(token)
 		if err != nil {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "oidc", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid bearer token")
 			return
 		}
 
 		// Successful OIDC verification — clear the brute-force counter.
 		s.authLimiter.Reset(r.Context(), clientIP)
+		recordAuthDecision(r.Context(), "oidc", "success")
+		if claims.IssuedAt != nil {
+			recordAuthTokenAge(r.Context(), "oidc", claims.IssuedAt.Time)
+		}
 
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, ctxActorIDKey, claims.Subject)
@@ -608,6 +629,8 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+			recordAuthDecision(r.Context(), "internal_secret", "throttled")
+			recordAuthRateLimitThrottled(r.Context(), "internal_secret")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 			respondError(w, r, http.StatusTooManyRequests, ratelimit.BlockedError(retryAfter))
 			return
@@ -616,12 +639,14 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		secret := r.Header.Get("X-Internal-Secret")
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
 			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			recordAuthDecision(r.Context(), "internal_secret", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
 
 		// Successful internal-secret auth — clear the brute-force counter.
 		s.authLimiter.Reset(r.Context(), clientIP)
+		recordAuthDecision(r.Context(), "internal_secret", "success")
 
 		ctx := r.Context()
 		// Mark the request as authenticated via internal secret. This flag is

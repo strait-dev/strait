@@ -32,6 +32,9 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_audit_siem_dropped_total` | counter | `reason` | bounded reason enum | <=20 series | audit |
 | `strait_audit_siem_failed_total` | counter | `reason` | bounded reason enum | <=20 series | audit |
 | `strait_audit_siem_forwarded_total` | counter | none | none | <=10 series | audit |
+| `strait_auth_decisions_total` | counter | `kind`, `outcome` | `api_key`, `jwt`, `oidc`, `internal_secret`, `unknown`; `success`, `failure`, `throttled` | <=50 series | auth |
+| `strait_auth_rate_limit_throttled_total` | counter | `scope` | `api_key`, `jwt`, `oidc`, `internal_secret`, `auth` | <=20 series | auth |
+| `strait_auth_token_age_seconds` | histogram | `kind` | `api_key`, `jwt`, `oidc`, `internal_secret`, `unknown` | <=50 series | auth |
 | `strait_billing_enforcement_fail_open_total` | counter | `check_type`, `error_type` | bounded enums | <=50 series | billing |
 | `strait_billing_feature_gate_rejected_total` | counter | `feature`, `plan_tier` | bounded feature enum, plan enum | <=100 series | billing |
 | `strait_billing_http_mode_gate_rejected_total` | counter | `plan_tier`, `source` | plan enum; `job_create`, `dispatch` | <=20 series | billing |
@@ -39,10 +42,14 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_billing_idempotency_duplicates_total` | counter | `mode` | `http`, `worker`, `webhook_delivery`, `unknown` | <=20 series | billing |
 | `strait_billing_limit_rejections_total` | counter | `reason`, `plan_tier` | bounded reason enum, plan enum | <=50 series | billing |
 | `strait_billing_overage_entered_total` | counter | `plan_tier` | plan enum | <=20 series | billing |
+| `strait_billing_overage_runs_total` | counter | `resource`, `plan_tier` | `daily_runs`, `monthly_runs`; plan enum | <=20 series | billing |
+| `strait_billing_quota_block_total` | counter | `reason`, `plan_tier` | bounded quota reason enum, plan enum | <=50 series | billing |
+| `strait_billing_quota_usage` | gauge | `resource`, `plan_tier` | bounded resource enum, plan enum | <=100 series | billing |
 | `strait_billing_stripe_usage_events_dropped_total` | counter | `status` | `error` | <=10 series | billing |
 | `strait_billing_stripe_usage_events_ingested_total` | counter | `status` | `ok` | <=10 series | billing |
 | `strait_billing_usage_record_cost_microusd` | histogram | `mode` | `http`, `worker`, `webhook_delivery`, `unknown` | <=20 series | billing |
 | `strait_billing_usage_records_total` | counter | `mode`, `outcome` | bounded mode and outcome enums | <=50 series | billing |
+| `strait_billing_webhook_processed_total` | counter | `event_type`, `outcome` | Stripe event type, `success`, `failure`, `duplicate`, `ignored` | <=100 series | billing |
 | `strait_bulk_child_cancellations_total` | counter | none | none | <=10 series | bulk |
 | `strait_bulk_items_processed_total` | counter | `operation`, `outcome` | bounded operation and outcome enums | <=50 series | bulk |
 | `strait_bulk_operations_total` | counter | `operation`, `outcome` | bounded operation and outcome enums | <=50 series | bulk |
@@ -131,6 +138,8 @@ This inventory documents the Prometheus-facing metric names emitted by Strait. L
 | `strait_queue_visibility_timeout_expirations_total` | counter | `queue` | bounded queue enum | <=20 series | queue |
 | `strait_reaper_operations_total` | counter | `operation`, `outcome` | bounded enums | <=50 series | scheduler |
 | `strait_reaper_records_deleted_total` | counter | `table` | bounded table enum | <=50 series | scheduler |
+| `strait_redis_command_duration_seconds` | histogram | `command`, `outcome` | bounded Redis command names, `success`, `miss`, `error` | <=100 series | redis |
+| `strait_redis_pool_active` | gauge | `pool` | bounded pool enum | <=10 series | redis |
 | `strait_run_duration_seconds` | histogram | `status`, `project` | status enum; allowlisted project or `_other` | <=200 series | run |
 | `strait_run_end_to_end_seconds` | histogram | `status` | run status enum | <=20 series | run |
 | `strait_run_latency_anomalies_total` | counter | `kind` | bounded kind enum | <=20 series | run |

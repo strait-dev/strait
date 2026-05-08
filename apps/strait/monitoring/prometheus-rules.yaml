@@ -1,4 +1,55 @@
 groups:
+  - name: strait.recording
+    interval: 30s
+    rules:
+      - record: strait:http_request_rate5m
+        expr: sum(rate(strait_http_request_duration_seconds_count[5m]))
+
+      - record: strait:http_request_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_http_request_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:http_request_p99_seconds5m
+        expr: histogram_quantile(0.99, sum(rate(strait_http_request_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:http_error_rate5m
+        expr: sum(rate(strait_http_request_duration_seconds_count{status=~"4..|5.."}[5m]))
+
+      - record: strait:queue_depth
+        expr: sum(strait_queue_depth)
+
+      - record: strait:queue_oldest_queued_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_queue_oldest_queued_age_seconds_bucket[5m])) by (le))
+
+      - record: strait:queue_claim_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_queue_claim_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:worker_dispatch_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_worker_dispatch_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:worker_retry_rate5m
+        expr: sum(rate(strait_worker_retry_total[5m]))
+
+      - record: strait:workflow_step_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_workflow_step_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:workflow_compensation_failure_rate5m
+        expr: sum(rate(strait_workflow_compensation_runs_total{outcome="failure"}[5m]))
+
+      - record: strait:scheduler_loop_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_scheduler_loop_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:scheduler_skew_seconds
+        expr: max(strait_scheduler_skew_seconds)
+
+      - record: strait:auth_failure_rate5m
+        expr: sum(rate(strait_auth_decisions_total{outcome="failure"}[5m]))
+
+      - record: strait:redis_command_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_redis_command_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:billing_quota_block_rate5m
+        expr: sum(rate(strait_billing_quota_block_total[5m]))
+
   - name: strait.queue
     interval: 30s
     rules:
@@ -7,6 +58,7 @@ groups:
         for: 5m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Strait queue depth is high
@@ -24,6 +76,7 @@ groups:
         for: 15m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Strait DLQ depth is growing
@@ -37,6 +90,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Oldest DLQ row has aged past 24h
@@ -50,6 +104,7 @@ groups:
         for: 1m
         labels:
           app: strait
+          owner: platform
           severity: page
         annotations:
           summary: Strait DB circuit breaker opened
@@ -63,6 +118,7 @@ groups:
         for: 5m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Worker event channel is dropping events
@@ -76,6 +132,7 @@ groups:
         for: 1m
         labels:
           app: strait
+          owner: platform
           severity: page
         annotations:
           summary: Scheduler component exceeded shutdown deadline
@@ -90,6 +147,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Outbox flush lag p99 exceeds 60s
@@ -103,6 +161,7 @@ groups:
         for: 5m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Outbox rows were quarantined
@@ -117,6 +176,7 @@ groups:
         for: 15m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Trigger-maintained counters drifting from ground truth
@@ -131,6 +191,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: page
         annotations:
           summary: High rate of stuck-run heartbeat reclaims
@@ -145,6 +206,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Queue wake notifications are being dropped
@@ -165,6 +227,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Workflow step failure rate is high
@@ -179,6 +242,7 @@ groups:
         for: 15m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Workflow step p99 duration exceeds 5m
@@ -193,6 +257,7 @@ groups:
         for: 15m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Durable workflow waits exceed 6h at p99
@@ -206,6 +271,7 @@ groups:
         for: 1m
         labels:
           app: strait
+          owner: platform
           severity: page
         annotations:
           summary: Workflow compensation failed to start
@@ -219,6 +285,7 @@ groups:
         for: 15m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Active workflow runs are unusually high
@@ -232,6 +299,7 @@ groups:
         for: 1m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Workflow stalled-run detector fired
@@ -252,6 +320,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Worker dispatch error rate is high
@@ -265,6 +334,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Worker pools are saturated
@@ -278,6 +348,7 @@ groups:
         for: 5m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: gRPC worker streams are disconnecting unexpectedly
@@ -291,6 +362,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Scheduler loop p99 duration exceeds 30s
@@ -304,6 +376,7 @@ groups:
         for: 10m
         labels:
           app: strait
+          owner: platform
           severity: warning
         annotations:
           summary: Event triggers are timing out

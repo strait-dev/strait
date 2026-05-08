@@ -219,6 +219,7 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *r
 			slog.Info("connected to redis")
 		}
 		rdb.AddHook(telemetry.RedisBreadcrumbHook{})
+		rdb.AddHook(telemetry.NewRedisMetricsHook("default", rdb))
 		pub := pubsub.NewRedisPublisher(rdb)
 		return pub, rdb, nil
 	}
