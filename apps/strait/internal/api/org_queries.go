@@ -8,14 +8,15 @@ import (
 	"strait/internal/domain"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 )
 
 // validateOrgIDForInternalCaller is the gate used by org-query handlers when
 // the caller authenticated with the internal management secret (callerOrgID
 // empty AND scopes nil). Internal callers can list across any organization,
-// so the supplied identifier is structurally validated (non-empty, bounded
-// length, no control or whitespace characters) before it reaches the store
-// to prevent silent bypasses on malformed input. An audit-style log entry
+// so the supplied identifier must be a well-formed UUID before it reaches
+// the store; this prevents a typo or empty value from silently dispatching
+// an unscoped query through the privileged path. An audit-style log entry
 // is emitted so every cross-org listing exercised through the internal path
 // is observable, since no audit_event row can be attributed (no project
 // context).
@@ -23,13 +24,8 @@ func validateOrgIDForInternalCaller(ctx context.Context, orgID, op string) error
 	if orgID == "" {
 		return huma.Error400BadRequest("org_id is required")
 	}
-	if len(orgID) > 128 {
-		return huma.Error400BadRequest("org_id is too long")
-	}
-	for _, r := range orgID {
-		if r <= 0x20 || r == 0x7f {
-			return huma.Error400BadRequest("org_id contains invalid characters")
-		}
+	if _, err := uuid.Parse(orgID); err != nil {
+		return huma.Error400BadRequest("org_id must be a uuid")
 	}
 	slog.Info("org_queries internal-secret listing",
 		"op", op,

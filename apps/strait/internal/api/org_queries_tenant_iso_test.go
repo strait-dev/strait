@@ -14,7 +14,7 @@ import (
 )
 
 // TestTenantIso_OrgQueries_InternalSecret_RequiresOrgID rejects empty and
-// malformed org_id parameters on the internal-secret listing path.
+// non-UUID org_id parameters on the internal-secret listing path.
 // Without this gate, a bug or typo could silently dispatch a wide-open
 // store query against the unscoped path and leak rows.
 func TestTenantIso_OrgQueries_InternalSecret_RequiresOrgID(t *testing.T) {
@@ -34,24 +34,27 @@ func TestTenantIso_OrgQueries_InternalSecret_RequiresOrgID(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	ctx := context.Background()
 
-	// Whitespace and control characters are malformed and must reject.
-	for _, badOrg := range []string{"", " ", "bad org", "\toops"} {
+	// Empty and non-UUID identifiers must reject.
+	for _, badOrg := range []string{
+		"",
+		"org-1",
+		"not-a-uuid",
+		"00000000-0000-0000-0000",
+	} {
 		_, err := srv.handleListOrgRuns(ctx, &ListOrgRunsInput{OrgID: badOrg})
 		if err == nil {
-			t.Fatalf("expected error for malformed org_id %q", badOrg)
+			t.Fatalf("expected error for non-uuid org_id %q", badOrg)
 		}
 		if called {
-			t.Fatalf("store must not be called for malformed org_id %q", badOrg)
+			t.Fatalf("store must not be called for non-uuid org_id %q", badOrg)
 		}
-	}
-
-	// Over-long org id exceeds the bounded length cap.
-	long := strings.Repeat("x", 200)
-	if _, err := srv.handleListOrgJobs(ctx, &ListOrgJobsInput{OrgID: long}); err == nil {
-		t.Fatal("expected error for over-long org_id")
-	}
-	if called {
-		t.Fatal("store must not be called for over-long org_id")
+		_, err = srv.handleListOrgJobs(ctx, &ListOrgJobsInput{OrgID: badOrg})
+		if err == nil {
+			t.Fatalf("expected error for non-uuid org_id %q (jobs)", badOrg)
+		}
+		if called {
+			t.Fatalf("store must not be called for non-uuid org_id %q (jobs)", badOrg)
+		}
 	}
 }
 
@@ -76,13 +79,15 @@ func TestTenantIso_OrgQueries_InternalSecret_AuditEmitted(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
+	const orgUUID = "11111111-1111-4111-8111-111111111111"
+
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/org-internal/runs", ""))
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs", ""))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 from runs list, got %d: %s", w.Code, w.Body.String())
 	}
 	w2 := httptest.NewRecorder()
-	srv.ServeHTTP(w2, authedRequest(http.MethodGet, "/v1/organizations/org-internal/jobs", ""))
+	srv.ServeHTTP(w2, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/jobs", ""))
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200 from jobs list, got %d: %s", w2.Code, w2.Body.String())
 	}
@@ -97,7 +102,7 @@ func TestTenantIso_OrgQueries_InternalSecret_AuditEmitted(t *testing.T) {
 	if !strings.Contains(logs, "op=ListOrgJobs") {
 		t.Fatalf("expected ListOrgJobs op log, got: %s", logs)
 	}
-	if !strings.Contains(logs, "org_id=org-internal") {
+	if !strings.Contains(logs, "org_id="+orgUUID) {
 		t.Fatalf("expected org_id field in log, got: %s", logs)
 	}
 }
