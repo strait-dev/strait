@@ -27,4 +27,15 @@ cd apps/strait/monitoring/grafana
 
 The script starts a disposable Grafana container, loads the provisioning files,
 checks the Prometheus datasource, and verifies that all nine dashboards are
-available through Grafana's API.
+available through Grafana's API with datasource and interval variables.
+
+To compare the dashboards and alert rules against a live Strait metrics scrape:
+
+```bash
+cd apps/strait/monitoring
+METRICS_URL=http://127.0.0.1:8080/metrics ./check-scrape-coverage.sh
+```
+
+The scrape coverage check reports referenced metrics that are not present in the
+scrape. Set `STRICT=1` to make missing references fail the command; keep it
+unset for quiet staging environments where counters may not have emitted yet.

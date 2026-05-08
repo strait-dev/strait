@@ -208,16 +208,21 @@ func TestGrafanaProvisioningFiles(t *testing.T) {
 }
 
 func TestGrafanaSmokeScriptSyntax(t *testing.T) {
-	script := filepath.Join(moduleRoot(t), "monitoring", "grafana", "smoke.sh")
-	if info, err := os.Stat(script); err != nil {
-		t.Fatalf("stat smoke script: %v", err)
-	} else if info.Mode()&0o111 == 0 {
-		t.Fatalf("smoke script is not executable: mode %s", info.Mode())
+	scripts := []string{
+		filepath.Join(moduleRoot(t), "monitoring", "grafana", "smoke.sh"),
+		filepath.Join(moduleRoot(t), "monitoring", "check-scrape-coverage.sh"),
 	}
+	for _, script := range scripts {
+		if info, err := os.Stat(script); err != nil {
+			t.Fatalf("stat script %s: %v", script, err)
+		} else if info.Mode()&0o111 == 0 {
+			t.Fatalf("%s is not executable: mode %s", filepath.Base(script), info.Mode())
+		}
 
-	cmd := exec.Command("bash", "-n", script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("bash -n smoke.sh failed: %v\n%s", err, out)
+		cmd := exec.Command("bash", "-n", script)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("bash -n %s failed: %v\n%s", filepath.Base(script), err, out)
+		}
 	}
 }
 
