@@ -849,7 +849,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"job_id", run.JobID,
 		)
 		dispatchOutcome = "error"
-		recordWorkerRetry(ctx, "grpc", "dispatcher_unconfigured")
+		recordWorkerRetry(ctx, "dispatcher_unconfigured")
 		e.requeueWorkerModeRun(ctx, run, "worker dispatcher not configured")
 		return
 	}
@@ -882,13 +882,13 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		if errors.Is(err, context.DeadlineExceeded) {
 			// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
 			dispatchOutcome = "timeout"
-			recordWorkerRetry(ctx, "grpc", "timeout")
+			recordWorkerRetry(ctx, "timeout")
 			e.handleTimeout(ctx, run, job, policy, nil)
 			return
 		}
 		if errors.Is(err, context.Canceled) {
 			dispatchOutcome = "error"
-			recordWorkerRetry(ctx, "grpc", "cancelled")
+			recordWorkerRetry(ctx, "cancelled")
 			e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
 			return
 		}
@@ -901,7 +901,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		)
 		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
 			dispatchOutcome = "error"
-			recordWorkerRetry(ctx, "grpc", "no_worker")
+			recordWorkerRetry(ctx, "no_worker")
 			e.requeueWorkerModeRun(ctx, run, "no worker available")
 			return
 		}
@@ -913,7 +913,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			retryMaxSecs:     3600,
 		}
 		dispatchOutcome = "error"
-		recordWorkerRetry(ctx, "grpc", "dispatch_error")
+		recordWorkerRetry(ctx, "dispatch_error")
 		e.handleFailure(ctx, run, job, policy, err, nil)
 		return
 	}
@@ -938,7 +938,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
 		dispatchOutcome = "error"
-		recordWorkerRetry(ctx, "grpc", "worker_failure")
+		recordWorkerRetry(ctx, "worker_failure")
 		return
 	}
 

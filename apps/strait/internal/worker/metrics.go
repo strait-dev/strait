@@ -89,9 +89,9 @@ func recordWorkerDispatch(ctx context.Context, mode, outcome string, started tim
 	))
 }
 
-func recordWorkerRetry(ctx context.Context, mode, reason string) {
+func recordWorkerRetry(ctx context.Context, reason string) {
 	workerMetrics.retries.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", mode),
+		attribute.String("mode", "grpc"),
 		attribute.String("reason", reason),
 	))
 }
