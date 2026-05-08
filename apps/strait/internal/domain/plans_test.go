@@ -155,10 +155,10 @@ func TestIsRegionAllowed(t *testing.T) {
 func TestAllPlanTiers(t *testing.T) {
 	t.Parallel()
 	tiers := AllPlanTiers()
-	if len(tiers) != 5 {
-		t.Fatalf("expected 5 plan tiers, got %d", len(tiers))
+	if len(tiers) != 6 {
+		t.Fatalf("expected 6 plan tiers, got %d", len(tiers))
 	}
-	expected := []PlanTier{PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise}
+	expected := []PlanTier{PlanFree, PlanStarter, PlanPro, PlanScale, PlanBusiness, PlanEnterprise}
 	for i, tier := range tiers {
 		if tier != expected[i] {
 			t.Errorf("AllPlanTiers()[%d] = %q, want %q", i, tier, expected[i])
@@ -177,7 +177,8 @@ func TestPlanTierRank(t *testing.T) {
 		{PlanStarter, 1},
 		{PlanPro, 2},
 		{PlanScale, 3},
-		{PlanEnterprise, 4},
+		{PlanBusiness, 4},
+		{PlanEnterprise, 5},
 		{PlanTier("unknown"), 0},
 		{PlanTier(""), 0},
 	}
@@ -207,7 +208,7 @@ func TestAllPlanConfigs_IncludesScale(t *testing.T) {
 	if _, ok := configs[PlanScale]; !ok {
 		t.Error("AllPlanConfigs() missing Scale plan config")
 	}
-	if len(configs) != 5 {
-		t.Errorf("expected 5 plan configs, got %d", len(configs))
+	if len(configs) != 6 {
+		t.Errorf("expected 6 plan configs, got %d", len(configs))
 	}
 }

@@ -83,47 +83,55 @@ const (
 	// deliveries that never succeed are not billed.
 	WebhookDeliveryCostPerRunMicrousd int64 = 20
 
-	// Plan prices in cents (USD).
-	PriceStarterMonthlyCents = 1999  // $19.99
-	PriceStarterAnnualCents  = 19999 // $199.99
-	PriceProMonthlyCents     = 4999  // $49.99
-	PriceProAnnualCents      = 49999 // $499.99
-	PriceScaleMonthlyCents   = 14999 // $149.99
-	PriceScaleAnnualCents    = 99000 // $990.00
+	// Plan prices in cents (USD). Annual = monthly * 12 * 0.80 (20% off).
+	PriceStarterMonthlyCents  = 1_900   // $19
+	PriceStarterAnnualCents   = 18_240  // $182.40
+	PriceProMonthlyCents      = 9_900   // $99
+	PriceProAnnualCents       = 95_040  // $950.40
+	PriceScaleMonthlyCents    = 29_900  // $299
+	PriceScaleAnnualCents     = 287_040 // $2,870.40
+	PriceBusinessMonthlyCents = 49_900  // $499
+	PriceBusinessAnnualCents  = 479_040 // $4,790.40
 
 	// Per-plan breakeven thresholds for plan-recommendation logic (micro-USD).
-	CreditFreeMicrousd    int64 = 1_000_000  // $1.00
-	CreditStarterMicrousd int64 = 19_990_000 // $19.99
-	CreditProMicrousd     int64 = 49_990_000 // $49.99
-	CreditScaleMicrousd   int64 = 99_000_000 // $99.00
+	CreditFreeMicrousd     int64 = 1_000_000   // $1.00
+	CreditStarterMicrousd  int64 = 19_000_000  // $19
+	CreditProMicrousd      int64 = 99_000_000  // $99
+	CreditScaleMicrousd    int64 = 299_000_000 // $299
+	CreditBusinessMicrousd int64 = 499_000_000 // $499
 
 	// Monthly run caps per plan (orchestration-only model).
 	MaxRunsPerMonthFree       = 1_000
-	MaxRunsPerMonthStarter    = 10_000
-	MaxRunsPerMonthPro        = 50_000
-	MaxRunsPerMonthScale      = 200_000
+	MaxRunsPerMonthStarter    = 25_000
+	MaxRunsPerMonthPro        = 250_000
+	MaxRunsPerMonthScale      = 1_500_000
+	MaxRunsPerMonthBusiness   = 10_000_000
 	MaxRunsPerMonthEnterprise = -1 // unlimited
 
 	// Concurrent run limits per plan.
-	ConcurrentFree       = 2
-	ConcurrentStarter    = 10
-	ConcurrentPro        = 50
-	ConcurrentScale      = 200
+	ConcurrentFree       = 5
+	ConcurrentStarter    = 25
+	ConcurrentPro        = 100
+	ConcurrentScale      = 500
+	ConcurrentBusiness   = 2_000
 	ConcurrentEnterprise = -1 // unlimited
 
 	// Overage cost per 1K runs in micro-USD.
-	DefaultOveragePerKRunsMicrousd int64 = 200_000 // $0.20/1K
-	StarterOveragePerKMicrousd     int64 = 300_000 // $0.30/1K
-	ProOveragePerKMicrousd         int64 = 250_000 // $0.25/1K
+	DefaultOveragePerKRunsMicrousd int64 = 500_000 // $0.50/1K
+	FreeOveragePerKMicrousd        int64 = 500_000 // $0.50/1K
+	StarterOveragePerKMicrousd     int64 = 500_000 // $0.50/1K
+	ProOveragePerKMicrousd         int64 = 400_000 // $0.40/1K
 	ScaleOveragePerKMicrousd       int64 = 200_000 // $0.20/1K
-	EnterpriseOveragePerKMicrousd  int64 = 200_000 // $0.20/1K
+	BusinessOveragePerKMicrousd    int64 = 60_000  // $0.06/1K
+	EnterpriseOveragePerKMicrousd  int64 = 30_000  // $0.03/1K
 
 	// Data retention in days.
 	RetentionFree       = 7
-	RetentionStarter    = 14
-	RetentionPro        = 30
-	RetentionScale      = 60
-	RetentionEnterprise = 90
+	RetentionStarter    = 30
+	RetentionPro        = 90
+	RetentionScale      = 180
+	RetentionBusiness   = 365
+	RetentionEnterprise = -1 // unlimited
 
 	// Organization limits.
 	MaxOrgsFree    = 1
@@ -194,7 +202,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxMembersPerOrg:        MaxMembersFree,
 		MaxRunsPerDay:           -1, // no daily cap; monthly cap applies
 		MaxRunsPerMonth:         MaxRunsPerMonthFree,
-		OveragePerKMicrousd:     0, // no overage on free
+		OveragePerKMicrousd:     FreeOveragePerKMicrousd,
 		MaxConcurrentRuns:       ConcurrentFree,
 		RetentionDays:           RetentionFree,
 		AllowedRegions:          []string{"iad"},
@@ -209,7 +217,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      false,
-		OveragePerKRunsMicrousd: 0,
+		OveragePerKRunsMicrousd: FreeOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     false,
 		MaxDispatchPriority:     MaxDispatchPriorityFree,
@@ -275,11 +283,17 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		WebhookEventLevel:       "basic",
 		APIRateLimit:            APIRateStarter,
 		MaxAddonPacks: map[AddonType]int{
-			AddonConcurrentRuns:   2,
-			AddonMembers:          2,
-			AddonCronSchedules:    2,
-			AddonDataRetention:    2,
-			AddonWebhookEndpoints: 2,
+			AddonConcurrency100:    2,
+			AddonLogDrain10GB:      2,
+			AddonHistory30d:        2,
+			AddonComplianceArchive: 0,
+			AddonDedicatedWorkers:  0,
+			AddonEnvironments5:     2,
+			AddonConcurrentRuns:    2,
+			AddonMembers:           2,
+			AddonCronSchedules:     2,
+			AddonDataRetention:     2,
+			AddonWebhookEndpoints:  2,
 		},
 	},
 	domain.PlanPro: {
@@ -327,11 +341,17 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRatePro,
 		MaxAddonPacks: map[AddonType]int{
-			AddonConcurrentRuns:   5,
-			AddonMembers:          5,
-			AddonCronSchedules:    5,
-			AddonDataRetention:    5,
-			AddonWebhookEndpoints: 5,
+			AddonConcurrency100:    5,
+			AddonLogDrain10GB:      5,
+			AddonHistory30d:        5,
+			AddonComplianceArchive: 0,
+			AddonDedicatedWorkers:  5,
+			AddonEnvironments5:     5,
+			AddonConcurrentRuns:    5,
+			AddonMembers:           5,
+			AddonCronSchedules:     5,
+			AddonDataRetention:     5,
+			AddonWebhookEndpoints:  5,
 		},
 	},
 	domain.PlanScale: {
@@ -379,11 +399,81 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		WebhookEventLevel:       "all",
 		APIRateLimit:            APIRateScale,
 		MaxAddonPacks: map[AddonType]int{
-			AddonConcurrentRuns:   10,
-			AddonMembers:          10,
-			AddonCronSchedules:    10,
-			AddonDataRetention:    10,
-			AddonWebhookEndpoints: 10,
+			AddonConcurrency100:    10,
+			AddonLogDrain10GB:      10,
+			AddonHistory30d:        10,
+			AddonComplianceArchive: 1,
+			AddonDedicatedWorkers:  10,
+			AddonEnvironments5:     10,
+			AddonConcurrentRuns:    10,
+			AddonMembers:           10,
+			AddonCronSchedules:     10,
+			AddonDataRetention:     10,
+			AddonWebhookEndpoints:  10,
+		},
+	},
+	domain.PlanBusiness: {
+		PlanTier:                domain.PlanBusiness,
+		DisplayName:             "Business",
+		PriceMonthlyUsd:         PriceBusinessMonthlyCents,
+		PriceAnnualUsd:          PriceBusinessAnnualCents,
+		MaxOrgsPerUser:          -1,
+		MaxProjectsPerOrg:       -1,
+		MaxMembersPerOrg:        -1,
+		MaxRunsPerDay:           -1,
+		MaxRunsPerMonth:         MaxRunsPerMonthBusiness,
+		OveragePerKMicrousd:     BusinessOveragePerKMicrousd,
+		MaxConcurrentRuns:       ConcurrentBusiness,
+		RetentionDays:           RetentionBusiness,
+		AllowedRegions:          nil,
+		MaxAlertRulesPerProj:    -1,
+		MaxWebhookSubsPerProj:   -1,
+		MaxLogDrainsPerOrg:      -1,
+		MaxAIModelCallsPerDay:   -1,
+		AIAssistantBYOK:         true,
+		HasRBAC:                 true,
+		RBACLevel:               "advanced",
+		HasAuditLogs:            true,
+		HasSSO:                  true,
+		HasSLA:                  true,
+		RequiresCreditCard:      true,
+		OveragePerKRunsMicrousd: BusinessOveragePerKMicrousd,
+		AllowsHTTPMode:          true,
+		LogStreamingEnabled:     true,
+		MaxDispatchPriority:     -1,
+		WorkerConnections:       -1,
+		SupportLevel:            "priority_slack_8h",
+		MaxWorkflowDAGSteps:     -1,
+		HasApprovalGates:        true,
+		HasSubWorkflows:         true,
+		HasJobChaining:          true,
+		MaxJobChainDepth:        -1,
+		HasCompensatingTxns:     true,
+		HasCanaryDeployments:    true,
+		HasSCIM:                 true,
+		HasIPAllowlisting:       true,
+		HasSessionManagement:    true,
+		HasSecretRotation:       true,
+		HasSIEMExport:           true,
+		HasPriorityQueue:        true,
+		MaxScheduledJobs:        -1,
+		AllCronOverlapPolicies:  true,
+		MaxEnvironments:         25,
+		MaxWebhookEndpoints:     -1,
+		WebhookEventLevel:       "all",
+		APIRateLimit:            -1,
+		MaxAddonPacks: map[AddonType]int{
+			AddonConcurrency100:    -1,
+			AddonLogDrain10GB:      -1,
+			AddonHistory30d:        -1,
+			AddonComplianceArchive: 1,
+			AddonDedicatedWorkers:  -1,
+			AddonEnvironments5:     -1,
+			AddonConcurrentRuns:    -1,
+			AddonMembers:           -1,
+			AddonCronSchedules:     -1,
+			AddonDataRetention:     -1,
+			AddonWebhookEndpoints:  -1,
 		},
 	},
 	domain.PlanEnterprise: {
@@ -437,16 +527,22 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSIEMExport:           true,
 		MaxScheduledJobs:        -1,
 		AllCronOverlapPolicies:  true,
-		MaxEnvironments:         3,
+		MaxEnvironments:         -1,
 		MaxWebhookEndpoints:     -1,
 		WebhookEventLevel:       "all_custom",
 		APIRateLimit:            -1,
 		MaxAddonPacks: map[AddonType]int{
-			AddonConcurrentRuns:   -1,
-			AddonMembers:          -1,
-			AddonCronSchedules:    -1,
-			AddonDataRetention:    -1,
-			AddonWebhookEndpoints: -1,
+			AddonConcurrency100:    -1,
+			AddonLogDrain10GB:      -1,
+			AddonHistory30d:        -1,
+			AddonComplianceArchive: -1,
+			AddonDedicatedWorkers:  -1,
+			AddonEnvironments5:     -1,
+			AddonConcurrentRuns:    -1,
+			AddonMembers:           -1,
+			AddonCronSchedules:     -1,
+			AddonDataRetention:     -1,
+			AddonWebhookEndpoints:  -1,
 		},
 	},
 }

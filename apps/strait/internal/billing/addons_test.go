@@ -226,8 +226,9 @@ func TestIsValidAddonType(t *testing.T) {
 func TestAllAddonTypes_Count(t *testing.T) {
 	t.Parallel()
 	types := AllAddonTypes()
-	if len(types) != 5 {
-		t.Errorf("AllAddonTypes() count = %d, want 5", len(types))
+	// 6 canonical + 5 deprecated (deprecated set removed in Phase 2b).
+	if len(types) != 11 {
+		t.Errorf("AllAddonTypes() count = %d, want 11", len(types))
 	}
 }
 

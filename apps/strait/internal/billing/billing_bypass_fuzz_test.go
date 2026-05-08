@@ -111,9 +111,9 @@ func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 			t.Errorf("plan %q has empty DisplayName", tier)
 		}
 
-		// Retention must be positive.
-		if limits.RetentionDays <= 0 {
-			t.Errorf("plan %q has non-positive RetentionDays: %d", tier, limits.RetentionDays)
+		// Retention must be positive or -1 (unlimited).
+		if limits.RetentionDays == 0 || limits.RetentionDays < -1 {
+			t.Errorf("plan %q has invalid RetentionDays: %d", tier, limits.RetentionDays)
 		}
 	}
 }
@@ -160,7 +160,8 @@ func TestBypass_RequiredPlanNeverReturnsLowerTier(t *testing.T) {
 		domain.PlanStarter:    1,
 		domain.PlanPro:        2,
 		domain.PlanScale:      3,
-		domain.PlanEnterprise: 4,
+		domain.PlanBusiness:   4,
+		domain.PlanEnterprise: 5,
 	}
 
 	for _, f := range features {
@@ -443,10 +444,10 @@ func TestBypass_PricingMonotonicallyIncreases(t *testing.T) {
 func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 	t.Parallel()
 
-	// Verify AllPlanTiers() includes all 5 tiers.
+	// Verify AllPlanTiers() includes all 6 tiers.
 	tiers := domain.AllPlanTiers()
-	if len(tiers) != 5 {
-		t.Fatalf("AllPlanTiers() returned %d tiers, want 5", len(tiers))
+	if len(tiers) != 6 {
+		t.Fatalf("AllPlanTiers() returned %d tiers, want 6", len(tiers))
 	}
 
 	expected := map[domain.PlanTier]bool{
@@ -454,6 +455,7 @@ func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 		domain.PlanStarter:    false,
 		domain.PlanPro:        false,
 		domain.PlanScale:      false,
+		domain.PlanBusiness:   false,
 		domain.PlanEnterprise: false,
 	}
 	for _, tier := range tiers {

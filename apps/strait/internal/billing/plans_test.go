@@ -65,6 +65,17 @@ func TestGetPlanLimits(t *testing.T) {
 			wantRetention:  RetentionScale,
 		},
 		{
+			name:           "business",
+			tier:           domain.PlanBusiness,
+			wantDisplay:    "Business",
+			wantMonthly:    PriceBusinessMonthlyCents,
+			wantConcurrent: ConcurrentBusiness,
+			wantProjects:   -1,
+			wantMembers:    -1,
+			wantCreditCard: true,
+			wantRetention:  RetentionBusiness,
+		},
+		{
 			name:           "enterprise",
 			tier:           domain.PlanEnterprise,
 			wantDisplay:    "Enterprise",
@@ -73,7 +84,7 @@ func TestGetPlanLimits(t *testing.T) {
 			wantProjects:   -1,
 			wantMembers:    -1,
 			wantCreditCard: false,
-			wantRetention:  90,
+			wantRetention:  -1,
 		},
 	}
 
@@ -203,8 +214,8 @@ func TestAllPlansHaveEntries(t *testing.T) {
 			t.Errorf("missing plan definition for tier %q", tier)
 		}
 	}
-	if len(Plans) != 5 {
-		t.Errorf("expected 5 plan entries, got %d", len(Plans))
+	if len(Plans) != 6 {
+		t.Errorf("expected 6 plan entries, got %d", len(Plans))
 	}
 }
 
@@ -273,7 +284,8 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 		{domain.PlanStarter, MaxScheduledStarter, true, 3, 3, "basic", APIRateStarter},
 		{domain.PlanPro, MaxScheduledPro, true, 3, 10, "all", APIRatePro},
 		{domain.PlanScale, MaxScheduledScale, true, 3, 25, "all", APIRateScale},
-		{domain.PlanEnterprise, -1, true, 3, -1, "all_custom", -1},
+		{domain.PlanBusiness, -1, true, 25, -1, "all", -1},
+		{domain.PlanEnterprise, -1, true, -1, -1, "all_custom", -1},
 	}
 
 	for _, tt := range tests {
@@ -347,23 +359,29 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 
 func TestPlanConstants_Pricing(t *testing.T) {
 	t.Parallel()
-	if PriceStarterMonthlyCents != 1999 {
-		t.Errorf("PriceStarterMonthlyCents = %d, want 1999", PriceStarterMonthlyCents)
+	if PriceStarterMonthlyCents != 1_900 {
+		t.Errorf("PriceStarterMonthlyCents = %d, want 1900", PriceStarterMonthlyCents)
 	}
-	if PriceStarterAnnualCents != 19999 {
-		t.Errorf("PriceStarterAnnualCents = %d, want 19999", PriceStarterAnnualCents)
+	if PriceStarterAnnualCents != 18_240 {
+		t.Errorf("PriceStarterAnnualCents = %d, want 18240", PriceStarterAnnualCents)
 	}
-	if PriceProMonthlyCents != 4999 {
-		t.Errorf("PriceProMonthlyCents = %d, want 4999", PriceProMonthlyCents)
+	if PriceProMonthlyCents != 9_900 {
+		t.Errorf("PriceProMonthlyCents = %d, want 9900", PriceProMonthlyCents)
 	}
-	if PriceProAnnualCents != 49999 {
-		t.Errorf("PriceProAnnualCents = %d, want 49999", PriceProAnnualCents)
+	if PriceProAnnualCents != 95_040 {
+		t.Errorf("PriceProAnnualCents = %d, want 95040", PriceProAnnualCents)
 	}
-	if PriceScaleMonthlyCents != 14999 {
-		t.Errorf("PriceScaleMonthlyCents = %d, want 14999", PriceScaleMonthlyCents)
+	if PriceScaleMonthlyCents != 29_900 {
+		t.Errorf("PriceScaleMonthlyCents = %d, want 29900", PriceScaleMonthlyCents)
 	}
-	if PriceScaleAnnualCents != 99000 {
-		t.Errorf("PriceScaleAnnualCents = %d, want 99000", PriceScaleAnnualCents)
+	if PriceScaleAnnualCents != 287_040 {
+		t.Errorf("PriceScaleAnnualCents = %d, want 287040", PriceScaleAnnualCents)
+	}
+	if PriceBusinessMonthlyCents != 49_900 {
+		t.Errorf("PriceBusinessMonthlyCents = %d, want 49900", PriceBusinessMonthlyCents)
+	}
+	if PriceBusinessAnnualCents != 479_040 {
+		t.Errorf("PriceBusinessAnnualCents = %d, want 479040", PriceBusinessAnnualCents)
 	}
 }
 
@@ -372,30 +390,36 @@ func TestPlanConstants_Credits(t *testing.T) {
 	if CreditFreeMicrousd != 1_000_000 {
 		t.Errorf("CreditFreeMicrousd = %d, want 1000000", CreditFreeMicrousd)
 	}
-	if CreditStarterMicrousd != 19_990_000 {
-		t.Errorf("CreditStarterMicrousd = %d, want 19990000", CreditStarterMicrousd)
+	if CreditStarterMicrousd != 19_000_000 {
+		t.Errorf("CreditStarterMicrousd = %d, want 19000000", CreditStarterMicrousd)
 	}
-	if CreditProMicrousd != 49_990_000 {
-		t.Errorf("CreditProMicrousd = %d, want 49990000", CreditProMicrousd)
+	if CreditProMicrousd != 99_000_000 {
+		t.Errorf("CreditProMicrousd = %d, want 99000000", CreditProMicrousd)
 	}
-	if CreditScaleMicrousd != 99_000_000 {
-		t.Errorf("CreditScaleMicrousd = %d, want 99000000", CreditScaleMicrousd)
+	if CreditScaleMicrousd != 299_000_000 {
+		t.Errorf("CreditScaleMicrousd = %d, want 299000000", CreditScaleMicrousd)
+	}
+	if CreditBusinessMicrousd != 499_000_000 {
+		t.Errorf("CreditBusinessMicrousd = %d, want 499000000", CreditBusinessMicrousd)
 	}
 }
 
 func TestPlanConstants_Concurrent(t *testing.T) {
 	t.Parallel()
-	if ConcurrentFree != 2 {
-		t.Errorf("ConcurrentFree = %d, want 2", ConcurrentFree)
+	if ConcurrentFree != 5 {
+		t.Errorf("ConcurrentFree = %d, want 5", ConcurrentFree)
 	}
-	if ConcurrentStarter != 10 {
-		t.Errorf("ConcurrentStarter = %d, want 10", ConcurrentStarter)
+	if ConcurrentStarter != 25 {
+		t.Errorf("ConcurrentStarter = %d, want 25", ConcurrentStarter)
 	}
-	if ConcurrentPro != 50 {
-		t.Errorf("ConcurrentPro = %d, want 50", ConcurrentPro)
+	if ConcurrentPro != 100 {
+		t.Errorf("ConcurrentPro = %d, want 100", ConcurrentPro)
 	}
-	if ConcurrentScale != 200 {
-		t.Errorf("ConcurrentScale = %d, want 200", ConcurrentScale)
+	if ConcurrentScale != 500 {
+		t.Errorf("ConcurrentScale = %d, want 500", ConcurrentScale)
+	}
+	if ConcurrentBusiness != 2_000 {
+		t.Errorf("ConcurrentBusiness = %d, want 2000", ConcurrentBusiness)
 	}
 }
 
@@ -404,17 +428,20 @@ func TestPlanConstants_Retention(t *testing.T) {
 	if RetentionFree != 7 {
 		t.Errorf("RetentionFree = %d, want 7", RetentionFree)
 	}
-	if RetentionStarter != 14 {
-		t.Errorf("RetentionStarter = %d, want 14", RetentionStarter)
+	if RetentionStarter != 30 {
+		t.Errorf("RetentionStarter = %d, want 30", RetentionStarter)
 	}
-	if RetentionPro != 30 {
-		t.Errorf("RetentionPro = %d, want 30", RetentionPro)
+	if RetentionPro != 90 {
+		t.Errorf("RetentionPro = %d, want 90", RetentionPro)
 	}
-	if RetentionScale != 60 {
-		t.Errorf("RetentionScale = %d, want 60", RetentionScale)
+	if RetentionScale != 180 {
+		t.Errorf("RetentionScale = %d, want 180", RetentionScale)
 	}
-	if RetentionEnterprise != 90 {
-		t.Errorf("RetentionEnterprise = %d, want 90", RetentionEnterprise)
+	if RetentionBusiness != 365 {
+		t.Errorf("RetentionBusiness = %d, want 365", RetentionBusiness)
+	}
+	if RetentionEnterprise != -1 {
+		t.Errorf("RetentionEnterprise = %d, want -1 (unlimited)", RetentionEnterprise)
 	}
 }
 
@@ -481,8 +508,8 @@ func TestPlanConstants_SpendingLimits(t *testing.T) {
 
 func TestPlanConstants_Overage(t *testing.T) {
 	t.Parallel()
-	if DefaultOveragePerKRunsMicrousd != 200_000 {
-		t.Errorf("DefaultOveragePerKRunsMicrousd = %d, want 200000", DefaultOveragePerKRunsMicrousd)
+	if DefaultOveragePerKRunsMicrousd != 500_000 {
+		t.Errorf("DefaultOveragePerKRunsMicrousd = %d, want 500000", DefaultOveragePerKRunsMicrousd)
 	}
 }
 
