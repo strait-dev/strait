@@ -23,6 +23,19 @@ func ComputeEntitlements(sub *OrgSubscription, addons []Addon) OrgPlanLimits {
 		return GetPlanLimits(domain.PlanFree)
 	}
 
+	// Restricted orgs collapse to base Free regardless of plan tier or
+	// active addons — restriction is a hard kill switch, not a soft tier
+	// change. RestrictOrgTx writes the same shape directly; this branch
+	// keeps ComputeEntitlements in sync so the consistency invariant
+	// (snapshot == ComputeEntitlements(sub, addons)) holds globally.
+	// Only the subscription Status is checked: PaymentStatus="restricted"
+	// can persist after a successful resume webhook clears Status back to
+	// "active", and we don't want that lingering flag to suppress the new
+	// tier's entitlements.
+	if sub.Status == "restricted" {
+		return GetPlanLimits(domain.PlanFree)
+	}
+
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
 	if len(addons) > 0 {
 		limits = EffectiveLimits(limits, addons)
