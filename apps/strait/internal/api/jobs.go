@@ -1192,6 +1192,9 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
+	if projectID == "" && isInternalCaller(ctx) {
+		s.emitInternalSecretBypassAudit(ctx, "batch_enable_jobs.project_match", "handleBatchEnableJobs", "job", "")
+	}
 
 	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true, projectID)
 	if err != nil {
@@ -1224,6 +1227,9 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	if projectID == "" && isInternalCaller(ctx) {
+		s.emitInternalSecretBypassAudit(ctx, "batch_disable_jobs.project_match", "handleBatchDisableJobs", "job", "")
 	}
 
 	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false, projectID)

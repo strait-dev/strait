@@ -651,6 +651,12 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"org_id", "plan_tier"},
 		Description: "Org subscription changed (plan upgrade, downgrade, or renewal).",
 	},
+
+	// Internal-secret bypass.
+	AuditActionInternalSecretBypass: {
+		Required:    []string{"gate", "caller", "handler"},
+		Description: "Project-scoped handler entered via X-Internal-Secret without a project context. gate names the skipped check, caller is the sender identity (api-key:<id> or 'unknown'), handler names the entry point.",
+	},
 }
 
 // ForbiddenKeysFor returns the union of the action-specific forbidden keys

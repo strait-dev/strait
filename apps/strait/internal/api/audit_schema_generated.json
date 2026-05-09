@@ -448,6 +448,37 @@
         "bearer"
       ]
     },
+    "auth.internal_secret_bypass": {
+      "type": "object",
+      "description": "Project-scoped handler entered via X-Internal-Secret without a project context. gate names the skipped check, caller is the sender identity (api-key:\u003cid\u003e or 'unknown'), handler names the entry point.",
+      "properties": {
+        "caller": {
+          "type": "string",
+          "description": "required"
+        },
+        "gate": {
+          "type": "string",
+          "description": "required"
+        },
+        "handler": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["gate", "caller", "handler"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "auth.run_token.rejected": {
       "type": "object",
       "description": "SDK run-token authentication rejected before run-scoped API access.",

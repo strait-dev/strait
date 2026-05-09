@@ -210,6 +210,12 @@ const (
 	AuditActionCronPausedQuota     = "cron.paused_quota"
 	AuditActionCronResumedQuota    = "cron.resumed_quota"
 	AuditActionSubscriptionChanged = "subscription.changed"
+
+	// Internal-secret callers that skip the project_id requirement on
+	// otherwise project-scoped handlers. Recorded so a leaked
+	// X-Internal-Secret header leaves an audit trail naming the gate
+	// that was skipped and the resource that was touched.
+	AuditActionInternalSecretBypass = "auth.internal_secret_bypass"
 )
 
 // allAuditActions is the set of every action name the emit path will accept.
@@ -358,6 +364,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionCronPausedQuota:                 {},
 	AuditActionCronResumedQuota:                {},
 	AuditActionSubscriptionChanged:             {},
+	AuditActionInternalSecretBypass:            {},
 }
 
 // IsKnownAuditAction reports whether action is a registered audit action.
