@@ -169,6 +169,14 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				"run_id", run.ID, "error", orgErr, "fail_open", true)
 		}
 		if orgID != "" {
+			// Spending limit is checked before daily/monthly so a rejection
+			// here does not require rolling back any run-counter increment.
+			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org spending limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+				return
+			}
 			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org daily run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)

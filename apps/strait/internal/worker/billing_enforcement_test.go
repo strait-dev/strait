@@ -20,6 +20,7 @@ import (
 type mockBillingEnforcerStore struct {
 	projectOrgID string
 	sub          *billing.OrgSubscription
+	periodSpend  int64
 }
 
 func (m *mockBillingEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
@@ -105,7 +106,7 @@ func (m *mockBillingEnforcerStore) GetOrgDailyUsage(_ context.Context, _ string,
 	return nil, nil
 }
 func (m *mockBillingEnforcerStore) SumOrgPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
+	return m.periodSpend, nil
 }
 func (m *mockBillingEnforcerStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
 	return 0, "", nil
