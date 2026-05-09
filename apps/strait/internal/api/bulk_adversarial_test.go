@@ -1,0 +1,133 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"strait/internal/domain"
+)
+
+// TestBulkTrigger_PriorityCheckedAfterIdempotencyHit_NotInvokedForCachedRun
+// confirms that an idempotency hit short-circuits the gate (the run already
+// exists, no new dispatch happens). This locks in the ordering: idempotency
+// → priority gate → enqueue.
+func TestBulkTrigger_PriorityCheckedAfterIdempotencyHit_NotInvokedForCachedRun(t *testing.T) {
+	t.Parallel()
+
+	existingRun := &domain.JobRun{ID: "existing-run", Status: domain.StatusCompleted}
+	enforcer := &priorityRecordingEnforcer{maxPriority: 1}
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+		GetRunByIdempotencyKeyFunc: func(_ context.Context, _ string, key string) (*domain.JobRun, error) {
+			if key == "cached" {
+				return existingRun, nil
+			}
+			return nil, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+	srv := newServerWithEnforcer(t, ms, mq, enforcer)
+
+	// Item 0: cached idempotency, priority 99 — must NOT be checked because
+	// the idempotency hit returns the cached run.
+	// Item 1: fresh, priority 1 — must be checked and pass.
+	body := `{"items":[{"priority":99,"idempotency_key":"cached"},{"priority":1,"idempotency_key":"fresh"}]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	// Only the fresh item should have triggered the gate.
+	if got := enforcer.calls.Load(); got != 1 {
+		t.Fatalf("CheckMaxDispatchPriority calls = %d, want 1 (cached items skip the gate)", got)
+	}
+}
+
+// flakyEnforcer trips the gate on a specific item index. Used to simulate the
+// "smuggle one bad item" scenario where the Nth check fails.
+type flakyEnforcer struct {
+	mockBillingEnforcer
+	failOnCall int64
+	calls      atomic.Int64
+}
+
+func (f *flakyEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	c := f.calls.Add(1)
+	if c == f.failOnCall {
+		return fmt.Errorf("priority over cap at call %d", c)
+	}
+	return nil
+}
+
+// TestBulkTrigger_FailureAtItemN_StopsAtFirstFailure verifies that when the
+// gate fails on item N of a batch, the loop bails immediately — no further
+// items are processed. The enclosing transaction (real Postgres path) rolls
+// back; the unit-mock here only proves the loop short-circuits on first
+// failure rather than swallowing the error and continuing.
+func TestBulkTrigger_FailureAtItemN_StopsAtFirstFailure(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &flakyEnforcer{failOnCall: 5}
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+	srv := newServerWithEnforcer(t, ms, mq, enforcer)
+
+	items := make([]map[string]any, 0, 10)
+	for i := range 10 {
+		items = append(items, map[string]any{"priority": 1, "idempotency_key": fmt.Sprintf("k-%d", i)})
+	}
+	bodyBytes, _ := json.Marshal(map[string]any{"items": items})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", string(bodyBytes)))
+
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402 PaymentRequired, got %d: %s", w.Code, w.Body.String())
+	}
+	// Gate fired exactly 5 times: items 0..3 passed, item 4 failed and bailed.
+	if got := enforcer.calls.Load(); got != 5 {
+		t.Fatalf("gate calls = %d, want 5 (stop at first failure)", got)
+	}
+}
+
+// TestBulkTrigger_PerItemErrorMessageReferencesItemIndex verifies that the
+// error response identifies which item triggered the gate, so a tenant
+// submitting a 500-item batch can find the offending entry.
+func TestBulkTrigger_PerItemErrorMessageReferencesItemIndex(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &priorityRecordingEnforcer{maxPriority: 5}
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+	srv := newServerWithEnforcer(t, ms, mq, enforcer)
+
+	body := `{"items":[{"priority":1},{"priority":2},{"priority":99}]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", w.Code, w.Body.String())
+	}
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, "item 2") {
+		t.Errorf("error body must reference 'item 2' (the offending index), got: %s", bodyStr)
+	}
+}

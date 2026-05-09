@@ -203,6 +203,18 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 				}
 			}
 
+			// Per-item plan-tier dispatch priority cap. Mirrors the single-trigger
+			// handler ordering: idempotency hits short-circuit before this gate so
+			// cached runs don't burn a plan-gate check, but every newly-enqueued
+			// item is gated independently. A high-priority entry smuggled into a
+			// mostly-low-priority batch is still rejected even if earlier items
+			// passed.
+			if s.billingEnforcer != nil && item.Priority > 0 {
+				if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, job.ProjectID, item.Priority); err != nil {
+					return huma.Error402PaymentRequired(fmt.Sprintf("item %d: %v", itemIdx, err))
+				}
+			}
+
 			if projectQuota != nil {
 				if projectQuota.MaxQueuedRuns > 0 && (queuedRuns+enqueuedInBatch) >= projectQuota.MaxQueuedRuns {
 					return huma.Error429TooManyRequests("project queued quota exceeded")
