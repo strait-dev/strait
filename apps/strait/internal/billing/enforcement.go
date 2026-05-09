@@ -1,7 +1,9 @@
 package billing
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -68,6 +70,12 @@ type Enforcer struct {
 	sentryMode      string
 	sentryRegion    string
 	sentryVersion   string
+	// entitlementsAuthoritative controls the Phase 3.5 reader switch:
+	// when true (default), GetOrgPlanLimits reads the persisted snapshot
+	// directly when present. When false, it always recomputes from the
+	// catalog + addons pipeline. Operator escape hatch via
+	// BILLING_ENTITLEMENTS_AUTHORITATIVE.
+	entitlementsAuthoritative bool
 }
 
 const (
@@ -172,11 +180,12 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	orgCache := cache.New[*cachedOrgLimits](cacheStore)
 
 	e := &Enforcer{
-		store:    store,
-		rdb:      rdb,
-		logger:   logger,
-		orgCache: orgCache,
-		cacheTTL: cacheTTL,
+		store:                     store,
+		rdb:                       rdb,
+		logger:                    logger,
+		orgCache:                  orgCache,
+		cacheTTL:                  cacheTTL,
+		entitlementsAuthoritative: true,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -204,6 +213,15 @@ func WithClickHouse(exporter billingEventEnqueuer) EnforcerOption {
 // WithEnforcerBillingEmails attaches a billing email sender for spending alerts.
 func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
 	return func(e *Enforcer) { e.billingEmails = sender }
+}
+
+// WithEntitlementsAuthoritative toggles whether the Enforcer reads the
+// persisted entitlements snapshot on the hot path (true) or always
+// recomputes from the catalog + addons pipeline (false).
+func WithEntitlementsAuthoritative(b bool) EnforcerOption {
+	return func(e *Enforcer) {
+		e.entitlementsAuthoritative = b
+	}
 }
 
 // WithSentryRuntime attaches low-cardinality runtime tags to billing capture paths.
@@ -363,20 +381,55 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	sub := result.(*OrgSubscription)
 
 	tier := domain.PlanTier(sub.PlanTier)
-	limits = GetPlanLimits(tier)
 
-	// Apply add-on increments (fail open if add-ons can't be loaded).
-	addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
-	if addonErr != nil {
-		e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
-	} else if len(addons) > 0 {
-		limits = EffectiveLimits(limits, addons)
+	// Phase 3.5: read the persisted entitlements snapshot when present.
+	// Empty (nil) and the literal `{}` default are treated as "no snapshot"
+	// so the recompute path opportunistically populates the column for
+	// orgs that haven't been touched by a mutator since migration 259.
+	usedSnapshot := false
+	if e.entitlementsAuthoritative && hasPersistedEntitlements(sub.Entitlements) {
+		var snap OrgPlanLimits
+		if err := json.Unmarshal(sub.Entitlements, &snap); err != nil {
+			// Malformed JSON in the column: log and fall back to recompute.
+			// The recompute path below opportunistically rewrites the
+			// snapshot with a valid value.
+			e.logger.Warn("entitlements snapshot is malformed, falling back to recompute",
+				"org_id", orgID, "error", err)
+		} else {
+			limits = snap
+			usedSnapshot = true
+		}
 	}
 
-	// Apply subscription-level add-on adjustments (add_ons JSONB column).
-	limits = ApplySubscriptionAddOns(limits, sub.AddOns)
+	if !usedSnapshot {
+		limits = GetPlanLimits(tier)
 
-	// Apply per-org overrides from support.
+		// Apply add-on increments (fail open if add-ons can't be loaded).
+		addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
+		if addonErr != nil {
+			e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
+		} else if len(addons) > 0 {
+			limits = EffectiveLimits(limits, addons)
+		}
+
+		// Apply subscription-level add-on adjustments (add_ons JSONB column).
+		limits = ApplySubscriptionAddOns(limits, sub.AddOns)
+
+		// Opportunistically populate the snapshot column so subsequent
+		// reads hit the fast path. Failures here are non-fatal — the
+		// snapshot is a cache and the catalog data remains the source
+		// of truth.
+		if e.entitlementsAuthoritative {
+			if err := e.store.UpdateEntitlements(ctx, orgID, limits); err != nil {
+				e.logger.Warn("failed to opportunistically populate entitlements",
+					"org_id", orgID, "error", err)
+			}
+		}
+	}
+
+	// Apply per-org overrides from support. These run on top of the
+	// snapshot too — overrides are a runtime knob, not part of the
+	// resolved plan, and they must not be persisted into the snapshot.
 	if sub.OverrideDailyRunLimit != nil {
 		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
 	}
@@ -390,6 +443,20 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		enforcementMode: sub.EnforcementMode,
 	})
 	return limits, nil
+}
+
+// hasPersistedEntitlements reports whether the raw JSONB bytes contain
+// a non-default snapshot. The migration default is the empty object `{}`
+// which is two bytes; anything longer is treated as a populated snapshot.
+// nil and zero-length are also considered empty.
+func hasPersistedEntitlements(raw []byte) bool {
+	if len(raw) <= 2 {
+		return false
+	}
+	// Tolerate whitespace-only payloads like ` {} ` by trimming and
+	// comparing to the empty object literal.
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 2 && string(trimmed) != "{}"
 }
 
 // checkPaymentStatus checks the org's payment/grace status. Returns

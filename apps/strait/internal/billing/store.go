@@ -39,8 +39,15 @@ type OrgSubscription struct {
 	EnforcementMode            string // "enforce" (default), "warn", "disabled"
 	MonthlyUsageEmail          bool   // opt-in for monthly PDF usage report emails
 	AddOns                     SubscriptionAddOns
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
+	// Entitlements holds the raw JSONB snapshot from
+	// organization_subscriptions.entitlements. When non-empty (and != "{}")
+	// it represents the authoritative resolved plan limits as of the most
+	// recent mutator. The Enforcer reads this directly on the hot path
+	// (Phase 3.5); callers that need the typed value should use
+	// ComputeEntitlements over (sub, addons) instead.
+	Entitlements []byte
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // UsageRecord represents a daily usage aggregate per org and project.

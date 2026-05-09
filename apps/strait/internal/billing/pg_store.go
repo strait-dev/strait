@@ -77,6 +77,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 			COALESCE(enforcement_mode, 'enforce'),
 			COALESCE(monthly_usage_email, false),
 			COALESCE(add_ons, '{}'::jsonb),
+			COALESCE(entitlements, '{}'::jsonb),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE ` + where
@@ -92,6 +93,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 		&sub.EnforcementMode,
 		&sub.MonthlyUsageEmail,
 		&addOnsJSON,
+		&sub.Entitlements,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

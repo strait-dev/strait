@@ -242,6 +242,12 @@ type Config struct {
 	StripeEnterpriseLargeYearlyPriceID   string `env:"STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID"`
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	// BillingEntitlementsAuthoritative governs whether the Enforcer reads
+	// the persisted entitlements snapshot on the hot path (true, default)
+	// or always recomputes from the catalog + addons pipeline (false).
+	// Operators can flip this to false as an escape hatch if a bad
+	// migration/backfill writes corrupt snapshots.
+	BillingEntitlementsAuthoritative bool `env:"BILLING_ENTITLEMENTS_AUTHORITATIVE" default:"true"`
 
 	// Orchestration-only tier price IDs (new billing model).
 	// Set these to the Stripe Price IDs for each plan's flat monthly subscription.
