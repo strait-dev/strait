@@ -374,7 +374,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	}
 
 	// Apply subscription-level add-on adjustments (add_ons JSONB column).
-	limits = applySubscriptionAddOns(limits, sub.AddOns)
+	limits = ApplySubscriptionAddOns(limits, sub.AddOns)
 
 	// Apply per-org overrides from support.
 	if sub.OverrideDailyRunLimit != nil {
@@ -1542,10 +1542,10 @@ type SpendingLimitResponse struct {
 // granted per priority_slot_pack unit.
 const prioritySlotPackIncrement = 10
 
-// applySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
+// ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
 // add-ons stored in the add_ons JSONB column. Enforcement points for limits that
 // don't yet exist are annotated with TODO comments.
-func applySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
+func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
 	result := base
 
 	// Extra data retention: each pack adds retentionPackDays days.
