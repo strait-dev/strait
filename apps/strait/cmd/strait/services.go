@@ -927,6 +927,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
 			slog.Info("quota resume enforcer enabled")
+
+			anomalyMonitor := scheduler.NewAnomalyMonitor(
+				&anomalyMonitorStore{PgStore: billingStore, queries: queries},
+				15*time.Minute,
+			).WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
+			slog.Info("anomaly monitor enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this
@@ -960,6 +967,27 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		sched.Stop()
 		return nil
 	})
+}
+
+// anomalyMonitorStore composes the billing store with the notification-channel
+// methods on the main queries store so the scheduler's anomaly monitor can
+// resolve subscriber orgs (billing) and dispatch notifications (queries) via a
+// single dependency.
+type anomalyMonitorStore struct {
+	*billing.PgStore
+	queries *store.Queries
+}
+
+func (a *anomalyMonitorStore) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	return a.queries.ListEnabledNotificationChannels(ctx, projectID)
+}
+
+func (a *anomalyMonitorStore) ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	return a.queries.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+}
+
+func (a *anomalyMonitorStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	return a.queries.CreateNotificationDelivery(ctx, d)
 }
 
 func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {
