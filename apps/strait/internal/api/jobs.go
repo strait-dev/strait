@@ -149,6 +149,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkRunTTLLimit(ctx, req.ProjectID, req.RunTTLSecs); err != nil {
 		return nil, err
 	}
+	if err := s.checkPerJobConcurrencyLimit(ctx, req.ProjectID, req.MaxConcurrency, req.MaxConcurrencyPerKey); err != nil {
+		return nil, err
+	}
 
 	job := &domain.Job{
 		ProjectID:                 req.ProjectID,
@@ -576,11 +579,24 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		}
 		job.TimeoutSecs = *req.TimeoutSecs
 	}
-	if req.MaxConcurrency != nil {
-		job.MaxConcurrency = *req.MaxConcurrency
-	}
-	if req.MaxConcurrencyPerKey != nil {
-		job.MaxConcurrencyPerKey = *req.MaxConcurrencyPerKey
+	if req.MaxConcurrency != nil || req.MaxConcurrencyPerKey != nil {
+		newMax := job.MaxConcurrency
+		if req.MaxConcurrency != nil {
+			newMax = *req.MaxConcurrency
+		}
+		newPerKey := job.MaxConcurrencyPerKey
+		if req.MaxConcurrencyPerKey != nil {
+			newPerKey = *req.MaxConcurrencyPerKey
+		}
+		if err := s.checkPerJobConcurrencyLimit(ctx, job.ProjectID, newMax, newPerKey); err != nil {
+			return nil, err
+		}
+		if req.MaxConcurrency != nil {
+			job.MaxConcurrency = *req.MaxConcurrency
+		}
+		if req.MaxConcurrencyPerKey != nil {
+			job.MaxConcurrencyPerKey = *req.MaxConcurrencyPerKey
+		}
 	}
 	if req.ExecutionWindowCron != nil {
 		job.ExecutionWindowCron = *req.ExecutionWindowCron
@@ -832,6 +848,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, err
 	}
 	if err := s.checkRunTTLLimit(ctx, source.ProjectID, source.RunTTLSecs); err != nil {
+		return nil, err
+	}
+	if err := s.checkPerJobConcurrencyLimit(ctx, source.ProjectID, source.MaxConcurrency, source.MaxConcurrencyPerKey); err != nil {
 		return nil, err
 	}
 

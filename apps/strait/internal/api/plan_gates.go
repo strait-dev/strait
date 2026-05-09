@@ -492,6 +492,46 @@ func (s *Server) checkRunTTLLimit(ctx context.Context, projectID string, ttlSecs
 	return nil
 }
 
+// checkPerJobConcurrencyLimit caps a job's MaxConcurrency and
+// MaxConcurrencyPerKey settings to the org's plan MaxConcurrentRuns. The
+// per-job budget cannot exceed the org-wide concurrent-run cap — otherwise
+// a Free org could pin a single job to a Pro-tier concurrency value.
+//
+// Zero means "unset" (engine default applies); the gate ignores zero. A
+// MaxConcurrentRuns of -1 means unlimited and skips the cap entirely.
+func (s *Server) checkPerJobConcurrencyLimit(ctx context.Context, projectID string, maxConcurrency, maxConcurrencyPerKey int) error {
+	if maxConcurrency <= 0 && maxConcurrencyPerKey <= 0 {
+		return nil
+	}
+	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+		return nil
+	}
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open
+	}
+	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if limErr != nil {
+		return nil //nolint:nilerr // fail open
+	}
+	if limits.MaxConcurrentRuns < 0 {
+		return nil
+	}
+	if maxConcurrency > limits.MaxConcurrentRuns {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d concurrent runs (max max_concurrency = %d). Requested %d. Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxConcurrentRuns, limits.MaxConcurrentRuns, maxConcurrency),
+		)
+	}
+	if maxConcurrencyPerKey > limits.MaxConcurrentRuns {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d concurrent runs (max max_concurrency_per_key = %d). Requested %d. Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxConcurrentRuns, limits.MaxConcurrentRuns, maxConcurrencyPerKey),
+		)
+	}
+	return nil
+}
+
 // basicWebhookEvents is the set of events available on the "basic" webhook tier.
 var basicWebhookEvents = map[string]bool{
 	"run.completed": true,
