@@ -457,6 +457,41 @@ func (s *Server) checkDailyAIModelCallLimit(ctx context.Context, runID string) e
 	return nil
 }
 
+// checkRunTTLLimit caps a job's RunTTLSecs to the org's plan retention
+// window. The cap is identical for every tier-bounded plan: a run row may
+// not outlive the period the platform agrees to retain it.
+//
+// A zero TTL means "use the platform default" — no cap applies. A
+// retention of -1 in OrgPlanLimits means "unlimited" — no cap applies.
+// Otherwise the request must satisfy ttlSecs <= retentionDays * 86400.
+func (s *Server) checkRunTTLLimit(ctx context.Context, projectID string, ttlSecs int) error {
+	if ttlSecs <= 0 {
+		return nil
+	}
+	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+		return nil
+	}
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open
+	}
+	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if limErr != nil {
+		return nil //nolint:nilerr // fail open
+	}
+	if limits.RetentionDays <= 0 {
+		return nil // unlimited or unset
+	}
+	maxTTL := limits.RetentionDays * 86400
+	if ttlSecs > maxTTL {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan retains runs for %d days (max run_ttl_secs = %d). Requested %d. Upgrade at /settings/billing",
+				limits.DisplayName, limits.RetentionDays, maxTTL, ttlSecs),
+		)
+	}
+	return nil
+}
+
 // basicWebhookEvents is the set of events available on the "basic" webhook tier.
 var basicWebhookEvents = map[string]bool{
 	"run.completed": true,

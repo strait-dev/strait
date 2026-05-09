@@ -146,6 +146,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkCronMinInterval(ctx, req.ProjectID, req.Cron); err != nil {
 		return nil, err
 	}
+	if err := s.checkRunTTLLimit(ctx, req.ProjectID, req.RunTTLSecs); err != nil {
+		return nil, err
+	}
 
 	job := &domain.Job{
 		ProjectID:                 req.ProjectID,
@@ -595,6 +598,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.DedupWindowSecs = *req.DedupWindowSecs
 	}
 	if req.RunTTLSecs != nil {
+		if err := s.checkRunTTLLimit(ctx, job.ProjectID, *req.RunTTLSecs); err != nil {
+			return nil, err
+		}
 		job.RunTTLSecs = *req.RunTTLSecs
 	}
 	if req.RetryStrategy != nil {
@@ -823,6 +829,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, err
 	}
 	if err := s.checkCronMinInterval(ctx, source.ProjectID, source.Cron); err != nil {
+		return nil, err
+	}
+	if err := s.checkRunTTLLimit(ctx, source.ProjectID, source.RunTTLSecs); err != nil {
 		return nil, err
 	}
 
