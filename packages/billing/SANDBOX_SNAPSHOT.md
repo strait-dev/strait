@@ -69,9 +69,42 @@ MCP server during Wave 2 Phase 3. To reproduce on a fresh Stripe sandbox account
 5. Assign canonical lookup keys (no `_v2` suffix) to each price using
    `transfer_lookup_key=true`.
 
-## Live equivalence (pending)
+## Live equivalence
 
-The Stripe live account still holds the pre-Wave-2 annual amounts ($182.40 /
-$950.40 / $2,870.40 / $479.04). Bringing live to parity is Phase 4 of the Wave 2
-plan and is gated on explicit user authorization due to live customer billing
-impact.
+The Stripe live account is reconciled to match this sandbox shape as of Wave 2
+Phase 4. Live had zero active subscriptions at the time of the migration, so
+the rollout was non-disruptive.
+
+Live meter: `mtr_61UeEtSZ9XnfVRTnl41CtZGvNNzEBGka`.
+
+Live tier prices (canonical lookup keys assigned, amounts match the table above):
+
+| Tier     | Monthly price ID                  | Annual price ID                   |
+|----------|-----------------------------------|-----------------------------------|
+| Free     | `price_1TUlbUCtZGvNNzEBrBhekZCK`  | —                                 |
+| Starter  | `price_1TUlbVCtZGvNNzEBobah7ej9`  | `price_1TUqwmCtZGvNNzEBepOg1VMR`  |
+| Pro      | `price_1TUlbXCtZGvNNzEBKcX6kj7E`  | `price_1TUqwnCtZGvNNzEBKvQe2v7g`  |
+| Scale    | `price_1TUlbaCtZGvNNzEBIdLJF65I`  | `price_1TUqwoCtZGvNNzEBP0SHFWNm`  |
+| Business | `price_1TUlbcCtZGvNNzEBOyK10aBk`  | `price_1TUqwpCtZGvNNzEBBmsB7huQ`  |
+
+Live graduated overage prices (created in Phase 4 with `transfer_lookup_key=true`):
+
+| Tier     | Lookup key                | Price ID                          |
+|----------|---------------------------|-----------------------------------|
+| Free     | `strait_overage_free`     | `price_1TV8gXCtZGvNNzEBGO8X6D3C`  |
+| Starter  | `strait_overage_starter`  | `price_1TV8geCtZGvNNzEBw7alswDT`  |
+| Pro      | `strait_overage_pro`      | `price_1TV8gqCtZGvNNzEBMYpObkZ6`  |
+| Scale    | `strait_overage_scale`    | `price_1TV8gvCtZGvNNzEBvQRRoeVu`  |
+| Business | `strait_overage_business` | `price_1TV8h0CtZGvNNzEBlPPSJnZ4`  |
+
+Deactivated in live during Phase 4:
+
+- Wrong-amount annuals: `price_1TUlbWCtZGvNNzEBG91BtY5f` ($182.40 Starter),
+  `price_1TUlbYCtZGvNNzEBFGqKqGWd` ($950.40 Pro),
+  `price_1TUlbbCtZGvNNzEBZWIa9M3Q` ($2,870.40 Scale),
+  `price_1TUlbdCtZGvNNzEBoMAgGZtz` ($4,790.40 Business).
+- Per-unit overage prices superseded by graduated equivalents:
+  `price_1TUqxDCtZGvNNzEBsBA3wlKm` (Free), `price_1TUqxECtZGvNNzEBgcNM8LYP`
+  (Starter), `price_1TUqxFCtZGvNNzEBdbFlObSg` (Pro),
+  `price_1TUqxFCtZGvNNzEBmtolHaBY` (Scale),
+  `price_1TUqxGCtZGvNNzEBazs09bdf` (Business).
