@@ -22,6 +22,9 @@ type mockBillingEnforcerStore struct {
 	sub          *billing.OrgSubscription
 }
 
+func (m *mockBillingEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
 func (m *mockBillingEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error {
 	return nil
 }

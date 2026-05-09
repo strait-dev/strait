@@ -73,6 +73,7 @@ type Store interface {
 	ClearPendingPlanTier(ctx context.Context, orgID string) error
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error)
+	UpdateEntitlements(ctx context.Context, orgID string, entitlements OrgPlanLimits) error
 
 	// Project-org mapping
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)

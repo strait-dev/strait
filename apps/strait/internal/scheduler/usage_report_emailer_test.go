@@ -48,6 +48,9 @@ func (m *mockReportStore) ListOrgAdminEmails(_ context.Context, orgID string) ([
 }
 
 // Stub all remaining billing.Store methods.
+func (m *mockReportStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
 func (m *mockReportStore) EnsureOrgSubscription(context.Context, string) error { return nil }
 func (m *mockReportStore) UpsertOrgSubscription(context.Context, *billing.OrgSubscription) error {
 	return nil

@@ -157,6 +157,31 @@ func (s *PgStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier
 	return nil
 }
 
+// UpdateEntitlements writes the resolved entitlements snapshot to the
+// organization_subscriptions row so subsequent quota reads can hit a single
+// JSONB column instead of recomputing through the catalog/addons pipeline.
+//
+// Callers are expected to have produced `entitlements` via
+// ComputeEntitlements; this method does not validate composition. A no-op
+// for unknown orgs (zero rows affected, no error) — webhook idempotency
+// retries land here for orgs that never persisted, and surfacing an error
+// would defeat the retry.
+func (s *PgStore) UpdateEntitlements(ctx context.Context, orgID string, entitlements OrgPlanLimits) error {
+	payload, err := json.Marshal(entitlements)
+	if err != nil {
+		return fmt.Errorf("marshalling entitlements for org %s: %w", orgID, err)
+	}
+	_, err = s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET entitlements = $2::jsonb, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, payload)
+	if err != nil {
+		return fmt.Errorf("updating entitlements for org %s: %w", orgID, err)
+	}
+	return nil
+}
+
 func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE organization_subscriptions

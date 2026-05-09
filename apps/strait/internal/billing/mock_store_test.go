@@ -41,6 +41,7 @@ type mockBillingStore struct {
 	lastClearedPending         string
 	pendingDowngradeOrg        string
 	lastPendingDowngrade       *pendingDowngradeUpdate
+	lastEntitlementsUpdates    map[string]OrgPlanLimits
 	lastPaymentStatusUpdate    *paymentStatusUpdate
 	subscriptions              map[string]*OrgSubscription
 	projects                   map[string][]string
@@ -208,6 +209,14 @@ func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string
 		}
 	}
 	return ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) UpdateEntitlements(_ context.Context, orgID string, entitlements OrgPlanLimits) error {
+	if m.lastEntitlementsUpdates == nil {
+		m.lastEntitlementsUpdates = make(map[string]OrgPlanLimits)
+	}
+	m.lastEntitlementsUpdates[orgID] = entitlements
+	return nil
 }
 
 func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]OrgSubscription, error) {
