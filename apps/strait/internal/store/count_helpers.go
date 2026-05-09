@@ -246,6 +246,51 @@ func (q *Queries) CountNotificationChannelsByProject(ctx context.Context, projec
 	return count, nil
 }
 
+// DeactivateExcessLogDrains disables log drains beyond the given org-wide limit.
+// Keeps the most recently created drains and disables the oldest excess ones.
+func (q *Queries) DeactivateExcessLogDrains(ctx context.Context, orgID string, maxDrains int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessLogDrains")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE log_drains SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT ld.id FROM log_drains ld
+			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND ld.enabled = true
+			ORDER BY ld.created_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxDrains)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess log drains: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessNotificationChannelsByProject disables notification channels
+// beyond the per-project limit. Keeps the most recently created channels and
+// disables the oldest excess ones.
+func (q *Queries) DeactivateExcessNotificationChannelsByProject(ctx context.Context, projectID string, maxChannels int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessNotificationChannelsByProject")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE notification_channels SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT nc.id FROM notification_channels nc
+			WHERE nc.project_id = $1
+			  AND nc.enabled = true
+			ORDER BY nc.created_at ASC
+			OFFSET $2
+		)
+	`, projectID, maxChannels)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess notification channels: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 // CountWebhookSubscriptionsByProject counts webhook subscriptions for a project.
 func (q *Queries) CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountWebhookSubscriptionsByProject")

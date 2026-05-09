@@ -389,6 +389,18 @@ func (m *billingAdvMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ s
 	return 0, nil
 }
 
+func (m *billingAdvMockDowngradeStore) DeactivateExcessLogDrains(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *billingAdvMockDowngradeStore) DeactivateExcessNotificationChannelsByProject(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *billingAdvMockDowngradeStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 func TestAdv_StaleSubChecker_MassiveOrgCount(t *testing.T) {
 	t.Parallel()
 

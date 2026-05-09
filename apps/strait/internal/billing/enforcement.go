@@ -246,6 +246,13 @@ func (e *Enforcer) shouldSendBillingEmail(ctx context.Context, orgID, emailType 
 	return set
 }
 
+// EmitBillingEvent is the public wrapper around emitBillingEvent. Background
+// jobs (downgrade applier, schedulers) call this to record overage signals
+// like org_member_overage that the billing dashboard surfaces.
+func (e *Enforcer) EmitBillingEvent(orgID, eventType, planTier string) {
+	e.emitBillingEvent(orgID, eventType, planTier)
+}
+
 // emitBillingEvent sends a billing analytics event to ClickHouse.
 func (e *Enforcer) emitBillingEvent(orgID, eventType, planTier string) {
 	if e.chExporter == nil {

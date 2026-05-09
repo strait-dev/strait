@@ -17,8 +17,11 @@ type DowngradeApplierStore interface {
 	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error)
 	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
 	DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error)
+	DeactivateExcessLogDrains(ctx context.Context, orgID string, maxDrains int) (int64, error)
+	DeactivateExcessNotificationChannelsByProject(ctx context.Context, projectID string, maxChannels int) (int64, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
 	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
+	CountMembersByOrg(ctx context.Context, orgID string) (int, error)
 }
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
@@ -162,6 +165,47 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 			slog.Error("failed to pause HTTP jobs on downgrade", "org_id", orgID, "error", err)
 		} else if n > 0 {
 			slog.Info("paused HTTP jobs on downgrade", "org_id", orgID, "count", n)
+		}
+	}
+
+	if newLimits.MaxLogDrainsPerOrg != -1 {
+		if n, err := d.store.DeactivateExcessLogDrains(ctx, orgID, newLimits.MaxLogDrainsPerOrg); err != nil {
+			slog.Warn("failed to deactivate excess log drains", "org_id", orgID, "error", err)
+		} else if n > 0 {
+			slog.Info("deactivated excess log drains after downgrade", "org_id", orgID, "count", n)
+		}
+	}
+
+	// Notification channels are capped per project, so iterate once per project.
+	if newLimits.MaxNotificationChannels != -1 {
+		projectIDs, err := d.store.ListProjectsByOrg(ctx, orgID)
+		if err != nil {
+			slog.Warn("failed to list projects for notification channel cleanup", "org_id", orgID, "error", err)
+		} else {
+			for _, projectID := range projectIDs {
+				if n, err := d.store.DeactivateExcessNotificationChannelsByProject(ctx, projectID, newLimits.MaxNotificationChannels); err != nil {
+					slog.Warn("failed to deactivate excess notification channels", "project_id", projectID, "error", err)
+				} else if n > 0 {
+					slog.Info("deactivated excess notification channels after downgrade", "project_id", projectID, "count", n)
+				}
+			}
+		}
+	}
+
+	// Members: do not auto-deactivate; emit a billing event so the dashboard
+	// can surface the overage. New invites are blocked at the API per the
+	// plan's "block new, leave existing" policy.
+	if d.enforcer != nil && newLimits.MaxMembersPerOrg != -1 {
+		count, err := d.store.CountMembersByOrg(ctx, orgID)
+		if err != nil {
+			slog.Warn("failed to count members for overage signal", "org_id", orgID, "error", err)
+		} else if count > newLimits.MaxMembersPerOrg {
+			d.enforcer.EmitBillingEvent(orgID, "org_member_overage", pendingTier)
+			slog.Info("emitted member overage signal after downgrade",
+				"org_id", orgID,
+				"member_count", count,
+				"new_cap", newLimits.MaxMembersPerOrg,
+			)
 		}
 	}
 }

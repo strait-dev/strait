@@ -1620,3 +1620,15 @@ func (m *advMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) (
 func (m *advMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
 	return 0, nil
 }
+
+func (m *advMockDowngradeStore) DeactivateExcessLogDrains(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *advMockDowngradeStore) DeactivateExcessNotificationChannelsByProject(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *advMockDowngradeStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
