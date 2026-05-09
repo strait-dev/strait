@@ -25,6 +25,7 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 		{"MaxAlertRulesPerProj", e.MaxAlertRulesPerProj},
 		{"MaxWebhookSubsPerProj", e.MaxWebhookSubsPerProj},
 		{"MaxLogDrainsPerOrg", e.MaxLogDrainsPerOrg},
+		{"MaxNotificationChannels", e.MaxNotificationChannels},
 		{"MaxAIModelCallsPerDay", e.MaxAIModelCallsPerDay},
 		{"MaxJobChainDepth", e.MaxJobChainDepth},
 	}

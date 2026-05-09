@@ -20,6 +20,7 @@ type OrgPlanLimits struct {
 	MaxAlertRulesPerProj    int      // -1 = unlimited, 0 = none
 	MaxWebhookSubsPerProj   int      // -1 = unlimited, 0 = none
 	MaxLogDrainsPerOrg      int      // -1 = unlimited
+	MaxNotificationChannels int      // max notification channels per project; -1 = unlimited, 0 = none
 	MaxAIModelCallsPerDay   int      // -1 = unlimited
 	AIAssistantBYOK         bool
 	HasRBAC                 bool
@@ -220,6 +221,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    0,
 		MaxWebhookSubsPerProj:   0,
 		MaxLogDrainsPerOrg:      0,
+		MaxNotificationChannels: 0,
 		MaxAIModelCallsPerDay:   20,
 		AIAssistantBYOK:         false,
 		HasRBAC:                 false,
@@ -267,6 +269,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    0,
 		MaxWebhookSubsPerProj:   3,
 		MaxLogDrainsPerOrg:      1,
+		MaxNotificationChannels: 1,
 		MaxAIModelCallsPerDay:   100,
 		AIAssistantBYOK:         false,
 		HasRBAC:                 true,
@@ -321,6 +324,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   10,
 		MaxLogDrainsPerOrg:      5,
+		MaxNotificationChannels: 5,
 		MaxAIModelCallsPerDay:   500,
 		AIAssistantBYOK:         true,
 		HasRBAC:                 true,
@@ -375,6 +379,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    50,
 		MaxWebhookSubsPerProj:   25,
 		MaxLogDrainsPerOrg:      10,
+		MaxNotificationChannels: 10,
 		MaxAIModelCallsPerDay:   1000,
 		AIAssistantBYOK:         true,
 		HasRBAC:                 true,
@@ -429,6 +434,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    -1,
 		MaxWebhookSubsPerProj:   -1,
 		MaxLogDrainsPerOrg:      -1,
+		MaxNotificationChannels: -1,
 		MaxAIModelCallsPerDay:   -1,
 		AIAssistantBYOK:         true,
 		HasRBAC:                 true,
@@ -489,6 +495,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxAlertRulesPerProj:    -1,
 		MaxWebhookSubsPerProj:   -1,
 		MaxLogDrainsPerOrg:      -1,
+		MaxNotificationChannels: -1,
 		MaxAIModelCallsPerDay:   -1,
 		AIAssistantBYOK:         true,
 		HasRBAC:                 true,
@@ -573,6 +580,7 @@ func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
 		lessInt(oldLimits.MaxAlertRulesPerProj, newLimits.MaxAlertRulesPerProj) ||
 		lessInt(oldLimits.MaxWebhookSubsPerProj, newLimits.MaxWebhookSubsPerProj) ||
 		lessInt(oldLimits.MaxLogDrainsPerOrg, newLimits.MaxLogDrainsPerOrg) ||
+		lessInt(oldLimits.MaxNotificationChannels, newLimits.MaxNotificationChannels) ||
 		lessInt(oldLimits.MaxAIModelCallsPerDay, newLimits.MaxAIModelCallsPerDay) ||
 		lessInt(oldLimits.MaxWorkflowDAGSteps, newLimits.MaxWorkflowDAGSteps) ||
 		lessInt(oldLimits.MaxScheduledJobs, newLimits.MaxScheduledJobs) ||

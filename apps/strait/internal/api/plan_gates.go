@@ -322,6 +322,110 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 	return orgID, limits.MaxWebhookEndpoints, limits.DisplayName, nil
 }
 
+// checkLogDrainLimit verifies that the org has not exceeded its plan's
+// MaxLogDrainsPerOrg. Counts across ALL projects to match downgrade cleanup.
+func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	if limits.MaxLogDrainsPerOrg == -1 {
+		return nil // unlimited
+	}
+
+	if limits.MaxLogDrainsPerOrg == 0 {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Log drains are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open: billing unavailable should not block creation
+	}
+
+	count, err := s.store.CountLogDrainsByOrg(ctx, orgID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: count failure should not block creation
+	}
+
+	if count >= limits.MaxLogDrainsPerOrg {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d log drains (you have %d). Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxLogDrainsPerOrg, count),
+		)
+	}
+
+	return nil
+}
+
+// checkNotificationChannelLimit verifies that the project has not exceeded
+// its plan's MaxNotificationChannels. Counted per-project to match the
+// channel's project-scoped storage model.
+func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID string) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	if limits.MaxNotificationChannels == -1 {
+		return nil // unlimited
+	}
+
+	if limits.MaxNotificationChannels == 0 {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Notification channels are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	count, err := s.store.CountNotificationChannelsByProject(ctx, projectID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: count failure should not block creation
+	}
+
+	if count >= limits.MaxNotificationChannels {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d notification channels per project (you have %d). Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxNotificationChannels, count),
+		)
+	}
+
+	return nil
+}
+
+// checkAlertRuleLimit verifies that the project has not exceeded its plan's
+// MaxAlertRulesPerProj. The alert rules HTTP handler does not yet exist; the
+// gate is wired here so that when the handler lands it can adopt the same
+// per-tier cap pattern used by webhooks, log drains, and channels.
+//
+//nolint:unparam // projectID is always "proj-1" in tests until the handler lands; this is wired in advance.
+func (s *Server) checkAlertRuleLimit(ctx context.Context, projectID string, currentCount int) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+
+	if limits.MaxAlertRulesPerProj == -1 {
+		return nil // unlimited
+	}
+
+	if limits.MaxAlertRulesPerProj == 0 {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Alert rules are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	if currentCount >= limits.MaxAlertRulesPerProj {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d alert rules per project (you have %d). Upgrade at /settings/billing",
+				limits.DisplayName, limits.MaxAlertRulesPerProj, currentCount),
+		)
+	}
+
+	return nil
+}
+
 // basicWebhookEvents is the set of events available on the "basic" webhook tier.
 var basicWebhookEvents = map[string]bool{
 	"run.completed": true,

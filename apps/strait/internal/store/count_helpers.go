@@ -212,6 +212,40 @@ func (q *Queries) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID stri
 	return count, nil
 }
 
+// CountLogDrainsByOrg counts log drains across all active projects in an org.
+func (q *Queries) CountLogDrainsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountLogDrainsByOrg")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM log_drains
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count log drains by org: %w", err)
+	}
+	return count, nil
+}
+
+// CountNotificationChannelsByProject counts notification channels for a project.
+func (q *Queries) CountNotificationChannelsByProject(ctx context.Context, projectID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountNotificationChannelsByProject")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM notification_channels
+		WHERE project_id = $1
+	`, projectID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count notification channels by project: %w", err)
+	}
+	return count, nil
+}
+
 // CountWebhookSubscriptionsByProject counts webhook subscriptions for a project.
 func (q *Queries) CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountWebhookSubscriptionsByProject")

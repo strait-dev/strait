@@ -140,6 +140,9 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 	if err := validateAuthConfig(req.AuthType, req.AuthConfig); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := s.checkLogDrainLimit(ctx, req.ProjectID); err != nil {
+		return nil, err
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
