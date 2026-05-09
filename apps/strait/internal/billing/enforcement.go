@@ -588,6 +588,104 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
+// dailyAIModelCallKey returns the Redis key for the org's daily AI model call counter.
+// Key is scoped to the calendar day (UTC) and expires after 48 hours.
+func dailyAIModelCallKey(orgID string, t time.Time) string {
+	return fmt.Sprintf("strait:org_ai_calls:%s:%s", orgID, t.UTC().Format("2006-01-02"))
+}
+
+// CheckDailyAIModelCallLimit checks if the org has exceeded its daily AI model
+// call quota. Mirrors CheckDailyRunLimit: Free tier hard-rejects when over;
+// paid plans log overage (counted but not blocked) and let the call through.
+// Uses the same atomic INCR Lua script as the daily run check so the counter
+// is never incremented above the cap.
+func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string) error {
+	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+
+	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+		return err
+	} else if skipLimits {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for ai call check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "db_error")
+	}
+	e.resetFailOpen(orgID, "daily_ai_call")
+
+	if e.checkEnforcementMode(orgID, "daily_ai_call") {
+		return nil
+	}
+
+	if limits.MaxAIModelCallsPerDay == -1 {
+		return nil // unlimited
+	}
+
+	key := dailyAIModelCallKey(orgID, time.Now())
+	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
+		limits.MaxAIModelCallsPerDay, int(48*time.Hour/time.Second)).Result()
+	if err != nil {
+		e.logger.Warn("failed to run atomic ai call check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "redis_error")
+	}
+
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected result from atomic ai call check", "org_id", orgID)
+		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "redis_error")
+	}
+
+	allowed, _ := vals[0].(int64)
+	currentCount, _ := vals[1].(int64)
+
+	if allowed == 0 {
+		// Paid plans allow overage (logged for billing, not rejected).
+		if limits.PlanTier != domain.PlanFree {
+			e.logger.Info("daily ai call limit exceeded on paid plan (overage allowed)",
+				"org_id", orgID,
+				"plan", limits.DisplayName,
+				"limit", limits.MaxAIModelCallsPerDay,
+				"current", currentCount,
+			)
+			if e.metrics != nil && e.metrics.OverageEntered != nil {
+				e.metrics.OverageEntered.Add(ctx, 1,
+					metric.WithAttributes(attribute.String("plan_tier", string(limits.PlanTier))),
+				)
+			}
+			return nil
+		}
+
+		// Free tier: hard reject.
+		e.recordRejection(ctx, "daily_ai_call_limit", limits.PlanTier)
+		return &LimitError{
+			Code:         "org_daily_ai_call_limit_exceeded",
+			Message:      fmt.Sprintf("Your %s plan allows %d AI model calls per day. You've used %d.", limits.DisplayName, limits.MaxAIModelCallsPerDay, currentCount),
+			CurrentUsage: currentCount,
+			Limit:        int64(limits.MaxAIModelCallsPerDay),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// DecrDailyAIModelCallCount decrements the daily AI call counter (for rollback
+// on failure after a successful CheckDailyAIModelCallLimit increment).
+func (e *Enforcer) DecrDailyAIModelCallCount(ctx context.Context, orgID string) {
+	if orgID == "" || e.rdb == nil {
+		return
+	}
+	key := dailyAIModelCallKey(orgID, time.Now())
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
+		e.logger.Warn("failed to decrement org ai call counter", "org_id", orgID, "error", err)
+	}
+}
+
 // monthlyRunKey returns the Redis key for the org's monthly run counter.
 // Key is scoped to the calendar month (UTC) and expires after 62 days.
 func monthlyRunKey(orgID string, t time.Time) string {

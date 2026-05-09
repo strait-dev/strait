@@ -29,6 +29,7 @@ const (
 	FeatureSessionManagement Feature = "session_management"
 	FeatureSecretRotation    Feature = "secret_rotation"
 	FeatureSIEMExport        Feature = "siem_export"
+	FeatureLogStreaming      Feature = "log_streaming"
 )
 
 // LimitKey represents a numeric plan limit that can be queried via the registry.
@@ -146,6 +147,8 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 		return limits.HasSecretRotation
 	case FeatureSIEMExport:
 		return limits.HasSIEMExport
+	case FeatureLogStreaming:
+		return limits.LogStreamingEnabled
 	default:
 		return false
 	}

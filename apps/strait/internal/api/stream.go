@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"strait/internal/billing"
 )
 
 func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +112,11 @@ func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 
 	run, err := s.getRunForAccess(r.Context(), runID)
 	if err != nil {
+		writeTypedError(w, r, err)
+		return
+	}
+
+	if err := s.checkFeatureAllowed(r.Context(), run.ProjectID, billing.FeatureLogStreaming, "Log streaming"); err != nil {
 		writeTypedError(w, r, err)
 		return
 	}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -423,6 +424,36 @@ func (s *Server) checkAlertRuleLimit(ctx context.Context, projectID string, curr
 		)
 	}
 
+	return nil
+}
+
+// checkDailyAIModelCallLimit gates SDK AI usage reports against the org's
+// MaxAIModelCallsPerDay quota. The runID is resolved to a project, then to an
+// org, then the enforcer's Redis-backed atomic INCR check fires. Free-tier
+// orgs are hard-rejected with 429; paid plans allow overage (logged for
+// metering, never blocked).
+func (s *Server) checkDailyAIModelCallLimit(ctx context.Context, runID string) error {
+	if s.billingEnforcer == nil {
+		return nil // fail open: community / unconfigured
+	}
+	if !s.edition.RequiresHTTPModeGating() {
+		return nil
+	}
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil || run == nil {
+		return nil //nolint:nilerr // fail open: run lookup failures shouldn't drop usage telemetry
+	}
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, run.ProjectID)
+	if err != nil || orgID == "" {
+		return nil //nolint:nilerr // fail open
+	}
+	if err := s.billingEnforcer.CheckDailyAIModelCallLimit(ctx, orgID); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			return &typedAPIError{status: 429, apiError: APIError{Code: le.Code, Message: le.Message, Details: []string{fmt.Sprintf("limit=%d current=%d", le.Limit, le.CurrentUsage)}}}
+		}
+		return nil
+	}
 	return nil
 }
 

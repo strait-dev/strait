@@ -1181,3 +1181,7 @@ func (m *adversarialBillingEnforcer) EnsureOrgSubscription(ctx context.Context, 
 	}
 	return nil
 }
+
+func (m *adversarialBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}

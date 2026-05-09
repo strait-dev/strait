@@ -834,6 +834,9 @@ func (m *advMockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (
 	return 0, nil
 }
 func (m *advMockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+func (m *advMockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}
 func (m *advMockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
 	return nil
 }
