@@ -63,13 +63,14 @@ var (
 
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
-	queries        *store.Queries
-	pub            pubsub.Publisher
-	registry       *ConnectionRegistry
-	cfg            *config.Config
-	resultChannels *ResultChannelRegistry
-	runFinalizer   *atomic.Value
-	authLimiter    grpcAuthLimiter
+	queries         *store.Queries
+	pub             pubsub.Publisher
+	registry        *ConnectionRegistry
+	cfg             *config.Config
+	resultChannels  *ResultChannelRegistry
+	runFinalizer    *atomic.Value
+	authLimiter     grpcAuthLimiter
+	billingEnforcer planLimitEnforcer
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -147,20 +148,13 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	configureGRPCSentryWorkerScope(ctx, reg.WorkerId, reg.Name, reg.Hostname, reg.SdkLanguage, reg.SdkVersion)
 
-	// Reject cross-project worker_id collisions. The in-memory registry
-	// rejects same-id-different-api-key on this replica, but a separate
-	// replica or a stale workers row could already own this id under a
-	// different project. Without this check, the DB-side
-	// `WHERE workers.project_id = EXCLUDED.project_id` upsert guard would
-	// silently no-op the row sync, leaving the worker alive in memory but
-	// invisible in the DB to its own project.
-	if existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, reg.WorkerId); err != nil {
-		slog.Warn("grpc registration: worker project lookup failed",
-			"worker_id", reg.WorkerId, "error", err)
-		return status.Errorf(codes.Internal, "worker registration: lookup failed")
-	} else if ok && existingProject != projectID {
-		return status.Errorf(codes.AlreadyExists,
-			"worker_id %q already registered under a different project", reg.WorkerId)
+	if err := s.checkWorkerIDProjectCollision(ctx, reg.WorkerId, projectID); err != nil {
+		return err
+	}
+
+	orgID, err := s.checkPlanConnectionLimit(ctx, projectID)
+	if err != nil {
+		return err
 	}
 
 	// Per-stream typed send channel for outbound ServerMessages.
@@ -173,6 +167,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	cw := &ConnectedWorker{
 		WorkerID:       reg.WorkerId,
 		ProjectID:      projectID,
+		OrgID:          orgID,
 		EnvironmentID:  apiKey.EnvironmentID,
 		APIKeyID:       apiKey.ID,
 		Name:           reg.Name,
@@ -347,6 +342,54 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	firstErr := <-streamErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+// checkWorkerIDProjectCollision rejects a registration whose worker_id is
+// already owned by a different project. The in-memory registry handles
+// same-id-different-api-key on this replica, but a separate replica or a
+// stale workers row could already own this id under a different project.
+// Without this check, the DB-side `WHERE workers.project_id =
+// EXCLUDED.project_id` upsert guard would silently no-op the row sync,
+// leaving the worker alive in memory but invisible in the DB to its own
+// project.
+func (s *workerService) checkWorkerIDProjectCollision(ctx context.Context, workerID, projectID string) error {
+	existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, workerID)
+	if err != nil {
+		slog.Warn("grpc registration: worker project lookup failed",
+			"worker_id", workerID, "error", err)
+		return status.Errorf(codes.Internal, "worker registration: lookup failed")
+	}
+	if ok && existingProject != projectID {
+		return status.Errorf(codes.AlreadyExists,
+			"worker_id %q already registered under a different project", workerID)
+	}
+	return nil
+}
+
+// checkPlanConnectionLimit resolves the org for the supplied project and
+// rejects the registration with codes.ResourceExhausted if the org is at
+// or above its plan-tier worker connection cap. Returns the resolved orgID
+// (which may be empty if no enforcer is wired or the lookup failed) so the
+// caller can attach it to the ConnectedWorker entry. Existing connections
+// are never evicted; this is a connect-time gate only.
+func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID string) (string, error) {
+	if s.billingEnforcer == nil {
+		return "", nil
+	}
+	orgID, orgErr := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
+	if orgErr != nil {
+		slog.Warn("grpc registration: project org lookup failed (fail-open)",
+			"project_id", projectID, "error", orgErr)
+		return "", nil
+	}
+	if orgID == "" {
+		return "", nil
+	}
+	currentActive := s.registry.CountByOrg(orgID)
+	if err := s.billingEnforcer.CheckWorkerConnectionLimit(ctx, orgID, currentActive); err != nil {
+		return orgID, status.Errorf(codes.ResourceExhausted, "%v", err)
+	}
+	return orgID, nil
 }
 
 func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (func(), error) {

@@ -429,7 +429,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
-	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, version)
+	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, billingEnforcer, version)
 	if err != nil {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}

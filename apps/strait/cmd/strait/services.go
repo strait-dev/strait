@@ -549,7 +549,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, version string) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, billingEnforcer *billing.Enforcer, version string) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -569,10 +569,14 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	}
 	slog.Info("service.startup.gate", "component", "pubsub", "result", "ok")
 
-	srv, err := grpcserver.NewServer(cfg, queries, pub,
+	opts := []grpcserver.ServerOption{
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
 		grpcserver.WithVersion(version),
-	)
+	}
+	if billingEnforcer != nil {
+		opts = append(opts, grpcserver.WithBillingEnforcer(billingEnforcer))
+	}
+	srv, err := grpcserver.NewServer(cfg, queries, pub, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("grpc server: %w", err)
 	}

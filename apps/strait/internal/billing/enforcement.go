@@ -1179,6 +1179,53 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	}
 }
 
+// CheckWorkerConnectionLimit hard-rejects new gRPC worker registrations once an
+// org has hit its plan-tier WorkerConnections cap. Existing connections are
+// not evicted; this is a connect-time gate only.
+//
+// orgID may be empty; in that case the call is a no-op (we cannot enforce a
+// per-org cap without knowing which org). currentActive is the registry-local
+// count of already-registered workers for the same org. Callers should obtain
+// it under the registry lock immediately before invoking this check to keep
+// the TOCTOU window minimal — but the check itself is best-effort: a stricter
+// global cap would require a distributed counter and is not warranted given
+// connections are infrequent.
+func (e *Enforcer) CheckWorkerConnectionLimit(ctx context.Context, orgID string, currentActive int) error {
+	if e == nil || orgID == "" {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for worker connection check",
+			"org_id", orgID, "error", err)
+		// Fail-open on plan-limit lookup error: a transient DB hiccup must
+		// not lock customers out of their worker plane.
+		return nil
+	}
+
+	if limits.WorkerConnections == -1 {
+		return nil // unlimited
+	}
+
+	if currentActive >= limits.WorkerConnections {
+		e.recordRejection(ctx, "worker_connections", limits.PlanTier)
+		return &LimitError{
+			Code: "worker_connections_reached",
+			Message: fmt.Sprintf(
+				"Your %s plan allows %d concurrent worker connections per organization. Active: %d. Upgrade to add more.",
+				limits.DisplayName, limits.WorkerConnections, currentActive,
+			),
+			CurrentUsage: int64(currentActive),
+			Limit:        int64(limits.WorkerConnections),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
 // GetProjectOrgID resolves the org ID for a project via the billing store.
 func (e *Enforcer) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
 	return e.store.GetProjectOrgID(ctx, projectID)
