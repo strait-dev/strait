@@ -40,6 +40,7 @@ func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error
 	if err != nil {
 		return fmt.Errorf("ensure org subscription: %w", err)
 	}
+	s.refreshEntitlements(ctx, orgID)
 	return nil
 }
 
@@ -139,6 +140,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 	if err != nil {
 		return fmt.Errorf("upserting org subscription: %w", err)
 	}
+	s.refreshEntitlements(ctx, sub.OrgID)
 	return nil
 }
 
@@ -154,7 +156,35 @@ func (s *PgStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier
 	if tag.RowsAffected() == 0 {
 		return ErrSubscriptionNotFound
 	}
+	s.refreshEntitlements(ctx, orgID)
 	return nil
+}
+
+// refreshEntitlements recomputes the entitlements snapshot from the current
+// subscription row plus active addons and writes it back. Called by every
+// subscription mutator after its primary write succeeds. Errors are logged
+// but not surfaced — the snapshot is best-effort cache; the catalog +
+// addon-table data is the real source of truth, and the reader (Phase 3.5)
+// falls back to recompute when the snapshot is stale or missing.
+//
+// Unknown orgs are silently skipped (no subscription row, nothing to
+// refresh).
+func (s *PgStore) refreshEntitlements(ctx context.Context, orgID string) {
+	sub, err := s.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		// Subscription not found is the common case for fresh orgs that
+		// just got their first row; the mutator that called us already
+		// observed RowsAffected and returned its own error if needed.
+		return
+	}
+	addons, err := s.ListActiveAddons(ctx, orgID)
+	if err != nil {
+		// Falling back to "no addons" matches Enforcer.GetOrgPlanLimits
+		// which logs and continues with the base plan.
+		addons = nil
+	}
+	entitlements := ComputeEntitlements(sub, addons)
+	_ = s.UpdateEntitlements(ctx, orgID, entitlements)
 }
 
 // UpdateEntitlements writes the resolved entitlements snapshot to the
@@ -197,6 +227,7 @@ func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier
 	if tag.RowsAffected() == 0 {
 		return ErrSubscriptionNotFound
 	}
+	s.refreshEntitlements(ctx, orgID)
 	return nil
 }
 
@@ -268,6 +299,7 @@ func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	if tag.RowsAffected() == 0 {
 		return ErrSubscriptionNotFound
 	}
+	s.refreshEntitlements(ctx, orgID)
 	return nil
 }
 
@@ -1113,17 +1145,25 @@ func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
 	if err != nil {
 		return fmt.Errorf("creating addon: %w", err)
 	}
+	s.refreshEntitlements(ctx, addon.OrgID)
 	return nil
 }
 
 // DeactivateAddon sets an add-on to inactive.
 func (s *PgStore) DeactivateAddon(ctx context.Context, addonID string) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE organization_addons SET active = false, updated_at = NOW() WHERE id = $1
-	`, addonID)
+	var orgID string
+	err := s.pool.QueryRow(ctx, `
+		UPDATE organization_addons SET active = false, updated_at = NOW()
+		WHERE id = $1
+		RETURNING org_id
+	`, addonID).Scan(&orgID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		return fmt.Errorf("deactivating addon: %w", err)
 	}
+	s.refreshEntitlements(ctx, orgID)
 	return nil
 }
 
