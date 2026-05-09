@@ -1102,6 +1102,83 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 	}
 }
 
+// CheckProjectBudgetLimit hard-rejects dispatch when a project has crossed its
+// monthly budget AND budget_action is "block". When budget_action is "notify"
+// (the default for unset rows), the call is a no-op — alerting is handled
+// separately. When no quota row exists, the call is a no-op.
+//
+// projectID is required; an empty value is treated as a no-op so callers do not
+// have to nil-guard at every dispatch site.
+func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string) error {
+	if e == nil || projectID == "" {
+		return nil
+	}
+
+	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to read project budget", "project_id", projectID, "error", err)
+		// Fail-open here matches the spending-check posture: a transient DB
+		// error must not block the entire dispatch path. The org-level
+		// CheckSpendingLimit (which is fail-closed) still gates abuse.
+		return nil
+	}
+
+	// budget_action="notify" or unset means the budget is informational only.
+	// budget < 0 indicates "no budget configured" via the GetProjectBudget
+	// sentinel and must always pass.
+	if action != "block" || budget < 0 {
+		return nil
+	}
+
+	// Resolve org so we can use the same period window the spending check uses.
+	// A zero-value OrgSubscription gives us the canonical month-boundary
+	// fallback inside usagePeriodWindow.
+	orgID, err := e.store.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to resolve org for project budget check",
+			"project_id", projectID, "error", err)
+		return nil
+	}
+
+	var sub *OrgSubscription
+	if orgID != "" {
+		sub, _ = e.store.GetOrgSubscription(ctx, orgID)
+	}
+	tier := domain.PlanFree
+	if sub != nil {
+		tier = domain.PlanTier(sub.PlanTier)
+	}
+	periodStart, _ := usagePeriodWindow(time.Now().UTC(), tier, sub)
+
+	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
+	if err != nil {
+		e.logger.Warn("failed to read project period spend",
+			"project_id", projectID, "error", err)
+		return nil
+	}
+
+	if !isOverageLimitReached(budget, spend) {
+		return nil
+	}
+
+	planLabel := string(tier)
+	if sub != nil && sub.PlanTier != "" {
+		planLabel = sub.PlanTier
+	}
+	e.recordRejection(ctx, "project_budget", tier)
+	return &LimitError{
+		Code: "project_budget_reached",
+		Message: fmt.Sprintf(
+			"This project has reached its monthly budget of $%.2f.",
+			float64(budget)/1e6,
+		),
+		CurrentUsage: spend,
+		Limit:        budget,
+		Plan:         planLabel,
+		UpgradeURL:   "/settings/billing",
+	}
+}
+
 // GetProjectOrgID resolves the org ID for a project via the billing store.
 func (e *Enforcer) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
 	return e.store.GetProjectOrgID(ctx, projectID)

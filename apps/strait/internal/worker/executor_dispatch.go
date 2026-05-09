@@ -177,6 +177,16 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 				return
 			}
+			// Project budget check sits next to the org-level spending check
+			// because it shares the "no counters incremented yet" property:
+			// a budget rejection rolls nothing back. Only enforced when the
+			// project quota row sets budget_action='block'.
+			if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
+				e.logger.Warn("project budget limit exceeded",
+					"run_id", run.ID, "project_id", job.ProjectID, "error", err)
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+				return
+			}
 			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org daily run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)

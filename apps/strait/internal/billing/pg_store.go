@@ -787,12 +787,17 @@ func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budget
 	return nil
 }
 
-func (s *PgStore) GetProjectPeriodSpend(_ context.Context, projectID string, from time.Time) (int64, error) {
-	// run_compute_usage was dropped in migration 000227. Return 0 until the new
-	// per-run cost aggregation is wired in.
-	_ = projectID
-	_ = from
-	return 0, nil
+func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
+	var sum int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(compute_cost_microusd), 0) + COALESCE(SUM(ai_cost_microusd), 0)
+		FROM usage_records
+		WHERE project_id = $1 AND period_date >= $2
+	`, projectID, from).Scan(&sum)
+	if err != nil {
+		return 0, fmt.Errorf("summing project period spend: %w", err)
+	}
+	return sum, nil
 }
 
 func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error {

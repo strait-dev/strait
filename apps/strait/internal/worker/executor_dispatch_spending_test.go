@@ -24,11 +24,23 @@ type dispatchHarness struct {
 }
 
 func newDispatchHarness(t *testing.T, sub *billing.OrgSubscription, periodSpend int64) *dispatchHarness {
+	return newDispatchHarnessWithBudget(t, sub, periodSpend, -1, "", 0)
+}
+
+// newDispatchHarnessWithBudget extends newDispatchHarness with project
+// budget controls so Phase 4.2 tests can drive budget-block paths
+// without forking the whole executor wiring.
+func newDispatchHarnessWithBudget(t *testing.T, sub *billing.OrgSubscription, periodSpend int64,
+	projectBudget int64, projectAction string, projectSpend int64,
+) *dispatchHarness {
 	t.Helper()
 	bStore := &mockBillingEnforcerStore{
-		projectOrgID: sub.OrgID,
-		sub:          sub,
-		periodSpend:  periodSpend,
+		projectOrgID:       sub.OrgID,
+		sub:                sub,
+		periodSpend:        periodSpend,
+		projectBudget:      projectBudget,
+		projectAction:      projectAction,
+		projectPeriodSpend: projectSpend,
 	}
 	enforcer, _ := newWorkerTestEnforcer(t, bStore)
 

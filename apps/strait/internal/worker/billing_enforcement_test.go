@@ -18,9 +18,12 @@ import (
 // mockBillingEnforcerStore satisfies billing.Store for testing.
 // Returns a free-tier subscription with low limits to trigger enforcement.
 type mockBillingEnforcerStore struct {
-	projectOrgID string
-	sub          *billing.OrgSubscription
-	periodSpend  int64
+	projectOrgID       string
+	sub                *billing.OrgSubscription
+	periodSpend        int64
+	projectBudget      int64
+	projectAction      string
+	projectPeriodSpend int64
 }
 
 func (m *mockBillingEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
@@ -109,13 +112,16 @@ func (m *mockBillingEnforcerStore) SumOrgPeriodSpend(_ context.Context, _ string
 	return m.periodSpend, nil
 }
 func (m *mockBillingEnforcerStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
-	return 0, "", nil
+	if m.projectAction == "" && m.projectBudget == 0 {
+		return -1, "notify", nil
+	}
+	return m.projectBudget, m.projectAction, nil
 }
 func (m *mockBillingEnforcerStore) SetProjectBudget(_ context.Context, _ string, _ int64, _ string) error {
 	return nil
 }
 func (m *mockBillingEnforcerStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
+	return m.projectPeriodSpend, nil
 }
 func (m *mockBillingEnforcerStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
 	return nil
