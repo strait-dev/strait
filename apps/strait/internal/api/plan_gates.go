@@ -7,10 +7,20 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/robfig/cron/v3"
 
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
 )
+
+// cronMinIntervalParser matches the standard 5-field parser used at validation
+// time so the gate sees the same schedule the engine will run.
+var cronMinIntervalParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
+// cronMinIntervalSampleCount controls how many consecutive firings we walk to
+// estimate the minimum gap. Schedules like "0 9 * * MON,FRI" have variable
+// gaps; sampling 50 firings catches the smallest one for any realistic plan.
+const cronMinIntervalSampleCount = 50
 
 // staticRegistry is a singleton PlanRegistry used by all plan gate checks.
 var staticRegistry = billing.NewStaticRegistry()
@@ -109,6 +119,63 @@ func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, s
 		)
 	}
 
+	return nil
+}
+
+// checkCronMinInterval rejects schedules that fire more frequently than the
+// plan's CronMinIntervalSec. Free=300s, Starter=60s, Pro=30s; Scale and above
+// use 0/1s minimums that the 5-field cron format cannot violate, so this gate
+// is effectively a Free/Starter/Pro guard. Empty cronExpr is a no-op so the
+// caller can hand off the user's input verbatim from create/update requests.
+func (s *Server) checkCronMinInterval(ctx context.Context, projectID, cronExpr string) error {
+	if cronExpr == "" {
+		return nil
+	}
+
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil // fail open
+	}
+	if limits.CronMinIntervalSec <= 0 {
+		return nil // sub-second tier, nothing to enforce here
+	}
+
+	schedule, err := cronMinIntervalParser.Parse(cronExpr)
+	if err != nil {
+		return nil //nolint:nilerr // request-level validation already rejects malformed expressions
+	}
+
+	// Walk a window of upcoming firings and pick the smallest gap. We seed
+	// from a fixed UTC instant to keep the result deterministic; the schedule
+	// fields all repeat over a year so a small sample catches the worst case.
+	ref := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	prev := schedule.Next(ref)
+	if prev.IsZero() {
+		return nil
+	}
+	minGap := time.Duration(0)
+	for range cronMinIntervalSampleCount {
+		next := schedule.Next(prev)
+		if next.IsZero() {
+			break
+		}
+		gap := next.Sub(prev)
+		if minGap == 0 || gap < minGap {
+			minGap = gap
+		}
+		prev = next
+	}
+	if minGap == 0 {
+		return nil
+	}
+
+	minRequired := time.Duration(limits.CronMinIntervalSec) * time.Second
+	if minGap < minRequired {
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan requires at least %ds between cron firings (this schedule fires every %ds). Upgrade at /settings/billing",
+				limits.DisplayName, limits.CronMinIntervalSec, int(minGap.Seconds())),
+		)
+	}
 	return nil
 }
 

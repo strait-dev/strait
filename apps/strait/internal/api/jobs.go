@@ -143,6 +143,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkScheduleLimit(ctx, req.ProjectID, req.Cron); err != nil {
 		return nil, err
 	}
+	if err := s.checkCronMinInterval(ctx, req.ProjectID, req.Cron); err != nil {
+		return nil, err
+	}
 
 	job := &domain.Job{
 		ProjectID:                 req.ProjectID,
@@ -536,6 +539,11 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 				return nil, err
 			}
 		}
+		if *req.Cron != "" {
+			if err := s.checkCronMinInterval(ctx, job.ProjectID, *req.Cron); err != nil {
+				return nil, err
+			}
+		}
 		job.Cron = *req.Cron
 	}
 	if req.PayloadSchema != nil {
@@ -812,6 +820,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, err
 	}
 	if err := s.checkScheduleLimit(ctx, source.ProjectID, source.Cron); err != nil {
+		return nil, err
+	}
+	if err := s.checkCronMinInterval(ctx, source.ProjectID, source.Cron); err != nil {
 		return nil, err
 	}
 
