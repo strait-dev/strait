@@ -27,6 +27,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newVersionCommand())
 	cmd.AddCommand(newBackfillHistoryCommand())
 	cmd.AddCommand(newBackfillEntitlementsCommand())
+	cmd.AddCommand(newSeedPentestCommand())
 
 	rawArgs := os.Args[1:]
 	cmd.SetArgs(normalizeLegacyArgs(rawArgs))
@@ -47,6 +48,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"help":                  {},
 		"backfill-history":      {},
 		"backfill-entitlements": {},
+		"seed-pentest":          {},
 	}
 
 	first := args[0]
