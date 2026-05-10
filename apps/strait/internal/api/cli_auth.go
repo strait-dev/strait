@@ -169,10 +169,23 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		ExpiresAt:     expiresAt,
 		EnvironmentID: environmentIDFromContext(ctx),
 	}
-	if err := s.store.CreateAPIKey(ctx, apiKey); err != nil {
-		return nil, huma.Error500InternalServerError("failed to create api key")
-	}
-	if err := s.store.ApproveDeviceCodeByUserCode(ctx, req.UserCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
+	// CreateAPIKey + ApproveDeviceCodeByUserCode must commit atomically.
+	// Without the wrapping tx, a race where the device code transitions
+	// out of 'pending' between the two calls (concurrent approval) leaves
+	// the api_keys row orphaned: it is never returned to the polling CLI
+	// and never revoked by any other path.
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.CreateAPIKey(ctx, apiKey); err != nil {
+			return fmt.Errorf("create api key: %w", err)
+		}
+		if err := txStore.ApproveDeviceCodeByUserCode(ctx, req.UserCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
+			return fmt.Errorf("approve device code: %w", err)
+		}
+		return nil
+	}); err != nil {
+		if errors.Is(err, store.ErrDeviceCodeNotFound) {
+			return nil, huma.Error404NotFound("device code not found")
+		}
 		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
 	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))
