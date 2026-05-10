@@ -349,11 +349,17 @@ func sanitizeCSVCell(value string) string {
 	for i, r := range value {
 		if i == 0 {
 			switch r {
-			case '\t', '\r', '\n':
+			case '\t', '\r', '\n', '\x00':
 				return "'" + value
 			}
 		}
-		if r == '\ufeff' || unicode.IsSpace(r) || unicode.IsControl(r) {
+		// Skip leading invisible runes that hide formula-injection
+		// triggers from human review but still let spreadsheet apps
+		// parse the formula: BOM, format characters (Cf \u2014 ZWSP, LRM,
+		// RLM, ZWJ, soft hyphen), combining marks, plus the existing
+		// IsSpace/IsControl skip.
+		if r == '\ufeff' || unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
+			unicode.IsSpace(r) || unicode.IsControl(r) {
 			continue
 		}
 		switch r {
