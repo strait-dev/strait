@@ -104,8 +104,10 @@ curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
 
 | Service | Image | Port | Purpose |
 |---|---|---|---|
-| `strait` | `ghcr.io/strait-dev/strait:latest` | 8080 | API server + worker |
-| `strait-app` | `ghcr.io/strait-dev/strait-app:latest` | 3000 | Dashboard UI |
+| `strait` | `ghcr.io/strait-dev/strait:0.1.4` | 8080 | API server + worker | <!-- x-release-please-version -->
+| `strait-app` | `ghcr.io/strait-dev/strait-app:0.1.4` | 3000 | Dashboard UI | <!-- x-release-please-version -->
+
+`docker-compose.selfhost.yml` pins to the exact release tag listed above so a `docker compose up` always reproduces a known-good combination. Override with `STRAIT_IMAGE` / `STRAIT_APP_IMAGE` to track `:latest`, `:0.1`, `:0`, or any specific version.
 | `postgres` | `postgres:18-alpine` | 5432 | Primary database |
 | `redis` | `redis:8-alpine` | 6379 | Pub/sub, caching |
 
