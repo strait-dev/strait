@@ -24,12 +24,37 @@ func usageThresholdKey(orgID, metricName string, pct int, period string) string 
 	return fmt.Sprintf("strait:usage_threshold:%s:%s:%d:%s", orgID, metricName, pct, period)
 }
 
-// usageThresholdTTL keeps the dedupe entry alive long enough to outlast any
-// single billing window. 62 days covers monthly windows even when a billing
-// period straddles a 31-day month with a few hours of clock skew on either
-// side. Daily windows reset naturally because the period component changes
-// and a fresh key is written.
-const usageThresholdTTL = 62 * 24 * time.Hour
+// usageThresholdMonthlyTTL keeps a monthly-window dedupe entry alive long
+// enough to outlast any single billing month. 62 days covers monthly windows
+// even when a billing period straddles a 31-day month with a few hours of
+// clock skew on either side.
+const usageThresholdMonthlyTTL = 62 * 24 * time.Hour
+
+// usageThresholdDailyTTL keeps a daily-window dedupe entry alive 36 hours.
+// The period component (e.g. "2026-05-10") rotates at UTC midnight so the
+// next day starts from a different key regardless of TTL, but a 36h window
+// covers worst-case clock skew between the writer and a follow-up reader on
+// the previous day's key. Sticking the previous monthly TTL on a daily key
+// would leave 90% of the keyspace as garbage that Redis must eventually
+// evict, costing memory for nothing.
+const usageThresholdDailyTTL = 36 * time.Hour
+
+// dailyPeriodLen is len("YYYY-MM-DD"). Monthly periods use len("YYYY-MM")
+// (7 chars). The period string is the only signal we have at the dedupe
+// site; treat any length other than the daily one as monthly so an unknown
+// future cadence defaults to the longer, safer TTL.
+const dailyPeriodLen = len("2006-01-02")
+
+// usageThresholdTTLFor selects the dedupe TTL based on the period string
+// shape. Centralising the choice here means a future cadence (hourly,
+// weekly) lands in one place instead of being scattered through the emit
+// path.
+func usageThresholdTTLFor(period string) time.Duration {
+	if len(period) == dailyPeriodLen {
+		return usageThresholdDailyTTL
+	}
+	return usageThresholdMonthlyTTL
+}
 
 // maybeEmitUsageThreshold records a one-shot 80/90/100% threshold notification
 // for a metered counter. It is safe to call from the hot path of every
@@ -78,7 +103,7 @@ func (e *Enforcer) maybeEmitUsageThreshold(
 	}
 
 	key := usageThresholdKey(orgID, metricName, highest, period)
-	set, err := e.rdb.SetNX(ctx, key, "1", usageThresholdTTL).Result()
+	set, err := e.rdb.SetNX(ctx, key, "1", usageThresholdTTLFor(period)).Result()
 	if err != nil {
 		// Failing the dedupe SETNX means we cannot tell whether this
 		// crossing has already been notified. The previous behavior was
