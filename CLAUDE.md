@@ -299,12 +299,36 @@ Once the plan is approved, execute each phase in order. For every phase:
 
 Format: `type(scope): summary`
 
-Allowed types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`. Use `!` for breaking changes and explain in the body. lowercase types, imperative summary, scope when useful.
+Allowed types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`, `style`. lowercase types, imperative summary, scope when useful.
 
 Examples:
 - `feat(worker): add retry jitter cap for webhook dispatch`
 - `fix(queue): prevent dequeue race on stale heartbeat`
 - `test(workflow): add regression for fan-in completion`
+
+`commitlint` runs on every PR (`.github/workflows/commitlint.yml`); commits that don't conform fail the check.
+
+#### Breaking changes
+
+Mark the type with `!` AND include a `BREAKING CHANGE:` footer separated from the body by a blank line:
+
+```
+feat(api)!: drop legacy /v0/jobs endpoint
+
+Migration: callers must move to /v1/jobs. The legacy handler logged
+deprecation warnings since v0.0.9.
+
+BREAKING CHANGE: /v0/jobs no longer exists; clients pinned to it
+will receive a 404.
+```
+
+release-please surfaces `BREAKING CHANGE:` footers in their own section at the top of the release entry and triggers a major bump (or minor while pre-1.0).
+
+#### User-facing release notes (commit body)
+
+For PRs whose subject line is not already a clear, one-line user-facing summary, add 1–3 sentences of prose to the squash commit body. release-please includes the body under the changelog entry, so this becomes what users read on the release page. The PR template (`.github/pull_request_template.md`) has a "Release notes" section that lands in the squash commit body when GitHub squash-merges.
+
+Skip for: refactors, internal infra, test-only changes, dependency bumps. Required for: `feat`, `fix`, `perf`, breaking.
 
 **Never** add:
 - "Co-Authored-By" lines
@@ -323,6 +347,33 @@ Substantive, not boilerplate. Include:
 - **Risks and follow-ups**
 
 Never claim validation without listing the commands. Never paste generic boilerplate that could apply to any PR. Never add AI attribution footers.
+
+### Releases
+
+Releases are fully driven by [release-please](https://github.com/googleapis/release-please) off the conventional commit history on `master`. There is no local `goreleaser`, no manual tag, and no manual changelog edit.
+
+Flow:
+
+1. Land conventional commits on `master`. The `Release Please` workflow runs on every push and keeps a single open PR up to date with the next version, the rendered `CHANGELOG.md`, and an updated `.release-please-manifest.json`.
+2. Merging that PR creates the `vX.Y.Z` git tag and a GitHub Release.
+3. The tag push triggers `Publish Docker Images`, which builds, scans (Trivy), signs (cosign keyless), and publishes the community and cloud images plus the strait-app image to GHCR.
+
+Bump rules (release-please reads commit types):
+- `feat:` → minor bump (or patch while pre-1.0; see `bump-minor-pre-major` in `release-please-config.json`)
+- `fix:` / `perf:` → patch bump
+- `feat!:` or `BREAKING CHANGE:` footer → major bump
+- `docs:`, `test:`, `refactor:`, `build:`, `ci:`, `chore:` → no version bump, hidden from changelog
+
+Version source of truth is `.release-please-manifest.json`. Do not edit it by hand.
+
+#### Tag protection
+
+`v*` tags are protected by a repository ruleset (`Settings → Rules → Rulesets → Protect v* tags`):
+
+- Creation, update, and deletion of any `refs/tags/v*` are restricted.
+- Bypass: the `strait-release-please` GitHub App (which release-please uses to push the release tag) and repo admins.
+
+If you need to push or delete a `v*` tag manually, do it as a repo admin or temporarily disable the ruleset. Don't bypass it casually — accidental local tag pushes were the original motivation.
 
 ---
 
