@@ -180,6 +180,7 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
 		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleEventTriggerStream)
 	})
 
