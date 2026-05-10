@@ -1345,40 +1345,58 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	})
 }
 
-// sensitiveQueryKeywords are substrings that, when present in a query
-// parameter name (case-insensitive), trigger value redaction in
-// sanitizeQuery. The list intentionally over-redacts — false positives
+// sensitiveQueryKeywords is the set of substrings that, when present
+// in a query parameter name (case-insensitive), trigger value
+// redaction in sanitizeQuery. Stored in a map for O(1) substring
+// containment checks (still linear over the small keyword set, but no
+// allocation per lookup) and unexported so callers cannot mutate it
+// at runtime. The list intentionally over-redacts — false positives
 // (e.g. an "author" or "design" param) only cost log fidelity, while
-// false negatives leak credentials into request logs and traces.
-var sensitiveQueryKeywords = []string{
-	"secret",
-	"password",
-	"token",
-	"key",
-	"auth",
-	"credential",
-	"sig",
-	"jwt",
+// false negatives leak credentials into logs and traces.
+var sensitiveQueryKeywords = map[string]struct{}{
+	"secret":     {},
+	"password":   {},
+	"token":      {},
+	"key":        {},
+	"auth":       {},
+	"credential": {},
+	"sig":        {},
+	"jwt":        {},
+}
+
+// containsSensitiveKeyword reports whether name contains any of the
+// configured credential keywords (case-insensitive). The map iteration
+// order is irrelevant: containment is commutative across keywords.
+func containsSensitiveKeyword(name string) bool {
+	lower := strings.ToLower(name)
+	for kw := range sensitiveQueryKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeQuery returns a query parameter string with values for any
-// param whose name contains a credential keyword (see
-// sensitiveQueryKeywords) replaced by "[REDACTED]". This is used in
-// structured logs and span attributes; the original URL is never
-// emitted directly.
+// param whose name contains a credential keyword replaced by
+// "[REDACTED]". Param names are emitted in sorted order so identical
+// inputs produce byte-identical outputs — log/trace consumers can
+// dedupe and tests can assert on exact strings.
 func sanitizeQuery(params map[string][]string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
 	var sb strings.Builder
 	first := true
-	for k, vals := range params {
-		lower := strings.ToLower(k)
-		redact := false
-		for _, kw := range sensitiveQueryKeywords {
-			if strings.Contains(lower, kw) {
-				redact = true
-				break
-			}
-		}
-		for _, v := range vals {
+	for _, k := range keys {
+		redact := containsSensitiveKeyword(k)
+		for _, v := range params[k] {
 			if !first {
 				sb.WriteByte('&')
 			}
