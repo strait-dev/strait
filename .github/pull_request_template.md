@@ -31,7 +31,29 @@
 
 ## Breaking changes
 
-<!-- List any breaking changes. If none, delete this section. -->
+<!-- List any breaking changes. If none, delete this section.
+
+If there are breaking changes, also mark the commit with `!` (e.g.
+`feat(api)!: drop legacy /v0/jobs endpoint`) AND include a footer of
+the form:
+
+  BREAKING CHANGE: <one-line description for the changelog>
+
+release-please surfaces these at the top of the release entry. -->
+
+## Release notes
+
+<!-- User-facing prose for the changelog. If the commit subject is
+already a clear, one-line user-facing summary, leave this blank.
+
+Otherwise write 1-3 sentences describing what this PR changes from a
+user's perspective: what they can now do (or do differently), what
+they should watch for after upgrading. This text lands in the squash
+commit body and release-please includes it under the changelog
+entry.
+
+Skip for: refactors, internal infra, test-only changes, dependency
+bumps. Required for: feat / fix / perf / breaking. -->
 
 ## Risks and follow-ups
 

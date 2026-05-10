@@ -25,183 +25,189 @@
     "robots": "index, follow"
   },
   "navigation": {
-    "tabs": [
+    "versions": [
       {
-        "tab": "Documentation",
-        "groups": [
+        "version": "0.1.x",
+        "default": true,
+        "tabs": [
           {
-            "group": "Getting Started",
-            "pages": ["introduction", "choose-your-path", "quickstart"]
-          },
-          {
-            "group": "Use Cases",
-            "pages": [
-              "use-cases/background-jobs",
-              "use-cases/scheduled-work",
-              "use-cases/multi-step-workflows",
-              "use-cases/private-network-jobs",
-              "use-cases/replay-failed-work"
+            "tab": "Documentation",
+            "groups": [
+              {
+                "group": "Getting Started",
+                "pages": ["introduction", "choose-your-path", "quickstart"]
+              },
+              {
+                "group": "Use Cases",
+                "pages": [
+                  "use-cases/background-jobs",
+                  "use-cases/scheduled-work",
+                  "use-cases/multi-step-workflows",
+                  "use-cases/private-network-jobs",
+                  "use-cases/replay-failed-work"
+                ]
+              },
+              {
+                "group": "Guides",
+                "pages": [
+                  "guides/production-job",
+                  "guides/private-workers",
+                  "guides/handle-failed-runs",
+                  "guides/deployment",
+                  "guides/authentication",
+                  "sdks/typescript-quickstart",
+                  "sdks/python-quickstart",
+                  "sdks/go-quickstart"
+                ]
+              },
+              {
+                "group": "Tutorials",
+                "pages": [
+                  "tutorials/webhook-processor",
+                  "tutorials/data-pipeline",
+                  "tutorials/ai-agent"
+                ]
+              },
+              {
+                "group": "Core Concepts",
+                "pages": [
+                  "concepts/jobs",
+                  "concepts/runs",
+                  "concepts/workflows",
+                  "concepts/projects"
+                ]
+              },
+              {
+                "group": "Job Features",
+                "pages": [
+                  "concepts/retry-strategies",
+                  "concepts/scheduling",
+                  "concepts/event-triggers",
+                  "concepts/event-sources",
+                  "concepts/execution-modes",
+                  "concepts/batch-operations",
+                  "concepts/job-chaining",
+                  "concepts/versioning",
+                  "concepts/environments"
+                ]
+              },
+              {
+                "group": "Monitoring",
+                "pages": [
+                  "operations/observability",
+                  "concepts/real-time",
+                  "concepts/webhooks",
+                  "concepts/webhook-subscriptions",
+                  "concepts/log-drains",
+                  "concepts/clickhouse-analytics",
+                  "concepts/notifications",
+                  "concepts/audit-logging"
+                ]
+              },
+              {
+                "group": "Security and Access",
+                "pages": [
+                  "guides/security",
+                  "guides/sdk-integration",
+                  "guides/rbac",
+                  "guides/idempotency",
+                  "guides/workflow-approvals",
+                  "guides/event-triggers",
+                  "guides/audit-events"
+                ]
+              },
+              {
+                "group": "Compare",
+                "pages": [
+                  "compare/message-queues",
+                  "compare/cron",
+                  "compare/workflow-engines",
+                  "compare/when-not-to-use-strait"
+                ]
+              },
+              {
+                "group": "Advanced",
+                "pages": [
+                  "concepts/durable-workflows",
+                  "concepts/compensating-transactions",
+                  "concepts/adaptive-concurrency",
+                  "concepts/canary-deployments",
+                  "concepts/cost-budgets",
+                  "concepts/slos",
+                  "concepts/debug-bundles",
+                  "concepts/workflow-simulator",
+                  "concepts/workflow-test-suites",
+                  "concepts/workflow-debugger",
+                  "architecture",
+                  "changelog"
+                ]
+              },
+              {
+                "group": "Configuration",
+                "pages": ["configuration/environment-variables"]
+              },
+              {
+                "group": "Integrations",
+                "pages": ["integrations/index"]
+              }
             ]
           },
           {
-            "group": "Guides",
-            "pages": [
-              "guides/production-job",
-              "guides/private-workers",
-              "guides/handle-failed-runs",
-              "guides/deployment",
-              "guides/authentication",
-              "sdks/typescript-quickstart",
-              "sdks/python-quickstart",
-              "sdks/go-quickstart"
+            "tab": "SDKs",
+            "groups": [
+              {
+                "group": "Start Here",
+                "pages": [
+                  "sdks/overview",
+                  "sdks/typescript-quickstart",
+                  "sdks/python-quickstart",
+                  "sdks/go-quickstart"
+                ]
+              },
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  "sdks/configuration",
+                  "sdks/typescript",
+                  "sdks/python",
+                  "sdks/go",
+                  "sdks/ruby",
+                  "sdks/rust",
+                  "sdks/mcp"
+                ]
+              }
             ]
           },
           {
-            "group": "Tutorials",
-            "pages": [
-              "tutorials/webhook-processor",
-              "tutorials/data-pipeline",
-              "tutorials/ai-agent"
+            "tab": "API Reference",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": ["api-reference/overview"]
+              },
+              {
+                "group": "Endpoints",
+                "openapi": "https://api.strait.dev/reference/openapi.json"
+              }
             ]
           },
           {
-            "group": "Core Concepts",
-            "pages": [
-              "concepts/jobs",
-              "concepts/runs",
-              "concepts/workflows",
-              "concepts/projects"
+            "tab": "CLI",
+            "groups": [
+              {
+                "group": "CLI Reference",
+                "pages": ["cli/overview", "cli/api-keys"]
+              }
             ]
           },
           {
-            "group": "Job Features",
-            "pages": [
-              "concepts/retry-strategies",
-              "concepts/scheduling",
-              "concepts/event-triggers",
-              "concepts/event-sources",
-              "concepts/execution-modes",
-              "concepts/batch-operations",
-              "concepts/job-chaining",
-              "concepts/versioning",
-              "concepts/environments"
+            "tab": "Billing",
+            "groups": [
+              {
+                "group": "Billing",
+                "pages": ["billing/pricing", "billing/faq"]
+              }
             ]
-          },
-          {
-            "group": "Monitoring",
-            "pages": [
-              "operations/observability",
-              "concepts/real-time",
-              "concepts/webhooks",
-              "concepts/webhook-subscriptions",
-              "concepts/log-drains",
-              "concepts/clickhouse-analytics",
-              "concepts/notifications",
-              "concepts/audit-logging"
-            ]
-          },
-          {
-            "group": "Security and Access",
-            "pages": [
-              "guides/security",
-              "guides/sdk-integration",
-              "guides/rbac",
-              "guides/idempotency",
-              "guides/workflow-approvals",
-              "guides/event-triggers",
-              "guides/audit-events"
-            ]
-          },
-          {
-            "group": "Compare",
-            "pages": [
-              "compare/message-queues",
-              "compare/cron",
-              "compare/workflow-engines",
-              "compare/when-not-to-use-strait"
-            ]
-          },
-          {
-            "group": "Advanced",
-            "pages": [
-              "concepts/durable-workflows",
-              "concepts/compensating-transactions",
-              "concepts/adaptive-concurrency",
-              "concepts/canary-deployments",
-              "concepts/cost-budgets",
-              "concepts/slos",
-              "concepts/debug-bundles",
-              "concepts/workflow-simulator",
-              "concepts/workflow-test-suites",
-              "concepts/workflow-debugger",
-              "architecture",
-              "changelog"
-            ]
-          },
-          {
-            "group": "Configuration",
-            "pages": ["configuration/environment-variables"]
-          },
-          {
-            "group": "Integrations",
-            "pages": ["integrations/index"]
-          }
-        ]
-      },
-      {
-        "tab": "SDKs",
-        "groups": [
-          {
-            "group": "Start Here",
-            "pages": [
-              "sdks/overview",
-              "sdks/typescript-quickstart",
-              "sdks/python-quickstart",
-              "sdks/go-quickstart"
-            ]
-          },
-          {
-            "group": "SDK Reference",
-            "pages": [
-              "sdks/configuration",
-              "sdks/typescript",
-              "sdks/python",
-              "sdks/go",
-              "sdks/ruby",
-              "sdks/rust",
-              "sdks/mcp"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": ["api-reference/overview"]
-          },
-          {
-            "group": "Endpoints",
-            "openapi": "https://api.strait.dev/reference/openapi.json"
-          }
-        ]
-      },
-      {
-        "tab": "CLI",
-        "groups": [
-          {
-            "group": "CLI Reference",
-            "pages": ["cli/overview", "cli/api-keys"]
-          }
-        ]
-      },
-      {
-        "tab": "Billing",
-        "groups": [
-          {
-            "group": "Billing",
-            "pages": ["billing/pricing", "billing/faq"]
           }
         ]
       }
