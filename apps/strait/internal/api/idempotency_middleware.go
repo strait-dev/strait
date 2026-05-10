@@ -14,6 +14,13 @@ import (
 // idempotencyKeyTTL is the default time-to-live for idempotency keys.
 const idempotencyKeyTTL = 24 * time.Hour
 
+// maxIdempotencyResponseBytes caps the in-memory body buffer the
+// middleware retains for replay. Mirrors maxRLSBufferedResponseBytes.
+// Responses that exceed the cap are streamed to the client in full but
+// are never memoized: the pending row is deleted instead so retries
+// proceed without seeing a truncated cached body.
+const maxIdempotencyResponseBytes = 16 << 20
+
 // idempotencyCleanupTimeout caps how long the middleware will block
 // waiting for DeleteIdempotencyKey when releasing a pending row after a
 // panic or a non-2xx response. The cleanup runs against a context that
@@ -103,6 +110,20 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(cw, r)
 			panicked = false
 
+			// If the captured body overflowed the cap, the caller still
+			// got the full response but we cannot memoize a truncated
+			// body for replay. Drop the pending row so retries proceed.
+			if cw.overflow {
+				slog.Warn("idempotency response exceeds cap; dropping cache entry",
+					"idempotency_key_hash", hashIdempotencyKey(key),
+					"project_id", projectID,
+					"cap_bytes", maxIdempotencyResponseBytes)
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), idempotencyCleanupTimeout)
+				_, _ = s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey)
+				cancel()
+				return
+			}
+
 			// Only cache 2xx responses. Error responses delete the pending
 			// row so the client can retry with the same key. Cleanup runs
 			// on a detached context for the same reason as the panic
@@ -127,13 +148,16 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// captureWriter wraps http.ResponseWriter to capture the response status and body
-// while still writing to the original writer.
+// captureWriter wraps http.ResponseWriter to capture the response status
+// and body for replay. Body capture is bounded by maxIdempotencyResponseBytes:
+// once exceeded, overflow is set, the buffer stops growing, and the
+// caller still receives the full bytes via the underlying writer.
 type captureWriter struct {
 	http.ResponseWriter
 	statusCode  int
 	body        bytes.Buffer
 	wroteHeader bool
+	overflow    bool
 }
 
 func (cw *captureWriter) WriteHeader(code int) {
@@ -148,6 +172,16 @@ func (cw *captureWriter) Write(b []byte) (int, error) {
 	if !cw.wroteHeader {
 		cw.WriteHeader(http.StatusOK)
 	}
-	cw.body.Write(b)
+	if !cw.overflow {
+		remaining := maxIdempotencyResponseBytes - cw.body.Len()
+		if remaining <= 0 {
+			cw.overflow = true
+		} else if len(b) <= remaining {
+			cw.body.Write(b)
+		} else {
+			cw.body.Write(b[:remaining])
+			cw.overflow = true
+		}
+	}
 	return cw.ResponseWriter.Write(b)
 }
