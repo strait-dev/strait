@@ -85,8 +85,7 @@ func TestStripeCatalog_SandboxShape(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
-			lookupKeyCopy := tc.key
-			params := &stripe.PriceListParams{LookupKeys: []*string{&lookupKeyCopy}}
+			params := &stripe.PriceListParams{LookupKeys: []*string{&tc.key}}
 			params.Limit = stripe.Int64(2)
 
 			iter := price.List(params)
