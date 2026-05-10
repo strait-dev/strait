@@ -10,7 +10,32 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
+// sseStreamOptions configures the shared SSE pump used by every
+// run-scoped streaming handler. Only the per-route knobs (channel,
+// event name, terminal-state guard) belong here; flusher / keepalive /
+// max-duration / connection-cap behavior is identical for every SSE
+// endpoint and stays in streamSSE.
+type sseStreamOptions struct {
+	// channel is the pubsub channel name to subscribe to, formatted
+	// using the resolved run ID.
+	channel string
+	// eventName, when non-empty, is emitted as "event: <eventName>"
+	// before each "data:" line. Used by the log stream so clients can
+	// disambiguate from the default unnamed events.
+	eventName string
+	// rejectIfTerminal, when true, returns 410 Gone if the run is
+	// already in a terminal state at handler entry. Log streams skip
+	// this so historical runs can replay buffered logs.
+	rejectIfTerminal bool
+}
+
+// streamSSE is the single SSE pump every handler routes through. It
+// owns the connection-cap acquire/release, the Flusher type assertion,
+// the SSE response headers, the pubsub Subscribe + cleanup, the
+// SSEMaxConnDuration timeout, and the keepalive ticker. Callers supply
+// only the channel name, the event tag, and whether terminal runs
+// should be rejected up front.
+func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, opts sseStreamOptions) {
 	runID := chi.URLParam(r, "runID")
 
 	run, err := s.getRunForAccess(r.Context(), runID)
@@ -18,8 +43,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		writeTypedError(w, r, err)
 		return
 	}
-
-	if run.Status.IsTerminal() {
+	if opts.rejectIfTerminal && run.Status.IsTerminal() {
 		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return
 	}
@@ -44,7 +68,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	if s.pubsub == nil {
-		slog.Error("pubsub not configured", "run_id", runID)
+		slog.Error("pubsub not configured", "run_id", runID, "channel", opts.channel)
 		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n"); err != nil {
 			slog.Warn("failed to write SSE error", "run_id", runID, "error", err)
 		}
@@ -59,10 +83,10 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
 	defer cancel()
 
-	channel := fmt.Sprintf("run:%s", runID)
+	channel := fmt.Sprintf(opts.channel, runID)
 	sub, err := s.pubsub.Subscribe(ctx, channel)
 	if err != nil {
-		slog.Error("failed to subscribe", "run_id", runID, "error", err)
+		slog.Error("failed to subscribe", "run_id", runID, "channel", channel, "error", err)
 		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
 			slog.Warn("failed to write SSE subscribe error", "run_id", runID, "error", err)
 		}
@@ -78,6 +102,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(keepalive)
 	defer ticker.Stop()
 
+	dataPrefix := "data: %s\n\n"
+	if opts.eventName != "" {
+		dataPrefix = "event: " + opts.eventName + "\ndata: %s\n\n"
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -86,19 +115,26 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
-				slog.Warn("failed to write SSE data", "run_id", runID, "error", err)
+			if _, err := fmt.Fprintf(w, dataPrefix, msg); err != nil {
+				slog.Warn("failed to write SSE data", "run_id", runID, "channel", channel, "error", err)
 				return
 			}
 			flusher.Flush()
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				slog.Warn("failed to write SSE keepalive", "run_id", runID, "error", err)
+				slog.Warn("failed to write SSE keepalive", "run_id", runID, "channel", channel, "error", err)
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
+	s.streamSSE(w, r, sseStreamOptions{
+		channel:          "run:%s",
+		rejectIfTerminal: true,
+	})
 }
 
 // handleRunLogStream subscribes to the worker:log:<runID> pub/sub channel and
@@ -106,163 +142,16 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 // SSE (text/event-stream). For HTTP-mode runs the channel will simply have no
 // messages and the SSE connection will idle until the run completes.
 func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-
-	run, err := s.getRunForAccess(r.Context(), runID)
-	if err != nil {
-		writeTypedError(w, r, err)
-		return
-	}
-
-	if !s.acquireSSEConn(run.ProjectID) {
-		respondError(w, r, http.StatusServiceUnavailable, "too many SSE connections")
-		return
-	}
-	defer s.releaseSSEConn(run.ProjectID)
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	if s.pubsub == nil {
-		slog.Error("pubsub not configured for log stream", "run_id", runID)
-		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n"); err != nil {
-			slog.Warn("failed to write SSE error", "run_id", runID, "error", err)
-		}
-		flusher.Flush()
-		return
-	}
-
-	maxDuration := s.config.SSEMaxConnDuration
-	if maxDuration <= 0 {
-		maxDuration = 30 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
-	defer cancel()
-
-	channel := fmt.Sprintf("worker:log:%s", runID)
-	sub, err := s.pubsub.Subscribe(ctx, channel)
-	if err != nil {
-		slog.Error("failed to subscribe to log channel", "run_id", runID, "error", err)
-		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
-			slog.Warn("failed to write SSE subscribe error", "run_id", runID, "error", err)
-		}
-		flusher.Flush()
-		return
-	}
-	defer sub.Close()
-
-	keepalive := s.config.SSEKeepaliveInterval
-	if keepalive <= 0 {
-		keepalive = 15 * time.Second
-	}
-	ticker := time.NewTicker(keepalive)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-sub.Ch:
-			if !ok {
-				return
-			}
-			if _, err := fmt.Fprintf(w, "event: log\ndata: %s\n\n", msg); err != nil {
-				slog.Warn("failed to write SSE log data", "run_id", runID, "error", err)
-				return
-			}
-			flusher.Flush()
-		case <-ticker.C:
-			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				slog.Warn("failed to write SSE log keepalive", "run_id", runID, "error", err)
-				return
-			}
-			flusher.Flush()
-		}
-	}
+	s.streamSSE(w, r, sseStreamOptions{
+		channel:   "worker:log:%s",
+		eventName: "log",
+	})
 }
 
 // handleRunLLMStream forwards LLM stream chunks to frontend consumers via SSE.
 func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "runID")
-
-	run, err := s.getRunForAccess(r.Context(), runID)
-	if err != nil {
-		writeTypedError(w, r, err)
-		return
-	}
-	if run.Status.IsTerminal() {
-		respondError(w, r, http.StatusGone, "run already in terminal state")
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	if s.pubsub == nil {
-		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"streaming not available\"}\n\n"); err != nil {
-			slog.Warn("failed to write SSE error", "run_id", runID, "error", err)
-		}
-		flusher.Flush()
-		return
-	}
-
-	channel := "run_stream:" + runID
-	sub, err := s.pubsub.Subscribe(r.Context(), channel)
-	if err != nil {
-		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
-			slog.Warn("failed to write SSE subscribe error", "run_id", runID, "error", err)
-		}
-		flusher.Flush()
-		return
-	}
-	defer sub.Close()
-
-	keepalive := s.config.SSEKeepaliveInterval
-	if keepalive <= 0 {
-		keepalive = 15 * time.Second
-	}
-	ticker := time.NewTicker(keepalive)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case msg, ok := <-sub.Ch:
-			if !ok {
-				return
-			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
-				slog.Warn("failed to write LLM SSE data", "run_id", runID, "error", err)
-				return
-			}
-			flusher.Flush()
-		case <-ticker.C:
-			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				slog.Warn("failed to write LLM SSE keepalive", "run_id", runID, "error", err)
-				return
-			}
-			flusher.Flush()
-		}
-	}
+	s.streamSSE(w, r, sseStreamOptions{
+		channel:          "run_stream:%s",
+		rejectIfTerminal: true,
+	})
 }

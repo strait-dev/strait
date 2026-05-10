@@ -128,7 +128,6 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		return nil, huma.Error400BadRequest("format must be one of: json, csv, ndjson")
 	}
 
-	// Retrieve the raw response writer for streaming output.
 	w := responseWriterFromContext(ctx)
 	r := requestFromContext(ctx)
 	if w == nil || r == nil {
@@ -160,7 +159,6 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	setExportFormatHeaders(w, format)
 
-	// Wrap writer to tee into HMAC hash.
 	var out io.Writer = w
 	if mac != nil {
 		out = io.MultiWriter(w, mac)
@@ -346,22 +344,28 @@ func sanitizeCSVCell(value string) string {
 	if value == "" {
 		return value
 	}
-	for i, r := range value {
-		if i == 0 {
-			switch r {
-			case '\t', '\r', '\n':
-				return "'" + value
-			}
-		}
-		if r == '\ufeff' || unicode.IsSpace(r) || unicode.IsControl(r) {
+	// A literal control rune at index 0 (\t \r \n \x00) hides formula
+	// triggers further down the cell from a human reviewer but still
+	// lets spreadsheets parse the rest. Quote unconditionally; the
+	// invisibles-skip pass below would otherwise drop these and miss the
+	// danger when no =/+/-/@ follows.
+	switch value[0] {
+	case '\t', '\r', '\n', '\x00':
+		return "'" + value
+	}
+	// Walk past leading invisible runes \u2014 format chars (Cf: BOM, ZWSP,
+	// LRM, RLM, ZWJ, soft hyphen), combining marks, whitespace, and
+	// other controls \u2014 and decide based on the first printable rune.
+	for _, r := range value {
+		if unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
+			unicode.IsSpace(r) || unicode.IsControl(r) {
 			continue
 		}
 		switch r {
 		case '=', '+', '-', '@':
 			return "'" + value
-		default:
-			return value
 		}
+		return value
 	}
 	return value
 }

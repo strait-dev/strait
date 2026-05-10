@@ -180,6 +180,7 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
 		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
+		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleEventTriggerStream)
 	})
 
@@ -191,6 +192,10 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 		// Worker-mode log streaming: subscribes to worker:log:<runID> pub/sub channel.
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/logs", s.handleRunLogStream)
+		// LLM chunk streaming. Mounted here (not in /v1) so the response
+		// writer remains a Flusher and the JSON Accept gate does not refuse
+		// text/event-stream callers.
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/chunks", s.handleRunLLMStream)
 	})
 
 	// Project activity stream (SSE, no timeout -- connections stay open).
@@ -338,7 +343,6 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/resume", TypedHandler(s, http.StatusOK, s.handleResumeRun))
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/restart", TypedHandler(s, http.StatusOK, s.handleRestartRun))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/state", TypedHandler(s, http.StatusOK, s.handleListRunState))
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/stream/chunks", s.handleRunLLMStream)
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/resources", TypedHandler(s, http.StatusOK, s.handleListRunResources))
 			})
 		})

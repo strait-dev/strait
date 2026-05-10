@@ -28,15 +28,13 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 		return nil
 	}
 
-	// Determine the caller's effective permissions.
-	// For OIDC users with empty token scopes, load from the database.
-	// For API keys with empty scopes (legacy backwards compat = full access),
-	// we still load from the scopes directly.
+	// OIDC users carry no scopes on the token; load from the project's
+	// role assignments. Legacy API keys with no scopes predate the scope
+	// system and retain full access for backwards compatibility.
 	effectivePerms := callerScopes
 	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 
 	if len(callerScopes) == 0 && actorType == "user" {
-		// OIDC user with empty scopes: load effective permissions from DB.
 		projectID := projectIDFromContext(ctx)
 		actorID := actorFromContext(ctx)
 		if projectID != "" && actorID != "" {
@@ -48,16 +46,13 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 			effectivePerms = perms
 		}
 	} else if len(callerScopes) == 0 {
-		// Legacy API key with empty scopes = full access (backwards compat).
 		return nil
 	}
 
-	// Check if effective permissions include wildcard.
 	if slices.Contains(effectivePerms, domain.ScopeAll) {
 		return nil
 	}
 
-	// Build a set of the caller's effective permissions for fast lookup.
 	permSet := make(map[string]bool, len(effectivePerms))
 	for _, p := range effectivePerms {
 		permSet[p] = true
@@ -74,8 +69,6 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 	return nil
 }
 
-// Roles.
-
 type createRoleRequest struct {
 	Name         string   `json:"name" validate:"required,max=255"`
 	Description  string   `json:"description" validate:"max=2000"`
@@ -83,25 +76,52 @@ type createRoleRequest struct {
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
 
-func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+// errAuditDetailsMarshal flags a programmer/serialization failure that
+// callers running inside a transaction must surface so the surrounding
+// mutation rolls back instead of committing without an audit row. Plain
+// "skip the event" decisions (config nil, validation rejected the
+// actor, etc.) return (nil, nil) so fire-and-forget callers can keep
+// going.
+var errAuditDetailsMarshal = errors.New("audit event details marshal failed")
+
+// buildAuditEvent runs the validation, actor resolution, and details
+// marshaling steps that emitAuditEvent performs but stops short of
+// persisting.
+//
+// Return shape:
+//   - (event, nil)     — caller should persist the event.
+//   - (nil,   nil)     — intentional skip (config disabled, unknown
+//     audit action, validateActorForEmit declined).
+//     Fire-and-forget callers ignore; tx callers
+//     simply do not insert.
+//   - (nil,   err)     — internal failure (currently only details
+//     marshal). tx callers MUST abort so the
+//     surrounding mutation does not commit without
+//     an audit row. fire-and-forget callers log and
+//     drop because there is nothing actionable.
+//
+// This is split out so callers that need atomic-with-transaction audit
+// inserts can construct the event up front, pass it into the tx via
+// txStore.CreateAuditEvent, and have the whole unit roll back together.
+func (s *Server) buildAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) (*domain.AuditEvent, error) {
 	if s.config == nil {
-		return
+		return nil, nil
 	}
 	if !domain.IsKnownAuditAction(action) {
 		slog.Error("emitAuditEvent: unknown action rejected",
 			"action", action, "resource_type", resourceType, "resource_id", resourceID)
-		return
+		return nil, nil
 	}
 	actorID, actorType, ok := s.validateActorForEmit(ctx, action)
 	if !ok {
-		return
+		return nil, nil
 	}
 	detailsJSON, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
-		return
+		return nil, errAuditDetailsMarshal
 	}
-	ev := &domain.AuditEvent{
+	return &domain.AuditEvent{
 		ProjectID:     projectIDFromContext(ctx),
 		ActorID:       actorID,
 		ActorType:     actorType,
@@ -114,6 +134,23 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 		RequestID:     requestIDFromContext(ctx),
 		TraceID:       traceIDFromContext(ctx),
 		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
+	}, nil
+}
+
+func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+	ev, err := s.buildAuditEvent(ctx, action, resourceType, resourceID, details)
+	if err != nil {
+		// Marshal failure is unrecoverable for a fire-and-forget caller;
+		// count it as a drop with a distinct reason so dashboards can
+		// distinguish marshal bugs from store-write outages.
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "details_marshal_failed")))
+		}
+		return
+	}
+	if ev == nil {
+		return
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
 		slog.Warn("failed to create audit event", "action", action, "resource_type", resourceType, "resource_id", resourceID, "error", err)

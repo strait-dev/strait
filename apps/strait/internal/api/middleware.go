@@ -1345,24 +1345,73 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	})
 }
 
-// sanitizeQuery returns query parameter string with sensitive keys redacted.
-func sanitizeQuery(params map[string][]string) string {
-	sensitiveKeys := map[string]bool{
-		"api_key": true,
-		"token":   true,
-		"secret":  true,
+// sensitiveQueryKeywords is the set of substrings that, when present
+// in a query parameter name (case-insensitive), trigger value
+// redaction in sanitizeQuery. Stored in a map for O(1) substring
+// containment checks (still linear over the small keyword set, but no
+// allocation per lookup) and unexported so callers cannot mutate it
+// at runtime. The list intentionally over-redacts — false positives
+// (e.g. an "author" or "design" param) only cost log fidelity, while
+// false negatives leak credentials into logs and traces.
+var sensitiveQueryKeywords = map[string]struct{}{
+	"secret":         {},
+	"password":       {},
+	"token":          {},
+	"key":            {},
+	"auth":           {},
+	"credential":     {},
+	"sig":            {},
+	"jwt":            {},
+	"bearer":         {},
+	"hmac":           {},
+	"nonce":          {},
+	"csrf":           {},
+	"state":          {},
+	"code_verifier":  {},
+	"code_challenge": {},
+	"session":        {},
+}
+
+// containsSensitiveKeyword reports whether name contains any of the
+// configured credential keywords (case-insensitive). The map iteration
+// order is irrelevant: containment is commutative across keywords.
+func containsSensitiveKeyword(name string) bool {
+	lower := strings.ToLower(name)
+	for kw := range sensitiveQueryKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
 	}
+	return false
+}
+
+// sanitizeQuery returns a query parameter string with values for any
+// param whose name contains a credential keyword replaced by
+// "[REDACTED]". Param names are emitted in sorted order so identical
+// inputs produce byte-identical outputs — log/trace consumers can
+// dedupe and tests can assert on exact strings.
+func sanitizeQuery(params map[string][]string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
 	var sb strings.Builder
 	first := true
-	for k, vals := range params {
-		for _, v := range vals {
+	for _, k := range keys {
+		redact := containsSensitiveKeyword(k)
+		for _, v := range params[k] {
 			if !first {
 				sb.WriteByte('&')
 			}
 			first = false
 			sb.WriteString(k)
 			sb.WriteByte('=')
-			if sensitiveKeys[strings.ToLower(k)] {
+			if redact {
 				sb.WriteString("[REDACTED]")
 			} else {
 				sb.WriteString(v)

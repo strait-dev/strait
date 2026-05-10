@@ -1648,7 +1648,7 @@ func TestSendWebhookOnce_Success(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if !result.Delivered {
 		t.Errorf("Delivered = false, want true")
 	}
@@ -1667,7 +1667,7 @@ func TestSendWebhookOnce_ServerError(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if result.Delivered {
 		t.Error("Delivered = true, want false")
 	}
@@ -1686,7 +1686,7 @@ func TestSendWebhookOnce_ClientError(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if result.Delivered {
 		t.Error("Delivered = true, want false")
 	}
@@ -1711,7 +1711,7 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL, WebhookSecret: "my-secret"}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if !result.Delivered {
 		t.Fatal("Delivered = false")
 	}
@@ -1750,7 +1750,7 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 		Attempt:   2,
 	}
 
-	sendWebhookOnce(t.Context(), job, run)
+	sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 
 	if gotPayload.RunID != "run-123" {
 		t.Errorf("RunID = %s, want run-123", gotPayload.RunID)
@@ -1774,7 +1774,7 @@ func TestSendWebhookOnce_NetworkError(t *testing.T) {
 	job := &domain.Job{WebhookURL: "http://localhost:59999/webhook"}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if result.Delivered {
 		t.Error("Delivered = true, want false")
 	}

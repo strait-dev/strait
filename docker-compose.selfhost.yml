@@ -23,7 +23,11 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ stores data under a major-version subdirectory
+      # (e.g. /var/lib/postgresql/18/docker), so the volume mounts at
+      # /var/lib/postgresql rather than /var/lib/postgresql/data. See
+      # https://github.com/docker-library/postgres/pull/1259.
+      - pgdata:/var/lib/postgresql
       - ./packages/configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
     command: >
       postgres
@@ -85,7 +89,7 @@ services:
   # Sequin starts after Strait so tables and replication slot exist.
   sequin:
     container_name: strait-sequin
-    image: sequin/sequin@sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e
+    image: sequin/sequin:v0.14.6
     restart: unless-stopped
     ports:
       - "7376:7376"
