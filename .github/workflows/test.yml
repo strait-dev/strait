@@ -24,13 +24,10 @@ jobs:
 
       - uses: ./.github/actions/setup-go
 
-      - name: Vet (community)
-        working-directory: apps/strait
-        run: go vet ./...
-
-      - name: Vet (cloud)
-        working-directory: apps/strait
-        run: go vet -tags cloud ./...
+      # `go vet` is intentionally not run here: the Lint workflow runs
+      # golangci-lint with the `govet` analyzer enabled for both community
+      # and cloud build tags on the same path filter, so duplicating vet
+      # here only adds wall-clock latency to unit tests.
 
       - name: Run unit tests
         working-directory: apps/strait
@@ -152,8 +149,24 @@ jobs:
 
       - uses: ./.github/actions/setup-go
 
-      - name: Pull Postgres image
-        run: docker pull postgres:18-alpine
+      - name: Cache Postgres image
+        id: cache-postgres-image
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/docker-images/postgres-18-alpine.tar
+          key: docker-postgres-18-alpine-v1
+
+      - name: Load or pull Postgres image
+        run: |
+          set -euo pipefail
+          tarball="$HOME/.cache/docker-images/postgres-18-alpine.tar"
+          if [ -f "$tarball" ]; then
+            docker load -i "$tarball"
+          else
+            docker pull postgres:18-alpine
+            mkdir -p "$(dirname "$tarball")"
+            docker save postgres:18-alpine -o "$tarball"
+          fi
 
       - name: Run integration tests (${{ matrix.shard.name }})
         working-directory: apps/strait
