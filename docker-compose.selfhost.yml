@@ -51,7 +51,7 @@ services:
   # Strait API starts first to run migrations and create tables.
   strait:
     container_name: strait-api
-    image: ${STRAIT_IMAGE:-ghcr.io/strait-dev/strait:0.1.4} # x-release-please-version
+    image: ${STRAIT_IMAGE:-ghcr.io/strait-dev/strait:0.1.5} # x-release-please-version
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -144,7 +144,7 @@ services:
 
   strait-app:
     container_name: strait-app
-    image: ${STRAIT_APP_IMAGE:-ghcr.io/strait-dev/strait-app:0.1.4} # x-release-please-version
+    image: ${STRAIT_APP_IMAGE:-ghcr.io/strait-dev/strait-app:0.1.5} # x-release-please-version
     restart: unless-stopped
     ports:
       - "3000:3000"
