@@ -58,7 +58,7 @@ func TestSendWebhook_Success(t *testing.T) {
 	rp := fastRetryPolicy(3)
 
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnce(ctx, job, run)
+		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
 
 	if !result.Delivered {
@@ -91,7 +91,7 @@ func TestSendWebhook_RetriesOn503(t *testing.T) {
 	rp := fastRetryPolicy(3)
 
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnce(ctx, job, run)
+		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
 
 	if !result.Delivered {
@@ -117,7 +117,7 @@ func TestSendWebhook_NoRetryOn400(t *testing.T) {
 	rp := fastRetryPolicy(3)
 
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnce(ctx, job, run)
+		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
 
 	if result.Delivered {
@@ -143,7 +143,7 @@ func TestSendWebhook_MaxRetriesExhausted(t *testing.T) {
 	rp := fastRetryPolicy(3)
 
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnce(ctx, job, run)
+		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
 
 	if result.Delivered {

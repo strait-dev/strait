@@ -114,7 +114,7 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 
 	rp := newWebhookRetryPolicy(maxAttempts, job, run)
 	return sendWithRetryPolicy(ctx, rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnce(ctx, job, run)
+		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
 }
 
@@ -177,61 +177,6 @@ func sendWithRetryPolicy(
 	}
 
 	return result
-}
-
-func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) WebhookResult {
-	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.Deliver")
-	defer span.End()
-	span.SetAttributes(
-		attribute.String("webhook.run_id", run.ID),
-		attribute.String("webhook.job_id", run.JobID),
-		attribute.String("webhook.url", httputil.RedactURLForLog(job.WebhookURL)),
-	)
-	payload := WebhookPayload{
-		RunID:     run.ID,
-		JobID:     run.JobID,
-		ProjectID: run.ProjectID,
-		Status:    string(run.Status),
-		Attempt:   run.Attempt,
-		Result:    run.Result,
-		Error:     run.Error,
-		Timestamp: time.Now().UTC(),
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return WebhookResult{Error: "marshal failed: " + err.Error()}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, job.WebhookURL, bytes.NewReader(body))
-	if err != nil {
-		return WebhookResult{Error: "request build failed: " + err.Error()}
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Run-ID", run.ID)
-	// Stable across retries of the same run so subscribers can dedup
-	// replays on a signal that does not change with attempt count. The
-	// run-terminal webhook path has no subscription secret available,
-	// so we use the unsigned helper. See internal/webhook for the
-	// HMAC-bound variant used by subscription deliveries.
-	req.Header.Set("X-Strait-Replay-Key", webhook.ComputeReplayKeyUnsigned(run.ID))
-	applyWebhookSignature(req, job.WebhookSecret, body)
-
-	resp, err := webhookClient.Do(req)
-	if err != nil {
-		return WebhookResult{Error: "delivery failed: " + httputil.SanitizeHTTPClientError(err)}
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return WebhookResult{StatusCode: resp.StatusCode, Delivered: true}
-	}
-
-	return WebhookResult{StatusCode: resp.StatusCode, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 }
 
 func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte) {
