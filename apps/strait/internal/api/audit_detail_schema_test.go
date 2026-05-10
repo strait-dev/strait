@@ -177,6 +177,7 @@ var handlerActionPayloads = map[string]map[string]any{
 	domain.AuditActionCronResumedQuota:                {"org_id": "org-1", "jobs_resumed": 5},
 	domain.AuditActionQuotaExceeded:                   {"org_id": "org-1", "plan_tier": "free"},
 	domain.AuditActionSubscriptionChanged:             {"org_id": "org-1", "plan_tier": "pro"},
+	domain.AuditActionUsageThresholdReached:           {"org_id": "org-1", "plan_tier": "pro", "metric": "monthly_runs", "threshold_pct": 80, "current": int64(800), "limit": int64(1000)},
 	domain.AuditActionInternalSecretBypass:            {"gate": "batch_enable_jobs.project_match", "caller": "internal_secret", "handler": "handleBatchEnableJobs"},
 	domain.AuditActionDeploymentVersionCreated:        {"environment": "prod"},
 	domain.AuditActionDeploymentVersionFinalized:      {"environment": "prod"},

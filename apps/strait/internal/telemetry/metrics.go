@@ -70,9 +70,6 @@ type Metrics struct {
 	DLQDepth            metric.Int64Gauge
 	QueueDepthPerJob    metric.Int64Gauge
 
-	// Billing limit rejection metrics.
-	LimitRejections              metric.Int64Counter
-	EnforcementFailOpen          metric.Int64Counter
 	NotificationDeliveryFailures metric.Int64Counter
 
 	// DB connection pool metrics.
@@ -120,16 +117,6 @@ type Metrics struct {
 
 	// Pub/sub metrics.
 	PubSubPublishErrors metric.Int64Counter
-
-	// Billing observability metrics.
-	StripeUsageEventsIngested  metric.Int64Counter
-	StripeUsageEventsDropped   metric.Int64Counter
-	OverageEntered             metric.Int64Counter
-	UsageThresholdEmitted      metric.Int64Counter
-	UsageThresholdDedupeFailed metric.Int64Counter
-	WebhookOrphanDelivery      metric.Int64Counter
-	HTTPModeRunsCompleted      metric.Int64Counter
-	HTTPModeGateRejected       metric.Int64Counter
 
 	// Audit event metrics.
 	AuditEventsEmitted      metric.Int64Counter
@@ -223,7 +210,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	meter := otel.Meter(serviceName)
 
 	runTransitions, err := meter.Int64Counter(
-		"strait.run.transitions",
+		"strait_run_transitions_total",
 		metric.WithDescription("Total run status transitions"),
 		metric.WithUnit("1"),
 	)
@@ -232,7 +219,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	dequeueDuration, err := meter.Float64Histogram(
-		"strait.dequeue.duration",
+		"strait_worker_dequeue_duration_seconds",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
@@ -242,7 +229,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	dispatchDuration, err := meter.Float64Histogram(
-		"strait.dispatch.duration",
+		"strait_dispatch_duration_seconds",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
@@ -252,7 +239,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	dispatchErrors, err := meter.Int64Counter(
-		"strait.dispatch.errors",
+		"strait_dispatch_errors_total",
 		metric.WithDescription("Total dispatch errors"),
 		metric.WithUnit("1"),
 	)
@@ -261,7 +248,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	reaperOperations, err := meter.Int64Counter(
-		"strait.reaper.operations",
+		"strait_reaper_operations_total",
 		metric.WithDescription("Total reaper operations by operation and status"),
 		metric.WithUnit("1"),
 	)
@@ -270,7 +257,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	reaperRecordsDeleted, err := meter.Int64Counter(
-		"strait.reaper.records_deleted",
+		"strait_reaper_records_deleted_total",
 		metric.WithDescription("Total records deleted by reaper retention operations"),
 		metric.WithUnit("1"),
 	)
@@ -279,7 +266,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	cronTriggers, err := meter.Int64Counter(
-		"strait.scheduler.cron_triggers",
+		"strait_scheduler_cron_triggers_total",
 		metric.WithDescription("Total cron trigger attempts by status"),
 		metric.WithUnit("1"),
 	)
@@ -288,7 +275,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	pollerRunsQueued, err := meter.Int64Counter(
-		"strait.scheduler.poller_runs_queued",
+		"strait_scheduler_poller_runs_queued_total",
 		metric.WithDescription("Total delayed runs queued by poller"),
 		metric.WithUnit("1"),
 	)
@@ -297,7 +284,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	workflowTriggers, err := meter.Int64Counter(
-		"strait.workflow.triggers",
+		"strait_workflow_triggers_total",
 		metric.WithDescription("Total workflow trigger attempts by status"),
 		metric.WithUnit("1"),
 	)
@@ -306,7 +293,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	workflowStepProgressions, err := meter.Int64Counter(
-		"strait.workflow.step_progressions",
+		"strait_workflow_step_progressions_total",
 		metric.WithDescription("Total workflow step progressions by step type and status"),
 		metric.WithUnit("1"),
 	)
@@ -315,7 +302,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	queueDepth, err := meter.Int64ObservableGauge(
-		"strait.queue.depth",
+		"strait_queue_depth",
 		metric.WithDescription("Current queue depth by status"),
 		metric.WithUnit("1"),
 	)
@@ -324,7 +311,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	executionTraceDispatch, err := meter.Float64Histogram(
-		"strait.execution.trace.dispatch_duration",
+		"strait_execution_trace_dispatch_duration_seconds",
 		metric.WithDescription("HTTP dispatch roundtrip duration from execution trace"),
 		metric.WithUnit("ms"),
 		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
@@ -334,7 +321,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	executionTraceQueueWait, err := meter.Float64Histogram(
-		"strait.execution.trace.queue_wait_duration",
+		"strait_execution_trace_queue_wait_duration_seconds",
 		metric.WithDescription("Queue wait duration from execution trace"),
 		metric.WithUnit("ms"),
 		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
@@ -372,7 +359,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	webhookRetryAttempts, err := meter.Int64Counter(
-		"strait.webhook.retry_attempts_total",
+		"strait_webhook_retry_attempts_total",
 		metric.WithDescription("Total webhook delivery retry attempts"),
 		metric.WithUnit("1"),
 	)
@@ -408,7 +395,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	eventTriggersCreated, err := meter.Int64Counter(
-		"strait.event_triggers.created",
+		"strait_event_triggers_created_total",
 		metric.WithDescription("Total event triggers created"),
 		metric.WithUnit("1"),
 	)
@@ -417,7 +404,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	eventTriggersReceived, err := meter.Int64Counter(
-		"strait.event_triggers.received",
+		"strait_event_triggers_received_total",
 		metric.WithDescription("Total events received (triggers completed)"),
 		metric.WithUnit("1"),
 	)
@@ -426,7 +413,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	eventTriggersTimedOut, err := meter.Int64Counter(
-		"strait.event_triggers.timed_out",
+		"strait_event_triggers_timed_out_total",
 		metric.WithDescription("Total event triggers that expired"),
 		metric.WithUnit("1"),
 	)
@@ -435,7 +422,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	eventTriggerWaitDuration, err := meter.Float64Histogram(
-		"strait.event_triggers.wait_duration",
+		"strait_event_triggers_wait_duration_seconds",
 		metric.WithDescription("Duration between trigger creation and event receipt"),
 		metric.WithUnit("s"),
 	)
@@ -444,7 +431,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	analyticsQueryDuration, err := meter.Float64Histogram(
-		"strait.analytics.query_duration_seconds",
+		"strait_analytics_query_duration_seconds",
 		metric.WithDescription("Duration of analytics query operations"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
@@ -454,7 +441,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	bulkOperationsTotal, err := meter.Int64Counter(
-		"strait.bulk.operations_total",
+		"strait_bulk_operations_total",
 		metric.WithDescription("Total bulk operations"),
 		metric.WithUnit("1"),
 	)
@@ -463,7 +450,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	bulkItemsProcessed, err := meter.Int64Counter(
-		"strait.bulk.items_processed_total",
+		"strait_bulk_items_processed_total",
 		metric.WithDescription("Total items processed in bulk operations"),
 		metric.WithUnit("1"),
 	)
@@ -472,7 +459,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	childCancellationsTotal, err := meter.Int64Counter(
-		"strait.bulk.child_cancellations_total",
+		"strait_bulk_child_cancellations_total",
 		metric.WithDescription("Total cascading child run cancellations"),
 		metric.WithUnit("1"),
 	)
@@ -481,7 +468,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	latencyAnomalies, err := meter.Int64Counter(
-		"strait.run.latency_anomalies",
+		"strait_run_latency_anomalies_total",
 		metric.WithDescription("Total runs with duration exceeding 2x P95"),
 		metric.WithUnit("1"),
 	)
@@ -490,7 +477,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	snoozeTotal, err := meter.Int64Counter(
-		"strait.run.snooze_total",
+		"strait_run_snooze_total",
 		metric.WithDescription("Total runs snoozed (requeued without incrementing attempt)"),
 		metric.WithUnit("1"),
 	)
@@ -499,7 +486,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	workflowDependencyWaits, err := meter.Int64Counter(
-		"strait.workflow.dependency_waits",
+		"strait_workflow_dependency_waits_total",
 		metric.WithDescription("Total runs created in waiting state due to unsatisfied dependencies"),
 		metric.WithUnit("1"),
 	)
@@ -508,7 +495,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	workflowStepWaitDuration, err := meter.Float64Histogram(
-		"strait.workflow.step_wait_duration",
+		"strait_workflow_step_wait_duration_seconds",
 		metric.WithDescription("Time a workflow step spent waiting before running"),
 		metric.WithUnit("s"),
 	)
@@ -517,7 +504,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	workflowStalledRuns, err := meter.Int64Counter(
-		"strait.workflow.stalled_runs",
+		"strait_workflow_stalled_runs_total",
 		metric.WithDescription("Total stalled workflow runs detected by reaper"),
 		metric.WithUnit("1"),
 	)
@@ -526,7 +513,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolRunning, err := meter.Int64ObservableGauge(
-		"strait.pool.running_workers",
+		"strait_worker_pool_running",
 		metric.WithDescription("Number of goroutines currently executing tasks"),
 		metric.WithUnit("1"),
 	)
@@ -535,7 +522,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolWaiting, err := meter.Int64ObservableGauge(
-		"strait.pool.waiting_tasks",
+		"strait_worker_pool_waiting",
 		metric.WithDescription("Number of tasks waiting in the pool queue"),
 		metric.WithUnit("1"),
 	)
@@ -544,7 +531,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolSubmitted, err := meter.Int64ObservableCounter(
-		"strait.pool.submitted_tasks",
+		"strait_worker_pool_submitted_total",
 		metric.WithDescription("Total tasks submitted to the pool"),
 		metric.WithUnit("1"),
 	)
@@ -553,7 +540,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolCompleted, err := meter.Int64ObservableCounter(
-		"strait.pool.completed_tasks",
+		"strait_worker_pool_completed_total",
 		metric.WithDescription("Total tasks that finished (success or failure)"),
 		metric.WithUnit("1"),
 	)
@@ -562,7 +549,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolSuccessful, err := meter.Int64ObservableCounter(
-		"strait.pool.successful_tasks",
+		"strait_worker_pool_successful_total",
 		metric.WithDescription("Total tasks that completed without error"),
 		metric.WithUnit("1"),
 	)
@@ -571,7 +558,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolFailed, err := meter.Int64ObservableCounter(
-		"strait.pool.failed_tasks",
+		"strait_worker_pool_failed_total",
 		metric.WithDescription("Total tasks that panicked or returned error"),
 		metric.WithUnit("1"),
 	)
@@ -580,7 +567,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	}
 
 	poolDropped, err := meter.Int64ObservableCounter(
-		"strait.pool.dropped_tasks",
+		"strait_worker_pool_dropped_total",
 		metric.WithDescription("Total tasks dropped because pool was stopped"),
 		metric.WithUnit("1"),
 	)
@@ -608,26 +595,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 
 	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
 
-	limitRejections, err := meter.Int64Counter(
-		"strait.billing.limit_rejections_total",
-		metric.WithDescription("Total billing limit rejections by reason and plan tier"),
-		metric.WithUnit("1"),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create limit rejections counter: %w", err)
-	}
-
-	enforcementFailOpen, err := meter.Int64Counter(
-		"strait.billing.enforcement_fail_open_total",
-		metric.WithDescription("Total enforcement checks that failed open due to infrastructure errors"),
-		metric.WithUnit("1"),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create enforcement fail open counter: %w", err)
-	}
-
 	notifDeliveryFailures, err := meter.Int64Counter(
-		"strait.notification.delivery_failures_total",
+		"strait_notification_delivery_failures_total",
 		metric.WithDescription("Total notification delivery creation failures"),
 		metric.WithUnit("1"),
 	)
@@ -641,13 +610,13 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 	dbPoolMax, _ := meter.Int64ObservableGauge("strait_db_pool_max_conns", metric.WithDescription("Max DB pool connections"))
 
 	httpRequestDuration, _ := meter.Float64Histogram(
-		"strait.http.request_duration",
+		"strait_http_request_duration_seconds",
 		metric.WithDescription("HTTP request duration"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 	)
 	httpInflightRequests, _ := meter.Int64UpDownCounter(
-		"strait.http.inflight_requests",
+		"strait_http_inflight_requests",
 		metric.WithDescription("Number of HTTP requests currently being handled"),
 		metric.WithUnit("1"),
 	)
@@ -662,13 +631,13 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	runDuration, _ := meter.Float64Histogram(
-		"strait.run.duration",
+		"strait_run_duration_seconds",
 		metric.WithDescription("Total run execution duration from start to finish"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
 	)
 	runEndToEnd, _ := meter.Float64Histogram(
-		"strait.run.end_to_end_seconds",
+		"strait_run_end_to_end_seconds",
 		metric.WithDescription("End-to-end run latency from created_at to finished_at"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300, 900, 3600),
@@ -676,19 +645,19 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 
 	// Per-tenant metrics. Coarser buckets than RunDuration to control cardinality.
 	jobDuration, _ := meter.Float64Histogram(
-		"strait.job.duration",
+		"strait_job_duration_seconds",
 		metric.WithDescription("Job execution duration by project, execution-mode tier, and terminal status"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(1, 5, 15, 30, 60, 120, 300, 600, 900),
 	)
 	queueLag, _ := meter.Float64Histogram(
-		"strait.queue.lag",
+		"strait_queue_lag_seconds",
 		metric.WithDescription("Time each run spent queued before execution began, by project"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60, 120),
 	)
 	cronDrift, _ := meter.Float64Histogram(
-		"strait.scheduler.cron_drift",
+		"strait_scheduler_cron_drift_seconds",
 		metric.WithDescription("Delta between expected cron fire time and actual fire time"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60),
@@ -720,164 +689,123 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 
-	stripeUsageEventsIngested, _ := meter.Int64Counter(
-		"strait.billing.stripe_usage_events_ingested_total",
-		metric.WithDescription("Total Stripe usage events ingested"),
-		metric.WithUnit("1"),
-	)
-	stripeUsageEventsDropped, _ := meter.Int64Counter(
-		"strait.billing.stripe_usage_events_dropped_total",
-		metric.WithDescription("Total Stripe usage events dropped"),
-		metric.WithUnit("1"),
-	)
-	overageEntered, _ := meter.Int64Counter(
-		"strait.billing.overage_entered_total",
-		metric.WithDescription("Total times a paid plan entered daily run overage"),
-		metric.WithUnit("1"),
-	)
-	usageThresholdEmitted, _ := meter.Int64Counter(
-		"strait.billing.usage_threshold_total",
-		metric.WithDescription("Total usage threshold notifications emitted, labeled by tier, metric, and threshold percent"),
-		metric.WithUnit("1"),
-	)
-	usageThresholdDedupeFailed, _ := meter.Int64Counter(
-		"strait.billing.usage_threshold_dedupe_failed_total",
-		metric.WithDescription("Total times the usage-threshold Redis SETNX dedupe failed; a non-zero rate means notifications could be duplicated or lost"),
-		metric.WithUnit("1"),
-	)
-	webhookOrphanDelivery, _ := meter.Int64Counter(
-		"strait.billing.webhook_orphan_delivery_total",
-		metric.WithDescription("Total Stripe webhook events received for an unknown customer (no resolved org_id); investigate when non-zero"),
-		metric.WithUnit("1"),
-	)
-	httpModeRunsCompleted, _ := meter.Int64Counter(
-		"strait.billing.http_mode_runs_completed_total",
-		metric.WithDescription("Total HTTP mode runs with cost recorded"),
-		metric.WithUnit("1"),
-	)
-	httpModeGateRejected, _ := meter.Int64Counter(
-		"strait.billing.http_mode_gate_rejected_total",
-		metric.WithDescription("Total HTTP mode job creation rejections by plan gating"),
-		metric.WithUnit("1"),
-	)
-
 	auditEventsEmitted, _ := meter.Int64Counter(
-		"strait.audit.events_emitted_total",
+		"strait_audit_events_emitted_total",
 		metric.WithDescription("Total audit events successfully written to the audit log"),
 		metric.WithUnit("1"),
 	)
 	auditEventsDropped, _ := meter.Int64Counter(
-		"strait.audit.events_dropped_total",
+		"strait_audit_events_dropped_total",
 		metric.WithDescription("Total audit events dropped (async buffer full or write failure)"),
 		metric.WithUnit("1"),
 	)
 	auditEventsTruncated, _ := meter.Int64Counter(
-		"strait.audit.events_truncated_total",
+		"strait_audit_events_truncated_total",
 		metric.WithDescription("Total audit events whose details were truncated for exceeding the size cap"),
 		metric.WithUnit("1"),
 	)
 	auditDetailsRedacted, _ := meter.Int64Counter(
-		"strait.audit.details_redacted_total",
+		"strait_audit_details_redacted_total",
 		metric.WithDescription("Total audit events whose details had secret-shaped substrings redacted at emit time, labeled by shape"),
 		metric.WithUnit("1"),
 	)
 	auditEventsDeadlettered, _ := meter.Int64Counter(
-		"strait.audit.events_deadlettered_total",
+		"strait_audit_events_deadlettered_total",
 		metric.WithDescription("Total audit events spilled to the deadletter table after retry exhaustion"),
 		metric.WithUnit("1"),
 	)
 	auditReclaimerSuccess, _ := meter.Int64Counter(
-		"strait.audit.reclaimer_success_total",
+		"strait_audit_reclaimer_success_total",
 		metric.WithDescription("Total audit deadletter events successfully reclaimed into the primary chain"),
 		metric.WithUnit("1"),
 	)
 	auditReclaimerFailed, _ := meter.Int64Counter(
-		"strait.audit.reclaimer_failed_total",
+		"strait_audit_reclaimer_failed_total",
 		metric.WithDescription("Total audit deadletter reclaim attempts that failed, labeled by reason"),
 		metric.WithUnit("1"),
 	)
 	auditReclaimerAbandoned, _ := meter.Int64Counter(
-		"strait.audit.reclaimer_abandoned_total",
+		"strait_audit_reclaimer_abandoned_total",
 		metric.WithDescription("Total audit deadletter rows whose reclaim attempts hit the configured max-attempts cap and were skipped this tick"),
 		metric.WithUnit("1"),
 	)
 	auditDeadletterAged, _ := meter.Int64Counter(
-		"strait.audit.deadletter_aged_total",
+		"strait_audit_deadletter_aged_total",
 		metric.WithDescription("Total audit deadletter rows dropped by the DLQ retention reaper after exceeding AUDIT_DLQ_MAX_AGE_DAYS, labeled by project_id"),
 		metric.WithUnit("1"),
 	)
 	auditRetentionDeleted, _ := meter.Int64Counter(
-		"strait.audit.retention_deleted_total",
+		"strait_audit_retention_deleted_total",
 		metric.WithDescription("Total audit events deleted by the retention reaper, labeled by project_id"),
 		metric.WithUnit("1"),
 	)
 	auditSIEMDropped, _ := meter.Int64Counter(
-		"strait.audit.siem_dropped_total",
+		"strait_audit_siem_dropped_total",
 		metric.WithDescription("Total audit events dropped from the SIEM forwarding queue, labeled by reason"),
 		metric.WithUnit("1"),
 	)
 	auditSIEMForwarded, _ := meter.Int64Counter(
-		"strait.audit.siem_forwarded_total",
+		"strait_audit_siem_forwarded_total",
 		metric.WithDescription("Total audit events successfully forwarded to the SIEM endpoint"),
 		metric.WithUnit("1"),
 	)
 	auditSIEMFailed, _ := meter.Int64Counter(
-		"strait.audit.siem_failed_total",
+		"strait_audit_siem_failed_total",
 		metric.WithDescription("Total audit SIEM forward failures, labeled by reason"),
 		metric.WithUnit("1"),
 	)
 	auditSIEMCircuitOpen, _ := meter.Int64Counter(
-		"strait.audit.siem_circuit_open_total",
+		"strait_audit_siem_circuit_open_total",
 		metric.WithDescription("Total transitions of the audit SIEM circuit breaker into the open state"),
 		metric.WithUnit("1"),
 	)
 	auditSIEMBatchSize, _ := meter.Int64Histogram(
-		"strait_audit_siem_batch_size",
+		"strait_audit_siem_batch_size_items",
 		metric.WithDescription("Audit SIEM forwarded batch size in events"),
 		metric.WithUnit("1"),
 	)
 	auditSIEMBreakerState, _ := meter.Int64ObservableGauge(
-		"strait.audit.siem_breaker_state",
+		"strait_audit_siem_breaker_state",
 		metric.WithDescription("Current audit SIEM circuit-breaker state (0=closed, 1=half_open, 2=open)"),
 		metric.WithUnit("1"),
 	)
 	auditEventsSyncFallback, _ := meter.Int64Counter(
-		"strait.audit.events_sync_fallback_total",
+		"strait_audit_events_sync_fallback_total",
 		metric.WithDescription("Total async-drainer backpressure events that fell back to a synchronous DB write, labeled by outcome (success|failure)"),
 		metric.WithUnit("1"),
 	)
 	auditDrainerQueueDepth, _ := meter.Int64ObservableGauge(
-		"strait.audit.drainer_queue_depth",
+		"strait_audit_drainer_queue_depth",
 		metric.WithDescription("Current depth of the async audit-emit drain channel"),
 		metric.WithUnit("1"),
 	)
 	auditDrainerQueueCapacity, _ := meter.Int64ObservableGauge(
-		"strait.audit.drainer_queue_capacity",
+		"strait_audit_drainer_queue_capacity",
 		metric.WithDescription("Buffer capacity of the async audit-emit drain channel"),
 		metric.WithUnit("1"),
 	)
 	auditEventsExportCapped, _ := meter.Int64Counter(
-		"strait.audit.events_export_capped_total",
+		"strait_audit_events_export_capped_total",
 		metric.WithDescription("Total audit exports that terminated because they hit the configured row cap, labeled by project_id"),
 		metric.WithUnit("1"),
 	)
 	auditChainVerifyTotal, _ := meter.Int64Counter(
-		"strait.audit.chain_verify_total",
+		"strait_audit_chain_verify_total",
 		metric.WithDescription("Total audit chain verification attempts (pass or fail)"),
 		metric.WithUnit("1"),
 	)
 	auditChainVerifyFailed, _ := meter.Int64Counter(
-		"strait.audit.chain_verify_failed_total",
+		"strait_audit_chain_verify_failed_total",
 		metric.WithDescription("Total audit chain verification attempts that did not pass, labeled by reason"),
 		metric.WithUnit("1"),
 	)
 	auditRetryAttempts, _ := meter.Int64Counter(
-		"strait.audit.retry_attempts_total",
+		"strait_audit_retry_attempts_total",
 		metric.WithDescription("Total audit event write retry attempts, labeled by attempt number (1-3) and outcome (success|exhausted)"),
 		metric.WithUnit("1"),
 	)
 	auditDMLRestrictionStatus, _ := meter.Int64Counter(
-		"strait.audit.dml_restriction_status",
+		"strait_audit_dml_restriction_status",
 		metric.WithDescription("Startup posture of migration 000187 audit_events DML restrictions, labeled by status (enforced|degraded)"),
 		metric.WithUnit("1"),
 	)
@@ -926,8 +854,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		ShutdownTotal:                shutdownTotal,
 		DLQDepth:                     dlqDepth,
 		QueueDepthPerJob:             queueDepthPerJob,
-		LimitRejections:              limitRejections,
-		EnforcementFailOpen:          enforcementFailOpen,
 		NotificationDeliveryFailures: notifDeliveryFailures,
 		DBPoolTotalConns:             dbPoolTotal,
 		DBPoolIdleConns:              dbPoolIdle,
@@ -947,14 +873,6 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		NotificationDeliveriesTotal:  notificationDeliveriesTotal,
 		LogDrainEventsTotal:          logDrainEventsTotal,
 		PubSubPublishErrors:          pubsubPublishErrors,
-		StripeUsageEventsIngested:    stripeUsageEventsIngested,
-		StripeUsageEventsDropped:     stripeUsageEventsDropped,
-		OverageEntered:               overageEntered,
-		UsageThresholdEmitted:        usageThresholdEmitted,
-		UsageThresholdDedupeFailed:   usageThresholdDedupeFailed,
-		WebhookOrphanDelivery:        webhookOrphanDelivery,
-		HTTPModeRunsCompleted:        httpModeRunsCompleted,
-		HTTPModeGateRejected:         httpModeGateRejected,
 		AuditEventsEmitted:           auditEventsEmitted,
 		AuditEventsDropped:           auditEventsDropped,
 		AuditEventsTruncated:         auditEventsTruncated,

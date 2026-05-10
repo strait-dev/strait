@@ -82,8 +82,6 @@ type workerService struct {
 //  4. Client sends TaskResult when a run completes or fails.
 //  5. Client sends LogLine for in-flight run logs.
 //  6. On disconnect: server deregisters the worker and emits an audit event.
-//
-//nolint:gocyclo,cyclop
 func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error {
 	ctx := stream.Context()
 
@@ -148,7 +146,14 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	configureGRPCSentryWorkerScope(ctx, reg.WorkerId, reg.Name, reg.Hostname, reg.SdkLanguage, reg.SdkVersion)
 
-	if err := s.checkWorkerIDProjectCollision(ctx, reg.WorkerId, projectID); err != nil {
+	// Reject cross-project worker_id collisions. The in-memory registry
+	// rejects same-id-different-api-key on this replica, but a separate
+	// replica or a stale workers row could already own this id under a
+	// different project. Without this check, the DB-side
+	// `WHERE workers.project_id = EXCLUDED.project_id` upsert guard would
+	// silently no-op the row sync, leaving the worker alive in memory but
+	// invisible in the DB to its own project.
+	if err := s.rejectCrossProjectWorkerCollision(ctx, reg.WorkerId, projectID); err != nil {
 		return err
 	}
 
@@ -164,23 +169,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 
 	// Register worker in the in-memory registry. SendCh is assigned BEFORE
 	// Register so any concurrent dispatch on this replica sees a usable channel.
-	cw := &ConnectedWorker{
-		WorkerID:       reg.WorkerId,
-		ProjectID:      projectID,
-		OrgID:          orgID,
-		EnvironmentID:  apiKey.EnvironmentID,
-		APIKeyID:       apiKey.ID,
-		Name:           reg.Name,
-		Hostname:       reg.Hostname,
-		SDKVersion:     reg.SdkVersion,
-		SDKLanguage:    reg.SdkLanguage,
-		Queues:         reg.Queues,
-		SlotsTotal:     reg.SlotsTotal,
-		SlotsAvailable: reg.SlotsAvailable,
-		Status:         "active",
-		SendCh:         sendCh,
-		revokeCh:       make(chan struct{}),
-	}
+	cw := newConnectedWorkerFromRegistration(reg, apiKey, projectID, orgID, sendCh)
 	s.registry.ReleasePendingStream(pendingProjectID, pendingAPIKeyID)
 	releasePending = nil
 	if err := s.registry.Register(cw); err != nil {
@@ -189,6 +178,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 		return status.Errorf(codes.AlreadyExists, "register worker: %v", err)
 	}
+	recordWorkerStreamsOpen(ctx, reg.Queues, 1)
 
 	// Reconcile in-flight tasks from the registration (reconnect recovery).
 	// Passing workerID enables the adversarial ownership check.
@@ -212,18 +202,16 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		"slots_total", reg.SlotsTotal,
 	)
 
-	// Acknowledge registration.
-	_ = stream.Send(&workerv1.ServerMessage{
-		Payload: &workerv1.ServerMessage_Ack{
-			Ack: &workerv1.Acknowledged{Id: reg.WorkerId},
-		},
-	})
+	sendWorkerRegistrationAck(stream, reg.WorkerId)
 
 	// Clean up on any exit path. Pass the per-registration token so a stale
 	// goroutine cannot evict a live replacement that registered under the
 	// same WorkerID after a reconnect race.
 	myToken := cw.regToken
+	var streamEndErr error
 	defer func() {
+		recordWorkerStreamsOpen(context.Background(), reg.Queues, -1)
+		recordWorkerStreamDisconnect(context.Background(), streamDisconnectReason(streamEndErr))
 		s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	}()
 
@@ -241,6 +229,36 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 
 	// Run recv and send loops concurrently. If either exits, the stream closes.
 	var wg conc.WaitGroup
+	streamErr := make(chan error, workerStreamGoroutineCount(disconnectSub, revokeKeySub))
+
+	// Disconnect signal listener: closes the stream when a force-disconnect is published.
+	if disconnectSub != nil {
+		listenForWorkerForceDisconnect(ctx, &wg, streamErr, disconnectSub, reg.WorkerId, projectID)
+	}
+
+	// API key revocation listener: closes the stream when the authenticating key is revoked.
+	if revokeKeySub != nil {
+		closeRevokeSubOnEarlyReturn = false
+		s.listenForAPIKeyRevocation(ctx, &wg, streamErr, revokeKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
+	}
+
+	startWorkerSendLoop(ctx, &wg, streamErr, sendCh, stream)
+	s.startWorkerRecvLoop(ctx, &wg, streamErr, stream, reg.WorkerId, projectID)
+
+	// Wait for the first stream-ending signal. We deregister synchronously so
+	// no new ReserveWorkerForQueue call can hand out our sendCh, but we do not
+	// wait for the recv goroutine here: on server-initiated disconnect/revoke it
+	// may be blocked in stream.Recv until this handler returns and gRPC closes
+	// the RPC. We also do not close(sendCh): a concurrent WorkerDispatch that
+	// picked us before Deregister still holds a reference and would panic on
+	// send-to-closed.
+	firstErr := <-streamErr
+	streamEndErr = firstErr
+	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
+	return firstErr
+}
+
+func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription) int {
 	goroutineCount := 2
 	if disconnectSub != nil {
 		goroutineCount++
@@ -248,54 +266,64 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	if revokeKeySub != nil {
 		goroutineCount++
 	}
-	streamErr := make(chan error, goroutineCount)
+	return goroutineCount
+}
 
-	// Disconnect signal listener: closes the stream when a force-disconnect is published.
-	if disconnectSub != nil {
-		wg.Go(func() {
-			defer disconnectSub.Close()
-			select {
-			case <-ctx.Done():
-				streamErr <- nil
-			case <-disconnectSub.Ch:
-				slog.Info("grpc worker force-disconnect received",
-					"worker_id", reg.WorkerId,
-					"project_id", projectID,
-				)
-				streamErr <- errForceDisconnected
-			}
-		})
+func sendWorkerRegistrationAck(stream workerv1.WorkerService_StreamTasksServer, workerID string) {
+	_ = stream.Send(&workerv1.ServerMessage{
+		Payload: &workerv1.ServerMessage_Ack{
+			Ack: &workerv1.Acknowledged{Id: workerID},
+		},
+	})
+}
+
+func (s *workerService) rejectCrossProjectWorkerCollision(ctx context.Context, workerID, projectID string) error {
+	existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, workerID)
+	if err != nil {
+		slog.Warn("grpc registration: worker project lookup failed",
+			"worker_id", workerID, "error", err)
+		return status.Errorf(codes.Internal, "worker registration: lookup failed")
 	}
-
-	// API key revocation listener: closes the stream when the authenticating key is revoked.
-	if revokeKeySub != nil {
-		closeRevokeSubOnEarlyReturn = false
-		wg.Go(func() {
-			defer revokeKeySub.Close()
-			select {
-			case <-ctx.Done():
-				streamErr <- nil
-			case <-revokeKeySub.Ch:
-				slog.Info("grpc worker api key revoked, closing stream",
-					"worker_id", reg.WorkerId,
-					"api_key_id", apiKey.ID,
-					"project_id", projectID,
-				)
-				// Also close via registry so co-located streams for the same key are notified.
-				s.registry.CloseByAPIKey(apiKey.ID)
-				streamErr <- errAPIKeyRevoked
-			case <-cw.revokeCh:
-				// Triggered locally by registry.CloseByAPIKey from another goroutine.
-				slog.Info("grpc worker api key revoked (local signal), closing stream",
-					"worker_id", reg.WorkerId,
-					"api_key_id", apiKey.ID,
-				)
-				streamErr <- errAPIKeyRevoked
-			}
-		})
+	if ok && existingProject != projectID {
+		return status.Errorf(codes.AlreadyExists,
+			"worker_id %q already registered under a different project", workerID)
 	}
+	return nil
+}
 
-	// Send loop: drain sendCh and write to the stream.
+func newConnectedWorkerFromRegistration(
+	reg *workerv1.WorkerRegistration,
+	apiKey *domain.APIKey,
+	projectID string,
+	orgID string,
+	sendCh chan *workerv1.ServerMessage,
+) *ConnectedWorker {
+	return &ConnectedWorker{
+		WorkerID:       reg.WorkerId,
+		ProjectID:      projectID,
+		OrgID:          orgID,
+		EnvironmentID:  apiKey.EnvironmentID,
+		APIKeyID:       apiKey.ID,
+		Name:           reg.Name,
+		Hostname:       reg.Hostname,
+		SDKVersion:     reg.SdkVersion,
+		SDKLanguage:    reg.SdkLanguage,
+		Queues:         reg.Queues,
+		SlotsTotal:     reg.SlotsTotal,
+		SlotsAvailable: reg.SlotsAvailable,
+		Status:         "active",
+		SendCh:         sendCh,
+		revokeCh:       make(chan struct{}),
+	}
+}
+
+func startWorkerSendLoop(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	sendCh <-chan *workerv1.ServerMessage,
+	stream workerv1.WorkerService_StreamTasksServer,
+) {
 	wg.Go(func() {
 		for {
 			select {
@@ -314,8 +342,16 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 			}
 		}
 	})
+}
 
-	// Recv loop: process incoming worker messages.
+func (s *workerService) startWorkerRecvLoop(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	stream workerv1.WorkerService_StreamTasksServer,
+	workerID string,
+	projectID string,
+) {
 	wg.Go(func() {
 		for {
 			msg, err := stream.Recv()
@@ -323,47 +359,89 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 				streamErr <- err
 				return
 			}
-			if err := s.handleWorkerMessage(ctx, reg.WorkerId, projectID, msg); err != nil {
+			if err := s.handleWorkerMessage(ctx, workerID, projectID, msg); err != nil {
 				slog.Warn("grpc handle worker message error",
-					"worker_id", reg.WorkerId,
+					"worker_id", workerID,
 					"error", err,
 				)
 			}
 		}
 	})
-
-	// Wait for the first stream-ending signal. We deregister synchronously so
-	// no new ReserveWorkerForQueue call can hand out our sendCh, but we do not
-	// wait for the recv goroutine here: on server-initiated disconnect/revoke it
-	// may be blocked in stream.Recv until this handler returns and gRPC closes
-	// the RPC. We also do not close(sendCh): a concurrent WorkerDispatch that
-	// picked us before Deregister still holds a reference and would panic on
-	// send-to-closed.
-	firstErr := <-streamErr
-	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
-	return firstErr
 }
 
-// checkWorkerIDProjectCollision rejects a registration whose worker_id is
-// already owned by a different project. The in-memory registry handles
-// same-id-different-api-key on this replica, but a separate replica or a
-// stale workers row could already own this id under a different project.
-// Without this check, the DB-side `WHERE workers.project_id =
-// EXCLUDED.project_id` upsert guard would silently no-op the row sync,
-// leaving the worker alive in memory but invisible in the DB to its own
-// project.
-func (s *workerService) checkWorkerIDProjectCollision(ctx context.Context, workerID, projectID string) error {
-	existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, workerID)
-	if err != nil {
-		slog.Warn("grpc registration: worker project lookup failed",
-			"worker_id", workerID, "error", err)
-		return status.Errorf(codes.Internal, "worker registration: lookup failed")
+func listenForWorkerForceDisconnect(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	disconnectSub *pubsub.Subscription,
+	workerID string,
+	projectID string,
+) {
+	wg.Go(func() {
+		defer disconnectSub.Close()
+		select {
+		case <-ctx.Done():
+			streamErr <- nil
+		case <-disconnectSub.Ch:
+			slog.Info("grpc worker force-disconnect received",
+				"worker_id", workerID,
+				"project_id", projectID,
+			)
+			streamErr <- errForceDisconnected
+		}
+	})
+}
+
+func (s *workerService) listenForAPIKeyRevocation(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	revokeKeySub *pubsub.Subscription,
+	cw *ConnectedWorker,
+	apiKeyID string,
+	workerID string,
+	projectID string,
+) {
+	wg.Go(func() {
+		defer revokeKeySub.Close()
+		select {
+		case <-ctx.Done():
+			streamErr <- nil
+		case <-revokeKeySub.Ch:
+			slog.Info("grpc worker api key revoked, closing stream",
+				"worker_id", workerID,
+				"api_key_id", apiKeyID,
+				"project_id", projectID,
+			)
+			// Also close via registry so co-located streams for the same key are notified.
+			s.registry.CloseByAPIKey(apiKeyID)
+			streamErr <- errAPIKeyRevoked
+		case <-cw.revokeCh:
+			// Triggered locally by registry.CloseByAPIKey from another goroutine.
+			slog.Info("grpc worker api key revoked (local signal), closing stream",
+				"worker_id", workerID,
+				"api_key_id", apiKeyID,
+			)
+			streamErr <- errAPIKeyRevoked
+		}
+	})
+}
+
+func streamDisconnectReason(err error) string {
+	switch {
+	case err == nil:
+		return "graceful"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "graceful"
+	case errors.Is(err, errForceDisconnected):
+		return "forced"
+	case errors.Is(err, errAPIKeyRevoked):
+		return "revoked"
+	default:
+		return "error"
 	}
-	if ok && existingProject != projectID {
-		return status.Errorf(codes.AlreadyExists,
-			"worker_id %q already registered under a different project", workerID)
-	}
-	return nil
 }
 
 // checkPlanConnectionLimit resolves the org for the supplied project and

@@ -177,8 +177,12 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	run *domain.JobRun,
 	job *domain.Job,
 ) (out any, err error) {
+	started := time.Now()
 	trace := newDispatchTrace(run, job)
 	defer func() {
+		if err == nil {
+			recordGRPCDispatchE2E(ctx, started)
+		}
 		trace.finish(err)
 	}()
 

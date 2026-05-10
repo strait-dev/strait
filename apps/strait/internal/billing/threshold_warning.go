@@ -6,9 +6,6 @@ import (
 	"math"
 	"strconv"
 	"time"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // thresholdPercents enumerates the boundaries we notify on as the org's
@@ -140,30 +137,14 @@ func (e *Enforcer) maybeEmitUsageThreshold(
 			"threshold_pct", highest,
 			"error", err,
 		)
-		if e.metrics != nil && e.metrics.UsageThresholdDedupeFailed != nil {
-			e.metrics.UsageThresholdDedupeFailed.Add(ctx, 1,
-				metric.WithAttributes(
-					attribute.String("plan_tier", planTier),
-					attribute.String("metric", metricName),
-					attribute.String("threshold_pct", strconv.Itoa(highest)),
-				),
-			)
-		}
+		recordBillingUsageThresholdDedupeFailed(ctx, planTier, metricName, strconv.Itoa(highest))
 		return
 	}
 	if !set {
 		return // already emitted for this (org, metric, threshold, period)
 	}
 
-	if e.metrics != nil && e.metrics.UsageThresholdEmitted != nil {
-		e.metrics.UsageThresholdEmitted.Add(ctx, 1,
-			metric.WithAttributes(
-				attribute.String("plan_tier", planTier),
-				attribute.String("metric", metricName),
-				attribute.String("threshold_pct", strconv.Itoa(highest)),
-			),
-		)
-	}
+	recordBillingUsageThresholdEmitted(ctx, planTier, metricName, strconv.Itoa(highest))
 
 	e.emitBillingEvent(orgID, "usage_threshold_"+strconv.Itoa(highest), planTier)
 

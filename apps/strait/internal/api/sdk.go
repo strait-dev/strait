@@ -168,6 +168,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusUnauthorized, "missing or invalid authorization header")
 			return
 		}
@@ -189,20 +190,24 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			if claims.Issuer != domain.RunTokenIssuer {
 				s.auditRunTokenRejected(r.Context(), chi.URLParam(r, "runID"), "bad_issuer", claims)
 			}
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid run token")
 			return
 		}
 		subject := claims.Subject
 		if subject == "" {
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusUnauthorized, "missing run ID in token")
 			return
 		}
 		if claims.Attempt <= 0 {
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusUnauthorized, "missing run attempt in token")
 			return
 		}
 		urlRunID := chi.URLParam(r, "runID")
 		if urlRunID != "" && subject != urlRunID {
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusForbidden, "token does not match run ID")
 			return
 		}
@@ -216,29 +221,39 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		status, attempt, projectID, statusErr := s.getRunTokenState(r.Context(), subject)
 		if statusErr != nil {
 			if errors.Is(statusErr, store.ErrRunNotFound) {
+				recordAuthDecision(r.Context(), "jwt", "failure")
 				respondError(w, r, http.StatusNotFound, "run not found")
 				return
 			}
 			if errors.Is(statusErr, errRunTokenStateUnsupported) {
+				recordAuthDecision(r.Context(), "jwt", "failure")
 				respondError(w, r, http.StatusUnauthorized, "run token state lookup unavailable")
 				return
 			}
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusInternalServerError, "failed to verify run status")
 			return
 		}
 		if status.IsTerminal() {
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusGone, "run has reached a terminal state")
 			return
 		}
 		if attempt > 0 && attempt != claims.Attempt {
+			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusUnauthorized, "run token attempt is stale")
 			return
 		}
 		if claims.AssignmentID != "" {
 			if err := s.verifyRunTokenAssignment(r.Context(), subject, projectID, claims.AssignmentID); err != nil {
+				recordAuthDecision(r.Context(), "jwt", "failure")
 				respondError(w, r, http.StatusUnauthorized, err.Error())
 				return
 			}
+		}
+		recordAuthDecision(r.Context(), "jwt", "success")
+		if claims.IssuedAt != nil {
+			recordAuthTokenAge(r.Context(), "jwt", claims.IssuedAt.Time)
 		}
 		sdkVersion := strings.TrimSpace(r.Header.Get("X-SDK-Version"))
 		sdkCaps := resolveSDKCapabilities(sdkVersion)

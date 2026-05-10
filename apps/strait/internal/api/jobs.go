@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/robfig/cron/v3"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -1473,9 +1474,7 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 	}
 
 	if !limits.AllowsHTTPMode {
-		if s.metrics != nil && s.metrics.HTTPModeGateRejected != nil {
-			s.metrics.HTTPModeGateRejected.Add(ctx, 1)
-		}
+		billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "job_create")
 		return huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
 	}
 	return nil

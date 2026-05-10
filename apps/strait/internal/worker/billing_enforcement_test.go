@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -221,10 +222,10 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
 	// Pre-fill the concurrent counter to simulate max concurrent runs reached.
-	// The free tier allows 2 concurrent runs. Set the counter to 2 so the
-	// next increment (to 3) exceeds the limit.
+	// The free tier allows ConcurrentFree concurrent runs. Set the counter at
+	// the cap so the next increment exceeds the limit.
 	concurrentKey := "strait:org_concurrent:org-test"
-	mr.Set(concurrentKey, "2")
+	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	// Set up an HTTP server that would handle the job.
@@ -317,9 +318,10 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
 	// Pre-fill the concurrent counter so the next CheckConcurrentRunLimit fails.
-	// Free tier allows 2 concurrent runs; set to 2 so the check rejects.
+	// Free tier allows ConcurrentFree concurrent runs; set at the cap so the
+	// next increment exceeds it and the check rejects.
 	concurrentKey := "strait:org_concurrent:org-monthly-concurrent"
-	mr.Set(concurrentKey, "2")
+	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -401,10 +403,10 @@ func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T
 
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
-	// Pre-fill the monthly counter above the free-tier cap (2000) so
+	// Pre-fill the monthly counter above the free-tier cap so
 	// CheckMonthlyRunLimit hard-rejects on the next call.
 	monthlyKey := "strait:org_monthly_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01")
-	mr.Set(monthlyKey, "2001")
+	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree+1))
 	mr.SetTTL(monthlyKey, 62*24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

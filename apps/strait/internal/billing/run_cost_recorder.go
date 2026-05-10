@@ -71,6 +71,7 @@ func (r *RunCostRecorder) RecordWebhookDeliveryCost(ctx context.Context, orgID, 
 
 func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID string, costMicroUSD int64, executionMode string) error {
 	if orgID == "" || projectID == "" {
+		recordBillingUsageRecord(ctx, executionMode, "skipped")
 		return nil
 	}
 
@@ -85,10 +86,13 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 		idempotencyKey = "strait:cost_recorded:" + runID
 		set, err := r.rdb.SetNX(ctx, idempotencyKey, "1", costRecordedTTL).Result()
 		if err != nil {
+			recordBillingUsageRecord(ctx, executionMode, "error")
 			return fmt.Errorf("run_cost_recorder: redis idempotency check failed (org=%s run=%s): %w",
 				orgID, runID, err)
 		}
 		if !set {
+			recordBillingIdempotencyDuplicate(ctx, executionMode)
+			recordBillingUsageRecord(ctx, executionMode, "duplicate")
 			r.logger.Debug("skipping duplicate cost record", "run_id", runID,
 				"org_id", orgID, "execution_mode", executionMode)
 			return nil
@@ -126,10 +130,13 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 					"run_id", runID, "redis_key", idempotencyKey, "error", delErr)
 			}
 		}
+		recordBillingUsageRecord(ctx, executionMode, "error")
 		return fmt.Errorf("recording %s run cost (org=%s project=%s run=%s): %w",
 			executionMode, orgID, projectID, runID, err)
 	}
 
+	recordBillingUsageRecord(ctx, executionMode, "success")
+	recordBillingUsageRecordCost(ctx, executionMode, costMicroUSD)
 	r.emitClickHouse(orgID, projectID, runID, costMicroUSD, executionMode)
 	return nil
 }

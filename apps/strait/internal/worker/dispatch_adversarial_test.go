@@ -15,6 +15,7 @@ import (
 
 	"github.com/sourcegraph/conc"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
 )
@@ -681,7 +682,7 @@ func TestIngestStripeUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T
 	})
 
 	// No enforcer/ingester: silent no-op.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 // ---------------------------------------------------------------------------.

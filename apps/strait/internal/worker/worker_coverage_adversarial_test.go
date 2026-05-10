@@ -317,7 +317,7 @@ func TestIngestStripeUsageEvent_NilStripeUsageReporter(t *testing.T) {
 	})
 
 	// Should return immediately without panic.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
@@ -336,7 +336,7 @@ func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
 	})
 
 	// Should return immediately without panic.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
@@ -353,7 +353,7 @@ func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
 	})
 
 	// Both nil: should silently return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1")
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 // ---------------------------------------------------------------------------.

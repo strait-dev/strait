@@ -34,7 +34,6 @@
     "go:run-all": "bun run go:lint",
     "run-all": "bun run manypkg:fix && bun run manypkg:check && bun run biome:fix:unsafe && bun run typecheck",
     "update-all": "bunx npm-check-updates -ui -ws",
-    "release": "changeset version",
     "deploy:app": "cd apps/app && bun run deploy"
   },
   "overrides": {
@@ -49,7 +48,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
-    "@changesets/cli": "^2.31.0",
     "@manypkg/cli": "^0.25.1",
     "@typescript/native-preview": "^7.0.0-dev.20260504.1",
     "knip": "^6.11.0",

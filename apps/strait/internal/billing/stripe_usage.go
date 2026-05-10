@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -11,8 +12,6 @@ import (
 
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/billing/meterevent"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // stripeKeyOnce ensures the global stripe.Key is set exactly once,
@@ -45,15 +44,12 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// Set the global Stripe API key exactly once. The stripe-go library uses
-	// a package-level global, so concurrent writes race. In production this
-	// is called once at startup; sync.Once guards against parallel test init.
 	stripeKeyOnce.Do(func() {
 		stripe.Key = secretKey //nolint:reassign // stripe-go uses a global key by design
 	})
 	r := &StripeUsageReporter{
 		secretKey:      secretKey,
-		meterEventName: "run_overage",
+		meterEventName: "compute_overage",
 		logger:         logger,
 	}
 	for _, opt := range opts {
@@ -62,24 +58,23 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	return r
 }
 
-// IngestRunUsage sends a single usage event to the Stripe run_overage meter.
-// One run reports a value of 1; the overage rate is configured on the price record.
+// IngestComputeUsage sends a single usage event to the Stripe compute_overage meter.
+// The costMicroUSD is the cost in micro-USD (1 unit = $0.000001).
 // The runID is used as the identifier for deduplication.
-func (r *StripeUsageReporter) IngestRunUsage(ctx context.Context, stripeCustomerID, runID string) error {
+func (r *StripeUsageReporter) IngestComputeUsage(ctx context.Context, stripeCustomerID, runID string, costMicroUSD int64) error {
 	if r.secretKey == "" || stripeCustomerID == "" {
-		return nil // not configured or no customer, skip silently
+		return nil
 	}
-
-	return r.ingest(ctx, stripeCustomerID, runID)
+	return r.ingest(ctx, stripeCustomerID, runID, costMicroUSD)
 }
 
-func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID string) error {
+func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID string, costMicroUSD int64) error {
 	ts := time.Now().Unix()
 	params := &stripe.BillingMeterEventParams{
 		EventName: stripe.String(r.meterEventName),
 		Payload: map[string]string{
 			"stripe_customer_id": customerID,
-			"value":              "1",
+			"value":              strconv.FormatInt(costMicroUSD, 10),
 		},
 		Timestamp:  &ts,
 		Identifier: stripe.String(runID),
@@ -93,19 +88,11 @@ func (r *StripeUsageReporter) ingest(ctx context.Context, customerID, runID stri
 			"customer_id", customerID,
 			"run_id", runID,
 		)
-		if r.metrics != nil && r.metrics.StripeUsageEventsDropped != nil {
-			r.metrics.StripeUsageEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("status", "error")),
-			)
-		}
+		recordBillingStripeUsageDropped(ctx, "error")
 		return fmt.Errorf("stripe meter event ingestion failed: %w", err)
 	}
 
-	if r.metrics != nil && r.metrics.StripeUsageEventsIngested != nil {
-		r.metrics.StripeUsageEventsIngested.Add(ctx, 1,
-			metric.WithAttributes(attribute.String("status", "ok")),
-		)
-	}
+	recordBillingStripeUsageIngested(ctx, "ok")
 
 	r.logger.Debug("stripe meter event ingested",
 		"customer_id", customerID,

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -33,6 +34,7 @@ type pendingDowngradeUpdate struct {
 }
 
 type mockBillingStore struct {
+	mu                         sync.Mutex // guards lastEntitlementsUpdates against concurrent enforcer-driven writes
 	lastUpserted               *OrgSubscription
 	upsertCount                int
 	lastPlanUpdate             *planUpdate
@@ -212,6 +214,8 @@ func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string
 }
 
 func (m *mockBillingStore) UpdateEntitlements(_ context.Context, orgID string, entitlements OrgPlanLimits) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.lastEntitlementsUpdates == nil {
 		m.lastEntitlementsUpdates = make(map[string]OrgPlanLimits)
 	}

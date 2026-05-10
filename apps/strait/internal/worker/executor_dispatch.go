@@ -13,6 +13,7 @@ import (
 	"time"
 
 	workergrpc "strait/internal/api/grpc"
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/store"
@@ -214,6 +215,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
 				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 				if limErr == nil && !limits.AllowsHTTPMode {
+					billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "dispatch")
 					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
 					e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 					e.handleSystemFailureWithJob(ctx, run, job,
@@ -406,10 +408,8 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	// Record HTTP run cost for Stripe billing and usage records (cloud only).
 	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
-		if e.metrics != nil && e.metrics.HTTPModeRunsCompleted != nil {
-			e.metrics.HTTPModeRunsCompleted.Add(ctx, 1)
-		}
-		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID)
+		billing.RecordHTTPModeRunCompleted(ctx)
+		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
 		if e.runCostRecorder != nil && e.billingEnforcer != nil {
 			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 			if orgErr == nil && orgID != "" {
@@ -643,6 +643,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 }
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {
+	recordDispatchPayloadBytes(ctx, "http", len(run.Payload))
 	var body io.Reader
 	if len(run.Payload) > 0 {
 		body = bytes.NewReader(run.Payload)
@@ -681,12 +682,14 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		if e.metrics != nil {
 			e.metrics.DispatchErrors.Add(ctx, 1)
 		}
+		recordDispatchAttempt(ctx, "http", "error")
 		return nil, &redactedHTTPDispatchError{
 			message: "http dispatch: " + httputil.SanitizeHTTPClientError(err),
 			err:     err,
 		}
 	}
 	defer resp.Body.Close()
+	recordDispatchResponseStatus(ctx, "http", resp.StatusCode)
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -694,8 +697,10 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		recordDispatchAttempt(ctx, "http", "error")
 		return nil, &domain.EndpointError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
+	recordDispatchAttempt(ctx, "http", "success")
 
 	if len(respBody) > 0 {
 		return json.RawMessage(respBody), nil
@@ -845,6 +850,12 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 //
 // On a successful result, cost is recorded via RecordWorkerRunCost.
 func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job, policies ...executionPolicy) {
+	dispatchStarted := time.Now()
+	dispatchOutcome := "success"
+	defer func() {
+		recordWorkerDispatch(context.Background(), "grpc", dispatchOutcome, dispatchStarted)
+	}()
+
 	policy := defaultExecutionPolicy(job)
 	if len(policies) > 0 {
 		policy = policies[0]
@@ -855,6 +866,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"run_id", run.ID,
 			"job_id", run.JobID,
 		)
+		dispatchOutcome = "error"
+		recordWorkerRetry(ctx, "dispatcher_unconfigured")
 		e.requeueWorkerModeRun(ctx, run, "worker dispatcher not configured")
 		return
 	}
@@ -869,6 +882,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 				"run_id", run.ID,
 				"error", err,
 			)
+			dispatchOutcome = "error"
 			return
 		}
 		run.Status = domain.StatusExecuting
@@ -885,10 +899,14 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
+			dispatchOutcome = "timeout"
+			recordWorkerRetry(ctx, "timeout")
 			e.handleTimeout(ctx, run, job, policy, nil)
 			return
 		}
 		if errors.Is(err, context.Canceled) {
+			dispatchOutcome = "error"
+			recordWorkerRetry(ctx, "cancelled")
 			e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
 			return
 		}
@@ -900,6 +918,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"error", err,
 		)
 		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
+			dispatchOutcome = "error"
+			recordWorkerRetry(ctx, "no_worker")
 			e.requeueWorkerModeRun(ctx, run, "no worker available")
 			return
 		}
@@ -910,6 +930,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			retryInitialSecs: 1,
 			retryMaxSecs:     3600,
 		}
+		dispatchOutcome = "error"
+		recordWorkerRetry(ctx, "dispatch_error")
 		e.handleFailure(ctx, run, job, policy, err, nil)
 		return
 	}
@@ -933,6 +955,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		if e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil) {
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
+		dispatchOutcome = "error"
+		recordWorkerRetry(ctx, "worker_failure")
 		return
 	}
 
@@ -1002,7 +1026,7 @@ func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun,
 			})
 		}
 	}
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID)
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
 }
 
 func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {
@@ -1055,8 +1079,12 @@ func queuedRunResetFields() map[string]any {
 // ingestStripeUsageEvent sends a usage event to Stripe for metered billing.
 // Runs asynchronously to avoid blocking the run completion path.
 // Silently skips if no Stripe usage reporter is configured (self-hosted / dev).
-func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string) {
-	if e.stripeUsageReporter == nil || e.billingEnforcer == nil {
+// costMicroUSD is the per-run cost in micro-USD; HTTP and worker modes pass
+// distinct constants today, but they currently coincide at 20µ$.
+//
+//nolint:unparam // HTTP/worker pass distinct named constants that may diverge
+func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string, costMicroUSD int64) {
+	if e.stripeUsageReporter == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
 		return
 	}
 
@@ -1078,9 +1106,10 @@ func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID 
 	e.stripeUsageWG.Go(func() {
 		ingestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := e.stripeUsageReporter.IngestRunUsage(ingestCtx, stripeCustomerID, runID); err != nil {
+		if err := e.stripeUsageReporter.IngestComputeUsage(ingestCtx, stripeCustomerID, runID, costMicroUSD); err != nil {
 			e.logger.Warn("failed to ingest stripe usage event",
 				"run_id", runID,
+				"cost_microusd", costMicroUSD,
 				"error", err,
 			)
 		}

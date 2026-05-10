@@ -83,6 +83,7 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 	}
 
 	s.recordBillingEvent(ctx, projectID, "gate_rejected", string(feature), string(limits.PlanTier))
+	billing.RecordFeatureGateRejected(ctx, string(feature), string(limits.PlanTier))
 
 	requiredPlan := staticRegistry.RequiredPlanForFeature(feature)
 

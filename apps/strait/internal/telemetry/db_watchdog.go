@@ -67,7 +67,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 
 	meter := otel.Meter("strait/db_watchdog")
 	longest, err := meter.Float64Gauge(
-		"strait.db.longest_txn_seconds",
+		"strait_db_longest_txn_seconds",
 		metric.WithDescription("Age of the longest-running transaction in seconds"),
 		metric.WithUnit("s"),
 	)
@@ -75,7 +75,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 		return nil, fmt.Errorf("create longest txn gauge: %w", err)
 	}
 	idleInTxn, err := meter.Int64Gauge(
-		"strait.db.idle_in_txn_count",
+		"strait_db_idle_in_txn_count",
 		metric.WithDescription("Number of connections idle in transaction"),
 		metric.WithUnit("1"),
 	)
@@ -83,7 +83,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 		return nil, fmt.Errorf("create idle in txn gauge: %w", err)
 	}
 	oldestXmin, err := meter.Int64Gauge(
-		"strait.db.oldest_xmin_age_txids",
+		"strait_db_oldest_xmin_age_txids",
 		metric.WithDescription("Age of the oldest backend xmin in transaction ids"),
 		metric.WithUnit("1"),
 	)
@@ -91,7 +91,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 		return nil, fmt.Errorf("create oldest xmin gauge: %w", err)
 	}
 	staleSlots, err := meter.Int64Gauge(
-		"strait.db.stale_replication_slots",
+		"strait_db_stale_replication_slots",
 		metric.WithDescription("Number of inactive replication slots that may pin the xmin horizon"),
 		metric.WithUnit("1"),
 	)
@@ -99,7 +99,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 		return nil, fmt.Errorf("create stale slots gauge: %w", err)
 	}
 	oldestSlotLag, err := meter.Int64Gauge(
-		"strait.db.oldest_slot_lag_bytes",
+		"strait_db_oldest_slot_lag_bytes",
 		metric.WithDescription("WAL byte lag of the oldest replication slot"),
 		metric.WithUnit("By"),
 	)

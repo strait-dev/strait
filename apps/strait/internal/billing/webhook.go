@@ -20,8 +20,6 @@ import (
 
 	"github.com/stripe/stripe-go/v82"
 	stripeWebhook "github.com/stripe/stripe-go/v82/webhook"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // invoiceAuditFields normalises the per-invoice audit payload across every
@@ -179,13 +177,7 @@ func (h *WebhookHandler) recordOrphanInvoiceDelivery(ctx context.Context, eventT
 		"invoice_id", invoice.ID,
 		"customer_id", customerID,
 	)
-	if h.enforcer != nil && h.enforcer.metrics != nil && h.enforcer.metrics.WebhookOrphanDelivery != nil {
-		h.enforcer.metrics.WebhookOrphanDelivery.Add(ctx, 1,
-			metric.WithAttributes(
-				attribute.String("event_type", eventType),
-			),
-		)
-	}
+	recordBillingWebhookOrphanDelivery(ctx, eventType)
 }
 
 const webhookProcessingClaimStaleAfter = 10 * time.Minute
@@ -359,6 +351,7 @@ func (h *WebhookHandler) StartReplayCleanup(ctx context.Context) {
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
+		recordBillingWebhookProcessed(r.Context(), "", "failure")
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
@@ -370,6 +363,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			IgnoreAPIVersionMismatch: true,
 		}); err != nil {
 			h.logger.Warn("invalid stripe webhook signature", "error", err)
+			recordBillingWebhookProcessed(r.Context(), "", "failure")
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
@@ -377,6 +371,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("stripe webhook signature verification bypassed via STRIPE_WEBHOOK_ALLOW_UNSIGNED")
 	} else {
 		h.logger.Error("stripe webhook secret not configured, rejecting request")
+		recordBillingWebhookProcessed(r.Context(), "", "failure")
 		http.Error(w, "webhook verification unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -385,6 +380,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var event stripe.Event
 	if err := json.Unmarshal(body, &event); err != nil {
 		h.logger.Error("failed to parse stripe event", "error", err)
+		recordBillingWebhookProcessed(r.Context(), "", "failure")
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
@@ -392,6 +388,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	eventID := event.ID
 	claim, duplicate, claimErr := h.claimWebhookForProcessing(r.Context(), eventID)
 	if claimErr != nil {
+		recordBillingWebhookProcessed(r.Context(), string(event.Type), "failure")
 		if errors.Is(claimErr, errWebhookAlreadyProcessing) {
 			w.Header().Set("Retry-After", "5")
 			http.Error(w, "webhook already processing", http.StatusServiceUnavailable)
@@ -401,6 +398,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if duplicate {
+		recordBillingWebhookProcessed(r.Context(), string(event.Type), "duplicate")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -409,6 +407,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, errUnhandledStripeEvent) {
 		h.logger.Debug("ignoring unhandled stripe event", "type", event.Type)
 		h.markIgnoredWebhookProcessed(r.Context(), claim)
+		recordBillingWebhookProcessed(r.Context(), string(event.Type), "ignored")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -419,11 +418,13 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// by the replay cache even though it was never fully processed.
 		h.releaseWebhookClaim(r.Context(), claim)
 		h.logger.Error("failed to handle stripe webhook", "type", event.Type, "error", err)
+		recordBillingWebhookProcessed(r.Context(), string(event.Type), "failure")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	h.markWebhookProcessed(r.Context(), claim)
+	recordBillingWebhookProcessed(r.Context(), string(event.Type), "success")
 
 	w.WriteHeader(http.StatusOK)
 }
