@@ -154,7 +154,7 @@ func TestErrorStringStripsURL(t *testing.T) {
 	leakyClient := &http.Client{Transport: roundTripperFunc(func(_ *http.Request) (*http.Response, error) {
 		return nil, urlErr
 	})}
-	result := SendWebhookWithClient(context.Background(), leakyClient, job, run, 1)
+	result := sendWebhookWithClientForTest(context.Background(), leakyClient, job, run, 1)
 	if result.Delivered {
 		t.Fatal("expected delivered=false; mock transport always errors")
 	}

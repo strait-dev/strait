@@ -118,8 +118,15 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 	})
 }
 
-// SendWebhookWithClient sends a webhook using the provided HTTP client and retry count.
-func SendWebhookWithClient(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun, maxAttempts int) WebhookResult {
+// sendWebhookWithClientForTest sends a webhook using the provided HTTP
+// client and retry count. The function is package-private on purpose:
+// it bypasses the SSRF-safe webhookClient so production callers MUST
+// route through SendWebhook / SendWebhookWithRetry, which use
+// newSafeWebhookTransport(). The test suite uses this entrypoint to
+// exercise retry, HMAC, redaction, and timeout behavior against
+// httptest.Server endpoints (loopback) without weakening the production
+// SSRF posture for non-test callers.
+func sendWebhookWithClientForTest(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun, maxAttempts int) WebhookResult {
 	if job.WebhookURL == "" {
 		return WebhookResult{Delivered: true}
 	}
