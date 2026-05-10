@@ -80,12 +80,28 @@ func (e *Enforcer) maybeEmitUsageThreshold(
 	key := usageThresholdKey(orgID, metricName, highest, period)
 	set, err := e.rdb.SetNX(ctx, key, "1", usageThresholdTTL).Result()
 	if err != nil {
-		e.logger.Warn("usage threshold dedupe failed",
+		// Failing the dedupe SETNX means we cannot tell whether this
+		// crossing has already been notified. The previous behavior was
+		// to silently swallow the error at Warn level, but the result is
+		// either a missed customer-facing notification or (after a retry
+		// path is added) a duplicate one. Both are noisy in production
+		// and worth paging on, so emit at Error and bump a dedicated
+		// counter that operators can alert on without grep-on-warn.
+		e.logger.Error("usage threshold dedupe failed",
 			"org_id", orgID,
 			"metric", metricName,
 			"threshold_pct", highest,
 			"error", err,
 		)
+		if e.metrics != nil && e.metrics.UsageThresholdDedupeFailed != nil {
+			e.metrics.UsageThresholdDedupeFailed.Add(ctx, 1,
+				metric.WithAttributes(
+					attribute.String("plan_tier", planTier),
+					attribute.String("metric", metricName),
+					attribute.String("threshold_pct", strconv.Itoa(highest)),
+				),
+			)
+		}
 		return
 	}
 	if !set {
