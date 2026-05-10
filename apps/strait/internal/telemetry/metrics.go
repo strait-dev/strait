@@ -122,12 +122,14 @@ type Metrics struct {
 	PubSubPublishErrors metric.Int64Counter
 
 	// Billing observability metrics.
-	StripeUsageEventsIngested metric.Int64Counter
-	StripeUsageEventsDropped  metric.Int64Counter
-	OverageEntered            metric.Int64Counter
-	UsageThresholdEmitted     metric.Int64Counter
-	HTTPModeRunsCompleted     metric.Int64Counter
-	HTTPModeGateRejected      metric.Int64Counter
+	StripeUsageEventsIngested  metric.Int64Counter
+	StripeUsageEventsDropped   metric.Int64Counter
+	OverageEntered             metric.Int64Counter
+	UsageThresholdEmitted      metric.Int64Counter
+	UsageThresholdDedupeFailed metric.Int64Counter
+	WebhookOrphanDelivery      metric.Int64Counter
+	HTTPModeRunsCompleted      metric.Int64Counter
+	HTTPModeGateRejected       metric.Int64Counter
 
 	// Audit event metrics.
 	AuditEventsEmitted      metric.Int64Counter
@@ -738,6 +740,16 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total usage threshold notifications emitted, labeled by tier, metric, and threshold percent"),
 		metric.WithUnit("1"),
 	)
+	usageThresholdDedupeFailed, _ := meter.Int64Counter(
+		"strait.billing.usage_threshold_dedupe_failed_total",
+		metric.WithDescription("Total times the usage-threshold Redis SETNX dedupe failed; a non-zero rate means notifications could be duplicated or lost"),
+		metric.WithUnit("1"),
+	)
+	webhookOrphanDelivery, _ := meter.Int64Counter(
+		"strait.billing.webhook_orphan_delivery_total",
+		metric.WithDescription("Total Stripe webhook events received for an unknown customer (no resolved org_id); investigate when non-zero"),
+		metric.WithUnit("1"),
+	)
 	httpModeRunsCompleted, _ := meter.Int64Counter(
 		"strait.billing.http_mode_runs_completed_total",
 		metric.WithDescription("Total HTTP mode runs with cost recorded"),
@@ -939,6 +951,8 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		StripeUsageEventsDropped:     stripeUsageEventsDropped,
 		OverageEntered:               overageEntered,
 		UsageThresholdEmitted:        usageThresholdEmitted,
+		UsageThresholdDedupeFailed:   usageThresholdDedupeFailed,
+		WebhookOrphanDelivery:        webhookOrphanDelivery,
 		HTTPModeRunsCompleted:        httpModeRunsCompleted,
 		HTTPModeGateRejected:         httpModeGateRejected,
 		AuditEventsEmitted:           auditEventsEmitted,

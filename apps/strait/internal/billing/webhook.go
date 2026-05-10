@@ -19,6 +19,8 @@ import (
 
 	"github.com/stripe/stripe-go/v82"
 	stripeWebhook "github.com/stripe/stripe-go/v82/webhook"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -126,6 +128,33 @@ var (
 	errEmptyPriceID        = errors.New("price ID is empty")
 	errEmptyCustomerID     = errors.New("customer ID is empty")
 )
+
+// recordOrphanInvoiceDelivery is the centralized observability hook fired
+// when a finalize/paid/payment_failed event arrives for a Stripe customer
+// that is not mapped to any org in our database. Silently swallowing this
+// is dangerous: it could mean (a) the customer was deleted in our DB but
+// their Stripe subscription wasn't cancelled, (b) a misconfigured webhook
+// is pointing at the wrong environment, or (c) Stripe is delivering events
+// for a sandbox account into production. All three warrant operator
+// attention. Counters keep this surfaceable on a Grafana panel.
+func (h *WebhookHandler) recordOrphanInvoiceDelivery(ctx context.Context, eventType string, invoice *stripe.Invoice) {
+	customerID := ""
+	if invoice.Customer != nil {
+		customerID = invoice.Customer.ID
+	}
+	h.logger.Warn("stripe webhook delivered for unknown customer",
+		"event_type", eventType,
+		"invoice_id", invoice.ID,
+		"customer_id", customerID,
+	)
+	if h.enforcer != nil && h.enforcer.metrics != nil && h.enforcer.metrics.WebhookOrphanDelivery != nil {
+		h.enforcer.metrics.WebhookOrphanDelivery.Add(ctx, 1,
+			metric.WithAttributes(
+				attribute.String("event_type", eventType),
+			),
+		)
+	}
+}
 
 const webhookProcessingClaimStaleAfter = 10 * time.Minute
 
@@ -1056,6 +1085,7 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.paid", &invoice)
 		return nil
 	}
 
@@ -1105,6 +1135,7 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.payment_failed", &invoice)
 		return nil
 	}
 
@@ -1455,6 +1486,7 @@ func (h *WebhookHandler) handleInvoiceFinalized(ctx context.Context, data json.R
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.finalized", &invoice)
 		return nil
 	}
 
@@ -1485,6 +1517,7 @@ func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, da
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.finalization_failed", &invoice)
 		return nil
 	}
 
