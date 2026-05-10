@@ -191,17 +191,23 @@ func TestOIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
 	}
 }
 
-// TestAnonymousActorStillScoped ensures the middleware does not
-// crash and produces a deterministic composite key when actorFromContext
-// returns the empty string (e.g. an internal-secret request that still
-// happens to carry an Idempotency-Key). Two anonymous calls with the
-// same key MUST collide, so the middleware still serializes them.
-func TestAnonymousActorStillScoped(t *testing.T) {
+// TestAnonymousActorBypassesIdempotency pins the bypass behavior: when
+// actorFromContext returns the empty string (e.g. an internal-secret
+// request, or a misconfigured route that admits an unauthenticated
+// caller), the middleware skips dedupe entirely and runs the handler
+// directly. Without an actor, two callers in the same project who pick
+// the same Idempotency-Key would collapse into one cache entry and one
+// of them would silently replay the other's response — a cross-tenant
+// disclosure risk. The conservative choice is to let every anonymous
+// request execute its handler; trusted internal paths carry their own
+// dedupe tokens or are naturally idempotent.
+func TestAnonymousActorBypassesIdempotency(t *testing.T) {
 	t.Parallel()
 
 	var (
 		mu          sync.Mutex
 		acquireKeys []string
+		handled     int
 	)
 
 	ms := &APIStoreMock{
@@ -219,6 +225,9 @@ func TestAnonymousActorStillScoped(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		handled++
+		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
@@ -233,10 +242,11 @@ func TestAnonymousActorStillScoped(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(acquireKeys) != 2 {
-		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 2", len(acquireKeys))
+	if len(acquireKeys) != 0 {
+		t.Fatalf("anonymous request must skip dedupe entirely; got %d acquire calls: %v",
+			len(acquireKeys), acquireKeys)
 	}
-	if acquireKeys[0] != acquireKeys[1] {
-		t.Fatalf("anonymous calls with the same key must collide; got %q vs %q", acquireKeys[0], acquireKeys[1])
+	if handled != 2 {
+		t.Fatalf("handler invocations = %d, want 2 (both anonymous requests should pass through)", handled)
 	}
 }

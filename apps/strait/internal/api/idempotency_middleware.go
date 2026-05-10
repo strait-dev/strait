@@ -156,8 +156,22 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Refuse to dedupe unattributable requests. Without an actor, two
+		// callers in the same project who pick the same Idempotency-Key
+		// would collapse into one cache entry and one of them would
+		// silently replay the other's response. Trusted internal paths
+		// (internal-secret, scheduler) do not need replay protection
+		// anyway: they retry by re-doing the work or carry their own
+		// dedupe tokens. The conservative choice is to skip the
+		// middleware entirely so the handler runs once per request.
+		actorID := actorFromContext(r.Context())
+		if actorID == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		compositeKey := idempotencyCompositeKey(
-			actorFromContext(r.Context()),
+			actorID,
 			canonicalizeIdempotencyPath(r.URL.Path),
 			environmentIDFromContext(r.Context()),
 			key,
