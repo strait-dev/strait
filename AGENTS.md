@@ -324,6 +324,24 @@ Substantive, not boilerplate. Include:
 
 Never claim validation without listing the commands. Never paste generic boilerplate that could apply to any PR. Never add AI attribution footers.
 
+### Releases
+
+Releases are fully driven by [release-please](https://github.com/googleapis/release-please) off the conventional commit history on `master`. There is no local `goreleaser`, no manual tag, and no manual changelog edit.
+
+Flow:
+
+1. Land conventional commits on `master`. The `Release Please` workflow runs on every push and keeps a single open PR titled `chore(release): X.Y.Z` up to date with the next version, the rendered `CHANGELOG.md`, and an updated `.release-please-manifest.json`.
+2. Merging that PR creates the `vX.Y.Z` git tag and a GitHub Release.
+3. The tag push triggers `Publish Docker Images`, which builds, scans (Trivy), signs (cosign keyless), and publishes the community and cloud images plus the strait-app image to GHCR.
+
+Bump rules (release-please reads commit types):
+- `feat:` → minor bump (or patch while pre-1.0; see `bump-minor-pre-major` in `release-please-config.json`)
+- `fix:` / `perf:` → patch bump
+- `feat!:` or `BREAKING CHANGE:` footer → major bump
+- `docs:`, `test:`, `refactor:`, `build:`, `ci:`, `chore:` → no version bump, hidden from changelog
+
+Version source of truth is `.release-please-manifest.json`. Do not edit it by hand.
+
 ---
 
 ## 11. DOs and DON'Ts
