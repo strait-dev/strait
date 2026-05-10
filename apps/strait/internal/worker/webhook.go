@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/webhook"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -31,13 +32,26 @@ const (
 	webhookIdleConnTimeout = 60 * time.Second
 )
 
+// noFollowWebhookRedirects refuses to follow HTTP redirects on outbound
+// webhook deliveries. Following 3xx without re-validating the destination
+// IP would let a public webhook target bounce the request to internal
+// addresses (cloud metadata, 10.x, 127.x) after the initial SSRF check.
+func noFollowWebhookRedirects(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+func newSafeWebhookTransport() *http.Transport {
+	transport := httputil.NewExternalTransport(false)
+	transport.MaxIdleConns = webhookMaxIdleConns
+	transport.MaxIdleConnsPerHost = webhookMaxIdlePerHost
+	transport.IdleConnTimeout = webhookIdleConnTimeout
+	return transport
+}
+
 var webhookClient = &http.Client{
-	Timeout: webhookTimeout,
-	Transport: otelhttp.NewTransport(&http.Transport{
-		MaxIdleConns:        webhookMaxIdleConns,
-		MaxIdleConnsPerHost: webhookMaxIdlePerHost,
-		IdleConnTimeout:     webhookIdleConnTimeout,
-	}),
+	Timeout:       webhookTimeout,
+	Transport:     otelhttp.NewTransport(newSafeWebhookTransport()),
+	CheckRedirect: noFollowWebhookRedirects,
 }
 
 // WebhookPayload is sent to the job's webhook URL on terminal states.
