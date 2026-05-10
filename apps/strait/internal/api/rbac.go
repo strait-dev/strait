@@ -83,32 +83,50 @@ type createRoleRequest struct {
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
 
+// errAuditDetailsMarshal flags a programmer/serialization failure that
+// callers running inside a transaction must surface so the surrounding
+// mutation rolls back instead of committing without an audit row. Plain
+// "skip the event" decisions (config nil, validation rejected the
+// actor, etc.) return (nil, nil) so fire-and-forget callers can keep
+// going.
+var errAuditDetailsMarshal = errors.New("audit event details marshal failed")
+
 // buildAuditEvent runs the validation, actor resolution, and details
 // marshaling steps that emitAuditEvent performs but stops short of
-// persisting. It returns (nil, false) when validation drops the event;
-// callers must treat that as "no audit emitted" without bubbling an
-// error so server-internal misconfiguration does not kill the request.
+// persisting.
+//
+// Return shape:
+//   - (event, nil)     — caller should persist the event.
+//   - (nil,   nil)     — intentional skip (config disabled, unknown
+//     audit action, validateActorForEmit declined).
+//     Fire-and-forget callers ignore; tx callers
+//     simply do not insert.
+//   - (nil,   err)     — internal failure (currently only details
+//     marshal). tx callers MUST abort so the
+//     surrounding mutation does not commit without
+//     an audit row. fire-and-forget callers log and
+//     drop because there is nothing actionable.
 //
 // This is split out so callers that need atomic-with-transaction audit
 // inserts can construct the event up front, pass it into the tx via
 // txStore.CreateAuditEvent, and have the whole unit roll back together.
-func (s *Server) buildAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) (*domain.AuditEvent, bool) {
+func (s *Server) buildAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) (*domain.AuditEvent, error) {
 	if s.config == nil {
-		return nil, false
+		return nil, nil
 	}
 	if !domain.IsKnownAuditAction(action) {
 		slog.Error("emitAuditEvent: unknown action rejected",
 			"action", action, "resource_type", resourceType, "resource_id", resourceID)
-		return nil, false
+		return nil, nil
 	}
 	actorID, actorType, ok := s.validateActorForEmit(ctx, action)
 	if !ok {
-		return nil, false
+		return nil, nil
 	}
 	detailsJSON, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
-		return nil, false
+		return nil, errAuditDetailsMarshal
 	}
 	return &domain.AuditEvent{
 		ProjectID:     projectIDFromContext(ctx),
@@ -123,12 +141,22 @@ func (s *Server) buildAuditEvent(ctx context.Context, action, resourceType, reso
 		RequestID:     requestIDFromContext(ctx),
 		TraceID:       traceIDFromContext(ctx),
 		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
-	}, true
+	}, nil
 }
 
 func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
-	ev, ok := s.buildAuditEvent(ctx, action, resourceType, resourceID, details)
-	if !ok {
+	ev, err := s.buildAuditEvent(ctx, action, resourceType, resourceID, details)
+	if err != nil {
+		// Marshal failure is unrecoverable for a fire-and-forget caller;
+		// count it as a drop with a distinct reason so dashboards can
+		// distinguish marshal bugs from store-write outages.
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "details_marshal_failed")))
+		}
+		return
+	}
+	if ev == nil {
 		return
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {

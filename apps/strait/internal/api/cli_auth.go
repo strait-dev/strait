@@ -185,11 +185,18 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 	// audit-store outage cannot produce an approved-but-not-audited
 	// device code, which would silently bypass our compliance trail
 	// for credential issuance.
-	auditEvent, hasAudit := s.buildAuditEvent(ctx, domain.AuditActionDeviceCodeApproved, "device_code", row.ID, map[string]any{
+	auditEvent, auditErr := s.buildAuditEvent(ctx, domain.AuditActionDeviceCodeApproved, "device_code", row.ID, map[string]any{
 		"user_code":  row.UserCode,
 		"api_key_id": apiKey.ID,
 		"project_id": req.ProjectID,
 	})
+	if auditErr != nil {
+		// Refuse to issue credentials without an audit row. Approving
+		// without an audit trail is a compliance failure; a marshal bug
+		// is fixable in code, but a credential silently issued without
+		// audit is not.
+		return nil, huma.Error500InternalServerError("failed to build audit event")
+	}
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
 		if err := txStore.CreateAPIKey(ctx, apiKey); err != nil {
 			return fmt.Errorf("create api key: %w", err)
@@ -197,7 +204,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		if err := txStore.ApproveDeviceCodeByUserCode(ctx, req.UserCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
 			return fmt.Errorf("approve device code: %w", err)
 		}
-		if hasAudit {
+		if auditEvent != nil {
 			if err := txStore.CreateAuditEvent(ctx, auditEvent); err != nil {
 				return fmt.Errorf("audit device code approval: %w", err)
 			}
