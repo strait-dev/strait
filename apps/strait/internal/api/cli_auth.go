@@ -164,7 +164,7 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		ProjectID:     req.ProjectID,
 		Name:          "CLI (device-code " + row.UserCode + ")",
 		KeyHash:       hashAPIKey(rawKey),
-		KeyPrefix:     rawKey[:12],
+		KeyPrefix:     rawKey[:domain.APIKeyPrefixLen],
 		Scopes:        domain.CLIDefaultScopes,
 		ExpiresAt:     expiresAt,
 		EnvironmentID: environmentIDFromContext(ctx),

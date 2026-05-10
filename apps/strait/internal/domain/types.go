@@ -745,6 +745,19 @@ type WebhookSubscription struct {
 	CreatedAt            time.Time  `json:"created_at"`
 }
 
+// APIKeyPrefixLen is the number of leading characters of a raw API key
+// that we store as the public, non-secret prefix on every APIKey row. The
+// prefix is what we surface in the UI and audit logs so an operator can
+// recognise which key fired without revealing the secret. The value is the
+// length of the literal "strait_" tag plus the first 5 hex characters of
+// the random body — short enough to be unguessable, long enough to be
+// visually distinguishable across thousands of keys per org.
+//
+// Every site that mints or stamps a key prefix must slice the raw key with
+// this constant. Drift between mint sites (api, scheduler, testutil) would
+// silently produce inconsistent prefixes that fail UI lookups.
+const APIKeyPrefixLen = 12
+
 // APIKey represents a per-project or org-scoped API key for authentication.
 type APIKey struct {
 	ID                   string     `json:"id"`

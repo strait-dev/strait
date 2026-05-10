@@ -90,7 +90,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		return nil, err
 	}
 
-	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
+	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
 	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
 		key.NextRotationAt = &nr
@@ -311,7 +311,7 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL}
+	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
