@@ -55,7 +55,7 @@ func TestCaptureWriterAllowsUnderCap(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "under-cap")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -125,7 +125,7 @@ func TestCaptureWriterDropsCacheOnOverflow(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "overflow-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)

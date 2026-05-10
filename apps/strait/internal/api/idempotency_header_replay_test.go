@@ -55,7 +55,7 @@ func TestCompleteCapturesHandlerHeaders(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "k1")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
 
@@ -121,7 +121,7 @@ func TestCompleteSnapshotsHeadersAtWriteHeader(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "snapshot")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	wrapped.ServeHTTP(httptest.NewRecorder(), r)
 
 	mu.Lock()
@@ -164,7 +164,7 @@ func TestReplayWritesCachedHeadersVerbatim(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "replay-1")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
 
@@ -215,7 +215,7 @@ func TestReplayLegacyRowFallsBackToJSON(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "legacy")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
 
@@ -256,7 +256,7 @@ func TestReplayDoesNotEmitContentTypeWhenCachedHasNone(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "no-ct")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
 

@@ -53,7 +53,7 @@ func TestPanicCleanupRunsAfterContextCancel(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "panic-cleanup-key")
-	ctx := context.WithValue(r.Context(), ctxProjectIDKey, "proj-1")
+	ctx := idempotencyTestCtx(r.Context(), "proj-1")
 	cancellable, cancel := context.WithCancel(ctx)
 	cancellable = context.WithValue(cancellable, testCancelKey{}, cancel)
 	r = r.WithContext(cancellable)
@@ -120,7 +120,7 @@ func TestNonSuccessCleanupSurvivesTimeout(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "non-success-cleanup")
-	ctx := context.WithValue(r.Context(), ctxProjectIDKey, "proj-1")
+	ctx := idempotencyTestCtx(r.Context(), "proj-1")
 	cancellable, cancel := context.WithCancel(ctx)
 	cancellable = context.WithValue(cancellable, testCancelKey{}, cancel)
 	r = r.WithContext(cancellable)
@@ -174,7 +174,7 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "blocking-cleanup")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	start := time.Now()

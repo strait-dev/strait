@@ -55,7 +55,7 @@ func TestCompleteIdempotencyKeyUsesDetachedContext(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "complete-detached-ctx")
-	ctx := context.WithValue(r.Context(), ctxProjectIDKey, "proj-1")
+	ctx := idempotencyTestCtx(r.Context(), "proj-1")
 	cancellable, cancel := context.WithCancel(ctx)
 	cancellable = context.WithValue(cancellable, testCancelKey{}, cancel)
 	r = r.WithContext(cancellable)
@@ -115,7 +115,7 @@ func TestCompleteIdempotencyKeyTimeoutBudgetEnforced(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "complete-timeout-budget")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	start := time.Now()
@@ -171,7 +171,7 @@ func TestCompleteIdempotencyKeyHappyPathStillCommits(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "complete-happy-path")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)

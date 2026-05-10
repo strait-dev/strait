@@ -15,6 +15,16 @@ import (
 	"strait/internal/domain"
 )
 
+// idempotencyTestCtx populates the project + actor context the
+// idempotencyMiddleware now requires post-Fix #10. Tests that wrap the
+// middleware directly (no router auth) need both keys set so the
+// composite-key path runs.
+func idempotencyTestCtx(parent context.Context, projectID string) context.Context {
+	ctx := context.WithValue(parent, ctxProjectIDKey, projectID)
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test-actor")
+	return ctx
+}
+
 // isHexDigest returns true if s is a 64-character lowercase SHA-256
 // hex digest, the format produced by idempotencyCompositeKey.
 func isHexDigest(s string) bool {
@@ -45,7 +55,7 @@ func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
 	wrapped := srv.idempotencyMiddleware(handler)
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -94,7 +104,7 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "my-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -129,7 +139,7 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "my-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -171,7 +181,7 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(`{}`))
 	req.Header.Set("Idempotency-Key", "cached-create-job")
-	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx := idempotencyTestCtx(req.Context(), "proj-1")
 	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsRead})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:read-only")
@@ -238,7 +248,7 @@ func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("X-Idempotency-Key", "in-flight-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -259,7 +269,7 @@ func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 	longKey := strings.Repeat("x", maxIdempotencyKeyLength+1)
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", longKey)
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -291,7 +301,7 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("X-Idempotency-Key", "x-header-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -323,7 +333,7 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "fail-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -361,7 +371,7 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 	for _, path := range []string{"/v1/jobs", "/v1/runs"} {
 		r := httptest.NewRequest(http.MethodPost, path, nil)
 		r.Header.Set("Idempotency-Key", "same-key")
-		r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+		r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 		w := httptest.NewRecorder()
 		wrapped.ServeHTTP(w, r)
 	}
@@ -401,7 +411,7 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 	for _, environmentID := range []string{"env-production", "env-staging"} {
 		req := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/clone", nil)
 		req.Header.Set("Idempotency-Key", "clone-key")
-		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+		ctx := idempotencyTestCtx(req.Context(), "proj-1")
 		ctx = context.WithValue(ctx, ctxEnvironmentIDKey, environmentID)
 		req = req.WithContext(ctx)
 
@@ -448,7 +458,7 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	req.Header.Set("Idempotency-Key", rawKey)
-	req = req.WithContext(context.WithValue(req.Context(), ctxProjectIDKey, "proj-1"))
+	req = req.WithContext(idempotencyTestCtx(req.Context(), "proj-1"))
 	wrapped.ServeHTTP(httptest.NewRecorder(), req)
 
 	logText := logs.String()
