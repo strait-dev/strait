@@ -1345,16 +1345,39 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 	})
 }
 
-// sanitizeQuery returns query parameter string with sensitive keys redacted.
+// sensitiveQueryKeywords are substrings that, when present in a query
+// parameter name (case-insensitive), trigger value redaction in
+// sanitizeQuery. The list intentionally over-redacts — false positives
+// (e.g. an "author" or "design" param) only cost log fidelity, while
+// false negatives leak credentials into request logs and traces.
+var sensitiveQueryKeywords = []string{
+	"secret",
+	"password",
+	"token",
+	"key",
+	"auth",
+	"credential",
+	"sig",
+	"jwt",
+}
+
+// sanitizeQuery returns a query parameter string with values for any
+// param whose name contains a credential keyword (see
+// sensitiveQueryKeywords) replaced by "[REDACTED]". This is used in
+// structured logs and span attributes; the original URL is never
+// emitted directly.
 func sanitizeQuery(params map[string][]string) string {
-	sensitiveKeys := map[string]bool{
-		"api_key": true,
-		"token":   true,
-		"secret":  true,
-	}
 	var sb strings.Builder
 	first := true
 	for k, vals := range params {
+		lower := strings.ToLower(k)
+		redact := false
+		for _, kw := range sensitiveQueryKeywords {
+			if strings.Contains(lower, kw) {
+				redact = true
+				break
+			}
+		}
 		for _, v := range vals {
 			if !first {
 				sb.WriteByte('&')
@@ -1362,7 +1385,7 @@ func sanitizeQuery(params map[string][]string) string {
 			first = false
 			sb.WriteString(k)
 			sb.WriteByte('=')
-			if sensitiveKeys[strings.ToLower(k)] {
+			if redact {
 				sb.WriteString("[REDACTED]")
 			} else {
 				sb.WriteString(v)
