@@ -346,8 +346,13 @@ func sanitizeCSVCell(value string) string {
 	if value == "" {
 		return value
 	}
-	for i, r := range value {
-		if i == 0 {
+	first := true
+	for _, r := range value {
+		// On the very first rune, treat the literal whitespace/null
+		// triggers as inject prefixes so " =SUM(1)" or "\tcmd" are quoted
+		// before we fall into the skip-invisibles path below.
+		if first {
+			first = false
 			switch r {
 			case '\t', '\r', '\n', '\x00':
 				return "'" + value
@@ -355,10 +360,12 @@ func sanitizeCSVCell(value string) string {
 		}
 		// Skip leading invisible runes that hide formula-injection
 		// triggers from human review but still let spreadsheet apps
-		// parse the formula: BOM, format characters (Cf \u2014 ZWSP, LRM,
-		// RLM, ZWJ, soft hyphen), combining marks, plus the existing
-		// IsSpace/IsControl skip.
-		if r == '\ufeff' || unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
+		// parse the formula: format characters (Cf \u2014 ZWSP, LRM, RLM,
+		// ZWJ, soft hyphen, BOM), combining marks, plus the existing
+		// IsSpace/IsControl skip. BOM (\ufeff) is in category Cf and so
+		// is covered by unicode.Is(unicode.Cf, r) without an explicit
+		// check.
+		if unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
 			unicode.IsSpace(r) || unicode.IsControl(r) {
 			continue
 		}
