@@ -1354,17 +1354,22 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 // (e.g. an "author" or "design" param) only cost log fidelity, while
 // false negatives leak credentials into logs and traces.
 var sensitiveQueryKeywords = map[string]struct{}{
-	"secret":     {},
-	"password":   {},
-	"token":      {},
-	"key":        {},
-	"auth":       {},
-	"credential": {},
-	"sig":        {},
-	"jwt":        {},
-	"bearer":     {},
-	"hmac":       {},
-	"nonce":      {},
+	"secret":         {},
+	"password":       {},
+	"token":          {},
+	"key":            {},
+	"auth":           {},
+	"credential":     {},
+	"sig":            {},
+	"jwt":            {},
+	"bearer":         {},
+	"hmac":           {},
+	"nonce":          {},
+	"csrf":           {},
+	"state":          {},
+	"code_verifier":  {},
+	"code_challenge": {},
+	"session":        {},
 }
 
 // containsSensitiveKeyword reports whether name contains any of the

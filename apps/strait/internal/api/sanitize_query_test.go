@@ -43,6 +43,13 @@ func TestSanitizeQueryRedactsExpandedKeys(t *testing.T) {
 		{"hmac_signature", "hmac_signature", "hmac-leak-2"},
 		{"nonce", "nonce", "nonce-leak"},
 		{"x_nonce", "X-Nonce", "nonce-leak-2"},
+		{"csrf", "csrf", "csrf-token-value"},
+		{"x_csrf_token", "X-CSRF-Token", "csrf-leak-2"},
+		{"oauth_state", "state", "oauth-state-nonce"},
+		{"code_verifier", "code_verifier", "pkce-verifier-leak"},
+		{"code_challenge", "code_challenge", "pkce-challenge-leak"},
+		{"session", "session", "session-id-leak"},
+		{"session_id", "session_id", "session-id-leak-2"},
 	}
 
 	for _, tc := range cases {
@@ -95,7 +102,7 @@ func TestSanitizeQueryPreservesSafeParams(t *testing.T) {
 // any redaction keyword (case-insensitive), the value must never appear
 // in the sanitized output.
 func FuzzSanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
-	keywords := []string{"secret", "password", "token", "key", "auth", "credential", "sig", "jwt", "bearer", "hmac", "nonce"}
+	keywords := []string{"secret", "password", "token", "key", "auth", "credential", "sig", "jwt", "bearer", "hmac", "nonce", "csrf", "state", "code_verifier", "code_challenge", "session"}
 	seeds := []struct {
 		key   string
 		value string
@@ -105,6 +112,9 @@ func FuzzSanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
 		{"prefix_password_suffix", "VALUE-C"},
 		{"WeirdKey", "VALUE-D"},
 		{"some_credential_thing", "VALUE-E"},
+		{"oauth_state", "VALUE-F"},
+		{"code_verifier", "VALUE-G"},
+		{"session_cookie", "VALUE-H"},
 	}
 	for _, s := range seeds {
 		f.Add(s.key, s.value)
