@@ -232,8 +232,15 @@ func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maxDuration := s.config.SSEMaxConnDuration
+	if maxDuration <= 0 {
+		maxDuration = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
+	defer cancel()
+
 	channel := "run_stream:" + runID
-	sub, err := s.pubsub.Subscribe(r.Context(), channel)
+	sub, err := s.pubsub.Subscribe(ctx, channel)
 	if err != nil {
 		if _, err := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"failed to subscribe\"}\n\n"); err != nil {
 			slog.Warn("failed to write SSE subscribe error", "run_id", runID, "error", err)
@@ -252,7 +259,7 @@ func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case msg, ok := <-sub.Ch:
 			if !ok {
