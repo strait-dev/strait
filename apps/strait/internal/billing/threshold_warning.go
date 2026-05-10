@@ -14,7 +14,28 @@ import (
 // metered usage approaches its plan cap. Order matters: maybeEmitUsageThreshold
 // only emits the highest crossed bucket so an org racing past 80 → 100 in a
 // single call records the most actionable signal, not three of them.
-var thresholdPercents = []int{80, 90, 100}
+//
+// Declared as an array (not a slice) so callers cannot mutate it at runtime.
+// The init() invariant below also rejects any future edit that breaks the
+// strictly-ascending order the highest-crossed scan depends on.
+var thresholdPercents = [...]int{80, 90, 100}
+
+func init() {
+	for i := 1; i < len(thresholdPercents); i++ {
+		if thresholdPercents[i] <= thresholdPercents[i-1] {
+			panic(fmt.Sprintf(
+				"billing: thresholdPercents must be strictly ascending; got %v",
+				thresholdPercents,
+			))
+		}
+	}
+	if thresholdPercents[0] <= 0 {
+		panic(fmt.Sprintf(
+			"billing: thresholdPercents must start above 0; got %v",
+			thresholdPercents,
+		))
+	}
+}
 
 // usageThresholdKey is the Redis SETNX key that dedupes a (org, metric,
 // percent, period) emission. The period component gates the window — daily
