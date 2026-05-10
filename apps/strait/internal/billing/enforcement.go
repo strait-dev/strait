@@ -533,7 +533,8 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		return nil // unlimited
 	}
 
-	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01-02"))
+	period := time.Now().UTC().Format("2006-01-02")
+	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, period)
 	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
 		limits.MaxRunsPerDay, int(48*time.Hour/time.Second)).Result()
 	if err != nil {
@@ -549,6 +550,9 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
+
+	e.maybeEmitUsageThreshold(ctx, orgID, string(limits.PlanTier), "daily_runs", period,
+		currentCount, limits.MaxRunsPerDay)
 
 	if allowed == 0 {
 		// Paid plans (Starter/Pro/Enterprise) allow overage — log but don't reject.
@@ -744,6 +748,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 		return nil // unlimited
 	}
 
+	period := time.Now().UTC().Format("2006-01")
 	key := monthlyRunKey(orgID, time.Now())
 	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
 		int64(limits.MaxRunsPerMonth), int64(monthlyRunCounterTTLSecs)).Result()
@@ -760,6 +765,9 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
+
+	e.maybeEmitUsageThreshold(ctx, orgID, string(limits.PlanTier), "monthly_runs", period,
+		currentCount, int64(limits.MaxRunsPerMonth))
 
 	if allowed == 0 {
 		// Paid plans allow overage — track but don't reject.

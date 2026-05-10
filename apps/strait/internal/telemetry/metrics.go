@@ -125,6 +125,7 @@ type Metrics struct {
 	StripeUsageEventsIngested metric.Int64Counter
 	StripeUsageEventsDropped  metric.Int64Counter
 	OverageEntered            metric.Int64Counter
+	UsageThresholdEmitted     metric.Int64Counter
 	HTTPModeRunsCompleted     metric.Int64Counter
 	HTTPModeGateRejected      metric.Int64Counter
 
@@ -732,6 +733,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Total times a paid plan entered daily run overage"),
 		metric.WithUnit("1"),
 	)
+	usageThresholdEmitted, _ := meter.Int64Counter(
+		"strait.billing.usage_threshold_total",
+		metric.WithDescription("Total usage threshold notifications emitted, labeled by tier, metric, and threshold percent"),
+		metric.WithUnit("1"),
+	)
 	httpModeRunsCompleted, _ := meter.Int64Counter(
 		"strait.billing.http_mode_runs_completed_total",
 		metric.WithDescription("Total HTTP mode runs with cost recorded"),
@@ -932,6 +938,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		StripeUsageEventsIngested:    stripeUsageEventsIngested,
 		StripeUsageEventsDropped:     stripeUsageEventsDropped,
 		OverageEntered:               overageEntered,
+		UsageThresholdEmitted:        usageThresholdEmitted,
 		HTTPModeRunsCompleted:        httpModeRunsCompleted,
 		HTTPModeGateRejected:         httpModeGateRejected,
 		AuditEventsEmitted:           auditEventsEmitted,

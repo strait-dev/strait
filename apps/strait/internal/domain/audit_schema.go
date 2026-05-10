@@ -651,6 +651,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"org_id", "plan_tier"},
 		Description: "Org subscription changed (plan upgrade, downgrade, or renewal).",
 	},
+	AuditActionUsageThresholdReached: {
+		Required:    []string{"org_id", "plan_tier", "metric", "threshold_pct", "current", "limit"},
+		Description: "Org crossed an 80%, 90%, or 100% threshold of a metered quota in the current billing period. Emitted at most once per (org, metric, threshold) per period.",
+	},
 
 	// Internal-secret bypass.
 	AuditActionInternalSecretBypass: {

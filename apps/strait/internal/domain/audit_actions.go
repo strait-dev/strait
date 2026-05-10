@@ -206,10 +206,11 @@ const (
 	AuditActionWorkerDeleteTimeout     = "worker.delete.timeout"
 
 	// Quota and cron lifecycle (billing-period enforcement).
-	AuditActionQuotaExceeded       = "quota.exceeded"
-	AuditActionCronPausedQuota     = "cron.paused_quota"
-	AuditActionCronResumedQuota    = "cron.resumed_quota"
-	AuditActionSubscriptionChanged = "subscription.changed"
+	AuditActionQuotaExceeded         = "quota.exceeded"
+	AuditActionCronPausedQuota       = "cron.paused_quota"
+	AuditActionCronResumedQuota      = "cron.resumed_quota"
+	AuditActionSubscriptionChanged   = "subscription.changed"
+	AuditActionUsageThresholdReached = "usage.threshold_reached"
 
 	// Internal-secret callers that skip the project_id requirement on
 	// otherwise project-scoped handlers. Recorded so a leaked
@@ -364,6 +365,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionCronPausedQuota:                 {},
 	AuditActionCronResumedQuota:                {},
 	AuditActionSubscriptionChanged:             {},
+	AuditActionUsageThresholdReached:           {},
 	AuditActionInternalSecretBypass:            {},
 }
 
