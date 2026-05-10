@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/mail"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,37 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// invoiceAuditFields normalises the per-invoice audit payload across every
+// handler that emits one. Three rules:
+//
+//   - amount is recorded as amount_due_minor (string of minor units) so
+//     downstream parsers never have to guess between cents and dollars and
+//     never lose precision through float printing.
+//   - currency is lowercased to match Stripe's documented canonical form
+//     (their schema says lowercase but webhook payloads have shipped both
+//     cases historically).
+//   - stripe_invoice_num exposes invoice.Number — the human-readable
+//     invoice ID Stripe surfaces in customer-facing PDFs — alongside the
+//     internal invoice.ID. Audit consumers can correlate to billing emails
+//     without round-tripping through the Stripe API.
+//
+// Empty fields are omitted so a malformed Stripe payload does not stamp
+// blank cells into ClickHouse.
+func invoiceAuditFields(invoice *stripe.Invoice) map[string]string {
+	if invoice == nil {
+		return map[string]string{}
+	}
+	out := map[string]string{
+		"invoice_id":       invoice.ID,
+		"amount_due_minor": strconv.FormatInt(invoice.AmountDue, 10),
+		"currency":         strings.ToLower(string(invoice.Currency)),
+	}
+	if invoice.Number != "" {
+		out["stripe_invoice_num"] = invoice.Number
+	}
+	return out
+}
 
 var (
 	ErrInvalidSignature = errors.New("invalid webhook signature")
@@ -1460,9 +1492,7 @@ func (h *WebhookHandler) handleInvoiceUncollectible(ctx context.Context, data js
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
-	h.logAuditEvent(ctx, "invoice.uncollectible", orgID, map[string]string{
-		"invoice_id": invoice.ID,
-	})
+	h.logAuditEvent(ctx, "invoice.uncollectible", orgID, invoiceAuditFields(&invoice))
 
 	h.logger.Warn("invoice marked uncollectible, org restricted",
 		"org_id", orgID,
@@ -1490,11 +1520,7 @@ func (h *WebhookHandler) handleInvoiceFinalized(ctx context.Context, data json.R
 		return nil
 	}
 
-	h.logAuditEvent(ctx, "invoice.finalized", orgID, map[string]string{
-		"invoice_id": invoice.ID,
-		"amount_due": fmt.Sprintf("%d", invoice.AmountDue),
-		"currency":   string(invoice.Currency),
-	})
+	h.logAuditEvent(ctx, "invoice.finalized", orgID, invoiceAuditFields(&invoice))
 
 	h.logger.Info("invoice finalized",
 		"org_id", orgID,
@@ -1521,9 +1547,7 @@ func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, da
 		return nil
 	}
 
-	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, map[string]string{
-		"invoice_id": invoice.ID,
-	})
+	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, invoiceAuditFields(&invoice))
 
 	h.logger.Error("invoice finalization failed",
 		"org_id", orgID,
