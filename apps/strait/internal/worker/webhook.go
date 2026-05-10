@@ -118,32 +118,6 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 	})
 }
 
-// sendWebhookWithClientForTest sends a webhook using the provided HTTP
-// client and retry count. The function is package-private on purpose:
-// it bypasses the SSRF-safe webhookClient so production callers MUST
-// route through SendWebhook / SendWebhookWithRetry, which use
-// newSafeWebhookTransport(). The test suite uses this entrypoint to
-// exercise retry, HMAC, redaction, and timeout behavior against
-// httptest.Server endpoints (loopback) without weakening the production
-// SSRF posture for non-test callers.
-func sendWebhookWithClientForTest(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun, maxAttempts int) WebhookResult {
-	if job.WebhookURL == "" {
-		return WebhookResult{Delivered: true}
-	}
-
-	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
-	defer span.End()
-
-	if maxAttempts <= 0 {
-		maxAttempts = 3
-	}
-
-	rp := newWebhookRetryPolicy(maxAttempts, job, run)
-	return sendWithRetryPolicy(ctx, rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnceWith(ctx, client, job, run)
-	})
-}
-
 // sendWithRetryPolicy executes a webhook send function with the given retry policy.
 // The sendFn parameter performs a single delivery attempt.
 func sendWithRetryPolicy(

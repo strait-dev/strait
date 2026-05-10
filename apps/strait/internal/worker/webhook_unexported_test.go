@@ -8,41 +8,57 @@ import (
 	"testing"
 )
 
-// TestSendWebhookWithClientUnexported is the regression guard for fix #6:
-// the BYOC (bring-your-own-client) entrypoint must remain package-private
-// so production code cannot accidentally bypass newSafeWebhookTransport's
-// SSRF protections by passing in a vanilla http.Client. The test
-// statically inspects webhook.go and fails if a top-level identifier
-// matching the old name reappears as exported.
+// TestSendWebhookWithClientUnexported pins the SSRF-safe-transport
+// guarantee: no top-level *WithClient function may be exported in the
+// production webhook.go file, and the test-only sendWebhookWithClient*
+// helper must live in a _test.go file (where it cannot link into the
+// production binary). Scanning both files catches a future contributor
+// who promotes the helper back into webhook.go OR exports a new
+// BYOC entrypoint.
 func TestSendWebhookWithClientUnexported(t *testing.T) {
 	t.Parallel()
 
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "webhook.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse webhook.go: %v", err)
+	files := []struct {
+		path             string
+		allowTestHelper  bool
+		mustHaveTestImpl bool
+	}{
+		{path: "webhook.go", allowTestHelper: false, mustHaveTestImpl: false},
+		{path: "webhook_client_test.go", allowTestHelper: true, mustHaveTestImpl: true},
 	}
 
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
+	for _, f := range files {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, f.path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", f.path, err)
 		}
-		// Methods are fine; we only care about top-level functions whose
-		// name signals a BYOC client entrypoint.
-		if fn.Recv != nil {
-			continue
+
+		var sawTestHelper bool
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil {
+				continue
+			}
+			name := fn.Name.Name
+			if !strings.Contains(name, "WithClient") {
+				continue
+			}
+			if ast.IsExported(name) {
+				t.Fatalf("%s: top-level function %q is exported. BYOC webhook senders MUST stay "+
+					"package-private to keep newSafeWebhookTransport on the only public delivery path.",
+					f.path, name)
+			}
+			if name == "sendWebhookWithClientForTest" {
+				if !f.allowTestHelper {
+					t.Fatalf("%s: sendWebhookWithClientForTest must live in webhook_client_test.go, "+
+						"not in a production .go file (it bypasses the SSRF-safe transport).", f.path)
+				}
+				sawTestHelper = true
+			}
 		}
-		if !strings.Contains(fn.Name.Name, "WithClient") {
-			continue
-		}
-		if ast.IsExported(fn.Name.Name) {
-			t.Fatalf(
-				"top-level function %q is exported. BYOC webhook senders MUST stay package-private "+
-					"to keep the SSRF-safe transport (newSafeWebhookTransport) on the only public delivery path. "+
-					"Production callers must route through SendWebhook / SendWebhookWithRetry.",
-				fn.Name.Name,
-			)
+		if f.mustHaveTestImpl && !sawTestHelper {
+			t.Fatalf("%s: expected sendWebhookWithClientForTest definition", f.path)
 		}
 	}
 }
