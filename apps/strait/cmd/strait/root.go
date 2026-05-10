@@ -28,6 +28,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newBackfillHistoryCommand())
 	cmd.AddCommand(newBackfillEntitlementsCommand())
 	cmd.AddCommand(newSeedPentestCommand())
+	cmd.AddCommand(newRevokePentestCommand())
 
 	rawArgs := os.Args[1:]
 	cmd.SetArgs(normalizeLegacyArgs(rawArgs))
@@ -49,6 +50,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"backfill-history":      {},
 		"backfill-entitlements": {},
 		"seed-pentest":          {},
+		"revoke-pentest":        {},
 	}
 
 	first := args[0]
