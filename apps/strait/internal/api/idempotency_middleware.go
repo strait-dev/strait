@@ -209,7 +209,20 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			// Only cache 2xx responses. Error responses delete the pending
 			// row so the client can retry with the same key.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
-				if completeErr := s.store.CompleteIdempotencyKey(r.Context(), projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
+				// CompleteIdempotencyKey rides a detached, time-bounded
+				// context for the same reason cleanup does: chi's
+				// timeout middleware (and client disconnects) cancel
+				// r.Context() the moment the handler returns. Without
+				// the detach, a request that succeeded mid-flight would
+				// race with that cancellation, fail the cache write,
+				// then drop the pending row via cleanup() — so the next
+				// retry re-executes the (already successful) operation
+				// instead of replaying the cached body.
+				completeCtx, completeCancel := context.WithTimeout(
+					context.WithoutCancel(r.Context()),
+					s.idempotencyCleanupTimeout(),
+				)
+				if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
 					slog.Error("idempotency key complete failed",
 						"idempotency_key_hash", keyHash,
 						"project_id", projectID,
@@ -218,7 +231,10 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 					// block every retry with 409. Better to clear it
 					// even though we lose the replay cache for this
 					// key — caller can safely retry.
+					completeCancel()
 					cleanup()
+				} else {
+					completeCancel()
 				}
 			} else {
 				cleanup()
