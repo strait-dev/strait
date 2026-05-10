@@ -14,6 +14,12 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// ErrAPIKeyNotFound is returned by lookups (GetAPIKeyByHash, GetAPIKeyByID)
+// when the row does not exist or has been hard-deleted. Callers MUST match
+// it via errors.Is — string comparison on err.Error() drifts the moment a
+// future caller wraps the error and there is no compile-time signal.
+var ErrAPIKeyNotFound = errors.New("api key not found")
+
 func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAPIKey")
 	defer span.End()
@@ -51,7 +57,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 	key, err := scanAPIKey(q.db.QueryRow(ctx, query, keyHash))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("api key not found")
+			return nil, ErrAPIKeyNotFound
 		}
 		return nil, fmt.Errorf("get api key by hash: %w", err)
 	}
@@ -178,7 +184,7 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey,
 	key, err := scanAPIKey(q.db.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("api key not found")
+			return nil, ErrAPIKeyNotFound
 		}
 		return nil, fmt.Errorf("get api key by id: %w", err)
 	}
