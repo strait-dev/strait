@@ -67,8 +67,11 @@ func TestCaptureWriterHijackForwardsToUnderlying(t *testing.T) {
 	}
 }
 
-// TestCaptureWriterHijackReportsUnsupported surfaces an error rather
-// than a panic when the underlying writer is not a Hijacker.
+// TestCaptureWriterHijackReportsUnsupported pins the error sentinel:
+// callers using errors.Is(err, http.ErrNotSupported) — the stdlib
+// convention also followed by Push — must be able to detect the
+// missing-capability case. A bespoke errors.New string would silently
+// fail those checks.
 func TestCaptureWriterHijackReportsUnsupported(t *testing.T) {
 	t.Parallel()
 
@@ -77,8 +80,9 @@ func TestCaptureWriterHijackReportsUnsupported(t *testing.T) {
 	if !ok {
 		t.Fatal("captureWriter does not implement http.Hijacker")
 	}
-	if _, _, err := hj.Hijack(); err == nil {
-		t.Fatal("expected Hijack to error when underlying is not a Hijacker")
+	_, _, err := hj.Hijack()
+	if !errors.Is(err, http.ErrNotSupported) {
+		t.Fatalf("Hijack() = %v, want http.ErrNotSupported", err)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -361,16 +360,14 @@ func (cw *captureWriter) Flush() {
 }
 
 // Hijack lets WebSocket and similar long-lived upgrade handlers escape
-// the buffered-capture path. Once the connection is hijacked the
-// idempotency cache cannot meaningfully memoize the response anyway:
-// callers that need replayable caching must not hijack. We surface
-// http.ErrNotSupported when the underlying writer is not a Hijacker so
-// callers see the standard Go signal instead of a nil panic.
+// the buffered-capture path. Returns http.ErrNotSupported (matching
+// Push and stdlib convention) when the underlying writer is not a
+// Hijacker so callers using errors.Is can detect the missing capability.
 func (cw *captureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := cw.ResponseWriter.(http.Hijacker); ok {
 		return h.Hijack()
 	}
-	return nil, nil, errors.New("captureWriter: underlying ResponseWriter is not http.Hijacker")
+	return nil, nil, http.ErrNotSupported
 }
 
 // Push forwards HTTP/2 server push when supported; otherwise returns
