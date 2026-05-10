@@ -13,6 +13,8 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"strait/internal/store"
@@ -37,6 +39,27 @@ const maxIdempotencyResponseBytes = 16 << 20
 // request handler canceling its own ctx does not strand the pending
 // row for the full TTL.
 const defaultIdempotencyCleanupTimeout = 5 * time.Second
+
+// canonicalizeIdempotencyPath collapses cosmetic path differences so
+// callers that hit the same logical resource hash to the same composite
+// key. Without this, a client retrying with "/v1/jobs/" or "/v1//jobs"
+// would compute a different key than the original "/v1/jobs" call and
+// re-execute the operation. path.Clean handles "..", "//", and trailing
+// slashes; we additionally lowercase ASCII because chi treats routes as
+// case-sensitive but RFC 3986 considers the path component itself
+// case-sensitive — we choose dedupe-safety over fidelity here, which
+// is the correct trade for retry semantics.
+func canonicalizeIdempotencyPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	cleaned := path.Clean(p)
+	// path.Clean on "/foo/" yields "/foo", on "/" yields "/", on "" yields ".".
+	if cleaned == "." {
+		return "/"
+	}
+	return strings.ToLower(cleaned)
+}
 
 // idempotencyCompositeKey returns a length-prefixed SHA-256 of the
 // scoping components. Length prefixes make the encoding injective so
@@ -135,7 +158,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 
 		compositeKey := idempotencyCompositeKey(
 			actorFromContext(r.Context()),
-			r.URL.Path,
+			canonicalizeIdempotencyPath(r.URL.Path),
 			environmentIDFromContext(r.Context()),
 			key,
 		)
