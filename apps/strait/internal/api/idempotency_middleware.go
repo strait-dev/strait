@@ -3,8 +3,12 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"time"
 
@@ -21,13 +25,75 @@ const idempotencyKeyTTL = 24 * time.Hour
 // proceed without seeing a truncated cached body.
 const maxIdempotencyResponseBytes = 16 << 20
 
-// idempotencyCleanupTimeout caps how long the middleware will block
-// waiting for DeleteIdempotencyKey when releasing a pending row after a
-// panic or a non-2xx response. The cleanup runs against a context that
-// outlives the request (context.WithoutCancel) so the request handler
-// canceling its own ctx -- e.g. timeout middleware firing -- does not
-// strand the pending row for the full TTL.
-const idempotencyCleanupTimeout = 5 * time.Second
+// defaultIdempotencyCleanupTimeout is the fallback when
+// config.IdempotencyCleanupTimeout is unset (test servers, missing
+// env). It caps how long the middleware will block waiting for
+// DeleteIdempotencyKey when releasing a pending row after a panic, a
+// non-2xx response, or an overflowed body. The cleanup runs against a
+// context that outlives the request (context.WithoutCancel) so the
+// request handler canceling its own ctx does not strand the pending
+// row for the full TTL.
+const defaultIdempotencyCleanupTimeout = 5 * time.Second
+
+// idempotencyCompositeKey returns a length-prefixed SHA-256 of the
+// scoping components. Length prefixes make the encoding injective so
+// two distinct (actor, path, env, key) tuples can never collide via
+// separator confusion (e.g. a path containing ":env:"). The hex digest
+// is also bounded to a known column-friendly length regardless of the
+// input sizes.
+func idempotencyCompositeKey(actorID, path, envID, key string) string {
+	h := sha256.New()
+	for _, part := range []string{actorID, path, envID, key} {
+		// All four inputs are HTTP-bounded: keys ≤ maxIdempotencyKeyLength,
+		// paths capped by chi's request line limit, actor/env ids fit in a
+		// CHAR(36)-style column. Clamping to math.MaxUint32 is therefore a
+		// noop in practice, but the explicit guard makes the int→uint32
+		// conversion provably safe and silences gosec G115.
+		n := min(len(part), math.MaxUint32)
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(lenBuf[:], uint32(n)) // #nosec G115 -- clamped above to math.MaxUint32
+		_, _ = h.Write(lenBuf[:])
+		_, _ = h.Write([]byte(part))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// idempotencyCleanupTimeout returns the configured cleanup deadline,
+// falling back to defaultIdempotencyCleanupTimeout when config is nil
+// or unset. Centralizing the lookup avoids nil-deref in tests that
+// build a Server without a fully-populated config.
+func (s *Server) idempotencyCleanupTimeout() time.Duration {
+	if s.config != nil && s.config.IdempotencyCleanupTimeout > 0 {
+		return s.config.IdempotencyCleanupTimeout
+	}
+	return defaultIdempotencyCleanupTimeout
+}
+
+// idempotencyFailOpen reports whether the middleware should fall
+// through to the handler (no dedupe) when the idempotency store is
+// unreachable. Default is false: fail closed with 503 so non-idempotent
+// operations are never executed twice during a store outage.
+func (s *Server) idempotencyFailOpen() bool {
+	return s.config != nil && s.config.IdempotencyFailOpen
+}
+
+// runIdempotencyCleanup executes DeleteIdempotencyKey against a
+// detached, time-bounded context and surfaces failures via slog so an
+// operator can alert on stuck pending rows. The detached context
+// (context.WithoutCancel) means cleanup outlives a canceled request
+// (timeout middleware, client disconnect). defer cancel() guarantees
+// timer release even if DeleteIdempotencyKey panics.
+func (s *Server) runIdempotencyCleanup(parentCtx context.Context, projectID, compositeKey, keyHash string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), s.idempotencyCleanupTimeout())
+	defer cancel()
+	if _, err := s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey); err != nil {
+		slog.Warn("idempotency cleanup failed; pending row may block retries until TTL",
+			"idempotency_key_hash", keyHash,
+			"project_id", projectID,
+			"ttl", idempotencyKeyTTL,
+			"error", err)
+	}
+}
 
 // idempotencyMiddleware intercepts POST requests that carry an Idempotency-Key
 // (or X-Idempotency-Key) header. It implements the insert-pending-first pattern:
@@ -37,9 +103,10 @@ const idempotencyCleanupTimeout = 5 * time.Second
 //  3. If completed, replay the cached response with an Idempotency-Replayed header.
 //  4. If pending (another request is processing), return 409 Conflict.
 //
-// The composite key includes the request path to prevent cross-endpoint replay.
-// Only 2xx responses are cached; error responses delete the pending row so
-// the key can be retried.
+// The composite key is a hash of (actor, path, env, key) so two callers in
+// the same project who pick the same Idempotency-Key string never share a
+// cache entry. Only 2xx responses are cached; error responses delete the
+// pending row so the key can be retried.
 func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("Idempotency-Key")
@@ -63,21 +130,25 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scope the key to the calling actor, request path, and environment.
-		// Without the actor prefix, two callers in the same project who pick
-		// the same Idempotency-Key string would share a cache entry: a
-		// low-privilege caller could read another caller's cached response
-		// (or its 409 pending row would block them) by guessing the key.
-		// Handler-level environment checks do not run when a completed key
-		// is replayed from cache, so the env id must stay in the composite.
-		compositeKey := actorFromContext(r.Context()) + ":" + r.URL.Path + ":env:" + environmentIDFromContext(r.Context()) + ":" + key
+		compositeKey := idempotencyCompositeKey(
+			actorFromContext(r.Context()),
+			r.URL.Path,
+			environmentIDFromContext(r.Context()),
+			key,
+		)
+		keyHash := hashIdempotencyKey(key)
 
 		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
 		if err != nil {
 			slog.Error("idempotency key acquire failed",
-				"idempotency_key_hash", hashIdempotencyKey(key),
+				"idempotency_key_hash", keyHash,
 				"project_id", projectID,
 				"error", err)
+			if !s.idempotencyFailOpen() {
+				respondError(w, r, http.StatusServiceUnavailable,
+					"idempotency store unavailable; retry later")
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -98,51 +169,56 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 		case store.IdempotencyAcquired:
 			cw := &captureWriter{ResponseWriter: w}
 
-			// If the handler panics, clean up the pending row so the key
-			// can be retried instead of being stuck for the full TTL.
-			// Use a detached context so cleanup outlives a canceled
-			// request (timeout middleware, client disconnect).
-			panicked := true
+			// Use recover() to clean up unconditionally on panic, no
+			// matter where in the post-acquire flow the panic happens
+			// (handler, CompleteIdempotencyKey, or the cleanup paths
+			// themselves). The original panic is re-raised so chi's
+			// recoverer still produces a 500 for the client.
+			cleanupOnce := false
+			cleanup := func() {
+				if cleanupOnce {
+					return
+				}
+				cleanupOnce = true
+				s.runIdempotencyCleanup(r.Context(), projectID, compositeKey, keyHash)
+			}
 			defer func() {
-				if panicked {
-					cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), idempotencyCleanupTimeout)
-					defer cancel()
-					_, _ = s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey)
+				if rec := recover(); rec != nil {
+					cleanup()
+					panic(rec)
 				}
 			}()
 
 			next.ServeHTTP(cw, r)
-			panicked = false
 
 			// If the captured body overflowed the cap, the caller still
 			// got the full response but we cannot memoize a truncated
 			// body for replay. Drop the pending row so retries proceed.
 			if cw.overflow {
 				slog.Warn("idempotency response exceeds cap; dropping cache entry",
-					"idempotency_key_hash", hashIdempotencyKey(key),
+					"idempotency_key_hash", keyHash,
 					"project_id", projectID,
 					"cap_bytes", maxIdempotencyResponseBytes)
-				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), idempotencyCleanupTimeout)
-				_, _ = s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey)
-				cancel()
+				cleanup()
 				return
 			}
 
 			// Only cache 2xx responses. Error responses delete the pending
-			// row so the client can retry with the same key. Cleanup runs
-			// on a detached context for the same reason as the panic
-			// branch above.
+			// row so the client can retry with the same key.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
 				if completeErr := s.store.CompleteIdempotencyKey(r.Context(), projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
 					slog.Error("idempotency key complete failed",
-						"idempotency_key_hash", hashIdempotencyKey(key),
+						"idempotency_key_hash", keyHash,
 						"project_id", projectID,
 						"error", completeErr)
+					// Pending row would otherwise sit until TTL and
+					// block every retry with 409. Better to clear it
+					// even though we lose the replay cache for this
+					// key — caller can safely retry.
+					cleanup()
 				}
 			} else {
-				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), idempotencyCleanupTimeout)
-				_, _ = s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey)
-				cancel()
+				cleanup()
 			}
 			return
 

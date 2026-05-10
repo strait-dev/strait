@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -67,8 +66,10 @@ func TestFix_10_DifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 	if acquireKeys[0] == acquireKeys[1] {
 		t.Fatalf("expected per-actor composite keys to differ, both = %q", acquireKeys[0])
 	}
-	if !strings.Contains(acquireKeys[0], "apikey:alice-key") || !strings.Contains(acquireKeys[1], "apikey:bob-key") {
-		t.Fatalf("composite keys missing actor prefix: %v", acquireKeys)
+	for i, k := range acquireKeys {
+		if !isHexDigest(k) {
+			t.Fatalf("acquireKeys[%d] = %q, want hashed digest", i, k)
+		}
 	}
 	if len(completeKeys) != 2 {
 		t.Fatalf("CompleteIdempotencyKey calls = %d, want 2", len(completeKeys))

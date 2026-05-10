@@ -15,6 +15,23 @@ import (
 	"strait/internal/domain"
 )
 
+// isHexDigest returns true if s is a 64-character lowercase SHA-256
+// hex digest, the format produced by idempotencyCompositeKey.
+func isHexDigest(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
 	t.Parallel()
 	called := false
@@ -56,9 +73,8 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 			if projectID != "proj-1" {
 				t.Fatalf("unexpected project: %s", projectID)
 			}
-			// Key should be composite: path:key
-			if !strings.Contains(key, "my-key") {
-				t.Fatalf("expected key to contain 'my-key', got %s", key)
+			if !isHexDigest(key) {
+				t.Fatalf("expected hashed composite key, got %q", key)
 			}
 			return "acquired", 0, nil, nil
 		},
@@ -257,8 +273,8 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
-			if !strings.Contains(key, "x-header-key") {
-				t.Fatalf("expected key to contain x-header-key, got %s", key)
+			if !isHexDigest(key) {
+				t.Fatalf("expected hashed composite key, got %q", key)
 			}
 			return "acquired", 0, nil, nil
 		},
@@ -325,10 +341,10 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 
 func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 	t.Parallel()
-	var capturedKey string
+	var captured []string
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
-			capturedKey = key
+			captured = append(captured, key)
 			return "acquired", 0, nil, nil
 		},
 		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
@@ -342,15 +358,24 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
 
-	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
-	r.Header.Set("Idempotency-Key", "same-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
-	w := httptest.NewRecorder()
+	for _, path := range []string{"/v1/jobs", "/v1/runs"} {
+		r := httptest.NewRequest(http.MethodPost, path, nil)
+		r.Header.Set("Idempotency-Key", "same-key")
+		r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+		w := httptest.NewRecorder()
+		wrapped.ServeHTTP(w, r)
+	}
 
-	wrapped.ServeHTTP(w, r)
-
-	if capturedKey != "/v1/jobs:env::same-key" {
-		t.Fatalf("expected composite key '/v1/jobs:env::same-key', got %q", capturedKey)
+	if len(captured) != 2 {
+		t.Fatalf("captured = %d, want 2", len(captured))
+	}
+	for i, k := range captured {
+		if !isHexDigest(k) {
+			t.Fatalf("captured[%d] = %q, want hashed digest", i, k)
+		}
+	}
+	if captured[0] == captured[1] {
+		t.Fatalf("path-scoped requests reused composite key %q", captured[0])
 	}
 }
 
@@ -390,14 +415,13 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 	if len(capturedKeys) != 2 {
 		t.Fatalf("captured keys = %d, want 2", len(capturedKeys))
 	}
+	for i, k := range capturedKeys {
+		if !isHexDigest(k) {
+			t.Fatalf("capturedKeys[%d] = %q, want hashed digest", i, k)
+		}
+	}
 	if capturedKeys[0] == capturedKeys[1] {
 		t.Fatalf("environment-scoped requests reused idempotency key %q", capturedKeys[0])
-	}
-	if capturedKeys[0] != "/v1/jobs/job-1/clone:env:env-production:clone-key" {
-		t.Fatalf("production key = %q", capturedKeys[0])
-	}
-	if capturedKeys[1] != "/v1/jobs/job-1/clone:env:env-staging:clone-key" {
-		t.Fatalf("staging key = %q", capturedKeys[1])
 	}
 }
 

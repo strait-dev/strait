@@ -156,7 +156,11 @@ func TestFix_09_CaptureWriterBuffersAtMostCap(t *testing.T) {
 	cw := &captureWriter{ResponseWriter: httptest.NewRecorder()}
 	chunk := make([]byte, 1<<20) // 1 MiB
 	totalWritten := 0
-	for i := range 32 { // 32 MiB total
+	// Cap is 16 MiB; write exactly cap+1 chunks so we trigger overflow
+	// but never balloon the test process to 32 MiB. Re-using one chunk
+	// keeps allocator pressure flat at 1 MiB.
+	iterations := (maxIdempotencyResponseBytes / len(chunk)) + 1
+	for i := range iterations {
 		n, err := cw.Write(chunk)
 		if err != nil {
 			t.Fatalf("Write iteration %d returned err = %v", i, err)
@@ -184,9 +188,11 @@ func FuzzFix_09_CaptureWriterBoundedBufferSize(f *testing.F) {
 	f.Add(uint32(2 * maxIdempotencyResponseBytes))
 
 	f.Fuzz(func(t *testing.T, size uint32) {
-		// Cap fuzz inputs at 64 MiB to keep runtime sane.
-		if size > 64<<20 {
-			size = 64 << 20
+		// Cap fuzz inputs at 32 MiB (2x the body cap) so we still
+		// exercise the overflow branch but never allocate 64+ MiB per
+		// iteration in -fuzz runs.
+		if size > 32<<20 {
+			size = 32 << 20
 		}
 		cw := &captureWriter{ResponseWriter: httptest.NewRecorder()}
 		chunk := make([]byte, size)
@@ -212,7 +218,10 @@ func TestFix_09_CaptureWriterPropertyBoundedBuffer(t *testing.T) {
 	t.Parallel()
 
 	prop := func(rawSize uint32) bool {
-		size := int(rawSize % (4 * uint32(maxIdempotencyResponseBytes)))
+		// Bound at 2x cap so a 200-iteration property check tops out
+		// around 6 GB of allocations rather than 12 GB. Still exercises
+		// both under-cap and over-cap branches.
+		size := int(rawSize % (2 * uint32(maxIdempotencyResponseBytes)))
 		cw := &captureWriter{ResponseWriter: httptest.NewRecorder()}
 		_, _ = cw.Write(make([]byte, size))
 		return cw.body.Len() <= maxIdempotencyResponseBytes
