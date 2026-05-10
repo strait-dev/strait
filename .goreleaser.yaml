@@ -78,35 +78,91 @@ brews:
 
 dockers:
   - image_templates:
-      - "ghcr.io/leonardomso/strait:{{ .Version }}-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-amd64"
     use: buildx
     dockerfile: ./apps/strait/Dockerfile
     build_flag_templates:
       - "--platform=linux/amd64"
+      - "--build-arg=BUILD_TAGS="
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .ShortCommit }}"
+      - "--build-arg=DATE={{ .Date }}"
       - "--label=org.opencontainers.image.title={{ .ProjectName }}"
       - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--label=org.opencontainers.image.source=https://github.com/leonardomso/strait"
+      - "--label=io.strait.edition=community"
     goarch: amd64
   - image_templates:
-      - "ghcr.io/leonardomso/strait:{{ .Version }}-arm64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-arm64"
     use: buildx
     dockerfile: ./apps/strait/Dockerfile
     build_flag_templates:
       - "--platform=linux/arm64"
+      - "--build-arg=BUILD_TAGS="
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .ShortCommit }}"
+      - "--build-arg=DATE={{ .Date }}"
       - "--label=org.opencontainers.image.title={{ .ProjectName }}"
       - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--label=org.opencontainers.image.source=https://github.com/leonardomso/strait"
+      - "--label=io.strait.edition=community"
+    goarch: arm64
+  - image_templates:
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-cloud-amd64"
+    use: buildx
+    dockerfile: ./apps/strait/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=BUILD_TAGS=cloud"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .ShortCommit }}"
+      - "--build-arg=DATE={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/leonardomso/strait"
+      - "--label=io.strait.edition=cloud"
+    goarch: amd64
+  - image_templates:
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-cloud-arm64"
+    use: buildx
+    dockerfile: ./apps/strait/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=BUILD_TAGS=cloud"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .ShortCommit }}"
+      - "--build-arg=DATE={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/leonardomso/strait"
+      - "--label=io.strait.edition=cloud"
     goarch: arm64
 
 docker_manifests:
+  - name_template: "ghcr.io/leonardomso/strait:{{ .Version }}-community"
+    image_templates:
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-arm64"
+  - name_template: "ghcr.io/leonardomso/strait:{{ .Version }}-cloud"
+    image_templates:
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-cloud-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-cloud-arm64"
+  - name_template: "ghcr.io/leonardomso/strait:community-latest"
+    image_templates:
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-arm64"
+  - name_template: "ghcr.io/leonardomso/strait:cloud-latest"
+    image_templates:
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-cloud-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-cloud-arm64"
   - name_template: "ghcr.io/leonardomso/strait:{{ .Version }}"
     image_templates:
-      - "ghcr.io/leonardomso/strait:{{ .Version }}-amd64"
-      - "ghcr.io/leonardomso/strait:{{ .Version }}-arm64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-arm64"
   - name_template: "ghcr.io/leonardomso/strait:latest"
     image_templates:
-      - "ghcr.io/leonardomso/strait:{{ .Version }}-amd64"
-      - "ghcr.io/leonardomso/strait:{{ .Version }}-arm64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-amd64"
+      - "ghcr.io/leonardomso/strait:{{ .Version }}-community-arm64"
 
 checksum:
   name_template: "checksums.txt"
