@@ -366,6 +366,37 @@ Bump rules (release-please reads commit types):
 
 Version source of truth is `.release-please-manifest.json`. Do not edit it by hand.
 
+#### Tag protection
+
+`v*` tags are protected by a repository ruleset (`Settings → Rules → Rulesets → Protect v* tags`):
+
+- Creation, update, and deletion of any `refs/tags/v*` are restricted.
+- Bypass: the `strait-release-please` GitHub App (which release-please uses to push the release tag) and repo admins.
+
+If you need to push or delete a `v*` tag manually, do it as a repo admin or temporarily disable the ruleset. Don't bypass it casually — accidental local tag pushes were the original motivation.
+
+To recreate the ruleset if it's deleted (replace the App ID if regenerated):
+
+```bash
+gh api repos/strait-dev/strait/rulesets --method POST --input - <<'JSON'
+{
+  "name": "Protect v* tags",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
+  "rules": [
+    { "type": "creation" },
+    { "type": "update" },
+    { "type": "deletion" }
+  ],
+  "bypass_actors": [
+    { "actor_id": 3666235, "actor_type": "Integration", "bypass_mode": "always" },
+    { "actor_id": 5,       "actor_type": "RepositoryRole", "bypass_mode": "always" }
+  ]
+}
+JSON
+```
+
 ---
 
 ## 11. DOs and DON'Ts
