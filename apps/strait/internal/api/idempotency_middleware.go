@@ -63,10 +63,14 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scope the key to the request path and caller environment to prevent
-		// cross-endpoint and cross-environment replay. Handler-level environment
-		// checks do not run when a completed key is replayed from cache.
-		compositeKey := r.URL.Path + ":env:" + environmentIDFromContext(r.Context()) + ":" + key
+		// Scope the key to the calling actor, request path, and environment.
+		// Without the actor prefix, two callers in the same project who pick
+		// the same Idempotency-Key string would share a cache entry: a
+		// low-privilege caller could read another caller's cached response
+		// (or its 409 pending row would block them) by guessing the key.
+		// Handler-level environment checks do not run when a completed key
+		// is replayed from cache, so the env id must stay in the composite.
+		compositeKey := actorFromContext(r.Context()) + ":" + r.URL.Path + ":env:" + environmentIDFromContext(r.Context()) + ":" + key
 
 		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
 		if err != nil {
