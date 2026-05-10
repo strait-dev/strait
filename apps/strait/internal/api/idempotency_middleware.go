@@ -1,14 +1,17 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"time"
 
@@ -264,4 +267,39 @@ func (cw *captureWriter) Write(b []byte) (int, error) {
 		}
 	}
 	return cw.ResponseWriter.Write(b)
+}
+
+// Flush forwards to the underlying writer when it implements
+// http.Flusher. Without this method, handlers that call w.(http.Flusher)
+// from under idempotencyMiddleware fail the type assertion exactly the
+// way bufferedResponseWriter did before phase 1, so any future SSE-ish
+// endpoint accepting Idempotency-Key would 500. The captured body is
+// independent of flushes — bytes already streamed remain in cw.body.
+func (cw *captureWriter) Flush() {
+	if f, ok := cw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack lets WebSocket and similar long-lived upgrade handlers escape
+// the buffered-capture path. Once the connection is hijacked the
+// idempotency cache cannot meaningfully memoize the response anyway:
+// callers that need replayable caching must not hijack. We surface
+// http.ErrNotSupported when the underlying writer is not a Hijacker so
+// callers see the standard Go signal instead of a nil panic.
+func (cw *captureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := cw.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("captureWriter: underlying ResponseWriter is not http.Hijacker")
+}
+
+// Push forwards HTTP/2 server push when supported; otherwise returns
+// http.ErrNotSupported so callers fall back to non-push delivery rather
+// than misinterpret a silent no-op.
+func (cw *captureWriter) Push(target string, opts *http.PushOptions) error {
+	if p, ok := cw.ResponseWriter.(http.Pusher); ok {
+		return p.Push(target, opts)
+	}
+	return http.ErrNotSupported
 }
