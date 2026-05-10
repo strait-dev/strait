@@ -128,7 +128,6 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		return nil, huma.Error400BadRequest("format must be one of: json, csv, ndjson")
 	}
 
-	// Retrieve the raw response writer for streaming output.
 	w := responseWriterFromContext(ctx)
 	r := requestFromContext(ctx)
 	if w == nil || r == nil {
@@ -160,7 +159,6 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	setExportFormatHeaders(w, format)
 
-	// Wrap writer to tee into HMAC hash.
 	var out io.Writer = w
 	if mac != nil {
 		out = io.MultiWriter(w, mac)

@@ -28,15 +28,13 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 		return nil
 	}
 
-	// Determine the caller's effective permissions.
-	// For OIDC users with empty token scopes, load from the database.
-	// For API keys with empty scopes (legacy backwards compat = full access),
-	// we still load from the scopes directly.
+	// OIDC users carry no scopes on the token; load from the project's
+	// role assignments. Legacy API keys with no scopes predate the scope
+	// system and retain full access for backwards compatibility.
 	effectivePerms := callerScopes
 	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 
 	if len(callerScopes) == 0 && actorType == "user" {
-		// OIDC user with empty scopes: load effective permissions from DB.
 		projectID := projectIDFromContext(ctx)
 		actorID := actorFromContext(ctx)
 		if projectID != "" && actorID != "" {
@@ -48,16 +46,13 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 			effectivePerms = perms
 		}
 	} else if len(callerScopes) == 0 {
-		// Legacy API key with empty scopes = full access (backwards compat).
 		return nil
 	}
 
-	// Check if effective permissions include wildcard.
 	if slices.Contains(effectivePerms, domain.ScopeAll) {
 		return nil
 	}
 
-	// Build a set of the caller's effective permissions for fast lookup.
 	permSet := make(map[string]bool, len(effectivePerms))
 	for _, p := range effectivePerms {
 		permSet[p] = true
@@ -73,8 +68,6 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 	}
 	return nil
 }
-
-// Roles.
 
 type createRoleRequest struct {
 	Name         string   `json:"name" validate:"required,max=255"`

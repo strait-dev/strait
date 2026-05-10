@@ -163,7 +163,6 @@ func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte)
 	_, _ = mac.Write(payload)
 	sig := hex.EncodeToString(mac.Sum(nil))
 
-	// New headers.
 	req.Header.Set("X-Strait-Timestamp", ts)
 	req.Header.Set("X-Strait-Signature", "v1="+sig)
 	req.Header.Set("X-Webhook-Signature", "v1="+sig)

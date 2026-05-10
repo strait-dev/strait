@@ -197,15 +197,10 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 
 		switch status {
 		case store.IdempotencyComplete:
-			// Replay the captured headers verbatim so spec-compliant
-			// retries see the same Content-Type, Location, ETag,
-			// Set-Cookie, etc. as the original response. Pre-fix replays
-			// hard-coded application/json and dropped everything else,
-			// breaking POST→201 with Location and any handler that
-			// returned non-JSON content. Pre-migration rows have no
-			// header snapshot (respHeaders is nil); fall back to JSON
-			// for those so the upgrade is forward-compatible without a
-			// store-wide migration sweep.
+			// Replay the captured headers verbatim so retries observe the
+			// same Content-Type, Location, ETag, Set-Cookie, etc. as the
+			// original response. Rows written before the header-snapshot
+			// migration store nil headers; fall back to JSON for those.
 			dst := w.Header()
 			if len(respHeaders) > 0 {
 				for k, vals := range respHeaders {
@@ -264,15 +259,11 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			// Only cache 2xx responses. Error responses delete the pending
 			// row so the client can retry with the same key.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
-				// CompleteIdempotencyKey rides a detached, time-bounded
-				// context for the same reason cleanup does: chi's
-				// timeout middleware (and client disconnects) cancel
-				// r.Context() the moment the handler returns. Without
-				// the detach, a request that succeeded mid-flight would
-				// race with that cancellation, fail the cache write,
-				// then drop the pending row via cleanup() — so the next
-				// retry re-executes the (already successful) operation
-				// instead of replaying the cached body.
+				// Detach from r.Context() because chi's timeout middleware
+				// and client disconnects cancel it the moment the handler
+				// returns; a canceled context here would race the cache
+				// write and force the next retry to re-execute the
+				// already-successful operation.
 				completeCtx, completeCancel := context.WithTimeout(
 					context.WithoutCancel(r.Context()),
 					s.idempotencyCleanupTimeout(),
@@ -282,10 +273,8 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 						"idempotency_key_hash", keyHash,
 						"project_id", projectID,
 						"error", completeErr)
-					// Pending row would otherwise sit until TTL and
-					// block every retry with 409. Better to clear it
-					// even though we lose the replay cache for this
-					// key — caller can safely retry.
+					// Drop the pending row so retries are not blocked by
+					// 409 until TTL expires; replay cache is sacrificed.
 					completeCancel()
 					cleanup()
 				} else {
