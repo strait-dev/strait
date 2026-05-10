@@ -453,6 +453,8 @@ func (h *WebhookHandler) dispatchStripeEvent(ctx context.Context, event stripe.E
 		return h.handleInvoiceUpcoming(ctx, event.Data.Raw)
 	case stripe.EventTypeInvoiceMarkedUncollectible:
 		return h.handleInvoiceUncollectible(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceFinalized:
+		return h.handleInvoiceFinalized(ctx, event.Data.Raw)
 	case stripe.EventTypeInvoiceFinalizationFailed:
 		return h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
 	default:
@@ -1434,6 +1436,38 @@ func (h *WebhookHandler) handleInvoiceUncollectible(ctx context.Context, data js
 	h.logger.Warn("invoice marked uncollectible, org restricted",
 		"org_id", orgID,
 		"invoice_id", invoice.ID,
+	)
+	return nil
+}
+
+// handleInvoiceFinalized fires when Stripe finalizes an invoice — the canonical
+// signal that the amount due is locked in. We record an audit breadcrumb so the
+// dashboard can correlate finalize → paid/payment_failed transitions without
+// recomputing from raw Stripe data.
+func (h *WebhookHandler) handleInvoiceFinalized(ctx context.Context, data json.RawMessage) error {
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		return fmt.Errorf("parsing invoice data: %w", err)
+	}
+
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
+	if orgID == "" {
+		return nil
+	}
+
+	h.logAuditEvent(ctx, "invoice.finalized", orgID, map[string]string{
+		"invoice_id": invoice.ID,
+		"amount_due": fmt.Sprintf("%d", invoice.AmountDue),
+		"currency":   string(invoice.Currency),
+	})
+
+	h.logger.Info("invoice finalized",
+		"org_id", orgID,
+		"invoice_id", invoice.ID,
+		"amount_due", invoice.AmountDue,
 	)
 	return nil
 }

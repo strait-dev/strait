@@ -258,6 +258,15 @@ func allDispatchedEventCases(t *testing.T) []webhookEventCase {
 			sideEffectHits: auditHits,
 		},
 		{
+			name:           "invoice_finalized",
+			eventType:      string(stripe.EventTypeInvoiceFinalized),
+			newStoreOrgID:  "00000000-0000-0000-0000-aaaa0000000d",
+			buildStore:     activeSubStore,
+			buildPayload:   mkInv("00000000-0000-0000-0000-aaaa0000000d", "final"),
+			sideEffectName: "audit",
+			sideEffectHits: auditHits,
+		},
+		{
 			name:           "charge_dispute_created",
 			eventType:      string(stripe.EventTypeChargeDisputeCreated),
 			newStoreOrgID:  "00000000-0000-0000-0000-aaaa0000000c",
