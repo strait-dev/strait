@@ -169,17 +169,31 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		ExpiresAt:     expiresAt,
 		EnvironmentID: environmentIDFromContext(ctx),
 	}
-	// CreateAPIKey + ApproveDeviceCodeByUserCode must commit atomically.
-	// Without the wrapping tx, a race where the device code transitions
-	// out of 'pending' between the two calls (concurrent approval) leaves
-	// the api_keys row orphaned: it is never returned to the polling CLI
-	// and never revoked by any other path.
+	// CreateAPIKey + ApproveDeviceCodeByUserCode + audit insert must
+	// commit atomically. Without the wrapping tx, a race where the
+	// device code transitions out of 'pending' between the two calls
+	// (concurrent approval) leaves the api_keys row orphaned: it is
+	// never returned to the polling CLI and never revoked by any other
+	// path. The audit event is inserted in the same tx so a crash or
+	// audit-store outage cannot produce an approved-but-not-audited
+	// device code, which would silently bypass our compliance trail
+	// for credential issuance.
+	auditEvent, hasAudit := s.buildAuditEvent(ctx, domain.AuditActionDeviceCodeApproved, "device_code", row.ID, map[string]any{
+		"user_code":  row.UserCode,
+		"api_key_id": apiKey.ID,
+		"project_id": req.ProjectID,
+	})
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
 		if err := txStore.CreateAPIKey(ctx, apiKey); err != nil {
 			return fmt.Errorf("create api key: %w", err)
 		}
 		if err := txStore.ApproveDeviceCodeByUserCode(ctx, req.UserCode, apiKey.ID, rawKey, req.ProjectID, domain.CLIDefaultScopes); err != nil {
 			return fmt.Errorf("approve device code: %w", err)
+		}
+		if hasAudit {
+			if err := txStore.CreateAuditEvent(ctx, auditEvent); err != nil {
+				return fmt.Errorf("audit device code approval: %w", err)
+			}
 		}
 		return nil
 	}); err != nil {
@@ -189,12 +203,6 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		return nil, huma.Error500InternalServerError("failed to approve device code")
 	}
 	slog.Info("device code approved", "device_code_id", row.ID, "user_code", row.UserCode, "api_key_id", apiKey.ID, "project_id", req.ProjectID, "actor", actorFromContext(ctx))
-
-	s.emitAuditEvent(ctx, domain.AuditActionDeviceCodeApproved, "device_code", row.ID, map[string]any{
-		"user_code":  row.UserCode,
-		"api_key_id": apiKey.ID,
-		"project_id": req.ProjectID,
-	})
 
 	return &ApproveDeviceCodeOutput{Body: map[string]string{"status": "approved"}}, nil
 }

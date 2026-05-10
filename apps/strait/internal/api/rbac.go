@@ -83,25 +83,34 @@ type createRoleRequest struct {
 	ParentRoleID string   `json:"parent_role_id,omitempty"`
 }
 
-func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+// buildAuditEvent runs the validation, actor resolution, and details
+// marshaling steps that emitAuditEvent performs but stops short of
+// persisting. It returns (nil, false) when validation drops the event;
+// callers must treat that as "no audit emitted" without bubbling an
+// error so server-internal misconfiguration does not kill the request.
+//
+// This is split out so callers that need atomic-with-transaction audit
+// inserts can construct the event up front, pass it into the tx via
+// txStore.CreateAuditEvent, and have the whole unit roll back together.
+func (s *Server) buildAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) (*domain.AuditEvent, bool) {
 	if s.config == nil {
-		return
+		return nil, false
 	}
 	if !domain.IsKnownAuditAction(action) {
 		slog.Error("emitAuditEvent: unknown action rejected",
 			"action", action, "resource_type", resourceType, "resource_id", resourceID)
-		return
+		return nil, false
 	}
 	actorID, actorType, ok := s.validateActorForEmit(ctx, action)
 	if !ok {
-		return
+		return nil, false
 	}
 	detailsJSON, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Warn("failed to marshal audit event details", "action", action, "error", err)
-		return
+		return nil, false
 	}
-	ev := &domain.AuditEvent{
+	return &domain.AuditEvent{
 		ProjectID:     projectIDFromContext(ctx),
 		ActorID:       actorID,
 		ActorType:     actorType,
@@ -114,6 +123,13 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 		RequestID:     requestIDFromContext(ctx),
 		TraceID:       traceIDFromContext(ctx),
 		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
+	}, true
+}
+
+func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) {
+	ev, ok := s.buildAuditEvent(ctx, action, resourceType, resourceID, details)
+	if !ok {
+		return
 	}
 	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
 		slog.Warn("failed to create audit event", "action", action, "resource_type", resourceType, "resource_id", resourceID, "error", err)
