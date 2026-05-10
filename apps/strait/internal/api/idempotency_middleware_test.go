@@ -529,3 +529,54 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 1", len(ms.TryAcquireIdempotencyKeyCalls()))
 	}
 }
+
+// TestIdempotencyMiddleware_LogsUnknownStoreStatus pins the visibility
+// guarantee for the default branch: if the store ever returns a status
+// outside the documented set ("acquired" / "pending" / "completed"),
+// the middleware must log an error before falling through. Otherwise
+// a future store change that silently introduces a new status would
+// degrade idempotency to "no-op" with no operator-visible signal.
+func TestIdempotencyMiddleware_LogsUnknownStoreStatus(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	const bogusStatus = "totally-unknown-status"
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return bogusStatus, 0, nil, nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	handlerCalls := 0
+	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handlerCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	req.Header.Set("Idempotency-Key", "any-key")
+	req = req.WithContext(idempotencyTestCtx(req.Context(), "proj-1"))
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+
+	if handlerCalls != 1 {
+		t.Fatalf("handler invoked %d times, want 1 (default branch must fall through)", handlerCalls)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want 200", rec.Code)
+	}
+
+	logText := logs.String()
+	if !strings.Contains(logText, "unrecognized status") {
+		t.Fatalf("expected unrecognized-status log line, got: %s", logText)
+	}
+	if !strings.Contains(logText, bogusStatus) {
+		t.Fatalf("log line did not include status value %q: %s", bogusStatus, logText)
+	}
+	if !strings.Contains(logText, "level=ERROR") {
+		t.Fatalf("expected ERROR level log, got: %s", logText)
+	}
+}

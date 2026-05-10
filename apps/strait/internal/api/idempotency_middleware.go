@@ -297,6 +297,10 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 
 		default:
+			slog.Error("idempotency store returned unrecognized status; falling through",
+				"idempotency_key_hash", keyHash,
+				"project_id", projectID,
+				"status", status)
 			next.ServeHTTP(w, r)
 		}
 	})
