@@ -205,6 +205,12 @@ func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.acquireSSEConn(run.ProjectID) {
+		respondError(w, r, http.StatusServiceUnavailable, "too many SSE connections")
+		return
+	}
+	defer s.releaseSSEConn(run.ProjectID)
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		respondError(w, r, http.StatusInternalServerError, "streaming not supported")
