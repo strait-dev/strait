@@ -6,13 +6,13 @@ import (
 	"unicode"
 )
 
-// TestFix_12_SanitizeCSVCellHandlesFormatChars pins the contract for
+// TestSanitizeCSVCellHandlesFormatChars pins the contract for
 // invisible Unicode format characters that hide formula injection from
 // human review: a cell that starts with a zero-width space, LRM/RLM,
 // ZWJ, soft hyphen, or combining mark, followed by =, +, -, or @, must
 // still be prefixed with a single quote so spreadsheet apps treat it as
 // text.
-func TestFix_12_SanitizeCSVCellHandlesFormatChars(t *testing.T) {
+func TestSanitizeCSVCellHandlesFormatChars(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -43,9 +43,9 @@ func TestFix_12_SanitizeCSVCellHandlesFormatChars(t *testing.T) {
 	}
 }
 
-// TestFix_12_SanitizeCSVCellPreservesBenignText regresses the happy
+// TestSanitizeCSVCellPreservesBenignText regresses the happy
 // path: ordinary text must not be prefixed.
-func TestFix_12_SanitizeCSVCellPreservesBenignText(t *testing.T) {
+func TestSanitizeCSVCellPreservesBenignText(t *testing.T) {
 	t.Parallel()
 
 	cases := []string{
@@ -73,11 +73,11 @@ func TestFix_12_SanitizeCSVCellPreservesBenignText(t *testing.T) {
 	}
 }
 
-// FuzzFix_12_SanitizeCSVCellNeverLeavesFormulaPrefix is the
+// FuzzSanitizeCSVCellNeverLeavesFormulaPrefix is the
 // adversarial guard: after sanitization, the first rune that is NOT a
 // leading single-quote, format, mark, BOM, or whitespace/control char
 // must never be one of '=+-@'.
-func FuzzFix_12_SanitizeCSVCellNeverLeavesFormulaPrefix(f *testing.F) {
+func FuzzSanitizeCSVCellNeverLeavesFormulaPrefix(f *testing.F) {
 	seeds := []string{
 		"\u200b=A1",
 		"\u200e+leak",

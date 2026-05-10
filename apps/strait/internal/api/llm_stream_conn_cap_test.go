@@ -48,11 +48,11 @@ func executingRunStore() *APIStoreMock {
 	}
 }
 
-// TestFix_02_LLMStreamRespectsPerProjectCap pins the new acquire-before-stream
+// TestLLMStreamRespectsPerProjectCap pins the new acquire-before-stream
 // guard. With the per-project cap saturated by an out-of-band acquire, a fresh
 // LLM stream request must be rejected with 503 instead of consuming pubsub
 // resources.
-func TestFix_02_LLMStreamRespectsPerProjectCap(t *testing.T) {
+func TestLLMStreamRespectsPerProjectCap(t *testing.T) {
 	t.Parallel()
 
 	pub := &mockPublisher{
@@ -77,10 +77,10 @@ func TestFix_02_LLMStreamRespectsPerProjectCap(t *testing.T) {
 	}
 }
 
-// TestFix_02_LLMStreamReleasesOnHandlerReturn proves the handler defers the
+// TestLLMStreamReleasesOnHandlerReturn proves the handler defers the
 // release: a successful (pubsub-less) request must leave the project counter
 // back at zero so subsequent streams can connect.
-func TestFix_02_LLMStreamReleasesOnHandlerReturn(t *testing.T) {
+func TestLLMStreamReleasesOnHandlerReturn(t *testing.T) {
 	t.Parallel()
 
 	srv := newLLMStreamServer(t, executingRunStore(), nil, 1)
@@ -105,9 +105,9 @@ func TestFix_02_LLMStreamReleasesOnHandlerReturn(t *testing.T) {
 	}
 }
 
-// TestFix_02_LLMStreamReleasesOnEarlyError ensures the slot is released when
+// TestLLMStreamReleasesOnEarlyError ensures the slot is released when
 // pubsub.Subscribe returns an error mid-handshake.
-func TestFix_02_LLMStreamReleasesOnEarlyError(t *testing.T) {
+func TestLLMStreamReleasesOnEarlyError(t *testing.T) {
 	t.Parallel()
 
 	var subscribeCalls atomic.Int64

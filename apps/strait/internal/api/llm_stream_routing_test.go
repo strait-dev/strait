@@ -11,13 +11,13 @@ import (
 	"strait/internal/pubsub"
 )
 
-// TestFix_01_LLMStreamReturnsSSEHeadersThroughRouter exercises
+// TestLLMStreamReturnsSSEHeadersThroughRouter exercises
 // /v1/runs/{runID}/stream/chunks through the full chi router (rather than
 // dispatching the handler directly). Before the fix this route lived inside
 // the /v1 group, where the JSON Accept gate plus the rlsTxMiddleware-wrapped
 // non-flushable response writer combined to fail the SSE handshake. After the
 // fix the route is mounted alongside the other run SSE handlers.
-func TestFix_01_LLMStreamReturnsSSEHeadersThroughRouter(t *testing.T) {
+func TestLLMStreamReturnsSSEHeadersThroughRouter(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -60,10 +60,10 @@ func TestFix_01_LLMStreamReturnsSSEHeadersThroughRouter(t *testing.T) {
 	}
 }
 
-// TestFix_01_LLMStreamRouteAcceptsSSEAcceptHeader pins the regression where
+// TestLLMStreamRouteAcceptsSSEAcceptHeader pins the regression where
 // the /v1 group's requireJSONAccept middleware rejected text/event-stream
 // callers with 406. Mounting outside /v1 must allow this Accept value.
-func TestFix_01_LLMStreamRouteAcceptsSSEAcceptHeader(t *testing.T) {
+func TestLLMStreamRouteAcceptsSSEAcceptHeader(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -91,9 +91,9 @@ func TestFix_01_LLMStreamRouteAcceptsSSEAcceptHeader(t *testing.T) {
 	}
 }
 
-// TestFix_01_LLMStreamPreservesTerminalGuard confirms the run-state guard at
+// TestLLMStreamPreservesTerminalGuard confirms the run-state guard at
 // the top of handleRunLLMStream still fires after the route move.
-func TestFix_01_LLMStreamPreservesTerminalGuard(t *testing.T) {
+func TestLLMStreamPreservesTerminalGuard(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -116,10 +116,10 @@ func TestFix_01_LLMStreamPreservesTerminalGuard(t *testing.T) {
 	}
 }
 
-// TestFix_01_LLMStreamRequiresAuth ensures the moved route still rejects
+// TestLLMStreamRequiresAuth ensures the moved route still rejects
 // unauthenticated callers (defense-in-depth: the new mount sits next to other
 // SSE routes, all of which require apiKeyOrSecretAuth).
-func TestFix_01_LLMStreamRequiresAuth(t *testing.T) {
+func TestLLMStreamRequiresAuth(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)

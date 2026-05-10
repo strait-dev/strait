@@ -9,7 +9,7 @@ import (
 	"strait/internal/store"
 )
 
-// TestFix_07_ApproveDeviceCodeRollsBackOnApproveFailure pins the atomicity
+// TestApproveDeviceCodeRollsBackOnApproveFailure pins the atomicity
 // invariant of handleApproveDeviceCode: when ApproveDeviceCodeByUserCode
 // fails after CreateAPIKey succeeds, the surrounding transaction must roll
 // back so no orphan api_keys row is left behind.
@@ -18,7 +18,7 @@ import (
 // intercepting runInTx -- "persistence" is only recorded when the closure
 // returns nil. Real Postgres rollback is exercised by the integration
 // counterpart in fix_07_cli_auth_atomicity_integration_test.go.
-func TestFix_07_ApproveDeviceCodeRollsBackOnApproveFailure(t *testing.T) {
+func TestApproveDeviceCodeRollsBackOnApproveFailure(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -107,10 +107,10 @@ func TestFix_07_ApproveDeviceCodeRollsBackOnApproveFailure(t *testing.T) {
 	}
 }
 
-// TestFix_07_ApproveDeviceCodeCommitsOnSuccess regression-tests the happy
+// TestApproveDeviceCodeCommitsOnSuccess regression-tests the happy
 // path: when both store calls succeed, the transaction commits, the api
 // key is persisted, and the device-code-approved audit event is emitted.
-func TestFix_07_ApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
+func TestApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -207,11 +207,11 @@ func TestFix_07_ApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
 	}
 }
 
-// TestFix_07_ApproveDeviceCodePropagatesNotFound checks that the
+// TestApproveDeviceCodePropagatesNotFound checks that the
 // ErrDeviceCodeNotFound returned from inside the transaction surfaces as
 // a 404, matching the pre-fix lookup behavior. This guards against a
 // regression where wrapping in WithTx accidentally swallows the sentinel.
-func TestFix_07_ApproveDeviceCodePropagatesNotFound(t *testing.T) {
+func TestApproveDeviceCodePropagatesNotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{

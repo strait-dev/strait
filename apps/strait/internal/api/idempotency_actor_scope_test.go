@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// TestFix_10_DifferentActorsHaveSeparateCacheEntries pins the new
+// TestDifferentActorsHaveSeparateCacheEntries pins the new
 // composite-key shape: two callers in the same project who happen to
 // pick the same Idempotency-Key string must NOT share a cache entry.
 // Otherwise a low-privilege actor could read another actor's cached
 // response by guessing or reusing a key.
-func TestFix_10_DifferentActorsHaveSeparateCacheEntries(t *testing.T) {
+func TestDifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -79,10 +79,10 @@ func TestFix_10_DifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 	}
 }
 
-// TestFix_10_SameActorReplaysCache regresses the happy path: the same
+// TestSameActorReplaysCache regresses the happy path: the same
 // actor calling twice with the same key reaches the same composite
 // key, so a "complete" status from the store replays the cached body.
-func TestFix_10_SameActorReplaysCache(t *testing.T) {
+func TestSameActorReplaysCache(t *testing.T) {
 	t.Parallel()
 
 	cachedBody := []byte(`{"replay":true}`)
@@ -140,11 +140,11 @@ func TestFix_10_SameActorReplaysCache(t *testing.T) {
 	}
 }
 
-// TestFix_10_OIDCAndAPIKeyActorsAreDistinct is the adversarial guard:
+// TestOIDCAndAPIKeyActorsAreDistinct is the adversarial guard:
 // an OIDC user and an API key sharing the same key string in the same
 // project must hash to different composite keys, even when their actor
 // id strings happen to overlap after stripping the prefix.
-func TestFix_10_OIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
+func TestOIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -191,12 +191,12 @@ func TestFix_10_OIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
 	}
 }
 
-// TestFix_10_AnonymousActorStillScoped ensures the middleware does not
+// TestAnonymousActorStillScoped ensures the middleware does not
 // crash and produces a deterministic composite key when actorFromContext
 // returns the empty string (e.g. an internal-secret request that still
 // happens to carry an Idempotency-Key). Two anonymous calls with the
 // same key MUST collide, so the middleware still serializes them.
-func TestFix_10_AnonymousActorStillScoped(t *testing.T) {
+func TestAnonymousActorStillScoped(t *testing.T) {
 	t.Parallel()
 
 	var (

@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestFix_07_ApproveDeviceCodeRaceNoOrphans drives the canonical race the
+// TestApproveDeviceCodeRaceNoOrphans drives the canonical race the
 // fix is designed to prevent: two callers approve the same user_code at
 // the same time, each writing an api_keys row inside the same transaction
 // that approves the device code. Real Postgres serializes the two
@@ -23,7 +23,7 @@ import (
 // gets ErrDeviceCodeNotFound and the surrounding tx must roll back its
 // CreateAPIKey insert. After the race finishes, exactly one api_keys row
 // must remain for the project.
-func TestFix_07_ApproveDeviceCodeRaceNoOrphans(t *testing.T) {
+func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

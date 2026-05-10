@@ -45,10 +45,10 @@ func withCapturedSlog(t *testing.T, fn func(t *testing.T)) []map[string]any {
 	return entries
 }
 
-// TestFix_06_LogsEmitOnlySchemeAndHost asserts that the success-path
+// TestLogsEmitOnlySchemeAndHost asserts that the success-path
 // "webhook delivered" log carries a redacted URL (scheme://host) and not
 // the path/query that may carry secret tokens.
-func TestFix_06_LogsEmitOnlySchemeAndHost(t *testing.T) {
+func TestLogsEmitOnlySchemeAndHost(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -81,10 +81,10 @@ func TestFix_06_LogsEmitOnlySchemeAndHost(t *testing.T) {
 	}
 }
 
-// TestFix_06_OTelAttributeRedacted checks the webhook.url span attribute
+// TestOTelAttributeRedacted checks the webhook.url span attribute
 // is recorded as scheme://host -- before the fix the raw user-supplied
 // URL was attached, leaking path/query tokens to the trace backend.
-func TestFix_06_OTelAttributeRedacted(t *testing.T) {
+func TestOTelAttributeRedacted(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	origTP := otel.GetTracerProvider()
@@ -128,10 +128,10 @@ func TestFix_06_OTelAttributeRedacted(t *testing.T) {
 	}
 }
 
-// TestFix_06_ErrorStringStripsURL pins SanitizeHTTPClientError on the
+// TestErrorStringStripsURL pins SanitizeHTTPClientError on the
 // delivery-error path: a *url.Error containing a token in its URL must
 // not surface verbatim in WebhookResult.Error.
-func TestFix_06_ErrorStringStripsURL(t *testing.T) {
+func TestErrorStringStripsURL(t *testing.T) {
 	t.Parallel()
 
 	urlErr := &url.Error{
@@ -167,11 +167,11 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// FuzzFix_06_RedactURLForLogNeverLeaksQuery feeds arbitrary raw URLs and
+// FuzzRedactURLForLogNeverLeaksQuery feeds arbitrary raw URLs and
 // asserts the helper's output never carries a query or fragment marker.
 // Provides the worker package its own fuzz coverage of the logging
 // invariant -- httputil has its own dedicated fuzz seeds elsewhere.
-func FuzzFix_06_RedactURLForLogNeverLeaksQuery(f *testing.F) {
+func FuzzRedactURLForLogNeverLeaksQuery(f *testing.F) {
 	seeds := []string{
 		"",
 		"https://example.com",

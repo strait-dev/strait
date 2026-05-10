@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// TestFix_09_CaptureWriterAllowsUnderCap regression-tests the happy path:
+// TestCaptureWriterAllowsUnderCap regression-tests the happy path:
 // a sub-cap response is memoized via CompleteIdempotencyKey as before.
-func TestFix_09_CaptureWriterAllowsUnderCap(t *testing.T) {
+func TestCaptureWriterAllowsUnderCap(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -79,12 +79,12 @@ func TestFix_09_CaptureWriterAllowsUnderCap(t *testing.T) {
 	}
 }
 
-// TestFix_09_CaptureWriterDropsCacheOnOverflow pins the overflow contract:
+// TestCaptureWriterDropsCacheOnOverflow pins the overflow contract:
 // when the response exceeds the cap, the client still receives the full
 // bytes, but CompleteIdempotencyKey is skipped (we never persist a
 // truncated body) and DeleteIdempotencyKey clears the pending row so
 // retries can proceed.
-func TestFix_09_CaptureWriterDropsCacheOnOverflow(t *testing.T) {
+func TestCaptureWriterDropsCacheOnOverflow(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -146,11 +146,11 @@ func TestFix_09_CaptureWriterDropsCacheOnOverflow(t *testing.T) {
 	}
 }
 
-// TestFix_09_CaptureWriterBuffersAtMostCap ensures the in-memory buffer
+// TestCaptureWriterBuffersAtMostCap ensures the in-memory buffer
 // does not grow past maxIdempotencyResponseBytes regardless of the
 // response size. Without the cap, a malicious or buggy handler could
 // pin the entire response in RAM.
-func TestFix_09_CaptureWriterBuffersAtMostCap(t *testing.T) {
+func TestCaptureWriterBuffersAtMostCap(t *testing.T) {
 	t.Parallel()
 
 	cw := &captureWriter{ResponseWriter: httptest.NewRecorder()}
@@ -178,9 +178,9 @@ func TestFix_09_CaptureWriterBuffersAtMostCap(t *testing.T) {
 	}
 }
 
-// FuzzFix_09_CaptureWriterBoundedBufferSize exercises the buffer-cap
+// FuzzCaptureWriterBoundedBufferSize exercises the buffer-cap
 // invariant with random write sizes.
-func FuzzFix_09_CaptureWriterBoundedBufferSize(f *testing.F) {
+func FuzzCaptureWriterBoundedBufferSize(f *testing.F) {
 	f.Add(uint32(0))
 	f.Add(uint32(maxIdempotencyResponseBytes - 1))
 	f.Add(uint32(maxIdempotencyResponseBytes))
@@ -214,7 +214,7 @@ func FuzzFix_09_CaptureWriterBoundedBufferSize(f *testing.F) {
 
 // quickCheckPropertyForCap runs a small property check via testing/quick
 // as a redundancy on the fuzz target.
-func TestFix_09_CaptureWriterPropertyBoundedBuffer(t *testing.T) {
+func TestCaptureWriterPropertyBoundedBuffer(t *testing.T) {
 	t.Parallel()
 
 	prop := func(rawSize uint32) bool {

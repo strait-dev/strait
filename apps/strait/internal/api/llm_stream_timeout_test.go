@@ -39,11 +39,11 @@ func newLLMStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPub
 	return srv
 }
 
-// TestFix_03_LLMStreamClosesAfterMaxDuration confirms the handler tears down
+// TestLLMStreamClosesAfterMaxDuration confirms the handler tears down
 // once SSEMaxConnDuration elapses, even with a still-open pubsub subscription.
 // Without the timeout the goroutine would block indefinitely on a healthy
 // subscription, holding the SSE conn slot.
-func TestFix_03_LLMStreamClosesAfterMaxDuration(t *testing.T) {
+func TestLLMStreamClosesAfterMaxDuration(t *testing.T) {
 	t.Parallel()
 
 	dataCh := make(chan []byte) // never closed, never written
@@ -81,11 +81,11 @@ func TestFix_03_LLMStreamClosesAfterMaxDuration(t *testing.T) {
 	}
 }
 
-// TestFix_03_LLMStreamFallsBackToDefaultDurationWhenZero pins the
+// TestLLMStreamFallsBackToDefaultDurationWhenZero pins the
 // "zero-config means 30 minutes" fallback. We capture the context that
 // reaches pubsub.Subscribe and assert its deadline is at least 25 minutes
 // out, which only happens when the handler applied the default.
-func TestFix_03_LLMStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
+func TestLLMStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
 	t.Parallel()
 
 	var (

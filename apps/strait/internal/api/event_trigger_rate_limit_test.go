@@ -94,12 +94,12 @@ func eventStreamRequest(eventKey, bearerToken string) *http.Request {
 	return r
 }
 
-// TestFix_04_EventTriggerStreamRateLimited asserts the projectRateLimit
+// TestEventTriggerStreamRateLimited asserts the projectRateLimit
 // middleware now runs on /v1/events/{eventKey}/stream. Before the fix this
 // route was mounted with only sseTokenAuth + apiKeyOrSecretAuth, so a single
 // API key could spam the endpoint without bound. After the fix, an API key
 // configured for 1 req/60s gets 429 on its second call.
-func TestFix_04_EventTriggerStreamRateLimited(t *testing.T) {
+func TestEventTriggerStreamRateLimited(t *testing.T) {
 	t.Parallel()
 
 	srv, keys := makeEventStreamAPIKeyServer(t)
@@ -127,11 +127,11 @@ func TestFix_04_EventTriggerStreamRateLimited(t *testing.T) {
 	}
 }
 
-// TestFix_04_EventTriggerStreamRateLimitIsolatedPerProject pins that
+// TestEventTriggerStreamRateLimitIsolatedPerProject pins that
 // exhausting Project A's bucket does not bleed into Project B. The
 // projectRateLimit middleware keys by API-key id (which is in turn bound to
 // a single project), so two distinct keys must hold independent quotas.
-func TestFix_04_EventTriggerStreamRateLimitIsolatedPerProject(t *testing.T) {
+func TestEventTriggerStreamRateLimitIsolatedPerProject(t *testing.T) {
 	t.Parallel()
 
 	srv, _ := makeEventStreamAPIKeyServer(t)

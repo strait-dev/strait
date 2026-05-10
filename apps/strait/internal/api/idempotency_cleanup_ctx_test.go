@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// TestFix_08_PanicCleanupRunsAfterContextCancel pins the panic-cleanup
+// TestPanicCleanupRunsAfterContextCancel pins the panic-cleanup
 // path: when the inner handler cancels its own request context and then
 // panics, DeleteIdempotencyKey must still be invoked with a context that
 // is NOT canceled. Otherwise the pending row is stuck for the full TTL
 // and the caller cannot retry.
-func TestFix_08_PanicCleanupRunsAfterContextCancel(t *testing.T) {
+func TestPanicCleanupRunsAfterContextCancel(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -81,11 +81,11 @@ func TestFix_08_PanicCleanupRunsAfterContextCancel(t *testing.T) {
 	}
 }
 
-// TestFix_08_NonSuccessCleanupSurvivesTimeout verifies the non-2xx
+// TestNonSuccessCleanupSurvivesTimeout verifies the non-2xx
 // cleanup branch: when the handler returns a 500 after the request
 // context has been canceled (e.g. timeout middleware fired), the
 // DeleteIdempotencyKey call must still execute against a live ctx.
-func TestFix_08_NonSuccessCleanupSurvivesTimeout(t *testing.T) {
+func TestNonSuccessCleanupSurvivesTimeout(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -138,11 +138,11 @@ func TestFix_08_NonSuccessCleanupSurvivesTimeout(t *testing.T) {
 	}
 }
 
-// TestFix_08_CleanupBoundsCleanupDuration is the adversarial guard:
+// TestCleanupBoundsCleanupDuration is the adversarial guard:
 // DeleteIdempotencyKey must complete within ~5s even when the store
 // blocks indefinitely. The cleanup timeout protects shutdown ordering
 // and prevents leaking goroutines on a wedged store.
-func TestFix_08_CleanupBoundsCleanupDuration(t *testing.T) {
+func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	t.Parallel()
 
 	deleteCh := make(chan struct{})

@@ -6,14 +6,14 @@ import (
 	"testing/quick"
 )
 
-// TestFix_11_SanitizeQueryRedactsExpandedKeys pins the broader
+// TestSanitizeQueryRedactsExpandedKeys pins the broader
 // keyword-substring contract: any param name containing a known
 // credential keyword (case-insensitive) must have its value redacted.
 // The previous implementation only matched three exact keys
 // ("api_key", "token", "secret"), so common shapes like "access_token",
 // "client_secret", "apikey", "x-api-key", "signature", "jwt", and
 // "authorization" leaked the value into structured logs.
-func TestFix_11_SanitizeQueryRedactsExpandedKeys(t *testing.T) {
+func TestSanitizeQueryRedactsExpandedKeys(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -55,9 +55,9 @@ func TestFix_11_SanitizeQueryRedactsExpandedKeys(t *testing.T) {
 	}
 }
 
-// TestFix_11_SanitizeQueryPreservesSafeParams regresses the happy
+// TestSanitizeQueryPreservesSafeParams regresses the happy
 // path: benign pagination/sort params keep their values.
-func TestFix_11_SanitizeQueryPreservesSafeParams(t *testing.T) {
+func TestSanitizeQueryPreservesSafeParams(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -84,11 +84,11 @@ func TestFix_11_SanitizeQueryPreservesSafeParams(t *testing.T) {
 	}
 }
 
-// FuzzFix_11_SanitizeQueryNeverEchoesSensitiveSubstring exercises the
+// FuzzSanitizeQueryNeverEchoesSensitiveSubstring exercises the
 // substring contract under random inputs: when the param name contains
 // any redaction keyword (case-insensitive), the value must never appear
 // in the sanitized output.
-func FuzzFix_11_SanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
+func FuzzSanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
 	keywords := []string{"secret", "password", "token", "key", "auth", "credential", "sig", "jwt"}
 	seeds := []struct {
 		key   string
@@ -128,9 +128,9 @@ func FuzzFix_11_SanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
 	})
 }
 
-// TestFix_11_SanitizeQueryPropertyRedactsKeywordKeys is a redundant
+// TestSanitizeQueryPropertyRedactsKeywordKeys is a redundant
 // property check via testing/quick.
-func TestFix_11_SanitizeQueryPropertyRedactsKeywordKeys(t *testing.T) {
+func TestSanitizeQueryPropertyRedactsKeywordKeys(t *testing.T) {
 	t.Parallel()
 
 	// A value made of bytes that are unlikely to appear in the literal
