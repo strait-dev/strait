@@ -69,16 +69,16 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 	})
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("unexpected project: %s", projectID)
 			}
 			if !isHexDigest(key) {
 				t.Fatalf("expected hashed composite key, got %q", key)
 			}
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, body []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, _ http.Header, body []byte) error {
 			if status != http.StatusCreated {
 				t.Fatalf("expected status 201, got %d", status)
 			}
@@ -119,8 +119,8 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 
 	cachedBody := []byte(`{"id":"job-123","status":"created"}`)
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "completed", http.StatusCreated, cachedBody, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "completed", http.StatusCreated, nil, cachedBody, nil
 		},
 	}
 
@@ -157,9 +157,9 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
 			t.Fatal("idempotency store must not be consulted before permission checks")
-			return "", 0, nil, nil
+			return "", 0, nil, nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -193,9 +193,9 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 
 	createCalls := 0
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
 			t.Fatal("api key creation responses contain raw secrets and must not be idempotency-cached")
-			return "", 0, nil, nil
+			return "", 0, nil, nil, nil
 		},
 		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
 			createCalls++
@@ -225,8 +225,8 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "pending", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "pending", 0, nil, nil, nil
 		},
 	}
 
@@ -272,13 +272,13 @@ func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			if !isHexDigest(key) {
 				t.Fatalf("expected hashed composite key, got %q", key)
 			}
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			return nil
 		},
 	}
@@ -305,8 +305,8 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 	t.Parallel()
 	var deleteCalled bool
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
 		DeleteIdempotencyKeyFunc: func(_ context.Context, _, _ string) (int64, error) {
 			deleteCalled = true
@@ -343,11 +343,11 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 	t.Parallel()
 	var captured []string
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			captured = append(captured, key)
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			return nil
 		},
 	}
@@ -384,11 +384,11 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 
 	var capturedKeys []string
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			capturedKeys = append(capturedKeys, key)
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			return nil
 		},
 	}
@@ -433,10 +433,10 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
 			return errors.New("forced complete failure")
 		},
 	}
@@ -464,8 +464,8 @@ func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
-			return "completed", http.StatusCreated, []byte(`{"debounced":true,"idempotency_hit":true}`), nil
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return "completed", http.StatusCreated, nil, []byte(`{"debounced":true,"idempotency_hit":true}`), nil
 		},
 		UpsertDebouncePendingFunc: func(context.Context, *domain.DebouncePending) error {
 			t.Fatal("debounce mutation must not run for idempotency replay")
@@ -494,8 +494,8 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
-			return "completed", http.StatusCreated, []byte(`{"buffered":true,"idempotency_hit":true}`), nil
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return "completed", http.StatusCreated, nil, []byte(`{"buffered":true,"idempotency_hit":true}`), nil
 		},
 		InsertBatchBufferItemFunc: func(context.Context, *domain.BatchBufferItem) error {
 			t.Fatal("batch buffer mutation must not run for idempotency replay")

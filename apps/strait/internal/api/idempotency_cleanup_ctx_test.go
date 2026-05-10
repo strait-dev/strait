@@ -25,8 +25,8 @@ func TestPanicCleanupRunsAfterContextCancel(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
 		DeleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string) (int64, error) {
 			mu.Lock()
@@ -95,8 +95,8 @@ func TestNonSuccessCleanupSurvivesTimeout(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
 		DeleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string) (int64, error) {
 			mu.Lock()
@@ -149,8 +149,8 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	deadlineCh := make(chan time.Duration, 1)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
 		DeleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string) (int64, error) {
 			deadline, ok := ctx.Deadline()

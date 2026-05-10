@@ -141,7 +141,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 		)
 		keyHash := hashIdempotencyKey(key)
 
-		status, respStatus, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
+		status, respStatus, respHeaders, respBody, err := s.store.TryAcquireIdempotencyKey(r.Context(), projectID, compositeKey, idempotencyKeyTTL)
 		if err != nil {
 			slog.Error("idempotency key acquire failed",
 				"idempotency_key_hash", keyHash,
@@ -158,10 +158,26 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 
 		switch status {
 		case store.IdempotencyComplete:
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Idempotency-Replayed", "true")
+			// Replay the captured headers verbatim so spec-compliant
+			// retries see the same Content-Type, Location, ETag,
+			// Set-Cookie, etc. as the original response. Pre-fix replays
+			// hard-coded application/json and dropped everything else,
+			// breaking POST→201 with Location and any handler that
+			// returned non-JSON content. Pre-migration rows have no
+			// header snapshot (respHeaders is nil); fall back to JSON
+			// for those so the upgrade is forward-compatible without a
+			// store-wide migration sweep.
+			dst := w.Header()
+			if len(respHeaders) > 0 {
+				for k, vals := range respHeaders {
+					dst[k] = append([]string(nil), vals...)
+				}
+			} else {
+				dst.Set("Content-Type", "application/json")
+			}
+			dst.Set("Idempotency-Replayed", "true")
 			w.WriteHeader(respStatus)
-			_, _ = w.Write(respBody) // #nosec G705 -- respBody is our own cached JSON response, not user-controlled
+			_, _ = w.Write(respBody) // #nosec G705 -- respBody is our own cached response, not user-controlled
 			return
 
 		case store.IdempotencyPending:
@@ -170,7 +186,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			return
 
 		case store.IdempotencyAcquired:
-			cw := &captureWriter{ResponseWriter: w}
+			cw := &captureWriter{ResponseWriter: w, headers: http.Header{}}
 
 			// Use recover() to clean up unconditionally on panic, no
 			// matter where in the post-acquire flow the panic happens
@@ -222,7 +238,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 					context.WithoutCancel(r.Context()),
 					s.idempotencyCleanupTimeout(),
 				)
-				if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
+				if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.headers, cw.body.Bytes()); completeErr != nil {
 					slog.Error("idempotency key complete failed",
 						"idempotency_key_hash", keyHash,
 						"project_id", projectID,
@@ -247,13 +263,17 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// captureWriter wraps http.ResponseWriter to capture the response status
-// and body for replay. Body capture is bounded by maxIdempotencyResponseBytes:
-// once exceeded, overflow is set, the buffer stops growing, and the
-// caller still receives the full bytes via the underlying writer.
+// captureWriter wraps http.ResponseWriter to capture the response
+// status, headers, and body for replay. Body capture is bounded by
+// maxIdempotencyResponseBytes: once exceeded, overflow is set, the
+// buffer stops growing, and the caller still receives the full bytes
+// via the underlying writer. Headers are snapshotted at WriteHeader
+// time so replays reproduce the original Content-Type, Location, ETag,
+// Set-Cookie, etc.
 type captureWriter struct {
 	http.ResponseWriter
 	statusCode  int
+	headers     http.Header
 	body        bytes.Buffer
 	wroteHeader bool
 	overflow    bool
@@ -262,6 +282,12 @@ type captureWriter struct {
 func (cw *captureWriter) WriteHeader(code int) {
 	if !cw.wroteHeader {
 		cw.statusCode = code
+		// Snapshot the handler's headers at the moment of commit. We
+		// .Clone() because the underlying writer is allowed to mutate
+		// the map after WriteHeader returns (e.g. trailers, internal
+		// hop-by-hop adjustments) and we do not want the cache write
+		// to race with that.
+		cw.headers = cw.ResponseWriter.Header().Clone()
 		cw.wroteHeader = true
 		cw.ResponseWriter.WriteHeader(code)
 	}

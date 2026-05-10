@@ -23,10 +23,10 @@ func TestCaptureWriterAllowsUnderCap(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, body []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, body []byte) error {
 			mu.Lock()
 			defer mu.Unlock()
 			completeCalled = true
@@ -94,10 +94,10 @@ func TestCaptureWriterDropsCacheOnOverflow(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
 			mu.Lock()
 			defer mu.Unlock()
 			completeCalled = true

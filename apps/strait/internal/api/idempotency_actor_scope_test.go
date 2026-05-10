@@ -25,14 +25,14 @@ func TestDifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			acquireKeys = append(acquireKeys, key)
 			acquireProjects = append(acquireProjects, projectID)
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, key string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, key string, _ int, _ http.Header, _ []byte) error {
 			mu.Lock()
 			defer mu.Unlock()
 			completeKeys = append(completeKeys, key)
@@ -92,16 +92,16 @@ func TestSameActorReplaysCache(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			acquireKeys = append(acquireKeys, key)
 			if len(acquireKeys) == 1 {
-				return "acquired", 0, nil, nil
+				return "acquired", 0, nil, nil, nil
 			}
-			return "complete", http.StatusCreated, cachedBody, nil
+			return "complete", http.StatusCreated, nil, cachedBody, nil
 		},
-		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
 			return nil
 		},
 	}
@@ -153,13 +153,13 @@ func TestOIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			acquireKeys = append(acquireKeys, key)
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
 			return nil
 		},
 	}
@@ -205,13 +205,13 @@ func TestAnonymousActorStillScoped(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			acquireKeys = append(acquireKeys, key)
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
 			return nil
 		},
 	}

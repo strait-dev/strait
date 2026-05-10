@@ -26,10 +26,10 @@ func TestCompleteIdempotencyKeyUsesDetachedContext(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			mu.Lock()
 			defer mu.Unlock()
 			completeCalled = true
@@ -86,10 +86,10 @@ func TestCompleteIdempotencyKeyTimeoutBudgetEnforced(t *testing.T) {
 	deadlineCh := make(chan time.Duration, 1)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			if d, ok := ctx.Deadline(); ok {
 				deadlineCh <- time.Until(d)
 			} else {
@@ -149,10 +149,10 @@ func TestCompleteIdempotencyKeyHappyPathStillCommits(t *testing.T) {
 	)
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, body []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, _ http.Header, body []byte) error {
 			mu.Lock()
 			defer mu.Unlock()
 			completeStatus = status
