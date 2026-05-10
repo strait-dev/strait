@@ -1,0 +1,70 @@
+name: Test (race detector)
+
+# Race-detector runs are 2-10x slower than the standard suite, so they are
+# kept off the PR path. This workflow runs the full unit + integration suite
+# with `-race` on a nightly schedule, on every push to master, and on demand
+# via workflow_dispatch.
+
+on:
+  schedule:
+    # 07:00 UTC daily
+    - cron: "0 7 * * *"
+  push:
+    branches:
+      - master
+    paths:
+      - "apps/strait/**"
+      - ".github/workflows/test-race.yml"
+      - ".github/actions/setup-go/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-race-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-go
+
+      - name: Run unit tests with race detector
+        working-directory: apps/strait
+        run: go test -race -shuffle=on -timeout=20m ./...
+
+  integration-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: queue
+            packages: ./internal/queue/...
+            timeout: 20m
+          - name: store
+            packages: ./internal/store/...
+            timeout: 25m
+          - name: other
+            packages: ./internal/scheduler/... ./internal/workflow/... ./internal/worker/... ./internal/webhook/... ./internal/cdc/... ./internal/pubsub/... ./internal/e2e/...
+            timeout: 20m
+    name: integration-race (${{ matrix.shard.name }})
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ./.github/actions/setup-go
+
+      - name: Pull Postgres image
+        run: docker pull postgres:18-alpine
+
+      - name: Run integration tests with race detector
+        working-directory: apps/strait
+        run: |
+          go test -race -tags=integration -timeout=${{ matrix.shard.timeout }} \
+            ${{ matrix.shard.packages }}
