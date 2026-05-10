@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -179,9 +180,23 @@ func (e *Enforcer) maybeEmitUsageThreshold(
 // percentReached reports whether current is at or above pct% of limit. We
 // avoid floating point by cross-multiplying: current/limit >= pct/100 iff
 // current*100 >= limit*pct. Both sides fit comfortably in int64 for any
-// realistic usage counter.
+// realistic usage counter, but we still saturate on overflow so a buggy
+// caller passing math.MaxInt64 cannot wrap into negative space and return
+// the wrong answer.
 func percentReached(current, limit int64, pct int) bool {
-	if limit <= 0 || current < 0 {
+	if limit <= 0 || current < 0 || pct <= 0 {
+		return false
+	}
+	// current * 100 overflows int64 when current > MaxInt64/100. Anything
+	// past that threshold is, by definition, far beyond any plan cap, so
+	// saturate to true (definitely reached).
+	if current > math.MaxInt64/100 {
+		return true
+	}
+	// limit * pct overflows int64 when limit > MaxInt64/pct. The crossing
+	// is mathematically valid but unreachable in int64 — saturate to
+	// false (impossible to reach an effectively-infinite threshold).
+	if limit > math.MaxInt64/int64(pct) {
 		return false
 	}
 	return current*100 >= limit*int64(pct)
