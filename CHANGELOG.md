@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.6](https://github.com/strait-dev/strait/compare/v0.1.5...v0.1.6) (2026-05-10)
+
+
+### Bug Fixes
+
+* **api,worker:** remediate deepsec audit findings + post-review hardening ([d26630a](https://github.com/strait-dev/strait/commit/d26630a1c7b76f73427ff0b7e3dcff87e2a27e4b))
+* **api:** captureWriter.Hijack returns http.ErrNotSupported ([d41cea3](https://github.com/strait-dev/strait/commit/d41cea330bf8d5c2b558d358636c15f99021b185))
+* **api:** log error when idempotency store returns unknown status ([9a33291](https://github.com/strait-dev/strait/commit/9a33291f060212978b689bef92585d441e5991f3))
+* **api:** preserve idempotency dedupe for internal-secret callers ([55d3e50](https://github.com/strait-dev/strait/commit/55d3e5058fa91049c5a8e95bb0baca2771be4297))
+* **api:** redact bearer, hmac, and nonce query parameters ([a792b0b](https://github.com/strait-dev/strait/commit/a792b0b1a0b0f92cd30de331dd331e2319526213))
+* **api:** redact OAuth/CSRF/session query parameters in logs ([8461016](https://github.com/strait-dev/strait/commit/8461016c7b6425e89db81ff61a1a225956a7affe))
+* **api:** skip idempotency dedupe for unattributable requests ([6b8e4ef](https://github.com/strait-dev/strait/commit/6b8e4efd7e7da28e28b6c22d45e49538cd5f4305))
+* **docker:** pin Sequin to v0.14.6 and fix Postgres 18 data volume path ([0bd378d](https://github.com/strait-dev/strait/commit/0bd378dd11c94a0b016a478ca642c1d0fe3f7224))
+
 ## [0.1.5](https://github.com/strait-dev/strait/compare/v0.1.4...v0.1.5) (2026-05-10)
 
 
