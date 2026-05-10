@@ -14,6 +14,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 )
 
 const (
@@ -161,6 +162,12 @@ func (s *Server) handleApproveDeviceCode(ctx context.Context, input *ApproveDevi
 		return nil, err
 	}
 	apiKey := &domain.APIKey{
+		// Pre-assign the UUID so buildAuditEvent below can capture the
+		// final api_key_id in the audit details. CreateAPIKey would
+		// otherwise assign the ID inside the tx, after we have already
+		// serialized the audit event with an empty string. The store's
+		// CreateAPIKey treats a non-empty ID as "use this one".
+		ID:            uuid.Must(uuid.NewV7()).String(),
 		ProjectID:     req.ProjectID,
 		Name:          "CLI (device-code " + row.UserCode + ")",
 		KeyHash:       hashAPIKey(rawKey),
