@@ -1362,6 +1362,9 @@ var sensitiveQueryKeywords = map[string]struct{}{
 	"credential": {},
 	"sig":        {},
 	"jwt":        {},
+	"bearer":     {},
+	"hmac":       {},
+	"nonce":      {},
 }
 
 // containsSensitiveKeyword reports whether name contains any of the
