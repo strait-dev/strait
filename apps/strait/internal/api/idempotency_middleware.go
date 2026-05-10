@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,14 @@ import (
 
 // idempotencyKeyTTL is the default time-to-live for idempotency keys.
 const idempotencyKeyTTL = 24 * time.Hour
+
+// idempotencyCleanupTimeout caps how long the middleware will block
+// waiting for DeleteIdempotencyKey when releasing a pending row after a
+// panic or a non-2xx response. The cleanup runs against a context that
+// outlives the request (context.WithoutCancel) so the request handler
+// canceling its own ctx -- e.g. timeout middleware firing -- does not
+// strand the pending row for the full TTL.
+const idempotencyCleanupTimeout = 5 * time.Second
 
 // idempotencyMiddleware intercepts POST requests that carry an Idempotency-Key
 // (or X-Idempotency-Key) header. It implements the insert-pending-first pattern:
@@ -80,10 +89,14 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 
 			// If the handler panics, clean up the pending row so the key
 			// can be retried instead of being stuck for the full TTL.
+			// Use a detached context so cleanup outlives a canceled
+			// request (timeout middleware, client disconnect).
 			panicked := true
 			defer func() {
 				if panicked {
-					_, _ = s.store.DeleteIdempotencyKey(r.Context(), projectID, compositeKey)
+					cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), idempotencyCleanupTimeout)
+					defer cancel()
+					_, _ = s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey)
 				}
 			}()
 
@@ -91,7 +104,9 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			panicked = false
 
 			// Only cache 2xx responses. Error responses delete the pending
-			// row so the client can retry with the same key.
+			// row so the client can retry with the same key. Cleanup runs
+			// on a detached context for the same reason as the panic
+			// branch above.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
 				if completeErr := s.store.CompleteIdempotencyKey(r.Context(), projectID, compositeKey, cw.statusCode, cw.body.Bytes()); completeErr != nil {
 					slog.Error("idempotency key complete failed",
@@ -100,7 +115,9 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 						"error", completeErr)
 				}
 			} else {
-				_, _ = s.store.DeleteIdempotencyKey(r.Context(), projectID, compositeKey)
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), idempotencyCleanupTimeout)
+				_, _ = s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey)
+				cancel()
 			}
 			return
 
