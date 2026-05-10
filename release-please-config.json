@@ -24,7 +24,17 @@
   "packages": {
     ".": {
       "package-name": "strait",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "docker-compose.selfhost.yml"
+        },
+        {
+          "type": "generic",
+          "path": "SELFHOST.md"
+        }
+      ]
     }
   }
 }
