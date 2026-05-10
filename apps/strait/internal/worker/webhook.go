@@ -86,7 +86,7 @@ func newWebhookRetryPolicy(maxAttempts int, job *domain.Job, run *domain.JobRun)
 			prev := e.LastResult()
 			slog.Warn("webhook delivery failed, retrying",
 				"run_id", run.ID,
-				"url", job.WebhookURL,
+				"url", httputil.RedactURLForLog(job.WebhookURL),
 				"status", prev.StatusCode,
 				"error", prev.Error,
 				"attempt", e.Attempts(),
@@ -158,13 +158,13 @@ func sendWithRetryPolicy(
 	if result.Delivered {
 		slog.Info("webhook delivered",
 			"run_id", run.ID,
-			"url", job.WebhookURL,
+			"url", httputil.RedactURLForLog(job.WebhookURL),
 			"status", result.StatusCode,
 		)
 	} else {
 		slog.Error("webhook delivery exhausted all retries",
 			"run_id", run.ID,
-			"url", job.WebhookURL,
+			"url", httputil.RedactURLForLog(job.WebhookURL),
 			"last_error", result.Error,
 		)
 	}
@@ -178,7 +178,7 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 	span.SetAttributes(
 		attribute.String("webhook.run_id", run.ID),
 		attribute.String("webhook.job_id", run.JobID),
-		attribute.String("webhook.url", job.WebhookURL),
+		attribute.String("webhook.url", httputil.RedactURLForLog(job.WebhookURL)),
 	)
 	payload := WebhookPayload{
 		RunID:     run.ID,
@@ -213,7 +213,7 @@ func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) W
 
 	resp, err := webhookClient.Do(req)
 	if err != nil {
-		return WebhookResult{Error: "delivery failed: " + err.Error()}
+		return WebhookResult{Error: "delivery failed: " + httputil.SanitizeHTTPClientError(err)}
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -249,7 +249,7 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 	span.SetAttributes(
 		attribute.String("webhook.run_id", run.ID),
 		attribute.String("webhook.job_id", run.JobID),
-		attribute.String("webhook.url", job.WebhookURL),
+		attribute.String("webhook.url", httputil.RedactURLForLog(job.WebhookURL)),
 	)
 	payload := WebhookPayload{
 		RunID:     run.ID,
@@ -284,7 +284,7 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return WebhookResult{Error: "delivery failed: " + err.Error()}
+		return WebhookResult{Error: "delivery failed: " + httputil.SanitizeHTTPClientError(err)}
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
