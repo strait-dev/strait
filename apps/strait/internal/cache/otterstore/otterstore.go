@@ -9,6 +9,8 @@ import (
 
 	lib_store "github.com/eko/gocache/lib/v4/store"
 	"github.com/maypok86/otter"
+
+	"strait/internal/cache"
 )
 
 const (
@@ -27,13 +29,18 @@ type Config struct {
 	// OnEviction is called when an entry is evicted from the cache.
 	// It receives the key, value, and the reason for eviction.
 	OnEviction func(key string, value any, reason otter.DeletionCause)
+	// TTLJitter, when > 0, adds a uniformly random extra duration in
+	// [0, DefaultTTL*TTLJitter) to each Set call. Must be in (0, 1].
+	// Use 0.1 (±10%) to break synchronized expiry under bursts.
+	TTLJitter float64
 }
 
 // OtterStore is a gocache store backed by maypok86/otter.
 type OtterStore struct {
-	mu      sync.RWMutex
-	client  otter.CacheWithVariableTTL[string, any]
-	options *lib_store.Options
+	mu        sync.RWMutex
+	client    otter.CacheWithVariableTTL[string, any]
+	options   *lib_store.Options
+	ttlJitter float64
 }
 
 // New creates a new otter-backed gocache store.
@@ -61,8 +68,9 @@ func New(cfg Config) *OtterStore {
 	}
 
 	return &OtterStore{
-		client:  cache,
-		options: opts,
+		client:    cache,
+		options:   opts,
+		ttlJitter: cfg.TTLJitter,
 	}
 }
 
@@ -106,6 +114,9 @@ func (s *OtterStore) Set(ctx context.Context, key any, value any, options ...lib
 	}
 	if ttl <= 0 {
 		ttl = time.Hour
+	}
+	if s.ttlJitter > 0 {
+		ttl = cache.JitterTTL(ttl, s.ttlJitter)
 	}
 
 	keyStr, ok := key.(string)

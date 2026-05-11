@@ -166,6 +166,7 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	cacheStore := otterstore.New(otterstore.Config{
 		DefaultTTL:  cacheTTL,
 		MaxCapacity: 1_000,
+		TTLJitter:   0.1,
 	})
 	orgCache := cache.New[*cachedOrgLimits](cacheStore)
 

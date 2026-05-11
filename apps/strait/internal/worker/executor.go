@@ -298,6 +298,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheStore = otterstore.New(otterstore.Config{
 			DefaultTTL:  cfg.JobCacheTTL,
 			MaxCapacity: 10_000,
+			TTLJitter:   0.1,
 		})
 		jobCache = cache.New[*domain.Job](jobCacheStore)
 	}
