@@ -107,6 +107,11 @@ func TestLoad_Defaults(t *testing.T) {
 		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
 		{"GRPCBindAddr", cfg.GRPCBindAddr, "127.0.0.1"},
 		{"GRPCPort", cfg.GRPCPort, 50051},
+		{"RedisPoolSize", cfg.RedisPoolSize, 30},
+		{"RedisMinIdleConns", cfg.RedisMinIdleConns, 5},
+		{"RedisReadTimeout", cfg.RedisReadTimeout, 3 * time.Second},
+		{"RedisWriteTimeout", cfg.RedisWriteTimeout, 3 * time.Second},
+		{"RedisConnMaxLifetime", cfg.RedisConnMaxLifetime, 30 * time.Minute},
 	}
 
 	for _, tt := range tests {

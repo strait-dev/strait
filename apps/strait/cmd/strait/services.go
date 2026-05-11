@@ -191,7 +191,13 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 // publisher and client when Redis is not configured.
 // It retries with exponential backoff up to 5 times on transient failures.
 func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *redis.Client, error) {
-	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs)
+	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs, pubsub.RedisPoolOptions{
+		PoolSize:        cfg.RedisPoolSize,
+		MinIdleConns:    cfg.RedisMinIdleConns,
+		ReadTimeout:     cfg.RedisReadTimeout,
+		WriteTimeout:    cfg.RedisWriteTimeout,
+		ConnMaxLifetime: cfg.RedisConnMaxLifetime,
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("create redis client: %w", err)
 	}
