@@ -101,7 +101,7 @@ type Config struct {
 	SequinBaseURL      string `env:"SEQUIN_BASE_URL"`
 	SequinConsumerName string `env:"SEQUIN_CONSUMER_NAME"`
 	SequinAPIToken     string `env:"SEQUIN_API_TOKEN"`
-	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"10"`
+	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
 	SequinWaitTimeMs   int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
 
 	// CORS settings
@@ -188,7 +188,7 @@ type Config struct {
 	// Workflow settings
 	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
 
-	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"10"`
+	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"200"`
 	CDCWaitTimeMs int `env:"CDC_WAIT_TIME_MS" default:"5000"`
 
 	// SSE settings
