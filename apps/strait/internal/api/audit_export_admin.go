@@ -79,6 +79,9 @@ func (s *Server) handleUpdateAuditExportCap(ctx context.Context, input *UpdateAu
 		slog.Error("failed to persist audit export row cap", "project_id", projectID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to update cap")
 	}
+	if s.quotaCache != nil {
+		s.quotaCache.Invalidate(projectID)
+	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionExportCapUpdated, "project_quotas", projectID, map[string]any{
 		"old_cap": oldCap,

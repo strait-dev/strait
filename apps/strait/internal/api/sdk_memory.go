@@ -39,7 +39,7 @@ func (s *Server) handleSDKSetMemory(ctx context.Context, input *SDKSetMemoryInpu
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-	quota, err := s.store.GetProjectQuota(ctx, run.ProjectID)
+	quota, err := s.quotaCache.Get(ctx, run.ProjectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get project quota")
 	}

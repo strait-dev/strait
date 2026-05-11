@@ -154,6 +154,12 @@ type Config struct {
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 
+	// ProjectQuotaCacheTTL bounds how long a cached project quota row may be
+	// reused before refetching. Quotas change rarely (admin updates, billing
+	// plan transitions) so a short TTL is a safe trade-off against fresh
+	// reads on every trigger/SDK call. Set to 0 to disable caching.
+	ProjectQuotaCacheTTL time.Duration `env:"PROJECT_QUOTA_CACHE_TTL" default:"60s"`
+
 	// Worker/Executor timeouts
 	WebhookTimeout             time.Duration `env:"WEBHOOK_TIMEOUT" default:"10s"`
 	WebhookIdleConnTimeout     time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`

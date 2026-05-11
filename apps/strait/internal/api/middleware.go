@@ -1220,8 +1220,8 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	}
 
 	// 2. Fall back to project quota rate limit.
-	if projectID != "" && s.store != nil {
-		quota, err := s.store.GetProjectQuota(ctx, projectID)
+	if projectID != "" && s.quotaCache != nil {
+		quota, err := s.quotaCache.Get(ctx, projectID)
 		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
 			return resolvedRateLimit{quota.RateLimitRequests, quota.RateLimitWindowSecs, "rl:project:" + projectID}
 		}
