@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -112,6 +113,31 @@ $$`
 		return fmt.Errorf("run_maintenance_proc: %w", err)
 	}
 	return nil
+}
+
+// PartitionReloption returns the value of a single reloption for a partition,
+// or the empty string if the reloption is not set. pg_class stores reloptions
+// as a text[] of "key=value" tokens; this helper parses out one key.
+func (q *Queries) PartitionReloption(ctx context.Context, name, option string) (string, error) {
+	var raw []string
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(reloptions, ARRAY[]::text[])
+		FROM pg_class
+		WHERE relname = $1 AND relkind = 'r'
+	`, name).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read reloptions for %s: %w", name, err)
+	}
+	prefix := option + "="
+	for _, kv := range raw {
+		if strings.HasPrefix(kv, prefix) {
+			return kv[len(prefix):], nil
+		}
+	}
+	return "", nil
 }
 
 // PartitionExists returns true when the given partition relation is
