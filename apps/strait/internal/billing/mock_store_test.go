@@ -11,6 +11,11 @@ type planUpdate struct {
 	status string
 }
 
+type statusUpdate struct {
+	orgID  string
+	status string
+}
+
 type fullUpdate struct {
 	orgID       string
 	tier        string
@@ -36,6 +41,7 @@ type mockBillingStore struct {
 	lastUpserted               *OrgSubscription
 	upsertCount                int
 	lastPlanUpdate             *planUpdate
+	lastStatusUpdate           *statusUpdate
 	lastFullUpdate             *fullUpdate
 	lastPendingTier            string
 	lastClearedPending         string
@@ -123,6 +129,17 @@ func (m *mockBillingStore) UpdateOrgSubscriptionPlan(_ context.Context, orgID, p
 	if m.subscriptions != nil {
 		if sub, ok := m.subscriptions[orgID]; ok {
 			sub.PlanTier = planTier
+			sub.Status = status
+			return nil
+		}
+	}
+	return ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) UpdateOrgSubscriptionStatus(_ context.Context, orgID, status string) error {
+	m.lastStatusUpdate = &statusUpdate{orgID: orgID, status: status}
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
 			sub.Status = status
 			return nil
 		}

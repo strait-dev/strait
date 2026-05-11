@@ -99,16 +99,6 @@ func WithEdition(edition string) WebhookOption {
 	return func(h *WebhookHandler) { h.edition = edition }
 }
 
-// WithDevBypassSignatureCheck allows skipping signature verification in development.
-// This must only be enabled when the STRIPE_WEBHOOK_ALLOW_UNSIGNED env var is explicitly
-// set to "true". Production deployments must never enable this option.
-func WithDevBypassSignatureCheck() WebhookOption {
-	return func(h *WebhookHandler) {
-		h.devBypassSigCheck = true
-		h.allowTestMetadata = true
-	}
-}
-
 var (
 	errEmptySubscriptionID = errors.New("subscription ID is empty")
 	errEmptyPriceID        = errors.New("price ID is empty")
@@ -1088,11 +1078,17 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 }
 
 // handleSubscriptionPaused handles customer.subscription.paused events.
-// Sets the subscription status to "paused" and restricts access.
+// Sets the subscription status to "paused" and restricts access. The plan_tier
+// is preserved so the org can be resumed onto its prior plan without re-reading
+// the Stripe price-to-tier mapping.
 func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json.RawMessage) error {
 	var sub stripe.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
 		return fmt.Errorf("parsing subscription data: %w", err)
+	}
+
+	if err := validateStripeSubscription(&sub); err != nil {
+		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
 	orgID, err := h.resolveBoundOrgID(ctx, &sub)
@@ -1103,7 +1099,12 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 		return nil
 	}
 
-	if err := h.store.UpdateOrgSubscriptionPlan(ctx, orgID, "", "paused"); err != nil {
+	var previousPlanTier string
+	if existing, err := h.store.GetOrgSubscription(ctx, orgID); err == nil && existing != nil {
+		previousPlanTier = existing.PlanTier
+	}
+
+	if err := h.store.UpdateOrgSubscriptionStatus(ctx, orgID, "paused"); err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			return nil
 		}
@@ -1114,11 +1115,15 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
-	h.logAuditEvent(ctx, "subscription.paused", orgID, map[string]string{
+	details := map[string]string{
 		"stripe_subscription_id": sub.ID,
-	})
+	}
+	if previousPlanTier != "" {
+		details["previous_plan_tier"] = previousPlanTier
+	}
+	h.logAuditEvent(ctx, "subscription.paused", orgID, details)
 
-	h.logger.Info("subscription paused", "org_id", orgID)
+	h.logger.Info("subscription paused", "org_id", orgID, "previous_plan_tier", previousPlanTier)
 	return nil
 }
 
