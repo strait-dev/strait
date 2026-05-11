@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"strait/internal/clickhouse"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -182,6 +184,13 @@ type Reaper struct {
 	archiveEnabled             bool
 	allowPrivateEndpoints      bool
 	rotationWebhookClient      *http.Client
+	rotationSecretDecryptor    SecretDecryptor
+}
+
+// SecretDecryptor decrypts at-rest secrets such as rotation webhook signing
+// keys. The reaper uses it to sign outbound rotation webhooks.
+type SecretDecryptor interface {
+	Decrypt(ciphertext []byte) ([]byte, error)
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -232,6 +241,14 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 // WithMetrics sets the telemetry metrics for the reaper.
 func (r *Reaper) WithMetrics(m *telemetry.Metrics) *Reaper {
 	r.metrics = m
+	return r
+}
+
+// WithRotationSecretDecryptor sets the decryptor used to recover at-rest
+// rotation webhook signing secrets. When unset the reaper still delivers
+// rotation webhooks but cannot sign them.
+func (r *Reaper) WithRotationSecretDecryptor(d SecretDecryptor) *Reaper {
+	r.rotationSecretDecryptor = d
 	return r
 }
 
@@ -1308,16 +1325,17 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 		keyHash := sha256.Sum256([]byte(rawKey))
 
 		newKey := &domain.APIKey{
-			ProjectID:            oldKey.ProjectID,
-			OrgID:                oldKey.OrgID,
-			Name:                 oldKey.Name + " (auto-rotated)",
-			KeyHash:              hex.EncodeToString(keyHash[:]),
-			KeyPrefix:            rawKey[:12],
-			Scopes:               oldKey.Scopes,
-			ExpiresAt:            oldKey.ExpiresAt,
-			EnvironmentID:        oldKey.EnvironmentID,
-			RotationIntervalDays: oldKey.RotationIntervalDays,
-			RotationWebhookURL:   oldKey.RotationWebhookURL,
+			ProjectID:             oldKey.ProjectID,
+			OrgID:                 oldKey.OrgID,
+			Name:                  oldKey.Name + " (auto-rotated)",
+			KeyHash:               hex.EncodeToString(keyHash[:]),
+			KeyPrefix:             rawKey[:12],
+			Scopes:                oldKey.Scopes,
+			ExpiresAt:             oldKey.ExpiresAt,
+			EnvironmentID:         oldKey.EnvironmentID,
+			RotationIntervalDays:  oldKey.RotationIntervalDays,
+			RotationWebhookURL:    oldKey.RotationWebhookURL,
+			RotationWebhookSecret: oldKey.RotationWebhookSecret,
 		}
 		// Set next_rotation_at for the new key.
 		if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
@@ -1330,7 +1348,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			continue
 		}
 
-		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
+		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
 			r.logger.Warn("rotation webhook notification failed; keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
 			if newKey.ID != "" {
 				if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
@@ -1369,7 +1387,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 	}
 }
 
-func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, encryptedSecret []byte, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
 	logURL := httputil.RedactURLForLog(webhookURL)
 	if err := validateRotationWebhookURL(webhookURL, r.allowPrivateEndpoints); err != nil {
 		r.logger.Warn("rotation webhook URL blocked", "url", logURL, "error", err)
@@ -1393,6 +1411,28 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
+
+	// Sign the request if we have a decryptable per-key secret. Legacy keys
+	// created before the rotation_webhook_secret column existed will continue
+	// to receive unsigned deliveries until the customer rotates them once.
+	switch {
+	case len(encryptedSecret) == 0:
+		r.logger.Warn("rotation webhook delivered without HMAC signature: api key has no rotation_webhook_secret",
+			"key_id", oldKeyID, "project_id", projectID)
+	case r.rotationSecretDecryptor == nil:
+		r.logger.Warn("rotation webhook delivered without HMAC signature: no decryptor configured",
+			"key_id", oldKeyID, "project_id", projectID)
+	default:
+		plaintext, decErr := r.rotationSecretDecryptor.Decrypt(encryptedSecret)
+		if decErr != nil {
+			r.logger.Warn("rotation webhook secret could not be decrypted; delivering unsigned",
+				"key_id", oldKeyID, "project_id", projectID, "error", decErr)
+		} else {
+			deliveryID := uuid.Must(uuid.NewV7()).String()
+			timestamp := time.Now().UTC().Format(time.RFC3339)
+			straitcrypto.SignWebhookRequest(req, plaintext, payload, deliveryID, timestamp)
+		}
+	}
 
 	client := r.rotationWebhookClient
 	if client == nil {

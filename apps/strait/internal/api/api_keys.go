@@ -28,16 +28,18 @@ type CreateAPIKeyRequest struct {
 	ExpiresIn            *int     `json:"expires_in_days,omitempty" validate:"omitempty,min=1,max=36500"`
 	EnvironmentID        string   `json:"environment_id,omitempty"`
 	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty" validate:"omitempty,min=1,max=36500"`
+	RotationWebhookURL   string   `json:"rotation_webhook_url,omitempty" validate:"omitempty,url,max=2048"`
 }
 type CreateAPIKeyResponse struct {
-	ID        string     `json:"id"`
-	ProjectID string     `json:"project_id"`
-	Name      string     `json:"name"`
-	Key       string     `json:"key"`
-	KeyPrefix string     `json:"key_prefix"`
-	Scopes    []string   `json:"scopes"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID                    string     `json:"id"`
+	ProjectID             string     `json:"project_id"`
+	Name                  string     `json:"name"`
+	Key                   string     `json:"key"`
+	KeyPrefix             string     `json:"key_prefix"`
+	Scopes                []string   `json:"scopes"`
+	ExpiresAt             *time.Time `json:"expires_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	RotationWebhookSecret string     `json:"rotation_webhook_secret,omitempty"`
 }
 type RotateAPIKeyRequest struct {
 	GracePeriodMinutes int `json:"grace_period_minutes,omitempty"`
@@ -96,10 +98,26 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		return nil, err
 	}
 
-	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
+	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays, RotationWebhookURL: req.RotationWebhookURL}
 	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
 		key.NextRotationAt = &nr
+	}
+	var rotationWebhookSecretPlaintext string
+	if req.RotationWebhookURL != "" {
+		if s.encryptor == nil {
+			return nil, huma.Error500InternalServerError("server not configured for rotation webhook signing: ENCRYPTION_KEY required")
+		}
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err != nil {
+			return nil, huma.Error500InternalServerError("failed to generate rotation webhook secret")
+		}
+		ciphertext, err := s.encryptor.Encrypt(secretBytes)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to encrypt rotation webhook secret")
+		}
+		key.RotationWebhookSecret = ciphertext
+		rotationWebhookSecretPlaintext = "whsec_" + hex.EncodeToString(secretBytes)
 	}
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
@@ -111,8 +129,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		"expires_at":             key.ExpiresAt,
 		"environment_id":         key.EnvironmentID,
 		"rotation_interval_days": req.RotationIntervalDays,
+		"rotation_webhook_url":   key.RotationWebhookURL,
 	})
-	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
+	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, RotationWebhookSecret: rotationWebhookSecretPlaintext}}, nil
 }
 
 func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {

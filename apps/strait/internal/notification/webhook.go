@@ -3,9 +3,6 @@ package notification
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +11,7 @@ import (
 	"net/url"
 	"time"
 
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 
@@ -108,18 +106,7 @@ func (w *WebhookSender) Send(ctx context.Context, channel *domain.NotificationCh
 
 		if cfg.Secret != "" {
 			timestamp := time.Now().UTC().Format(time.RFC3339)
-			deliveryID := delivery.ID
-			mac := hmac.New(sha256.New, []byte(cfg.Secret))
-			mac.Write([]byte(timestamp))
-			mac.Write([]byte("."))
-			mac.Write([]byte(deliveryID))
-			mac.Write([]byte("."))
-			mac.Write(body)
-			sig := hex.EncodeToString(mac.Sum(nil))
-			req.Header.Set("X-Strait-Timestamp", timestamp)
-			req.Header.Set("X-Strait-Delivery-ID", deliveryID)
-			req.Header.Set("X-Strait-Signature", "t="+timestamp+",d="+deliveryID+",v1="+sig)
-			req.Header.Set("X-Signature-256", "sha256="+sig)
+			straitcrypto.SignWebhookRequest(req, []byte(cfg.Secret), body, delivery.ID, timestamp)
 		}
 
 		return w.client.Do(req)

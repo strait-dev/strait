@@ -24,13 +24,19 @@ func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 
 	query := `
 		INSERT INTO api_keys (id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at,
-		                      environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                      environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, rotation_webhook_secret)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at`
+
+	var rotationWebhookSecret any
+	if len(key.RotationWebhookSecret) > 0 {
+		rotationWebhookSecret = key.RotationWebhookSecret
+	}
 
 	err := q.db.QueryRow(ctx, query,
 		key.ID, key.ProjectID, dbscan.NilIfEmptyString(key.OrgID), key.Name, key.KeyHash, key.KeyPrefix, key.Scopes, key.ExpiresAt,
 		dbscan.NilIfEmptyString(key.EnvironmentID), key.RotationIntervalDays, key.NextRotationAt, dbscan.NilIfEmptyString(key.RotationWebhookURL),
+		rotationWebhookSecret,
 	).Scan(&key.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
@@ -45,7 +51,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
 			  FROM api_keys WHERE key_hash = $1`
 
 	key, err := scanAPIKey(q.db.QueryRow(ctx, query, keyHash))
@@ -65,7 +71,7 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, li
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
 			  FROM api_keys WHERE project_id = $1 AND revoked_at IS NULL`
 
 	args := []any{projectID}
@@ -104,7 +110,7 @@ func (q *Queries) ListAPIKeysByOrg(ctx context.Context, orgID string, limit int,
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
 			  FROM api_keys WHERE org_id = $1 AND revoked_at IS NULL`
 
 	args := []any{orgID}
@@ -172,7 +178,7 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey,
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
 			  FROM api_keys WHERE id = $1`
 
 	key, err := scanAPIKey(q.db.QueryRow(ctx, query, id))
@@ -193,11 +199,12 @@ func scanAPIKey(scanner scanTarget) (*domain.APIKey, error) {
 	var rateLimitWindowSecs *int
 	var environmentID *string
 	var rotationWebhookURL *string
+	var rotationWebhookSecret []byte
 	err := scanner.Scan(
 		&key.ID, &key.ProjectID, &orgID, &key.Name, &key.KeyHash, &key.KeyPrefix,
 		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 		&rateLimitRequests, &rateLimitWindowSecs,
-		&environmentID, &key.RotationIntervalDays, &key.NextRotationAt, &rotationWebhookURL,
+		&environmentID, &key.RotationIntervalDays, &key.NextRotationAt, &rotationWebhookURL, &rotationWebhookSecret,
 	)
 	if err != nil {
 		return nil, err
@@ -220,6 +227,7 @@ func scanAPIKey(scanner scanTarget) (*domain.APIKey, error) {
 	if rotationWebhookURL != nil {
 		key.RotationWebhookURL = *rotationWebhookURL
 	}
+	key.RotationWebhookSecret = rotationWebhookSecret
 	return &key, nil
 }
 
@@ -229,7 +237,7 @@ func (q *Queries) ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, 
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
 			  FROM api_keys
 			  WHERE rotation_interval_days IS NOT NULL
 			    AND next_rotation_at <= NOW()
@@ -261,7 +269,7 @@ func (q *Queries) ListAPIKeysExpiringSoon(ctx context.Context, projectID string,
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
 			  FROM api_keys
 			  WHERE project_id = $1
 			    AND revoked_at IS NULL

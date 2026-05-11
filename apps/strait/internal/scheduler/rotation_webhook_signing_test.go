@@ -1,0 +1,188 @@
+package scheduler
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type stubSecretDecryptor struct {
+	plaintext []byte
+	err       error
+}
+
+func (s stubSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.plaintext, nil
+}
+
+func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
+	t.Parallel()
+
+	plaintext := []byte("rotation-secret")
+	var (
+		mu          sync.Mutex
+		gotBody     []byte
+		gotSig      string
+		gotTS       string
+		gotDelivery string
+		gotSig256   string
+	)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = body
+		gotSig = r.Header.Get("X-Strait-Signature")
+		gotTS = r.Header.Get("X-Strait-Timestamp")
+		gotDelivery = r.Header.Get("X-Strait-Delivery-ID")
+		gotSig256 = r.Header.Get("X-Signature-256")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true).
+		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: plaintext})
+	r.rotationWebhookClient = server.Client()
+
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
+		t.Fatalf("notifyRotationWebhook: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotTS == "" || gotDelivery == "" {
+		t.Fatalf("missing X-Strait-Timestamp or X-Strait-Delivery-ID; ts=%q deliv=%q", gotTS, gotDelivery)
+	}
+	if gotSig == "" {
+		t.Fatal("missing X-Strait-Signature")
+	}
+	if !strings.HasPrefix(gotSig, "t="+gotTS+",d="+gotDelivery+",v1=") {
+		t.Fatalf("X-Strait-Signature wrong shape: %q", gotSig)
+	}
+
+	mac := hmac.New(sha256.New, plaintext)
+	mac.Write([]byte(gotTS))
+	mac.Write([]byte("."))
+	mac.Write([]byte(gotDelivery))
+	mac.Write([]byte("."))
+	mac.Write(gotBody)
+	wantSig := hex.EncodeToString(mac.Sum(nil))
+	wantStructured := "t=" + gotTS + ",d=" + gotDelivery + ",v1=" + wantSig
+	if gotSig != wantStructured {
+		t.Fatalf("X-Strait-Signature: got %q, want %q", gotSig, wantStructured)
+	}
+	if gotSig256 != "sha256="+wantSig {
+		t.Fatalf("X-Signature-256: got %q, want %q", gotSig256, "sha256="+wantSig)
+	}
+	if !bytes.Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)) {
+		t.Fatalf("unexpected body: %s", gotBody)
+	}
+}
+
+func TestNotifyRotationWebhook_LegacyKeyDeliversUnsigned(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu     sync.Mutex
+		gotSig string
+		gotTS  string
+	)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotSig = r.Header.Get("X-Strait-Signature")
+		gotTS = r.Header.Get("X-Strait-Timestamp")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true).
+		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("unused")})
+	r.rotationWebhookClient = server.Client()
+
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
+		t.Fatalf("notifyRotationWebhook: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotSig != "" || gotTS != "" {
+		t.Fatalf("legacy unsigned delivery should not set signing headers, got sig=%q ts=%q", gotSig, gotTS)
+	}
+}
+
+func TestNotifyRotationWebhook_DecryptFailureDeliversUnsigned(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu     sync.Mutex
+		gotSig string
+	)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotSig = r.Header.Get("X-Strait-Signature")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true).
+		WithRotationSecretDecryptor(stubSecretDecryptor{err: errors.New("kms unavailable")})
+	r.rotationWebhookClient = server.Client()
+
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
+		t.Fatalf("notifyRotationWebhook: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotSig != "" {
+		t.Fatalf("decrypt failure should fall back to unsigned, got sig=%q", gotSig)
+	}
+}
+
+func TestNotifyRotationWebhook_NoDecryptorDeliversUnsigned(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu     sync.Mutex
+		gotSig string
+	)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotSig = r.Header.Get("X-Strait-Signature")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = server.Client()
+
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
+		t.Fatalf("notifyRotationWebhook: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotSig != "" {
+		t.Fatalf("missing decryptor should fall back to unsigned, got sig=%q", gotSig)
+	}
+}

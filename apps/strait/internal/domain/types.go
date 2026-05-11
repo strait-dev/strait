@@ -763,9 +763,10 @@ type APIKey struct {
 	RateLimitRequests    int        `json:"rate_limit_requests,omitempty"`
 	RateLimitWindowSecs  int        `json:"rate_limit_window_secs,omitempty"`
 	EnvironmentID        string     `json:"environment_id,omitempty"`
-	RotationIntervalDays *int       `json:"rotation_interval_days,omitempty"`
-	NextRotationAt       *time.Time `json:"next_rotation_at,omitempty"`
-	RotationWebhookURL   string     `json:"rotation_webhook_url,omitempty"`
+	RotationIntervalDays  *int       `json:"rotation_interval_days,omitempty"`
+	NextRotationAt        *time.Time `json:"next_rotation_at,omitempty"`
+	RotationWebhookURL    string     `json:"rotation_webhook_url,omitempty"`
+	RotationWebhookSecret []byte     `json:"-"`
 }
 
 type JobVersion struct {
