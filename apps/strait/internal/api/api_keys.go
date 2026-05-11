@@ -14,14 +14,20 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
+// maxAPIKeyDurationDays caps expires_in_days and rotation_interval_days at
+// 100 years. time.Duration(days)*24*time.Hour overflows once days exceeds
+// ~106,750, and even an "expires never" intent is not a good reason to
+// open the API to user-controlled int64 overflow.
+const maxAPIKeyDurationDays = 36500
+
 type CreateAPIKeyRequest struct {
 	ProjectID            string   `json:"project_id" validate:"required"`
 	OrgID                string   `json:"org_id,omitempty"`
 	Name                 string   `json:"name" validate:"required,max=255"`
 	Scopes               []string `json:"scopes,omitempty"`
-	ExpiresIn            *int     `json:"expires_in_days,omitempty"`
+	ExpiresIn            *int     `json:"expires_in_days,omitempty" validate:"omitempty,min=1,max=36500"`
 	EnvironmentID        string   `json:"environment_id,omitempty"`
-	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty"`
+	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty" validate:"omitempty,min=1,max=36500"`
 }
 type CreateAPIKeyResponse struct {
 	ID        string     `json:"id"`
@@ -118,14 +124,17 @@ func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID st
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
-		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
+		// Cap the project quota itself at maxAPIKeyDurationDays so a misconfigured
+		// "huge" quota cannot wrap time.Duration math into a past timestamp.
+		effectiveMaxDays := min(quota.MaxKeyLifetimeDays, maxAPIKeyDurationDays)
+		maxExpiry := time.Now().Add(time.Duration(effectiveMaxDays) * 24 * time.Hour)
 		if expiresAt == nil {
 			expiresAt = &maxExpiry
 			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
-				"project_id", projectID, "max_days", quota.MaxKeyLifetimeDays)
+				"project_id", projectID, "max_days", effectiveMaxDays)
 		} else if expiresAt.After(maxExpiry) {
 			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
+				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", effectiveMaxDays))
 		}
 	}
 	if expiresAt == nil {
