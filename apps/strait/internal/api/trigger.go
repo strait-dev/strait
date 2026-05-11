@@ -45,20 +45,20 @@ type TriggerRequest struct {
 	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
 	Priority       int               `json:"priority,omitempty" validate:"min=0,max=10"`
 	DryRun         bool              `json:"dry_run,omitempty"`
-	TTLSecs        *int              `json:"ttl_secs,omitempty"`
-	ConcurrencyKey string            `json:"concurrency_key,omitempty"`
-	DebounceKey    string            `json:"debounce_key,omitempty"`
-	BatchKey       string            `json:"batch_key,omitempty"`
+	TTLSecs        *int              `json:"ttl_secs,omitempty" validate:"omitempty,min=0,max=2592000"`
+	ConcurrencyKey string            `json:"concurrency_key,omitempty" validate:"max=256"`
+	DebounceKey    string            `json:"debounce_key,omitempty" validate:"max=256"`
+	BatchKey       string            `json:"batch_key,omitempty" validate:"max=256"`
 }
 
 type TriggerJobInput struct {
 	JobID             string `path:"jobID"`
 	XIdempotencyKey   string `header:"X-Idempotency-Key"`
 	IdempotencyKeyAlt string `header:"Idempotency-Key"`
-	Traceparent       string `header:"Traceparent"`
-	Tracestate        string `header:"Tracestate"`
-	SentryTrace       string `header:"Sentry-Trace"`
-	Baggage           string `header:"Baggage"`
+	Traceparent       string `header:"Traceparent" maxLength:"256"`
+	Tracestate        string `header:"Tracestate" maxLength:"8192"`
+	SentryTrace       string `header:"Sentry-Trace" maxLength:"8192"`
+	Baggage           string `header:"Baggage" maxLength:"8192"`
 	Body              TriggerRequest
 }
 
@@ -99,6 +99,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+	if err := validateTriggerTraceHeaders(input); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := validatePayloadSize(req.Payload); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
