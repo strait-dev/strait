@@ -31,7 +31,7 @@ func TestPruneAlertCooldowns_DropsStaleEntries(t *testing.T) {
 		t.Fatalf("queueAlertCooldown pre-prune size = %d, want 1000", got)
 	}
 
-	r.pruneAlertCooldowns(now, 24*time.Hour)
+	r.pruneAlertCooldowns(now)
 
 	if got := len(r.dlqAlertCooldown); got != 500 {
 		t.Fatalf("dlqAlertCooldown post-prune size = %d, want 500", got)
@@ -64,7 +64,7 @@ func TestPruneAlertCooldowns_DoesNotBlockNewAlerts(t *testing.T) {
 	now := time.Now()
 	r.dlqAlertCooldown["seen-job"] = now.Add(-100 * time.Hour)
 
-	r.pruneAlertCooldowns(now, 24*time.Hour)
+	r.pruneAlertCooldowns(now)
 
 	if _, ok := r.dlqAlertCooldown["seen-job"]; ok {
 		t.Fatal("expected stale entry to be removed so a new alert can fire")

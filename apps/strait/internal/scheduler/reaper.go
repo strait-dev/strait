@@ -1214,19 +1214,25 @@ func (r *Reaper) reapPerOrgRetention(ctx context.Context) {
 	}
 }
 
+// alertCooldownPruneTTL is the maximum age of an entry retained in the
+// DLQ / queue-depth alert cooldown maps before it is dropped on the next
+// monitoring pass.
+const alertCooldownPruneTTL = 24 * time.Hour
+
 // pruneAlertCooldowns removes entries from the DLQ and queue-depth alert
-// cooldown maps once they are older than ttl. Without this, a long-lived
-// reaper accumulates one entry per ever-seen job, since job IDs are never
-// removed even when the job is deleted. Called at the start of each
-// monitoring pass so the maps stay bounded by recently-active job IDs.
-func (r *Reaper) pruneAlertCooldowns(now time.Time, ttl time.Duration) {
+// cooldown maps once they are older than alertCooldownPruneTTL. Without
+// this, a long-lived reaper accumulates one entry per ever-seen job, since
+// job IDs are never removed even when the job is deleted. Called at the
+// start of each monitoring pass so the maps stay bounded by
+// recently-active job IDs.
+func (r *Reaper) pruneAlertCooldowns(now time.Time) {
 	for k, t := range r.dlqAlertCooldown {
-		if now.Sub(t) > ttl {
+		if now.Sub(t) > alertCooldownPruneTTL {
 			delete(r.dlqAlertCooldown, k)
 		}
 	}
 	for k, t := range r.queueAlertCooldown {
-		if now.Sub(t) > ttl {
+		if now.Sub(t) > alertCooldownPruneTTL {
 			delete(r.queueAlertCooldown, k)
 		}
 	}
@@ -1245,7 +1251,7 @@ func (r *Reaper) monitorDLQDepth(ctx context.Context) {
 	}
 
 	now := time.Now()
-	r.pruneAlertCooldowns(now, 24*time.Hour)
+	r.pruneAlertCooldowns(now)
 	for _, d := range depths {
 		if r.metrics != nil {
 			r.metrics.DLQDepth.Record(ctx, int64(d.DLQCount), metric.WithAttributes(
@@ -1513,7 +1519,7 @@ func (r *Reaper) monitorQueueDepth(ctx context.Context) {
 	}
 
 	now := time.Now()
-	r.pruneAlertCooldowns(now, 24*time.Hour)
+	r.pruneAlertCooldowns(now)
 	for _, d := range depths {
 		if r.metrics != nil {
 			r.metrics.QueueDepthPerJob.Record(ctx, int64(d.QueuedCount), metric.WithAttributes(
