@@ -29,6 +29,7 @@ import (
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"golang.org/x/sync/singleflight"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -132,30 +133,34 @@ type Executor struct {
 	defaultJobMaxConcurrency int
 	jobCache                 *cache.Cache[*domain.Job]
 	jobCacheStore            *otterstore.OtterStore
-	memoryPressureThreshold  float64
-	maxSnoozeCount           int
-	jwtSigningKey            string
-	externalAPIURL           string
-	defaultRegion            string
-	mode                     string
-	version                  string
-	billingEnforcer          *billing.Enforcer
-	stripeUsageReporter      *billing.StripeUsageReporter
-	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
-	runCostRecorder          *billing.RunCostRecorder
-	stop                     chan struct{}
-	done                     chan struct{}
-	stopOnce                 sync.Once
-	pollWG                   sync.WaitGroup
-	callbackWG               sync.WaitGroup
-	pollInFlight             atomic.Int64
-	runStarted               atomic.Bool
-	degradedPollInterval     time.Duration
-	degraded                 queue.DegradedNotifier
-	dbCircuit                *queue.DBCircuit
-	eventChannelSize         int
-	saturationWarnMu         sync.Mutex
-	saturationLastWarn       map[string]time.Time
+	// jobResolveGroup coalesces concurrent resolveJobForRun calls for the
+	// same job ID so a burst of runs does not stampede the DB while the
+	// cache is cold.
+	jobResolveGroup         singleflight.Group
+	memoryPressureThreshold float64
+	maxSnoozeCount          int
+	jwtSigningKey           string
+	externalAPIURL          string
+	defaultRegion           string
+	mode                    string
+	version                 string
+	billingEnforcer         *billing.Enforcer
+	stripeUsageReporter     *billing.StripeUsageReporter
+	stripeUsageWG           conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder         *billing.RunCostRecorder
+	stop                    chan struct{}
+	done                    chan struct{}
+	stopOnce                sync.Once
+	pollWG                  sync.WaitGroup
+	callbackWG              sync.WaitGroup
+	pollInFlight            atomic.Int64
+	runStarted              atomic.Bool
+	degradedPollInterval    time.Duration
+	degraded                queue.DegradedNotifier
+	dbCircuit               *queue.DBCircuit
+	eventChannelSize        int
+	saturationWarnMu        sync.Mutex
+	saturationLastWarn      map[string]time.Time
 	// queueSnapshotter returns the set of queue names with active workers on
 	// this replica. When non-nil, poll performs a second dequeue pass for
 	// worker-mode runs filtered to those queues. Injected from the gRPC

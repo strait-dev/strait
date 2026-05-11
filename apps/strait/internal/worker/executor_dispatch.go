@@ -62,14 +62,27 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	}
 
 	if current == nil {
-		var err error
-		current, err = e.store.GetJob(ctx, run.JobID)
+		// Coalesce concurrent cache misses for the same job so a fan-out of
+		// runs does not stampede the DB. Mirrors billing.Enforcer.GetOrgLimits.
+		result, err, _ := e.jobResolveGroup.Do(run.JobID, func() (any, error) {
+			if e.jobCache != nil {
+				if cached, gerr := e.jobCache.Get(ctx, run.JobID); gerr == nil {
+					return cached, nil
+				}
+			}
+			job, gerr := e.store.GetJob(ctx, run.JobID)
+			if gerr != nil {
+				return nil, gerr
+			}
+			if e.jobCache != nil {
+				_ = e.jobCache.Set(ctx, run.JobID, job)
+			}
+			return job, nil
+		})
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		if e.jobCache != nil {
-			_ = e.jobCache.Set(ctx, run.JobID, current)
-		}
+		current = result.(*domain.Job)
 	}
 
 	if current.Version == run.JobVersion {
