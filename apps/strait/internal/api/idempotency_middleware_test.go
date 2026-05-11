@@ -15,6 +15,33 @@ import (
 	"strait/internal/domain"
 )
 
+// idempotencyTestCtx populates the project + actor context the
+// idempotencyMiddleware now requires post-Fix #10. Tests that wrap the
+// middleware directly (no router auth) need both keys set so the
+// composite-key path runs.
+func idempotencyTestCtx(parent context.Context, projectID string) context.Context {
+	ctx := context.WithValue(parent, ctxProjectIDKey, projectID)
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test-actor")
+	return ctx
+}
+
+// isHexDigest returns true if s is a 64-character lowercase SHA-256
+// hex digest, the format produced by idempotencyCompositeKey.
+func isHexDigest(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
 	t.Parallel()
 	called := false
@@ -28,7 +55,7 @@ func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
 	wrapped := srv.idempotencyMiddleware(handler)
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -52,17 +79,16 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 	})
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			if projectID != "proj-1" {
 				t.Fatalf("unexpected project: %s", projectID)
 			}
-			// Key should be composite: path:key
-			if !strings.Contains(key, "my-key") {
-				t.Fatalf("expected key to contain 'my-key', got %s", key)
+			if !isHexDigest(key) {
+				t.Fatalf("expected hashed composite key, got %q", key)
 			}
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, body []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, _ http.Header, body []byte) error {
 			if status != http.StatusCreated {
 				t.Fatalf("expected status 201, got %d", status)
 			}
@@ -78,7 +104,7 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "my-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -103,8 +129,8 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 
 	cachedBody := []byte(`{"id":"job-123","status":"created"}`)
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "completed", http.StatusCreated, cachedBody, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "completed", http.StatusCreated, nil, cachedBody, nil
 		},
 	}
 
@@ -113,7 +139,7 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "my-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -141,9 +167,9 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
 			t.Fatal("idempotency store must not be consulted before permission checks")
-			return "", 0, nil, nil
+			return "", 0, nil, nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -155,7 +181,7 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", strings.NewReader(`{}`))
 	req.Header.Set("Idempotency-Key", "cached-create-job")
-	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx := idempotencyTestCtx(req.Context(), "proj-1")
 	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsRead})
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:read-only")
@@ -177,9 +203,9 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 
 	createCalls := 0
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
 			t.Fatal("api key creation responses contain raw secrets and must not be idempotency-cached")
-			return "", 0, nil, nil
+			return "", 0, nil, nil, nil
 		},
 		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
 			createCalls++
@@ -209,8 +235,8 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "pending", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "pending", 0, nil, nil, nil
 		},
 	}
 
@@ -222,7 +248,7 @@ func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("X-Idempotency-Key", "in-flight-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -243,7 +269,7 @@ func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 	longKey := strings.Repeat("x", maxIdempotencyKeyLength+1)
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", longKey)
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -256,13 +282,13 @@ func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
-			if !strings.Contains(key, "x-header-key") {
-				t.Fatalf("expected key to contain x-header-key, got %s", key)
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			if !isHexDigest(key) {
+				t.Fatalf("expected hashed composite key, got %q", key)
 			}
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			return nil
 		},
 	}
@@ -275,7 +301,7 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("X-Idempotency-Key", "x-header-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -289,8 +315,8 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 	t.Parallel()
 	var deleteCalled bool
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
 		DeleteIdempotencyKeyFunc: func(_ context.Context, _, _ string) (int64, error) {
 			deleteCalled = true
@@ -307,7 +333,7 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	r.Header.Set("Idempotency-Key", "fail-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
@@ -325,13 +351,13 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 
 func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 	t.Parallel()
-	var capturedKey string
+	var captured []string
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
-			capturedKey = key
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			captured = append(captured, key)
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			return nil
 		},
 	}
@@ -342,15 +368,24 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
 
-	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
-	r.Header.Set("Idempotency-Key", "same-key")
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-1"))
-	w := httptest.NewRecorder()
+	for _, path := range []string{"/v1/jobs", "/v1/runs"} {
+		r := httptest.NewRequest(http.MethodPost, path, nil)
+		r.Header.Set("Idempotency-Key", "same-key")
+		r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
+		w := httptest.NewRecorder()
+		wrapped.ServeHTTP(w, r)
+	}
 
-	wrapped.ServeHTTP(w, r)
-
-	if capturedKey != "/v1/jobs:env::same-key" {
-		t.Fatalf("expected composite key '/v1/jobs:env::same-key', got %q", capturedKey)
+	if len(captured) != 2 {
+		t.Fatalf("captured = %d, want 2", len(captured))
+	}
+	for i, k := range captured {
+		if !isHexDigest(k) {
+			t.Fatalf("captured[%d] = %q, want hashed digest", i, k)
+		}
+	}
+	if captured[0] == captured[1] {
+		t.Fatalf("path-scoped requests reused composite key %q", captured[0])
 	}
 }
 
@@ -359,11 +394,11 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 
 	var capturedKeys []string
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, []byte, error) {
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
 			capturedKeys = append(capturedKeys, key)
-			return "acquired", 0, nil, nil
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ []byte) error {
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
 			return nil
 		},
 	}
@@ -376,7 +411,7 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 	for _, environmentID := range []string{"env-production", "env-staging"} {
 		req := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/clone", nil)
 		req.Header.Set("Idempotency-Key", "clone-key")
-		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+		ctx := idempotencyTestCtx(req.Context(), "proj-1")
 		ctx = context.WithValue(ctx, ctxEnvironmentIDKey, environmentID)
 		req = req.WithContext(ctx)
 
@@ -390,14 +425,13 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 	if len(capturedKeys) != 2 {
 		t.Fatalf("captured keys = %d, want 2", len(capturedKeys))
 	}
+	for i, k := range capturedKeys {
+		if !isHexDigest(k) {
+			t.Fatalf("capturedKeys[%d] = %q, want hashed digest", i, k)
+		}
+	}
 	if capturedKeys[0] == capturedKeys[1] {
 		t.Fatalf("environment-scoped requests reused idempotency key %q", capturedKeys[0])
-	}
-	if capturedKeys[0] != "/v1/jobs/job-1/clone:env:env-production:clone-key" {
-		t.Fatalf("production key = %q", capturedKeys[0])
-	}
-	if capturedKeys[1] != "/v1/jobs/job-1/clone:env:env-staging:clone-key" {
-		t.Fatalf("staging key = %q", capturedKeys[1])
 	}
 }
 
@@ -409,10 +443,10 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
-			return "acquired", 0, nil, nil
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
 		},
-		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, []byte) error {
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
 			return errors.New("forced complete failure")
 		},
 	}
@@ -424,7 +458,7 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 	req.Header.Set("Idempotency-Key", rawKey)
-	req = req.WithContext(context.WithValue(req.Context(), ctxProjectIDKey, "proj-1"))
+	req = req.WithContext(idempotencyTestCtx(req.Context(), "proj-1"))
 	wrapped.ServeHTTP(httptest.NewRecorder(), req)
 
 	logText := logs.String()
@@ -440,8 +474,8 @@ func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
-			return "completed", http.StatusCreated, []byte(`{"debounced":true,"idempotency_hit":true}`), nil
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return "completed", http.StatusCreated, nil, []byte(`{"debounced":true,"idempotency_hit":true}`), nil
 		},
 		UpsertDebouncePendingFunc: func(context.Context, *domain.DebouncePending) error {
 			t.Fatal("debounce mutation must not run for idempotency replay")
@@ -470,8 +504,8 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, []byte, error) {
-			return "completed", http.StatusCreated, []byte(`{"buffered":true,"idempotency_hit":true}`), nil
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return "completed", http.StatusCreated, nil, []byte(`{"buffered":true,"idempotency_hit":true}`), nil
 		},
 		InsertBatchBufferItemFunc: func(context.Context, *domain.BatchBufferItem) error {
 			t.Fatal("batch buffer mutation must not run for idempotency replay")
@@ -493,5 +527,56 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 	}
 	if len(ms.TryAcquireIdempotencyKeyCalls()) != 1 {
 		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 1", len(ms.TryAcquireIdempotencyKeyCalls()))
+	}
+}
+
+// TestIdempotencyMiddleware_LogsUnknownStoreStatus pins the visibility
+// guarantee for the default branch: if the store ever returns a status
+// outside the documented set ("acquired" / "pending" / "completed"),
+// the middleware must log an error before falling through. Otherwise
+// a future store change that silently introduces a new status would
+// degrade idempotency to "no-op" with no operator-visible signal.
+func TestIdempotencyMiddleware_LogsUnknownStoreStatus(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	const bogusStatus = "totally-unknown-status"
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			return bogusStatus, 0, nil, nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	handlerCalls := 0
+	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handlerCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	req.Header.Set("Idempotency-Key", "any-key")
+	req = req.WithContext(idempotencyTestCtx(req.Context(), "proj-1"))
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+
+	if handlerCalls != 1 {
+		t.Fatalf("handler invoked %d times, want 1 (default branch must fall through)", handlerCalls)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want 200", rec.Code)
+	}
+
+	logText := logs.String()
+	if !strings.Contains(logText, "unrecognized status") {
+		t.Fatalf("expected unrecognized-status log line, got: %s", logText)
+	}
+	if !strings.Contains(logText, bogusStatus) {
+		t.Fatalf("log line did not include status value %q: %s", bogusStatus, logText)
+	}
+	if !strings.Contains(logText, "level=ERROR") {
+		t.Fatalf("expected ERROR level log, got: %s", logText)
 	}
 }

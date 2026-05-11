@@ -133,7 +133,7 @@ capacity into separate processes by passing `--mode api` or `--mode worker`.
 
 ## Sequin Deployment
 
-Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, using the official `sequin/sequin:latest` image -- no build step needed.
+Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, pinned to `sequin/sequin:v0.14.6` -- no build step needed.
 
 ```bash
 # From repo root

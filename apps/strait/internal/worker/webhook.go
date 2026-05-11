@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/webhook"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -31,13 +32,26 @@ const (
 	webhookIdleConnTimeout = 60 * time.Second
 )
 
+// noFollowWebhookRedirects refuses to follow HTTP redirects on outbound
+// webhook deliveries. Following 3xx without re-validating the destination
+// IP would let a public webhook target bounce the request to internal
+// addresses (cloud metadata, 10.x, 127.x) after the initial SSRF check.
+func noFollowWebhookRedirects(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+func newSafeWebhookTransport() *http.Transport {
+	transport := httputil.NewExternalTransport(false)
+	transport.MaxIdleConns = webhookMaxIdleConns
+	transport.MaxIdleConnsPerHost = webhookMaxIdlePerHost
+	transport.IdleConnTimeout = webhookIdleConnTimeout
+	return transport
+}
+
 var webhookClient = &http.Client{
-	Timeout: webhookTimeout,
-	Transport: otelhttp.NewTransport(&http.Transport{
-		MaxIdleConns:        webhookMaxIdleConns,
-		MaxIdleConnsPerHost: webhookMaxIdlePerHost,
-		IdleConnTimeout:     webhookIdleConnTimeout,
-	}),
+	Timeout:       webhookTimeout,
+	Transport:     otelhttp.NewTransport(newSafeWebhookTransport()),
+	CheckRedirect: noFollowWebhookRedirects,
 }
 
 // WebhookPayload is sent to the job's webhook URL on terminal states.
@@ -72,7 +86,7 @@ func newWebhookRetryPolicy(maxAttempts int, job *domain.Job, run *domain.JobRun)
 			prev := e.LastResult()
 			slog.Warn("webhook delivery failed, retrying",
 				"run_id", run.ID,
-				"url", job.WebhookURL,
+				"url", httputil.RedactURLForLog(job.WebhookURL),
 				"status", prev.StatusCode,
 				"error", prev.Error,
 				"attempt", e.Attempts(),
@@ -100,26 +114,7 @@ func SendWebhookWithRetry(ctx context.Context, job *domain.Job, run *domain.JobR
 
 	rp := newWebhookRetryPolicy(maxAttempts, job, run)
 	return sendWithRetryPolicy(ctx, rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnce(ctx, job, run)
-	})
-}
-
-// SendWebhookWithClient sends a webhook using the provided HTTP client and retry count.
-func SendWebhookWithClient(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun, maxAttempts int) WebhookResult {
-	if job.WebhookURL == "" {
-		return WebhookResult{Delivered: true}
-	}
-
-	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.SendWithRetry")
-	defer span.End()
-
-	if maxAttempts <= 0 {
-		maxAttempts = 3
-	}
-
-	rp := newWebhookRetryPolicy(maxAttempts, job, run)
-	return sendWithRetryPolicy(ctx, rp, job, run, func(ctx context.Context) WebhookResult {
-		return sendWebhookOnceWith(ctx, client, job, run)
+		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
 }
 
@@ -144,73 +139,18 @@ func sendWithRetryPolicy(
 	if result.Delivered {
 		slog.Info("webhook delivered",
 			"run_id", run.ID,
-			"url", job.WebhookURL,
+			"url", httputil.RedactURLForLog(job.WebhookURL),
 			"status", result.StatusCode,
 		)
 	} else {
 		slog.Error("webhook delivery exhausted all retries",
 			"run_id", run.ID,
-			"url", job.WebhookURL,
+			"url", httputil.RedactURLForLog(job.WebhookURL),
 			"last_error", result.Error,
 		)
 	}
 
 	return result
-}
-
-func sendWebhookOnce(ctx context.Context, job *domain.Job, run *domain.JobRun) WebhookResult {
-	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.Deliver")
-	defer span.End()
-	span.SetAttributes(
-		attribute.String("webhook.run_id", run.ID),
-		attribute.String("webhook.job_id", run.JobID),
-		attribute.String("webhook.url", job.WebhookURL),
-	)
-	payload := WebhookPayload{
-		RunID:     run.ID,
-		JobID:     run.JobID,
-		ProjectID: run.ProjectID,
-		Status:    string(run.Status),
-		Attempt:   run.Attempt,
-		Result:    run.Result,
-		Error:     run.Error,
-		Timestamp: time.Now().UTC(),
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return WebhookResult{Error: "marshal failed: " + err.Error()}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, job.WebhookURL, bytes.NewReader(body))
-	if err != nil {
-		return WebhookResult{Error: "request build failed: " + err.Error()}
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Run-ID", run.ID)
-	// Stable across retries of the same run so subscribers can dedup
-	// replays on a signal that does not change with attempt count. The
-	// run-terminal webhook path has no subscription secret available,
-	// so we use the unsigned helper. See internal/webhook for the
-	// HMAC-bound variant used by subscription deliveries.
-	req.Header.Set("X-Strait-Replay-Key", webhook.ComputeReplayKeyUnsigned(run.ID))
-	applyWebhookSignature(req, job.WebhookSecret, body)
-
-	resp, err := webhookClient.Do(req)
-	if err != nil {
-		return WebhookResult{Error: "delivery failed: " + err.Error()}
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return WebhookResult{StatusCode: resp.StatusCode, Delivered: true}
-	}
-
-	return WebhookResult{StatusCode: resp.StatusCode, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 }
 
 func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte) {
@@ -223,7 +163,6 @@ func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte)
 	_, _ = mac.Write(payload)
 	sig := hex.EncodeToString(mac.Sum(nil))
 
-	// New headers.
 	req.Header.Set("X-Strait-Timestamp", ts)
 	req.Header.Set("X-Strait-Signature", "v1="+sig)
 	req.Header.Set("X-Webhook-Signature", "v1="+sig)
@@ -235,7 +174,7 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 	span.SetAttributes(
 		attribute.String("webhook.run_id", run.ID),
 		attribute.String("webhook.job_id", run.JobID),
-		attribute.String("webhook.url", job.WebhookURL),
+		attribute.String("webhook.url", httputil.RedactURLForLog(job.WebhookURL)),
 	)
 	payload := WebhookPayload{
 		RunID:     run.ID,
@@ -270,7 +209,7 @@ func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.J
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return WebhookResult{Error: "delivery failed: " + err.Error()}
+		return WebhookResult{Error: "delivery failed: " + httputil.SanitizeHTTPClientError(err)}
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)

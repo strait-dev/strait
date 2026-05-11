@@ -197,6 +197,13 @@ type Config struct {
 	SSEMaxConnsPerProject int64         `env:"SSE_MAX_CONNS_PER_PROJECT" default:"100"`
 	SSEMaxConnDuration    time.Duration `env:"SSE_MAX_CONN_DURATION" default:"30m"`
 
+	// Idempotency settings. IdempotencyFailOpen=false (the default) makes
+	// the middleware return 503 when the idempotency store is unavailable,
+	// so non-idempotent operations are never executed twice during a DB
+	// outage. Setting it to true degrades to "no dedupe" on store errors.
+	IdempotencyFailOpen       bool          `env:"IDEMPOTENCY_FAIL_OPEN" default:"false"`
+	IdempotencyCleanupTimeout time.Duration `env:"IDEMPOTENCY_CLEANUP_TIMEOUT" default:"5s"`
+
 	// Log drain settings
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
 	MemoryPressureThresholdPct float64       `env:"MEMORY_PRESSURE_THRESHOLD_PCT" default:"0"`

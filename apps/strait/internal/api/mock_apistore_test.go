@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strait/internal/domain"
 	"strait/internal/store"
 	"sync"
@@ -76,7 +77,7 @@ var _ APIStore = &APIStoreMock{}
 //			CompleteCanaryDeploymentFunc: func(ctx context.Context, workflowID string, status string) error {
 //				panic("mock out the CompleteCanaryDeployment method")
 //			},
-//			CompleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error {
+//			CompleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, responseStatus int, responseHeaders http.Header, responseBody []byte) error {
 //				panic("mock out the CompleteIdempotencyKey method")
 //			},
 //			CountActiveEventTriggersByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
@@ -787,7 +788,7 @@ var _ APIStore = &APIStoreMock{}
 //			TouchAPIKeyLastUsedFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the TouchAPIKeyLastUsed method")
 //			},
-//			TryAcquireIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error) {
+//			TryAcquireIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, http.Header, []byte, error) {
 //				panic("mock out the TryAcquireIdempotencyKey method")
 //			},
 //			UnmaskDLQRunFunc: func(ctx context.Context, runID string) error {
@@ -945,7 +946,7 @@ type APIStoreMock struct {
 	CompleteCanaryDeploymentFunc func(ctx context.Context, workflowID string, status string) error
 
 	// CompleteIdempotencyKeyFunc mocks the CompleteIdempotencyKey method.
-	CompleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error
+	CompleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, responseStatus int, responseHeaders http.Header, responseBody []byte) error
 
 	// CountActiveEventTriggersByProjectFunc mocks the CountActiveEventTriggersByProject method.
 	CountActiveEventTriggersByProjectFunc func(ctx context.Context, projectID string) (int, error)
@@ -1656,7 +1657,7 @@ type APIStoreMock struct {
 	TouchAPIKeyLastUsedFunc func(ctx context.Context, id string) error
 
 	// TryAcquireIdempotencyKeyFunc mocks the TryAcquireIdempotencyKey method.
-	TryAcquireIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error)
+	TryAcquireIdempotencyKeyFunc func(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, http.Header, []byte, error)
 
 	// UnmaskDLQRunFunc mocks the UnmaskDLQRun method.
 	UnmaskDLQRunFunc func(ctx context.Context, runID string) error
@@ -1945,6 +1946,8 @@ type APIStoreMock struct {
 			Key string
 			// ResponseStatus is the responseStatus argument value.
 			ResponseStatus int
+			// ResponseHeaders is the responseHeaders argument value.
+			ResponseHeaders http.Header
 			// ResponseBody is the responseBody argument value.
 			ResponseBody []byte
 		}
@@ -5482,19 +5485,21 @@ func (mock *APIStoreMock) CompleteCanaryDeploymentCalls() []struct {
 }
 
 // CompleteIdempotencyKey calls CompleteIdempotencyKeyFunc.
-func (mock *APIStoreMock) CompleteIdempotencyKey(ctx context.Context, projectID string, key string, responseStatus int, responseBody []byte) error {
+func (mock *APIStoreMock) CompleteIdempotencyKey(ctx context.Context, projectID string, key string, responseStatus int, responseHeaders http.Header, responseBody []byte) error {
 	callInfo := struct {
-		Ctx            context.Context
-		ProjectID      string
-		Key            string
-		ResponseStatus int
-		ResponseBody   []byte
+		Ctx             context.Context
+		ProjectID       string
+		Key             string
+		ResponseStatus  int
+		ResponseHeaders http.Header
+		ResponseBody    []byte
 	}{
-		Ctx:            ctx,
-		ProjectID:      projectID,
-		Key:            key,
-		ResponseStatus: responseStatus,
-		ResponseBody:   responseBody,
+		Ctx:             ctx,
+		ProjectID:       projectID,
+		Key:             key,
+		ResponseStatus:  responseStatus,
+		ResponseHeaders: responseHeaders,
+		ResponseBody:    responseBody,
 	}
 	mock.lockCompleteIdempotencyKey.Lock()
 	mock.calls.CompleteIdempotencyKey = append(mock.calls.CompleteIdempotencyKey, callInfo)
@@ -5505,7 +5510,7 @@ func (mock *APIStoreMock) CompleteIdempotencyKey(ctx context.Context, projectID 
 		)
 		return errOut
 	}
-	return mock.CompleteIdempotencyKeyFunc(ctx, projectID, key, responseStatus, responseBody)
+	return mock.CompleteIdempotencyKeyFunc(ctx, projectID, key, responseStatus, responseHeaders, responseBody)
 }
 
 // CompleteIdempotencyKeyCalls gets all the calls that were made to CompleteIdempotencyKey.
@@ -5513,18 +5518,20 @@ func (mock *APIStoreMock) CompleteIdempotencyKey(ctx context.Context, projectID 
 //
 //	len(mockedAPIStore.CompleteIdempotencyKeyCalls())
 func (mock *APIStoreMock) CompleteIdempotencyKeyCalls() []struct {
-	Ctx            context.Context
-	ProjectID      string
-	Key            string
-	ResponseStatus int
-	ResponseBody   []byte
+	Ctx             context.Context
+	ProjectID       string
+	Key             string
+	ResponseStatus  int
+	ResponseHeaders http.Header
+	ResponseBody    []byte
 } {
 	var calls []struct {
-		Ctx            context.Context
-		ProjectID      string
-		Key            string
-		ResponseStatus int
-		ResponseBody   []byte
+		Ctx             context.Context
+		ProjectID       string
+		Key             string
+		ResponseStatus  int
+		ResponseHeaders http.Header
+		ResponseBody    []byte
 	}
 	mock.lockCompleteIdempotencyKey.RLock()
 	calls = mock.calls.CompleteIdempotencyKey
@@ -15851,7 +15858,7 @@ func (mock *APIStoreMock) TouchAPIKeyLastUsedCalls() []struct {
 }
 
 // TryAcquireIdempotencyKey calls TryAcquireIdempotencyKeyFunc.
-func (mock *APIStoreMock) TryAcquireIdempotencyKey(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, []byte, error) {
+func (mock *APIStoreMock) TryAcquireIdempotencyKey(ctx context.Context, projectID string, key string, ttl time.Duration) (string, int, http.Header, []byte, error) {
 	callInfo := struct {
 		Ctx       context.Context
 		ProjectID string
@@ -15868,12 +15875,13 @@ func (mock *APIStoreMock) TryAcquireIdempotencyKey(ctx context.Context, projectI
 	mock.lockTryAcquireIdempotencyKey.Unlock()
 	if mock.TryAcquireIdempotencyKeyFunc == nil {
 		var (
-			sOut     string
-			nOut     int
-			bytesOut []byte
-			errOut   error
+			sOut      string
+			nOut      int
+			headerOut http.Header
+			bytesOut  []byte
+			errOut    error
 		)
-		return sOut, nOut, bytesOut, errOut
+		return sOut, nOut, headerOut, bytesOut, errOut
 	}
 	return mock.TryAcquireIdempotencyKeyFunc(ctx, projectID, key, ttl)
 }

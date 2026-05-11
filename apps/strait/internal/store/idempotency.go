@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,7 +23,7 @@ const (
 // If the key does not exist, a pending row is inserted and "acquired" is returned.
 // If the key exists and is completed, the cached response is returned.
 // If the key exists and is pending, "pending" is returned (caller should 409).
-func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, []byte, error) {
+func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, http.Header, []byte, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.TryAcquireIdempotencyKey")
 	defer span.End()
 
@@ -31,6 +33,7 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 	// by checking if the row was actually inserted (via RETURNING), then fall back to SELECT.
 	var status string
 	var responseStatus *int
+	var responseHeaders []byte
 	var responseBody []byte
 
 	// Try to insert first.
@@ -41,22 +44,22 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 		projectID, key, expiresAt,
 	)
 	if err != nil {
-		return "", 0, nil, fmt.Errorf("insert idempotency key: %w", err)
+		return "", 0, nil, nil, fmt.Errorf("insert idempotency key: %w", err)
 	}
 
 	// If we inserted, we own the lock.
 	if tag.RowsAffected() == 1 {
-		return IdempotencyAcquired, 0, nil, nil
+		return IdempotencyAcquired, 0, nil, nil, nil
 	}
 
 	// Row already exists -- read its state.
 	err = q.db.QueryRow(ctx, `
-		SELECT status, response_status, response_body
+		SELECT status, response_status, response_headers, response_body
 		FROM idempotency_keys
 		WHERE project_id = $1 AND key = $2
 		  AND expires_at > NOW()`,
 		projectID, key,
-	).Scan(&status, &responseStatus, &responseBody)
+	).Scan(&status, &responseStatus, &responseHeaders, &responseBody)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Row existed but expired between the INSERT and SELECT.
@@ -74,15 +77,15 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 				projectID, key, expiresAt,
 			)
 			if retryErr != nil {
-				return "", 0, nil, fmt.Errorf("retry insert idempotency key: %w", retryErr)
+				return "", 0, nil, nil, fmt.Errorf("retry insert idempotency key: %w", retryErr)
 			}
 			if tag2.RowsAffected() == 1 {
-				return IdempotencyAcquired, 0, nil, nil
+				return IdempotencyAcquired, 0, nil, nil, nil
 			}
 			// Another request beat us on retry -- fall through to pending.
-			return IdempotencyPending, 0, nil, nil
+			return IdempotencyPending, 0, nil, nil, nil
 		}
-		return "", 0, nil, fmt.Errorf("select idempotency key: %w", err)
+		return "", 0, nil, nil, fmt.Errorf("select idempotency key: %w", err)
 	}
 
 	rs := 0
@@ -90,24 +93,62 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 		rs = *responseStatus
 	}
 
-	return status, rs, responseBody, nil
+	hdr, err := unmarshalIdempotencyHeaders(responseHeaders)
+	if err != nil {
+		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", err)
+	}
+
+	return status, rs, hdr, responseBody, nil
 }
 
 // CompleteIdempotencyKey updates a pending idempotency key with the handler's response.
-func (q *Queries) CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseBody []byte) error {
+// responseHeaders may be nil for legacy callers that have no header
+// snapshot to memoize; the column will be NULL and replays will fall
+// back to whatever Content-Type the middleware computes. New code paths
+// must always pass the captured headers so spec-compliant replay works.
+func (q *Queries) CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseHeaders http.Header, responseBody []byte) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompleteIdempotencyKey")
 	defer span.End()
 
-	_, err := q.db.Exec(ctx, `
+	hdrJSON, err := marshalIdempotencyHeaders(responseHeaders)
+	if err != nil {
+		return fmt.Errorf("encode idempotency headers: %w", err)
+	}
+
+	_, err = q.db.Exec(ctx, `
 		UPDATE idempotency_keys
-		SET status = 'completed', response_status = $3, response_body = $4
+		SET status = 'completed', response_status = $3, response_headers = $4, response_body = $5
 		WHERE project_id = $1 AND key = $2 AND status = 'pending'`,
-		projectID, key, responseStatus, responseBody,
+		projectID, key, responseStatus, hdrJSON, responseBody,
 	)
 	if err != nil {
 		return fmt.Errorf("complete idempotency key: %w", err)
 	}
 	return nil
+}
+
+// marshalIdempotencyHeaders serializes an http.Header to JSON for the
+// response_headers column. Returns nil for empty inputs so the column
+// stores NULL rather than {}.
+func marshalIdempotencyHeaders(h http.Header) ([]byte, error) {
+	if len(h) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(h)
+}
+
+// unmarshalIdempotencyHeaders parses the response_headers JSONB into an
+// http.Header. NULL or empty input returns nil (the caller must tolerate
+// pre-migration rows that have no header snapshot).
+func unmarshalIdempotencyHeaders(raw []byte) (http.Header, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var h http.Header
+	if err := json.Unmarshal(raw, &h); err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
 // DeleteIdempotencyKey removes a single idempotency key. Used to clean up

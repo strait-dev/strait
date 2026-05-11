@@ -29,7 +29,7 @@ func TestIdempotency_TryAcquire_NewKey_Acquired(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	status, code, body, err := q.TryAcquireIdempotencyKey(ctx, "proj-idem-"+newID(), "key-"+newID(), time.Hour)
+	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, "proj-idem-"+newID(), "key-"+newID(), time.Hour)
 	if err != nil {
 		t.Fatalf("TryAcquireIdempotencyKey error = %v", err)
 	}
@@ -50,7 +50,7 @@ func TestIdempotency_TryAcquire_Pending_ReturnsPending(t *testing.T) {
 	key := "key-" + newID()
 
 	// First call wins and acquires.
-	status, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 	if err != nil {
 		t.Fatalf("first TryAcquire: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestIdempotency_TryAcquire_Pending_ReturnsPending(t *testing.T) {
 	}
 
 	// Second call sees a pending row.
-	status, _, _, err = q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+	status, _, _, _, err = q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 	if err != nil {
 		t.Fatalf("second TryAcquire: %v", err)
 	}
@@ -76,15 +76,15 @@ func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
 	projectID := "proj-idem-" + newID()
 	key := "key-" + newID()
 
-	if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
+	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
 	wantBody := []byte(`{"id":"abc"}`)
-	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 201, wantBody); err != nil {
+	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 201, nil, wantBody); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
-	status, code, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 	if err != nil {
 		t.Fatalf("re-acquire: %v", err)
 	}
@@ -120,12 +120,12 @@ func TestIdempotency_TryAcquire_ExpiredReacquire(t *testing.T) {
 	// Acquire with a TTL that's already in the past by the time the row
 	// is committed — the expires_at check in the SELECT will trigger
 	// the stale-row cleanup and retry path.
-	if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, -time.Second); err != nil {
+	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, -time.Second); err != nil {
 		t.Fatalf("first acquire: %v", err)
 	}
 
 	// Second call should delete the expired row and reacquire.
-	status, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 	if err != nil {
 		t.Fatalf("reacquire: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			<-start
-			status, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+			status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 			if err != nil {
 				errors.Add(1)
 				msg := err.Error()
@@ -199,15 +199,15 @@ func TestIdempotency_Complete_UpdatesRow(t *testing.T) {
 	projectID := "proj-idem-" + newID()
 	key := "key-" + newID()
 
-	if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
+	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
-	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 200, []byte(`"ok"`)); err != nil {
+	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 200, nil, []byte(`"ok"`)); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
 	// Read back directly via TryAcquire's completed branch.
-	status, code, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestIdempotency_Complete_NotFound_NoError(t *testing.T) {
 	// rows). The function does not differentiate this from "row with
 	// status != pending" — both are silently ignored, which is the
 	// correct behavior for an idempotent retry path.
-	err := q.CompleteIdempotencyKey(ctx, "proj-missing-"+newID(), "key-missing", 200, []byte(`"ok"`))
+	err := q.CompleteIdempotencyKey(ctx, "proj-missing-"+newID(), "key-missing", 200, nil, []byte(`"ok"`))
 	if err != nil {
 		t.Fatalf("complete(not found) should be no-op, got %v", err)
 	}
@@ -253,7 +253,7 @@ func TestIdempotency_Delete_RemovesRow(t *testing.T) {
 	projectID := "proj-idem-" + newID()
 	key := "key-" + newID()
 
-	if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
+	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
 
@@ -266,7 +266,7 @@ func TestIdempotency_Delete_RemovesRow(t *testing.T) {
 	}
 
 	// After delete, the key should be reacquirable.
-	status, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
+	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
 	if err != nil {
 		t.Fatalf("reacquire after delete: %v", err)
 	}
@@ -302,13 +302,13 @@ func TestIdempotency_CleanExpired_DeletesOnlyExpired(t *testing.T) {
 
 	// 25 expired rows.
 	for i := range 25 {
-		if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "expired-"+newID(), -time.Minute); err != nil {
+		if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "expired-"+newID(), -time.Minute); err != nil {
 			t.Fatalf("insert expired %d: %v", i, err)
 		}
 	}
 	// 10 non-expired rows.
 	for i := range 10 {
-		if _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "fresh-"+newID(), time.Hour); err != nil {
+		if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "fresh-"+newID(), time.Hour); err != nil {
 			t.Fatalf("insert fresh %d: %v", i, err)
 		}
 	}
