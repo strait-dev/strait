@@ -33,8 +33,18 @@ func TestChaos_StaleRunReclaimedAfterHeartbeatLapse(t *testing.T) {
 	if err != nil || len(batch) != 1 {
 		t.Fatalf("dequeue: %v (batch=%d)", err, len(batch))
 	}
+	// Simulate a stale heartbeat in the side table (the claim path no
+	// longer writes job_runs.heartbeat_at).
 	_, err = testDB.Pool.Exec(ctx,
-		`UPDATE job_runs SET status='executing', heartbeat_at=NOW() - INTERVAL '5 minutes' WHERE id=$1`,
+		`UPDATE job_runs SET status='executing' WHERE id=$1`, run.ID,
+	)
+	if err != nil {
+		t.Fatalf("set executing: %v", err)
+	}
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
+		VALUES ($1, NOW() - INTERVAL '5 minutes')
+		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
 		run.ID,
 	)
 	if err != nil {
@@ -46,11 +56,11 @@ func TestChaos_StaleRunReclaimedAfterHeartbeatLapse(t *testing.T) {
 	// 5 minutes to guarantee detection.
 	var staleID string
 	err = testDB.Pool.QueryRow(ctx, `
-		SELECT id FROM job_runs
-		WHERE status = 'executing'
-		  AND heartbeat_at IS NOT NULL
-		  AND heartbeat_at < NOW() - INTERVAL '30 seconds'
-		ORDER BY heartbeat_at ASC
+		SELECT r.id FROM job_runs r
+		JOIN job_run_heartbeats h ON h.run_id = r.id
+		WHERE r.status = 'executing'
+		  AND h.heartbeat_at < NOW() - INTERVAL '30 seconds'
+		ORDER BY h.heartbeat_at ASC
 		LIMIT 1
 	`).Scan(&staleID)
 	if err != nil {
@@ -61,6 +71,9 @@ func TestChaos_StaleRunReclaimedAfterHeartbeatLapse(t *testing.T) {
 	}
 
 	// Transition back to queued (what the reclaimer does).
+	if _, err = testDB.Pool.Exec(ctx, `DELETE FROM job_run_heartbeats WHERE run_id=$1`, run.ID); err != nil {
+		t.Fatalf("clear side-table: %v", err)
+	}
 	_, err = testDB.Pool.Exec(ctx,
 		`UPDATE job_runs SET status='queued', started_at=NULL, heartbeat_at=NULL WHERE id=$1`,
 		run.ID,

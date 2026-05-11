@@ -4482,13 +4482,20 @@ func TestRunMgmt_ListStaleRuns(t *testing.T) {
 		t.Fatalf("CreateRun() queued error = %v", err)
 	}
 
+	// Heartbeat liveness is read from the job_run_heartbeats side table.
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
-	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id = $2", oldHeartbeat, stale.ID); err != nil {
-		t.Fatalf("update stale heartbeat error = %v", err)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
+		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		stale.ID, oldHeartbeat); err != nil {
+		t.Fatalf("insert stale heartbeat error = %v", err)
 	}
 	recentHeartbeat := time.Now().UTC().Add(-1 * time.Minute)
-	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id = $2", recentHeartbeat, fresh.ID); err != nil {
-		t.Fatalf("update fresh heartbeat error = %v", err)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
+		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		fresh.ID, recentHeartbeat); err != nil {
+		t.Fatalf("insert fresh heartbeat error = %v", err)
 	}
 
 	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)
@@ -4528,8 +4535,13 @@ func TestRunMgmt_ListStaleRuns_ExcludesWorkerMode(t *testing.T) {
 	}
 
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
-	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id IN ($2, $3)", oldHeartbeat, httpRun.ID, workerRun.ID); err != nil {
-		t.Fatalf("update heartbeat error = %v", err)
+	for _, id := range []string{httpRun.ID, workerRun.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
+			ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+			id, oldHeartbeat); err != nil {
+			t.Fatalf("insert heartbeat error = %v", err)
+		}
 	}
 
 	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)

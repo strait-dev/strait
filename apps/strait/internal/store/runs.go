@@ -1803,7 +1803,9 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: %s", ErrRunNotFound, id)
 	}
 
-	return nil
+	// Mirror the heartbeat into the side table so the reaper observes
+	// liveness without scanning the indexed job_runs.heartbeat_at column.
+	return q.UpsertHeartbeatSideTable(ctx, id)
 }
 
 func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, attempt int) error {
@@ -1826,24 +1828,35 @@ func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, at
 		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
 	}
 
-	return nil
+	return q.UpsertHeartbeatSideTable(ctx, id)
 }
 
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStaleRuns")
 	defer span.End()
 
+	// Heartbeat liveness is sourced from the job_run_heartbeats side table,
+	// which the worker tick path upserts. The claim path no longer writes
+	// job_runs.heartbeat_at so that job_runs UPDATEs stay HOT (the column
+	// is covered by idx_runs_project_executing). When no side-table row
+	// exists yet — the window between claim and the first worker tick —
+	// we fall back to started_at to avoid flagging a fresh run as stale.
 	query := "/* action=reaper */ " + fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE status = '%s'
-		  AND execution_mode != 'worker'
-		  AND (heartbeat_at < NOW() - $1::interval OR heartbeat_at IS NULL)
-		  AND finished_at IS NULL
-		  AND started_at IS NOT NULL
-		ORDER BY heartbeat_at ASC
+		SELECT r.id, r.job_id, r.project_id, r.status, r.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
+		       r.triggered_by, r.scheduled_at, r.started_at, r.finished_at, r.heartbeat_at,
+		       r.next_retry_at, r.expires_at, r.parent_run_id, r.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, r.concurrency_key, r.execution_mode, r.is_rollback, r.replayed_run_id
+		FROM job_runs r
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at AS last_hb
+			FROM job_run_heartbeats h
+			WHERE h.run_id = r.id
+		) hb ON true
+		WHERE r.status = '%s'
+		  AND r.execution_mode != 'worker'
+		  AND COALESCE(hb.last_hb, r.started_at) < NOW() - $1::interval
+		  AND r.finished_at IS NULL
+		  AND r.started_at IS NOT NULL
+		ORDER BY COALESCE(hb.last_hb, r.started_at) ASC
 		LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
@@ -2749,7 +2762,7 @@ func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error 
 		return fmt.Errorf("batch update heartbeat: %w", err)
 	}
 
-	return nil
+	return q.BatchUpsertHeartbeatSideTable(ctx, ids)
 }
 
 func (q *Queries) ResetRunIdempotencyKey(ctx context.Context, runID string) error {

@@ -885,10 +885,17 @@ var claimDeleteSQL = "/* action=dequeue */ " + `
 	)
 	RETURNING run_id`
 
+// claimUpdateFetchSQL transitions queued/delayed rows to executing and
+// stamps started_at. heartbeat_at is intentionally NOT written here: the
+// column is covered by idx_runs_project_executing, so touching it on the
+// claim path defeats HOT updates and produces an index entry per dequeue.
+// Liveness is tracked in the job_run_heartbeats side table (written by
+// the worker tick); the reaper falls back to started_at for the window
+// between claim and the first tick.
 var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
 	WITH claimed_update AS (
 		UPDATE job_runs
-		SET status = '%s', started_at = NOW(), heartbeat_at = NOW()
+		SET status = '%s', started_at = NOW()
 		WHERE id = ANY($1)
 		  AND status IN ('queued', 'delayed')
 		RETURNING %s
