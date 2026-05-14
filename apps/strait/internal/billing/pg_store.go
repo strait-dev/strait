@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,6 +18,17 @@ func unmarshalJSON(data []byte, v any) error {
 }
 
 var ErrSubscriptionNotFound = errors.New("organization subscription not found")
+
+// querier abstracts the subset of pgxpool.Pool and pgx.Tx methods used by
+// billing reads/writes so a single helper can serve both transactional and
+// non-transactional callers. Mutators run inside WithBillingTx so the
+// primary UPDATE and the entitlements refresh land in one transaction;
+// pure readers pass the pool directly.
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // PgStore implements Store with PostgreSQL via pgx.
 type PgStore struct {
@@ -32,37 +44,37 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 // does not already exist. Used for lazy initialization when a project is first
 // created under an org that has no Stripe subscription yet.
 func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
-		 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
-		 ON CONFLICT (org_id) DO NOTHING`,
-		orgID)
-	if err != nil {
-		return fmt.Errorf("ensure org subscription: %w", err)
-	}
-	s.refreshEntitlements(ctx, orgID)
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
+			 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
+			 ON CONFLICT (org_id) DO NOTHING`,
+			orgID); err != nil {
+			return fmt.Errorf("ensure org subscription: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
-	return s.getOrgSubscriptionWhere(ctx, "org_id = $1", orgID)
+	return s.getOrgSubscriptionWhere(ctx, s.pool, "org_id = $1", orgID)
 }
 
 func (s *PgStore) GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
 	if stripeSubscriptionID == "" {
 		return nil, ErrSubscriptionNotFound
 	}
-	return s.getOrgSubscriptionWhere(ctx, "stripe_subscription_id = $1", stripeSubscriptionID)
+	return s.getOrgSubscriptionWhere(ctx, s.pool, "stripe_subscription_id = $1", stripeSubscriptionID)
 }
 
 func (s *PgStore) GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error) {
 	if stripeCustomerID == "" {
 		return nil, ErrSubscriptionNotFound
 	}
-	return s.getOrgSubscriptionWhere(ctx, "stripe_customer_id = $1", stripeCustomerID)
+	return s.getOrgSubscriptionWhere(ctx, s.pool, "stripe_customer_id = $1", stripeCustomerID)
 }
 
-func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg string) (*OrgSubscription, error) {
+func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, q querier, where string, arg string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	var addOnsJSON []byte
 	query := `
@@ -81,7 +93,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE ` + where
-	err := s.pool.QueryRow(ctx, query, arg).Scan(
+	err := q.QueryRow(ctx, query, arg).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
 		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 		&sub.StripeLookupKey,
@@ -111,82 +123,81 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 }
 
 func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_subscriptions (
-			id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
-			stripe_lookup_key,
-			status, current_period_start, current_period_end,
-			spending_limit_microusd, limit_action, canceled_at,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		ON CONFLICT (org_id) DO UPDATE SET
-			plan_tier = EXCLUDED.plan_tier,
-			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-			stripe_customer_id = EXCLUDED.stripe_customer_id,
-			stripe_lookup_key = COALESCE(EXCLUDED.stripe_lookup_key, organization_subscriptions.stripe_lookup_key),
-			status = EXCLUDED.status,
-			current_period_start = EXCLUDED.current_period_start,
-			current_period_end = EXCLUDED.current_period_end,
-			spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
-			limit_action = organization_subscriptions.limit_action,
-			pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
-			canceled_at = EXCLUDED.canceled_at,
-			updated_at = NOW()
-	`, sub.ID, sub.OrgID, sub.PlanTier,
-		sub.StripeSubscriptionID, sub.StripeCustomerID,
-		sub.StripeLookupKey,
-		sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
-		sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
-		sub.CreatedAt, sub.UpdatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("upserting org subscription: %w", err)
-	}
-	s.refreshEntitlements(ctx, sub.OrgID)
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO organization_subscriptions (
+				id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
+				stripe_lookup_key,
+				status, current_period_start, current_period_end,
+				spending_limit_microusd, limit_action, canceled_at,
+				created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			ON CONFLICT (org_id) DO UPDATE SET
+				plan_tier = EXCLUDED.plan_tier,
+				stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+				stripe_customer_id = EXCLUDED.stripe_customer_id,
+				stripe_lookup_key = COALESCE(EXCLUDED.stripe_lookup_key, organization_subscriptions.stripe_lookup_key),
+				status = EXCLUDED.status,
+				current_period_start = EXCLUDED.current_period_start,
+				current_period_end = EXCLUDED.current_period_end,
+				spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
+				limit_action = organization_subscriptions.limit_action,
+				pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
+				canceled_at = EXCLUDED.canceled_at,
+				updated_at = NOW()
+		`, sub.ID, sub.OrgID, sub.PlanTier,
+			sub.StripeSubscriptionID, sub.StripeCustomerID,
+			sub.StripeLookupKey,
+			sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+			sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
+			sub.CreatedAt, sub.UpdatedAt,
+		); err != nil {
+			return fmt.Errorf("upserting org subscription: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, sub.OrgID)
+	})
 }
 
 func (s *PgStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = $2, status = $3, updated_at = NOW()
-		WHERE org_id = $1
-	`, orgID, planTier, status)
-	if err != nil {
-		return fmt.Errorf("updating org subscription plan: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	s.refreshEntitlements(ctx, orgID)
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = $2, status = $3, updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, planTier, status)
+		if err != nil {
+			return fmt.Errorf("updating org subscription plan: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 // refreshEntitlements recomputes the entitlements snapshot from the current
-// subscription row plus active addons and writes it back. Called by every
-// subscription mutator after its primary write succeeds. Errors are logged
-// but not surfaced — the snapshot is best-effort cache; the catalog +
-// addon-table data is the real source of truth, and the reader (Phase 3.5)
-// falls back to recompute when the snapshot is stale or missing.
+// subscription row plus active addons and writes it back. Mutators call this
+// inside their WithBillingTx so the primary UPDATE and the snapshot refresh
+// land in one transaction — concurrent mutators can't write entitlements in
+// inverse order against the same orgID.
 //
-// Unknown orgs are silently skipped (no subscription row, nothing to
-// refresh).
-func (s *PgStore) refreshEntitlements(ctx context.Context, orgID string) {
-	sub, err := s.GetOrgSubscription(ctx, orgID)
-	if err != nil {
-		// Subscription not found is the common case for fresh orgs that
-		// just got their first row; the mutator that called us already
-		// observed RowsAffected and returned its own error if needed.
-		return
+// Unknown orgs (no subscription row yet) return nil silently. Listing addons
+// or writing entitlements failing surfaces an error so the caller's tx rolls
+// back together with its primary write.
+func (s *PgStore) refreshEntitlements(ctx context.Context, q querier, orgID string) error {
+	sub, err := s.getOrgSubscriptionWhere(ctx, q, "org_id = $1", orgID)
+	if errors.Is(err, ErrSubscriptionNotFound) {
+		return nil
 	}
-	addons, err := s.ListActiveAddons(ctx, orgID)
 	if err != nil {
-		// Falling back to "no addons" matches Enforcer.GetOrgPlanLimits
-		// which logs and continues with the base plan.
-		addons = nil
+		return fmt.Errorf("refresh entitlements load sub for org %s: %w", orgID, err)
+	}
+	addons, err := s.listActiveAddons(ctx, q, orgID)
+	if err != nil {
+		return fmt.Errorf("refresh entitlements load addons for org %s: %w", orgID, err)
 	}
 	entitlements := ComputeEntitlements(sub, addons)
-	_ = s.UpdateEntitlements(ctx, orgID, entitlements)
+	return s.updateEntitlements(ctx, q, orgID, entitlements)
 }
 
 // UpdateEntitlements writes the resolved entitlements snapshot to the
@@ -199,38 +210,42 @@ func (s *PgStore) refreshEntitlements(ctx context.Context, orgID string) {
 // retries land here for orgs that never persisted, and surfacing an error
 // would defeat the retry.
 func (s *PgStore) UpdateEntitlements(ctx context.Context, orgID string, entitlements OrgPlanLimits) error {
+	return s.updateEntitlements(ctx, s.pool, orgID, entitlements)
+}
+
+func (s *PgStore) updateEntitlements(ctx context.Context, q querier, orgID string, entitlements OrgPlanLimits) error {
 	payload, err := json.Marshal(entitlements)
 	if err != nil {
 		return fmt.Errorf("marshalling entitlements for org %s: %w", orgID, err)
 	}
-	_, err = s.pool.Exec(ctx, `
+	if _, err = q.Exec(ctx, `
 		UPDATE organization_subscriptions
 		SET entitlements = $2::jsonb, updated_at = NOW()
 		WHERE org_id = $1
-	`, orgID, payload)
-	if err != nil {
+	`, orgID, payload); err != nil {
 		return fmt.Errorf("updating entitlements for org %s: %w", orgID, err)
 	}
 	return nil
 }
 
 func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = $2, status = $3,
-			current_period_start = COALESCE($4, current_period_start),
-			current_period_end = COALESCE($5, current_period_end),
-			updated_at = NOW()
-		WHERE org_id = $1
-	`, orgID, planTier, status, periodStart, periodEnd)
-	if err != nil {
-		return fmt.Errorf("updating org subscription full: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	s.refreshEntitlements(ctx, orgID)
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = $2, status = $3,
+				current_period_start = COALESCE($4, current_period_start),
+				current_period_end = COALESCE($5, current_period_end),
+				updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, planTier, status, periodStart, periodEnd)
+		if err != nil {
+			return fmt.Errorf("updating org subscription full: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 func (s *PgStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) error {
@@ -288,21 +303,22 @@ func (s *PgStore) ClearPendingPlanTier(ctx context.Context, orgID string) error 
 }
 
 func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = pending_plan_tier,
-			pending_plan_tier = NULL,
-			updated_at = NOW()
-		WHERE org_id = $1 AND pending_plan_tier IS NOT NULL
-	`, orgID)
-	if err != nil {
-		return fmt.Errorf("applying pending downgrade: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	s.refreshEntitlements(ctx, orgID)
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = pending_plan_tier,
+				pending_plan_tier = NULL,
+				updated_at = NOW()
+			WHERE org_id = $1 AND pending_plan_tier IS NOT NULL
+		`, orgID)
+		if err != nil {
+			return fmt.Errorf("applying pending downgrade: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error) {
@@ -1163,7 +1179,11 @@ func (s *PgStore) DeactivateExcessNotificationChannelsByProject(ctx context.Cont
 
 // ListActiveAddons returns all active add-ons for an organization.
 func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
-	rows, err := s.pool.Query(ctx, `
+	return s.listActiveAddons(ctx, s.pool, orgID)
+}
+
+func (s *PgStore) listActiveAddons(ctx context.Context, q querier, orgID string) ([]Addon, error) {
+	rows, err := q.Query(ctx, `
 		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at
 		FROM organization_addons
 		WHERE org_id = $1 AND active = true
@@ -1187,33 +1207,34 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 
 // CreateAddon inserts a new add-on record.
 func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.StripeLookupKey, addon.Active, addon.ExpiresAt)
-	if err != nil {
-		return fmt.Errorf("creating addon: %w", err)
-	}
-	s.refreshEntitlements(ctx, addon.OrgID)
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.StripeLookupKey, addon.Active, addon.ExpiresAt); err != nil {
+			return fmt.Errorf("creating addon: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, addon.OrgID)
+	})
 }
 
 // DeactivateAddon sets an add-on to inactive.
 func (s *PgStore) DeactivateAddon(ctx context.Context, addonID string) error {
-	var orgID string
-	err := s.pool.QueryRow(ctx, `
-		UPDATE organization_addons SET active = false, updated_at = NOW()
-		WHERE id = $1
-		RETURNING org_id
-	`, addonID).Scan(&orgID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var orgID string
+		err := tx.QueryRow(ctx, `
+			UPDATE organization_addons SET active = false, updated_at = NOW()
+			WHERE id = $1
+			RETURNING org_id
+		`, addonID).Scan(&orgID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("deactivating addon: %w", err)
 		}
-		return fmt.Errorf("deactivating addon: %w", err)
-	}
-	s.refreshEntitlements(ctx, orgID)
-	return nil
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 // CountActiveAddonsByType returns the number of active add-ons for an org and type.
