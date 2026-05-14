@@ -67,9 +67,25 @@ func idempotencyBackoffWithJitter(attempt int) time.Duration {
 // (projectID, key). Length-prefixing each segment removes ambiguity from a
 // shared separator byte (e.g., ("a", "b:c") vs ("a:b", "c")).
 //
-// Two distinct pairs may still collide at the int64 advisory-lock level, but
-// the (project_id, key) primary key keeps correctness intact; the advisory
-// lock is a contention reducer, not a correctness primitive.
+// Collision math: SHA-256 truncated to 64 bits behaves as a uniform hash
+// over the advisory-lock keyspace (2^64). By the birthday bound, the
+// probability of any collision among N distinct (project, key) pairs is
+// roughly N^2 / 2^65. Examples:
+//
+//	N = 1,000,000      -> ~2.7e-8  (1 chance in 37 million)
+//	N = 100,000,000    -> ~2.7e-4  (1 chance in ~3,700)
+//	N = 1,000,000,000  -> ~2.7e-2  (~3% — exceptionally large tenant scale)
+//
+// A collision means two unrelated (project, key) pairs serialize on the
+// same pg_advisory_xact_lock, costing one extra microsecond of contention
+// — it does NOT cause an idempotency leak. Correctness is anchored on the
+// (project_id, key) PRIMARY KEY constraint on idempotency_keys; the
+// advisory lock is purely a contention reducer that lets us avoid the
+// row-lock + deadlock-prone INSERT-then-SELECT pattern.
+//
+// If the platform ever scales past ~10^8 active idempotency keys in a
+// single instance, revisit: either widen the advisory key (e.g., go to
+// 128-bit advisory keys via the two-bigint API) or shard by project_id.
 func idempotencyAdvisoryKey(projectID, key string) int64 {
 	h := sha256.New()
 	var lenBuf [4]byte
