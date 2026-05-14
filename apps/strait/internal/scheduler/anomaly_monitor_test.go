@@ -97,6 +97,9 @@ func (m *mockAnomalyMonitorStore) UpsertOrgSubscription(context.Context, *billin
 func (m *mockAnomalyMonitorStore) UpdateOrgSubscriptionPlan(context.Context, string, string, string) error {
 	return nil
 }
+func (m *mockAnomalyMonitorStore) UpdateOrgSubscriptionStatus(context.Context, string, string) error {
+	return nil
+}
 func (m *mockAnomalyMonitorStore) UpdateOrgSubscriptionFull(context.Context, string, string, string, *time.Time, *time.Time) error {
 	return nil
 }

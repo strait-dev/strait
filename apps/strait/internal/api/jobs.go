@@ -32,6 +32,7 @@ type CreateJobRequest struct {
 	Tags                      map[string]string `json:"tags,omitempty"`
 	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
 	EndpointSigningSecret     string            `json:"endpoint_signing_secret,omitempty" validate:"omitempty,min=16,max=4096"`
+	WebhookSecret             string            `json:"webhook_secret,omitempty" validate:"omitempty,min=16,max=4096" doc:"Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged."`
 	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
 	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
@@ -77,6 +78,8 @@ type UpdateJobRequest struct {
 	PayloadSchema             *json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                      *map[string]string `json:"tags,omitempty"`
 	EndpointURL               *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
+	EndpointSigningSecret     *string            `json:"endpoint_signing_secret,omitempty" validate:"omitempty,min=16,max=4096"`
+	WebhookSecret             *string            `json:"webhook_secret,omitempty" validate:"omitempty,min=16,max=4096" doc:"Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged."`
 	FallbackEndpointURL       *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
 	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1,max=100"`
 	TimeoutSecs               *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
@@ -145,6 +148,15 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, err
 	}
 
+	signingSecret := req.EndpointSigningSecret
+	if req.WebhookSecret != "" {
+		if signingSecret != "" && signingSecret != req.WebhookSecret {
+			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job create; using webhook_secret",
+				"project_id", req.ProjectID, "slug", req.Slug)
+		}
+		signingSecret = req.WebhookSecret
+	}
+
 	job := &domain.Job{
 		ProjectID:                 req.ProjectID,
 		GroupID:                   req.GroupID,
@@ -155,7 +167,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		PayloadSchema:             req.PayloadSchema,
 		Tags:                      req.Tags,
 		EndpointURL:               req.EndpointURL,
-		EndpointSigningSecret:     req.EndpointSigningSecret,
+		EndpointSigningSecret:     signingSecret,
 		FallbackEndpointURL:       req.FallbackEndpointURL,
 		MaxAttempts:               req.MaxAttempts,
 		TimeoutSecs:               req.TimeoutSecs,
@@ -553,6 +565,18 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 		}
 		job.EndpointURL = *req.EndpointURL
+	}
+	if req.WebhookSecret != nil || req.EndpointSigningSecret != nil {
+		switch {
+		case req.WebhookSecret != nil && req.EndpointSigningSecret != nil && *req.WebhookSecret != *req.EndpointSigningSecret:
+			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job update; using webhook_secret",
+				"job_id", job.ID, "project_id", job.ProjectID)
+			job.EndpointSigningSecret = *req.WebhookSecret
+		case req.WebhookSecret != nil:
+			job.EndpointSigningSecret = *req.WebhookSecret
+		default:
+			job.EndpointSigningSecret = *req.EndpointSigningSecret
+		}
 	}
 	if req.FallbackEndpointURL != nil {
 		job.FallbackEndpointURL = *req.FallbackEndpointURL

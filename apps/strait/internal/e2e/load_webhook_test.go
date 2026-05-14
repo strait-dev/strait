@@ -20,13 +20,18 @@ func TestLoadWebhook_SubscriptionCRUD(t *testing.T) {
 	subIDs := make([]string, volume)
 	for i := range volume {
 		w := doRequest(t, "POST", "/v1/webhooks/subscriptions/", fmt.Sprintf(
-			`{"project_id":"%s","webhook_url":"https://example.com/wh-%d","event_types":["run.completed"],"secret":"whsec-%d"}`,
-			projectID, i, i,
+			`{"project_id":"%s","webhook_url":"https://example.com/wh-%d","event_types":["run.completed"]}`,
+			projectID, i,
 		))
 		if w.Code != 201 {
 			t.Fatalf("create subscription %d: %d %s", i, w.Code, w.Body.String())
 		}
-		subIDs[i] = asString(t, mustDecodeObject(t, w), "id")
+		resp := mustDecodeObject(t, w)
+		sub, ok := resp["subscription"].(map[string]any)
+		if !ok {
+			t.Fatalf("subscription %d: missing subscription object in response: %v", i, resp)
+		}
+		subIDs[i] = asString(t, sub, "id")
 	}
 	createElapsed := time.Since(start)
 	t.Logf("Created %d subscriptions in %v (%.0f/sec)", volume, createElapsed, float64(volume)/createElapsed.Seconds())

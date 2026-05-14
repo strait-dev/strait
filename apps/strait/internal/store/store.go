@@ -27,6 +27,7 @@ var (
 	ErrAuditEventNotFound           = errors.New("audit event not found")
 	ErrRunNotFound                  = errors.New("run not found")
 	ErrRunConflict                  = errors.New("run status update conflict")
+	ErrRunLocked                    = errors.New("run row locked by another transaction")
 	ErrOutboxRowNotFound            = errors.New("outbox row not found")
 	ErrOutboxRowConflict            = errors.New("outbox row conflict")
 	ErrWorkflowNotFound             = errors.New("workflow not found")

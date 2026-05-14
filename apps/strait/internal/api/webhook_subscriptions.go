@@ -32,7 +32,6 @@ type CreateWebhookSubscriptionRequest struct {
 	ProjectID  string   `json:"project_id" validate:"required"`
 	WebhookURL string   `json:"webhook_url" validate:"required"`
 	EventTypes []string `json:"event_types" validate:"required,min=1"`
-	Secret     string   `json:"secret" validate:"required"`
 	Active     *bool    `json:"active,omitempty"`
 }
 
@@ -40,8 +39,16 @@ type CreateWebhookSubscriptionInput struct {
 	Body CreateWebhookSubscriptionRequest
 }
 
+// CreateWebhookSubscriptionResponse wraps the created subscription and returns
+// the server-generated signing secret exactly once. Capture signing_secret
+// from this response — it is encrypted at rest and never re-served.
+type CreateWebhookSubscriptionResponse struct {
+	Subscription  *domain.WebhookSubscription `json:"subscription"`
+	SigningSecret string                      `json:"signing_secret"`
+}
+
 type CreateWebhookSubscriptionOutput struct {
-	Body *domain.WebhookSubscription
+	Body *CreateWebhookSubscriptionResponse
 }
 
 type webhookSubscriptionLimitCreator interface {
@@ -79,19 +86,29 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if req.Active != nil {
 		active = *req.Active
 	}
-	secret := req.Secret
+
+	// Server-generates the signing secret. Client-supplied values used to be
+	// accepted here but were prone to weak inputs (no min length); rotation
+	// already produced server-side secrets, so create now matches that path.
+	b := make([]byte, 32)
+	if _, randErr := rand.Read(b); randErr != nil {
+		return nil, huma.Error500InternalServerError("failed to generate signing secret")
+	}
+	plaintextSecret := "whsec_" + hex.EncodeToString(b)
+
+	storedSecret := plaintextSecret
 	if s.encryptor != nil {
-		enc, encErr := s.encryptor.Encrypt([]byte(secret))
+		enc, encErr := s.encryptor.Encrypt([]byte(plaintextSecret))
 		if encErr != nil {
 			return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
 		}
-		secret = string(enc)
+		storedSecret = string(enc)
 	}
 	sub := &domain.WebhookSubscription{
 		ProjectID:  req.ProjectID,
 		WebhookURL: req.WebhookURL,
 		EventTypes: req.EventTypes,
-		Secret:     secret,
+		Secret:     storedSecret,
 		Active:     active,
 	}
 	if err := s.createWebhookSubscriptionWithLimit(ctx, sub, req.ProjectID, orgID, maxEndpoints); err != nil {
@@ -102,7 +119,10 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 		"event_types": req.EventTypes,
 		"active":      active,
 	})
-	return &CreateWebhookSubscriptionOutput{Body: sub}, nil
+	return &CreateWebhookSubscriptionOutput{Body: &CreateWebhookSubscriptionResponse{
+		Subscription:  sub,
+		SigningSecret: plaintextSecret,
+	}}, nil
 }
 
 func (s *Server) createWebhookSubscriptionWithLimit(ctx context.Context, sub *domain.WebhookSubscription, projectID, orgID string, maxEndpoints int) error {

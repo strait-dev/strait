@@ -206,19 +206,16 @@ func isBudgetError(err error) bool {
 		strings.Contains(msg, "cost limit")
 }
 
-// errorHash returns a 16-char hex digest of the first 200 characters of an
-// error message. Used for poison pill detection to identify identical errors
-// across retry attempts without storing the full error string in metadata.
+// errorHash returns a 16-char hex digest of the first 200 runes of an error
+// message. Used for poison pill detection to identify identical errors across
+// retry attempts without storing the full error string in metadata. Truncates
+// by rune so multi-byte UTF-8 sequences are never split mid-character.
 func errorHash(errMsg string) string {
-	prefix := errMsg
-	if len(prefix) > 200 {
-		// Truncate by runes so multi-byte UTF-8 sequences are not split.
-		runes := []rune(prefix)
-		if len(runes) > 200 {
-			prefix = string(runes[:200])
-		}
+	runes := []rune(errMsg)
+	if len(runes) > 200 {
+		runes = runes[:200]
 	}
-	h := sha256.Sum256([]byte(prefix))
+	h := sha256.Sum256([]byte(string(runes)))
 	return hex.EncodeToString(h[:8])
 }
 

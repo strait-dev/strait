@@ -135,6 +135,14 @@ func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
 	}
 }
 
+// WithRotationSecretDecryptor wires the at-rest secret decryptor used by the
+// reaper to recover plaintext HMAC keys for outbound api-key rotation webhooks.
+func WithRotationSecretDecryptor(d SecretDecryptor) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithRotationSecretDecryptor(d)
+	}
+}
+
 // WithBudgetWebhookEnqueuer sets the webhook enqueuer for the budget monitor.
 func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
 	return func(s *Scheduler) {

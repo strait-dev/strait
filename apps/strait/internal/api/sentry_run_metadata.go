@@ -27,20 +27,52 @@ func sentryRunMetadata(ctx context.Context, route string, metadata map[string]st
 	return metadata
 }
 
+// Caps for trace headers persisted in run metadata. validateTriggerTraceHeaders
+// rejects oversized headers up-front; truncateTraceHeader is defense-in-depth
+// for any non-trigger code path that still feeds these values to the metadata
+// helper.
+const (
+	maxTraceparentLen = 256
+	maxTraceHeaderLen = 8192
+)
+
+func truncateTraceHeader(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit]
+}
+
+func validateTriggerTraceHeaders(input *TriggerJobInput) error {
+	if len(input.Traceparent) > maxTraceparentLen {
+		return fmt.Errorf("traceparent header exceeds maximum length of %d bytes", maxTraceparentLen)
+	}
+	if len(input.Tracestate) > maxTraceHeaderLen {
+		return fmt.Errorf("tracestate header exceeds maximum length of %d bytes", maxTraceHeaderLen)
+	}
+	if len(input.SentryTrace) > maxTraceHeaderLen {
+		return fmt.Errorf("sentry-trace header exceeds maximum length of %d bytes", maxTraceHeaderLen)
+	}
+	if len(input.Baggage) > maxTraceHeaderLen {
+		return fmt.Errorf("baggage header exceeds maximum length of %d bytes", maxTraceHeaderLen)
+	}
+	return nil
+}
+
 func applyRunTraceHeaderMetadata(metadata map[string]string, traceparent, tracestate, sentryTrace, baggage string) map[string]string {
 	if metadata == nil {
 		metadata = make(map[string]string, 4)
 	}
 	if traceparent != "" {
-		metadata[domain.RunMetadataTraceParent] = traceparent
+		metadata[domain.RunMetadataTraceParent] = truncateTraceHeader(traceparent, maxTraceparentLen)
 		if tracestate != "" {
-			metadata[domain.RunMetadataTraceState] = tracestate
+			metadata[domain.RunMetadataTraceState] = truncateTraceHeader(tracestate, maxTraceHeaderLen)
 		}
 	}
 	if sentryTrace != "" {
-		metadata[domain.RunMetadataSentryTrace] = sentryTrace
+		metadata[domain.RunMetadataSentryTrace] = truncateTraceHeader(sentryTrace, maxTraceHeaderLen)
 		if baggage != "" {
-			metadata[domain.RunMetadataSentryBaggage] = baggage
+			metadata[domain.RunMetadataSentryBaggage] = truncateTraceHeader(baggage, maxTraceHeaderLen)
 		}
 	}
 	return metadata
