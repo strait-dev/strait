@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
+	"sync"
 	"time"
 
 	workergrpc "strait/internal/api/grpc"
@@ -444,14 +445,36 @@ func defaultExecutionPolicy(job *domain.Job) executionPolicy {
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
 	dispatchStart := time.Now()
-	var connectStart time.Time
-	var connectDone time.Time
-	var gotFirstByte time.Time
+
+	// httptrace callbacks fire from net/http transport goroutines that have
+	// no formal happens-before with the post-dispatch reader below, so a
+	// short-lived mutex guards the three timestamps to keep -race clean.
+	var (
+		traceMu      sync.Mutex
+		connectStart time.Time
+		connectDone  time.Time
+		gotFirstByte time.Time
+	)
 
 	trace := &httptrace.ClientTrace{
-		ConnectStart:         func(string, string) { connectStart = time.Now() },
-		ConnectDone:          func(string, string, error) { connectDone = time.Now() },
-		GotFirstResponseByte: func() { gotFirstByte = time.Now() },
+		ConnectStart: func(string, string) {
+			now := time.Now()
+			traceMu.Lock()
+			connectStart = now
+			traceMu.Unlock()
+		},
+		ConnectDone: func(string, string, error) {
+			now := time.Now()
+			traceMu.Lock()
+			connectDone = now
+			traceMu.Unlock()
+		},
+		GotFirstResponseByte: func() {
+			now := time.Now()
+			traceMu.Lock()
+			gotFirstByte = now
+			traceMu.Unlock()
+		},
 	}
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
@@ -543,19 +566,23 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	result, err := e.dispatchToEndpoint(tracedCtx, job.EndpointURL, run, extraHeaders)
 	gotLastByte := time.Now()
 
+	traceMu.Lock()
+	cs, cd, gfb := connectStart, connectDone, gotFirstByte
+	traceMu.Unlock()
+
 	execTrace := &domain.ExecutionTrace{}
-	if !connectStart.IsZero() && !connectDone.IsZero() {
-		execTrace.ConnectMs = durationMillisecondsAtLeastOne(connectDone.Sub(connectStart))
+	if !cs.IsZero() && !cd.IsZero() {
+		execTrace.ConnectMs = durationMillisecondsAtLeastOne(cd.Sub(cs))
 	}
-	if !gotFirstByte.IsZero() {
+	if !gfb.IsZero() {
 		base := dispatchStart
-		if !connectDone.IsZero() {
-			base = connectDone
+		if !cd.IsZero() {
+			base = cd
 		}
-		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gotFirstByte.Sub(base))
+		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gfb.Sub(base))
 	}
-	if !gotFirstByte.IsZero() {
-		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gotFirstByte))
+	if !gfb.IsZero() {
+		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gfb))
 	}
 	execTrace.DispatchMs = execTrace.ConnectMs + execTrace.TtfbMs + execTrace.TransferMs
 
