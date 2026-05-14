@@ -46,10 +46,10 @@ var idempotencyBackoff = [idempotencyMaxAttempts]time.Duration{
 func idempotencyAdvisoryKey(projectID, key string) int64 {
 	h := sha256.New()
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(projectID)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(projectID))) //nolint:gosec // projectID is a bounded identifier (well under 2^32 bytes)
 	_, _ = h.Write(lenBuf[:])
 	_, _ = h.Write([]byte(projectID))
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(key)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(key))) //nolint:gosec // key is request-validated (256-byte cap, well under 2^32)
 	_, _ = h.Write(lenBuf[:])
 	_, _ = h.Write([]byte(key))
 	sum := h.Sum(nil)
@@ -165,40 +165,20 @@ func (q *Queries) tryAcquireWithAdvisoryLock(ctx context.Context, beginner TxBeg
 		projectID, key,
 	).Scan(&status, &responseStatus, &responseHeaders, &responseBody)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Existing row expired between INSERT and SELECT. Delete it and
-			// retry the insert; the advisory lock keeps this serialized.
-			if _, delErr := tx.Exec(ctx, `
-				DELETE FROM idempotency_keys
-				WHERE project_id = $1 AND key = $2 AND expires_at <= NOW()`,
-				projectID, key,
-			); delErr != nil {
-				return "", 0, nil, nil, fmt.Errorf("delete expired idempotency key: %w", delErr)
-			}
-			retryErr := tx.QueryRow(ctx, `
-				INSERT INTO idempotency_keys (project_id, key, status, expires_at)
-				VALUES ($1, $2, 'pending', $3)
-				ON CONFLICT (project_id, key) DO NOTHING
-				RETURNING expires_at`,
-				projectID, key, expiresAt,
-			).Scan(&insertedExpires)
-			if retryErr == nil {
-				if cmErr := tx.Commit(ctx); cmErr != nil {
-					return "", 0, nil, nil, fmt.Errorf("commit retry insert: %w", cmErr)
-				}
-				committed = true
-				return IdempotencyAcquired, 0, nil, nil, nil
-			}
-			if errors.Is(retryErr, pgx.ErrNoRows) {
-				if cmErr := tx.Commit(ctx); cmErr != nil {
-					return "", 0, nil, nil, fmt.Errorf("commit pending fallthrough: %w", cmErr)
-				}
-				committed = true
-				return IdempotencyPending, 0, nil, nil, nil
-			}
-			return "", 0, nil, nil, fmt.Errorf("retry insert idempotency key: %w", retryErr)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", 0, nil, nil, fmt.Errorf("select idempotency key: %w", err)
 		}
-		return "", 0, nil, nil, fmt.Errorf("select idempotency key: %w", err)
+		// Existing row expired between INSERT and SELECT. The advisory lock
+		// keeps this serialized; replace the stale row in-place.
+		outStatus, replaceErr := replaceExpiredIdempotencyRow(ctx, tx, projectID, key, expiresAt)
+		if replaceErr != nil {
+			return "", 0, nil, nil, replaceErr
+		}
+		if cmErr := tx.Commit(ctx); cmErr != nil {
+			return "", 0, nil, nil, fmt.Errorf("commit expired idempotency replace: %w", cmErr)
+		}
+		committed = true
+		return outStatus, 0, nil, nil, nil
 	}
 
 	if cmErr := tx.Commit(ctx); cmErr != nil {
@@ -215,6 +195,38 @@ func (q *Queries) tryAcquireWithAdvisoryLock(ctx context.Context, beginner TxBeg
 		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", hdrErr)
 	}
 	return status, rs, hdr, responseBody, nil
+}
+
+// replaceExpiredIdempotencyRow handles the rare race where the SELECT inside
+// tryAcquireWithAdvisoryLock found no live row (the existing entry expired
+// between the INSERT and SELECT). The advisory lock keeps this serialized:
+// delete the stale row in-place and re-attempt the INSERT. Returns
+// IdempotencyAcquired on insert win, IdempotencyPending when a concurrent
+// winner inserted ahead of us, or an error otherwise. The caller is
+// responsible for committing the transaction on a nil error return.
+func replaceExpiredIdempotencyRow(ctx context.Context, tx pgx.Tx, projectID, key string, expiresAt time.Time) (string, error) {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM idempotency_keys
+		WHERE project_id = $1 AND key = $2 AND expires_at <= NOW()`,
+		projectID, key,
+	); err != nil {
+		return "", fmt.Errorf("delete expired idempotency key: %w", err)
+	}
+	var insertedExpires time.Time
+	err := tx.QueryRow(ctx, `
+		INSERT INTO idempotency_keys (project_id, key, status, expires_at)
+		VALUES ($1, $2, 'pending', $3)
+		ON CONFLICT (project_id, key) DO NOTHING
+		RETURNING expires_at`,
+		projectID, key, expiresAt,
+	).Scan(&insertedExpires)
+	if err == nil {
+		return IdempotencyAcquired, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IdempotencyPending, nil
+	}
+	return "", fmt.Errorf("retry insert idempotency key: %w", err)
 }
 
 // tryAcquireIdempotencyKeyLegacy is the non-transactional fallback used when
