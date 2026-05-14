@@ -186,14 +186,27 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)
 		}
-		if store.lastPlanUpdate == nil {
-			t.Fatal("expected plan update to be called")
+		if store.lastStatusUpdate == nil {
+			t.Fatal("expected status update to be called")
 		}
-		if store.lastPlanUpdate.status != "paused" {
-			t.Errorf("status = %q, want paused", store.lastPlanUpdate.status)
+		if store.lastStatusUpdate.status != "paused" {
+			t.Errorf("status = %q, want paused", store.lastStatusUpdate.status)
+		}
+		if store.lastPlanUpdate != nil {
+			t.Errorf("expected plan tier NOT to be rewritten on pause, but UpdateOrgSubscriptionPlan was called with %+v", store.lastPlanUpdate)
+		}
+		if sub := store.subscriptions["00000000-0000-0000-0000-100000000001"]; sub.PlanTier != "pro" {
+			t.Errorf("plan_tier wiped on pause: got %q, want pro", sub.PlanTier)
 		}
 		if len(audit.events) == 0 {
-			t.Error("expected audit event to be recorded")
+			t.Fatal("expected audit event to be recorded")
+		}
+		var details map[string]string
+		if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
+			t.Fatalf("decoding audit details: %v", err)
+		}
+		if details["previous_plan_tier"] != "pro" {
+			t.Errorf("audit previous_plan_tier = %q, want pro", details["previous_plan_tier"])
 		}
 	})
 
@@ -216,8 +229,8 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200 when orgID empty, got %d", rr.Code)
 		}
-		if store.lastPlanUpdate != nil {
-			t.Error("expected no plan update when orgID is empty")
+		if store.lastStatusUpdate != nil {
+			t.Error("expected no status update when orgID is empty")
 		}
 	})
 
@@ -276,6 +289,25 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
 		}
 	})
+}
+
+func TestWebhookHandler_SubscriptionPaused_ValidatesMalformed(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := newTestHandler(store, mapping, nil)
+
+	// Subscription with an empty customer object: validateStripeSubscription must reject.
+	body := []byte(`{"id":"sub_pause_invalid","items":{"data":[{"price":{"id":"pro-id"}}]},"customer":{"id":""}}`)
+	rr := fireWebhook(t, handler, "customer.subscription.paused", body)
+
+	if rr.Code == http.StatusOK {
+		t.Errorf("expected non-200 for invalid pause payload, got %d", rr.Code)
+	}
+	if store.lastStatusUpdate != nil {
+		t.Errorf("expected no status update on invalid payload, got %+v", store.lastStatusUpdate)
+	}
 }
 
 // Tests for handleSubscriptionResumed.

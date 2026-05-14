@@ -51,6 +51,9 @@ func (m *mockBillingEnforcerStore) UpsertOrgSubscription(_ context.Context, _ *b
 func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionPlan(_ context.Context, _, _, _ string) error {
 	return nil
 }
+func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionStatus(_ context.Context, _, _ string) error {
+	return nil
+}
 func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionFull(_ context.Context, _, _, _ string, _, _ *time.Time) error {
 	return nil
 }

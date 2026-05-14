@@ -228,6 +228,21 @@ func (s *PgStore) updateEntitlements(ctx context.Context, q querier, orgID strin
 	return nil
 }
 
+func (s *PgStore) UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET status = $2, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, status)
+	if err != nil {
+		return fmt.Errorf("updating org subscription status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
 func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error {
 	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `

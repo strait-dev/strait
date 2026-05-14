@@ -130,8 +130,8 @@ func allDispatchedEventCases(t *testing.T) []webhookEventCase {
 		return len(a.events)
 	}
 	upsertHits := func(s *mockBillingStore, _ *mockAuditStore) int { return s.upsertCount }
-	planUpdateHits := func(s *mockBillingStore, _ *mockAuditStore) int {
-		if s.lastPlanUpdate == nil {
+	statusUpdateHits := func(s *mockBillingStore, _ *mockAuditStore) int {
+		if s.lastStatusUpdate == nil {
 			return 0
 		}
 		return 1
@@ -183,8 +183,8 @@ func allDispatchedEventCases(t *testing.T) []webhookEventCase {
 			newStoreOrgID:  "00000000-0000-0000-0000-aaaa00000004",
 			buildStore:     activeSubStore,
 			buildPayload:   mkSub("00000000-0000-0000-0000-aaaa00000004", "pause"),
-			sideEffectName: "plan_update",
-			sideEffectHits: planUpdateHits,
+			sideEffectName: "status_update",
+			sideEffectHits: statusUpdateHits,
 		},
 		{
 			name:          "subscription_resumed",

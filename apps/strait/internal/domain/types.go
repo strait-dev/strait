@@ -760,25 +760,26 @@ const APIKeyPrefixLen = 12
 
 // APIKey represents a per-project or org-scoped API key for authentication.
 type APIKey struct {
-	ID                   string     `json:"id"`
-	ProjectID            string     `json:"project_id"`
-	OrgID                string     `json:"org_id,omitempty"`
-	Name                 string     `json:"name"`
-	KeyHash              string     `json:"-"`
-	KeyPrefix            string     `json:"key_prefix"`
-	Scopes               []string   `json:"scopes"`
-	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	RevokedAt            *time.Time `json:"revoked_at,omitempty"`
-	ReplacedByKeyID      string     `json:"replaced_by_key_id,omitempty"`
-	GraceExpiresAt       *time.Time `json:"grace_expires_at,omitempty"`
-	RateLimitRequests    int        `json:"rate_limit_requests,omitempty"`
-	RateLimitWindowSecs  int        `json:"rate_limit_window_secs,omitempty"`
-	EnvironmentID        string     `json:"environment_id,omitempty"`
-	RotationIntervalDays *int       `json:"rotation_interval_days,omitempty"`
-	NextRotationAt       *time.Time `json:"next_rotation_at,omitempty"`
-	RotationWebhookURL   string     `json:"rotation_webhook_url,omitempty"`
+	ID                    string     `json:"id"`
+	ProjectID             string     `json:"project_id"`
+	OrgID                 string     `json:"org_id,omitempty"`
+	Name                  string     `json:"name"`
+	KeyHash               string     `json:"-"`
+	KeyPrefix             string     `json:"key_prefix"`
+	Scopes                []string   `json:"scopes"`
+	ExpiresAt             *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt            *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	RevokedAt             *time.Time `json:"revoked_at,omitempty"`
+	ReplacedByKeyID       string     `json:"replaced_by_key_id,omitempty"`
+	GraceExpiresAt        *time.Time `json:"grace_expires_at,omitempty"`
+	RateLimitRequests     int        `json:"rate_limit_requests,omitempty"`
+	RateLimitWindowSecs   int        `json:"rate_limit_window_secs,omitempty"`
+	EnvironmentID         string     `json:"environment_id,omitempty"`
+	RotationIntervalDays  *int       `json:"rotation_interval_days,omitempty"`
+	NextRotationAt        *time.Time `json:"next_rotation_at,omitempty"`
+	RotationWebhookURL    string     `json:"rotation_webhook_url,omitempty"`
+	RotationWebhookSecret []byte     `json:"-"`
 }
 
 type JobVersion struct {

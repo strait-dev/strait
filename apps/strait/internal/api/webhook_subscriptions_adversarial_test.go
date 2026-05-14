@@ -247,9 +247,10 @@ func TestWebhookSub_InvalidEventType(t *testing.T) {
 	}
 }
 
-// TestWebhookSub_EmptySecret verifies that an empty secret is rejected by
-// validation (the field has a "required" tag).
-func TestWebhookSub_EmptySecret(t *testing.T) {
+// TestWebhookSub_ClientSecretIgnored verifies that a client-supplied secret
+// is ignored: the server always generates the signing secret. Any value the
+// caller sends — empty, weak, strong — is dropped on the floor.
+func TestWebhookSub_ClientSecretIgnored(t *testing.T) {
 	t.Parallel()
 
 	w := postWebhookSub(t, `{
@@ -259,8 +260,8 @@ func TestWebhookSub_EmptySecret(t *testing.T) {
 		"secret": ""
 	}`)
 
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for empty secret, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 201 && w.Code != 200 {
+		t.Fatalf("expected 201/200 (server generates secret), got %d: %s", w.Code, w.Body.String())
 	}
 }
 

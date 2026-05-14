@@ -399,7 +399,7 @@ func TestNotifyRotationWebhook_BlocksPrivateURL(t *testing.T) {
 	defer server.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
 		t.Fatal("expected private plaintext rotation webhook to be blocked")
 	}
 
@@ -419,7 +419,7 @@ func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testin
 	defer server.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
 		t.Fatal("expected plaintext rotation webhook to be blocked")
 	}
 

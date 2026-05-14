@@ -623,7 +623,7 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -957,6 +957,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					)
 				}
 			}
+		}
+		if encryptor != nil {
+			schedOpts = append(schedOpts, scheduler.WithRotationSecretDecryptor(encryptor))
 		}
 		schedOpts = append(schedOpts, scheduler.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
 		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, schedOpts...)

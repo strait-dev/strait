@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -9,7 +10,15 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var workerMetrics = newWorkerMetrics()
+// workerMetrics holds the package-level metric instruments. It is an atomic
+// pointer so tests can swap in a meter backed by a ManualReader without
+// racing against in-flight Add/Record calls from concurrent tests.
+var workerMetrics atomic.Pointer[workerRuntimeMetrics]
+
+func init() {
+	m := newWorkerMetrics()
+	workerMetrics.Store(&m)
+}
 
 type workerRuntimeMetrics struct {
 	dispatchDuration metric.Float64Histogram
@@ -20,6 +29,7 @@ type workerRuntimeMetrics struct {
 	dispatchAttempts metric.Int64Counter
 	payloadBytes     metric.Int64Histogram
 	responseStatus   metric.Int64Counter
+	snoozeSkipped    metric.Int64Counter
 }
 
 func newWorkerMetrics() workerRuntimeMetrics {
@@ -67,6 +77,11 @@ func newWorkerMetrics() workerRuntimeMetrics {
 		metric.WithDescription("HTTP dispatch responses by status class"),
 		metric.WithUnit("1"),
 	)
+	snoozeSkipped, _ := meter.Int64Counter(
+		"strait_worker_snooze_skipped_total",
+		metric.WithDescription("Snooze attempts that no-op'd because the run row was already locked by another transaction or had moved past the expected status. Labeled by from-status and reason."),
+		metric.WithUnit("1"),
+	)
 	return workerRuntimeMetrics{
 		dispatchDuration: dispatchDuration,
 		retries:          retries,
@@ -76,21 +91,33 @@ func newWorkerMetrics() workerRuntimeMetrics {
 		dispatchAttempts: dispatchAttempts,
 		payloadBytes:     payloadBytes,
 		responseStatus:   responseStatus,
+		snoozeSkipped:    snoozeSkipped,
 	}
+}
+
+// recordSnoozeSkipped increments the counter that tracks snooze no-ops
+// caused by row-lock contention (reason="locked") or by the run having
+// already moved past the expected from-status (reason="conflict"). The
+// from label is the status the snooze was attempting to transition out of.
+func recordSnoozeSkipped(ctx context.Context, from, reason string) {
+	workerMetrics.Load().snoozeSkipped.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("from", from),
+		attribute.String("reason", reason),
+	))
 }
 
 func recordWorkerDispatch(ctx context.Context, mode, outcome string, started time.Time) {
 	if started.IsZero() {
 		return
 	}
-	workerMetrics.dispatchDuration.Record(ctx, time.Since(started).Seconds(), metric.WithAttributes(
+	workerMetrics.Load().dispatchDuration.Record(ctx, time.Since(started).Seconds(), metric.WithAttributes(
 		attribute.String("mode", mode),
 		attribute.String("outcome", outcome),
 	))
 }
 
 func recordWorkerRetry(ctx context.Context, reason string) {
-	workerMetrics.retries.Add(ctx, 1, metric.WithAttributes(
+	workerMetrics.Load().retries.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("mode", "grpc"),
 		attribute.String("reason", reason),
 	))
@@ -98,30 +125,31 @@ func recordWorkerRetry(ctx context.Context, reason string) {
 
 func recordWorkerPool(ctx context.Context, mode string, active, idle int64) {
 	attrs := metric.WithAttributes(attribute.String("mode", mode))
-	workerMetrics.poolActive.Record(ctx, active, attrs)
-	workerMetrics.poolIdle.Record(ctx, idle, attrs)
+	m := workerMetrics.Load()
+	m.poolActive.Record(ctx, active, attrs)
+	m.poolIdle.Record(ctx, idle, attrs)
 }
 
 func recordHeartbeatLag(ctx context.Context, lag time.Duration) {
 	if lag <= 0 {
 		return
 	}
-	workerMetrics.heartbeatLag.Record(ctx, lag.Seconds())
+	workerMetrics.Load().heartbeatLag.Record(ctx, lag.Seconds())
 }
 
 func recordDispatchAttempt(ctx context.Context, mode, outcome string) {
-	workerMetrics.dispatchAttempts.Add(ctx, 1, metric.WithAttributes(
+	workerMetrics.Load().dispatchAttempts.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("mode", mode),
 		attribute.String("outcome", outcome),
 	))
 }
 
 func recordDispatchPayloadBytes(ctx context.Context, mode string, size int) {
-	workerMetrics.payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", mode)))
+	workerMetrics.Load().payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", mode)))
 }
 
 func recordDispatchResponseStatus(ctx context.Context, mode string, statusCode int) {
-	workerMetrics.responseStatus.Add(ctx, 1, metric.WithAttributes(
+	workerMetrics.Load().responseStatus.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("mode", mode),
 		attribute.String("status_class", statusClass(statusCode)),
 	))

@@ -63,6 +63,10 @@ func (e *errStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTie
 	return e.mockBillingStore.UpdateOrgSubscriptionPlan(ctx, orgID, planTier, status)
 }
 
+func (e *errStore) UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error {
+	return e.mockBillingStore.UpdateOrgSubscriptionStatus(ctx, orgID, status)
+}
+
 func (e *errStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, tier, status string, periodStart, periodEnd *time.Time) error {
 	if e.updateFullErr != nil {
 		return e.updateFullErr
@@ -1090,6 +1094,12 @@ func (s *syncMockBillingStore) UpdateOrgSubscriptionPlan(ctx context.Context, or
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.mockBillingStore.UpdateOrgSubscriptionPlan(ctx, orgID, planTier, status)
+}
+
+func (s *syncMockBillingStore) UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mockBillingStore.UpdateOrgSubscriptionStatus(ctx, orgID, status)
 }
 
 func (s *syncMockBillingStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) error {

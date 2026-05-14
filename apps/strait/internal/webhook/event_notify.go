@@ -788,9 +788,15 @@ func (n *DeliveryWorker) enqueueBatchDeliveryEvents(deliveries []domain.WebhookD
 	}
 }
 
-// extractPayload returns the JSON payload for a delivery, reading from LastError (where it was stashed).
-// It clears LastError on successful extraction so retry error messages are not confused with payloads.
+// extractPayload returns the JSON payload for a delivery. The canonical source
+// is d.Payload (persisted on insert). Older rows that predate the payload
+// column stash the payload inside d.LastError; in that case we lift it back
+// out and clear LastError so a subsequent retry-error message cannot be
+// mistaken for the payload. The minimal fallback exists for rows missing both.
 func extractPayload(d *domain.WebhookDelivery) json.RawMessage {
+	if len(d.Payload) > 0 {
+		return d.Payload
+	}
 	if d.LastError != "" && json.Valid([]byte(d.LastError)) {
 		payload := json.RawMessage(d.LastError)
 		d.LastError = ""

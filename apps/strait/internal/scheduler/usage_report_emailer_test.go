@@ -58,6 +58,9 @@ func (m *mockReportStore) UpsertOrgSubscription(context.Context, *billing.OrgSub
 func (m *mockReportStore) UpdateOrgSubscriptionPlan(context.Context, string, string, string) error {
 	return nil
 }
+func (m *mockReportStore) UpdateOrgSubscriptionStatus(context.Context, string, string) error {
+	return nil
+}
 func (m *mockReportStore) UpdateOrgSubscriptionFull(context.Context, string, string, string, *time.Time, *time.Time) error {
 	return nil
 }

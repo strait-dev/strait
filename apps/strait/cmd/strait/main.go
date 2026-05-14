@@ -434,7 +434,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter, workerPlane)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter, workerPlane, apiEncryptor)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)
