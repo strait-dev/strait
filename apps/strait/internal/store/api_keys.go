@@ -24,7 +24,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 
 	query := `
 		INSERT INTO api_keys (id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at,
-		                      environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, rotation_webhook_secret)
+		                      environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at`
 
