@@ -717,7 +717,17 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 		"next_retry_at": retryAt,
 		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
 	}
-	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+	if err := e.store.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+		if errors.Is(err, store.ErrRunLocked) {
+			e.logger.Warn("snooze skipped: run row locked by another transaction",
+				"run_id", run.ID, "job_id", run.JobID, "from", domain.StatusDequeued)
+			return
+		}
+		if errors.Is(err, store.ErrRunConflict) {
+			e.logger.Warn("snooze skipped: run no longer in expected state",
+				"run_id", run.ID, "job_id", run.JobID, "from", domain.StatusDequeued)
+			return
+		}
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
 		return
 	}
@@ -760,7 +770,17 @@ func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRu
 		"next_retry_at": retryAt,
 		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
 	}
-	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+	if err := e.store.SnoozeRunWithLock(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+		if errors.Is(err, store.ErrRunLocked) {
+			e.logger.Warn("snooze-from-executing skipped: run row locked by another transaction",
+				"run_id", run.ID, "from", domain.StatusExecuting)
+			return
+		}
+		if errors.Is(err, store.ErrRunConflict) {
+			e.logger.Warn("snooze-from-executing skipped: run no longer in expected state",
+				"run_id", run.ID, "from", domain.StatusExecuting)
+			return
+		}
 		e.logger.Error("failed to snooze run from executing", "run_id", run.ID, "error", err)
 		return
 	}

@@ -40,6 +40,7 @@ type ExecutorStore interface {
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	SnoozeRunWithLock(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateHeartbeat(ctx context.Context, id string) error
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
