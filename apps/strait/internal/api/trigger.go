@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -566,6 +567,12 @@ func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *doma
 	return s.queue.Enqueue(ctx, run)
 }
 
+// triggerLimitRetryAfterSeconds is the Retry-After hint surfaced on trigger
+// quota and rate-limit 429s. 5s is long enough for callers to back off
+// without piling on, short enough that legitimately throttled traffic
+// recovers quickly when capacity frees up.
+const triggerLimitRetryAfterSeconds = 5
+
 func triggerLimitAPIError(err error, fallback string) error {
 	var statusErr huma.StatusError
 	if errors.As(err, &statusErr) {
@@ -573,13 +580,28 @@ func triggerLimitAPIError(err error, fallback string) error {
 	}
 	switch {
 	case errors.Is(err, errTriggerProjectQueuedQuotaExceeded):
-		return huma.Error429TooManyRequests("project queued quota exceeded")
+		return newTriggerLimit429("project queued quota exceeded")
 	case errors.Is(err, errTriggerProjectExecutingQuotaExceeded):
-		return huma.Error429TooManyRequests("project executing quota exceeded")
+		return newTriggerLimit429("project executing quota exceeded")
 	case errors.Is(err, errTriggerJobRateLimitExceeded):
-		return huma.Error429TooManyRequests("job rate limit exceeded")
+		return newTriggerLimit429("job rate limit exceeded")
 	default:
 		return huma.Error500InternalServerError(fallback)
+	}
+}
+
+func newTriggerLimit429(msg string) error {
+	retryAfter := strconv.Itoa(triggerLimitRetryAfterSeconds)
+	return &typedAPIError{
+		status: http.StatusTooManyRequests,
+		apiError: APIError{
+			Code:    ErrorCodeRateLimited,
+			Message: msg,
+			Details: []string{"retry_after_seconds=" + retryAfter},
+		},
+		headers: map[string]string{
+			"Retry-After": retryAfter,
+		},
 	}
 }
 
