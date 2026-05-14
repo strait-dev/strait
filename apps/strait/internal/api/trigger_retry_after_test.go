@@ -24,7 +24,7 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 		{"executing quota", errTriggerProjectExecutingQuotaExceeded, ErrorCodeRateLimited},
 		{"job rate limit", errTriggerJobRateLimitExceeded, ErrorCodeRateLimited},
 	}
-	wantRetryAfter := strconv.Itoa(triggerLimitRetryAfterSeconds)
+	wantRetryAfter := strconv.Itoa(triggerLimitFallbackRetryAfterSeconds)
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

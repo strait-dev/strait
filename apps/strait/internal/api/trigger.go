@@ -567,11 +567,20 @@ func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *doma
 	return s.queue.Enqueue(ctx, run)
 }
 
-// triggerLimitRetryAfterSeconds is the Retry-After hint surfaced on trigger
-// quota and rate-limit 429s. 5s is long enough for callers to back off
-// without piling on, short enough that legitimately throttled traffic
-// recovers quickly when capacity frees up.
-const triggerLimitRetryAfterSeconds = 5
+// triggerLimitFallbackRetryAfterSeconds is the Retry-After hint surfaced
+// on the sentinel-error code path (errTriggerProjectQueuedQuotaExceeded,
+// errTriggerProjectExecutingQuotaExceeded, errTriggerJobRateLimitExceeded).
+// It is a static fallback — callers that want a precise back-off should
+// inspect the structured rate-limit metadata on the response detail
+// string ("retry_after_seconds=<n>"), which is set by per-job and
+// per-project limiters at the call site.
+//
+// 5s is long enough for callers to back off without piling on, short
+// enough that legitimately throttled traffic recovers quickly when
+// capacity frees up. Pre-existing huma.StatusError values (e.g. the
+// daily-cost-budget 429 that resets at midnight) intentionally bypass
+// this constant — see triggerLimitAPIError.
+const triggerLimitFallbackRetryAfterSeconds = 5
 
 func triggerLimitAPIError(err error, fallback string) error {
 	var statusErr huma.StatusError
@@ -591,7 +600,7 @@ func triggerLimitAPIError(err error, fallback string) error {
 }
 
 func newTriggerLimit429(msg string) error {
-	retryAfter := strconv.Itoa(triggerLimitRetryAfterSeconds)
+	retryAfter := strconv.Itoa(triggerLimitFallbackRetryAfterSeconds)
 	return &typedAPIError{
 		status: http.StatusTooManyRequests,
 		apiError: APIError{
