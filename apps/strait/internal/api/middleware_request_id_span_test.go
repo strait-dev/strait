@@ -1,0 +1,102 @@
+package api
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+)
+
+// TestAttachAuditContext_RequestIDOnSpan is the regression test for STR-529.
+// The chi RequestID middleware sets a request id on the request context;
+// attachAuditContext must in turn stamp that value onto the active OTel span
+// so trace explorers can pivot to the matching log line.
+func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	origTP := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(origTP) })
+
+	srv := &Server{}
+
+	tracer := tp.Tracer("test")
+	handler := chimw.RequestID(srv.attachAuditContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, span := tracer.Start(r.Context(), "child")
+		defer span.End()
+		if reqID := requestIDFromContext(r.Context()); reqID == "" {
+			t.Error("request id missing from context")
+		}
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
+	rr := httptest.NewRecorder()
+
+	tracer2 := tp.Tracer("outer")
+	ctx, parent := tracer2.Start(context.Background(), "parent")
+
+	handler.ServeHTTP(rr, req.WithContext(ctx))
+	parent.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) == 0 {
+		t.Fatal("no spans recorded")
+	}
+
+	// Find the parent span (the one started here) — that's the active span
+	// at the moment attachAuditContext stamps the attribute.
+	var parentAttrs []attribute.KeyValue
+	for _, s := range spans {
+		if s.Name == "parent" {
+			parentAttrs = s.Attributes
+			break
+		}
+	}
+	if parentAttrs == nil {
+		t.Fatal("parent span not found in exporter")
+	}
+
+	found := false
+	for _, kv := range parentAttrs {
+		if kv.Key == "http.request_id" {
+			if kv.Value.AsString() == "" {
+				t.Fatal("http.request_id span attribute is empty")
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("http.request_id attribute not set on span; got %+v", parentAttrs)
+	}
+}
+
+// TestAttachAuditContext_NoSpanWhenTracingDisabled verifies that calling
+// attachAuditContext without an active span does not panic and does not
+// leak attributes to a non-recording span.
+func TestAttachAuditContext_NoSpanWhenTracingDisabled(t *testing.T) {
+	srv := &Server{}
+
+	called := false
+	handler := chimw.RequestID(srv.attachAuditContext(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		called = true
+		if reqID := requestIDFromContext(r.Context()); reqID == "" {
+			t.Error("request id missing from context")
+		}
+	})))
+
+	req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Fatal("handler not called")
+	}
+}

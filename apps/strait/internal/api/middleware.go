@@ -278,6 +278,13 @@ func (s *Server) attachAuditContext(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxUserAgentKey, ua)
 		if reqID := chimw.GetReqID(ctx); reqID != "" {
 			ctx = context.WithValue(ctx, ctxRequestIDKey, reqID)
+			// Stamp the request ID onto the active OTel span so trace
+			// explorers (Grafana, Tempo, Honeycomb) can pivot to the log
+			// line that carries the same value. The span is a no-op when
+			// tracing is disabled, so this is safe to call unconditionally.
+			if span := oteltrace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+				span.SetAttributes(attribute.String("http.request_id", reqID))
+			}
 		}
 		// Trace ID: populated by OTel middleware if installed. We read
 		// it via the span context to avoid a hard dependency on
