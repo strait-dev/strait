@@ -276,11 +276,13 @@ func (q *Queries) tryAcquireIdempotencyKeyLegacy(ctx context.Context, projectID,
 	).Scan(&status, &responseStatus, &responseHeaders, &responseBody)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			_, _ = q.db.Exec(ctx, `
+			if _, delErr := q.db.Exec(ctx, `
 				DELETE FROM idempotency_keys
 				WHERE project_id = $1 AND key = $2 AND expires_at <= NOW()`,
 				projectID, key,
-			)
+			); delErr != nil {
+				return "", 0, nil, nil, fmt.Errorf("delete expired idempotency key: %w", delErr)
+			}
 			tag2, retryErr := q.db.Exec(ctx, `
 				INSERT INTO idempotency_keys (project_id, key, status, expires_at)
 				VALUES ($1, $2, 'pending', $3)
