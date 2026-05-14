@@ -56,14 +56,35 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 }
 
 // TestTriggerLimitAPIError_PassesThroughHumaStatusErrors verifies that
-// preexisting huma.StatusError values are not double-wrapped. This
-// preserves the existing daily-cost-budget 429 path which intentionally
-// does not carry Retry-After (the budget resets at midnight).
+// preexisting huma.StatusError values are returned by identity — not
+// wrapped, not converted, not even allocated into an equal-but-different
+// value. This preserves the existing daily-cost-budget 429 path which
+// intentionally does not carry Retry-After (the budget resets at
+// midnight). Identity (==) is intentional: errors.Is would also pass for
+// a wrapped form, and a wrap would silently break code that asserts on
+// the concrete pointer (e.g., header reads on huma's underlying type).
 func TestTriggerLimitAPIError_PassesThroughHumaStatusErrors(t *testing.T) {
 	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
 	out := triggerLimitAPIError(in, "fallback")
-	if !errors.Is(out, in) {
-		t.Fatalf("got %v, want passthrough of original huma error", out)
+	if out != in { //nolint:errorlint // intentional identity check; see comment above
+		t.Fatalf("got %v (%T), want identical passthrough of input %v (%T)", out, out, in, in)
+	}
+}
+
+// TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors is the negative
+// guardrail for the passthrough contract: if someone "fixes" the
+// passthrough by wrapping the input ("%w" or fmt.Errorf), the identity
+// check above could pass on errors.Is alone — this test forces a real
+// failure by constructing a wrapped-then-passed-through scenario.
+func TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors(t *testing.T) {
+	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
+	out := triggerLimitAPIError(in, "fallback")
+
+	// errors.Unwrap on a passthrough must return nil — the helper hasn't
+	// added a layer. A wrapper that satisfies errors.Is(out, in) would
+	// expose `in` via Unwrap.
+	if unwrapped := errors.Unwrap(out); unwrapped != nil {
+		t.Fatalf("errors.Unwrap(out) = %v, want nil (helper must not wrap)", unwrapped)
 	}
 }
 
