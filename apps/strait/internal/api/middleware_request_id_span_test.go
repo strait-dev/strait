@@ -66,15 +66,26 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 	found := false
 	for _, kv := range parentAttrs {
 		if kv.Key == "http.request_id" {
+			t.Fatalf("legacy http.request_id attribute key leaked back into output: %+v", kv)
+		}
+		if kv.Key == attrRequestID {
 			if kv.Value.AsString() == "" {
-				t.Fatal("http.request_id span attribute is empty")
+				t.Fatalf("%s span attribute is empty", attrRequestID)
 			}
 			found = true
-			break
 		}
 	}
 	if !found {
-		t.Fatalf("http.request_id attribute not set on span; got %+v", parentAttrs)
+		t.Fatalf("%s attribute not set on span; got %+v", attrRequestID, parentAttrs)
+	}
+}
+
+// TestAttachAuditContext_AttrKeyIsVendorNamespaced is the regression test for
+// review item 2: the attribute key must be vendor-namespaced so it cannot
+// collide with the OTel semconv `http.request.id` if it graduates.
+func TestAttachAuditContext_AttrKeyIsVendorNamespaced(t *testing.T) {
+	if attrRequestID != "strait.request_id" {
+		t.Fatalf("attrRequestID = %q, want strait.request_id (vendor-namespaced)", attrRequestID)
 	}
 }
 

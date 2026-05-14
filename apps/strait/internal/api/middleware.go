@@ -50,6 +50,13 @@ const ctxUserAgentKey contextKey = "user_agent"
 const ctxRequestIDKey contextKey = "request_id"
 const ctxTraceIDKey contextKey = "trace_id"
 
+// attrRequestID is the OTel span attribute key for the per-request ID. We
+// use a vendor-namespaced key rather than `http.request_id` to avoid
+// colliding with the OTel HTTP semantic conventions
+// (https://opentelemetry.io/docs/specs/semconv/http/) if and when an
+// official `http.request.id` attribute graduates from incubating status.
+const attrRequestID = "strait.request_id"
+
 // auditUserAgentMaxBytes caps the user agent string stored on each audit
 // event. Real-world UAs are typically <200 chars; anything longer is
 // almost certainly probing or pathological.
@@ -283,7 +290,7 @@ func (s *Server) attachAuditContext(next http.Handler) http.Handler {
 			// line that carries the same value. The span is a no-op when
 			// tracing is disabled, so this is safe to call unconditionally.
 			if span := oteltrace.SpanFromContext(ctx); span.SpanContext().IsValid() {
-				span.SetAttributes(attribute.String("http.request_id", reqID))
+				span.SetAttributes(attribute.String(attrRequestID, reqID))
 			}
 		}
 		// Trace ID: populated by OTel middleware if installed. We read
