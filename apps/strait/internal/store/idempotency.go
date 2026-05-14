@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -19,24 +22,212 @@ const (
 	IdempotencyComplete = "completed" // A previous request completed; cached response is available.
 )
 
-// TryAcquireIdempotencyKey attempts to claim an idempotency key for exclusive processing.
-// If the key does not exist, a pending row is inserted and "acquired" is returned.
-// If the key exists and is completed, the cached response is returned.
-// If the key exists and is pending, "pending" is returned (caller should 409).
+// idempotencyMaxAttempts bounds the retry budget when Postgres reports a
+// transient failure (serialization_failure, deadlock_detected, lock_timeout)
+// during the advisory-lock-protected insert path.
+const idempotencyMaxAttempts = 3
+
+// idempotencyBackoff is the per-attempt sleep before retrying a transient
+// failure. The first attempt has no preceding sleep; the second waits 5ms,
+// the third 20ms. Total worst-case retry wait is ~25ms.
+var idempotencyBackoff = [idempotencyMaxAttempts]time.Duration{
+	0,
+	5 * time.Millisecond,
+	20 * time.Millisecond,
+}
+
+// idempotencyAdvisoryKey derives a stable 64-bit advisory-lock key from
+// (projectID, key). Length-prefixing each segment removes ambiguity from a
+// shared separator byte (e.g., ("a", "b:c") vs ("a:b", "c")).
+//
+// Two distinct pairs may still collide at the int64 advisory-lock level, but
+// the (project_id, key) primary key keeps correctness intact; the advisory
+// lock is a contention reducer, not a correctness primitive.
+func idempotencyAdvisoryKey(projectID, key string) int64 {
+	h := sha256.New()
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(projectID)))
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write([]byte(projectID))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(key)))
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write([]byte(key))
+	sum := h.Sum(nil)
+	return int64(binary.BigEndian.Uint64(sum[:8])) //nolint:gosec // intentional truncation to advisory-lock key space
+}
+
+// isIdempotencyTransientError reports whether err is a Postgres transient
+// failure that we retry: serialization_failure (40001), deadlock_detected
+// (40P01), or lock_timeout (55P03).
+func isIdempotencyTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case "40001", "40P01", "55P03":
+		return true
+	}
+	return false
+}
+
+// TryAcquireIdempotencyKey attempts to claim an idempotency key for exclusive
+// processing. If the key does not exist, a pending row is inserted and
+// "acquired" is returned. If the key exists and is completed, the cached
+// response is returned. If the key exists and is pending, "pending" is
+// returned (caller should respond 409).
+//
+// Hot keys are serialized via pg_advisory_xact_lock keyed on a hash of
+// (projectID, key), which bounds contention by lock acquisition rather than
+// row-lock waits on the (project_id, key) primary key. Transient failures
+// (40001/40P01/55P03) are retried up to idempotencyMaxAttempts times.
 func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, http.Header, []byte, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.TryAcquireIdempotencyKey")
 	defer span.End()
 
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return q.tryAcquireIdempotencyKeyLegacy(ctx, projectID, key, ttl)
+	}
+
+	advisoryKey := idempotencyAdvisoryKey(projectID, key)
 	expiresAt := time.Now().Add(ttl)
 
-	// Attempt insert; ON CONFLICT DO NOTHING means we can detect whether we won the race
-	// by checking if the row was actually inserted (via RETURNING), then fall back to SELECT.
+	var lastErr error
+	for attempt := range idempotencyMaxAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "", 0, nil, nil, ctx.Err()
+			case <-time.After(idempotencyBackoff[attempt]):
+			}
+		}
+		status, rs, hdr, body, err := q.tryAcquireWithAdvisoryLock(ctx, beginner, advisoryKey, projectID, key, expiresAt)
+		if err == nil {
+			return status, rs, hdr, body, nil
+		}
+		if !isIdempotencyTransientError(err) {
+			return "", 0, nil, nil, err
+		}
+		lastErr = err
+	}
+	return "", 0, nil, nil, fmt.Errorf("idempotency acquire: retries exhausted: %w", lastErr)
+}
+
+func (q *Queries) tryAcquireWithAdvisoryLock(ctx context.Context, beginner TxBeginner, advisoryKey int64, projectID, key string, expiresAt time.Time) (string, int, http.Header, []byte, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return "", 0, nil, nil, fmt.Errorf("begin idempotency tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", advisoryKey); err != nil {
+		return "", 0, nil, nil, fmt.Errorf("advisory lock: %w", err)
+	}
+
+	// Insert with RETURNING so the winner avoids the second round-trip.
+	var insertedExpires time.Time
+	err = tx.QueryRow(ctx, `
+		INSERT INTO idempotency_keys (project_id, key, status, expires_at)
+		VALUES ($1, $2, 'pending', $3)
+		ON CONFLICT (project_id, key) DO NOTHING
+		RETURNING expires_at`,
+		projectID, key, expiresAt,
+	).Scan(&insertedExpires)
+	if err == nil {
+		if cmErr := tx.Commit(ctx); cmErr != nil {
+			return "", 0, nil, nil, fmt.Errorf("commit idempotency insert: %w", cmErr)
+		}
+		committed = true
+		return IdempotencyAcquired, 0, nil, nil, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", 0, nil, nil, fmt.Errorf("insert idempotency key: %w", err)
+	}
+
+	// Conflict: an existing row holds the key. Read it.
+	var status string
+	var responseStatus *int
+	var responseHeaders []byte
+	var responseBody []byte
+	err = tx.QueryRow(ctx, `
+		SELECT status, response_status, response_headers, response_body
+		FROM idempotency_keys
+		WHERE project_id = $1 AND key = $2 AND expires_at > NOW()`,
+		projectID, key,
+	).Scan(&status, &responseStatus, &responseHeaders, &responseBody)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Existing row expired between INSERT and SELECT. Delete it and
+			// retry the insert; the advisory lock keeps this serialized.
+			if _, delErr := tx.Exec(ctx, `
+				DELETE FROM idempotency_keys
+				WHERE project_id = $1 AND key = $2 AND expires_at <= NOW()`,
+				projectID, key,
+			); delErr != nil {
+				return "", 0, nil, nil, fmt.Errorf("delete expired idempotency key: %w", delErr)
+			}
+			retryErr := tx.QueryRow(ctx, `
+				INSERT INTO idempotency_keys (project_id, key, status, expires_at)
+				VALUES ($1, $2, 'pending', $3)
+				ON CONFLICT (project_id, key) DO NOTHING
+				RETURNING expires_at`,
+				projectID, key, expiresAt,
+			).Scan(&insertedExpires)
+			if retryErr == nil {
+				if cmErr := tx.Commit(ctx); cmErr != nil {
+					return "", 0, nil, nil, fmt.Errorf("commit retry insert: %w", cmErr)
+				}
+				committed = true
+				return IdempotencyAcquired, 0, nil, nil, nil
+			}
+			if errors.Is(retryErr, pgx.ErrNoRows) {
+				if cmErr := tx.Commit(ctx); cmErr != nil {
+					return "", 0, nil, nil, fmt.Errorf("commit pending fallthrough: %w", cmErr)
+				}
+				committed = true
+				return IdempotencyPending, 0, nil, nil, nil
+			}
+			return "", 0, nil, nil, fmt.Errorf("retry insert idempotency key: %w", retryErr)
+		}
+		return "", 0, nil, nil, fmt.Errorf("select idempotency key: %w", err)
+	}
+
+	if cmErr := tx.Commit(ctx); cmErr != nil {
+		return "", 0, nil, nil, fmt.Errorf("commit idempotency read: %w", cmErr)
+	}
+	committed = true
+
+	rs := 0
+	if responseStatus != nil {
+		rs = *responseStatus
+	}
+	hdr, hdrErr := unmarshalIdempotencyHeaders(responseHeaders)
+	if hdrErr != nil {
+		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", hdrErr)
+	}
+	return status, rs, hdr, responseBody, nil
+}
+
+// tryAcquireIdempotencyKeyLegacy is the non-transactional fallback used when
+// the underlying DBTX does not implement TxBeginner (unit-test mocks). It
+// preserves the original ON CONFLICT DO NOTHING + RowsAffected behavior.
+func (q *Queries) tryAcquireIdempotencyKeyLegacy(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, http.Header, []byte, error) {
+	expiresAt := time.Now().Add(ttl)
+
 	var status string
 	var responseStatus *int
 	var responseHeaders []byte
 	var responseBody []byte
 
-	// Try to insert first.
 	tag, err := q.db.Exec(ctx, `
 		INSERT INTO idempotency_keys (project_id, key, status, expires_at)
 		VALUES ($1, $2, 'pending', $3)
@@ -47,12 +238,10 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 		return "", 0, nil, nil, fmt.Errorf("insert idempotency key: %w", err)
 	}
 
-	// If we inserted, we own the lock.
 	if tag.RowsAffected() == 1 {
 		return IdempotencyAcquired, 0, nil, nil, nil
 	}
 
-	// Row already exists -- read its state.
 	err = q.db.QueryRow(ctx, `
 		SELECT status, response_status, response_headers, response_body
 		FROM idempotency_keys
@@ -62,14 +251,11 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 	).Scan(&status, &responseStatus, &responseHeaders, &responseBody)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Row existed but expired between the INSERT and SELECT.
-			// Delete the stale row and retry the insert.
 			_, _ = q.db.Exec(ctx, `
 				DELETE FROM idempotency_keys
 				WHERE project_id = $1 AND key = $2 AND expires_at <= NOW()`,
 				projectID, key,
 			)
-			// Retry: insert again now that the expired row is gone.
 			tag2, retryErr := q.db.Exec(ctx, `
 				INSERT INTO idempotency_keys (project_id, key, status, expires_at)
 				VALUES ($1, $2, 'pending', $3)
@@ -82,7 +268,6 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 			if tag2.RowsAffected() == 1 {
 				return IdempotencyAcquired, 0, nil, nil, nil
 			}
-			// Another request beat us on retry -- fall through to pending.
 			return IdempotencyPending, 0, nil, nil, nil
 		}
 		return "", 0, nil, nil, fmt.Errorf("select idempotency key: %w", err)
@@ -92,12 +277,10 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 	if responseStatus != nil {
 		rs = *responseStatus
 	}
-
-	hdr, err := unmarshalIdempotencyHeaders(responseHeaders)
-	if err != nil {
-		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", err)
+	hdr, hdrErr := unmarshalIdempotencyHeaders(responseHeaders)
+	if hdrErr != nil {
+		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", hdrErr)
 	}
-
 	return status, rs, hdr, responseBody, nil
 }
 
