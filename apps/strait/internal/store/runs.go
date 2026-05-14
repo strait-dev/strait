@@ -233,9 +233,10 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunByIdempotencyKey")
 	defer span.End()
 
-	// Only return runs in non-terminal statuses to match the DB partial
-	// unique index (idx_runs_idempotency). This allows idempotency key
-	// reuse after a run reaches a terminal state.
+	// Backed by idx_runs_idempotency on (job_id, idempotency_key) WHERE
+	// idempotency_key IS NOT NULL. Non-partial w.r.t. status so that
+	// terminal flips do not trigger index writes. The finished_at filter
+	// is satisfied by a row fetch after the index narrows to <=few rows.
 	query := `
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
