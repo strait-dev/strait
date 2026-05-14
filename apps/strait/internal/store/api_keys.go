@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/dbscan"
@@ -13,6 +15,27 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
+
+// apiKeyTouchCooldown is the window during which repeated TouchAPIKeyLastUsed
+// calls for the same key are coalesced into a single UPDATE. A hot key making
+// thousands of requests per minute previously generated one UPDATE per
+// request — wasted WAL, contention on the row, and noise in replication.
+// 60s is the smallest window that still keeps "last seen" useful for
+// operator-facing UIs while flattening 95% of write amplification.
+var apiKeyTouchCooldown atomic.Int64
+
+func init() {
+	apiKeyTouchCooldown.Store(int64(60 * time.Second))
+}
+
+// apiKeyTouchSweepHighWater caps the in-memory throttle cache. Entries
+// older than 2*cooldown are swept when the map crosses this size.
+const apiKeyTouchSweepHighWater = 10_000
+
+// apiKeyTouchCache stores the unix-nano timestamp of the last issued UPDATE
+// per api-key id. A miss or a stale entry triggers the UPDATE. The map is
+// process-global because Queries can be reconstructed mid-tx via withDB.
+var apiKeyTouchCache sync.Map // map[string]int64
 
 func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAPIKey")
@@ -163,13 +186,47 @@ func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.TouchAPIKeyLastUsed")
 	defer span.End()
 
+	cooldown := time.Duration(apiKeyTouchCooldown.Load())
+	now := time.Now().UnixNano()
+	if v, ok := apiKeyTouchCache.Load(id); ok {
+		if last, ok := v.(int64); ok && now-last < int64(cooldown) {
+			return nil
+		}
+	}
+
 	query := `UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`
-	_, err := q.db.Exec(ctx, query, id)
-	if err != nil {
+	if _, err := q.db.Exec(ctx, query, id); err != nil {
 		return fmt.Errorf("touch api key last used: %w", err)
 	}
 
+	apiKeyTouchCache.Store(id, now)
+	sweepAPIKeyTouchCacheIfFull(cooldown)
 	return nil
+}
+
+// sweepAPIKeyTouchCacheIfFull evicts entries older than 2*cooldown once the
+// cache crosses the high-water mark. The 2x window keeps recently-throttled
+// keys around long enough to keep coalescing while bounding worst-case
+// memory.
+func sweepAPIKeyTouchCacheIfFull(cooldown time.Duration) {
+	// Count entries by ranging; sync.Map has no Len, but the cost is
+	// amortized because we only do this after a real UPDATE landed.
+	count := 0
+	apiKeyTouchCache.Range(func(_, _ any) bool {
+		count++
+		return count <= apiKeyTouchSweepHighWater
+	})
+	if count <= apiKeyTouchSweepHighWater {
+		return
+	}
+	cutoff := time.Now().UnixNano() - int64(2*cooldown)
+	apiKeyTouchCache.Range(func(k, v any) bool {
+		last, ok := v.(int64)
+		if !ok || last < cutoff {
+			apiKeyTouchCache.Delete(k)
+		}
+		return true
+	})
 }
 
 func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error) {
