@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -54,6 +55,17 @@ func idempotencyAdvisoryKey(projectID, key string) int64 {
 	_, _ = h.Write([]byte(key))
 	sum := h.Sum(nil)
 	return int64(binary.BigEndian.Uint64(sum[:8])) //nolint:gosec // intentional truncation to advisory-lock key space
+}
+
+// logIdempotencyRollbackErr emits a structured warning when a deferred
+// tx.Rollback returns a non-nil error that isn't pgx.ErrTxClosed
+// (already-committed transactions report ErrTxClosed on Rollback, which is
+// the expected no-op path and not worth logging).
+func logIdempotencyRollbackErr(err error) {
+	if err == nil || errors.Is(err, pgx.ErrTxClosed) {
+		return
+	}
+	slog.Warn("failed to rollback idempotency transaction", "error", err)
 }
 
 // isIdempotencyTransientError reports whether err is a Postgres transient
@@ -124,9 +136,10 @@ func (q *Queries) tryAcquireWithAdvisoryLock(ctx context.Context, beginner TxBeg
 	}
 	committed := false
 	defer func() {
-		if !committed {
-			_ = tx.Rollback(ctx)
+		if committed {
+			return
 		}
+		logIdempotencyRollbackErr(tx.Rollback(ctx))
 	}()
 
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", advisoryKey); err != nil {
