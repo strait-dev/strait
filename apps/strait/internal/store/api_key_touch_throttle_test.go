@@ -270,23 +270,18 @@ func TestAPIKeyTouchThrottle_ConcurrentAccessRaceFree(t *testing.T) {
 	const goroutines = 50
 	const ids = 8
 
-	var wg atomic.Int32
-	done := make(chan struct{})
+	var wg sync.WaitGroup
 	for i := range goroutines {
 		wg.Add(1)
 		go func(i int) {
-			defer func() {
-				if wg.Add(-1) == 0 {
-					close(done)
-				}
-			}()
+			defer wg.Done()
 			id := []byte{byte('a' + i%ids)}
 			now := time.Now().UnixNano()
 			apiKeyTouchCache.Store(string(id), now)
 			_, _ = apiKeyTouchCache.Load(string(id))
 		}(i)
 	}
-	<-done
+	wg.Wait()
 
 	count := 0
 	apiKeyTouchCache.Range(func(_, _ any) bool {

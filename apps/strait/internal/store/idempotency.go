@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	mrand "math/rand/v2"
 	"net/http"
 	"time"
 
@@ -28,13 +29,38 @@ const (
 // during the advisory-lock-protected insert path.
 const idempotencyMaxAttempts = 3
 
-// idempotencyBackoff is the per-attempt sleep before retrying a transient
-// failure. The first attempt has no preceding sleep; the second waits 5ms,
-// the third 20ms. Total worst-case retry wait is ~25ms.
+// idempotencyBackoff is the per-attempt base sleep before retrying a
+// transient failure. The first attempt has no preceding sleep; the second
+// waits 5ms, the third 20ms. Total worst-case retry wait is ~25ms before
+// jitter. See idempotencyBackoffWithJitter for the actual sleep duration.
 var idempotencyBackoff = [idempotencyMaxAttempts]time.Duration{
 	0,
 	5 * time.Millisecond,
 	20 * time.Millisecond,
+}
+
+// idempotencyBackoffJitter is the ±fraction applied to each non-zero
+// backoff duration. ±20% breaks up converging retry storms when many
+// concurrent requests collide on the same advisory-lock key and all
+// receive a transient error at the same instant. Without jitter, all
+// retriers would sleep for exactly the same window and re-collide.
+const idempotencyBackoffJitter = 0.2
+
+// idempotencyBackoffWithJitter returns the sleep duration for attempt n,
+// applying ±idempotencyBackoffJitter to the base value. Attempt 0 always
+// returns 0 (no sleep). Uses math/rand/v2 which is goroutine-safe and
+// auto-seeded; this is not a security-sensitive RNG so crypto/rand is
+// unnecessary overhead.
+func idempotencyBackoffWithJitter(attempt int) time.Duration {
+	if attempt <= 0 || attempt >= len(idempotencyBackoff) {
+		return 0
+	}
+	base := idempotencyBackoff[attempt]
+	if base <= 0 {
+		return 0
+	}
+	delta := (mrand.Float64()*2 - 1) * idempotencyBackoffJitter //nolint:gosec // math/rand/v2 is appropriate for retry jitter; not security-sensitive
+	return time.Duration(float64(base) * (1 + delta))
 }
 
 // idempotencyAdvisoryKey derives a stable 64-bit advisory-lock key from
@@ -114,7 +140,7 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 			select {
 			case <-ctx.Done():
 				return "", 0, nil, nil, ctx.Err()
-			case <-time.After(idempotencyBackoff[attempt]):
+			case <-time.After(idempotencyBackoffWithJitter(attempt)):
 			}
 		}
 		status, rs, hdr, body, err := q.tryAcquireWithAdvisoryLock(ctx, beginner, advisoryKey, projectID, key, expiresAt)
