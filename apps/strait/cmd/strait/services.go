@@ -896,6 +896,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:   slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithIdempotencyGC(
+				scheduler.NewIdempotencyGC(queries, scheduler.IdempotencyGCConfig{
+					Interval:   time.Hour,
+					BatchLimit: 10000,
+					Logger:     slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 		}
 		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
 			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{

@@ -2823,6 +2823,36 @@ func (q *Queries) ResetRunIdempotencyKey(ctx context.Context, runID string) erro
 	})
 }
 
+// DeleteExpiredIdempotencyEntries removes rows from job_run_idempotency
+// where expires_at has passed. Used by the idempotency GC to bound the
+// table size. The limit caps each call so a large purge is spread across
+// multiple ticks.
+func (q *Queries) DeleteExpiredIdempotencyEntries(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteExpiredIdempotencyEntries")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const sql = `
+		WITH victims AS (
+			SELECT job_id, idempotency_key
+			FROM job_run_idempotency
+			WHERE expires_at IS NOT NULL
+			  AND expires_at < NOW()
+			LIMIT $1
+		)
+		DELETE FROM job_run_idempotency
+		USING victims
+		WHERE job_run_idempotency.job_id = victims.job_id
+		  AND job_run_idempotency.idempotency_key = victims.idempotency_key`
+	tag, err := q.db.Exec(ctx, sql, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired idempotency entries: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RescheduleRun")
 	defer span.End()
