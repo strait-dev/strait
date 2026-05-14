@@ -37,6 +37,16 @@ const apiKeyTouchSweepHighWater = 10_000
 // process-global because Queries can be reconstructed mid-tx via withDB.
 var apiKeyTouchCache sync.Map // map[string]int64
 
+// apiKeyTouchSize tracks the number of distinct entries in apiKeyTouchCache.
+// sync.Map has no O(1) Len; without this counter every touch would walk the
+// map to decide whether to sweep, which defeats the throttling win at scale.
+var apiKeyTouchSize atomic.Int64
+
+// apiKeyTouchSweeping serializes sweepers so concurrent UPDATE returns over
+// the high-water mark do not stampede the same eviction Range. Best-effort:
+// any late callers fall through after the winner finishes.
+var apiKeyTouchSweeping atomic.Bool
+
 func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAPIKey")
 	defer span.End()
@@ -199,34 +209,54 @@ func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
 		return fmt.Errorf("touch api key last used: %w", err)
 	}
 
-	apiKeyTouchCache.Store(id, now)
+	recordAPIKeyTouch(id, now)
 	sweepAPIKeyTouchCacheIfFull(cooldown)
 	return nil
 }
 
-// sweepAPIKeyTouchCacheIfFull evicts entries older than 2*cooldown once the
-// cache crosses the high-water mark. The 2x window keeps recently-throttled
-// keys around long enough to keep coalescing while bounding worst-case
-// memory.
-func sweepAPIKeyTouchCacheIfFull(cooldown time.Duration) {
-	// Count entries by ranging; sync.Map has no Len, but the cost is
-	// amortized because we only do this after a real UPDATE landed.
-	count := 0
-	apiKeyTouchCache.Range(func(_, _ any) bool {
-		count++
-		return count <= apiKeyTouchSweepHighWater
-	})
-	if count <= apiKeyTouchSweepHighWater {
+// recordAPIKeyTouch stores the latest touch timestamp for id, incrementing
+// the size counter only when the entry is genuinely new. Concurrent first
+// touches for the same id may race; LoadOrStore guarantees the counter is
+// incremented at most once per surviving entry.
+func recordAPIKeyTouch(id string, now int64) {
+	if _, loaded := apiKeyTouchCache.LoadOrStore(id, now); loaded {
+		apiKeyTouchCache.Store(id, now)
 		return
 	}
+	apiKeyTouchSize.Add(1)
+}
+
+// sweepAPIKeyTouchCacheIfFull evicts entries older than 2*cooldown once the
+// size counter crosses the high-water mark. The 2x window keeps
+// recently-throttled keys around long enough to keep coalescing while
+// bounding worst-case memory. A CAS guard ensures only one goroutine sweeps
+// at a time; concurrent callers return immediately.
+func sweepAPIKeyTouchCacheIfFull(cooldown time.Duration) {
+	if apiKeyTouchSize.Load() <= apiKeyTouchSweepHighWater {
+		return
+	}
+	if !apiKeyTouchSweeping.CompareAndSwap(false, true) {
+		return
+	}
+	defer apiKeyTouchSweeping.Store(false)
+
 	cutoff := time.Now().UnixNano() - int64(2*cooldown)
+	var evicted int64
 	apiKeyTouchCache.Range(func(k, v any) bool {
 		last, ok := v.(int64)
-		if !ok || last < cutoff {
-			apiKeyTouchCache.Delete(k)
+		if ok && last >= cutoff {
+			return true
+		}
+		// CompareAndDelete keeps eviction race-free: if a concurrent write
+		// refreshed the entry after we observed it stale, we leave it.
+		if apiKeyTouchCache.CompareAndDelete(k, v) {
+			evicted++
 		}
 		return true
 	})
+	if evicted > 0 {
+		apiKeyTouchSize.Add(-evicted)
+	}
 }
 
 func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error) {

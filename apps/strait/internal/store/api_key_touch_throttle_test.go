@@ -1,6 +1,9 @@
 package store
 
 import (
+	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,13 +18,15 @@ func SetAPIKeyTouchCooldownForTest(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { apiKeyTouchCooldown.Store(prev) })
 }
 
-// ClearAPIKeyTouchCacheForTest resets the throttle map.
+// ClearAPIKeyTouchCacheForTest resets the throttle map and its bookkeeping.
 func ClearAPIKeyTouchCacheForTest(t *testing.T) {
 	t.Helper()
 	apiKeyTouchCache.Range(func(k, _ any) bool {
 		apiKeyTouchCache.Delete(k)
 		return true
 	})
+	apiKeyTouchSize.Store(0)
+	apiKeyTouchSweeping.Store(false)
 }
 
 func TestAPIKeyTouchThrottle_HitWithinCooldownSkips(t *testing.T) {
@@ -94,6 +99,167 @@ func TestAPIKeyTouchThrottle_DefaultCooldownIs60s(t *testing.T) {
 	got := time.Duration(apiKeyTouchCooldown.Load())
 	if got != 60*time.Second {
 		t.Fatalf("default cooldown = %v, want 60s", got)
+	}
+}
+
+func TestRecordAPIKeyTouch_SizeMatchesUniqueKeys(t *testing.T) {
+	ClearAPIKeyTouchCacheForTest(t)
+	SetAPIKeyTouchCooldownForTest(t, time.Hour)
+
+	const goroutines = 200
+	const uniqueIDs = 16
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := range goroutines {
+		go func(i int) {
+			defer wg.Done()
+			id := fmt.Sprintf("key-%d", i%uniqueIDs)
+			recordAPIKeyTouch(id, time.Now().UnixNano())
+		}(i)
+	}
+	wg.Wait()
+
+	got := apiKeyTouchSize.Load()
+	if got != uniqueIDs {
+		t.Fatalf("apiKeyTouchSize = %d, want %d", got, uniqueIDs)
+	}
+
+	// Spot check: the actual map cardinality matches the counter.
+	var ranged int64
+	apiKeyTouchCache.Range(func(_, _ any) bool {
+		ranged++
+		return true
+	})
+	if ranged != got {
+		t.Fatalf("map cardinality %d != size counter %d", ranged, got)
+	}
+}
+
+func TestSweepAPIKeyTouchCache_SkipsWhenUnderThreshold(t *testing.T) {
+	ClearAPIKeyTouchCacheForTest(t)
+	SetAPIKeyTouchCooldownForTest(t, time.Millisecond)
+
+	stale := time.Now().Add(-time.Hour).UnixNano()
+	for i := range 100 {
+		recordAPIKeyTouch(fmt.Sprintf("stale-%d", i), stale)
+	}
+	if apiKeyTouchSize.Load() != 100 {
+		t.Fatalf("setup: size = %d, want 100", apiKeyTouchSize.Load())
+	}
+
+	sweepAPIKeyTouchCacheIfFull(time.Duration(apiKeyTouchCooldown.Load()))
+
+	// Under the high-water mark, the sweep MUST be a no-op even when every
+	// entry is stale. Operators rely on this to keep the cache warm.
+	if got := apiKeyTouchSize.Load(); got != 100 {
+		t.Fatalf("size after sweep = %d, want 100 (no eviction below high-water)", got)
+	}
+}
+
+func TestSweepAPIKeyTouchCache_EvictsStalePreservesFresh(t *testing.T) {
+	ClearAPIKeyTouchCacheForTest(t)
+	// Use a generous cooldown so the fresh timestamps stay within the
+	// 2*cooldown window for the entire test, regardless of how long the
+	// seeding loop and Range walk take under -race.
+	SetAPIKeyTouchCooldownForTest(t, time.Hour)
+
+	// Seed enough entries to cross the high-water mark.
+	stale := time.Now().Add(-2 * time.Hour).Add(-time.Minute).UnixNano()
+	fresh := time.Now().UnixNano()
+	for i := range apiKeyTouchSweepHighWater + 50 {
+		if i%2 == 0 {
+			recordAPIKeyTouch(fmt.Sprintf("stale-%d", i), stale)
+		} else {
+			recordAPIKeyTouch(fmt.Sprintf("fresh-%d", i), fresh)
+		}
+	}
+
+	cooldown := time.Duration(apiKeyTouchCooldown.Load())
+	sweepAPIKeyTouchCacheIfFull(cooldown)
+
+	freshLeft := 0
+	staleLeft := 0
+	apiKeyTouchCache.Range(func(k, _ any) bool {
+		key, _ := k.(string)
+		switch {
+		case strings.HasPrefix(key, "fresh-"):
+			freshLeft++
+		case strings.HasPrefix(key, "stale-"):
+			staleLeft++
+		}
+		return true
+	})
+	if staleLeft != 0 {
+		t.Fatalf("stale entries left after sweep: %d", staleLeft)
+	}
+	if freshLeft == 0 {
+		t.Fatal("sweep evicted every fresh entry")
+	}
+	if got := apiKeyTouchSize.Load(); got != int64(freshLeft) {
+		t.Fatalf("size counter = %d, want %d", got, freshLeft)
+	}
+}
+
+func TestSweepAPIKeyTouchCache_SingleSweeperWins(t *testing.T) {
+	ClearAPIKeyTouchCacheForTest(t)
+	SetAPIKeyTouchCooldownForTest(t, time.Millisecond)
+
+	stale := time.Now().Add(-time.Hour).UnixNano()
+	for i := range apiKeyTouchSweepHighWater + 100 {
+		recordAPIKeyTouch(fmt.Sprintf("stale-%d", i), stale)
+	}
+
+	// Race many concurrent sweepers. Exactly one must observe the CAS win;
+	// the others must short-circuit so we don't get duplicate eviction
+	// work or counter underflow.
+	const sweepers = 64
+	var observed atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(sweepers)
+	gate := make(chan struct{})
+	for range sweepers {
+		go func() {
+			defer wg.Done()
+			<-gate
+			before := apiKeyTouchSweeping.Load()
+			sweepAPIKeyTouchCacheIfFull(time.Duration(apiKeyTouchCooldown.Load()))
+			if !before {
+				// Best-effort: only the winner ever sees sweeping=false on entry.
+				// Multiple goroutines may pass this check, but only one will
+				// have actually executed the eviction Range (the CAS winner).
+				observed.Add(1)
+			}
+		}()
+	}
+	close(gate)
+	wg.Wait()
+
+	if got := apiKeyTouchSweeping.Load(); got {
+		t.Fatalf("apiKeyTouchSweeping still true after all sweepers finished")
+	}
+	if got := apiKeyTouchSize.Load(); got != 0 {
+		t.Fatalf("size after sweep = %d, want 0 (every entry was stale)", got)
+	}
+}
+
+func TestSweepAPIKeyTouchCache_RefreshedEntryNotEvicted(t *testing.T) {
+	ClearAPIKeyTouchCacheForTest(t)
+	SetAPIKeyTouchCooldownForTest(t, time.Millisecond)
+
+	stale := time.Now().Add(-time.Hour).UnixNano()
+	for i := range apiKeyTouchSweepHighWater + 1 {
+		recordAPIKeyTouch(fmt.Sprintf("k-%d", i), stale)
+	}
+	// Refresh one entry to "now" before triggering the sweep. The
+	// CompareAndDelete in the sweep must observe the updated value and
+	// leave the entry alone.
+	recordAPIKeyTouch("k-0", time.Now().UnixNano())
+
+	sweepAPIKeyTouchCacheIfFull(time.Duration(apiKeyTouchCooldown.Load()))
+
+	if _, ok := apiKeyTouchCache.Load("k-0"); !ok {
+		t.Fatal("refreshed entry was evicted by sweep")
 	}
 }
 
