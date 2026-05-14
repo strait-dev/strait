@@ -62,7 +62,7 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 func TestTriggerLimitAPIError_PassesThroughHumaStatusErrors(t *testing.T) {
 	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
 	out := triggerLimitAPIError(in, "fallback")
-	if out != in {
+	if !errors.Is(out, in) {
 		t.Fatalf("got %v, want passthrough of original huma error", out)
 	}
 }
