@@ -286,15 +286,22 @@ func TestDequeueN_RespectsNextRetryAt(t *testing.T) {
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, st, "project-queue-dequeue-n-next-retry")
-	nextRetryAt := time.Now().Add(20 * time.Minute)
 	run := &domain.JobRun{
-		ID:          newID(),
-		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
-		NextRetryAt: &nextRetryAt,
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
 	}
 	if err := q.Enqueue(ctx, run); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
+	}
+	nextRetryAt := time.Now().Add(20 * time.Minute)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
+		VALUES ($1, $2, 1, NOW())
+		ON CONFLICT (run_id) DO UPDATE SET next_retry_at = EXCLUDED.next_retry_at`,
+		run.ID, nextRetryAt,
+	); err != nil {
+		t.Fatalf("schedule retry: %v", err)
 	}
 
 	dequeued, err := q.DequeueN(ctx, 1)

@@ -1084,6 +1084,10 @@ func (m *mockCallbackStore) RequeuePausedJobRuns(_ context.Context, _ string) (i
 	return 0, nil
 }
 
+func (m *mockCallbackStore) ScheduleRetry(_ context.Context, _ string, _ time.Time, _ int) error {
+	return nil
+}
+
 func (m *mockCallbackStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
 	if m.getWorkflowRunsByParentFn != nil {
 		return m.getWorkflowRunsByParentFn(ctx, parentWorkflowRunID)
@@ -2013,8 +2017,8 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 					if fields["attempt"] != 2 {
 						t.Fatalf("expected attempt=2, got %+v", fields)
 					}
-					if _, ok := fields["next_retry_at"].(time.Time); !ok {
-						t.Fatalf("expected next_retry_at time.Time, got %+v", fields["next_retry_at"])
+					if _, ok := fields["next_retry_at"]; ok {
+						t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 					}
 					return tt.updateRunStatusErr
 				},
@@ -2101,8 +2105,8 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				if fields["attempt"] != 2 {
 					t.Fatalf("expected attempt=2, got %+v", fields)
 				}
-				if _, ok := fields["next_retry_at"].(time.Time); !ok {
-					t.Fatalf("missing/invalid next_retry_at: %+v", fields)
+				if _, ok := fields["next_retry_at"]; ok {
+					t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 				}
 				return nil
 			},

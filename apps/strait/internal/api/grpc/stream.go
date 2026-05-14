@@ -941,16 +941,22 @@ func (s *workerService) reconcileFailedTask(ctx context.Context, t *workerv1.InF
 	}
 
 	if run.Attempt < maxAttempts {
-		// Schedule retry: increment attempt, compute next_retry_at, requeue.
+		// Schedule retry via side table so the job_runs UPDATE stays HOT.
 		retryAt := time.Now().Add(retryBackoffDuration(run.Attempt))
 		fields := map[string]any{
-			"attempt":       run.Attempt + 1,
-			"next_retry_at": retryAt,
-			"started_at":    nil,
-			"finished_at":   nil,
+			"attempt":     run.Attempt + 1,
+			"started_at":  nil,
+			"finished_at": nil,
 		}
 		if t.ErrorMessage != "" {
 			fields["error"] = t.ErrorMessage
+		}
+		if err := s.queries.ScheduleRetry(ctx, t.RunId, retryAt, run.Attempt+1); err != nil {
+			slog.Warn("grpc reconcile: schedule retry failed",
+				"run_id", t.RunId,
+				"error", err,
+			)
+			return
 		}
 		if err := s.queries.UpdateRunStatus(ctx, t.RunId, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
 			slog.Warn("grpc reconcile: retry requeue failed",

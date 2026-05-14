@@ -723,12 +723,19 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 	}
 
 	fields := map[string]any{
-		"error":         reason,
-		"error_class":   "transient",
-		"started_at":    nil,
-		"finished_at":   nil,
-		"next_retry_at": retryAt,
-		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+		"error":       reason,
+		"error_class": "transient",
+		"started_at":  nil,
+		"finished_at": nil,
+		"metadata":    map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if retryAt != nil {
+		if err := e.store.ScheduleRetry(ctx, run.ID, *retryAt, run.Attempt); err != nil {
+			e.logger.Error("failed to schedule snooze retry", "run_id", run.ID, "job_id", run.JobID, "error", err)
+			return
+		}
+	} else if err := e.store.ClearRetry(ctx, run.ID); err != nil {
+		e.logger.Warn("failed to clear retry on snooze", "run_id", run.ID, "job_id", run.JobID, "error", err)
 	}
 	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
@@ -766,12 +773,19 @@ func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRu
 	}
 
 	fields := map[string]any{
-		"error":         reason,
-		"error_class":   "transient",
-		"started_at":    nil,
-		"finished_at":   nil,
-		"next_retry_at": retryAt,
-		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+		"error":       reason,
+		"error_class": "transient",
+		"started_at":  nil,
+		"finished_at": nil,
+		"metadata":    map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if retryAt != nil {
+		if err := e.store.ScheduleRetry(ctx, run.ID, *retryAt, run.Attempt); err != nil {
+			e.logger.Error("failed to schedule snooze retry from executing", "run_id", run.ID, "error", err)
+			return
+		}
+	} else if err := e.store.ClearRetry(ctx, run.ID); err != nil {
+		e.logger.Warn("failed to clear retry on snooze from executing", "run_id", run.ID, "error", err)
 	}
 	if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
 		e.logger.Error("failed to snooze run from executing", "run_id", run.ID, "error", err)

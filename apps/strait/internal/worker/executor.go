@@ -42,6 +42,8 @@ type ExecutorStore interface {
 	ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateHeartbeat(ctx context.Context, id string) error
+	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
+	ClearRetry(ctx context.Context, runID string) error
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error

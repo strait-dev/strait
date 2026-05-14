@@ -105,19 +105,28 @@ func TestChaos_DBTimestampUsedForRetryNotGoTime(t *testing.T) {
 
 	run := mustEnqueueRun(t, ctx, q, job)
 
-	// Schedule a retry 2 seconds in the future using DB time.
-	_, err := testDB.Pool.Exec(ctx,
-		`UPDATE job_runs SET status='queued', next_retry_at = NOW() + INTERVAL '2 seconds' WHERE id=$1`,
+	// Schedule a retry 2 seconds in the future using DB time. Retry
+	// scheduling lives in the job_retries side table (Wave 2 Phase 1);
+	// job_runs.next_retry_at is no longer read by the dequeue predicate.
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_runs SET status='queued' WHERE id=$1`, run.ID,
+	); err != nil {
+		t.Fatalf("set queued: %v", err)
+	}
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
+		VALUES ($1, NOW() + INTERVAL '2 seconds', 1, NOW())
+		ON CONFLICT (run_id) DO UPDATE
+		  SET next_retry_at = EXCLUDED.next_retry_at`,
 		run.ID,
 	)
 	if err != nil {
 		t.Fatalf("schedule retry: %v", err)
 	}
 
-	// Immediately try to dequeue. The dequeue predicate checks
-	// `jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW()` where
-	// NOW() is the DB timestamp. Since we just set next_retry_at to
-	// DB_NOW+2s, the run should NOT be claimable yet.
+	// Immediately try to dequeue. The dequeue predicate anti-joins
+	// against job_retries using DB NOW(). Since we just scheduled the
+	// retry for DB_NOW+2s, the run should NOT be claimable yet.
 	batch, err := q.DequeueN(ctx, 1)
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
