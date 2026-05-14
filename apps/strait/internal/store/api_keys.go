@@ -189,6 +189,7 @@ func (q *Queries) RevokeAPIKey(ctx context.Context, id string) error {
 		return fmt.Errorf("api key not found or already revoked")
 	}
 
+	evictAPIKeyTouch(id)
 	return nil
 }
 
@@ -212,6 +213,18 @@ func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
 	recordAPIKeyTouch(id, now)
 	sweepAPIKeyTouchCacheIfFull(cooldown)
 	return nil
+}
+
+// evictAPIKeyTouch removes the throttle entry for id (if any) and
+// decrements the size counter. Called from RevokeAPIKey so revoked keys
+// do not occupy cache slots until the next high-water sweep — a revoked
+// key will never legitimately call TouchAPIKeyLastUsed again, so its
+// entry is wasted memory. LoadAndDelete is atomic, so concurrent revokes
+// for the same id only decrement once.
+func evictAPIKeyTouch(id string) {
+	if _, loaded := apiKeyTouchCache.LoadAndDelete(id); loaded {
+		apiKeyTouchSize.Add(-1)
+	}
 }
 
 // recordAPIKeyTouch stores the latest touch timestamp for id, incrementing
