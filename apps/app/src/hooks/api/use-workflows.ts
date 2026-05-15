@@ -117,14 +117,19 @@ export const updateWorkflowFn = createServerFn({ method: "POST" })
     );
   });
 
-export const workflowsQueryOptions = (search?: string) =>
-  queryOptions({
-    queryKey: queryKeys.workflows.list({ search }).queryKey,
-    queryFn: () => fetchWorkflows({ data: { search } }),
+type ListWorkflowsInput = { limit?: number; cursor?: string; search?: string };
+
+export const workflowsQueryOptions = (search?: ListWorkflowsInput | string) => {
+  const params: ListWorkflowsInput =
+    typeof search === "string" ? { search } : (search ?? {});
+  return queryOptions({
+    queryKey: queryKeys.workflows.list(params).queryKey,
+    queryFn: () => fetchWorkflows({ data: params }),
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
   });
+};
 
 export const workflowQueryOptions = (id: string) =>
   queryOptions({

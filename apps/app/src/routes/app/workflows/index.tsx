@@ -14,7 +14,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -30,13 +29,14 @@ import { createWorkflowColumns } from "@/components/tables/workflows-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
-import type { Workflow } from "@/hooks/api/types";
+import type { PaginatedResponse, Workflow } from "@/hooks/api/types";
 import {
   usePauseWorkflow,
   useResumeWorkflow,
   useTriggerWorkflow,
   workflowsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   EyeIcon,
   FilterIcon,
@@ -51,18 +51,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
-  perPage: z.number().optional().default(20),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/workflows/")({
   head: () => ({ meta: [{ title: "Workflows · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(workflowsQueryOptions());
+      await context.queryClient.ensureQueryData(
+        workflowsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -74,12 +80,19 @@ export const Route = createFileRoute("/app/workflows/")({
 function WorkflowsPage() {
   usePageEvent("workflows_list_viewed");
   const { hasProject, session } = Route.useLoaderData();
-  const { data } = useQuery({
-    ...workflowsQueryOptions(),
-    enabled: hasProject,
-  });
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
+  const { data } = useQuery({
+    ...workflowsQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
+    enabled: hasProject,
+  });
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(
     null
   );
@@ -91,8 +104,10 @@ function WorkflowsPage() {
   const selectedStatuses = search.status ?? [];
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const typed = data as PaginatedResponse<Workflow> | undefined;
+
   const filteredData = useMemo(() => {
-    const workflows = hasProject ? (data?.data ?? []) : [];
+    const workflows = hasProject ? (typed?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return workflows;
     }
@@ -105,7 +120,7 @@ function WorkflowsPage() {
       }
       return false;
     });
-  }, [data?.data, hasProject, selectedStatuses]);
+  }, [typed, hasProject, selectedStatuses]);
 
   const table = useReactTable({
     data: filteredData,
@@ -127,13 +142,17 @@ function WorkflowsPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
       navigate({
-        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+        search: (prev) => ({
+          ...prev,
+          query: query || undefined,
+          cursor: undefined,
+        }),
       }),
     getRowId: (row) => row.id,
   });
@@ -154,7 +173,7 @@ function WorkflowsPage() {
       search: (prev) => ({
         ...prev,
         status: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -195,7 +214,7 @@ function WorkflowsPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -247,6 +266,18 @@ function WorkflowsPage() {
       >
         <DataTable
           ariaLabel="Workflows"
+          cursorPagination={{
+            pageSize: pagination.perPage,
+            hasMore: typed?.has_more ?? false,
+            canGoBack: pagination.canGoBack,
+            onNext: () => {
+              if (typed?.next_cursor) {
+                pagination.goNext(typed.next_cursor);
+              }
+            },
+            onPrev: pagination.goPrev,
+            onPageSizeChange: pagination.setPerPage,
+          }}
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

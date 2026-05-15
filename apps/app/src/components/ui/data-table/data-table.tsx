@@ -12,7 +12,10 @@ import { flexRender, type Table as TanstackTable } from "@tanstack/react-table";
 import type * as React from "react";
 import TableEmptyState from "@/components/common/table-empty-state";
 import { SearchIcon } from "@/lib/icons";
-import { DataTablePagination } from "./data-table-pagination";
+import {
+  type CursorPaginationProps,
+  DataTablePagination,
+} from "./data-table-pagination";
 
 const DEFAULT_EMPTY_FILTER_STATE = (
   <TableEmptyState
@@ -34,6 +37,7 @@ type DataTableProps<TData> = {
   emptyFilterState?: React.ReactNode | null;
   emptyState: React.ReactNode | null;
   ariaLabel?: string;
+  cursorPagination?: CursorPaginationProps;
 };
 
 export const DataTable = <TData,>({
@@ -42,6 +46,7 @@ export const DataTable = <TData,>({
   emptyFilterState,
   emptyState,
   ariaLabel,
+  cursorPagination,
 }: DataTableProps<TData>) => {
   const rows = table.getRowModel().rows;
   const hasFilters =
@@ -143,7 +148,7 @@ export const DataTable = <TData,>({
         </div>
       </div>
 
-      <DataTablePagination table={table} />
+      <DataTablePagination cursorPagination={cursorPagination} table={table} />
 
       {table.getFilteredSelectedRowModel().rows.length > 0 && floatingBar ? (
         <div className="fixed inset-x-0 bottom-4 z-50 mx-auto w-fit">

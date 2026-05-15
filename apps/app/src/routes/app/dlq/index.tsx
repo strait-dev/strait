@@ -26,7 +26,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -49,6 +48,7 @@ import {
   useDiscardDlqItem,
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   AlertIcon,
   FilterIcon,
@@ -62,17 +62,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   errorType: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/dlq/")({
   head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(dlqQueryOptions());
+      await context.queryClient.ensureQueryData(
+        dlqQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -86,8 +93,15 @@ function DlqPage() {
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
   const { data } = useQuery({
-    ...dlqQueryOptions(),
+    ...dlqQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
     enabled: hasProject,
   });
 
@@ -116,7 +130,7 @@ function DlqPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { rowSelection },
@@ -164,7 +178,7 @@ function DlqPage() {
       search: (prev) => ({
         ...prev,
         errorType: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -214,7 +228,7 @@ function DlqPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -356,6 +370,18 @@ function DlqPage() {
         <div className="pt-2">
           <DataTable
             ariaLabel="Dead letter queue"
+            cursorPagination={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
+            }}
             emptyState={emptyState}
             table={table}
           />

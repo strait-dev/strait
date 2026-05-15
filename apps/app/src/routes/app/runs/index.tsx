@@ -14,7 +14,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -38,6 +37,7 @@ import {
   useCancelRun,
   useRetryRun,
 } from "@/hooks/api/use-runs";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   ActivityIcon,
   EyeIcon,
@@ -52,18 +52,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
-  perPage: z.number().optional().default(20),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/runs/")({
   head: () => ({ meta: [{ title: "Runs · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(runsQueryOptions());
+      await context.queryClient.ensureQueryData(
+        runsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -74,7 +80,6 @@ export const Route = createFileRoute("/app/runs/")({
 
 function RunsPage() {
   const { hasProject, session } = Route.useLoaderData();
-  const { data } = useQuery({ ...runsQueryOptions(), enabled: hasProject });
   const search = Route.useSearch();
   usePageEvent("runs_list_viewed", {
     has_query: !!search.query,
@@ -82,6 +87,17 @@ function RunsPage() {
     status_filter_count: search.status?.length ?? 0,
   });
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
+  const { data } = useQuery({
+    ...runsQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
+    enabled: hasProject,
+  });
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const retryRun = useRetryRun();
@@ -130,13 +146,17 @@ function RunsPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
       navigate({
-        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+        search: (prev) => ({
+          ...prev,
+          query: query || undefined,
+          cursor: undefined,
+        }),
       }),
     getRowId: (row) => row.id,
   });
@@ -157,7 +177,7 @@ function RunsPage() {
       search: (prev) => ({
         ...prev,
         status: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -229,7 +249,7 @@ function RunsPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -281,6 +301,18 @@ function RunsPage() {
       >
         <DataTable
           ariaLabel="Runs"
+          cursorPagination={{
+            pageSize: pagination.perPage,
+            hasMore: typed?.has_more ?? false,
+            canGoBack: pagination.canGoBack,
+            onNext: () => {
+              if (typed?.next_cursor) {
+                pagination.goNext(typed.next_cursor);
+              }
+            },
+            onPrev: pagination.goPrev,
+            onPageSizeChange: pagination.setPerPage,
+          }}
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar
