@@ -1527,6 +1527,44 @@ func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]
 	return contracts, rows.Err()
 }
 
+// ListEnterpriseContractsActiveAt returns every enterprise contract whose
+// window covers the supplied instant. The SLA-credit calculator passes the
+// period-end so a contract that lapsed mid-month still contributes a credit
+// for the partial period it covered.
+func (s *PgStore) ListEnterpriseContractsActiveAt(ctx context.Context, at time.Time) ([]EnterpriseContract, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE contract_start_date <= $1
+		  AND contract_end_date   >  $1
+		ORDER BY org_id ASC
+	`, at)
+	if err != nil {
+		return nil, fmt.Errorf("listing active enterprise contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []EnterpriseContract
+	for rows.Next() {
+		var c EnterpriseContract
+		if err := rows.Scan(
+			&c.ID, &c.OrgID, &c.EnterpriseTier,
+			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.ContractStartDate, &c.ContractEndDate,
+			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning enterprise contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	return contracts, rows.Err()
+}
+
 // PauseHTTPJobsByOrg pauses all active HTTP-mode jobs for an org.
 // Sets the pause reason so they can be selectively unpaused on upgrade.
 // Returns the IDs of the jobs that were paused so callers can dispatch

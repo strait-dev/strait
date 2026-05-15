@@ -49,6 +49,7 @@ type Scheduler struct {
 	contractExpiryChecker    *ContractExpiryChecker
 	priorityPromoter         *PriorityPromoter
 	dunner                   DunnerRunner
+	slaCalculator            SLACalculatorRunner
 	counterReconciler        *CounterReconciler
 	claimReconciler          *ClaimReconciler
 	partitionEnsurer         *PartitionEnsurer
@@ -260,6 +261,22 @@ func WithDunner(d DunnerRunner) SchedulerOption {
 	}
 }
 
+// SLACalculatorRunner is the narrow interface the scheduler needs from the
+// SLA credit calculator (defined in internal/billing). Kept here so the
+// scheduler does not have to import the billing package.
+type SLACalculatorRunner interface {
+	Run(ctx context.Context)
+}
+
+// WithSLACalculator registers the SLA-credit calculator. Each tick reads
+// the previous month's per-org uptime, issues credit notes for breached
+// SLAs, and dispatches sla.credit_issued. Lifecycle owned by the scheduler.
+func WithSLACalculator(c SLACalculatorRunner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.slaCalculator = c
+	}
+}
+
 // WithUsageFlusher sets a usage flusher for periodic usage record materialization.
 func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	return func(s *Scheduler) {
@@ -357,6 +374,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.dunner != nil {
 		s.tracker.track(ctx, &s.wg, "dunner", func(componentCtx context.Context) { s.dunner.Run(componentCtx) })
+	}
+	if s.slaCalculator != nil {
+		s.tracker.track(ctx, &s.wg, "sla_calculator", func(componentCtx context.Context) { s.slaCalculator.Run(componentCtx) })
 	}
 	if s.gracePeriodEnforcer != nil {
 		s.tracker.track(ctx, &s.wg, "grace_period_enforcer", func(componentCtx context.Context) { s.gracePeriodEnforcer.Run(componentCtx) })

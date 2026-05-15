@@ -945,6 +945,16 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			)
 			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
 			slog.Info("dunning state machine enabled")
+
+			slaCreditStore := billing.NewPgSLACreditStore(dbPool)
+			slaCalculator := billing.NewSLACalculator(
+				&slaCalculatorStore{PgStore: billingStore, slaCreditStore: slaCreditStore},
+				billing.NewStaticUptimeSource(100.0),
+				24*time.Hour,
+				slog.Default(),
+			)
+			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
+			slog.Info("sla credit calculator enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this
@@ -1002,6 +1012,22 @@ func (a *anomalyMonitorStore) ListEnabledNotificationChannelsByProjectIDs(ctx co
 
 func (a *anomalyMonitorStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
 	return a.queries.CreateNotificationDelivery(ctx, d)
+}
+
+// slaCalculatorStore composes the billing store (active enterprise contract
+// listing) with the dedicated SLA credit store (read/insert) so the
+// scheduler's SLA calculator can satisfy a single dependency.
+type slaCalculatorStore struct {
+	*billing.PgStore
+	slaCreditStore *billing.PgSLACreditStore
+}
+
+func (s *slaCalculatorStore) InsertSLACredit(ctx context.Context, row billing.SLACreditRow) error {
+	return s.slaCreditStore.InsertSLACredit(ctx, row)
+}
+
+func (s *slaCalculatorStore) GetSLACredit(ctx context.Context, orgID string, periodStart, periodEnd time.Time) (*billing.SLACreditRow, error) {
+	return s.slaCreditStore.GetSLACredit(ctx, orgID, periodStart, periodEnd)
 }
 
 func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {
