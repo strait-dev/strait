@@ -120,7 +120,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 	results := make([]BulkTriggerResult, 0, len(req.Items))
 	created := 0
 
-	projectQuota, err := s.store.GetProjectQuota(ctx, job.ProjectID)
+	projectQuota, err := s.quotaCache.Get(ctx, job.ProjectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}

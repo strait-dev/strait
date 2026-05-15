@@ -3,34 +3,41 @@ package store
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"time"
 )
 
 // Advisory lock namespaces.
 //
-// Two audit code paths acquire per-project pg_advisory_xact_lock under
-// distinct namespace prefixes so they do not serialize against each
-// other unnecessarily:
+// Three audit code paths acquire pg_advisory_xact_lock under distinct
+// namespace prefixes so they do not serialize against each other
+// unnecessarily:
 //
-//   - AdvisoryLockNsAuditChain  serializes same-project chain inserts in
-//     CreateAuditEvent. Multiple tombstone / anchor writers for the same
-//     project queue up so the chain tail read and the insert see the
-//     same committed state.
-//   - AdvisoryLockNsAuditRotate serializes key rotation + retention
+//   - AdvisoryLockNsAuditChain       serializes same-project chain
+//     inserts for the legacy (empty shard_id) chain in CreateAuditEvent.
+//     Multiple tombstone / anchor writers for the same project queue up
+//     so the chain tail read and the insert see the same committed state.
+//   - AdvisoryLockNsAuditChainShard  serializes inserts within a single
+//     (project, shard) sub-chain. The key is `<projectID>:<shardID>`
+//     so unrelated shards within the same project do not contend.
+//     Legacy rows (empty shard_id) continue to use AdvisoryLockNsAuditChain
+//     so the pre-shard lock domain is unchanged for non-sharded writers.
+//   - AdvisoryLockNsAuditRotate      serializes key rotation + retention
 //     tombstone writes for the same project. A rotation cannot
-//     interleave between the tombstone's max-rotation_epoch read and its
-//     signed insert, and two concurrent rotations cannot produce two
-//     anchors under the same new epoch.
+//     interleave between the tombstone's max-rotation_epoch read and
+//     its signed insert, and two concurrent rotations cannot produce
+//     two anchors under the same new epoch.
 //
-// Both namespaces are hashed into the int64 advisory key space via
+// All namespaces are hashed into the int64 advisory key space via
 // Postgres hashtext(). Adding a new namespace — or introducing a new
 // caller that takes an advisory lock on a per-project key — MUST declare
 // the prefix here so collisions are discoverable at code review time.
 // Any call that bypasses AcquireAdvisoryLock is flagged by the audit
 // advisory-lock test coverage guard.
 const (
-	AdvisoryLockNsAuditChain  = "audit_chain:"
-	AdvisoryLockNsAuditRotate = "audit_rotate:"
+	AdvisoryLockNsAuditChain      = "audit_chain:"
+	AdvisoryLockNsAuditChainShard = "audit_chain_shard:"
+	AdvisoryLockNsAuditRotate     = "audit_rotate:"
 )
 
 // AcquireAdvisoryLock takes a per-transaction advisory lock scoped by
@@ -55,9 +62,13 @@ func AcquireAdvisoryLock(ctx context.Context, q *Queries, namespace, key string)
 	}
 	const (
 		maxAttempts = 50
-		retryDelay  = 100 * time.Millisecond
+		baseDelay   = 25 * time.Millisecond
+		maxDelay    = 500 * time.Millisecond
 	)
 	for attempt := range maxAttempts {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("acquire advisory lock %s%s: %w", namespace, key, err)
+		}
 		var acquired bool
 		if err := q.db.QueryRow(ctx, `
 			SELECT pg_try_advisory_xact_lock(hashtext($1::text || $2::text))
@@ -70,7 +81,17 @@ func AcquireAdvisoryLock(ctx context.Context, q *Queries, namespace, key string)
 		if attempt == maxAttempts-1 {
 			break
 		}
-		t := time.NewTimer(retryDelay)
+		// Exponential backoff with full-jitter so concurrent waiters do not
+		// synchronize their retries on a single 100ms cadence. Cap the
+		// exponent so the upper bound stays predictable under heavy
+		// contention; the jitter spreads each waiter's actual sleep across
+		// [delay/2, delay).
+		shift := min(attempt, 4)
+		delay := min(baseDelay<<shift, maxDelay)
+		half := delay / 2
+		jitter := time.Duration(rand.Int64N(int64(half) + 1)) //nolint:gosec // jitter only; not used for any security boundary
+		sleep := half + jitter
+		t := time.NewTimer(sleep)
 		select {
 		case <-ctx.Done():
 			t.Stop()

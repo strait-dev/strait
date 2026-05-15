@@ -179,6 +179,7 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	cacheStore := otterstore.New(otterstore.Config{
 		DefaultTTL:  cacheTTL,
 		MaxCapacity: 1_000,
+		TTLJitter:   0.1,
 	})
 	orgCache := cache.New[*cachedOrgLimits](cacheStore)
 
@@ -1206,35 +1207,15 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		return nil // no limit set
 	}
 
-	// Redis-based distributed lock serializes concurrent spending checks per org.
-	// Uses a 5-second TTL with up to 3 retries (200ms apart) to handle contention
-	// under high concurrency, preventing TOCTOU races where multiple goroutines
-	// could pass the check simultaneously with the old 500ms single-retry approach.
-	if e.rdb != nil {
-		lockKey := "strait:spend_check:" + orgID
-		var acquired bool
-		var lockErr error
-		for range 3 {
-			acquired, lockErr = e.rdb.SetNX(ctx, lockKey, "1", 5*time.Second).Result()
-			if lockErr != nil || acquired {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				lockErr = ctx.Err()
-			case <-time.After(200 * time.Millisecond):
-			}
-			if lockErr != nil {
-				break
-			}
-		}
-		if lockErr == nil && acquired {
-			defer e.rdb.Del(ctx, lockKey)
-		}
-		// If lock is not acquired after retries, proceed without serialization.
-		// The underlying query is still safe; the lock only reduces TOCTOU window.
-	}
-
+	// The previous revision wrapped the spend check in a Redis lock with a
+	// sleep-retry loop (up to 600ms) intended to "reduce the TOCTOU window".
+	// In practice the lock provided zero correctness benefit: SumOrgPeriodSpend
+	// is a stateless read, no cached value is written under the lock, and the
+	// caller already accepts (by comment) that the unserialized path is safe.
+	// What it did do was block the caller's goroutine for up to 600ms under
+	// concurrent spend checks for the same org — which is exactly the regime
+	// where we most want this code to be fast. Fail-open on contention by
+	// doing the work unserialized; the in-flight call's result is identical.
 	periodStart, _ := usagePeriodWindow(time.Now().UTC(), limits.PlanTier, sub)
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {

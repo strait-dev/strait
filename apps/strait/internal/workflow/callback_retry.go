@@ -50,8 +50,10 @@ func (s *StepCallback) scheduleStepRetry(ctx context.Context, jobRun *domain.Job
 	}
 
 	fields := map[string]any{
-		"next_retry_at": nextRetryAt,
-		"attempt":       newAttempt,
+		"attempt": newAttempt,
+	}
+	if err := s.store.ScheduleRetry(ctx, jobRun.ID, nextRetryAt, newAttempt); err != nil {
+		return fmt.Errorf("schedule step retry: %w", err)
 	}
 	if err := s.store.UpdateRunStatus(ctx, jobRun.ID, jobRun.Status, domain.StatusDelayed, fields); err != nil {
 		return fmt.Errorf("update job run status for retry: %w", err)

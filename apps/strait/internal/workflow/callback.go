@@ -50,6 +50,7 @@ type CallbackStore interface {
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
 	ListDependentsByDependencyJob(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
 	ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)

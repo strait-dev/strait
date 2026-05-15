@@ -83,7 +83,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
 		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
 		{"MaxWorkflowNestingDepth", cfg.MaxWorkflowNestingDepth, 10},
-		{"CDCBatchSize", cfg.CDCBatchSize, 10},
+		{"CDCBatchSize", cfg.CDCBatchSize, 200},
 		{"CDCWaitTimeMs", cfg.CDCWaitTimeMs, 5000},
 		{"SSEKeepaliveInterval", cfg.SSEKeepaliveInterval, 15 * time.Second},
 		{"WorkerDrainTimeout", cfg.WorkerDrainTimeout, 30 * time.Second},
@@ -103,10 +103,15 @@ func TestLoad_Defaults(t *testing.T) {
 		{"ResendFromEmail", cfg.ResendFromEmail, "noreply@strait.dev"},
 		{"SentryEnvironment", cfg.SentryEnvironment, "development"},
 		{"Edition", cfg.Edition, "community"},
-		{"SequinBatchSize", cfg.SequinBatchSize, 10},
+		{"SequinBatchSize", cfg.SequinBatchSize, 200},
 		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
 		{"GRPCBindAddr", cfg.GRPCBindAddr, "127.0.0.1"},
 		{"GRPCPort", cfg.GRPCPort, 50051},
+		{"RedisPoolSize", cfg.RedisPoolSize, 30},
+		{"RedisMinIdleConns", cfg.RedisMinIdleConns, 5},
+		{"RedisReadTimeout", cfg.RedisReadTimeout, 3 * time.Second},
+		{"RedisWriteTimeout", cfg.RedisWriteTimeout, 3 * time.Second},
+		{"RedisConnMaxLifetime", cfg.RedisConnMaxLifetime, 30 * time.Minute},
 	}
 
 	for _, tt := range tests {

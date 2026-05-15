@@ -142,6 +142,9 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 		slog.Error("failed to persist audit retention override", "project_id", projectID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to update retention")
 	}
+	if s.quotaCache != nil {
+		s.quotaCache.Invalidate(projectID)
+	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionRetentionUpdated, "project_quotas", projectID, map[string]any{
 		"old_days": oldDays,

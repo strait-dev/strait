@@ -478,3 +478,28 @@ func TestOtterStore_StringKey_Works(t *testing.T) {
 		t.Fatalf("Delete with string key failed: %v", err)
 	}
 }
+
+// TestOtterStore_TTLJitter_ConfigAccepted confirms the new TTLJitter Config
+// field flows through to the store without breaking Set/Get. End-to-end
+// observation of per-entry jitter is not possible (otter batches expiry
+// processing), so the JitterTTL distribution is covered by unit tests in
+// internal/cache/jitter_test.go.
+func TestOtterStore_TTLJitter_ConfigAccepted(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, Config{
+		DefaultTTL: 5 * time.Minute,
+		TTLJitter:  0.1,
+	})
+	ctx := context.Background()
+
+	if err := s.Set(ctx, "k", "v"); err != nil {
+		t.Fatalf("Set with TTLJitter failed: %v", err)
+	}
+	got, err := s.Get(ctx, "k")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if got != "v" {
+		t.Fatalf("got %v, want v", got)
+	}
+}

@@ -278,6 +278,13 @@ type AuditEvent struct {
 	// written. Epoch 0 is the initial key. Monotonically increasing per
 	// project. Schema v3+ signs this value as part of the canonical HMAC form.
 	RotationEpoch int `json:"rotation_epoch,omitempty"`
+	// ShardID partitions the audit chain within a project. Legacy rows
+	// (written before the shard column existed) carry '' and continue to
+	// verify under the per-project chain. Non-empty values key a
+	// per-(project, shard_id) sub-chain whose tail-read, signature, and
+	// retention/rotation anchors are independent of other shards in the
+	// same project. Schema v4+ binds shard_id into the canonical HMAC form.
+	ShardID string `json:"shard_id,omitempty"`
 }
 
 // AuditEventSchemaVersionCurrent is the schema version stamped on new
