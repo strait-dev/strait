@@ -128,6 +128,57 @@ func TestHandleAdminOutbox_ForbiddenWithoutScope(t *testing.T) {
 	}
 }
 
+func TestHandleAdminOutbox_EnvironmentScopedCallerForbidden(t *testing.T) {
+	t.Parallel()
+
+	storeCalled := false
+	mock := &adminOutboxStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		listFn: func(context.Context, string, int, *time.Time, string) ([]store.QuarantinedOutboxRow, error) {
+			storeCalled = true
+			return nil, nil
+		},
+		getFn: func(context.Context, string, string) (*store.QuarantinedOutboxRow, error) {
+			storeCalled = true
+			return nil, store.ErrOutboxRowNotFound
+		},
+		retryFn: func(context.Context, string, string) (*store.OutboxRow, error) {
+			storeCalled = true
+			return nil, store.ErrOutboxRowConflict
+		},
+		purgeFn: func(context.Context, string, string) (*store.QuarantinedOutboxRow, error) {
+			storeCalled = true
+			return nil, store.ErrOutboxRowNotFound
+		},
+	}
+
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-outbox")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	readCtx := context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeOutboxRead})
+	if _, err := srv.handleAdminListOutbox(readCtx, &ListAdminOutboxInput{}); err == nil {
+		t.Fatal("expected environment-scoped outbox list to be forbidden")
+	}
+	if _, err := srv.handleAdminGetOutbox(readCtx, &GetAdminOutboxInput{OutboxID: "outbox-1"}); err == nil {
+		t.Fatal("expected environment-scoped outbox get to be forbidden")
+	}
+
+	retryCtx := context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeOutboxRetry})
+	if _, err := srv.handleAdminRetryOutbox(retryCtx, &AdminOutboxMutationInput{OutboxID: "outbox-1"}); err == nil {
+		t.Fatal("expected environment-scoped outbox retry to be forbidden")
+	}
+
+	purgeCtx := context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeOutboxPurge})
+	if _, err := srv.handleAdminPurgeOutbox(purgeCtx, &AdminOutboxMutationInput{OutboxID: "outbox-1"}); err == nil {
+		t.Fatal("expected environment-scoped outbox purge to be forbidden")
+	}
+
+	if storeCalled {
+		t.Fatal("environment-scoped outbox admin request reached the outbox store")
+	}
+}
+
 func TestHandleAdminRetryOutbox_Unauthorized(t *testing.T) {
 	t.Parallel()
 

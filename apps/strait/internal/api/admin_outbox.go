@@ -86,6 +86,9 @@ func (s *Server) handleAdminListOutbox(ctx context.Context, input *ListAdminOutb
 	if err := s.requireAdminScope(ctx, domain.ScopeOutboxRead); err != nil {
 		return nil, err
 	}
+	if err := requireProjectWideOutboxAccess(ctx); err != nil {
+		return nil, err
+	}
 	if s.outboxAdminStore == nil {
 		return nil, huma.Error503ServiceUnavailable("outbox admin store unavailable")
 	}
@@ -123,6 +126,9 @@ func (s *Server) handleAdminGetOutbox(ctx context.Context, input *GetAdminOutbox
 	if err := s.requireAdminScope(ctx, domain.ScopeOutboxRead); err != nil {
 		return nil, err
 	}
+	if err := requireProjectWideOutboxAccess(ctx); err != nil {
+		return nil, err
+	}
 	if s.outboxAdminStore == nil {
 		return nil, huma.Error503ServiceUnavailable("outbox admin store unavailable")
 	}
@@ -145,6 +151,9 @@ func (s *Server) handleAdminGetOutbox(ctx context.Context, input *GetAdminOutbox
 
 func (s *Server) handleAdminRetryOutbox(ctx context.Context, input *AdminOutboxMutationInput) (*AdminRetryOutboxOutput, error) {
 	if err := s.requireAdminScope(ctx, domain.ScopeOutboxRetry); err != nil {
+		return nil, err
+	}
+	if err := requireProjectWideOutboxAccess(ctx); err != nil {
 		return nil, err
 	}
 	if s.outboxAdminStore == nil {
@@ -191,6 +200,9 @@ func (s *Server) handleAdminPurgeOutbox(ctx context.Context, input *AdminOutboxM
 	if err := s.requireAdminScope(ctx, domain.ScopeOutboxPurge); err != nil {
 		return nil, err
 	}
+	if err := requireProjectWideOutboxAccess(ctx); err != nil {
+		return nil, err
+	}
 	if s.outboxAdminStore == nil {
 		return nil, huma.Error503ServiceUnavailable("outbox admin store unavailable")
 	}
@@ -220,6 +232,13 @@ func (s *Server) handleAdminPurgeOutbox(ctx context.Context, input *AdminOutboxM
 	out.Body.OutboxID = input.OutboxID
 	out.Body.OK = true
 	return out, nil
+}
+
+func requireProjectWideOutboxAccess(ctx context.Context) error {
+	if environmentIDFromContext(ctx) != "" {
+		return huma.Error403Forbidden("outbox admin requires a project-wide key")
+	}
+	return nil
 }
 
 func adminOutboxRow(row store.QuarantinedOutboxRow) AdminOutboxRow {
