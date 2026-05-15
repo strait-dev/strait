@@ -156,17 +156,28 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Name</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="Jane Smith"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -176,6 +187,16 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -183,11 +204,12 @@ function EnterpriseContactPage() {
                     type="email"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -197,17 +219,28 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Company</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="Acme Inc."
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -220,7 +253,19 @@ function EnterpriseContactPage() {
                     onValueChange={(val) => field.handleChange(val as string)}
                     value={field.state.value}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
+                      className="w-full"
+                    >
                       <SelectValue placeholder="Select team size" />
                     </SelectTrigger>
                     <SelectContent>
@@ -231,11 +276,12 @@ function EnterpriseContactPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -305,6 +351,16 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Message</FieldLabel>
                   <Textarea
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -312,11 +368,12 @@ function EnterpriseContactPage() {
                     rows={5}
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>

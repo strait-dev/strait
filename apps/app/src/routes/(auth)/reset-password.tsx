@@ -113,6 +113,16 @@ function ResetPasswordPage() {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>New password</FieldLabel>
                     <PasswordInput
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       autoComplete="new-password"
                       id={field.name}
                       onBlur={field.handleBlur}
@@ -120,11 +130,12 @@ function ResetPasswordPage() {
                       placeholder="At least 8 characters"
                       value={field.state.value}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -136,6 +147,16 @@ function ResetPasswordPage() {
                       Confirm password
                     </FieldLabel>
                     <PasswordInput
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       autoComplete="new-password"
                       id={field.name}
                       onBlur={field.handleBlur}
@@ -143,11 +164,12 @@ function ResetPasswordPage() {
                       placeholder="Re-enter your password"
                       value={field.state.value}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
