@@ -32,34 +32,24 @@ const SubscriptionSuccessDialog = ({
 }: SubscriptionSuccessDialogProps) => {
   const [open, setOpen] = useState(false);
   const shownTimestampsRef = useRef(new Set<string>());
+  const onUrlCleanupRef = useRef(onUrlCleanup);
+  onUrlCleanupRef.current = onUrlCleanup;
 
-  // Handle showing the dialog when subscription is upgraded or created
   useEffect(() => {
-    const shouldShow = isNewSubscription || isUpgrade;
-
-    if (shouldShow) {
-      if (isNewSubscription) {
-        setOpen(true);
-      } else if (
-        isUpgrade &&
-        timestamp &&
-        !shownTimestampsRef.current.has(timestamp)
-      ) {
-        // Use timestamp to prevent showing the same upgrade event multiple times
-        shownTimestampsRef.current.add(timestamp);
-        setOpen(true);
-      }
+    if (isNewSubscription) {
+      setOpen(true);
+      onUrlCleanupRef.current?.();
+    } else if (
+      isUpgrade &&
+      timestamp &&
+      !shownTimestampsRef.current.has(timestamp)
+    ) {
+      shownTimestampsRef.current.add(timestamp);
+      setOpen(true);
+      onUrlCleanupRef.current?.();
     }
   }, [isNewSubscription, isUpgrade, timestamp]);
 
-  // Notify parent to clean URL when dialog is shown
-  useEffect(() => {
-    if (open && (isNewSubscription || isUpgrade)) {
-      onUrlCleanup?.();
-    }
-  }, [open, isNewSubscription, isUpgrade, onUrlCleanup]);
-
-  // Handle dialog close
   const handleClose = useCallback(() => {
     setOpen(false);
     onClose?.();

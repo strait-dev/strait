@@ -14,7 +14,7 @@ type MetricsCardProps = {
   title: string;
   value: string | number;
   change?: { value: number; label: string };
-  icon?: any;
+  icon?: typeof ArrowUpRightIcon;
   description?: string;
   className?: string;
   chartData?: number[];
@@ -71,7 +71,7 @@ const MetricsCard = ({
         {description && (
           <p className="mt-1 text-muted-foreground text-xs">{description}</p>
         )}
-        {barData && (
+        {barData && barData.length > 0 && (
           <div className="relative z-10 mt-3 h-[32px]">
             <ResponsiveContainer
               height="100%"
