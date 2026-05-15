@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_org_subscriptions_dunning_active;
