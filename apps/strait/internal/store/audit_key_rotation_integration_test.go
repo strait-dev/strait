@@ -799,16 +799,7 @@ func TestStoreAuditSigningKey_RejectsTooShortMaterial(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected CHECK violation for 4-byte key_material, got nil")
 	}
-	if !containsSubstringIT(err.Error(), "audit_signing_keys_key_material_length") {
+	if !strings.Contains(err.Error(), "audit_signing_keys_key_material_length") {
 		t.Errorf("error = %v, expected CHECK constraint violation", err)
 	}
-}
-
-func containsSubstringIT(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

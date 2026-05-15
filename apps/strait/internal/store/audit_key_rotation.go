@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	mrand "math/rand/v2"
+	"time"
 
 	"strait/internal/domain"
 
@@ -203,9 +205,24 @@ func (q *Queries) RotateAuditSigningKey(ctx context.Context, projectID, actorID 
 
 	// Retry budget: a bounded number of unique-violation retries handles
 	// genuine contention without masking a permanent schema fault.
-	const maxAttempts = 8
+	// Between attempts we sleep with exponential backoff + full jitter
+	// so a burst of contended rotations does not lock-step retry against
+	// the same anchor row and force every retry through the same hot
+	// advisory key. Without the sleep a busy-loop on 23505 would also
+	// hammer the database under contention.
+	const (
+		maxAttempts = 8
+		baseDelay   = 10 * time.Millisecond
+		maxDelay    = 200 * time.Millisecond
+	)
 	var lastErr error
-	for range maxAttempts {
+	for attempt := range maxAttempts {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return 0, fmt.Errorf("rotate audit signing key: %w", errors.Join(err, lastErr))
+			}
+			return 0, fmt.Errorf("rotate audit signing key: %w", err)
+		}
 		newEpoch, err := q.rotateAuditSigningKeyOnce(ctx, projectID, actorID)
 		if err == nil {
 			return newEpoch, nil
@@ -217,6 +234,21 @@ func (q *Queries) RotateAuditSigningKey(ctx context.Context, projectID, actorID 
 			// Retry — the advisory lock is transaction-scoped so the
 			// next attempt takes a fresh one and will read the new max.
 			lastErr = err
+			if attempt == maxAttempts-1 {
+				break
+			}
+			shift := min(attempt, 4)
+			delay := min(baseDelay<<shift, maxDelay)
+			half := delay / 2
+			jitter := time.Duration(mrand.Int64N(int64(half) + 1)) //nolint:gosec // jitter only; not used for any security boundary
+			sleep := half + jitter
+			t := time.NewTimer(sleep)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return 0, fmt.Errorf("rotate audit signing key: %w", errors.Join(ctx.Err(), lastErr))
+			case <-t.C:
+			}
 			continue
 		}
 		return 0, err
@@ -263,10 +295,25 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 		// still emit a single legacy-shard anchor so the rotation is
 		// recorded forensically and any future event in any shard can
 		// chain from a verified anchor.
+		//
+		// The query is split so the non-empty shard scan can ride the
+		// partial index idx_audit_events_shard_chain (WHERE shard_id != '')
+		// instead of forcing a sequential scan over the entire project's
+		// audit_events history. The empty-shard probe is a cheap EXISTS
+		// over the same project_id, served by the project_id+created_at
+		// integrity index that exists for the legacy chain.
 		rows, qErr := txQ.db.Query(ctx, `
-			SELECT DISTINCT shard_id
-			FROM audit_events
-			WHERE project_id = $1
+			SELECT shard_id FROM (
+				SELECT DISTINCT shard_id
+				FROM audit_events
+				WHERE project_id = $1 AND shard_id != ''
+				UNION ALL
+				SELECT '' AS shard_id
+				WHERE EXISTS (
+					SELECT 1 FROM audit_events
+					WHERE project_id = $1 AND shard_id = ''
+				)
+			) s
 		`, projectID)
 		if qErr != nil {
 			return fmt.Errorf("read shards: %w", qErr)
@@ -327,6 +374,14 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 				Details:       json.RawMessage(details),
 				IsAnchor:      true,
 				RotationEpoch: newEpoch,
+			}
+			// Fail closed if a future edit drops IsAnchor: the auto-
+			// derivation in CreateAuditEvent would otherwise route the
+			// rotation anchor into a shard literally named after its
+			// resource_type ("audit_signing_key") and orphan it from the
+			// shard whose chain it is supposed to anchor.
+			if !ev.IsAnchor {
+				return fmt.Errorf("rotate audit signing key: refusing to emit non-anchor row (project %s, shard %q)", projectID, shardID)
 			}
 			if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
 				return fmt.Errorf("write anchor (shard %q): %w", shardID, err)

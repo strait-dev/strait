@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"time"
 )
 
@@ -61,9 +62,13 @@ func AcquireAdvisoryLock(ctx context.Context, q *Queries, namespace, key string)
 	}
 	const (
 		maxAttempts = 50
-		retryDelay  = 100 * time.Millisecond
+		baseDelay   = 25 * time.Millisecond
+		maxDelay    = 500 * time.Millisecond
 	)
 	for attempt := range maxAttempts {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("acquire advisory lock %s%s: %w", namespace, key, err)
+		}
 		var acquired bool
 		if err := q.db.QueryRow(ctx, `
 			SELECT pg_try_advisory_xact_lock(hashtext($1::text || $2::text))
@@ -76,7 +81,17 @@ func AcquireAdvisoryLock(ctx context.Context, q *Queries, namespace, key string)
 		if attempt == maxAttempts-1 {
 			break
 		}
-		t := time.NewTimer(retryDelay)
+		// Exponential backoff with full-jitter so concurrent waiters do not
+		// synchronize their retries on a single 100ms cadence. Cap the
+		// exponent so the upper bound stays predictable under heavy
+		// contention; the jitter spreads each waiter's actual sleep across
+		// [delay/2, delay).
+		shift := min(attempt, 4)
+		delay := min(baseDelay<<shift, maxDelay)
+		half := delay / 2
+		jitter := time.Duration(rand.Int64N(int64(half) + 1)) //nolint:gosec // jitter only; not used for any security boundary
+		sleep := half + jitter
+		t := time.NewTimer(sleep)
 		select {
 		case <-ctx.Done():
 			t.Stop()
