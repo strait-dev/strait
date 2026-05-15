@@ -110,6 +110,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	if err := validateTags(req.Tags); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
 
 	// Handle dry-run mode
 	if req.DryRun {
@@ -121,17 +124,6 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
-	}
-
-	// Validate scheduled_at bounds.
-	if req.ScheduledAt != nil {
-		delay := time.Until(*req.ScheduledAt)
-		if delay < 0 {
-			return nil, huma.Error400BadRequest("scheduled_at must not be in the past")
-		}
-		if delay > 30*24*time.Hour {
-			return nil, huma.Error400BadRequest("scheduled_at cannot exceed 30 days from now")
-		}
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
@@ -236,6 +228,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}); err != nil {
 			return nil, triggerLimitAPIError(err, "failed to upsert debounce pending")
 		}
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"debounced":         true,
+			"fire_at":           fireAt,
+			"priority":          req.Priority,
+			"debounce_key_hash": hashIdempotencyKey(req.DebounceKey),
+			"tag_keys":          tagKeys(req.Tags),
+			"triggered_by":      domain.TriggerDebounce,
+		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"debounced": true,
 			"fire_at":   fireAt,
@@ -256,6 +256,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			CreatedBy:   actorFromContext(ctx),
 		}
 		var batchOutput *TriggerJobOutput
+		var batchRunID string
 		if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
 			if err := s.store.InsertBatchBufferItem(guardCtx, item); err != nil {
 				return fmt.Errorf("insert batch buffer item: %w", err)
@@ -310,6 +311,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
 				return enqErr
 			}
+			batchRunID = batchRun.ID
 			batchOutput = &TriggerJobOutput{Body: map[string]any{
 				"id":     batchRun.ID,
 				"status": batchRun.Status,
@@ -323,9 +325,27 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			return nil, triggerLimitAPIError(err, "failed to insert batch buffer item")
 		}
 		if batchOutput != nil {
+			s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+				"run_id":           batchRunID,
+				"batch":            true,
+				"priority":         req.Priority,
+				"batch_key_hash":   hashIdempotencyKey(req.BatchKey),
+				"tag_keys":         tagKeys(req.Tags),
+				"triggered_by":     "batch",
+				"batch_max_size":   job.BatchMaxSize,
+				"batch_window_sec": job.BatchWindowSecs,
+			})
 			return batchOutput, nil
 		}
 
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"buffered":         true,
+			"priority":         req.Priority,
+			"batch_key_hash":   hashIdempotencyKey(req.BatchKey),
+			"tag_keys":         tagKeys(req.Tags),
+			"triggered_by":     "batch_buffer",
+			"batch_window_sec": job.BatchWindowSecs,
+		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"buffered": true,
 		}}, nil
@@ -467,6 +487,15 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, triggerLimitAPIError(err, "failed to enqueue run")
 	}
 	if waitingRun {
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"run_id":               run.ID,
+			"scheduled_at":         scheduledAt,
+			"priority":             req.Priority,
+			"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
+			"tag_keys":             tagKeys(runTags),
+			"triggered_by":         run.TriggeredBy,
+			"waiting":              true,
+		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"id":              run.ID,
 			"status":          run.Status,
@@ -490,6 +519,20 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		"payload_hash":    payloadHash,
 		"idempotency_hit": false,
 	}}, nil
+}
+
+func validateTriggerScheduledAt(scheduledAt *time.Time) error {
+	if scheduledAt == nil {
+		return nil
+	}
+	delay := time.Until(*scheduledAt)
+	if delay < 0 {
+		return errors.New("scheduled_at must not be in the past")
+	}
+	if delay > 30*24*time.Hour {
+		return errors.New("scheduled_at cannot exceed 30 days from now")
+	}
+	return nil
 }
 
 // hashIdempotencyKey returns a short SHA-256 prefix of the idempotency key,
@@ -756,6 +799,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	if job.Paused {
 		return nil, errors.New("job is paused -- resume it before triggering new runs")
+	}
+
+	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
+		return nil, err
 	}
 
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
