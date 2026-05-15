@@ -278,6 +278,48 @@ func (e *Enforcer) emitBillingEvent(orgID, eventType, planTier string) {
 	})
 }
 
+// DispatchBilling sends a billing webhook event through the configured
+// BillingEventDispatcher. When no dispatcher is wired (community edition
+// or test setup) the call is a silent no-op so call sites do not have to
+// nil-guard. Errors are logged but never propagated so a webhook delivery
+// failure cannot block the enforcement path that scheduled it.
+func (e *Enforcer) DispatchBilling(ctx context.Context, orgID string, planTier domain.PlanTier, eventType string, detail map[string]any) {
+	if e == nil || e.billingDispatcher == nil || orgID == "" || eventType == "" {
+		return
+	}
+	if err := DispatchBillingWebhook(ctx, e.billingDispatcher, orgID, planTier, eventType, detail); err != nil {
+		e.logger.Warn("dispatch billing webhook failed",
+			"org_id", orgID, "event_type", eventType, "error", err)
+	}
+}
+
+// tryDispatchCapEvent serializes one cap-event dispatch per billing period
+// using the per-event dedup column on organization_subscriptions. When the
+// caller is the first to mark the column in the current period, the event
+// is dispatched; otherwise the call is a no-op.
+func (e *Enforcer) tryDispatchCapEvent(
+	ctx context.Context,
+	orgID string,
+	planTier domain.PlanTier,
+	ev BillingCapEvent,
+	eventType string,
+	detail map[string]any,
+) {
+	if e == nil || e.billingDispatcher == nil || orgID == "" {
+		return
+	}
+	first, err := e.store.TryMarkBillingCapEvent(ctx, orgID, ev)
+	if err != nil {
+		e.logger.Warn("mark billing cap event failed",
+			"org_id", orgID, "event_type", eventType, "error", err)
+		return
+	}
+	if !first {
+		return
+	}
+	e.DispatchBilling(ctx, orgID, planTier, eventType, detail)
+}
+
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
 	_ = e.orgCache.Delete(context.Background(), orgID)
@@ -1160,9 +1202,9 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	recordBillingQuotaUsage(ctx, "spend", string(limits.PlanTier), quotaUsageRatio(overageSpend, sub.SpendingLimitMicrousd))
 
 	// Send spending alerts (async with 24h cooldown per org).
-	if e.billingEmails != nil && sub.SpendingLimitMicrousd > 0 {
+	if sub.SpendingLimitMicrousd > 0 {
 		spendPct := float64(overageSpend) / float64(sub.SpendingLimitMicrousd)
-		if spendPct >= 0.8 && spendPct < 1.0 && e.shouldSendBillingEmail(ctx, orgID, "spending_80pct") {
+		if e.billingEmails != nil && spendPct >= 0.8 && spendPct < 1.0 && e.shouldSendBillingEmail(ctx, orgID, "spending_80pct") {
 			adminEmails, _ := e.store.ListOrgAdminEmails(ctx, orgID)
 			go func() { //nolint:gosec // async email with own timeout
 				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1172,6 +1214,17 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 					fmt.Sprintf("$%.2f", float64(sub.SpendingLimitMicrousd)/1e6),
 					fmt.Sprintf("%.0f%%", spendPct*100))
 			}()
+		}
+		if spendPct >= 0.8 && spendPct < 1.0 {
+			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+				BillingCapEventWarning,
+				domain.WebhookEventBillingCapWarning,
+				map[string]any{
+					"spend_pct":          spendPct,
+					"period_spend":       periodSpend,
+					"spending_limit":     sub.SpendingLimitMicrousd,
+					"current_period_start": sub.CurrentPeriodStart,
+				})
 		}
 	}
 
@@ -1190,6 +1243,28 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	if isOverageLimitReached(sub.SpendingLimitMicrousd, overageSpend) {
 		e.recordRejection(ctx, "spending_limit", limits.PlanTier)
 		e.emitBillingEvent(orgID, "spending_limit_hit", sub.PlanTier)
+
+		capDetail := map[string]any{
+			"period_spend":         periodSpend,
+			"overage_spend":        overageSpend,
+			"spending_limit":       sub.SpendingLimitMicrousd,
+			"limit_action":         sub.LimitAction,
+			"current_period_start": sub.CurrentPeriodStart,
+		}
+		e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+			BillingCapEventReached,
+			domain.WebhookEventBillingCapReached, capDetail)
+		switch sub.LimitAction {
+		case "disable":
+			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+				BillingCapEventDisabled,
+				domain.WebhookEventBillingCapDisabled, capDetail)
+		case "block":
+			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+				BillingCapEventOverageDisabled,
+				domain.WebhookEventBillingOverageDisabled, capDetail)
+		}
+
 		return &LimitError{
 			Code:         "spending_limit_reached",
 			Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),

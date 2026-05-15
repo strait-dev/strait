@@ -39,7 +39,8 @@ type pendingDowngradeUpdate struct {
 }
 
 type mockBillingStore struct {
-	mu                         sync.Mutex // guards lastEntitlementsUpdates against concurrent enforcer-driven writes
+	mu                         sync.Mutex // guards lastEntitlementsUpdates and capEventMarks against concurrent enforcer-driven writes
+	capEventMarks              map[string]map[BillingCapEvent]time.Time
 	lastUpserted               *OrgSubscription
 	upsertCount                int
 	lastPlanUpdate             *planUpdate
@@ -228,6 +229,24 @@ func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string
 		}
 	}
 	return ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) TryMarkBillingCapEvent(_ context.Context, orgID string, ev BillingCapEvent) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.capEventMarks == nil {
+		m.capEventMarks = make(map[string]map[BillingCapEvent]time.Time)
+	}
+	per, ok := m.capEventMarks[orgID]
+	if !ok {
+		per = make(map[BillingCapEvent]time.Time)
+		m.capEventMarks[orgID] = per
+	}
+	if _, already := per[ev]; already {
+		return false, nil
+	}
+	per[ev] = time.Now()
+	return true, nil
 }
 
 func (m *mockBillingStore) UpdateEntitlements(_ context.Context, orgID string, entitlements OrgPlanLimits) error {

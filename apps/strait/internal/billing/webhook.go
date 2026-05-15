@@ -1024,6 +1024,14 @@ func (h *WebhookHandler) applySubscriptionRevoked(ctx context.Context, orgID str
 		"stripe_subscription_id": sub.ID,
 	})
 
+	if h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanFree,
+			domain.WebhookEventBillingSuspended, map[string]any{
+				"stripe_subscription_id": sub.ID,
+				"reason":                 "revoked",
+			})
+	}
+
 	h.logger.Info("subscription revoked, downgraded to free",
 		"org_id", orgID,
 	)
@@ -1199,6 +1207,16 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		}()
 	}
 
+	if h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(existing.PlanTier),
+			domain.WebhookEventBillingDelinquent, map[string]any{
+				"stripe_invoice_id":      invoice.ID,
+				"grace_period_end":       graceEnd.UTC().Format(time.RFC3339Nano),
+				"amount_due_microusd":    invoice.AmountDue,
+				"attempt_count":          invoice.AttemptCount,
+			})
+	}
+
 	return nil
 }
 
@@ -1247,6 +1265,15 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 		details["previous_plan_tier"] = previousPlanTier
 	}
 	h.logAuditEvent(ctx, "subscription.paused", orgID, details)
+
+	if h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(previousPlanTier),
+			domain.WebhookEventBillingSuspended, map[string]any{
+				"stripe_subscription_id": sub.ID,
+				"reason":                 "paused",
+				"previous_plan_tier":     previousPlanTier,
+			})
+	}
 
 	h.logger.Info("subscription paused", "org_id", orgID, "previous_plan_tier", previousPlanTier)
 	return nil

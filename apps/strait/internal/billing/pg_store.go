@@ -144,6 +144,22 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 				limit_action = organization_subscriptions.limit_action,
 				pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
 				canceled_at = EXCLUDED.canceled_at,
+				cap_warning_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.cap_warning_dispatched_at
+				END,
+				cap_reached_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.cap_reached_dispatched_at
+				END,
+				cap_disabled_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.cap_disabled_dispatched_at
+				END,
+				overage_disabled_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.overage_disabled_dispatched_at
+				END,
 				updated_at = NOW()
 		`, sub.ID, sub.OrgID, sub.PlanTier,
 			sub.StripeSubscriptionID, sub.StripeCustomerID,
@@ -394,6 +410,28 @@ func (s *PgStore) UpdateSpendingLimit(ctx context.Context, orgID string, limitMi
 		return ErrSubscriptionNotFound
 	}
 	return nil
+}
+
+// TryMarkBillingCapEvent stamps the per-event dedup column to NOW() iff it
+// is currently NULL, returning true when this caller was the first to mark.
+// Subsequent calls in the same billing period return false. The column is
+// reset on period rollover by UpsertOrgSubscription.
+func (s *PgStore) TryMarkBillingCapEvent(ctx context.Context, orgID string, ev BillingCapEvent) (bool, error) {
+	col := ev.Column()
+	if col == "" {
+		return false, fmt.Errorf("unknown billing cap event: %d", ev)
+	}
+	// Column name is whitelisted by BillingCapEvent.Column; safe to interpolate.
+	query := fmt.Sprintf(`
+		UPDATE organization_subscriptions
+		SET %s = NOW(), updated_at = NOW()
+		WHERE org_id = $1 AND %s IS NULL
+	`, col, col)
+	tag, err := s.pool.Exec(ctx, query, orgID)
+	if err != nil {
+		return false, fmt.Errorf("marking billing cap event %s: %w", col, err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func (s *PgStore) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {

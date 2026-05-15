@@ -171,6 +171,9 @@ func (m *mockAnomalyMonitorStore) GetProjectPeriodSpend(_ context.Context, _ str
 func (m *mockAnomalyMonitorStore) UpdateAnomalyThresholds(context.Context, string, float64, float64) error {
 	return nil
 }
+func (m *mockAnomalyMonitorStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
+}
 func (m *mockAnomalyMonitorStore) UpdatePaymentStatus(context.Context, string, string, *time.Time) error {
 	return nil
 }

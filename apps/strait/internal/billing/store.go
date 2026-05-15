@@ -50,6 +50,34 @@ type OrgSubscription struct {
 	UpdatedAt    time.Time
 }
 
+// BillingCapEvent identifies a per-period spend-cap webhook event. The string
+// returned by Column is the organization_subscriptions column that records
+// when the corresponding event was last dispatched in the current period.
+// Restricting the enum to these four values keeps the SQL safe from caller-
+// controlled column names without per-call validation.
+type BillingCapEvent int
+
+const (
+	BillingCapEventWarning BillingCapEvent = iota
+	BillingCapEventReached
+	BillingCapEventDisabled
+	BillingCapEventOverageDisabled
+)
+
+func (e BillingCapEvent) Column() string {
+	switch e {
+	case BillingCapEventWarning:
+		return "cap_warning_dispatched_at"
+	case BillingCapEventReached:
+		return "cap_reached_dispatched_at"
+	case BillingCapEventDisabled:
+		return "cap_disabled_dispatched_at"
+	case BillingCapEventOverageDisabled:
+		return "overage_disabled_dispatched_at"
+	}
+	return ""
+}
+
 // UsageRecord represents a daily usage aggregate per org and project.
 type UsageRecord struct {
 	ID               string
@@ -109,6 +137,13 @@ type Store interface {
 
 	// Anomaly thresholds
 	UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error
+
+	// TryMarkBillingCapEvent atomically stamps the cap-event dispatched-at
+	// column to NOW() when it is NULL. Returns true when the caller is the
+	// first dispatcher in the current period; false when a prior caller
+	// already marked the column. The dedup column is reset to NULL on
+	// current_period_start rollover by UpsertOrgSubscription.
+	TryMarkBillingCapEvent(ctx context.Context, orgID string, ev BillingCapEvent) (bool, error)
 
 	// Grace period
 	UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error
