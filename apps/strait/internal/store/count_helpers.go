@@ -152,11 +152,12 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
 // Keeps the most recently updated jobs and clears the cron field on the oldest excess ones.
-func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
+// Returns the IDs of the jobs whose cron was cleared.
+func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessCronJobs")
 	defer span.End()
 
-	result, err := q.db.Exec(ctx, `
+	rows, err := q.db.Query(ctx, `
 		UPDATE jobs SET cron = '', updated_at = NOW()
 		WHERE id IN (
 			SELECT j.id FROM jobs j
@@ -165,11 +166,24 @@ func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
+		RETURNING id
 	`, orgID, maxSchedules)
 	if err != nil {
-		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron jobs: %w", err)
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deactivated cron job id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating deactivated cron jobs: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond

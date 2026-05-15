@@ -870,16 +870,53 @@ func (e *Enforcer) PauseJobsForQuotaExceeded(ctx context.Context, orgID string) 
 	if orgID == "" {
 		return nil
 	}
-	paused, err := e.store.PauseHTTPJobsByOrg(ctx, orgID, "quota_exceeded")
+	pausedIDs, err := e.store.PauseHTTPJobsByOrg(ctx, orgID, "quota_exceeded")
 	if err != nil {
 		return fmt.Errorf("pausing jobs for quota exceeded (org=%s): %w", orgID, err)
 	}
 	e.logger.Info("paused jobs for quota exceeded",
 		"org_id", orgID,
-		"jobs_paused", paused,
+		"jobs_paused", len(pausedIDs),
 	)
 	e.emitBillingEvent(orgID, "jobs_paused_quota_exceeded", "")
+	e.dispatchScheduleSuspended(ctx, orgID, pausedIDs, "quota_exceeded")
 	return nil
+}
+
+// dispatchScheduleSuspended emits one schedule.suspended webhook event per
+// paused job. Failures are logged but do not propagate so callers can return
+// success from the underlying state transition.
+func (e *Enforcer) dispatchScheduleSuspended(ctx context.Context, orgID string, jobIDs []string, reason string) {
+	if e.billingDispatcher == nil || len(jobIDs) == 0 || orgID == "" {
+		return
+	}
+	tier := e.tierForOrg(ctx, orgID)
+	for _, jobID := range jobIDs {
+		detail := map[string]any{
+			"schedule_id": jobID,
+			"reason":      reason,
+		}
+		if err := DispatchBillingWebhook(ctx, e.billingDispatcher, orgID, tier, domain.WebhookEventScheduleSuspended, detail); err != nil {
+			e.logger.Warn("dispatch schedule.suspended failed",
+				"org_id", orgID,
+				"job_id", jobID,
+				"reason", reason,
+				"error", err,
+			)
+		}
+	}
+}
+
+// tierForOrg returns the plan tier for an org or PlanFree if it can't be resolved.
+func (e *Enforcer) tierForOrg(ctx context.Context, orgID string) domain.PlanTier {
+	if e.store == nil {
+		return domain.PlanFree
+	}
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil || sub == nil {
+		return domain.PlanFree
+	}
+	return domain.PlanTier(sub.PlanTier)
 }
 
 // ResumeJobsAfterQuotaReset unpauses jobs that were paused due to quota exceeded.

@@ -188,7 +188,7 @@ type Store interface {
 	ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error)
 
 	// HTTP-mode job lifecycle (downgrade auto-pause / upgrade auto-unpause)
-	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
+	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) ([]string, error)
 	UnpauseJobsByPauseReason(ctx context.Context, orgID, reason string) (int64, error)
 	CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, error)
 }

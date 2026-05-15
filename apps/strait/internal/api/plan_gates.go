@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
+	"strait/internal/domain"
 )
 
 // cronMinIntervalParser matches the standard 5-field parser used at validation
@@ -44,6 +45,31 @@ func (s *Server) recordBillingEvent(ctx context.Context, projectID, eventType, f
 		Feature:   feature,
 		PlanTier:  planTier,
 	})
+}
+
+// dispatchWorkflowRegistrationRejected emits a workflow.registration_rejected
+// outbound billing webhook. Fire-and-forget: errors are swallowed inside
+// Enforcer.DispatchBilling so a webhook delivery failure never converts a
+// plan-gate 4xx into a 5xx for the caller.
+func (s *Server) dispatchWorkflowRegistrationRejected(ctx context.Context, projectID, reason string, requestedValue, capValue any) {
+	if s.billingEnforcer == nil {
+		return
+	}
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return
+	}
+	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return
+	}
+	detail := map[string]any{
+		"reason":          reason,
+		"project_id":      projectID,
+		"requested_value": requestedValue,
+		"cap":             capValue,
+	}
+	s.billingEnforcer.DispatchBilling(ctx, orgID, limits.PlanTier, domain.WebhookEventWorkflowRegistrationRejected, detail)
 }
 
 // getOrgPlanLimits resolves the org's plan limits from a project ID.
@@ -115,6 +141,7 @@ func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, s
 	}
 
 	if stepCount > limits.MaxWorkflowDAGSteps {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "workflow_step_limit", stepCount, limits.MaxWorkflowDAGSteps)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d workflow steps (you have %d). Upgrade at /settings/billing",
 				limits.DisplayName, limits.MaxWorkflowDAGSteps, stepCount),
@@ -173,6 +200,7 @@ func (s *Server) checkCronMinInterval(ctx context.Context, projectID, cronExpr s
 
 	minRequired := time.Duration(limits.CronMinIntervalSec) * time.Second
 	if minGap < minRequired {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "cron_min_interval", int(minGap.Seconds()), limits.CronMinIntervalSec)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan requires at least %ds between cron firings (this schedule fires every %ds). Upgrade at /settings/billing",
 				limits.DisplayName, limits.CronMinIntervalSec, int(minGap.Seconds())),
@@ -197,6 +225,7 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 		return nil
 	}
 
+	s.dispatchWorkflowRegistrationRejected(ctx, projectID, "cron_overlap_policy", policy, "allow")
 	return huma.Error400BadRequest(
 		fmt.Sprintf("Cron overlap policy %q requires the Starter plan or higher. Upgrade at /settings/billing", policy),
 	)
@@ -265,6 +294,7 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 	}
 
 	if count >= limits.MaxScheduledJobs {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "schedule_limit", count, limits.MaxScheduledJobs)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d scheduled jobs (you have %d). Upgrade at /settings/billing",
 				limits.DisplayName, limits.MaxScheduledJobs, count),
@@ -485,6 +515,7 @@ func (s *Server) checkRunTTLLimit(ctx context.Context, projectID string, ttlSecs
 	}
 	maxTTL := limits.RetentionDays * 86400
 	if ttlSecs > maxTTL {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "run_ttl_limit", ttlSecs, maxTTL)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan retains runs for %d days (max run_ttl_secs = %d). Requested %d. Upgrade at /settings/billing",
 				limits.DisplayName, limits.RetentionDays, maxTTL, ttlSecs),
@@ -519,12 +550,14 @@ func (s *Server) checkPerJobConcurrencyLimit(ctx context.Context, projectID stri
 		return nil
 	}
 	if maxConcurrency > limits.MaxConcurrentRuns {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "per_job_concurrency", maxConcurrency, limits.MaxConcurrentRuns)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d concurrent runs (max max_concurrency = %d). Requested %d. Upgrade at /settings/billing",
 				limits.DisplayName, limits.MaxConcurrentRuns, limits.MaxConcurrentRuns, maxConcurrency),
 		)
 	}
 	if maxConcurrencyPerKey > limits.MaxConcurrentRuns {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "per_job_concurrency_per_key", maxConcurrencyPerKey, limits.MaxConcurrentRuns)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d concurrent runs (max max_concurrency_per_key = %d). Requested %d. Upgrade at /settings/billing",
 				limits.DisplayName, limits.MaxConcurrentRuns, limits.MaxConcurrentRuns, maxConcurrencyPerKey),
@@ -590,12 +623,14 @@ func (s *Server) checkWorkflowStepFeatures(ctx context.Context, projectID string
 		switch step.StepType { //nolint:exhaustive // only gating approval and sub_workflow types
 		case "approval":
 			if !limits.HasApprovalGates {
+				s.dispatchWorkflowRegistrationRejected(ctx, projectID, "approval_gates_unavailable", "approval", "pro_required")
 				return huma.Error400BadRequest(
 					fmt.Sprintf("Approval gates require the Pro plan or higher. Your plan: %s. Upgrade at /settings/billing", limits.DisplayName),
 				)
 			}
 		case "sub_workflow":
 			if !limits.HasSubWorkflows {
+				s.dispatchWorkflowRegistrationRejected(ctx, projectID, "sub_workflows_unavailable", "sub_workflow", "pro_required")
 				return huma.Error400BadRequest(
 					fmt.Sprintf("Sub-workflows require the Pro plan or higher. Your plan: %s. Upgrade at /settings/billing", limits.DisplayName),
 				)

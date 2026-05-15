@@ -685,6 +685,7 @@ type BillingEnforcer interface {
 	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 	CheckDailyAIModelCallLimit(ctx context.Context, orgID string) error
+	DispatchBilling(ctx context.Context, orgID string, planTier domain.PlanTier, eventType string, detail map[string]any)
 }
 
 // UsageService provides org usage data for the billing dashboard.

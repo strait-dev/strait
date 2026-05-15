@@ -14,13 +14,13 @@ type DowngradeApplierStore interface {
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]billing.OrgSubscription, error)
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
-	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error)
+	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error)
 	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
 	DeactivateExcessEnvironments(ctx context.Context, orgID string, maxEnvironments int) (int64, error)
 	DeactivateExcessLogDrains(ctx context.Context, orgID string, maxDrains int) (int64, error)
 	DeactivateExcessNotificationChannelsByProject(ctx context.Context, projectID string, maxChannels int) (int64, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
-	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
+	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) ([]string, error)
 	CountMembersByOrg(ctx context.Context, orgID string) (int, error)
 }
 
@@ -30,10 +30,11 @@ const downgradeApplierLockID int64 = 900_100_004
 // DowngradeApplier periodically applies pending plan downgrades whose billing
 // period has ended.
 type DowngradeApplier struct {
-	store          DowngradeApplierStore
-	enforcer       *billing.Enforcer
-	advisoryLocker AdvisoryLocker
-	interval       time.Duration
+	store             DowngradeApplierStore
+	enforcer          *billing.Enforcer
+	advisoryLocker    AdvisoryLocker
+	billingDispatcher billing.BillingEventDispatcher
+	interval          time.Duration
 }
 
 // NewDowngradeApplier creates a new downgrade applier.
@@ -48,6 +49,13 @@ func NewDowngradeApplier(store DowngradeApplierStore, enforcer *billing.Enforcer
 // WithAdvisoryLocker enables distributed single-leader downgrade application.
 func (d *DowngradeApplier) WithAdvisoryLocker(locker AdvisoryLocker) *DowngradeApplier {
 	d.advisoryLocker = locker
+	return d
+}
+
+// WithBillingDispatcher enables schedule.suspended webhook dispatches when
+// jobs are auto-paused or have their cron cleared as part of a downgrade.
+func (d *DowngradeApplier) WithBillingDispatcher(dispatcher billing.BillingEventDispatcher) *DowngradeApplier {
+	d.billingDispatcher = dispatcher
 	return d
 }
 
@@ -136,10 +144,11 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 	}
 
 	if newLimits.MaxScheduledJobs != -1 {
-		if n, err := d.store.DeactivateExcessCronJobs(ctx, orgID, newLimits.MaxScheduledJobs); err != nil {
+		if ids, err := d.store.DeactivateExcessCronJobs(ctx, orgID, newLimits.MaxScheduledJobs); err != nil {
 			slog.Warn("failed to deactivate excess cron jobs", "org_id", orgID, "error", err)
-		} else if n > 0 {
-			slog.Info("deactivated excess cron jobs after downgrade", "org_id", orgID, "count", n)
+		} else if len(ids) > 0 {
+			slog.Info("deactivated excess cron jobs after downgrade", "org_id", orgID, "count", len(ids))
+			d.dispatchScheduleSuspended(ctx, orgID, pendingTier, ids, "plan_downgrade_cron_limit")
 		}
 	}
 
@@ -161,10 +170,11 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 
 	// Auto-pause HTTP-mode jobs when downgrading to a tier that doesn't support HTTP mode.
 	if !newLimits.AllowsHTTPMode {
-		if n, err := d.store.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade"); err != nil {
+		if ids, err := d.store.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade"); err != nil {
 			slog.Error("failed to pause HTTP jobs on downgrade", "org_id", orgID, "error", err)
-		} else if n > 0 {
-			slog.Info("paused HTTP jobs on downgrade", "org_id", orgID, "count", n)
+		} else if len(ids) > 0 {
+			slog.Info("paused HTTP jobs on downgrade", "org_id", orgID, "count", len(ids))
+			d.dispatchScheduleSuspended(ctx, orgID, pendingTier, ids, "plan_downgrade_http_mode")
 		}
 	}
 
@@ -205,6 +215,30 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 				"org_id", orgID,
 				"member_count", count,
 				"new_cap", newLimits.MaxMembersPerOrg,
+			)
+		}
+	}
+}
+
+// dispatchScheduleSuspended emits one schedule.suspended webhook event per
+// suspended job. Failures are logged but do not interrupt downgrade
+// application — the local state change is the source of truth.
+func (d *DowngradeApplier) dispatchScheduleSuspended(ctx context.Context, orgID, planTier string, jobIDs []string, reason string) {
+	if d.billingDispatcher == nil || len(jobIDs) == 0 {
+		return
+	}
+	tier := domain.PlanTier(planTier)
+	for _, jobID := range jobIDs {
+		detail := map[string]any{
+			"schedule_id": jobID,
+			"reason":      reason,
+		}
+		if err := billing.DispatchBillingWebhook(ctx, d.billingDispatcher, orgID, tier, domain.WebhookEventScheduleSuspended, detail); err != nil {
+			slog.Warn("dispatch schedule.suspended failed",
+				"org_id", orgID,
+				"job_id", jobID,
+				"reason", reason,
+				"error", err,
 			)
 		}
 	}

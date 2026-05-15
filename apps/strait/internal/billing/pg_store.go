@@ -1138,8 +1138,10 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
 // Keeps the most recently updated jobs; clears cron on the oldest excess.
-func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
-	result, err := s.pool.Exec(ctx, `
+// Returns the IDs of the jobs whose cron was cleared so callers can dispatch
+// per-schedule suspension events.
+func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
 		UPDATE jobs SET cron = '', updated_at = NOW()
 		WHERE id IN (
 			SELECT j.id FROM jobs j
@@ -1148,11 +1150,24 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
+		RETURNING id
 	`, orgID, maxSchedules)
 	if err != nil {
-		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron jobs: %w", err)
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deactivated cron job id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating deactivated cron jobs: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // DeactivateExcessEnvironments marks excess environments as deleted for an org.
@@ -1514,9 +1529,10 @@ func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]
 
 // PauseHTTPJobsByOrg pauses all active HTTP-mode jobs for an org.
 // Sets the pause reason so they can be selectively unpaused on upgrade.
-// Returns the number of jobs paused.
-func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `
+// Returns the IDs of the jobs that were paused so callers can dispatch
+// per-schedule suspension events.
+func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
 		UPDATE jobs SET
 			paused = true,
 			paused_at = NOW(),
@@ -1526,11 +1542,24 @@ func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) 
 		  AND execution_mode = 'http'
 		  AND paused = false
 		  AND enabled = true
+		RETURNING id
 	`, orgID, reason)
 	if err != nil {
-		return 0, fmt.Errorf("pausing HTTP jobs for org: %w", err)
+		return nil, fmt.Errorf("pausing HTTP jobs for org: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan paused job id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating paused HTTP jobs: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // UnpauseJobsByPauseReason unpauses jobs that were paused for a specific reason.

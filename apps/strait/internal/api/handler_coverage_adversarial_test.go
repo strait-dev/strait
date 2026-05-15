@@ -846,6 +846,8 @@ func (m *advMockBillingEnforcer) CheckOrgCreationLimit(ctx context.Context, user
 	}
 	return nil
 }
+func (m *advMockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
+}
 
 func advNewTestServerWithBilling(t *testing.T, s APIStore, be BillingEnforcer) *Server {
 	t.Helper()

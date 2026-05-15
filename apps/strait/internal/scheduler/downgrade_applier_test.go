@@ -21,7 +21,7 @@ type mockDowngradeStore struct {
 
 	// HTTP pause tracking.
 	pauseHTTPCalls []pauseHTTPCall
-	pauseHTTPCount int64
+	pauseHTTPIDs   []string
 	pauseHTTPErr   error
 
 	// Log drain / notification channel cleanup tracking.
@@ -66,8 +66,8 @@ func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, 
 	return 0, nil
 }
 
-func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
-	return 0, nil
+func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
@@ -82,12 +82,12 @@ func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]s
 	return m.projectIDs, nil
 }
 
-func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) (int64, error) {
+func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) ([]string, error) {
 	m.pauseHTTPCalls = append(m.pauseHTTPCalls, pauseHTTPCall{orgID: orgID, reason: reason})
 	if m.pauseHTTPErr != nil {
-		return 0, m.pauseHTTPErr
+		return nil, m.pauseHTTPErr
 	}
-	return m.pauseHTTPCount, nil
+	return m.pauseHTTPIDs, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessLogDrains(_ context.Context, orgID string, maxDrains int) (int64, error) {
@@ -286,8 +286,8 @@ func (m *mockEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]b
 	return nil, nil
 }
 
-func (m *mockEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockEnforcerStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {

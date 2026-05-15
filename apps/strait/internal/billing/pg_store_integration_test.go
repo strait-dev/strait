@@ -2113,8 +2113,8 @@ func TestPgStore_DeactivateExcessCronJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeactivateExcessCronJobs error = %v", err)
 	}
-	if deactivated != 3 {
-		t.Errorf("DeactivateExcessCronJobs = %d, want 3", deactivated)
+	if len(deactivated) != 3 {
+		t.Errorf("DeactivateExcessCronJobs returned %d ids, want 3", len(deactivated))
 	}
 }
 func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
@@ -2453,8 +2453,8 @@ func TestPgStore_PauseHTTPJobsByOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PauseHTTPJobsByOrg() error = %v", err)
 	}
-	if paused != 3 {
-		t.Fatalf("expected 3 paused, got %d", paused)
+	if len(paused) != 3 {
+		t.Fatalf("expected 3 paused, got %d", len(paused))
 	}
 
 	// Count HTTP jobs (should still be 3 -- paused but not deleted).
@@ -2490,8 +2490,8 @@ func TestPgStore_PauseHTTPJobsByOrg_AlreadyPaused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PauseHTTPJobsByOrg() error = %v", err)
 	}
-	if paused != 2 {
-		t.Fatalf("expected 2 paused (1 already paused), got %d", paused)
+	if len(paused) != 2 {
+		t.Fatalf("expected 2 paused (1 already paused), got %d", len(paused))
 	}
 }
 
@@ -2514,8 +2514,8 @@ func TestPgStore_UnpauseJobsByPauseReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paused != 3 {
-		t.Fatalf("expected 3 paused, got %d", paused)
+	if len(paused) != 3 {
+		t.Fatalf("expected 3 paused, got %d", len(paused))
 	}
 
 	// Manually change one job's pause reason to simulate user-initiated pause.
@@ -2589,8 +2589,8 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paused != 3 {
-		t.Fatalf("step 1: expected 3 paused, got %d", paused)
+	if len(paused) != 3 {
+		t.Fatalf("step 1: expected 3 paused, got %d", len(paused))
 	}
 
 	got, _ := q.GetJob(ctx, h1.ID)

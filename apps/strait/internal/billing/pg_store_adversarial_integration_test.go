@@ -611,8 +611,8 @@ func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeactivateExcessCronJobs: %v", err)
 	}
-	if deactivated != 3 {
-		t.Fatalf("deactivated = %d, want 3", deactivated)
+	if len(deactivated) != 3 {
+		t.Fatalf("deactivated = %d, want 3", len(deactivated))
 	}
 
 	for i, jid := range jobIDs {

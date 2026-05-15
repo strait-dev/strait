@@ -191,8 +191,11 @@ func (m *mockBillingEnforcerStore) UpsertEnterpriseContract(_ context.Context, _
 func (m *mockBillingEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]billing.EnterpriseContract, error) {
 	return nil, nil
 }
-func (m *mockBillingEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockBillingEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockBillingEnforcerStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
 }
 func (m *mockBillingEnforcerStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
 	return 0, nil

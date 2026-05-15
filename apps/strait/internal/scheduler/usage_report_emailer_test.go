@@ -203,8 +203,8 @@ func (m *mockReportStore) ListExpiringContracts(context.Context, int) ([]billing
 	return nil, nil
 }
 
-func (m *mockReportStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockReportStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockReportStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {

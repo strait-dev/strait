@@ -527,8 +527,8 @@ func (m *mockBillingStore) ListExpiringContracts(_ context.Context, _ int) ([]En
 	return nil, nil
 }
 
-func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
-	return 0, nil
+func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string, _ string) (int64, error) {
