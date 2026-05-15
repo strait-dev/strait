@@ -1,0 +1,142 @@
+package billing
+
+import (
+	"testing"
+
+	"strait/internal/domain"
+)
+
+// Cheaper-with-scale / pay-more-get-more invariants. If any of these flip
+// in the future, the change is either a deliberate pricing decision (and
+// the test must be updated alongside the Notion canonical doc) or a bug.
+
+var paidTierOrder = []domain.PlanTier{
+	domain.PlanStarter,
+	domain.PlanPro,
+	domain.PlanScale,
+	domain.PlanBusiness,
+}
+
+func TestDrift_AnnualDiscountRange(t *testing.T) {
+	t.Parallel()
+
+	// Annual rate must be cheaper than 12 * monthly, but not more than 25%
+	// off (sanity floor against accidental zero-price annual plans).
+	for _, tier := range paidTierOrder {
+		p := Plans[tier]
+		monthly12 := int64(p.PriceMonthlyUsd) * 12
+		annual := int64(p.PriceAnnualUsd)
+		if annual >= monthly12 {
+			t.Errorf("%s annual %d should be less than monthly*12 %d", tier, annual, monthly12)
+		}
+		if annual*100 < monthly12*75 {
+			t.Errorf("%s annual %d is more than 25%% off monthly*12 %d", tier, annual, monthly12)
+		}
+	}
+}
+
+func TestDrift_StrictlyMonotonicPaidTiers(t *testing.T) {
+	t.Parallel()
+
+	type metric struct {
+		name string
+		get  func(OrgPlanLimits) int64
+		// increasing == true: value must strictly grow Starter→Business.
+		// increasing == false: value must strictly shrink (cheaper overage).
+		increasing bool
+	}
+	metrics := []metric{
+		{"MaxRunsPerMonth", func(p OrgPlanLimits) int64 { return int64(p.MaxRunsPerMonth) }, true},
+		{"MaxConcurrentRuns", func(p OrgPlanLimits) int64 { return int64(p.MaxConcurrentRuns) }, true},
+		{"RetentionDays", func(p OrgPlanLimits) int64 { return int64(p.RetentionDays) }, true},
+		{"OveragePerKMicrousd", func(p OrgPlanLimits) int64 { return p.OveragePerKMicrousd }, false},
+	}
+	spending := []int64{MaxSpendingStarter, MaxSpendingPro, MaxSpendingScale, MaxSpendingBusiness}
+	for i := 1; i < len(spending); i++ {
+		if spending[i] <= spending[i-1] {
+			t.Errorf("MaxSpending must strictly increase: idx=%d %d <= %d", i, spending[i], spending[i-1])
+		}
+	}
+	for _, m := range metrics {
+		var prev int64
+		for i, tier := range paidTierOrder {
+			cur := m.get(Plans[tier])
+			// Business has -1 (unlimited) for several fields; treat as "max".
+			if i == 0 {
+				prev = cur
+				continue
+			}
+			if m.increasing {
+				curEff := cur
+				prevEff := prev
+				if curEff == -1 {
+					curEff = 1<<62 - 1
+				}
+				if prevEff == -1 {
+					prevEff = 1<<62 - 1
+				}
+				if curEff <= prevEff {
+					t.Errorf("%s must strictly increase %s -> %s: %d <= %d",
+						m.name, paidTierOrder[i-1], tier, cur, prev)
+				}
+			} else if cur >= prev {
+				t.Errorf("%s must strictly decrease %s -> %s: %d >= %d",
+					m.name, paidTierOrder[i-1], tier, cur, prev)
+			}
+			prev = cur
+		}
+	}
+}
+
+func TestDrift_EnterpriseUnlimited(t *testing.T) {
+	t.Parallel()
+
+	p := Plans[domain.PlanEnterprise]
+	checks := []struct {
+		name string
+		got  int
+	}{
+		{"MaxRunsPerMonth", p.MaxRunsPerMonth},
+		{"MaxConcurrentRuns", p.MaxConcurrentRuns},
+		{"RetentionDays", p.RetentionDays},
+		{"MaxEnvironments", p.MaxEnvironments},
+		{"MaxProjectsPerOrg", p.MaxProjectsPerOrg},
+		{"MaxMembersPerOrg", p.MaxMembersPerOrg},
+		{"MaxOrgsPerUser", p.MaxOrgsPerUser},
+		{"MaxScheduledJobs", p.MaxScheduledJobs},
+		{"MaxLogDrainsPerOrg", p.MaxLogDrainsPerOrg},
+		{"MaxWebhookEndpoints", p.MaxWebhookEndpoints},
+		{"APIRateLimit", p.APIRateLimit},
+	}
+	for _, c := range checks {
+		if c.got != -1 {
+			t.Errorf("Enterprise %s = %d, want -1 (unlimited)", c.name, c.got)
+		}
+	}
+}
+
+func TestDrift_SLACreditBoundaries(t *testing.T) {
+	t.Parallel()
+
+	const target = EnterpriseStarterSLAPct // 99.9
+	cases := []struct {
+		uptime float64
+		want   int
+	}{
+		{99.95, 0},  // above target
+		{99.9, 0},   // at target
+		{99.89, 10}, // just below target → first band
+		{99.0, 10},  // at [99.0, 99.9) band lower bound
+		{98.99, 25}, // just below 99.0 → middle band
+		{95.0, 25},  // at [95.0, 99.0) lower bound
+		{94.99, 50}, // just below 95.0 → bottom band (collapsed)
+		{50.0, 50},  // deep in bottom band
+		{0.0, 50},   // floor of bottom band
+	}
+	for _, c := range cases {
+		got := CalculateSLACredit(c.uptime, target)
+		if got != c.want {
+			t.Errorf("CalculateSLACredit(%.2f, %.1f) = %d, want %d", c.uptime, target, got, c.want)
+		}
+	}
+}

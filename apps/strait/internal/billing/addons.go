@@ -61,7 +61,7 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 		DisplayName: "+10 GB Log Drain",
 		LookupKey:   "strait_addon_log_drain_10gb",
 		PackSize:    10,   // +10 GB
-		PriceCents:  1500, // $15/mo
+		PriceCents:  2500, // $25/mo
 		MaxTotal:    -1,
 	},
 	AddonHistory30d: {
@@ -69,7 +69,7 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 		DisplayName: "+30 Days History",
 		LookupKey:   "strait_addon_history_30d",
 		PackSize:    30,   // +30 days
-		PriceCents:  1000, // $10/mo
+		PriceCents:  4000, // $40/mo
 		MaxTotal:    -1,
 	},
 	AddonComplianceArchive: {
@@ -77,7 +77,7 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 		DisplayName: "Compliance Archive",
 		LookupKey:   "strait_addon_compliance_archive",
 		PackSize:    1,
-		PriceCents:  10000, // $100/mo
+		PriceCents:  5000, // $50/mo
 		MaxTotal:    1,
 	},
 	AddonDedicatedWorkers: {
@@ -93,7 +93,7 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 		DisplayName: "+5 Environments",
 		LookupKey:   "strait_addon_environments_5",
 		PackSize:    5,
-		PriceCents:  2500, // $25/mo
+		PriceCents:  3000, // $30/mo
 		MaxTotal:    -1,
 	},
 }
