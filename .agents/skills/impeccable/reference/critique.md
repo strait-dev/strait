@@ -10,11 +10,7 @@ Before gathering assessments, do two small bookkeeping steps. They cost almost n
    - "this page" → the URL or the page's source file
    Prefer the source file path over the dev-server URL when both exist; ports drift between runs (`bun dev` vs `bun preview`), file paths don't.
 
-2. **Compute the slug.** Run:
-   ```bash
-   node .agents/skills/impeccable/scripts/critique-storage.mjs slug "<resolved-path-or-url>"
-   ```
-   Keep the printed slug. It identifies this target's stream across runs. If the command exits non-zero ("no stable slug for input"), skip persistence for this run and tell the user; the trend won't update but the critique still goes ahead.
+2. **Compute the slug.** Derive a stable slug from the resolved path or URL: strip the scheme, drop common file extensions, replace non-alphanumerics with hyphens, lowercase. Examples: `site/pages/index.astro` → `site-pages-index`, `http://localhost:3000/pricing` → `localhost-pricing`. If the input is too vague or root-level to yield a meaningful slug, skip persistence for this run and tell the user; the trend won't update but the critique still goes ahead.
 
 3. **Read the ignore list** at `.impeccable/critique/ignore.md` if it exists. Plain markdown; each non-empty, non-comment line is something the user has marked as "do not re-raise" (deferred tradeoffs, designer-intended deviations, detector false-positives the user accepts). When a finding's text matches a line here (case-insensitive substring against rule name or snippet), **drop it silently**. Do not mention it in the report. This is the ONLY input critique consumes from prior runs; anchoring on prior findings would defeat the point of independent assessment.
 
@@ -188,29 +184,18 @@ Once the report above is finalized, write it to `.impeccable/critique/` so the u
 
 Skip this step if the Setup slug was null (vague or root-level target).
 
-1. **Write the body to a temp file** so you can pipe it to the helper. Use the full report (heuristic table, anti-patterns verdict, priority issues, persona red flags) but stop before the "Ask the User" / "Recommended Actions" sections that come later.
+1. **Write the report body** to `.impeccable/critique/<slug>-<YYYYMMDD-HHMMSS>.md`. Use the full report (heuristic table, anti-patterns verdict, priority issues, persona red flags) but stop before the "Ask the User" / "Recommended Actions" sections that come later. Prepend a YAML frontmatter block with `target`, `total_score`, `p0_count`, `p1_count`, and the ISO timestamp.
 
-2. **Pass the structured metadata** through `IMPECCABLE_CRITIQUE_META` (JSON), then run the write command:
-   ```bash
-   IMPECCABLE_CRITIQUE_META='{"target":"<user phrasing>","total_score":<n>,"p0_count":<n>,"p1_count":<n>}' \
-     node .agents/skills/impeccable/scripts/critique-storage.mjs write <slug> <body-file>
-   ```
-   The helper prints the absolute path it wrote.
+2. **Read prior snapshots** for the same slug by listing `.impeccable/critique/<slug>-*.md` (most recent 5). Parse each file's frontmatter `total_score` to build the trend.
 
-3. **Read the trend** for context:
-   ```bash
-   node .agents/skills/impeccable/scripts/critique-storage.mjs trend <slug> 5
-   ```
-   This returns a JSON array of the last 5 frontmatter entries (including the one you just wrote).
-
-4. **Append a single line to the user-visible output**, after the report and before the questions:
+3. **Append a single line to the user-visible output**, after the report and before the questions:
 
    > **Trend for `<slug>` (last 5 runs): 24 → 28 → 32 → 29 → 32**
    > Wrote `.impeccable/critique/<filename>`.
 
    If this is the first run for the slug, the trend is just one score; say so: "First run for this target, no trend yet."
 
-This is fire-and-forget. Do not show the user the helper's JSON output; only the human-readable trend line and the written path. Failures here should not block the rest of the flow; print the error and move on.
+Failures during persistence should not block the rest of the flow; surface the error and move on.
 
 ### Ask the User
 
