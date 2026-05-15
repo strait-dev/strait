@@ -279,7 +279,6 @@ function JobDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
@@ -500,21 +499,6 @@ function JobDetailPage() {
             open={sheetOpen}
             run={selectedRun}
           />
-        </TabsContent>
-
-        <TabsContent className="mt-6" value="settings">
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-medium text-sm">
-                Job Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground text-sm">
-                Job configuration management coming soon.
-              </p>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </Shell>

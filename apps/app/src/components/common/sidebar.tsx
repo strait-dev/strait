@@ -30,15 +30,16 @@ import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscrip
 import { isCommunityEdition } from "@/lib/edition";
 import {
   AlertIcon,
-  AnalyticsIcon,
   BriefcaseIcon,
   ChevronDownIcon,
   ClockIcon,
   CreditCardIcon,
   DashboardIcon,
   FileTextIcon,
+  HelpCircleIcon,
   LayersIcon,
   PlayActionIcon,
+  SparklesIcon,
   TrendingUpIcon,
   WebhookIcon,
   WorkflowIcon,
@@ -59,9 +60,8 @@ type NavItem = {
 };
 
 const mainNav: NavItem[] = [
-  { title: "Overview", url: "/app", icon: DashboardIcon, exact: true },
-  { title: "Dashboard", url: "/app/dashboard", icon: TrendingUpIcon },
-  { title: "Analytics", url: "/app/analytics", icon: AnalyticsIcon },
+  { title: "Dashboard", url: "/app/dashboard", icon: DashboardIcon },
+  { title: "Analytics", url: "/app/analytics", icon: TrendingUpIcon },
   { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
   { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
   { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
@@ -273,6 +273,44 @@ const AppSidebar = ({ session }: Props) => {
       {!isCommunityEdition && shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
       <SidebarFooter className="flex flex-col border-sidebar-border border-t">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/app"}
+              render={<Link search={{ quickstart: true }} to="/app" />}
+              tooltip="Quick start"
+            >
+              <HugeiconsIcon
+                className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                icon={SparklesIcon}
+                size={20}
+              />
+              <span>Quick start</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              render={(props) => (
+                <a
+                  {...props}
+                  href="https://strait.dev/docs"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  {props.children}
+                </a>
+              )}
+              tooltip="Documentation"
+            >
+              <HugeiconsIcon
+                className="text-muted-foreground/65"
+                icon={HelpCircleIcon}
+                size={20}
+              />
+              <span>Documentation</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         <Suspense
           fallback={
             <SidebarMenuButton className="w-full" size="lg">
