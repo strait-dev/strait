@@ -3,11 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func waitForAuditEvent(t *testing.T, ch <-chan *domain.AuditEvent) *domain.AuditEvent {
@@ -46,6 +50,66 @@ func TestTriggerJob_DryRunRejectsPastScheduledAt(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "scheduled_at must not be in the past") {
 		t.Fatalf("error = %q, want scheduled_at validation", err.Error())
+	}
+}
+
+func TestTriggerJob_DryRunRejectsPriorityAboveBillingLimit(t *testing.T) {
+	t.Parallel()
+
+	job := testEnabledJob("job-priority")
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return job, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.billingEnforcer = &triggerDryRunBillingEnforcer{priorityErr: errors.New("dispatch priority exceeds plan limit")}
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-priority/trigger", `{"dry_run":true,"priority":10}`))
+
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "dispatch priority exceeds plan limit") {
+		t.Fatalf("response body = %s, want billing priority error", w.Body.String())
+	}
+}
+
+func TestTriggerJob_DryRunRejectsDailyCostBudgetExceeded(t *testing.T) {
+	t.Parallel()
+
+	job := testEnabledJob("job-budget")
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return job, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		SumProjectDailyCostMicrousdFunc: func(_ context.Context, projectID string, timezone string) (int64, error) {
+			if projectID != job.ProjectID {
+				t.Fatalf("projectID = %q, want %q", projectID, job.ProjectID)
+			}
+			if timezone != "UTC" {
+				t.Fatalf("timezone = %q, want UTC", timezone)
+			}
+			return 5000, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-budget/trigger", `{"dry_run":true}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "project daily cost budget exceeded") {
+		t.Fatalf("response body = %s, want daily cost budget error", w.Body.String())
 	}
 }
 
@@ -91,6 +155,15 @@ func TestTriggerJob_DebounceSuccessEmitsAuditEvent(t *testing.T) {
 	if details["debounced"] != true {
 		t.Fatalf("audit details debounced = %v, want true", details["debounced"])
 	}
+}
+
+type triggerDryRunBillingEnforcer struct {
+	mockBillingEnforcer
+	priorityErr error
+}
+
+func (e *triggerDryRunBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return e.priorityErr
 }
 
 func TestTriggerJob_BatchBufferSuccessEmitsAuditEvent(t *testing.T) {

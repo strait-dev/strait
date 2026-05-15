@@ -118,6 +118,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	if req.DryRun {
 		result, err := s.validateTriggerRequest(ctx, jobID, req)
 		if err != nil {
+			var statusErr huma.StatusError
+			if errors.As(err, &statusErr) {
+				return nil, statusErr
+			}
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		return nil, &rawStatusError{status: http.StatusOK, body: result}
@@ -163,11 +167,8 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 	}
 
-	// Billing: enforce dispatch priority cap before any quota or run creation work.
-	if s.billingEnforcer != nil && req.Priority > 0 {
-		if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
-			return nil, huma.Error402PaymentRequired(err.Error())
-		}
+	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
+		return nil, err
 	}
 
 	var projectQuota *store.ProjectQuota
@@ -176,18 +177,8 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 
-	if projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
-		tz := projectQuota.Timezone
-		if tz == "" {
-			tz = "UTC"
-		}
-		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
-		if costErr != nil {
-			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
-		}
-		if dailyCost >= projectQuota.MaxDailyCostMicrousd {
-			return nil, huma.Error429TooManyRequests("project daily cost budget exceeded")
-		}
+	if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+		return nil, err
 	}
 
 	if job.DedupWindowSecs > 0 {
@@ -521,6 +512,34 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}}, nil
 }
 
+func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
+	if s.billingEnforcer == nil || priority <= 0 {
+		return nil
+	}
+	if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, projectID, priority); err != nil {
+		return huma.Error402PaymentRequired(err.Error())
+	}
+	return nil
+}
+
+func (s *Server) checkTriggerDailyCostBudget(ctx context.Context, projectID string, projectQuota *store.ProjectQuota) error {
+	if projectQuota == nil || projectQuota.MaxDailyCostMicrousd <= 0 {
+		return nil
+	}
+	tz := projectQuota.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	dailyCost, err := s.store.SumProjectDailyCostMicrousd(ctx, projectID, tz)
+	if err != nil {
+		return huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
+	}
+	if dailyCost >= projectQuota.MaxDailyCostMicrousd {
+		return huma.Error429TooManyRequests("project daily cost budget exceeded")
+	}
+	return nil
+}
+
 func validateTriggerScheduledAt(scheduledAt *time.Time) error {
 	if scheduledAt == nil {
 		return nil
@@ -822,6 +841,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 	}
 
 	if projectQuota != nil {
+		if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+			return nil, err
+		}
+
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
@@ -841,6 +864,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 				return nil, errors.New("project executing quota exceeded")
 			}
 		}
+	}
+
+	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
+		return nil, err
 	}
 
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
