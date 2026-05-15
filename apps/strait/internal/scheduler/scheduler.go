@@ -57,6 +57,7 @@ type Scheduler struct {
 	outboxFlusher            *OutboxFlusher
 	planDriftMonitor         *PlanDriftMonitor
 	backpressureSampler      *BackpressureSampler
+	idempotencyGC            *IdempotencyGC
 	wg                       conc.WaitGroup
 	tracker                  componentTracker
 	componentShutdownTimeout time.Duration
@@ -217,6 +218,14 @@ func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
 func WithPlanDriftMonitor(m *PlanDriftMonitor) SchedulerOption {
 	return func(s *Scheduler) {
 		s.planDriftMonitor = m
+	}
+}
+
+// WithIdempotencyGC enables periodic deletion of expired
+// job_run_idempotency rows.
+func WithIdempotencyGC(g *IdempotencyGC) SchedulerOption {
+	return func(s *Scheduler) {
+		s.idempotencyGC = g
 	}
 }
 
@@ -383,6 +392,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.backpressureSampler != nil {
 		s.tracker.track(ctx, &s.wg, "backpressure_sampler", func(componentCtx context.Context) { s.backpressureSampler.Run(componentCtx) })
+	}
+	if s.idempotencyGC != nil {
+		s.tracker.track(ctx, &s.wg, "idempotency_gc", func(componentCtx context.Context) { s.idempotencyGC.Run(componentCtx) })
 	}
 
 	slog.Info("scheduler started")

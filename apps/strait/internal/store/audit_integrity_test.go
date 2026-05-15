@@ -181,6 +181,53 @@ func TestComputeAuditSignatureV3_BindsAnchorAndRotationEpoch(t *testing.T) {
 	}
 }
 
+func TestComputeAuditSignatureV4_BindsShardID(t *testing.T) {
+	t.Parallel()
+
+	key, _ := DeriveAuditSigningKey("test-secret-value")
+	base := testAuditEvent("ev-1", "proj-1", "create")
+	base.SchemaVersion = 4
+	base.RotationEpoch = 0
+	base.ShardID = "job"
+	baseSig := ComputeAuditSignature(base, key)
+
+	shardChanged := *base
+	shardChanged.ShardID = "workflow"
+	if sig := ComputeAuditSignature(&shardChanged, key); sig == baseSig {
+		t.Fatal("v4 audit signature did not change when shard_id changed")
+	}
+
+	// Empty shard_id under v4 must not collide with a v3 row that has the
+	// same content but no shard binding. The version prefix in the
+	// canonical form differentiates them ('audit:v3' vs 'audit:v4').
+	v3 := *base
+	v3.SchemaVersion = 3
+	v3.ShardID = ""
+	if ComputeAuditSignature(&v3, key) == ComputeAuditSignature(base, key) {
+		t.Fatal("v3 and v4 canonical forms produced identical signatures for the same row")
+	}
+}
+
+func TestComputeAuditSignatureV4_LengthDelimitsShardID(t *testing.T) {
+	t.Parallel()
+
+	key, _ := DeriveAuditSigningKey("test-secret-value")
+	left := testAuditEvent("ev-1", "proj-1", "create")
+	left.SchemaVersion = 4
+	left.RotationEpoch = 0
+	left.ShardID = "job|workflow"
+
+	right := testAuditEvent("ev-1", "proj-1", "create")
+	right.SchemaVersion = 4
+	right.RotationEpoch = 0
+	right.ShardID = "job"
+	right.ActorID += "|workflow"
+
+	if sigLeft, sigRight := ComputeAuditSignature(left, key), ComputeAuditSignature(right, key); sigLeft == sigRight {
+		t.Fatal("v4 audit signatures collided across pipe-ambiguous shard_id boundary")
+	}
+}
+
 func TestComputeAuditSignature_DifferentKeys(t *testing.T) {
 	t.Parallel()
 

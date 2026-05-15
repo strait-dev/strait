@@ -17,6 +17,9 @@ type fakeTunerStore struct {
 	listErr    error
 	execErr    error
 	missing    map[string]bool
+	// reloptions maps partition -> option -> value. Used by
+	// PartitionReloption to drive the tuner's idempotent fillfactor path.
+	reloptions map[string]map[string]string
 }
 
 func (f *fakeTunerStore) ListJobRunsPartitions(_ context.Context) ([]string, error) {
@@ -38,6 +41,15 @@ func (f *fakeTunerStore) ExecDDL(_ context.Context, sql string) error {
 	defer f.mu.Unlock()
 	f.ddls = append(f.ddls, sql)
 	return nil
+}
+
+func (f *fakeTunerStore) PartitionReloption(_ context.Context, name, option string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if opts, ok := f.reloptions[name]; ok {
+		return opts[option], nil
+	}
+	return "", nil
 }
 
 func (f *fakeTunerStore) DDLs() []string {
@@ -94,10 +106,12 @@ func TestPartitionTuner_AppliesHotThenCold(t *testing.T) {
 	if tu.ColdCount() != 3 {
 		t.Errorf("cold = %d, want 3", tu.ColdCount())
 	}
-	// Verify the hot DDLs target the correct partitions.
+	// Verify the hot DDLs target the correct partitions. Filter on the
+	// autovacuum_vacuum_scale_factor key to exclude fillfactor-only ALTERs.
 	var hotDDLs int
 	for _, sql := range s.DDLs() {
-		if strings.Contains(sql, "SET (") && (strings.Contains(sql, "job_runs_p2026_04") || strings.Contains(sql, "job_runs_p2026_03")) {
+		if strings.Contains(sql, "autovacuum_vacuum_scale_factor") &&
+			(strings.Contains(sql, "job_runs_p2026_04") || strings.Contains(sql, "job_runs_p2026_03")) {
 			hotDDLs++
 		}
 	}
@@ -220,6 +234,9 @@ func (s *slowTunerStore) ListJobRunsPartitions(_ context.Context) ([]string, err
 func (s *slowTunerStore) PartitionExists(_ context.Context, _ string) (bool, error) {
 	return true, nil
 }
+func (s *slowTunerStore) PartitionReloption(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
 func (s *slowTunerStore) ExecDDL(_ context.Context, sql string) error {
 	n := s.active.Add(1)
 	defer s.active.Add(-1)
@@ -264,11 +281,75 @@ func TestPartitionTuner_ParallelExec(t *testing.T) {
 	s.mu.Lock()
 	got := len(s.ddls)
 	s.mu.Unlock()
-	if got != len(parts) {
-		t.Errorf("ddls count = %d, want %d", got, len(parts))
+	// Each partition emits one autovacuum DDL plus one fillfactor DDL.
+	if got != 2*len(parts) {
+		t.Errorf("ddls count = %d, want %d", got, 2*len(parts))
 	}
 	if tu.ColdCount() != len(parts) {
 		t.Errorf("coldCount = %d, want %d", tu.ColdCount(), len(parts))
+	}
+}
+
+func TestPartitionTuner_AppliesFillfactorWhenMissing(t *testing.T) {
+	s := &fakeTunerStore{
+		partitions: []string{"job_runs_p2026_04"},
+	}
+	clock := func() time.Time { return time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC) }
+	tu := NewPartitionTuner(s, PartitionTunerConfig{Clock: clock})
+	if err := tu.runOnce(context.Background()); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+	var fillffSet bool
+	for _, sql := range s.DDLs() {
+		if strings.Contains(sql, "fillfactor = 85") && strings.Contains(sql, "job_runs_p2026_04") {
+			fillffSet = true
+		}
+	}
+	if !fillffSet {
+		t.Fatalf("expected fillfactor DDL for partition; got: %v", s.DDLs())
+	}
+}
+
+func TestPartitionTuner_SkipsFillfactorWhenAlreadySet(t *testing.T) {
+	s := &fakeTunerStore{
+		partitions: []string{"job_runs_p2026_04"},
+		reloptions: map[string]map[string]string{
+			"job_runs_p2026_04": {"fillfactor": "85"},
+		},
+	}
+	clock := func() time.Time { return time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC) }
+	tu := NewPartitionTuner(s, PartitionTunerConfig{Clock: clock})
+	if err := tu.runOnce(context.Background()); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+	for _, sql := range s.DDLs() {
+		if strings.Contains(sql, "fillfactor") {
+			t.Fatalf("expected no fillfactor DDL when already set; got: %s", sql)
+		}
+	}
+}
+
+func TestPartitionTuner_FillfactorAppliesToColdPartitions(t *testing.T) {
+	s := &fakeTunerStore{
+		// 2020_01 is far in the past, so it should be treated as cold.
+		partitions: []string{"job_runs_p2020_01"},
+	}
+	clock := func() time.Time { return time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC) }
+	tu := NewPartitionTuner(s, PartitionTunerConfig{Clock: clock})
+	if err := tu.runOnce(context.Background()); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+	if tu.ColdCount() != 1 {
+		t.Fatalf("ColdCount = %d, want 1", tu.ColdCount())
+	}
+	var fillffSet bool
+	for _, sql := range s.DDLs() {
+		if strings.Contains(sql, "fillfactor = 85") {
+			fillffSet = true
+		}
+	}
+	if !fillffSet {
+		t.Fatalf("cold partition missing fillfactor DDL; got: %v", s.DDLs())
 	}
 }
 

@@ -26,20 +26,20 @@ func (m *mockAuditStore) CreateAuditEvent(_ context.Context, ev *domain.AuditEve
 	return nil
 }
 
-func TestAuditHandler_StatusChange_CreatesEvent(t *testing.T) {
+func TestAuditHandler_TerminalUpdate_CreatesEvent(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{}
 	h := NewAuditHandler(store, nil)
 
-	err := h.Handle(context.Background(), cdcUpdateMsg("executing", "p1", "run-1", "job-1"))
+	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(store.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(store.events))
 	}
-	if store.events[0].Action != "run.executing" {
-		t.Errorf("expected action=run.executing, got %s", store.events[0].Action)
+	if store.events[0].Action != "run.completed" {
+		t.Errorf("expected action=run.completed, got %s", store.events[0].Action)
 	}
 }
 
@@ -123,6 +123,7 @@ func TestAuditHandler_ActionMatchesStatus(t *testing.T) {
 	store := &mockAuditStore{}
 	h := NewAuditHandler(store, nil)
 
+	// Only terminal statuses trigger an audit event under the Phase 9 gate.
 	statuses := []string{"completed", "failed", "timed_out", "executing", "queued"}
 	for _, status := range statuses {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
@@ -131,14 +132,127 @@ func TestAuditHandler_ActionMatchesStatus(t *testing.T) {
 		}
 	}
 
-	if len(store.events) != len(statuses) {
-		t.Fatalf("expected %d events, got %d", len(statuses), len(store.events))
+	wantActions := []string{"run.completed", "run.failed", "run.timed_out"}
+	if len(store.events) != len(wantActions) {
+		t.Fatalf("expected %d events, got %d", len(wantActions), len(store.events))
 	}
-	for i, status := range statuses {
-		expected := "run." + status
-		if store.events[i].Action != expected {
-			t.Errorf("event %d: expected action=%s, got %s", i, expected, store.events[i].Action)
+	for i, want := range wantActions {
+		if store.events[i].Action != want {
+			t.Errorf("event %d: action = %q, want %q", i, store.events[i].Action, want)
 		}
+	}
+}
+
+func TestAuditHandler_GatesNonTerminalUpdates(t *testing.T) {
+	t.Parallel()
+
+	// Table-test every RunStatus enum value. Only terminal statuses
+	// must produce an audit event on an UPDATE CDC message.
+	statuses := []domain.RunStatus{
+		domain.StatusDelayed,
+		domain.StatusQueued,
+		domain.StatusDequeued,
+		domain.StatusExecuting,
+		domain.StatusWaiting,
+		domain.StatusCompleted,
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
+		domain.StatusCanceled,
+		domain.StatusExpired,
+		domain.StatusDeadLetter,
+	}
+
+	for _, s := range statuses {
+		t.Run(string(s), func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+			if err := h.Handle(context.Background(), cdcUpdateMsg(string(s), "p1", "run-1", "job-1")); err != nil {
+				t.Fatalf("Handle: %v", err)
+			}
+			wantEvents := 0
+			if s.IsTerminal() {
+				wantEvents = 1
+			}
+			if len(store.events) != wantEvents {
+				t.Fatalf("status=%s: got %d events, want %d", s, len(store.events), wantEvents)
+			}
+		})
+	}
+}
+
+func TestAuditHandler_InsertAlwaysEmits(t *testing.T) {
+	t.Parallel()
+
+	// INSERT is unconditional regardless of the status the new row carries.
+	for _, status := range []string{"queued", "delayed", "completed"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+
+			record, _ := json.Marshal(map[string]any{
+				"id":         "run-1",
+				"project_id": "p1",
+				"status":     status,
+			})
+			msg := Message{Action: ActionInsert, Record: record, Metadata: Metadata{TableName: "job_runs"}}
+
+			if err := h.Handle(context.Background(), msg); err != nil {
+				t.Fatalf("Handle: %v", err)
+			}
+			if len(store.events) != 1 || store.events[0].Action != "run.created" {
+				t.Fatalf("got %+v, want exactly one run.created event", store.events)
+			}
+		})
+	}
+}
+
+func TestAuditHandler_DeleteAlwaysEmits(t *testing.T) {
+	t.Parallel()
+
+	// DELETE is unconditional regardless of the deleted row's status.
+	for _, status := range []string{"queued", "executing", "completed"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+
+			record, _ := json.Marshal(map[string]any{
+				"id":         "run-1",
+				"project_id": "p1",
+				"status":     status,
+			})
+			msg := Message{Action: ActionDelete, Record: record, Metadata: Metadata{TableName: "job_runs"}}
+
+			if err := h.Handle(context.Background(), msg); err != nil {
+				t.Fatalf("Handle: %v", err)
+			}
+			if len(store.events) != 1 || store.events[0].Action != "run.deleted" {
+				t.Fatalf("got %+v, want exactly one run.deleted event", store.events)
+			}
+		})
+	}
+}
+
+func TestAuditHandler_HighHeartbeatVolume_NoWriteAmplification(t *testing.T) {
+	t.Parallel()
+
+	// Simulate 1000 non-terminal status updates on a single run (the
+	// shape of a heartbeat-driven CDC stream). The handler must produce
+	// zero audit rows — that is the entire point of the Phase 9 gate.
+	store := &mockAuditStore{}
+	h := NewAuditHandler(store, nil)
+
+	for range 1000 {
+		if err := h.Handle(context.Background(), cdcUpdateMsg("executing", "p1", "run-hot", "job-1")); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+	}
+	if len(store.events) != 0 {
+		t.Fatalf("got %d audit events from heartbeat-shaped updates, want 0", len(store.events))
 	}
 }
 

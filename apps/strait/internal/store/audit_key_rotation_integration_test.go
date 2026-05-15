@@ -646,7 +646,7 @@ func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
 	q.SetAuditSigningKey(globalKey)
 
 	projectID := "proj-legacy-epoch-zero"
-	legacy := insertLegacyEpochZeroAuditEvent(ctx, t, projectID, globalKey)
+	_ = insertLegacyEpochZeroAuditEvent(ctx, t, projectID, globalKey)
 
 	ev := &domain.AuditEvent{
 		ProjectID:    projectID,
@@ -663,8 +663,15 @@ func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
 	if ev.RotationEpoch != 0 {
 		t.Fatalf("new event rotation_epoch = %d, want 0", ev.RotationEpoch)
 	}
-	if ev.PreviousHash != legacy.Signature {
-		t.Fatalf("new event previous_hash = %q, want legacy signature %q", ev.PreviousHash, legacy.Signature)
+	// Auto-shard-derivation: the new event with ResourceType "job" lands in
+	// shard "job" while the legacy row carries the migration-default ''
+	// shard. Each is the head of its own sub-chain; the legacy row no
+	// longer serves as a chain ancestor for new writes.
+	if ev.ShardID != "job" {
+		t.Fatalf("new event shard_id = %q, want %q", ev.ShardID, "job")
+	}
+	if ev.PreviousHash != store.ZeroHash {
+		t.Fatalf("new event previous_hash = %q, want ZeroHash (new shard chain head)", ev.PreviousHash)
 	}
 
 	epochKey, err := q.GetAuditSigningKey(ctx, projectID, 0)
@@ -792,16 +799,7 @@ func TestStoreAuditSigningKey_RejectsTooShortMaterial(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected CHECK violation for 4-byte key_material, got nil")
 	}
-	if !containsSubstringIT(err.Error(), "audit_signing_keys_key_material_length") {
+	if !strings.Contains(err.Error(), "audit_signing_keys_key_material_length") {
 		t.Errorf("error = %v, expected CHECK constraint violation", err)
 	}
-}
-
-func containsSubstringIT(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

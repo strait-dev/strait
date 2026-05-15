@@ -52,6 +52,7 @@ func newPermissionCache(ttl time.Duration) *permissionCache {
 	store := otterstore.New(otterstore.Config{
 		DefaultTTL:  cacheTTL,
 		MaxCapacity: 10_000,
+		TTLJitter:   0.1,
 		OnEviction: func(_ string, _ any, _ otter.DeletionCause) {
 			c.evictions.Add(metricsCtx, 1)
 			c.entriesUp.Add(metricsCtx, -1)

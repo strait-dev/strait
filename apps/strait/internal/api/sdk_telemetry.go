@@ -36,7 +36,7 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 	if req.CostMicrousd > 0 {
 		run, runErr := s.store.GetRun(ctx, runID)
 		if runErr == nil && run != nil {
-			quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+			quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 			if qErr == nil && quota != nil && quota.MaxCostPerRunMicrousd > 0 {
 				totalCost, costErr := s.store.SumRunCostMicrousd(ctx, runID)
 				if costErr == nil && totalCost+req.CostMicrousd >= quota.MaxCostPerRunMicrousd {
@@ -48,7 +48,7 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 	if req.TotalTokens > 0 { //nolint:nestif
 		run, runErr := s.store.GetRun(ctx, runID)
 		if runErr == nil && run != nil {
-			quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+			quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 			job, jobErr := s.store.GetJob(ctx, run.JobID)
 			var quotaTokens int64
 			if qErr == nil && quota != nil {
@@ -111,7 +111,7 @@ func (s *Server) handleSDKToolCall(ctx context.Context, input *SDKToolCallInput)
 			if len(job.BlockedTools) > 0 && slices.Contains(job.BlockedTools, req.ToolName) {
 				return nil, &typedAPIError{status: 403, apiError: APIError{Code: "tool_blocked", Message: "tool_blocked", Details: []string{fmt.Sprintf("tool=%s", req.ToolName)}}}
 			}
-			quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+			quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 			var quotaLimit int
 			if qErr == nil && quota != nil {
 				quotaLimit = quota.MaxToolCallsPerRun

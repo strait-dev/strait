@@ -45,6 +45,8 @@ type mockExecutorStore struct {
 	snoozeRunWithLockFn      func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	updateHeartbeatFn        func(ctx context.Context, id string) error
 	batchUpdateHeartbeatFn   func(ctx context.Context, ids []string) error
+	scheduleRetryFn          func(ctx context.Context, runID string, at time.Time, attempt int) error
+	clearRetryFn             func(ctx context.Context, runID string) error
 	canDispatchFn            func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	recordFailureFn          func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	recordSuccessFn          func(ctx context.Context, endpointURL string) error
@@ -55,9 +57,17 @@ type mockExecutorStore struct {
 	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 
-	mu              sync.Mutex
-	statusCalls     []statusUpdateCall
-	heartbeatRunIDs []string
+	mu                 sync.Mutex
+	statusCalls        []statusUpdateCall
+	heartbeatRunIDs    []string
+	scheduleRetryCalls []scheduleRetryCall
+	clearRetryCalls    []string
+}
+
+type scheduleRetryCall struct {
+	runID   string
+	at      time.Time
+	attempt int
 }
 
 func (m *mockExecutorStore) GetJob(ctx context.Context, id string) (*domain.Job, error) {
@@ -139,6 +149,42 @@ func (m *mockExecutorStore) BatchUpdateHeartbeat(ctx context.Context, ids []stri
 		return nil
 	}
 	return m.batchUpdateHeartbeatFn(ctx, ids)
+}
+
+func (m *mockExecutorStore) ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error {
+	m.mu.Lock()
+	m.scheduleRetryCalls = append(m.scheduleRetryCalls, scheduleRetryCall{runID: runID, at: at, attempt: attempt})
+	m.mu.Unlock()
+	if m.scheduleRetryFn != nil {
+		return m.scheduleRetryFn(ctx, runID, at, attempt)
+	}
+	return nil
+}
+
+func (m *mockExecutorStore) ClearRetry(ctx context.Context, runID string) error {
+	m.mu.Lock()
+	m.clearRetryCalls = append(m.clearRetryCalls, runID)
+	m.mu.Unlock()
+	if m.clearRetryFn != nil {
+		return m.clearRetryFn(ctx, runID)
+	}
+	return nil
+}
+
+func (m *mockExecutorStore) scheduleRetries() []scheduleRetryCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]scheduleRetryCall, len(m.scheduleRetryCalls))
+	copy(out, m.scheduleRetryCalls)
+	return out
+}
+
+func (m *mockExecutorStore) clearRetries() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.clearRetryCalls))
+	copy(out, m.clearRetryCalls)
+	return out
 }
 
 func (m *mockExecutorStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
@@ -483,12 +529,15 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
 		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
 	}
-	gotRetryAt, ok := calls[0].fields["next_retry_at"].(*time.Time)
-	if !ok || gotRetryAt == nil {
-		t.Fatalf("next_retry_at field type = %T, want *time.Time", calls[0].fields["next_retry_at"])
+	if _, ok := calls[0].fields["next_retry_at"]; ok {
+		t.Fatalf("next_retry_at must not be in job_runs UPDATE fields; lives in job_retries side table now")
 	}
-	if !gotRetryAt.Equal(retryAt) {
-		t.Fatalf("next_retry_at = %v, want %v", *gotRetryAt, retryAt)
+	scheduled := store.scheduleRetries()
+	if len(scheduled) != 1 {
+		t.Fatalf("ScheduleRetry calls = %d, want 1", len(scheduled))
+	}
+	if !scheduled[0].at.Equal(retryAt) {
+		t.Fatalf("ScheduleRetry at = %v, want %v", scheduled[0].at, retryAt)
 	}
 }
 

@@ -38,7 +38,7 @@ func (s *Server) handleSDKIteration(ctx context.Context, input *SDKIterationInpu
 	run, runErr := s.store.GetRun(ctx, input.RunID)
 	if runErr == nil && run != nil {
 		job, jobErr := s.store.GetJob(ctx, run.JobID)
-		quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+		quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 		var quotaLimit int
 		if qErr == nil && quota != nil {
 			quotaLimit = quota.MaxIterationsPerRun

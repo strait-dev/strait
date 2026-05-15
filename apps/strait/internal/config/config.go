@@ -19,6 +19,11 @@ type Config struct {
 	RedisURL                  string        `env:"REDIS_URL"`
 	RedisSentinelMaster       string        `env:"REDIS_SENTINEL_MASTER"`
 	RedisSentinelAddrs        []string      `env:"REDIS_SENTINEL_ADDRS"`
+	RedisPoolSize             int           `env:"REDIS_POOL_SIZE" default:"30"`
+	RedisMinIdleConns         int           `env:"REDIS_MIN_IDLE_CONNS" default:"5"`
+	RedisReadTimeout          time.Duration `env:"REDIS_READ_TIMEOUT" default:"3s"`
+	RedisWriteTimeout         time.Duration `env:"REDIS_WRITE_TIMEOUT" default:"3s"`
+	RedisConnMaxLifetime      time.Duration `env:"REDIS_CONN_MAX_LIFETIME" default:"30m"`
 	Mode                      string        `env:"MODE" default:"all"`
 	Port                      int           `env:"PORT" default:"8080"`
 	WorkerConcurrency         int           `env:"WORKER_CONCURRENCY" default:"25"`
@@ -101,7 +106,7 @@ type Config struct {
 	SequinBaseURL      string `env:"SEQUIN_BASE_URL"`
 	SequinConsumerName string `env:"SEQUIN_CONSUMER_NAME"`
 	SequinAPIToken     string `env:"SEQUIN_API_TOKEN"`
-	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"10"`
+	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
 	SequinWaitTimeMs   int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
 
 	// CORS settings
@@ -149,6 +154,12 @@ type Config struct {
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
 
+	// ProjectQuotaCacheTTL bounds how long a cached project quota row may be
+	// reused before refetching. Quotas change rarely (admin updates, billing
+	// plan transitions) so a short TTL is a safe trade-off against fresh
+	// reads on every trigger/SDK call. Set to 0 to disable caching.
+	ProjectQuotaCacheTTL time.Duration `env:"PROJECT_QUOTA_CACHE_TTL" default:"60s"`
+
 	// Worker/Executor timeouts
 	WebhookTimeout             time.Duration `env:"WEBHOOK_TIMEOUT" default:"10s"`
 	WebhookIdleConnTimeout     time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`
@@ -188,7 +199,7 @@ type Config struct {
 	// Workflow settings
 	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
 
-	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"10"`
+	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"200"`
 	CDCWaitTimeMs int `env:"CDC_WAIT_TIME_MS" default:"5000"`
 
 	// SSE settings

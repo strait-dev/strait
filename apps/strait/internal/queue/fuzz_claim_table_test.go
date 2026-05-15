@@ -35,7 +35,10 @@ func FuzzTwoPhaseClaimSQL_ContainsRequiredClauses(f *testing.F) {
 			  AND COALESCE(jr.job_enabled, true) = true
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND NOT EXISTS (
+			      SELECT 1 FROM job_retries rt
+			      WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW()
+			  )
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL
@@ -132,7 +135,10 @@ func FuzzClaimDeleteSQL_Shape(f *testing.F) {
 			WHERE COALESCE(q.job_enabled, true) = true
 			  AND COALESCE(q.job_paused, false) = false
 			  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
-			  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+			  AND NOT EXISTS (
+			      SELECT 1 FROM job_retries rt
+			      WHERE rt.run_id = q.run_id AND rt.next_retry_at > NOW()
+			  )
 			  AND (q.job_max_concurrency IS NULL
 			       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
 			  AND (q.job_max_concurrency_per_key IS NULL

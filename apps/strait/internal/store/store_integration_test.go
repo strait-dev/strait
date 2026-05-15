@@ -821,6 +821,115 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 	}
 }
 
+// TestIdempotencyIndex_ConsolidatedShape verifies Wave 2 Phase 2 migration
+// 000255 dropped the partial-on-terminal-status index and replaced it with
+// a non-partial-on-status index keyed only on (job_id, idempotency_key).
+// The new shape prevents write amplification on terminal status flips.
+func TestIdempotencyIndex_ConsolidatedShape(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	var terminalExists bool
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_runs_idempotency_terminal')`,
+	).Scan(&terminalExists); err != nil {
+		t.Fatalf("query pg_indexes for idx_runs_idempotency_terminal: %v", err)
+	}
+	if terminalExists {
+		t.Errorf("idx_runs_idempotency_terminal must be dropped by migration 000255; still present")
+	}
+
+	var newExists bool
+	var indexDef string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_runs_idempotency'),
+		        COALESCE((SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_runs_idempotency'), '')`,
+	).Scan(&newExists, &indexDef); err != nil {
+		t.Fatalf("query pg_indexes for idx_runs_idempotency: %v", err)
+	}
+	if !newExists {
+		t.Fatal("idx_runs_idempotency must be created by migration 000255; missing")
+	}
+	if !strings.Contains(indexDef, "(job_id, idempotency_key)") {
+		t.Errorf("idx_runs_idempotency key shape unexpected: %s", indexDef)
+	}
+	if !strings.Contains(indexDef, "idempotency_key IS NOT NULL") {
+		t.Errorf("idx_runs_idempotency partial predicate must be NOT NULL only: %s", indexDef)
+	}
+	if strings.Contains(indexDef, "status") {
+		t.Errorf("idx_runs_idempotency must not be partial on status (write amplifier): %s", indexDef)
+	}
+}
+
+// TestGetRunByIdempotencyKey_TerminalOutsideWindow verifies the 24h window
+// in the read query: a terminal run finished more than 24h ago is not
+// returned (so a new run can be triggered with the same key).
+func TestGetRunByIdempotencyKey_TerminalOutsideWindow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-idempotency-window")
+	key := newID()
+
+	run := baseRun(job, newID())
+	run.IdempotencyKey = key
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_runs SET status = 'completed', finished_at = NOW() - INTERVAL '25 hours' WHERE id = $1`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("backdate finished_at: %v", err)
+	}
+
+	got, err := q.GetRunByIdempotencyKey(ctx, job.ID, key)
+	if err != nil {
+		t.Fatalf("GetRunByIdempotencyKey() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetRunByIdempotencyKey() = %+v, want nil for terminal run finished > 24h ago", got)
+	}
+}
+
+// TestGetRunByIdempotencyKey_TerminalInsideWindow is the positive counterpart
+// of TerminalOutsideWindow: a terminal run that finished within the 24h
+// replay window is still returned.
+func TestGetRunByIdempotencyKey_TerminalInsideWindow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-idempotency-window-fresh")
+	key := newID()
+
+	run := baseRun(job, newID())
+	run.IdempotencyKey = key
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_runs SET status = 'completed', finished_at = NOW() - INTERVAL '1 hour' WHERE id = $1`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("set finished_at: %v", err)
+	}
+
+	got, err := q.GetRunByIdempotencyKey(ctx, job.ID, key)
+	if err != nil {
+		t.Fatalf("GetRunByIdempotencyKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetRunByIdempotencyKey() returned nil; want recent terminal run")
+	}
+	if got.ID != run.ID {
+		t.Fatalf("GetRunByIdempotencyKey() id = %s, want %s", got.ID, run.ID)
+	}
+}
+
 func TestCreateRun_IdempotencyConflict_ActiveRun(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -4482,13 +4591,20 @@ func TestRunMgmt_ListStaleRuns(t *testing.T) {
 		t.Fatalf("CreateRun() queued error = %v", err)
 	}
 
+	// Heartbeat liveness is read from the job_run_heartbeats side table.
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
-	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id = $2", oldHeartbeat, stale.ID); err != nil {
-		t.Fatalf("update stale heartbeat error = %v", err)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
+		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		stale.ID, oldHeartbeat); err != nil {
+		t.Fatalf("insert stale heartbeat error = %v", err)
 	}
 	recentHeartbeat := time.Now().UTC().Add(-1 * time.Minute)
-	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id = $2", recentHeartbeat, fresh.ID); err != nil {
-		t.Fatalf("update fresh heartbeat error = %v", err)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
+		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		fresh.ID, recentHeartbeat); err != nil {
+		t.Fatalf("insert fresh heartbeat error = %v", err)
 	}
 
 	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)
@@ -4528,8 +4644,13 @@ func TestRunMgmt_ListStaleRuns_ExcludesWorkerMode(t *testing.T) {
 	}
 
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
-	if _, err := testDB.Pool.Exec(ctx, "UPDATE job_runs SET heartbeat_at = $1 WHERE id IN ($2, $3)", oldHeartbeat, httpRun.ID, workerRun.ID); err != nil {
-		t.Fatalf("update heartbeat error = %v", err)
+	for _, id := range []string{httpRun.ID, workerRun.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
+			ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+			id, oldHeartbeat); err != nil {
+			t.Fatalf("insert heartbeat error = %v", err)
+		}
 	}
 
 	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)

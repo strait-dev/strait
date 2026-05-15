@@ -15,7 +15,20 @@ type AuditStore interface {
 }
 
 // AuditHandler creates audit events from CDC events on job_runs.
-// It fires on ALL actions (insert, update, delete), not just terminal statuses.
+//
+// Emission is scoped to lifecycle-significant transitions:
+//   - INSERT (run.created) and DELETE (run.deleted) always emit.
+//   - UPDATE only emits when the run reached a terminal state
+//     (completed, failed, timed_out, crashed, system_failed, canceled,
+//     expired, dead_letter).
+//
+// The job_runs table is updated on every heartbeat tick and on every
+// intermediate status flip (queued→dequeued→executing→waiting…). Without
+// this gate each of those updates produced a signed audit row plus two
+// advisory locks for HMAC-chain serialization, which made the audit chain
+// a meaningful bottleneck on hot-path workloads. Audit consumers care
+// about run creation, terminal outcome, and deletion — not the per-tick
+// internals — so the gate is information-preserving.
 type AuditHandler struct {
 	store  AuditStore
 	logger *slog.Logger
@@ -44,6 +57,14 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 	}
 
 	if record.ProjectID == "" {
+		return nil
+	}
+
+	// Suppress UPDATE-driven audit rows for non-terminal status transitions
+	// (heartbeats, queued→dequeued→executing→waiting flips). Terminal
+	// states still emit because they are the lifecycle event downstream
+	// consumers care about. INSERT/DELETE are unaffected and fall through.
+	if msg.Action == ActionUpdate && !domain.RunStatus(record.Status).IsTerminal() {
 		return nil
 	}
 

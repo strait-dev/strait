@@ -179,7 +179,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	var projectQuota *store.ProjectQuota
-	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
+	projectQuota, err = s.quotaCache.Get(ctx, job.ProjectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
@@ -769,7 +769,7 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	var projectQuota *store.ProjectQuota
 	var warnings []string
-	projectQuota, err = s.store.GetProjectQuota(ctx, job.ProjectID)
+	projectQuota, err = s.quotaCache.Get(ctx, job.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load project quota: %w", err)
 	}

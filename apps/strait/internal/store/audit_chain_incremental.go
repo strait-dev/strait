@@ -70,10 +70,10 @@ func (q *Queries) upsertAuditChainCheckpoint(ctx context.Context, projectID, las
 // cryptographic trust root; every successful call revalidates the prefix so
 // pre-checkpoint tampering cannot be hidden by a clean appended tail.
 //
-// Ordering contract (must match VerifyAuditChain): rotation_epoch ASC,
-// then created_at ASC, then id ASC. The checkpoint stores the tail
-// event's id; the resume predicate advances past every row up to and
-// including that id.
+// Ordering contract (must match VerifyAuditChain): shard_id ASC,
+// rotation_epoch ASC, created_at ASC, id ASC. The checkpoint stores the
+// tail event's id; the resume predicate advances past every row up to
+// and including that id.
 //
 // Failure policy: any invalid chain outcome is reported to the caller
 // with Incremental=true set, but the checkpoint is NOT advanced. A

@@ -62,14 +62,27 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	}
 
 	if current == nil {
-		var err error
-		current, err = e.store.GetJob(ctx, run.JobID)
+		// Coalesce concurrent cache misses for the same job so a fan-out of
+		// runs does not stampede the DB. Mirrors billing.Enforcer.GetOrgLimits.
+		result, err, _ := e.jobResolveGroup.Do(run.JobID, func() (any, error) {
+			if e.jobCache != nil {
+				if cached, gerr := e.jobCache.Get(ctx, run.JobID); gerr == nil {
+					return cached, nil
+				}
+			}
+			job, gerr := e.store.GetJob(ctx, run.JobID)
+			if gerr != nil {
+				return nil, gerr
+			}
+			if e.jobCache != nil {
+				_ = e.jobCache.Set(ctx, run.JobID, job)
+			}
+			return job, nil
+		})
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		if e.jobCache != nil {
-			_ = e.jobCache.Set(ctx, run.JobID, current)
-		}
+		current = result.(*domain.Job)
 	}
 
 	if current.Version == run.JobVersion {
@@ -710,12 +723,19 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 	}
 
 	fields := map[string]any{
-		"error":         reason,
-		"error_class":   "transient",
-		"started_at":    nil,
-		"finished_at":   nil,
-		"next_retry_at": retryAt,
-		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+		"error":       reason,
+		"error_class": "transient",
+		"started_at":  nil,
+		"finished_at": nil,
+		"metadata":    map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if retryAt != nil {
+		if err := e.store.ScheduleRetry(ctx, run.ID, *retryAt, run.Attempt); err != nil {
+			e.logger.Error("failed to schedule snooze retry", "run_id", run.ID, "job_id", run.JobID, "error", err)
+			return
+		}
+	} else if err := e.store.ClearRetry(ctx, run.ID); err != nil {
+		e.logger.Warn("failed to clear retry on snooze", "run_id", run.ID, "job_id", run.JobID, "error", err)
 	}
 	if err := e.store.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
 		if errors.Is(err, store.ErrRunLocked) {
@@ -765,12 +785,19 @@ func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRu
 	}
 
 	fields := map[string]any{
-		"error":         reason,
-		"error_class":   "transient",
-		"started_at":    nil,
-		"finished_at":   nil,
-		"next_retry_at": retryAt,
-		"metadata":      map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+		"error":       reason,
+		"error_class": "transient",
+		"started_at":  nil,
+		"finished_at": nil,
+		"metadata":    map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
+	}
+	if retryAt != nil {
+		if err := e.store.ScheduleRetry(ctx, run.ID, *retryAt, run.Attempt); err != nil {
+			e.logger.Error("failed to schedule snooze retry from executing", "run_id", run.ID, "error", err)
+			return
+		}
+	} else if err := e.store.ClearRetry(ctx, run.ID); err != nil {
+		e.logger.Warn("failed to clear retry on snooze from executing", "run_id", run.ID, "error", err)
 	}
 	if err := e.store.SnoozeRunWithLock(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
 		if errors.Is(err, store.ErrRunLocked) {
