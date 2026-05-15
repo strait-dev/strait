@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -4203,7 +4204,7 @@ func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testi
 
 	plaintextSecret := "shared-with-subscriber"
 	const fakePrefix = "ENC::"
-	storedCiphertext := fakePrefix + plaintextSecret
+	storedCiphertext := base64.StdEncoding.EncodeToString([]byte(fakePrefix + plaintextSecret))
 
 	ms := &mockDeliveryStore{
 		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {

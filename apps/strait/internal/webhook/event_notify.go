@@ -12,6 +12,7 @@ import (
 	"crypto/hmac"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -290,7 +291,11 @@ func (n *DeliveryWorker) maybeDecryptSecret(deliveryID, kind, secret string) str
 	if secret == "" || n.secretDecryptor == nil {
 		return secret
 	}
-	plain, err := n.secretDecryptor.Decrypt([]byte(secret))
+	ciphertext, decodeErr := base64.StdEncoding.DecodeString(secret)
+	if decodeErr != nil {
+		ciphertext = []byte(secret)
+	}
+	plain, err := n.secretDecryptor.Decrypt(ciphertext)
 	if err != nil {
 		n.logger.Warn("failed to decrypt webhook signing secret; subscriber will not be able to verify signature",
 			"delivery_id", deliveryID, "secret_kind", kind, "error", err)
