@@ -28,7 +28,7 @@ jobs:
 
       - name: Cache govulncheck binary
         id: cache-govulncheck
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/go/bin/govulncheck
           key: govulncheck-${{ runner.os }}-${{ env.GOVULNCHECK_VERSION }}
@@ -53,7 +53,7 @@ jobs:
 
       - name: Cache go-licenses binary
         id: cache-go-licenses
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/go/bin/go-licenses
           key: go-licenses-${{ runner.os }}-${{ env.GO_LICENSES_VERSION }}
@@ -85,7 +85,7 @@ jobs:
 
       - name: Cache gosec binary
         id: cache-gosec
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/go/bin/gosec
           key: gosec-${{ runner.os }}-${{ env.GOSEC_VERSION }}
@@ -111,7 +111,7 @@ jobs:
 
       - name: Cache gitleaks binary
         id: cache-gitleaks
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/bin/gitleaks
           key: gitleaks-${{ runner.os }}-${{ env.GITLEAKS_VERSION }}
