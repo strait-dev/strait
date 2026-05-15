@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"path"
-	"strings"
 	"time"
 
 	"strait/internal/store"
@@ -44,10 +43,8 @@ const defaultIdempotencyCleanupTimeout = 5 * time.Second
 // key. Without this, a client retrying with "/v1/jobs/" or "/v1//jobs"
 // would compute a different key than the original "/v1/jobs" call and
 // re-execute the operation. path.Clean handles "..", "//", and trailing
-// slashes; we additionally lowercase ASCII because chi treats routes as
-// case-sensitive but RFC 3986 considers the path component itself
-// case-sensitive — we choose dedupe-safety over fidelity here, which
-// is the correct trade for retry semantics.
+// slashes. It intentionally preserves case because chi routes are
+// case-sensitive and distinct routes must not share an idempotency cache key.
 func canonicalizeIdempotencyPath(p string) string {
 	if p == "" {
 		return "/"
@@ -57,7 +54,7 @@ func canonicalizeIdempotencyPath(p string) string {
 	if cleaned == "." {
 		return "/"
 	}
-	return strings.ToLower(cleaned)
+	return cleaned
 }
 
 // idempotencyCompositeKey returns a length-prefixed SHA-256 of the
