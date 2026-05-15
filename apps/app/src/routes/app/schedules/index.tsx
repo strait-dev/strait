@@ -141,6 +141,19 @@ function SchedulesPage() {
     (id) => rowSelection[id]
   );
 
+  const summary = useMemo(() => {
+    let enabled = 0;
+    let paused = 0;
+    for (const job of filteredData) {
+      if (job.enabled) {
+        enabled++;
+      } else {
+        paused++;
+      }
+    }
+    return { enabled, paused };
+  }, [filteredData]);
+
   function toggleStatus(status: string) {
     const current = new Set(selectedStatuses);
     if (current.has(status)) {
@@ -173,6 +186,25 @@ function SchedulesPage() {
 
   return (
     <Shell>
+      {filteredData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
+          <span className="text-muted-foreground">
+            {filteredData.length} schedule
+            {filteredData.length === 1 ? "" : "s"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <span className="tabular-nums">{summary.enabled}</span>
+            <span className="text-muted-foreground">enabled</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <span className="tabular-nums">{summary.paused}</span>
+            <span className="text-muted-foreground">paused</span>
+          </span>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon

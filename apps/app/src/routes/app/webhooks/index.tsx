@@ -131,6 +131,19 @@ function WebhooksPage() {
     (id) => rowSelection[id]
   );
 
+  const summary = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    for (const webhook of filteredData) {
+      if (webhook.active) {
+        active++;
+      } else {
+        inactive++;
+      }
+    }
+    return { active, inactive };
+  }, [filteredData]);
+
   function toggleStatus(status: string) {
     const current = new Set(selectedStatuses);
     if (current.has(status)) {
@@ -171,6 +184,25 @@ function WebhooksPage() {
 
   return (
     <Shell>
+      {filteredData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
+          <span className="text-muted-foreground">
+            {filteredData.length} subscription
+            {filteredData.length === 1 ? "" : "s"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <span className="tabular-nums">{summary.active}</span>
+            <span className="text-muted-foreground">active</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <span className="tabular-nums">{summary.inactive}</span>
+            <span className="text-muted-foreground">inactive</span>
+          </span>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon

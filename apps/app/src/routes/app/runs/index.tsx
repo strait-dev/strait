@@ -19,7 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
@@ -93,6 +93,30 @@ function RunsPage() {
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const tableData = hasProject ? (typed?.data ?? []) : [];
 
+  const summary = useMemo(() => {
+    let succeeded = 0;
+    let failed = 0;
+    let running = 0;
+    for (const run of tableData) {
+      if (run.status === "completed") {
+        succeeded++;
+      } else if (
+        run.status === "failed" ||
+        run.status === "timed_out" ||
+        run.status === "crashed" ||
+        run.status === "system_failed"
+      ) {
+        failed++;
+      } else if (run.status === "executing" || run.status === "dequeued") {
+        running++;
+      }
+    }
+    const completed = succeeded + failed;
+    const successRate =
+      completed > 0 ? Math.round((succeeded / completed) * 100) : null;
+    return { succeeded, failed, running, successRate };
+  }, [tableData]);
+
   const table = useReactTable({
     data: tableData,
     columns: createRunColumns({
@@ -158,6 +182,37 @@ function RunsPage() {
 
   return (
     <Shell>
+      {tableData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
+          <span className="text-muted-foreground">
+            {tableData.length} run{tableData.length === 1 ? "" : "s"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <span className="tabular-nums">{summary.succeeded}</span>
+            <span className="text-muted-foreground">succeeded</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-destructive" />
+            <span className="tabular-nums">{summary.failed}</span>
+            <span className="text-muted-foreground">failed</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-info" />
+            <span className="tabular-nums">{summary.running}</span>
+            <span className="text-muted-foreground">running</span>
+          </span>
+          {summary.successRate !== null && (
+            <span className="ml-auto text-muted-foreground">
+              <span className="font-medium text-foreground tabular-nums">
+                {summary.successRate}%
+              </span>{" "}
+              success rate
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
