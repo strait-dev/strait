@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -129,12 +130,64 @@ func TestEventSource_SchemaValidationBypass(t *testing.T) {
 	}
 }
 
+func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateEventSourceFunc: func(_ context.Context, _ *domain.EventSource) error {
+			t.Fatal("CreateEventSource should not be called when signature secret encryption is unavailable")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{
+		"project_id": "proj-1",
+		"name": "signed-source",
+		"signature_header": "X-Signature",
+		"signature_algorithm": "hmac-sha256",
+		"signature_secret": "secret"
+	}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when signature secret encryption is unavailable, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		UpdateEventSourceFunc: func(_ context.Context, _, _ string, _ map[string]any) error {
+			t.Fatal("UpdateEventSource should not be called when signature secret encryption is unavailable")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	secret := "secret"
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	_, err := srv.handleUpdateEventSource(ctx, &UpdateEventSourceInput{
+		SourceID: "src-1",
+		Body: UpdateEventSourceRequest{
+			SignatureSecret: &secret,
+		},
+	})
+	var statusErr interface{ GetStatus() int }
+	if !errors.As(err, &statusErr) || statusErr.GetStatus() != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when signature secret encryption is unavailable, got %v", err)
+	}
+}
+
 // TestEventSource_SignatureVerificationEmpty verifies that when the event source
 // requires signature verification but no encryptor is configured, the server
-// skips verification gracefully without crashing.
+// fails closed before dispatching subscriptions.
 func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 	t.Parallel()
 
+	subscriptionsCalled := false
 	ms := &APIStoreMock{
 		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
 			return &domain.EventSource{
@@ -144,6 +197,7 @@ func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 			}, nil
 		},
 		ListEventSubscriptionsBySourceFunc: func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+			subscriptionsCalled = true
 			return nil, nil
 		},
 	}
@@ -155,9 +209,11 @@ func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 
 	srv.ServeHTTP(w, req)
 
-	// No encryptor in newTestServer means signature verification is skipped.
-	if w.Code == http.StatusInternalServerError {
-		t.Fatalf("should not get 500, got: %s", w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when signature verification is misconfigured, got %d: %s", w.Code, w.Body.String())
+	}
+	if subscriptionsCalled {
+		t.Fatal("subscriptions should not be listed when signature verification is misconfigured")
 	}
 }
 
