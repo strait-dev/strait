@@ -491,6 +491,12 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	redisContainer, redisErr := ce.findRedisContainer()
 	straitContainer, straitErr := ce.findStraitContainer()
+	if redisErr != nil {
+		return fmt.Errorf("finding redis container: %w", redisErr)
+	}
+	if straitErr != nil {
+		return fmt.Errorf("finding strait container: %w", straitErr)
+	}
 
 	var cascadeErr atomic.Value
 
@@ -499,9 +505,6 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	// Simultaneously: kill Redis + spike traffic + kill worker
 	// Kill Redis
 	wg.Go(func() {
-		if redisErr != nil {
-			return
-		}
 		if err := exec.CommandContext(ctx, "docker", "kill", redisContainer).Run(); err != nil {
 			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing redis: %w", err))
 		}
@@ -531,10 +534,6 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	// Kill worker after 5s
 	wg.Go(func() {
 		time.Sleep(5 * time.Second)
-		if straitErr != nil {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("finding strait container: %w", straitErr))
-			return
-		}
 		if err := exec.CommandContext(ctx, "docker", "kill", straitContainer).Run(); err != nil {
 			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing strait container: %w", err))
 		}
@@ -546,15 +545,11 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	time.Sleep(2 * time.Minute)
 
 	// Restart everything
-	if redisErr == nil {
-		if err := exec.CommandContext(ctx, "docker", "start", redisContainer).Run(); err != nil {
-			return fmt.Errorf("restarting redis: %w", err)
-		}
+	if err := exec.CommandContext(ctx, "docker", "start", redisContainer).Run(); err != nil {
+		return fmt.Errorf("restarting redis: %w", err)
 	}
-	if straitErr == nil {
-		if err := exec.CommandContext(ctx, "docker", "start", straitContainer).Run(); err != nil {
-			return fmt.Errorf("restarting strait: %w", err)
-		}
+	if err := exec.CommandContext(ctx, "docker", "start", straitContainer).Run(); err != nil {
+		return fmt.Errorf("restarting strait: %w", err)
 	}
 	time.Sleep(10 * time.Second)
 

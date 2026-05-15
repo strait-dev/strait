@@ -122,6 +122,20 @@ func TestFindContainer_PropagatesDockerListError(t *testing.T) {
 	}
 }
 
+func TestChaosCascadingFailure_FailsClosedWhenRedisMissing(t *testing.T) {
+	restore := stubDockerContainerNames(t, []string{"strait"})
+	defer restore()
+
+	ce := &ChaosEngine{}
+	err := ce.chaosCascadingFailure(t.Context())
+	if err == nil {
+		t.Fatal("expected cascading failure scenario to fail when redis container is missing")
+	}
+	if !strings.Contains(err.Error(), "finding redis container") {
+		t.Fatalf("error = %q, want redis discovery failure", err.Error())
+	}
+}
+
 func stubDockerContainerNames(t *testing.T, names []string) func() {
 	t.Helper()
 
