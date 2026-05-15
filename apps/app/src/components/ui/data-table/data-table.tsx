@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Table,
   TableBody,
@@ -9,13 +10,20 @@ import {
 import { cn } from "@strait/ui/utils/index";
 import { flexRender, type Table as TanstackTable } from "@tanstack/react-table";
 import type * as React from "react";
-import FiltersEmptyState from "@/components/common/filters-empty-state";
+import TableEmptyState from "@/components/common/table-empty-state";
+import { SearchIcon } from "@/lib/icons";
 import { DataTablePagination } from "./data-table-pagination";
 
 const DEFAULT_EMPTY_FILTER_STATE = (
-  <FiltersEmptyState
+  <TableEmptyState
     description="No results found for the applied filters. Try adjusting the filters."
-    icon="search"
+    hideButton
+    icon={
+      <HugeiconsIcon
+        className="size-6 text-muted-foreground"
+        icon={SearchIcon}
+      />
+    }
     title="No results found"
   />
 );
