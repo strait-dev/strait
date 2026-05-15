@@ -365,7 +365,7 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWebhookDelivery))
 
 		r.Route("/webhooks", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRunsWrite), s.idempotencyMiddleware, rateLimit(5, time.Minute)).Post("/test", TypedHandler(s, http.StatusOK, s.handleTestWebhook))
+			r.With(s.requirePermission(domain.ScopeWebhooksWrite), s.idempotencyMiddleware, rateLimit(5, time.Minute)).Post("/test", TypedHandler(s, http.StatusOK, s.handleTestWebhook))
 			r.Route("/deliveries", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookDeliveries))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetWebhookDelivery))
