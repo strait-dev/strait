@@ -133,6 +133,7 @@ const CreateOrganizationDialog = ({
                       field.state.meta.isTouched &&
                       field.state.meta.errors.length > 0
                     }
+                    autoFocus
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}

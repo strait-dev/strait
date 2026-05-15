@@ -186,6 +186,7 @@ function JobsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Jobs</h1>
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -252,6 +253,7 @@ function JobsPage() {
         }}
       >
         <DataTable
+          ariaLabel="Jobs"
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

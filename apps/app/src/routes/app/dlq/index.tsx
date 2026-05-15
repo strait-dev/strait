@@ -185,6 +185,7 @@ function DlqPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Dead letter queue</h1>
       {/* Alert banner */}
       {totalCount > 0 && (
         <Alert variant="destructive">
@@ -352,7 +353,11 @@ function DlqPage() {
         }}
       >
         <div className="pt-2">
-          <DataTable emptyState={emptyState} table={table} />
+          <DataTable
+            ariaLabel="Dead letter queue"
+            emptyState={emptyState}
+            table={table}
+          />
         </div>
       </div>
 

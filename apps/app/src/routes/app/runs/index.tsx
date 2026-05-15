@@ -181,6 +181,7 @@ function RunsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Runs</h1>
       {tableData.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
           <span className="text-muted-foreground">
@@ -278,6 +279,7 @@ function RunsPage() {
         }}
       >
         <DataTable
+          ariaLabel="Runs"
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

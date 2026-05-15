@@ -184,6 +184,7 @@ function WebhooksPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Webhooks</h1>
       {filteredData.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
           <span className="text-muted-foreground">
@@ -278,6 +279,7 @@ function WebhooksPage() {
         }}
       >
         <DataTable
+          ariaLabel="Webhooks"
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

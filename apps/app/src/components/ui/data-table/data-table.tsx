@@ -33,6 +33,7 @@ type DataTableProps<TData> = {
   floatingBar?: React.ReactNode | null;
   emptyFilterState?: React.ReactNode | null;
   emptyState: React.ReactNode | null;
+  ariaLabel?: string;
 };
 
 export const DataTable = <TData,>({
@@ -40,6 +41,7 @@ export const DataTable = <TData,>({
   floatingBar = null,
   emptyFilterState,
   emptyState,
+  ariaLabel,
 }: DataTableProps<TData>) => {
   const rows = table.getRowModel().rows;
   const hasFilters =
@@ -54,7 +56,7 @@ export const DataTable = <TData,>({
     <div className="flex w-full flex-col gap-2.5 overflow-auto">
       <div className="overflow-x-auto rounded-lg border border-border/70">
         <div className="relative">
-          <Table className="min-w-[1200px]">
+          <Table aria-label={ariaLabel} className="min-w-[1200px]">
             <TableHeader className="border-0">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow

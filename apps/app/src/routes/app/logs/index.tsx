@@ -137,6 +137,7 @@ function LogsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Logs</h1>
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -211,7 +212,7 @@ function LogsPage() {
           }
         }}
       >
-        <DataTable emptyState={emptyState} table={table} />
+        <DataTable ariaLabel="Logs" emptyState={emptyState} table={table} />
       </div>
 
       {/* Expanded detail */}

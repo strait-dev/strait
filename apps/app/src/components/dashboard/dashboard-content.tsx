@@ -62,6 +62,7 @@ const DashboardContent = ({
 
   return (
     <Shell>
+      <h1 className="sr-only">Dashboard</h1>
       <h2 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
         Overview
       </h2>

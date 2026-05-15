@@ -178,6 +178,7 @@ function WorkflowsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Workflows</h1>
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -244,6 +245,7 @@ function WorkflowsPage() {
         }}
       >
         <DataTable
+          ariaLabel="Workflows"
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

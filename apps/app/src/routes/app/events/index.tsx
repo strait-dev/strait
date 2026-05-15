@@ -51,6 +51,7 @@ function EventsPage() {
   if (!hasProject) {
     return (
       <Shell>
+        <h1 className="sr-only">Events</h1>
         <NoProjectState user={session.user} />
       </Shell>
     );
@@ -58,6 +59,7 @@ function EventsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Events</h1>
       {/* Status filter */}
       <div className="flex items-center gap-2 pb-2.5">
         <Button

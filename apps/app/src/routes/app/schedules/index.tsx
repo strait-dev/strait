@@ -186,6 +186,7 @@ function SchedulesPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Schedules</h1>
       {filteredData.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
           <span className="text-muted-foreground">
@@ -272,6 +273,7 @@ function SchedulesPage() {
         }}
       >
         <DataTable
+          ariaLabel="Schedules"
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

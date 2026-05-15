@@ -262,6 +262,7 @@ function RouteComponent() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Upgrade plan</h1>
       {search.canceled ? (
         <Alert className="mb-6 border-warning/30 bg-warning/5">
           <HugeiconsIcon

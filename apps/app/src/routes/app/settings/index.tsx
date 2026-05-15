@@ -82,6 +82,7 @@ function RouteComponent() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Settings</h1>
       <div className="flex w-full flex-col gap-6">
         <Tabs className="w-full" defaultValue="account">
           <TabsList>
