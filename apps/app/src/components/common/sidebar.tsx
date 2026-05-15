@@ -5,12 +5,6 @@ import {
   CollapsibleTrigger,
 } from "@strait/ui/components/collapsible";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -25,7 +19,7 @@ import {
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
@@ -75,27 +69,6 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
-type Environment = "production" | "staging" | "development";
-
-const environments: { value: Environment; label: string; dotClass: string }[] =
-  [
-    {
-      value: "production",
-      label: "Production",
-      dotClass: "bg-success",
-    },
-    {
-      value: "staging",
-      label: "Staging",
-      dotClass: "bg-info",
-    },
-    {
-      value: "development",
-      label: "Development",
-      dotClass: "bg-warning",
-    },
-  ];
-
 type Props = {
   session: NonNullable<Session>;
 };
@@ -105,10 +78,6 @@ const AppSidebar = ({ session }: Props) => {
     subscriptionStateQueryOptions()
   );
   const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
-
-  const [environment, setEnvironment] = useState<Environment>("production");
-  const currentEnv =
-    environments.find((e) => e.value === environment) ?? environments[0];
 
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
@@ -126,7 +95,7 @@ const AppSidebar = ({ session }: Props) => {
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="h-16 border-sidebar-border border-b">
-        <div className="flex h-full w-full items-center justify-between px-2">
+        <div className="flex h-full w-full items-center px-2">
           <Link to="/app">
             <span className="sr-only">Strait</span>
             <img
@@ -137,32 +106,6 @@ const AppSidebar = ({ session }: Props) => {
               width={20}
             />
           </Link>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md border px-2 py-1 font-medium text-sidebar-foreground text-xs hover:bg-sidebar-accent">
-              <span
-                className={`inline-block size-2 rounded-full ${currentEnv.dotClass}`}
-              />
-              {currentEnv.label}
-              <HugeiconsIcon
-                className="size-3 text-muted-foreground"
-                icon={ChevronDownIcon}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4}>
-              {environments.map((env) => (
-                <DropdownMenuItem
-                  key={env.value}
-                  onClick={() => setEnvironment(env.value)}
-                >
-                  <span
-                    className={`inline-block size-2 rounded-full ${env.dotClass}`}
-                  />
-                  {env.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </SidebarHeader>
 

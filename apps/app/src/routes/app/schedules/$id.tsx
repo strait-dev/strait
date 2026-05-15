@@ -28,7 +28,12 @@ import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
-import { jobQueryOptions } from "@/hooks/api/use-jobs";
+import {
+  jobQueryOptions,
+  usePauseJob,
+  useResumeJob,
+  useTriggerJob,
+} from "@/hooks/api/use-jobs";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
@@ -65,6 +70,9 @@ function ScheduleDetailPage() {
     data: PaginatedResponse<JobRun> | undefined;
   };
   const [activeTab, setActiveTab] = useState("history");
+  const triggerJob = useTriggerJob();
+  const pauseJob = usePauseJob();
+  const resumeJob = useResumeJob();
 
   const runsTable = useReactTable({
     data: runs?.data ?? [],
@@ -101,15 +109,23 @@ function ScheduleDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button>
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+          <Button
+            disabled={triggerJob.isPending}
+            onClick={() => triggerJob.mutate({ id })}
+          >
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
             Trigger
           </Button>
-          <Button variant="outline">
+          <Button
+            disabled={pauseJob.isPending || resumeJob.isPending}
+            onClick={() =>
+              job.enabled ? pauseJob.mutate({ id }) : resumeJob.mutate({ id })
+            }
+            variant="outline"
+          >
             <HugeiconsIcon
-              className="mr-1.5"
+              className="mr-1.5 size-3.5"
               icon={job.enabled ? PauseActionIcon : PlayActionIcon}
-              size={14}
             />
             {job.enabled ? "Pause" : "Resume"}
           </Button>

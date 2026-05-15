@@ -40,7 +40,6 @@ import {
 } from "@/hooks/api/use-runs";
 import {
   ActivityIcon,
-  CalendarIcon,
   EyeIcon,
   FilterIcon,
   RefreshIcon,
@@ -257,11 +256,6 @@ function RunsPage() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Button disabled variant="outline">
-          <HugeiconsIcon className="mr-1.5" icon={CalendarIcon} size={14} />
-          Date Range
-        </Button>
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}

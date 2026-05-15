@@ -43,6 +43,9 @@ import type {
   WorkflowStep,
 } from "@/hooks/api/types";
 import {
+  usePauseWorkflow,
+  useResumeWorkflow,
+  useTriggerWorkflow,
   workflowQueryOptions,
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
@@ -131,6 +134,9 @@ function WorkflowDetailPage() {
   };
   const runs = runsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("overview");
+  const triggerWorkflow = useTriggerWorkflow();
+  const pauseWorkflow = usePauseWorkflow();
+  const resumeWorkflow = useResumeWorkflow();
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
@@ -186,15 +192,25 @@ function WorkflowDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button>
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+          <Button
+            disabled={triggerWorkflow.isPending}
+            onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
+          >
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
             Trigger
           </Button>
-          <Button variant="outline">
+          <Button
+            disabled={pauseWorkflow.isPending || resumeWorkflow.isPending}
+            onClick={() =>
+              workflow.enabled
+                ? pauseWorkflow.mutate({ workflowId: workflow.id })
+                : resumeWorkflow.mutate({ workflowId: workflow.id })
+            }
+            variant="outline"
+          >
             <HugeiconsIcon
-              className="mr-1.5"
+              className="mr-1.5 size-3.5"
               icon={workflow.enabled ? PauseActionIcon : PlayActionIcon}
-              size={14}
             />
             {workflow.enabled ? "Pause" : "Resume"}
           </Button>
