@@ -2,15 +2,27 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+type fakeDispatchSecretDecryptor struct{}
+
+func (fakeDispatchSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	const prefix = "encrypted:"
+	if string(ciphertext[:len(prefix)]) != prefix {
+		return nil, errors.New("unexpected ciphertext")
+	}
+	return ciphertext[len(prefix):], nil
+}
 
 // TestResultChannelRegistry_SendAndReceive verifies basic send/receive semantics.
 func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
@@ -152,7 +164,10 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Attempt: 3}
 	job := &domain.Job{ID: "job-1", Slug: "job", Queue: "q", TimeoutSecs: 30}
 
-	assignment := dispatcher.buildAssignment(run, job, "task-1")
+	assignment, err := dispatcher.buildAssignment(run, job, "task-1")
+	if err != nil {
+		t.Fatalf("buildAssignment: %v", err)
+	}
 	if assignment.RunTokenJwt == "" {
 		t.Fatal("expected run token")
 	}
@@ -176,6 +191,27 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	}
 	if claims.AssignmentID != "task-1" {
 		t.Fatalf("assignment_id = %q, want task-1", claims.AssignmentID)
+	}
+}
+
+func TestBuildAssignment_DecryptsEndpointSigningSecret(t *testing.T) {
+	encrypted := "enc:v1:" + base64.StdEncoding.EncodeToString([]byte("encrypted:plain-endpoint-secret"))
+	dispatcher := (&WorkerDispatcher{}).WithSecretDecryptor(fakeDispatchSecretDecryptor{})
+	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Payload: []byte(`{"ok":true}`)}
+	job := &domain.Job{ID: "job-1", Slug: "job", Queue: "q", TimeoutSecs: 30, EndpointSigningSecret: encrypted}
+
+	assignment, err := dispatcher.buildAssignment(run, job, "task-1")
+	if err != nil {
+		t.Fatalf("buildAssignment: %v", err)
+	}
+	if assignment.HmacSignature == "" {
+		t.Fatal("expected HMAC signature")
+	}
+	if assignment.HmacSignature != dispatchHMAC("plain-endpoint-secret", assignment.HmacTimestamp, run.Payload) {
+		t.Fatal("assignment signature was not computed with decrypted endpoint signing secret")
+	}
+	if straitcrypto.IsEncryptedField("plain-endpoint-secret") {
+		t.Fatal("plaintext helper sanity check failed")
 	}
 }
 

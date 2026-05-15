@@ -561,7 +561,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, version string) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -584,6 +584,7 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	srv, err := grpcserver.NewServer(cfg, queries, pub,
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
 		grpcserver.WithVersion(version),
+		grpcserver.WithSecretDecryptor(decryptor),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("grpc server: %w", err)
@@ -691,6 +692,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Mode:                    cfg.Mode,
 		Version:                 version,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
+		SecretDecryptor:         encryptor,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 

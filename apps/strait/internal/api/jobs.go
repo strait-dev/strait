@@ -156,6 +156,10 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		}
 		signingSecret = req.WebhookSecret
 	}
+	signingSecret, err = s.encryptEndpointSigningSecret(signingSecret)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
+	}
 
 	job := &domain.Job{
 		ProjectID:                 req.ProjectID,
@@ -567,16 +571,22 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.EndpointURL = *req.EndpointURL
 	}
 	if req.WebhookSecret != nil || req.EndpointSigningSecret != nil {
+		var signingSecret string
 		switch {
 		case req.WebhookSecret != nil && req.EndpointSigningSecret != nil && *req.WebhookSecret != *req.EndpointSigningSecret:
 			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job update; using webhook_secret",
 				"job_id", job.ID, "project_id", job.ProjectID)
-			job.EndpointSigningSecret = *req.WebhookSecret
+			signingSecret = *req.WebhookSecret
 		case req.WebhookSecret != nil:
-			job.EndpointSigningSecret = *req.WebhookSecret
+			signingSecret = *req.WebhookSecret
 		default:
-			job.EndpointSigningSecret = *req.EndpointSigningSecret
+			signingSecret = *req.EndpointSigningSecret
 		}
+		signingSecret, err = s.encryptEndpointSigningSecret(signingSecret)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
+		}
+		job.EndpointSigningSecret = signingSecret
 	}
 	if req.FallbackEndpointURL != nil {
 		job.FallbackEndpointURL = *req.FallbackEndpointURL

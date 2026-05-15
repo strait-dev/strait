@@ -14,6 +14,7 @@ import (
 
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/billing"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/store"
@@ -47,6 +48,14 @@ func addHMACHeaders(headers map[string]string, secret string, body []byte) {
 	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
 	headers["X-Strait-Timestamp"] = ts
 	headers["X-Strait-Signature"] = SignHTTPDispatch(secret, ts, body)
+}
+
+func (e *Executor) endpointSigningSecret(job *domain.Job) (string, error) {
+	secret, err := straitcrypto.DecryptField(e.secretDecryptor, job.EndpointSigningSecret)
+	if err != nil {
+		return "", fmt.Errorf("decrypt endpoint signing secret: %w", err)
+	}
+	return secret, nil
 }
 
 // resolveJobForRun loads the job configuration for a run, applying version
@@ -380,16 +389,21 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
 				fallbackHeaders := make(map[string]string)
-				addHMACHeaders(fallbackHeaders, job.EndpointSigningSecret, run.Payload)
-				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
-				if fallbackErr == nil {
-					e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
-					return
+				signingSecret, secretErr := e.endpointSigningSecret(job)
+				if secretErr != nil {
+					err = errors.Join(err, secretErr)
+				} else {
+					addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
+					fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
+					if fallbackErr == nil {
+						e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
+						return
+					}
+					err = errors.Join(
+						fmt.Errorf("primary dispatch failed: %w", err),
+						fmt.Errorf("fallback dispatch failed: %w", fallbackErr),
+					)
 				}
-				err = errors.Join(
-					fmt.Errorf("primary dispatch failed: %w", err),
-					fmt.Errorf("fallback dispatch failed: %w", fallbackErr),
-				)
 			}
 		}
 
@@ -520,7 +534,11 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	}
 
 	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
-	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
+	signingSecret, err := e.endpointSigningSecret(job)
+	if err != nil {
+		return nil, nil, err
+	}
+	addHMACHeaders(extraHeaders, signingSecret, run.Payload)
 
 	if run.Attempt > 1 {
 		if cp != nil {
@@ -631,7 +649,11 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}
 
 	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
-	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
+	signingSecret, err := e.endpointSigningSecret(job)
+	if err != nil {
+		return err
+	}
+	addHMACHeaders(extraHeaders, signingSecret, run.Payload)
 
 	_, dispatchErr := e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
 	return dispatchErr

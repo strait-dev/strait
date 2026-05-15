@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 )
 
@@ -19,6 +21,47 @@ type dispatchRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f dispatchRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+type fakeEndpointSecretDecryptor struct{}
+
+func (fakeEndpointSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	const prefix = "encrypted:"
+	if !strings.HasPrefix(string(ciphertext), prefix) {
+		return nil, errors.New("unexpected ciphertext")
+	}
+	return ciphertext[len(prefix):], nil
+}
+
+func TestExecutorEndpointSigningSecretDecryptsEncryptedField(t *testing.T) {
+	t.Parallel()
+
+	encrypted := "enc:v1:" + base64.StdEncoding.EncodeToString([]byte("encrypted:plain-endpoint-secret"))
+	exec := &Executor{secretDecryptor: fakeEndpointSecretDecryptor{}}
+
+	got, err := exec.endpointSigningSecret(&domain.Job{EndpointSigningSecret: encrypted})
+	if err != nil {
+		t.Fatalf("endpointSigningSecret: %v", err)
+	}
+	if got != "plain-endpoint-secret" {
+		t.Fatalf("endpointSigningSecret = %q, want plaintext", got)
+	}
+}
+
+func TestExecutorEndpointSigningSecretPreservesLegacyPlaintext(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{}
+	got, err := exec.endpointSigningSecret(&domain.Job{EndpointSigningSecret: "legacy-plain-secret"})
+	if err != nil {
+		t.Fatalf("endpointSigningSecret: %v", err)
+	}
+	if got != "legacy-plain-secret" {
+		t.Fatalf("endpointSigningSecret = %q, want legacy plaintext", got)
+	}
+	if straitcrypto.IsEncryptedField(got) {
+		t.Fatal("legacy plaintext should not be treated as encrypted")
+	}
 }
 
 func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {

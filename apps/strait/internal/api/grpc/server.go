@@ -27,15 +27,16 @@ import (
 
 // Server wraps the gRPC server and all its dependencies.
 type Server struct {
-	cfg            *config.Config
-	queries        *store.Queries
-	pub            pubsub.Publisher
-	registry       *ConnectionRegistry
-	resultChannels *ResultChannelRegistry
-	runFinalizer   atomic.Value
-	authLimiter    grpcAuthLimiter
-	gs             *grpc.Server
-	version        string
+	cfg             *config.Config
+	queries         *store.Queries
+	pub             pubsub.Publisher
+	registry        *ConnectionRegistry
+	resultChannels  *ResultChannelRegistry
+	runFinalizer    atomic.Value
+	authLimiter     grpcAuthLimiter
+	secretDecryptor SecretDecryptor
+	gs              *grpc.Server
+	version         string
 }
 
 type ServerOption func(*Server)
@@ -49,6 +50,12 @@ func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
 func WithVersion(version string) ServerOption {
 	return func(s *Server) {
 		s.version = version
+	}
+}
+
+func WithSecretDecryptor(dec SecretDecryptor) ServerOption {
+	return func(s *Server) {
+		s.secretDecryptor = dec
 	}
 }
 
@@ -95,7 +102,8 @@ func (s *Server) Registry() *ConnectionRegistry {
 // WorkerDispatcher returns a WorkerDispatcher wired to this server's registry
 // and result channel registry. Used by the executor to dispatch worker-mode runs.
 func (s *Server) WorkerDispatcher(jwtSigningKey string) *WorkerDispatcher {
-	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels)
+	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels).
+		WithSecretDecryptor(s.secretDecryptor)
 }
 
 // SetRunResultFinalizer wires the executor-owned completion path for worker

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -27,10 +28,15 @@ import (
 // On no available worker for the run's queue, WorkerDispatch returns
 // ErrNoWorkerAvailable so the caller can leave the run queued for the next tick.
 type WorkerDispatcher struct {
-	registry       *ConnectionRegistry
-	queries        *store.Queries
-	jwtSigningKey  string
-	resultChannels *ResultChannelRegistry
+	registry        *ConnectionRegistry
+	queries         *store.Queries
+	jwtSigningKey   string
+	resultChannels  *ResultChannelRegistry
+	secretDecryptor SecretDecryptor
+}
+
+type SecretDecryptor interface {
+	Decrypt([]byte) ([]byte, error)
 }
 
 type WorkerTaskResult struct {
@@ -61,6 +67,11 @@ func NewResultChannelRegistry() *ResultChannelRegistry {
 	return &ResultChannelRegistry{
 		channels: make(map[string]resultChannelEntry),
 	}
+}
+
+func (d *WorkerDispatcher) WithSecretDecryptor(dec SecretDecryptor) *WorkerDispatcher {
+	d.secretDecryptor = dec
+	return d
 }
 
 // Register creates a buffered channel for the given run ID, scoped to the
@@ -229,7 +240,12 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	defer d.resultChannels.Deregister(run.ID)
 
 	// Build and send the TaskAssignment.
-	assignment := d.buildAssignment(run, job, task.ID)
+	assignment, err := d.buildAssignment(run, job, task.ID)
+	if err != nil {
+		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
+		d.registry.IncrementSlots(workerID)
+		return nil, err
+	}
 	msg := &workerv1.ServerMessage{
 		Payload: &workerv1.ServerMessage_TaskAssignment{
 			TaskAssignment: assignment,
@@ -425,7 +441,7 @@ func (d *WorkerDispatcher) sendCancel(sendCh chan<- *workerv1.ServerMessage, run
 
 // buildAssignment constructs a TaskAssignment for the given run and job,
 // including JWT run-token and HMAC signature (matching the HTTP dispatch path).
-func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, assignmentID string) *workerv1.TaskAssignment {
+func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, assignmentID string) (*workerv1.TaskAssignment, error) {
 	a := &workerv1.TaskAssignment{
 		RunId:       run.ID,
 		JobSlug:     job.Slug,
@@ -463,12 +479,16 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 	// HMAC-SHA256 body+timestamp signing (same algorithm as worker.SignHTTPDispatch
 	// in internal/worker/sign.go — reproduced here to avoid circular import).
 	if job.EndpointSigningSecret != "" {
+		signingSecret, err := straitcrypto.DecryptField(d.secretDecryptor, job.EndpointSigningSecret)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt endpoint signing secret: %w", err)
+		}
 		ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
 		a.HmacTimestamp = ts
-		a.HmacSignature = dispatchHMAC(job.EndpointSigningSecret, ts, run.Payload)
+		a.HmacSignature = dispatchHMAC(signingSecret, ts, run.Payload)
 	}
 
-	return a
+	return a, nil
 }
 
 // dispatchHMAC returns `v1=<hex-sha256>` for the given secret, timestamp, and
