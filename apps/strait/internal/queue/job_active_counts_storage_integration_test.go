@@ -8,7 +8,7 @@ import (
 )
 
 // TestMigration_JobActiveCountsStorage_AppliesParams reads pg_class.reloptions
-// and asserts the four storage params set by migration 000253 are present.
+// and asserts the four storage params set by migration 000258 are present.
 // Guards against regression of the hot-counter table tuning.
 func TestMigration_JobActiveCountsStorage_AppliesParams(t *testing.T) {
 	ctx := context.Background()
