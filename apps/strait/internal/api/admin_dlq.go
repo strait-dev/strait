@@ -137,7 +137,9 @@ func (s *Server) handleAdminListDLQ(ctx context.Context, input *ListAdminDLQInpu
 	}
 
 	var runs []domain.JobRun
-	if jobFilter != nil || maskedFilter != nil {
+	if environmentIDFromContext(ctx) != "" {
+		runs, err = s.listAdminDeadLetterRunsForEnvironment(ctx, projectID, jobFilter, maskedFilter, limit+1, cursor)
+	} else if jobFilter != nil || maskedFilter != nil {
 		runs, err = s.store.ListDeadLetterRunsFiltered(ctx, projectID, jobFilter, maskedFilter, limit+1, cursor)
 	} else {
 		runs, err = s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
@@ -149,6 +151,51 @@ func (s *Server) handleAdminListDLQ(ctx context.Context, input *ListAdminDLQInpu
 	return &ListAdminDLQOutput{Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
 		return run.CreatedAt.Format(time.RFC3339Nano)
 	})}, nil
+}
+
+func (s *Server) listAdminDeadLetterRunsForEnvironment(ctx context.Context, projectID string, jobFilter *string, maskedFilter *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	jobEnvCache := make(map[string]bool)
+	filtered := make([]domain.JobRun, 0, limit)
+	pageCursor := cursor
+	fetchLimit := max(limit, 25)
+
+	for {
+		var (
+			page []domain.JobRun
+			err  error
+		)
+		if jobFilter != nil || maskedFilter != nil {
+			page, err = s.store.ListDeadLetterRunsFiltered(ctx, projectID, jobFilter, maskedFilter, fetchLimit, pageCursor)
+		} else {
+			page, err = s.store.ListDeadLetterRuns(ctx, projectID, fetchLimit, pageCursor)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return filtered, nil
+		}
+
+		for _, run := range page {
+			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
+			filtered = append(filtered, run)
+			if len(filtered) >= limit {
+				return filtered, nil
+			}
+		}
+
+		if len(page) < fetchLimit {
+			return filtered, nil
+		}
+		lastCreatedAt := page[len(page)-1].CreatedAt
+		pageCursor = &lastCreatedAt
+	}
 }
 
 // POST /v1/admin/dlq/{run_id}/replay.

@@ -195,6 +195,98 @@ func TestHandleAdminListDLQ_ForbiddenWithoutScope(t *testing.T) {
 	}
 }
 
+func TestHandleAdminListDLQ_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListDeadLetterRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			return []domain.JobRun{
+				{ID: "run-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+			switch jobID {
+			case "job-prod":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(envScopedRunCtx(), ctxScopesKey, []string{domain.ScopeDLQRead})
+
+	out, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{Limit: "10"})
+	if err != nil {
+		t.Fatalf("handleAdminListDLQ: %v", err)
+	}
+
+	runs, ok := out.Body.Data.([]domain.JobRun)
+	if !ok {
+		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
+	}
+	if len(runs) != 1 || runs[0].ID != "run-prod" {
+		t.Fatalf("filtered admin DLQ runs = %+v, want only env-prod run", runs)
+	}
+}
+
+func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testing.T) {
+	t.Parallel()
+
+	filteredCalls := 0
+	unfilteredCalls := 0
+	ms := &APIStoreMock{
+		ListDeadLetterRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			unfilteredCalls++
+			return nil, nil
+		},
+		ListDeadLetterRunsFilteredFunc: func(_ context.Context, _ string, _ *string, masked *bool, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			filteredCalls++
+			if masked == nil || !*masked {
+				t.Fatalf("expected masked=true filter, got %v", masked)
+			}
+			return []domain.JobRun{
+				{ID: "run-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+			switch jobID {
+			case "job-prod":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(envScopedRunCtx(), ctxScopesKey, []string{domain.ScopeDLQRead})
+
+	out, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{Masked: "true", Limit: "10"})
+	if err != nil {
+		t.Fatalf("handleAdminListDLQ: %v", err)
+	}
+
+	runs, ok := out.Body.Data.([]domain.JobRun)
+	if !ok {
+		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
+	}
+	if len(runs) != 1 || runs[0].ID != "run-prod" {
+		t.Fatalf("filtered admin DLQ runs = %+v, want only env-prod run", runs)
+	}
+	if filteredCalls != 1 {
+		t.Fatalf("filtered store calls = %d, want 1", filteredCalls)
+	}
+	if unfilteredCalls != 0 {
+		t.Fatalf("unfiltered store calls = %d, want 0", unfilteredCalls)
+	}
+}
+
 // TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds verifies that
 // when the audit write fails after a successful mutation, the handler
 // still returns 200 (the mutation committed and cannot be rolled back)
