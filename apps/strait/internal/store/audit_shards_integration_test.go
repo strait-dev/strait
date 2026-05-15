@@ -122,25 +122,24 @@ func TestCreateAuditEvent_ShardChainsAreIndependent(t *testing.T) {
 	}
 }
 
-// TestCreateAuditEvent_ShardDoesNotPolluteLegacyChain asserts that a row
-// written under a non-empty shard_id does not appear as the tail for the
-// next legacy ('') write — and vice versa. The tail-read filter must be
-// shard-scoped on both paths.
-func TestCreateAuditEvent_ShardDoesNotPolluteLegacyChain(t *testing.T) {
+// TestCreateAuditEvent_AutoDerivesShardFromResourceType asserts that
+// CreateAuditEvent auto-derives shard_id from resource_type when the caller
+// leaves it blank. This is the production emit path post-Phase-4c: every
+// resource type lands in its own sub-chain without callers having to opt in.
+// Anchor rows are exempt (rotation / retention carry explicit shard_id).
+func TestCreateAuditEvent_AutoDerivesShardFromResourceType(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
 
 	q := mustStore(t)
 	q.SetSecretEncryptionKey(testEncKey)
-	key, _ := store.DeriveAuditSigningKey("shard-pollution-secret")
+	key, _ := store.DeriveAuditSigningKey("shard-autoderive-secret")
 	q.SetAuditSigningKey(key)
 
-	const projectID = "proj-shard-legacy"
+	const projectID = "proj-shard-autoderive"
 
-	// Write into shard "job" first.
-	shardEv := &domain.AuditEvent{
+	jobEv := &domain.AuditEvent{
 		ProjectID:    projectID,
-		ShardID:      "job",
 		ActorID:      "actor",
 		ActorType:    "user",
 		Action:       domain.AuditActionJobCreated,
@@ -148,37 +147,41 @@ func TestCreateAuditEvent_ShardDoesNotPolluteLegacyChain(t *testing.T) {
 		ResourceID:   "j-1",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, shardEv); err != nil {
-		t.Fatalf("CreateAuditEvent shardEv: %v", err)
+	if err := q.CreateAuditEvent(ctx, jobEv); err != nil {
+		t.Fatalf("CreateAuditEvent jobEv: %v", err)
+	}
+	if jobEv.ShardID != "job" {
+		t.Errorf("jobEv.ShardID = %q, want %q (auto-derived from resource_type)", jobEv.ShardID, "job")
+	}
+	if jobEv.SchemaVersion < 4 {
+		t.Errorf("jobEv.SchemaVersion = %d, want >= 4 (shard-aware writes force v4)", jobEv.SchemaVersion)
 	}
 
-	// Now write a legacy row (no ShardID). It must start from ZeroHash
-	// because the only existing tail in the project lives in a different
-	// shard and the tail-read filter excludes it.
-	legacyEv := &domain.AuditEvent{
+	// A second event of a different resource_type lands in its own shard
+	// and chains from ZeroHash, not from the prior jobEv.
+	wfEv := &domain.AuditEvent{
 		ProjectID:    projectID,
 		ActorID:      "actor",
 		ActorType:    "user",
 		Action:       domain.AuditActionJobCreated,
-		ResourceType: "job",
-		ResourceID:   "legacy",
+		ResourceType: "workflow",
+		ResourceID:   "w-1",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, legacyEv); err != nil {
-		t.Fatalf("CreateAuditEvent legacyEv: %v", err)
+	if err := q.CreateAuditEvent(ctx, wfEv); err != nil {
+		t.Fatalf("CreateAuditEvent wfEv: %v", err)
 	}
-	if legacyEv.PreviousHash != store.ZeroHash {
-		t.Errorf("legacyEv.PreviousHash = %s, want ZeroHash (legacy chain must not chain from a shard row)", legacyEv.PreviousHash)
+	if wfEv.ShardID != "workflow" {
+		t.Errorf("wfEv.ShardID = %q, want %q (auto-derived from resource_type)", wfEv.ShardID, "workflow")
 	}
-	if legacyEv.ShardID != "" {
-		t.Errorf("legacyEv.ShardID = %q, want '' (legacy writers must not be retagged)", legacyEv.ShardID)
+	if wfEv.PreviousHash != store.ZeroHash {
+		t.Errorf("wfEv.PreviousHash = %s, want ZeroHash (different shard must not chain from job tail)", wfEv.PreviousHash)
 	}
 
-	// Another shard write must chain from the prior shard tail, NOT from
-	// the legacy row that landed in between.
-	shardEv2 := &domain.AuditEvent{
+	// A subsequent job event chains from the job shard tail, not the
+	// workflow row that landed in between.
+	jobEv2 := &domain.AuditEvent{
 		ProjectID:    projectID,
-		ShardID:      "job",
 		ActorID:      "actor",
 		ActorType:    "user",
 		Action:       domain.AuditActionJobCreated,
@@ -186,14 +189,16 @@ func TestCreateAuditEvent_ShardDoesNotPolluteLegacyChain(t *testing.T) {
 		ResourceID:   "j-2",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, shardEv2); err != nil {
-		t.Fatalf("CreateAuditEvent shardEv2: %v", err)
+	if err := q.CreateAuditEvent(ctx, jobEv2); err != nil {
+		t.Fatalf("CreateAuditEvent jobEv2: %v", err)
 	}
-	if shardEv2.PreviousHash != shardEv.Signature {
-		t.Errorf("shardEv2.PreviousHash = %s, want shardEv.Signature = %s (shard chain must not chain from legacy row)", shardEv2.PreviousHash, shardEv.Signature)
+	if jobEv2.ShardID != "job" {
+		t.Errorf("jobEv2.ShardID = %q, want %q", jobEv2.ShardID, "job")
+	}
+	if jobEv2.PreviousHash != jobEv.Signature {
+		t.Errorf("jobEv2.PreviousHash = %s, want jobEv.Signature = %s (shard tail must skip workflow row)", jobEv2.PreviousHash, jobEv.Signature)
 	}
 
-	// Verifier accepts the mixed-shard chain.
 	result, verr := q.VerifyAuditChain(ctx, projectID)
 	if verr != nil {
 		t.Fatalf("VerifyAuditChain: %v", verr)
@@ -203,6 +208,64 @@ func TestCreateAuditEvent_ShardDoesNotPolluteLegacyChain(t *testing.T) {
 	}
 	if result.EventsChecked != 3 {
 		t.Errorf("EventsChecked = %d, want 3", result.EventsChecked)
+	}
+}
+
+// TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted asserts that a
+// pre-Phase-4 legacy row (seeded with shard_id = '' directly, simulating
+// rows that existed before the shard column landed) does not poison the
+// tail read for new auto-sharded writes. The empty shard remains its own
+// sub-chain and the new auto-derived shard chains from ZeroHash.
+func TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	key, _ := store.DeriveAuditSigningKey("shard-legacy-isolation-secret")
+	q.SetAuditSigningKey(key)
+
+	const projectID = "proj-shard-legacy-isolation"
+
+	// Seed a legacy row directly with shard_id = '' to simulate a row
+	// that existed before the shard column was introduced. We bypass
+	// CreateAuditEvent's auto-derivation by inserting raw — the row carries
+	// an empty signature, which the shard-scoped tail read filters out
+	// via signature != '' anyway, so it cannot serve as a chain anchor.
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO audit_events (
+			id, project_id, actor_id, actor_type, action,
+			resource_type, resource_id, details, signature, previous_hash,
+			created_at, schema_version, is_anchor, rotation_epoch, shard_id
+		) VALUES (
+			'legacy-1', $1, 'actor', 'user', 'test.legacy',
+			'job', 'r-1', '{}', '', '',
+			NOW() - INTERVAL '1 minute', 3, FALSE, 0, ''
+		)
+	`, projectID); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+
+	// Auto-derived shard write: ResourceType "job" → shard "job". Must
+	// start from ZeroHash because the only project row lives in shard '',
+	// not in shard "job".
+	jobEv := &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobCreated,
+		ResourceType: "job",
+		ResourceID:   "j-1",
+		Details:      json.RawMessage(`{}`),
+	}
+	if err := q.CreateAuditEvent(ctx, jobEv); err != nil {
+		t.Fatalf("CreateAuditEvent jobEv: %v", err)
+	}
+	if jobEv.ShardID != "job" {
+		t.Errorf("jobEv.ShardID = %q, want %q", jobEv.ShardID, "job")
+	}
+	if jobEv.PreviousHash != store.ZeroHash {
+		t.Errorf("jobEv.PreviousHash = %s, want ZeroHash (shard 'job' must not chain from legacy '' row)", jobEv.PreviousHash)
 	}
 }
 

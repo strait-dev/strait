@@ -255,41 +255,82 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 			return err
 		}
 
-		// Emit the anchor signed under the NEW epoch's key. Post-rotation
-		// events chain from this anchor and verify under the same key,
-		// so the anchor's own signature must also be bound to the new
-		// epoch — otherwise a compromise of the old key would let an
-		// attacker forge the anchor itself.
-		details, err := json.Marshal(map[string]any{
-			"previous_epoch": currentEpoch,
-			"new_epoch":      newEpoch,
-			"rotated_by":     actorID,
-		})
-		if err != nil {
-			return fmt.Errorf("marshal details: %w", err)
+		// Enumerate the shards that exist for this project at the moment
+		// of rotation. Each shard chain transitions to the new epoch via
+		// its own anchor; without a per-shard anchor a shard with prior
+		// rows would have no row carrying the new epoch and the chain
+		// would silently stall at the boundary. If no rows exist yet we
+		// still emit a single legacy-shard anchor so the rotation is
+		// recorded forensically and any future event in any shard can
+		// chain from a verified anchor.
+		rows, qErr := txQ.db.Query(ctx, `
+			SELECT DISTINCT shard_id
+			FROM audit_events
+			WHERE project_id = $1
+		`, projectID)
+		if qErr != nil {
+			return fmt.Errorf("read shards: %w", qErr)
 		}
-		ev := &domain.AuditEvent{
-			ProjectID:     projectID,
-			ActorID:       actorID,
-			ActorType:     "user",
-			Action:        domain.AuditActionKeyRotated,
-			ResourceType:  "audit_signing_key",
-			ResourceID:    fmt.Sprintf("epoch-%d", newEpoch),
-			Details:       json.RawMessage(details),
-			IsAnchor:      true,
-			RotationEpoch: newEpoch,
+		var shards []string
+		for rows.Next() {
+			var sid string
+			if scanErr := rows.Scan(&sid); scanErr != nil {
+				rows.Close()
+				return fmt.Errorf("scan shard: %w", scanErr)
+			}
+			shards = append(shards, sid)
+		}
+		rows.Close()
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return fmt.Errorf("rows err: %w", rowsErr)
+		}
+		if len(shards) == 0 {
+			shards = []string{""}
 		}
 
-		// Sign the anchor under the new key by swapping the tx Queries'
-		// signing key for the duration of the CreateAuditEvent call.
+		// Sign the anchors under the new key by swapping the tx Queries'
+		// signing key for the duration of the CreateAuditEvent calls.
 		// The tx Queries is already a fresh instance produced by WithTx,
 		// so the swap is confined to this tx.
 		prevKey := txQ.auditSigningKey
 		txQ.auditSigningKey = newKey
 		defer func() { txQ.auditSigningKey = prevKey }()
 
-		if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
-			return fmt.Errorf("write anchor: %w", err)
+		for _, shardID := range shards {
+			// Emit the anchor signed under the NEW epoch's key. Post-
+			// rotation events in this shard chain from this anchor and
+			// verify under the same key, so the anchor's own signature
+			// must also be bound to the new epoch — otherwise a
+			// compromise of the old key would let an attacker forge
+			// the anchor itself.
+			details, err := json.Marshal(map[string]any{
+				"previous_epoch": currentEpoch,
+				"new_epoch":      newEpoch,
+				"rotated_by":     actorID,
+				"shard_id":       shardID,
+			})
+			if err != nil {
+				return fmt.Errorf("marshal details: %w", err)
+			}
+			resourceID := fmt.Sprintf("epoch-%d", newEpoch)
+			if shardID != "" {
+				resourceID = fmt.Sprintf("epoch-%d-%s", newEpoch, shardID)
+			}
+			ev := &domain.AuditEvent{
+				ProjectID:     projectID,
+				ShardID:       shardID,
+				ActorID:       actorID,
+				ActorType:     "user",
+				Action:        domain.AuditActionKeyRotated,
+				ResourceType:  "audit_signing_key",
+				ResourceID:    resourceID,
+				Details:       json.RawMessage(details),
+				IsAnchor:      true,
+				RotationEpoch: newEpoch,
+			}
+			if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
+				return fmt.Errorf("write anchor (shard %q): %w", shardID, err)
+			}
 		}
 		return nil
 	})

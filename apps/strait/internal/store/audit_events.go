@@ -180,6 +180,18 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	if ev.SchemaVersion == 0 {
 		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
 	}
+	// Auto-derive shard_id from resource_type for normal events. The chain
+	// identity is (project_id, shard_id); routing each resource type into
+	// its own sub-chain caps per-shard write contention to that resource's
+	// write rate and lets independent resources verify in parallel. Anchor
+	// rows (key rotation, retention tombstones) carry their own explicit
+	// shard_id — either '' for the legacy chain or the affected shard for
+	// per-shard anchors — so we never overwrite it. Callers that need the
+	// legacy unsharded chain must clear ShardID explicitly and pass an
+	// anchor; ordinary writers do not opt out.
+	if !ev.IsAnchor && ev.ShardID == "" && ev.ResourceType != "" {
+		ev.ShardID = ev.ResourceType
+	}
 	// Shard-aware writes require at least v4 because the canonical form
 	// binds ShardID. Force the bump so a caller cannot accidentally chain
 	// a shard row under a v3 signature that omits the shard binding —
@@ -630,27 +642,31 @@ func acquireProjectRotationLock(ctx context.Context, q *Queries, projectID strin
 	return nil
 }
 
-// writeRetentionTombstone inserts a tombstone anchor row for a project that
-// just had rows trimmed. It is called inside the same transaction as the
-// DELETE so the tombstone and the trim commit (or roll back) together.
+// writeRetentionTombstone inserts a tombstone anchor row for a (project,
+// shard) sub-chain that just had rows trimmed. It is called inside the same
+// transaction as the DELETE so the tombstone and the trim commit (or roll
+// back) together. The tombstone is pinned to shardID so it lives in the same
+// sub-chain as the rows it justifies; a tombstone in shard A does not
+// justify a non-zero chain start in shard B.
 //
 // The tombstone's previous_hash is the most recent surviving row's signature
-// (or ZeroHash if the trim removed every row in the project's chain). Its
-// details carry {deleted_count, trimmed_before, previous_hash}. The row is
-// inserted via CreateAuditEvent so it obtains a real HMAC signature chained
-// from the surviving tail — VerifyAuditChain then naturally accepts it as a
-// chain-valid forensic marker.
+// in the same shard (or ZeroHash if the trim removed every row in the
+// shard). Its details carry {deleted_count, trimmed_before, previous_hash}.
+// The row is inserted via CreateAuditEvent so it obtains a real HMAC
+// signature chained from the surviving tail — VerifyAuditChain then
+// naturally accepts it as a chain-valid forensic marker per shard.
 //
 // Serialization: takes the same per-project rotation advisory lock as
 // RotateAuditSigningKey so an in-progress rotation cannot interleave between
 // the rotation_epoch read and the chain insert.
-func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string, cutoff time.Time, deleted int64) error {
+func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID, shardID string, cutoff time.Time, deleted int64) error {
 	if err := acquireProjectRotationLock(ctx, q, projectID); err != nil {
 		return fmt.Errorf("tombstone: %w", err)
 	}
 
 	// Read the max rotation_epoch for the project so the tombstone lives in
-	// the current epoch. If there are no surviving rows, default to 0.
+	// the current epoch. Rotation epochs are project-wide (per the shared
+	// audit_signing_keys schema) so the lookup is not shard-scoped.
 	var rotationEpoch int
 	if err := q.db.QueryRow(ctx, `
 		SELECT COALESCE(MAX(rotation_epoch), 0)
@@ -660,18 +676,19 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		return fmt.Errorf("tombstone: read rotation_epoch: %w", err)
 	}
 
-	// Capture the surviving chain tail signature for informational display in
-	// details. CreateAuditEvent will independently re-read and chain from the
-	// same tail via its CTE under pg_advisory_xact_lock.
+	// Capture the surviving chain tail signature for informational display
+	// in details. CreateAuditEvent will independently re-read and chain
+	// from the same tail under pg_advisory_xact_lock. Tail and surviving
+	// head lookups are scoped to this shard.
 	var prevHash string
 	if err := q.db.QueryRow(ctx, `
 		SELECT COALESCE(
 			(SELECT signature FROM audit_events
-			 WHERE project_id = $1 AND signature != ''
+			 WHERE project_id = $1 AND shard_id = $2 AND signature != ''
 			 ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
-			$2
+			$3
 		)
-	`, projectID, ZeroHash).Scan(&prevHash); err != nil {
+	`, projectID, shardID, ZeroHash).Scan(&prevHash); err != nil {
 		return fmt.Errorf("tombstone: read prev_hash: %w", err)
 	}
 
@@ -679,17 +696,17 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 	if err := q.db.QueryRow(ctx, `
 		SELECT COALESCE(
 			(SELECT id FROM audit_events
-			 WHERE project_id = $1
+			 WHERE project_id = $1 AND shard_id = $2
 			 ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1),
 			''
 		),
 		COALESCE(
 			(SELECT previous_hash FROM audit_events
-			 WHERE project_id = $1
+			 WHERE project_id = $1 AND shard_id = $2
 			 ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1),
-			$2
+			$3
 		)
-	`, projectID, ZeroHash).Scan(&firstSurvivingID, &chainStart); err != nil {
+	`, projectID, shardID, ZeroHash).Scan(&firstSurvivingID, &chainStart); err != nil {
 		return fmt.Errorf("tombstone: read surviving head: %w", err)
 	}
 
@@ -697,6 +714,7 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		"chain_start":              chainStart,
 		"deleted_count":            deleted,
 		"first_surviving_event_id": firstSurvivingID,
+		"shard_id":                 shardID,
 		"surviving_tail_signature": prevHash,
 		"trimmed_before":           cutoff.UTC().Format(time.RFC3339),
 		"previous_hash":            prevHash,
@@ -705,13 +723,18 @@ func (q *Queries) writeRetentionTombstone(ctx context.Context, projectID string,
 		return fmt.Errorf("tombstone: marshal details: %w", err)
 	}
 
+	resourceID := fmt.Sprintf("retention-%s", cutoff.UTC().Format(time.RFC3339))
+	if shardID != "" {
+		resourceID = fmt.Sprintf("retention-%s-%s", shardID, cutoff.UTC().Format(time.RFC3339))
+	}
 	ev := &domain.AuditEvent{
 		ProjectID:     projectID,
+		ShardID:       shardID,
 		ActorID:       "system",
 		ActorType:     "system",
 		Action:        domain.AuditActionRetentionTrimmed,
 		ResourceType:  "audit_events",
-		ResourceID:    fmt.Sprintf("retention-%s", cutoff.UTC().Format(time.RFC3339)),
+		ResourceID:    resourceID,
 		Details:       json.RawMessage(details),
 		IsAnchor:      true,
 		RotationEpoch: rotationEpoch,
@@ -755,20 +778,54 @@ func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, projectID string,
 	}
 
 	var deleted int64
-	err := q.withTxInheritKeys(ctx, func(tx *Queries) error {
-		tag, execE := tx.db.Exec(ctx, `
-			DELETE FROM audit_events
+	err := q.withTxInheritKeysOptions(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx *Queries) error {
+		// Enumerate affected shards before the DELETE so we can emit one
+		// tombstone per shard. Per-(project, shard) chains verify
+		// independently, so a shard with no rows trimmed must not receive a
+		// spurious anchor — the affected set is exactly the shards with at
+		// least one row < cutoff. REPEATABLE READ pins the snapshot so a
+		// concurrent insert into a previously-empty shard cannot get its
+		// row trimmed without a corresponding tombstone.
+		rows, qErr := tx.db.Query(ctx, `
+			SELECT DISTINCT shard_id
+			FROM audit_events
 			WHERE project_id = $1 AND created_at < $2
 		`, projectID, cutoff)
-		if execE != nil {
-			return fmt.Errorf("delete audit events before: %w", execE)
+		if qErr != nil {
+			return fmt.Errorf("discover affected shards: %w", qErr)
 		}
-		deleted = tag.RowsAffected()
-		if deleted == 0 {
-			// No rows trimmed: skip the tombstone. The chain is unchanged.
-			return nil
+		var shards []string
+		for rows.Next() {
+			var sid string
+			if scanErr := rows.Scan(&sid); scanErr != nil {
+				rows.Close()
+				return fmt.Errorf("scan affected shard: %w", scanErr)
+			}
+			shards = append(shards, sid)
 		}
-		return tx.writeRetentionTombstone(ctx, projectID, cutoff, deleted)
+		rows.Close()
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return fmt.Errorf("rows err: %w", rowsErr)
+		}
+
+		for _, sid := range shards {
+			tag, execE := tx.db.Exec(ctx, `
+				DELETE FROM audit_events
+				WHERE project_id = $1 AND shard_id = $2 AND created_at < $3
+			`, projectID, sid, cutoff)
+			if execE != nil {
+				return fmt.Errorf("delete audit events before (shard %q): %w", sid, execE)
+			}
+			n := tag.RowsAffected()
+			if n == 0 {
+				continue
+			}
+			deleted += n
+			if err := tx.writeRetentionTombstone(ctx, projectID, sid, cutoff, n); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return 0, err
@@ -800,59 +857,62 @@ func (q *Queries) DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff t
 	// the new row survives (to be picked up on the next reaper tick).
 	var total int64
 	err := q.withTxInheritKeysOptions(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx *Queries) error {
-		// Discover affected projects before the DELETE so we can emit one
-		// tombstone per project after trimming.
+		// Discover affected (project, shard) pairs before the DELETE so we
+		// can emit one tombstone per (project, shard). Per-(project, shard)
+		// chains verify independently, so the tombstone set must mirror the
+		// trim scope at that granularity.
 		var (
 			rows pgx.Rows
 			e    error
 		)
 		if len(excludeProjectIDs) == 0 {
 			rows, e = tx.db.Query(ctx, `
-				SELECT DISTINCT project_id
+				SELECT DISTINCT project_id, shard_id
 				FROM audit_events
 				WHERE created_at < $1
 			`, cutoff)
 		} else {
 			rows, e = tx.db.Query(ctx, `
-				SELECT DISTINCT project_id
+				SELECT DISTINCT project_id, shard_id
 				FROM audit_events
 				WHERE created_at < $1 AND project_id <> ALL($2::text[])
 			`, cutoff, excludeProjectIDs)
 		}
 		if e != nil {
-			return fmt.Errorf("discover affected projects: %w", e)
+			return fmt.Errorf("discover affected (project, shard) pairs: %w", e)
 		}
-		var affected []string
+		type pair struct{ project, shard string }
+		var affected []pair
 		for rows.Next() {
-			var pid string
-			if scanErr := rows.Scan(&pid); scanErr != nil {
+			var p pair
+			if scanErr := rows.Scan(&p.project, &p.shard); scanErr != nil {
 				rows.Close()
-				return fmt.Errorf("scan affected project: %w", scanErr)
+				return fmt.Errorf("scan affected (project, shard): %w", scanErr)
 			}
-			affected = append(affected, pid)
+			affected = append(affected, p)
 		}
 		rows.Close()
 		if rowsErr := rows.Err(); rowsErr != nil {
 			return fmt.Errorf("rows err: %w", rowsErr)
 		}
 
-		// Trim per-project so we know the exact delete count for each
-		// tombstone. One statement per project keeps the tombstone's
+		// Trim per-(project, shard) so we know the exact delete count for
+		// each tombstone. One statement per pair keeps the tombstone's
 		// deleted_count honest.
-		for _, pid := range affected {
+		for _, p := range affected {
 			tag, execE := tx.db.Exec(ctx, `
 				DELETE FROM audit_events
-				WHERE project_id = $1 AND created_at < $2
-			`, pid, cutoff)
+				WHERE project_id = $1 AND shard_id = $2 AND created_at < $3
+			`, p.project, p.shard, cutoff)
 			if execE != nil {
-				return fmt.Errorf("delete audit events before (project %s): %w", pid, execE)
+				return fmt.Errorf("delete audit events before (project %s, shard %q): %w", p.project, p.shard, execE)
 			}
 			n := tag.RowsAffected()
 			if n == 0 {
 				continue
 			}
 			total += n
-			if err := tx.writeRetentionTombstone(ctx, pid, cutoff, n); err != nil {
+			if err := tx.writeRetentionTombstone(ctx, p.project, p.shard, cutoff, n); err != nil {
 				return err
 			}
 		}
