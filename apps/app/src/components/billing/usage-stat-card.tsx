@@ -5,7 +5,7 @@ type Props = {
   value: string;
 };
 
-const MetricsCard = ({ label, value }: Props) => (
+const UsageStatCard = ({ label, value }: Props) => (
   <Card>
     <CardContent className="p-4">
       <p className="text-muted-foreground text-xs">{label}</p>
@@ -16,4 +16,4 @@ const MetricsCard = ({ label, value }: Props) => (
   </Card>
 );
 
-export default MetricsCard;
+export default UsageStatCard;

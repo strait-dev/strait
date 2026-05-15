@@ -224,9 +224,7 @@ function RouteComponent() {
                 <HeaderBreadcrumb />
               </div>
               <div className="flex items-center gap-1 sm:gap-2">
-                <span className="hidden sm:inline-flex">
-                  <ThemeToggle />
-                </span>
+                <ThemeToggle />
                 <span className="hidden sm:inline-flex">
                   <FeedbackDialog user={session.user} />
                 </span>

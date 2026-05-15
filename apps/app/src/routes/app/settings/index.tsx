@@ -30,6 +30,7 @@ import { CreditCardIcon, LinkSquareIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
+  head: () => ({ meta: [{ title: "Settings · Strait" }] }),
   loader: ({ context }) => {
     const { session } = context as AppRouteContext;
     return {
@@ -82,6 +83,7 @@ function RouteComponent() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Settings</h1>
       <div className="flex w-full flex-col gap-6">
         <Tabs className="w-full" defaultValue="account">
           <TabsList>

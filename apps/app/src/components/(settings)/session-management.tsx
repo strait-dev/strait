@@ -9,6 +9,7 @@ import {
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   sessionsQueryOptions,
   useRevokeAllSessions,
@@ -18,6 +19,7 @@ import {
 import { GlobeIcon, LoadingIcon, LogOutIcon } from "@/lib/icons";
 
 const SessionManagement = () => {
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery(sessionsQueryOptions());
   const revokeSession = useRevokeSession();
   const revokeOtherSessions = useRevokeOtherSessions();
@@ -53,7 +55,7 @@ const SessionManagement = () => {
   const handleSignOutEverywhere = async () => {
     try {
       await revokeAllSessions.mutateAsync();
-      window.location.href = "/login";
+      await navigate({ to: "/login", replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error

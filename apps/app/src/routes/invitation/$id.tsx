@@ -298,8 +298,8 @@ function RouteComponent() {
         </div>
 
         {acceptingError ? (
-          <div className="rounded-md border border-red-200 bg-red-50 p-3">
-            <p className="text-red-600 text-sm">{acceptingError}</p>
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <p className="text-destructive text-sm">{acceptingError}</p>
           </div>
         ) : null}
 

@@ -109,7 +109,7 @@ const RunDurationTrendsChart = ({
                 <XAxis
                   className="text-muted-foreground"
                   dataKey="job"
-                  tick={{ fontSize: 11 }}
+                  tick={{ fontSize: 14 }}
                 />
                 <YAxis
                   className="text-muted-foreground"

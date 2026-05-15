@@ -38,6 +38,7 @@ import {
   CheckmarkCircle01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
+  Copy01Icon,
   Delete02Icon,
   File01Icon,
   FlashIcon,
@@ -80,6 +81,7 @@ export const FilterIcon = _FilterIcon;
 export const RefreshIcon = Refresh01Icon;
 export const SearchIcon = Search01Icon;
 export const PencilEditIcon = PencilEdit02Icon;
+export const CopyIcon = Copy01Icon;
 
 // Status / feedback
 export const AlertIcon = Alert02Icon;
