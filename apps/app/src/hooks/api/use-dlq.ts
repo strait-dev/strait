@@ -84,16 +84,51 @@ export const dlqQueryOptions = (search?: ListParams & { search?: string }) =>
     placeholderData: keepPreviousData,
   });
 
+const removeIdsFromDlqLists = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  ids: string[]
+) => {
+  const idSet = new Set(ids);
+  queryClient.setQueriesData<PaginatedResponse<JobRun>>(
+    { queryKey: queryKeys.dlq.list._def },
+    (old) =>
+      old ? { ...old, data: old.data.filter((r) => !idSet.has(r.id)) } : old
+  );
+};
+
+const snapshotDlqLists = (queryClient: ReturnType<typeof useQueryClient>) =>
+  queryClient.getQueriesData<PaginatedResponse<JobRun>>({
+    queryKey: queryKeys.dlq.list._def,
+  });
+
+const restoreDlqLists = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  snapshot: ReturnType<typeof snapshotDlqLists>
+) => {
+  for (const [key, data] of snapshot) {
+    queryClient.setQueryData(key, data);
+  }
+};
+
 export const useRetryDlqItem = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["dlq", "retry"],
     mutationFn: (data: { id: string }) =>
       replayDlqRunFn({ data: { runId: data.id } }),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.dlq.list._def });
+      const previousLists = snapshotDlqLists(queryClient);
+      removeIdsFromDlqLists(queryClient, [variables.id]);
+      return { previousLists };
+    },
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_item_retried", { run_id: variables.id });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousLists) {
+        restoreDlqLists(queryClient, context.previousLists);
+      }
       getPostHog()?.capture("mutation_error", {
         action: "dlq_item_retried",
         error_message: err instanceof Error ? err.message : "Unknown error",
@@ -113,10 +148,19 @@ export const useDiscardDlqItem = () => {
     mutationKey: ["dlq", "discard"],
     mutationFn: (data: { id: string }) =>
       cancelRunFn({ data: { runId: data.id } }),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.dlq.list._def });
+      const previousLists = snapshotDlqLists(queryClient);
+      removeIdsFromDlqLists(queryClient, [variables.id]);
+      return { previousLists };
+    },
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_item_discarded", { run_id: variables.id });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousLists) {
+        restoreDlqLists(queryClient, context.previousLists);
+      }
       getPostHog()?.capture("mutation_error", {
         action: "dlq_item_discarded",
         error_message: err instanceof Error ? err.message : "Unknown error",
@@ -136,12 +180,21 @@ export const useBulkRetryDlq = () => {
     mutationKey: ["dlq", "bulkRetry"],
     mutationFn: (data: { ids: string[] }) =>
       bulkReplayDlqFn({ data: { run_ids: data.ids } }),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.dlq.list._def });
+      const previousLists = snapshotDlqLists(queryClient);
+      removeIdsFromDlqLists(queryClient, variables.ids);
+      return { previousLists };
+    },
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_bulk_retried", {
         count: variables.ids.length,
       });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousLists) {
+        restoreDlqLists(queryClient, context.previousLists);
+      }
       getPostHog()?.capture("mutation_error", {
         action: "dlq_bulk_retried",
         error_message: err instanceof Error ? err.message : "Unknown error",
@@ -161,12 +214,21 @@ export const useBulkDiscardDlq = () => {
     mutationKey: ["dlq", "bulkDiscard"],
     mutationFn: (data: { ids: string[] }) =>
       bulkCancelRunsFn({ data: { run_ids: data.ids } }),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.dlq.list._def });
+      const previousLists = snapshotDlqLists(queryClient);
+      removeIdsFromDlqLists(queryClient, variables.ids);
+      return { previousLists };
+    },
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("dlq_bulk_discarded", {
         count: variables.ids.length,
       });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousLists) {
+        restoreDlqLists(queryClient, context.previousLists);
+      }
       getPostHog()?.capture("mutation_error", {
         action: "dlq_bulk_discarded",
         error_message: err instanceof Error ? err.message : "Unknown error",
