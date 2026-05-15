@@ -15,7 +15,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -75,7 +75,13 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "id",
     header: "Run ID",
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.id.slice(0, 8)}</span>
+      <Link
+        className="font-mono text-xs hover:underline"
+        params={{ id: row.original.id }}
+        to="/app/runs/$id"
+      >
+        {row.original.id.slice(0, 8)}
+      </Link>
     ),
   },
   {
@@ -262,9 +268,11 @@ function WorkflowDetailPage() {
               ) : (
                 <div className="space-y-3">
                   {recentRuns.map((run) => (
-                    <div
-                      className="flex items-center gap-3 text-sm"
+                    <Link
+                      className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-accent"
                       key={run.id}
+                      params={{ id: run.id }}
+                      to="/app/runs/$id"
                     >
                       <StatusBadge
                         showDot
@@ -282,7 +290,7 @@ function WorkflowDetailPage() {
                           addSuffix: true,
                         })}
                       </span>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -130,6 +141,14 @@ function DlqPage() {
     bulkDiscard.mutate({ ids: selectedIds });
   }, [selectedIds, bulkDiscard]);
 
+  const allDlqIds = (typed?.data ?? []).map((r) => r.id);
+  const handleRetryAll = useCallback(() => {
+    if (allDlqIds.length === 0) {
+      return;
+    }
+    bulkRetry.mutate({ ids: allDlqIds });
+  }, [allDlqIds, bulkRetry]);
+
   const selectedErrorTypes = search.errorType ?? [];
 
   function toggleErrorType(errorType: string) {
@@ -223,7 +242,7 @@ function DlqPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {hasSelection && (
+        {hasSelection ? (
           <>
             <Button
               disabled={bulkRetry.isPending}
@@ -233,15 +252,81 @@ function DlqPage() {
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
               Retry Selected ({selectedIds.length})
             </Button>
-            <Button
-              disabled={bulkDiscard.isPending}
-              onClick={handleBulkDiscard}
-              variant="destructive"
-            >
-              <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
-              Discard Selected ({selectedIds.length})
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    disabled={bulkDiscard.isPending}
+                    variant="destructive"
+                  >
+                    <HugeiconsIcon
+                      className="mr-1.5"
+                      icon={TrashIcon}
+                      size={14}
+                    />
+                    Discard Selected ({selectedIds.length})
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Discard {selectedIds.length} run
+                    {selectedIds.length === 1 ? "" : "s"}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Discarded runs are permanently removed from the dead letter
+                    queue. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleBulkDiscard}>
+                    Discard
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </>
+        ) : (
+          totalCount > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    className="ml-auto"
+                    disabled={bulkRetry.isPending}
+                    variant="outline"
+                  >
+                    <HugeiconsIcon
+                      className="mr-1.5"
+                      icon={RefreshIcon}
+                      size={14}
+                    />
+                    Retry all ({totalCount})
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Retry all {totalCount} dead letter run
+                    {totalCount === 1 ? "" : "s"}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Every run currently in the DLQ will be re-enqueued.
+                    Long-failing jobs may simply fail again.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleRetryAll}>
+                    Retry all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )
         )}
       </div>
 
