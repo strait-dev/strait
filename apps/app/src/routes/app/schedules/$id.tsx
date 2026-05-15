@@ -47,6 +47,7 @@ import {
 } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/schedules/$id")({
+  head: () => ({ meta: [{ title: "Schedule · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),

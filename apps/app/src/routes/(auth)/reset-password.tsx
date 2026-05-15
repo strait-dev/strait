@@ -31,6 +31,7 @@ const resetPasswordSchema = z
   });
 
 export const Route = createFileRoute("/(auth)/reset-password")({
+  head: () => ({ meta: [{ title: "Reset password · Strait" }] }),
   validateSearch: resetPasswordSearchSchema,
   beforeLoad: ({ context, search }) => {
     if (context.isAuthenticated && !search.token) {

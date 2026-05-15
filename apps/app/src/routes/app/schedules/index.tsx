@@ -56,6 +56,7 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/schedules/")({
+  head: () => ({ meta: [{ title: "Schedules · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;

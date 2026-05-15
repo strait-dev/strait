@@ -83,6 +83,7 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
   });
 
 export const Route = createFileRoute("/app/enterprise-contact")({
+  head: () => ({ meta: [{ title: "Contact sales · Strait" }] }),
   errorComponent: ErrorComponent,
   component: EnterpriseContactPage,
 });

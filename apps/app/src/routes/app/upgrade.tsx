@@ -126,6 +126,7 @@ const upgradeSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/upgrade")({
+  head: () => ({ meta: [{ title: "Upgrade · Strait" }] }),
   validateSearch: zodValidator(upgradeSearchSchema),
   // Cloud-only: plan selection + Stripe checkout are not available
   // in the community edition. Redirect any inbound request to /app.

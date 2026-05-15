@@ -23,6 +23,7 @@ import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/org/$id")({
+  head: () => ({ meta: [{ title: "Organization · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(

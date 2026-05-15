@@ -62,6 +62,7 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/webhooks/")({
+  head: () => ({ meta: [{ title: "Webhooks · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;

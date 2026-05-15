@@ -74,6 +74,7 @@ import {
 import { CHART_COLORS } from "@/lib/status-colors";
 
 export const Route = createFileRoute("/app/jobs/$id")({
+  head: () => ({ meta: [{ title: "Job · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),

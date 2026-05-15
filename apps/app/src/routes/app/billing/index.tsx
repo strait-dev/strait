@@ -50,6 +50,7 @@ const UsageHistoryTab = lazy(
 );
 
 export const Route = createFileRoute("/app/billing/")({
+  head: () => ({ meta: [{ title: "Billing · Strait" }] }),
   // Cloud-only: Billing, usage history, spending limits, and Stripe
   // addon purchases are not available in the community edition.
   // See `src/lib/edition.ts` for the gate.

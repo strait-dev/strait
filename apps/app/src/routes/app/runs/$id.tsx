@@ -61,6 +61,7 @@ import {
 } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/runs/$id")({
+  head: () => ({ meta: [{ title: "Run details · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(runQueryOptions(params.id)),

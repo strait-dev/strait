@@ -77,6 +77,7 @@ const createWebhookSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/webhooks/new")({
+  head: () => ({ meta: [{ title: "New webhook · Strait" }] }),
   errorComponent: ErrorComponent,
   component: CreateWebhookPage,
 });

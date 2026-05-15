@@ -61,6 +61,7 @@ import {
 } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/workflows/$id")({
+  head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(workflowQueryOptions(params.id)),

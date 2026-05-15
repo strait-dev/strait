@@ -66,6 +66,7 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/dlq/")({
+  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;
