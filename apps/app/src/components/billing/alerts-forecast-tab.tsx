@@ -18,7 +18,7 @@ import {
 } from "@/hooks/billing/use-anomaly-config";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { capitalize } from "@/lib/format";
-import MetricsCard from "./metrics-card";
+import UsageStatCard from "./usage-stat-card";
 
 const SEVERITY_VARIANT: Record<
   string,
@@ -105,21 +105,21 @@ const AlertsForecastTab = () => {
           {forecast ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <MetricsCard
+                <UsageStatCard
                   label="Projected Runs"
                   value={(
                     forecast.projected_monthly_runs ?? 0
                   ).toLocaleString()}
                 />
-                <MetricsCard
+                <UsageStatCard
                   label="Projected Compute"
                   value={`$${(forecast.projected_monthly_compute_usd ?? 0).toFixed(2)}`}
                 />
-                <MetricsCard
+                <UsageStatCard
                   label="Projected AI Cost"
                   value={`$${(forecast.projected_monthly_ai_cost_usd ?? 0).toFixed(2)}`}
                 />
-                <MetricsCard
+                <UsageStatCard
                   label="Days Until Limit"
                   value={
                     forecast.days_until_limit === -1
