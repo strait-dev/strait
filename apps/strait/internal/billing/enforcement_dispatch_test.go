@@ -159,6 +159,8 @@ func TestCheckSpendingLimit_NoDispatcherIsNoOp(t *testing.T) {
 }
 
 func dispatchedEventTypes(d *fakeDispatcher) []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	out := make([]string, 0, len(d.calls))
 	for _, c := range d.calls {
 		out = append(out, c.eventType)

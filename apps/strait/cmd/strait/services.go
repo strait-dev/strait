@@ -457,6 +457,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			webhookOpts = append(webhookOpts, billing.WithBillingEmails(billingEmailSender))
 		}
 		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
+		webhookOpts = append(webhookOpts, billing.WithDunningStore(billingStore))
 		wh := billing.NewWebhookHandler(billingStore, stripeMapping, cfg.StripeWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
 		g.Go(func(ctx context.Context) error {
 			wh.StartReplayCleanup(ctx)
@@ -936,6 +937,14 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			).WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
 			slog.Info("anomaly monitor enabled")
+
+			dunner := billing.NewDunner(billingStore,
+				billing.WithDunnerEmails(billingEmailSender),
+				billing.WithDunnerAdminLookup(billingStore),
+				billing.WithDunnerLogger(slog.Default()),
+			)
+			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
+			slog.Info("dunning state machine enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this

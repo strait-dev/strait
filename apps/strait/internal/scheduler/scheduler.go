@@ -48,6 +48,7 @@ type Scheduler struct {
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
 	priorityPromoter         *PriorityPromoter
+	dunner                   DunnerRunner
 	counterReconciler        *CounterReconciler
 	claimReconciler          *ClaimReconciler
 	partitionEnsurer         *PartitionEnsurer
@@ -244,6 +245,21 @@ func WithAnomalyMonitor(monitor *AnomalyMonitor) SchedulerOption {
 	}
 }
 
+// DunnerRunner is the narrow interface the scheduler needs from a Dunner
+// (defined in internal/billing). Kept here so the scheduler does not have to
+// import the billing package just for a concrete type.
+type DunnerRunner interface {
+	Run(ctx context.Context)
+}
+
+// WithDunner registers a dunning-state-machine driver. The dunner is woken
+// on its own internal cadence; the scheduler only owns its lifecycle.
+func WithDunner(d DunnerRunner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.dunner = d
+	}
+}
+
 // WithUsageFlusher sets a usage flusher for periodic usage record materialization.
 func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	return func(s *Scheduler) {
@@ -338,6 +354,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.anomalyMonitor != nil {
 		s.tracker.track(ctx, &s.wg, "anomaly_monitor", func(componentCtx context.Context) { s.anomalyMonitor.Run(componentCtx) })
+	}
+	if s.dunner != nil {
+		s.tracker.track(ctx, &s.wg, "dunner", func(componentCtx context.Context) { s.dunner.Run(componentCtx) })
 	}
 	if s.gracePeriodEnforcer != nil {
 		s.tracker.track(ctx, &s.wg, "grace_period_enforcer", func(componentCtx context.Context) { s.gracePeriodEnforcer.Run(componentCtx) })

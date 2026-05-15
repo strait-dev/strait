@@ -47,6 +47,10 @@ func (m *mockReportStore) ListOrgAdminEmails(_ context.Context, orgID string) ([
 	return m.adminEmails[orgID], nil
 }
 
+func (m *mockReportStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
+}
+
 // Stub all remaining billing.Store methods.
 func (m *mockReportStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
 	return nil

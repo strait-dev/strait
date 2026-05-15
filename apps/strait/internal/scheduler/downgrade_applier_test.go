@@ -119,6 +119,9 @@ type mockEnforcerStore struct{}
 func (m *mockEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
 	return nil
 }
+func (m *mockEnforcerStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
+}
 func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 	return nil, billing.ErrSubscriptionNotFound

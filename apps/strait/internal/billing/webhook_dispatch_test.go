@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"strait/internal/domain"
 )
 
 type fakeDispatcher struct {
+	mu    sync.Mutex
 	calls []fakeDispatchCall
 	err   error
 }
@@ -22,6 +24,8 @@ type fakeDispatchCall struct {
 }
 
 func (f *fakeDispatcher) DispatchBillingEvent(_ context.Context, orgID, eventType string, payload []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, fakeDispatchCall{orgID: orgID, eventType: eventType, payload: payload})
 	return f.err
 }

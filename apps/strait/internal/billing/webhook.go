@@ -98,6 +98,7 @@ type WebhookHandler struct {
 	posthog           *PostHogClient
 	chExporter        billingEventEnqueuer
 	billingEmails     *BillingEmailSender
+	dunningStore      DunningStore
 	edition           string
 	devBypassSigCheck bool
 	allowTestMetadata bool
@@ -125,6 +126,14 @@ func WithWebhookClickHouse(exporter billingEventEnqueuer) WebhookOption {
 // WithBillingEmails sets the billing email sender for plan change notifications.
 func WithBillingEmails(sender *BillingEmailSender) WebhookOption {
 	return func(h *WebhookHandler) { h.billingEmails = sender }
+}
+
+// WithDunningStore wires the dunning state machine into Stripe webhook
+// handlers. invoice.payment_failed enters dunning at step 1 and invoice.paid
+// resolves the active cycle. When nil, dunning tracking is disabled and the
+// flat grace-period path remains the only failure-mode handling.
+func WithDunningStore(s DunningStore) WebhookOption {
+	return func(h *WebhookHandler) { h.dunningStore = s }
 }
 
 // WithEdition sets the application edition for security mode decisions.
@@ -1141,6 +1150,12 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		)
 	}
 
+	if h.dunningStore != nil {
+		if err := h.dunningStore.ResolveDunning(ctx, orgID, time.Now().UTC()); err != nil {
+			h.logger.Warn("resolve dunning on payment success failed", "org_id", orgID, "err", err)
+		}
+	}
+
 	h.posthog.CaptureRevenueEvent(orgID, "payment_received", map[string]any{
 		"plan":                   existing.PlanTier,
 		"stripe_subscription_id": sub.ID,
@@ -1215,6 +1230,12 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 				"amount_due_microusd":    invoice.AmountDue,
 				"attempt_count":          invoice.AttemptCount,
 			})
+	}
+
+	if h.dunningStore != nil {
+		if err := h.dunningStore.StartDunning(ctx, orgID, time.Now().UTC()); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			h.logger.Warn("start dunning on payment failure failed", "org_id", orgID, "err", err)
+		}
 	}
 
 	return nil
