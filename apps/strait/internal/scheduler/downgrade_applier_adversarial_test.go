@@ -37,7 +37,6 @@ var downgradeStrategyMap = map[string]string{
 	"OveragePerKMicrousd":     "n/a_static",
 	"AllowedRegions":          "n/a_static",
 	"RequiresCreditCard":      "n/a_static",
-	"OveragePerKRunsMicrousd": "n/a_static",
 	"SupportLevel":            "n/a_static",
 
 	// Per-tenant resource caps the applier already cleans up.

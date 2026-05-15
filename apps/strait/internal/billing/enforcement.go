@@ -1219,7 +1219,14 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 			if lockErr != nil || acquired {
 				break
 			}
-			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				lockErr = ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+			if lockErr != nil {
+				break
+			}
 		}
 		if lockErr == nil && acquired {
 			defer e.rdb.Del(ctx, lockKey)

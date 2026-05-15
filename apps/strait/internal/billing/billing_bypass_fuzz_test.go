@@ -247,8 +247,8 @@ func TestBypass_SpendingLimitCannotGoNegative(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		l := GetPlanLimits(tier)
-		if l.OveragePerKRunsMicrousd < 0 {
-			t.Errorf("plan %q has negative overage rate: %d", tier, l.OveragePerKRunsMicrousd)
+		if l.OveragePerKMicrousd < 0 {
+			t.Errorf("plan %q has negative overage rate: %d", tier, l.OveragePerKMicrousd)
 		}
 	}
 }

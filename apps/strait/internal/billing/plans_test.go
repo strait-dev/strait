@@ -352,8 +352,8 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 	if scale.MaxConcurrentRuns != ConcurrentScale {
 		t.Errorf("MaxConcurrentRuns = %d, want %d", scale.MaxConcurrentRuns, ConcurrentScale)
 	}
-	if scale.OveragePerKRunsMicrousd != ScaleOveragePerKMicrousd {
-		t.Errorf("OveragePerKRunsMicrousd = %d, want %d", scale.OveragePerKRunsMicrousd, ScaleOveragePerKMicrousd)
+	if scale.OveragePerKMicrousd != ScaleOveragePerKMicrousd {
+		t.Errorf("OveragePerKMicrousd = %d, want %d", scale.OveragePerKMicrousd, ScaleOveragePerKMicrousd)
 	}
 }
 
@@ -514,8 +514,8 @@ func TestPlanConstants_SpendingLimits(t *testing.T) {
 
 func TestPlanConstants_Overage(t *testing.T) {
 	t.Parallel()
-	if DefaultOveragePerKRunsMicrousd != 500_000 {
-		t.Errorf("DefaultOveragePerKRunsMicrousd = %d, want 500000", DefaultOveragePerKRunsMicrousd)
+	if DefaultOveragePerKMicrousd != 500_000 {
+		t.Errorf("DefaultOveragePerKMicrousd = %d, want 500000", DefaultOveragePerKMicrousd)
 	}
 }
 

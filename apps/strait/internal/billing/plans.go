@@ -13,7 +13,7 @@ type OrgPlanLimits struct {
 	MaxMembersPerOrg        int   // -1 = unlimited
 	MaxRunsPerDay           int64 // -1 = unlimited (legacy daily cap; see MaxRunsPerMonth)
 	MaxRunsPerMonth         int   // -1 = unlimited; monthly cap for orchestration billing
-	OveragePerKMicrousd     int64 // per-1K-run overage in micro-USD (new name); alias for OveragePerKRunsMicrousd
+	OveragePerKMicrousd     int64 // per-1K-run overage in micro-USD
 	MaxConcurrentRuns       int   // -1 = unlimited
 	RetentionDays           int
 	AllowedRegions          []string // nil = all
@@ -29,7 +29,6 @@ type OrgPlanLimits struct {
 	HasSSO                  bool
 	HasSLA                  bool
 	RequiresCreditCard      bool
-	OveragePerKRunsMicrousd int64  // cost per 1K runs overage in micro-USD
 	AllowsHTTPMode          bool   // whether HTTP execution mode is available
 	LogStreamingEnabled     bool   // whether log streaming is available
 	MaxDispatchPriority     int    // max enqueue priority value; 0 = default only, -1 = unlimited
@@ -119,7 +118,7 @@ const (
 	ConcurrentEnterprise = -1 // unlimited
 
 	// Overage cost per 1K runs in micro-USD (Notion canonical).
-	DefaultOveragePerKRunsMicrousd int64 = 500_000 // $0.50/1K
+	DefaultOveragePerKMicrousd int64 = 500_000 // $0.50/1K
 	FreeOveragePerKMicrousd        int64 = 500_000 // $0.50/1K
 	StarterOveragePerKMicrousd     int64 = 400_000 // $0.40/1K
 	ProOveragePerKMicrousd         int64 = 200_000 // $0.20/1K
@@ -230,7 +229,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      false,
-		OveragePerKRunsMicrousd: FreeOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     false,
 		MaxDispatchPriority:     MaxDispatchPriorityFree,
@@ -278,7 +276,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: StarterOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     true,
 		MaxDispatchPriority:     MaxDispatchPriorityStarter,
@@ -333,7 +330,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: ProOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     true,
 		MaxDispatchPriority:     MaxDispatchPriorityPro,
@@ -388,7 +384,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  false,
 		HasSLA:                  false,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: ScaleOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     true,
 		MaxDispatchPriority:     MaxDispatchPriorityScale,
@@ -443,7 +438,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  true,
 		HasSLA:                  true,
 		RequiresCreditCard:      true,
-		OveragePerKRunsMicrousd: BusinessOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     true,
 		MaxDispatchPriority:     -1,
@@ -504,7 +498,6 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		HasSSO:                  true,
 		HasSLA:                  true,
 		RequiresCreditCard:      false,
-		OveragePerKRunsMicrousd: EnterpriseOveragePerKMicrousd,
 		AllowsHTTPMode:          true,
 		LogStreamingEnabled:     true,
 		MaxDispatchPriority:     MaxDispatchPriorityEnterprise,

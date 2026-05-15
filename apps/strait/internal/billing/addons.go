@@ -136,7 +136,9 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 				result.MaxConcurrentRuns += increment
 			}
 		case AddonLogDrain10GB:
-			// LogDrainGB lives in PlanCatalog, not OrgPlanLimits; effect surfaced via catalog merge.
+			// LogDrain10GB is marketing-only; GB-level enforcement is intentionally
+			// not implemented (decision 2026-05-15). Drain-count enforcement remains
+			// via MaxLogDrainsPerOrg.
 		case AddonHistory30d:
 			if result.RetentionDays > 0 {
 				result.RetentionDays += increment
