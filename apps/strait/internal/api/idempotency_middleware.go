@@ -106,7 +106,7 @@ func (s *Server) idempotencyFailOpen() bool {
 // (timeout middleware, client disconnect). defer cancel() guarantees
 // timer release even if DeleteIdempotencyKey panics.
 func (s *Server) runIdempotencyCleanup(parentCtx context.Context, projectID, compositeKey, keyHash string) {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), s.idempotencyCleanupTimeout())
+	cleanupCtx, cancel := context.WithTimeout(store.ContextWithoutTx(context.WithoutCancel(parentCtx)), s.idempotencyCleanupTimeout())
 	defer cancel()
 	if _, err := s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey); err != nil {
 		slog.Warn("idempotency cleanup failed; pending row may block retries until TTL",
@@ -262,7 +262,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 				// write and force the next retry to re-execute the
 				// already-successful operation.
 				completeCtx, completeCancel := context.WithTimeout(
-					context.WithoutCancel(r.Context()),
+					store.ContextWithoutTx(context.WithoutCancel(r.Context())),
 					s.idempotencyCleanupTimeout(),
 				)
 				if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.headers, cw.body.Bytes()); completeErr != nil {

@@ -193,3 +193,20 @@ func TestTxFromContext_MissingReturnsFalse(t *testing.T) {
 		t.Fatal("expected no tx in bare context")
 	}
 }
+
+func TestContextWithoutTxMasksTransactionButPreservesValues(t *testing.T) {
+	t.Parallel()
+
+	type valueKey struct{}
+	base := context.WithValue(context.Background(), valueKey{}, "kept")
+	tx := &fakeTx{}
+
+	ctx := ContextWithoutTx(ContextWithTx(base, tx))
+
+	if _, ok := TxFromContext(ctx); ok {
+		t.Fatal("expected transaction to be hidden")
+	}
+	if got := ctx.Value(valueKey{}); got != "kept" {
+		t.Fatalf("preserved value = %v, want kept", got)
+	}
+}
