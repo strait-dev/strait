@@ -127,7 +127,7 @@ const MigrationCalculator = () => {
               Runs per month
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="runs"
               onChange={(e) => setRunsPerMonth(Number(e.target.value))}
               type="number"
@@ -139,7 +139,7 @@ const MigrationCalculator = () => {
               Compute hours/month
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="compute"
               onChange={(e) => setComputeHours(Number(e.target.value))}
               type="number"
@@ -151,7 +151,7 @@ const MigrationCalculator = () => {
               Team members
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="members"
               onChange={(e) => setTeamMembers(Number(e.target.value))}
               type="number"
@@ -163,7 +163,7 @@ const MigrationCalculator = () => {
               Current monthly cost ($)
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="cost"
               onChange={(e) => setCurrentCost(Number(e.target.value))}
               type="number"

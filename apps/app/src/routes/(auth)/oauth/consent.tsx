@@ -344,7 +344,7 @@ function OAuthConsentPage() {
         {/* Action buttons */}
         <div className="flex w-full gap-3">
           <button
-            className="flex-1 rounded-custom border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:opacity-50"
+            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:opacity-50"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(false)}
             type="button"
@@ -352,7 +352,7 @@ function OAuthConsentPage() {
             {status === "denying" ? "Denying..." : "Deny"}
           </button>
           <button
-            className="flex-1 rounded-custom bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(true)}
             type="button"

@@ -485,7 +485,7 @@ const UsageDashboard = () => {
             <div className="space-y-2">
               {usage.alerts.map((alert) => (
                 <div
-                  className="flex items-center justify-between rounded-custom bg-yellow-50 p-2 dark:bg-yellow-950"
+                  className="flex items-center justify-between rounded bg-yellow-50 p-2 dark:bg-yellow-950"
                   key={alert.dimension}
                 >
                   <span className="text-sm text-yellow-800 dark:text-yellow-200">

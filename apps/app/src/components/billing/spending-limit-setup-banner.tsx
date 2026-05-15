@@ -52,7 +52,7 @@ const SpendingLimitSetupBanner = () => {
   };
 
   return (
-    <div className="rounded-custom border border-border bg-card px-4 py-4">
+    <div className="rounded border border-border bg-card px-4 py-4">
       <div className="flex flex-col gap-3">
         <div>
           <p className="font-medium text-foreground text-sm">

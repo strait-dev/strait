@@ -5,6 +5,17 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@strait/ui/components/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@strait/ui/components/alert-dialog";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -35,7 +46,12 @@ import type {
   RunEvent,
   RunStatus,
 } from "@/hooks/api/types";
-import { runEventsQueryOptions, runQueryOptions } from "@/hooks/api/use-runs";
+import {
+  runEventsQueryOptions,
+  runQueryOptions,
+  useCancelRun,
+  useRetryRun,
+} from "@/hooks/api/use-runs";
 import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
@@ -75,6 +91,8 @@ function RunDetailPage() {
   };
   const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
+  const retryRun = useRetryRun();
+  const cancelRun = useCancelRun();
 
   if (!run) {
     return (
@@ -107,16 +125,48 @@ function RunDetailPage() {
         </div>
         <div className="flex shrink-0 gap-2">
           {isFailed && (
-            <Button variant="outline">
+            <Button
+              disabled={retryRun.isPending}
+              onClick={() => retryRun.mutate({ run_id: run.id })}
+              variant="outline"
+            >
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
-              Retry
+              {retryRun.isPending ? "Retrying…" : "Retry"}
             </Button>
           )}
           {isActive && (
-            <Button variant="outline">
-              <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
-              Cancel
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button disabled={cancelRun.isPending} variant="outline">
+                    <HugeiconsIcon
+                      className="mr-1.5"
+                      icon={XCircleIcon}
+                      size={14}
+                    />
+                    {cancelRun.isPending ? "Cancelling…" : "Cancel"}
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel this run?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The run is currently {run.status}. Cancelling stops
+                    execution and marks the run as canceled. This cannot be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep running</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => cancelRun.mutate({ run_id: run.id })}
+                  >
+                    Cancel run
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
       </div>

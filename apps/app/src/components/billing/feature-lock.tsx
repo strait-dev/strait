@@ -55,7 +55,7 @@ const FeatureLock = ({ feature, children }: FeatureLockProps) => {
         {children}
       </div>
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3 rounded-custom border border-border bg-card/95 px-6 py-5 shadow-sm backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-3 rounded border border-border bg-card/95 px-6 py-5 shadow-sm backdrop-blur-sm">
           <HugeiconsIcon
             className="size-5 text-muted-foreground"
             icon={KeyIcon}

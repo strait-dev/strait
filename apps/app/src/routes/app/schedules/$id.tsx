@@ -45,7 +45,9 @@ export const Route = createFileRoute("/app/schedules/$id")({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(runsQueryOptions()),
+      context.queryClient.ensureQueryData(
+        runsQueryOptions({ job_id: params.id })
+      ),
     ]);
   },
   pendingComponent: DetailPageSkeleton,
@@ -59,7 +61,7 @@ function ScheduleDetailPage() {
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
   };
-  const { data: runs } = useSuspenseQuery(runsQueryOptions()) as {
+  const { data: runs } = useSuspenseQuery(runsQueryOptions({ job_id: id })) as {
     data: PaginatedResponse<JobRun> | undefined;
   };
   const [activeTab, setActiveTab] = useState("history");

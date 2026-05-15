@@ -60,7 +60,7 @@ const OverageWarningBanner = () => {
 
   if (isInOverage) {
     return (
-      <div className="flex items-center justify-between rounded-custom border border-destructive/30 bg-destructive/5 px-4 py-3">
+      <div className="flex items-center justify-between rounded border border-destructive/30 bg-destructive/5 px-4 py-3">
         <p className="text-destructive text-sm">
           You're <strong>${overageDollars}</strong> over your included credit.
           Set a spending limit to control costs.
@@ -81,7 +81,7 @@ const OverageWarningBanner = () => {
   }
 
   return (
-    <div className="flex items-center justify-between rounded-custom border border-yellow-200 bg-yellow-50 px-4 py-3 dark:border-yellow-800 dark:bg-yellow-950">
+    <div className="flex items-center justify-between rounded border border-yellow-200 bg-yellow-50 px-4 py-3 dark:border-yellow-800 dark:bg-yellow-950">
       <p className="text-sm text-yellow-800 dark:text-yellow-200">
         You've used <strong>{Math.round(creditUsedPercent)}%</strong> of your $
         {includedCreditDollars} compute credit this period.

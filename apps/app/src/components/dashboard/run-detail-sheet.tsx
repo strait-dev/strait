@@ -8,10 +8,20 @@ import {
   SheetTitle,
 } from "@strait/ui/components/sheet";
 import { cn } from "@strait/ui/utils/index";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import type { DisplayStatus, JobRun } from "@/hooks/api/types";
-import { useCancelRun, useRetryRun } from "@/hooks/api/use-runs";
+import type {
+  DisplayStatus,
+  JobRun,
+  PaginatedResponse,
+  RunEvent,
+} from "@/hooks/api/types";
+import {
+  runEventsQueryOptions,
+  useCancelRun,
+  useRetryRun,
+} from "@/hooks/api/use-runs";
 import {
   AlertIcon,
   BriefcaseIcon,
@@ -76,6 +86,11 @@ function formatDuration(start: string | null, end: string | null): string {
 const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
+  const { data: eventsData } = useQuery({
+    ...runEventsQueryOptions(run?.id ?? ""),
+    enabled: Boolean(run?.id) && open,
+  }) as { data: PaginatedResponse<RunEvent> | undefined };
+  const events = eventsData?.data ?? [];
 
   if (!run) {
     return null;
@@ -203,10 +218,21 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
           )}
 
           {/* Logs */}
-          <CollapsibleSection defaultOpen title="Logs">
-            <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
-              No logs available for this run.
-            </pre>
+          <CollapsibleSection defaultOpen title={`Logs (${events.length})`}>
+            {events.length === 0 ? (
+              <p className="text-muted-foreground text-xs">
+                No log events for this run yet.
+              </p>
+            ) : (
+              <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap font-mono text-muted-foreground text-xs">
+                {events
+                  .map(
+                    (e) =>
+                      `[${new Date(e.created_at).toISOString()}] [${e.level?.toUpperCase() ?? "INFO"}] ${e.message}`
+                  )
+                  .join("\n")}
+              </pre>
+            )}
           </CollapsibleSection>
 
           {/* Payload */}

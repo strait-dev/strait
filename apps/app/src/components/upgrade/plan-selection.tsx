@@ -150,7 +150,7 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
   <div className="mt-4 grow space-y-2">
     {plan.features.slice(0, 8).map((feature: PricingFeature) => (
       <div className="flex items-start gap-2" key={feature.name}>
-        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-custom text-foreground">
+        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded text-foreground">
           <RadixCheckIcon className="size-3" />
         </div>
         <span className="text-muted-foreground/80 text-xs">
@@ -234,7 +234,7 @@ const PricingCard = ({
     <button
       className={cn(
         "group relative w-full text-left",
-        "rounded-custom",
+        "rounded",
         "bg-card",
         "border-2",
         isSelected
@@ -426,7 +426,7 @@ export const PlanSelection = ({
       <PricingCalculator />
 
       {/* No surprise bills callout */}
-      <div className="mx-auto max-w-xl rounded-custom border border-border bg-muted/30 p-4 text-center">
+      <div className="mx-auto max-w-xl rounded border border-border bg-muted/30 p-4 text-center">
         <p className="font-medium text-foreground text-sm">No surprise bills</p>
         <p className="mt-1 text-muted-foreground text-xs">
           Set a spending limit on any paid plan. When you reach it, runs stop —
