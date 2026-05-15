@@ -180,6 +180,13 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	if ev.SchemaVersion == 0 {
 		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
 	}
+	// Shard-aware writes require at least v4 because the canonical form
+	// binds ShardID. Force the bump so a caller cannot accidentally chain
+	// a shard row under a v3 signature that omits the shard binding —
+	// that would allow flipping shard_id without invalidating the HMAC.
+	if ev.ShardID != "" && ev.SchemaVersion < 4 {
+		ev.SchemaVersion = 4
+	}
 
 	// Atomic signed insert.
 	//
@@ -209,11 +216,26 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			ev.RotationEpoch = currentEpoch
 		}
 
-		// Chain lock. AdvisoryLockNsAuditChain namespaces the hash so it
-		// cannot collide with AdvisoryLockNsAuditRotate — both touch
-		// audit_events for the same project but serialize on their own
-		// domain. The lock is transaction-scoped via pg_advisory_xact_lock.
-		if err := AcquireAdvisoryLock(ctx, tx, AdvisoryLockNsAuditChain, ev.ProjectID); err != nil {
+		// Chain lock. Legacy (empty shard_id) writes serialize under
+		// AdvisoryLockNsAuditChain (per-project) so the pre-shard lock
+		// domain is unchanged for callers that do not set ev.ShardID.
+		// Non-empty shards serialize under AdvisoryLockNsAuditChainShard
+		// with key `<projectID>:<shardID>` so unrelated shards in the
+		// same project do not contend on a single advisory key.
+		//
+		// Both namespaces are distinct from AdvisoryLockNsAuditRotate so
+		// rotation + retention writes serialize against each other (and
+		// against chain inserts via acquireProjectRotationLock above)
+		// without forcing two unrelated shards in the same project to
+		// queue on the same chain lock. The lock is transaction-scoped
+		// via pg_advisory_xact_lock.
+		chainLockNs := AdvisoryLockNsAuditChain
+		chainLockKey := ev.ProjectID
+		if ev.ShardID != "" {
+			chainLockNs = AdvisoryLockNsAuditChainShard
+			chainLockKey = ev.ProjectID + ":" + ev.ShardID
+		}
+		if err := AcquireAdvisoryLock(ctx, tx, chainLockNs, chainLockKey); err != nil {
 			return fmt.Errorf("create audit event: chain lock: %w", err)
 		}
 
@@ -223,16 +245,21 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 
 		// Read the tail signature under the lock so no concurrent writer
-		// can slip a row between this read and our insert.
+		// can slip a row between this read and our insert. The shard_id
+		// filter scopes the chain tail to the row's own sub-chain:
+		// legacy writers never chain from a sharded row, and shard
+		// writers never chain from a legacy row. Combined with the v4
+		// HMAC binding of shard_id this makes shards cryptographically
+		// independent sub-chains within a single project.
 		var prevHash string
 		if err := tx.db.QueryRow(ctx, `
 			SELECT COALESCE(
 			    (SELECT signature FROM audit_events
-			     WHERE project_id = $1 AND signature != ''
+			     WHERE project_id = $1 AND shard_id = $2 AND signature != ''
 			     ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
-			    $2
+			    $3
 			)
-		`, ev.ProjectID, ZeroHash).Scan(&prevHash); err != nil {
+		`, ev.ProjectID, ev.ShardID, ZeroHash).Scan(&prevHash); err != nil {
 			return fmt.Errorf("create audit event: read prev hash: %w", err)
 		}
 		ev.PreviousHash = prevHash
@@ -840,6 +867,14 @@ func (q *Queries) DeleteAuditEventsBeforeExcluding(ctx context.Context, cutoff t
 // VerifyAuditChain replays the audit event chain for a project in chronological
 // order and verifies that each event's HMAC signature is valid and that the
 // previous_hash linkage is unbroken.
+//
+// Sharded chains: rows are grouped by shard_id and each shard is verified as
+// an independent sub-chain. The (project_id, shard_id) tuple is the chain
+// identity — within a shard, previous_hash must form an unbroken cryptographic
+// linkage starting from either ZeroHash or a retention tombstone that justifies
+// the non-zero start; across shards there is no linkage. Legacy rows (empty
+// shard_id) form their own sub-chain and verify identically to the pre-shard
+// behavior.
 func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.VerifyAuditChain")
 	defer span.End()
@@ -848,11 +883,13 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		return nil, fmt.Errorf("audit signing key is not configured")
 	}
 
-	// Ordering: rotation_epoch ASC, then created_at ASC. Anchor rows are
-	// the first row of their new epoch by construction (they are inserted
-	// under the newly-bumped epoch before any other post-rotation writes).
-	// Within an epoch, created_at preserves insertion order as the chain
-	// serialization is HMAC-bound to previous_hash.
+	// Ordering: shard_id ASC first so each shard's rows are contiguous in
+	// the cursor, then rotation_epoch ASC and created_at ASC within a
+	// shard. Anchor rows are the first row of their new epoch by
+	// construction (they are inserted under the newly-bumped epoch before
+	// any other post-rotation writes). Within an epoch, created_at
+	// preserves insertion order as the chain serialization is HMAC-bound
+	// to previous_hash.
 	//
 	// Per-epoch keys: rows are grouped by rotation_epoch and verified
 	// under the key stored in audit_signing_keys for that (project, epoch).
@@ -861,7 +898,8 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 	// predate per-epoch key derivation. Anchor rows must verify under
 	// their OWN epoch's (new) key, not the previous epoch's, because
 	// post-rotation events chain from the anchor and verify under the
-	// same new key.
+	// same new key. Signing keys remain per-(project, epoch) — all shards
+	// in a project share the same key material.
 	epochKeyCache, err := q.preloadEpochKeys(ctx, projectID, "")
 	if err != nil {
 		return nil, err
@@ -873,7 +911,7 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		       is_anchor, rotation_epoch, shard_id
 		FROM audit_events
 		WHERE project_id = $1
-		ORDER BY rotation_epoch ASC, created_at ASC, id ASC`
+		ORDER BY shard_id ASC, rotation_epoch ASC, created_at ASC, id ASC`
 
 	rows, err := q.db.Query(ctx, query, projectID)
 	if err != nil {
@@ -886,9 +924,29 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 		Valid:     true,
 	}
 
-	var expectedPrevHash string
-	first := true
-	retentionTombstoneJustifiesStart := false
+	var (
+		shardSeen               bool
+		currentShard            string
+		shardExpectedPrevHash   string
+		shardFirstEventID       string
+		shardChainStart         string
+		shardTombstoneJustifies bool
+	)
+
+	// closeShard runs end-of-shard validation: a non-zero chain start must
+	// be justified by a retention tombstone within the same shard. Each
+	// shard is its own sub-chain so a tombstone in one shard does not
+	// justify the start of another.
+	closeShard := func() {
+		if shardFirstEventID == "" {
+			return
+		}
+		if shardChainStart != ZeroHash && !shardTombstoneJustifies && result.Valid {
+			result.Valid = false
+			result.BrokenAtID = shardFirstEventID
+			result.Error = fmt.Sprintf("chain starts from non-zero previous_hash %s without a matching signed retention tombstone", shardChainStart)
+		}
+	}
 
 	for rows.Next() {
 		var ev domain.AuditEvent
@@ -896,26 +954,40 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			return nil, fmt.Errorf("verify audit chain scan: %w", err)
 		}
 
+		if !shardSeen || ev.ShardID != currentShard {
+			// Boundary: close the previous shard and reset chain state
+			// for the new shard. expectedPrevHash resets so cross-shard
+			// linkage is never required (or accepted).
+			if shardSeen {
+				closeShard()
+				if !result.Valid {
+					return result, nil
+				}
+			}
+			shardSeen = true
+			currentShard = ev.ShardID
+			shardExpectedPrevHash = ev.PreviousHash
+			shardFirstEventID = ev.ID
+			shardChainStart = ev.PreviousHash
+			shardTombstoneJustifies = false
+		}
+
 		result.EventsChecked++
 		if result.FirstEventID == "" {
 			result.FirstEventID = ev.ID
+			result.ChainStart = ev.PreviousHash
 		}
 		result.LastEventID = ev.ID
+
 		if ev.Action == domain.AuditActionRetentionTrimmed && ev.IsAnchor {
-			retentionTombstoneJustifiesStart = retentionTombstoneJustifiesStart ||
-				auditRetentionTombstoneJustifiesStart(ev, result.FirstEventID, result.ChainStart)
+			shardTombstoneJustifies = shardTombstoneJustifies ||
+				auditRetentionTombstoneJustifiesStart(ev, shardFirstEventID, shardChainStart)
 		}
 
-		if first {
-			expectedPrevHash = ev.PreviousHash
-			result.ChainStart = ev.PreviousHash
-			first = false
-		}
-
-		if ev.PreviousHash != expectedPrevHash {
+		if ev.PreviousHash != shardExpectedPrevHash {
 			result.Valid = false
 			result.BrokenAtID = ev.ID
-			result.Error = fmt.Sprintf("chain broken at event %s: previous_hash mismatch (expected %s, got %s)", ev.ID, expectedPrevHash, ev.PreviousHash)
+			result.Error = fmt.Sprintf("chain broken at event %s: previous_hash mismatch (expected %s, got %s)", ev.ID, shardExpectedPrevHash, ev.PreviousHash)
 			return result, nil
 		}
 
@@ -930,16 +1002,14 @@ func (q *Queries) VerifyAuditChain(ctx context.Context, projectID string) (*doma
 			return result, nil
 		}
 
-		expectedPrevHash = ev.Signature
+		shardExpectedPrevHash = ev.Signature
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("verify audit chain rows: %w", err)
 	}
-	if result.EventsChecked > 0 && result.ChainStart != ZeroHash && !retentionTombstoneJustifiesStart {
-		result.Valid = false
-		result.BrokenAtID = result.FirstEventID
-		result.Error = fmt.Sprintf("chain starts from non-zero previous_hash %s without a matching signed retention tombstone", result.ChainStart)
+	if shardSeen {
+		closeShard()
 	}
 
 	return result, nil
