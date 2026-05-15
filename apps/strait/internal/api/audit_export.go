@@ -136,6 +136,21 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	actorID := input.ActorID
 	resourceType := input.ResourceType
+	auditDetails := map[string]any{
+		"from":                 input.From,
+		"to":                   input.To,
+		"format":               format,
+		"filter_actor":         input.ActorID,
+		"filter_resource_type": input.ResourceType,
+	}
+	if err := s.createRequiredAuditEvent(ctx, domain.AuditActionAuditExported, "audit", projectID, auditDetails); err != nil {
+		slog.Warn("failed to create required audit export event", "project_id", projectID, "error", err)
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "required_write_failed")))
+		}
+		return nil, huma.Error500InternalServerError("failed to record audit export")
+	}
 
 	// Derive HMAC signing key if configured. InternalSecret (INTERNAL_SECRET)
 	// is the correct source key: it is the platform auth key, which is the
@@ -191,18 +206,8 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
 	}
 
-	s.emitAuditEvent(ctx, domain.AuditActionAuditExported, "audit", projectID, map[string]any{
-		"from":                 input.From,
-		"to":                   input.To,
-		"format":               format,
-		"filter_actor":         input.ActorID,
-		"filter_resource_type": input.ResourceType,
-		"exported":             exported,
-		"capped":               capped,
-	})
-
 	if capped {
-		s.emitAuditEvent(ctx, domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
+		s.emitAuditEvent(context.WithoutCancel(ctx), domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
 			"exported": exported,
 			"cap":      rowCap,
 		})

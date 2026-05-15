@@ -161,6 +161,25 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 	}
 }
 
+// createRequiredAuditEvent persists an audit row for security-sensitive
+// operations that must fail closed when they cannot be audited before
+// returning protected data.
+func (s *Server) createRequiredAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) error {
+	ev, err := s.buildAuditEvent(ctx, action, resourceType, resourceID, details)
+	if err != nil {
+		return err
+	}
+	if ev == nil {
+		return errors.New("audit event was not built")
+	}
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.store.CreateAuditEvent(auditCtx, ev); err != nil {
+		return err
+	}
+	return nil
+}
+
 type CreateRoleInput struct{ Body createRoleRequest }
 type CreateRoleOutput struct{ Body *domain.ProjectRole }
 
