@@ -65,7 +65,7 @@ func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
 
 	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 
-	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"my-plain-secret"}`
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 
@@ -77,19 +77,21 @@ func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
 		t.Fatal("CreateWebhookSubscription was not called")
 	}
 
-	// The secret stored should be encrypted, not the plaintext input.
-	if storedSub.Secret == "my-plain-secret" {
-		t.Fatal("webhook subscription secret was stored in plaintext, expected encrypted value")
+	// Stored secret must be encrypted: it should start with the mock prefix
+	// rather than the plaintext whsec_ prefix the server generates.
+	if len(storedSub.Secret) >= 6 && storedSub.Secret[:6] == "whsec_" {
+		t.Fatalf("stored secret %q is plaintext, expected encrypted value", storedSub.Secret)
 	}
 
-	// Verify the encrypted value can be decrypted back to the original.
+	// Decrypting the stored value yields the server-generated whsec_-prefixed
+	// signing secret.
 	enc := &mockEncryptor{}
 	decrypted, err := enc.Decrypt([]byte(storedSub.Secret))
 	if err != nil {
 		t.Fatalf("failed to decrypt stored secret: %v", err)
 	}
-	if string(decrypted) != "my-plain-secret" {
-		t.Fatalf("decrypted secret = %q, want %q", string(decrypted), "my-plain-secret")
+	if len(decrypted) < 6 || string(decrypted[:6]) != "whsec_" {
+		t.Fatalf("decrypted secret %q should start with whsec_", string(decrypted))
 	}
 }
 
@@ -109,7 +111,7 @@ func TestHandleCreateWebhookSubscription_WithoutEncryptor_StoresRaw(t *testing.T
 	// No encryptor provided.
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"my-plain-secret"}`
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 
@@ -121,9 +123,9 @@ func TestHandleCreateWebhookSubscription_WithoutEncryptor_StoresRaw(t *testing.T
 		t.Fatal("CreateWebhookSubscription was not called")
 	}
 
-	// Without encryptor, secret is stored as-is (backward compatible).
-	if storedSub.Secret != "my-plain-secret" {
-		t.Fatalf("without encryptor, secret should be stored raw, got %q", storedSub.Secret)
+	// Without encryptor, the server-generated whsec_ secret is stored as-is.
+	if len(storedSub.Secret) < 6 || storedSub.Secret[:6] != "whsec_" {
+		t.Fatalf("without encryptor, secret should be the raw whsec_ value, got %q", storedSub.Secret)
 	}
 }
 

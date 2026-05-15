@@ -1498,6 +1498,54 @@ func (q *Queries) ReplayDeadLetterRun(ctx context.Context, runID string) (*domai
 	return nil, fmt.Errorf("%w: run %s has status %s, expected dead_letter", ErrRunConflict, runID, status)
 }
 
+// SnoozeRunWithLock transitions a run from `from` to `to` while holding a
+// pessimistic row lock obtained via SELECT ... FOR UPDATE SKIP LOCKED. If
+// another transaction currently holds the row (reaper, completion, sibling
+// worker), the function returns ErrRunLocked so callers can no-op cleanly
+// instead of dueling for the status update.
+//
+// The caller observes one of:
+//   - nil: row was locked and successfully transitioned.
+//   - ErrRunLocked: row exists in `from` but is held by another tx.
+//   - ErrRunConflict: row exists but is no longer in `from`.
+//   - ErrRunNotFound: row does not exist.
+//   - any other error: genuine DB failure.
+func (q *Queries) SnoozeRunWithLock(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.SnoozeRunWithLock")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("snooze run with lock: underlying db does not support transactions")
+	}
+
+	return WithTx(ctx, beginner, func(txQ *Queries) error {
+		var locked string
+		err := txQ.db.QueryRow(ctx, `
+			SELECT id FROM job_runs
+			WHERE id = $1 AND status = $2
+			FOR UPDATE SKIP LOCKED`, id, from).Scan(&locked)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				var actual domain.RunStatus
+				statusErr := txQ.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&actual)
+				if statusErr != nil {
+					if errors.Is(statusErr, pgx.ErrNoRows) {
+						return ErrRunNotFound
+					}
+					return fmt.Errorf("snooze run with lock: disambiguate: %w", statusErr)
+				}
+				if actual != from {
+					return fmt.Errorf("%w: id %s from %s actual %s", ErrRunConflict, id, from, actual)
+				}
+				return ErrRunLocked
+			}
+			return fmt.Errorf("snooze run with lock: select: %w", err)
+		}
+		return txQ.UpdateRunStatus(ctx, id, from, to, fields)
+	})
+}
+
 func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunStatus")
 	defer span.End()

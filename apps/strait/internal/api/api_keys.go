@@ -14,24 +14,32 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
+// maxAPIKeyDurationDays caps expires_in_days and rotation_interval_days at
+// 100 years. time.Duration(days)*24*time.Hour overflows once days exceeds
+// ~106,750, and even an "expires never" intent is not a good reason to
+// open the API to user-controlled int64 overflow.
+const maxAPIKeyDurationDays = 36500
+
 type CreateAPIKeyRequest struct {
 	ProjectID            string   `json:"project_id" validate:"required"`
 	OrgID                string   `json:"org_id,omitempty"`
 	Name                 string   `json:"name" validate:"required,max=255"`
 	Scopes               []string `json:"scopes,omitempty"`
-	ExpiresIn            *int     `json:"expires_in_days,omitempty"`
+	ExpiresIn            *int     `json:"expires_in_days,omitempty" validate:"omitempty,min=1,max=36500"`
 	EnvironmentID        string   `json:"environment_id,omitempty"`
-	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty"`
+	RotationIntervalDays *int     `json:"rotation_interval_days,omitempty" validate:"omitempty,min=1,max=36500"`
+	RotationWebhookURL   string   `json:"rotation_webhook_url,omitempty" validate:"omitempty,url,max=2048"`
 }
 type CreateAPIKeyResponse struct {
-	ID        string     `json:"id"`
-	ProjectID string     `json:"project_id"`
-	Name      string     `json:"name"`
-	Key       string     `json:"key"`
-	KeyPrefix string     `json:"key_prefix"`
-	Scopes    []string   `json:"scopes"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID                    string     `json:"id"`
+	ProjectID             string     `json:"project_id"`
+	Name                  string     `json:"name"`
+	Key                   string     `json:"key"`
+	KeyPrefix             string     `json:"key_prefix"`
+	Scopes                []string   `json:"scopes"`
+	ExpiresAt             *time.Time `json:"expires_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	RotationWebhookSecret string     `json:"rotation_webhook_secret,omitempty"`
 }
 type RotateAPIKeyRequest struct {
 	GracePeriodMinutes int `json:"grace_period_minutes,omitempty"`
@@ -90,10 +98,26 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		return nil, err
 	}
 
-	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays}
+	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:12], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays, RotationWebhookURL: req.RotationWebhookURL}
 	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
 		key.NextRotationAt = &nr
+	}
+	var rotationWebhookSecretPlaintext string
+	if req.RotationWebhookURL != "" {
+		if s.encryptor == nil {
+			return nil, huma.Error500InternalServerError("server not configured for rotation webhook signing: ENCRYPTION_KEY required")
+		}
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err != nil {
+			return nil, huma.Error500InternalServerError("failed to generate rotation webhook secret")
+		}
+		ciphertext, err := s.encryptor.Encrypt(secretBytes)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to encrypt rotation webhook secret")
+		}
+		key.RotationWebhookSecret = ciphertext
+		rotationWebhookSecretPlaintext = "whsec_" + hex.EncodeToString(secretBytes)
 	}
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
@@ -105,8 +129,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		"expires_at":             key.ExpiresAt,
 		"environment_id":         key.EnvironmentID,
 		"rotation_interval_days": req.RotationIntervalDays,
+		"rotation_webhook_url":   key.RotationWebhookURL,
 	})
-	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt}}, nil
+	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, RotationWebhookSecret: rotationWebhookSecretPlaintext}}, nil
 }
 
 func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {
@@ -118,14 +143,17 @@ func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID st
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
-		maxExpiry := time.Now().Add(time.Duration(quota.MaxKeyLifetimeDays) * 24 * time.Hour)
+		// Cap the project quota itself at maxAPIKeyDurationDays so a misconfigured
+		// "huge" quota cannot wrap time.Duration math into a past timestamp.
+		effectiveMaxDays := min(quota.MaxKeyLifetimeDays, maxAPIKeyDurationDays)
+		maxExpiry := time.Now().Add(time.Duration(effectiveMaxDays) * 24 * time.Hour)
 		if expiresAt == nil {
 			expiresAt = &maxExpiry
 			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
-				"project_id", projectID, "max_days", quota.MaxKeyLifetimeDays)
+				"project_id", projectID, "max_days", effectiveMaxDays)
 		} else if expiresAt.After(maxExpiry) {
 			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", quota.MaxKeyLifetimeDays))
+				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", effectiveMaxDays))
 		}
 	}
 	if expiresAt == nil {

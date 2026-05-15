@@ -165,11 +165,11 @@ func TestCreateAPIKey_Adversarial_ExpiresZero_Rejected(t *testing.T) {
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":0}`)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400/422; body: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "expires_in_days must be greater than 0") {
-		t.Fatalf("error should mention positive expires_in_days: %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "ExpiresIn") && !strings.Contains(w.Body.String(), "expires_in_days") {
+		t.Fatalf("error should mention ExpiresIn / expires_in_days: %s", w.Body.String())
 	}
 }
 
@@ -179,10 +179,10 @@ func TestCreateAPIKey_Adversarial_ExpiresNegative_Rejected(t *testing.T) {
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":-7}`)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400/422; body: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "expires_in_days must be greater than 0") {
-		t.Fatalf("error should mention positive expires_in_days: %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "ExpiresIn") && !strings.Contains(w.Body.String(), "expires_in_days") {
+		t.Fatalf("error should mention ExpiresIn / expires_in_days: %s", w.Body.String())
 	}
 }

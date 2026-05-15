@@ -129,13 +129,13 @@ func TestSecrets_JWTKeyNotInErrors(t *testing.T) {
 	}
 }
 
-// TestSecrets_WebhookSecretNotInResponse verifies that when a webhook subscription
-// is created, the response JSON omits or redacts the secret field value so it cannot
-// be read back by API consumers.
-func TestSecrets_WebhookSecretNotInResponse(t *testing.T) {
+// TestSecrets_WebhookSecretIsServerGenerated verifies that creating a webhook
+// subscription ignores any client-supplied secret and returns a fresh
+// server-generated whsec_ value exactly once under signing_secret.
+func TestSecrets_WebhookSecretIsServerGenerated(t *testing.T) {
 	t.Parallel()
 
-	secretValue := "whsec_supersecretvalue12345"
+	clientSuppliedSecret := "whsec_attacker_chosen_weak"
 
 	mockStore := &APIStoreMock{
 		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
@@ -146,7 +146,7 @@ func TestSecrets_WebhookSecretNotInResponse(t *testing.T) {
 
 	srv := newTestServer(t, mockStore, &mockQueue{}, nil)
 
-	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"` + secretValue + `"}`
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"` + clientSuppliedSecret + `"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 
@@ -154,22 +154,20 @@ func TestSecrets_WebhookSecretNotInResponse(t *testing.T) {
 		t.Fatalf("create webhook subscription: unexpected status %d: %s", w.Code, w.Body.String())
 	}
 
-	// The subscription's Secret field has json:"secret" so the raw value passes through.
-	// This test documents current behavior: if the secret IS present, we note it as a
-	// finding; if it is absent or redacted, the property holds.
-	respBody := w.Body.String()
-
-	// Parse response to check the secret field specifically.
 	var resp map[string]any
-	if err := json.Unmarshal([]byte(respBody), &resp); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response JSON: %v", err)
 	}
 
-	// Check if secret is returned verbatim (documenting the current behavior).
-	if s, ok := resp["secret"]; ok && s == secretValue {
-		// The secret is returned as-is in the response. This test documents this behavior.
-		// In a hardened API the secret would be omitted or redacted on read-back.
-		t.Logf("NOTE: webhook secret is returned verbatim in creation response (acceptable for create-only)")
+	got, ok := resp["signing_secret"].(string)
+	if !ok || got == "" {
+		t.Fatalf("response missing server-generated signing_secret: %s", w.Body.String())
+	}
+	if got == clientSuppliedSecret {
+		t.Fatalf("server echoed client-supplied secret %q instead of generating one", clientSuppliedSecret)
+	}
+	if len(got) != len("whsec_")+64 || got[:6] != "whsec_" {
+		t.Fatalf("signing_secret %q does not match whsec_ + 64 hex char shape", got)
 	}
 }
 

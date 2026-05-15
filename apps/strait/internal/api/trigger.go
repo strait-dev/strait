@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -45,20 +46,20 @@ type TriggerRequest struct {
 	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
 	Priority       int               `json:"priority,omitempty" validate:"min=0,max=10"`
 	DryRun         bool              `json:"dry_run,omitempty"`
-	TTLSecs        *int              `json:"ttl_secs,omitempty"`
-	ConcurrencyKey string            `json:"concurrency_key,omitempty"`
-	DebounceKey    string            `json:"debounce_key,omitempty"`
-	BatchKey       string            `json:"batch_key,omitempty"`
+	TTLSecs        *int              `json:"ttl_secs,omitempty" validate:"omitempty,min=0,max=2592000"`
+	ConcurrencyKey string            `json:"concurrency_key,omitempty" validate:"max=256"`
+	DebounceKey    string            `json:"debounce_key,omitempty" validate:"max=256"`
+	BatchKey       string            `json:"batch_key,omitempty" validate:"max=256"`
 }
 
 type TriggerJobInput struct {
 	JobID             string `path:"jobID"`
 	XIdempotencyKey   string `header:"X-Idempotency-Key"`
 	IdempotencyKeyAlt string `header:"Idempotency-Key"`
-	Traceparent       string `header:"Traceparent"`
-	Tracestate        string `header:"Tracestate"`
-	SentryTrace       string `header:"Sentry-Trace"`
-	Baggage           string `header:"Baggage"`
+	Traceparent       string `header:"Traceparent" maxLength:"256"`
+	Tracestate        string `header:"Tracestate" maxLength:"8192"`
+	SentryTrace       string `header:"Sentry-Trace" maxLength:"8192"`
+	Baggage           string `header:"Baggage" maxLength:"8192"`
 	Body              TriggerRequest
 }
 
@@ -99,6 +100,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+	if err := validateTriggerTraceHeaders(input); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := validatePayloadSize(req.Payload); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -563,6 +567,21 @@ func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *doma
 	return s.queue.Enqueue(ctx, run)
 }
 
+// triggerLimitFallbackRetryAfterSeconds is the Retry-After hint surfaced
+// on the sentinel-error code path (errTriggerProjectQueuedQuotaExceeded,
+// errTriggerProjectExecutingQuotaExceeded, errTriggerJobRateLimitExceeded).
+// It is a static fallback — callers that want a precise back-off should
+// inspect the structured rate-limit metadata on the response detail
+// string ("retry_after_seconds=<n>"), which is set by per-job and
+// per-project limiters at the call site.
+//
+// 5s is long enough for callers to back off without piling on, short
+// enough that legitimately throttled traffic recovers quickly when
+// capacity frees up. Pre-existing huma.StatusError values (e.g. the
+// daily-cost-budget 429 that resets at midnight) intentionally bypass
+// this constant — see triggerLimitAPIError.
+const triggerLimitFallbackRetryAfterSeconds = 5
+
 func triggerLimitAPIError(err error, fallback string) error {
 	var statusErr huma.StatusError
 	if errors.As(err, &statusErr) {
@@ -570,13 +589,28 @@ func triggerLimitAPIError(err error, fallback string) error {
 	}
 	switch {
 	case errors.Is(err, errTriggerProjectQueuedQuotaExceeded):
-		return huma.Error429TooManyRequests("project queued quota exceeded")
+		return newTriggerLimit429("project queued quota exceeded")
 	case errors.Is(err, errTriggerProjectExecutingQuotaExceeded):
-		return huma.Error429TooManyRequests("project executing quota exceeded")
+		return newTriggerLimit429("project executing quota exceeded")
 	case errors.Is(err, errTriggerJobRateLimitExceeded):
-		return huma.Error429TooManyRequests("job rate limit exceeded")
+		return newTriggerLimit429("job rate limit exceeded")
 	default:
 		return huma.Error500InternalServerError(fallback)
+	}
+}
+
+func newTriggerLimit429(msg string) error {
+	retryAfter := strconv.Itoa(triggerLimitFallbackRetryAfterSeconds)
+	return &typedAPIError{
+		status: http.StatusTooManyRequests,
+		apiError: APIError{
+			Code:    ErrorCodeRateLimited,
+			Message: msg,
+			Details: []string{"retry_after_seconds=" + retryAfter},
+		},
+		headers: map[string]string{
+			"Retry-After": retryAfter,
+		},
 	}
 }
 

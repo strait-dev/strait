@@ -65,6 +65,7 @@ type Store interface {
 	GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error)
 	UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error
 	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error
+	UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error

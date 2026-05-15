@@ -42,6 +42,7 @@ type mockExecutorStore struct {
 	getWorkflowRunFn         func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listStepsByWorkflowVerFn func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	snoozeRunWithLockFn      func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	updateHeartbeatFn        func(ctx context.Context, id string) error
 	batchUpdateHeartbeatFn   func(ctx context.Context, ids []string) error
 	scheduleRetryFn          func(ctx context.Context, runID string, at time.Time, attempt int) error
@@ -94,6 +95,27 @@ func (m *mockExecutorStore) UpdateRunStatus(ctx context.Context, id string, from
 	})
 	m.mu.Unlock()
 
+	if m.updateRunStatusFn == nil {
+		return nil
+	}
+	return m.updateRunStatusFn(ctx, id, from, to, fields)
+}
+
+func (m *mockExecutorStore) SnoozeRunWithLock(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	m.mu.Lock()
+	m.statusCalls = append(m.statusCalls, statusUpdateCall{
+		id:     id,
+		from:   from,
+		to:     to,
+		fields: maps.Clone(fields),
+	})
+	m.mu.Unlock()
+
+	if m.snoozeRunWithLockFn != nil {
+		return m.snoozeRunWithLockFn(ctx, id, from, to, fields)
+	}
+	// Default: delegate to UpdateRunStatus so existing tests that only stub
+	// updateRunStatusFn keep observing snooze attempts.
 	if m.updateRunStatusFn == nil {
 		return nil
 	}

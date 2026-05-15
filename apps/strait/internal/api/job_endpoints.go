@@ -25,6 +25,10 @@ import (
 type SetJobEndpointRequest struct {
 	EndpointURL         string `json:"endpoint_url" validate:"required,url"`
 	FallbackEndpointURL string `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	// RotateSigningSecret, when true, generates a fresh HMAC signing secret for
+	// the job and returns it once in the response. When false (default), the
+	// existing signing secret is preserved. URL-only updates do not rotate.
+	RotateSigningSecret bool `json:"rotate_signing_secret,omitempty"`
 }
 
 // SetJobEndpointInput is the typed input for the set-endpoint route.
@@ -33,9 +37,17 @@ type SetJobEndpointInput struct {
 	Body  SetJobEndpointRequest
 }
 
+// SetJobEndpointResponse is the response body for the set-endpoint route.
+type SetJobEndpointResponse struct {
+	Job *domain.Job `json:"job"`
+	// SigningSecret is populated only when RotateSigningSecret was true on the
+	// request. Stored encrypted server-side; returned once and never again.
+	SigningSecret string `json:"signing_secret,omitempty"`
+}
+
 // SetJobEndpointOutput is the typed output for the set-endpoint route.
 type SetJobEndpointOutput struct {
-	Body *domain.Job
+	Body *SetJobEndpointResponse
 }
 
 // VerifyJobEndpointInput is the typed input for the verify-endpoint route.
@@ -64,11 +76,23 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	}
 
 	if err := validateURL(input.Body.EndpointURL); err != nil {
-		return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
+		slog.Warn("endpoint_url failed SSRF validation",
+			"url", httputil.RedactURLForLog(input.Body.EndpointURL),
+			"err", err.Error(),
+			"actor", actorFromContext(ctx),
+			"project_id", projectIDFromContext(ctx),
+		)
+		return nil, huma.Error400BadRequest("endpoint_url failed validation")
 	}
 	if input.Body.FallbackEndpointURL != "" {
 		if err := validateURL(input.Body.FallbackEndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
+			slog.Warn("fallback_endpoint_url failed SSRF validation",
+				"url", httputil.RedactURLForLog(input.Body.FallbackEndpointURL),
+				"err", err.Error(),
+				"actor", actorFromContext(ctx),
+				"project_id", projectIDFromContext(ctx),
+			)
+			return nil, huma.Error400BadRequest("fallback_endpoint_url failed validation")
 		}
 	}
 
@@ -86,11 +110,18 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, huma.Error404NotFound("job not found")
 	}
 
-	secretBytes := make([]byte, 32)
-	if _, err := rand.Read(secretBytes); err != nil {
-		return nil, huma.Error500InternalServerError("failed to generate signing secret")
+	// Default to preserving the existing signing secret. Only generate a fresh
+	// one when the caller explicitly opts in via rotate_signing_secret=true.
+	signingSecret := job.EndpointSigningSecret
+	var plaintextSecret string
+	if input.Body.RotateSigningSecret {
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err != nil {
+			return nil, huma.Error500InternalServerError("failed to generate signing secret")
+		}
+		signingSecret = "esec_" + hex.EncodeToString(secretBytes)
+		plaintextSecret = signingSecret
 	}
-	signingSecret := "esec_" + hex.EncodeToString(secretBytes)
 
 	if err := s.store.UpdateJobEndpoint(ctx, input.JobID, input.Body.EndpointURL, input.Body.FallbackEndpointURL, signingSecret); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
@@ -102,12 +133,14 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	slog.Info("job endpoint set",
 		"job_id", input.JobID,
 		"endpoint_url_host", urlHost(input.Body.EndpointURL),
+		"rotated_signing_secret", input.Body.RotateSigningSecret,
 		"actor", actorFromContext(ctx),
 		"project_id", projectIDFromContext(ctx),
 	)
 	s.emitAuditEvent(ctx, domain.AuditActionEndpointSet, "job", input.JobID, map[string]any{
-		"job_id":            input.JobID,
-		"endpoint_url_host": urlHost(input.Body.EndpointURL),
+		"job_id":                 input.JobID,
+		"endpoint_url_host":      urlHost(input.Body.EndpointURL),
+		"rotated_signing_secret": input.Body.RotateSigningSecret,
 	})
 
 	updated, err := s.store.GetJob(ctx, input.JobID)
@@ -115,7 +148,10 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, huma.Error500InternalServerError("failed to get updated job")
 	}
 
-	return &SetJobEndpointOutput{Body: updated}, nil
+	return &SetJobEndpointOutput{Body: &SetJobEndpointResponse{
+		Job:           updated,
+		SigningSecret: plaintextSecret,
+	}}, nil
 }
 
 // handleVerifyJobEndpoint sends a signed HMAC test ping to the job's stored

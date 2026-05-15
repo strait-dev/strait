@@ -108,7 +108,6 @@ func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
 					ProjectID:  "proj-1",
 					WebhookURL: "https://example.com/hook",
 					EventTypes: []string{"run.completed"},
-					Secret:     "secret",
 				}})
 				return err
 			},
