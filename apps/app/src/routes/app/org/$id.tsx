@@ -23,6 +23,7 @@ import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/org/$id")({
+  head: () => ({ meta: [{ title: "Organization · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(
@@ -45,6 +46,7 @@ function RouteComponent() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Organization</h1>
       <div className="flex w-full flex-col gap-6">
         <Tabs className="w-full" defaultValue="organization">
           <TabsList>

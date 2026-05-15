@@ -30,6 +30,7 @@ function formatOAuthError(error: string): string {
 }
 
 export const Route = createFileRoute("/(auth)/login")({
+  head: () => ({ meta: [{ title: "Sign in · Strait" }] }),
   validateSearch: authSearchSchema,
   beforeLoad: ({ context, search }) => {
     if (context.isAuthenticated) {

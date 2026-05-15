@@ -8,7 +8,7 @@ export function ToastInfo(props: ToastContentProps) {
     <ToastContent
       {...props}
       icon={<HugeiconsIcon className="size-4" icon={InformationCircleIcon} />}
-      iconClassName="text-blue-500"
+      iconClassName="text-info"
     />
   );
 }

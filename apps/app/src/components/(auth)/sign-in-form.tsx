@@ -15,7 +15,7 @@ import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
 const signInSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  email: z.email("Invalid email address"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -165,6 +165,16 @@ const SignInForm = ({
             <Field className="w-full">
               <FieldLabel htmlFor={field.name}>Email</FieldLabel>
               <Input
+                aria-describedby={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                    ? `${field.name}-error`
+                    : undefined
+                }
+                aria-invalid={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                }
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
@@ -174,11 +184,12 @@ const SignInForm = ({
                 type="email"
                 value={field.state.value}
               />
-              {field.state.meta.errors.length > 0 && (
-                <FieldError>
-                  {formatFieldErrors(field.state.meta.errors)}
-                </FieldError>
-              )}
+              {field.state.meta.isTouched &&
+                field.state.meta.errors.length > 0 && (
+                  <FieldError id={`${field.name}-error`}>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
+                )}
             </Field>
           )}
         </form.Field>
@@ -196,6 +207,16 @@ const SignInForm = ({
                 </Link>
               </div>
               <PasswordInput
+                aria-describedby={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                    ? `${field.name}-error`
+                    : undefined
+                }
+                aria-invalid={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                }
                 autoComplete="current-password"
                 disabled={disabled}
                 id={field.name}
@@ -204,11 +225,12 @@ const SignInForm = ({
                 placeholder="Enter your password"
                 value={field.state.value}
               />
-              {field.state.meta.errors.length > 0 && (
-                <FieldError>
-                  {formatFieldErrors(field.state.meta.errors)}
-                </FieldError>
-              )}
+              {field.state.meta.isTouched &&
+                field.state.meta.errors.length > 0 && (
+                  <FieldError id={`${field.name}-error`}>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
+                )}
             </Field>
           )}
         </form.Field>

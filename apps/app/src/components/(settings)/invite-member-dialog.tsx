@@ -27,7 +27,7 @@ import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PlusIcon } from "@/lib/icons";
 
 const inviteSchema = z.object({
-  email: z.string().email("Enter a valid email"),
+  email: z.email("Enter a valid email"),
   role: z.enum(["member", "admin", "owner"]),
 });
 
@@ -89,6 +89,17 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
+                    autoFocus
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -96,11 +107,12 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                     type="email"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -115,7 +127,18 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                     }
                     value={field.state.value}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
+                    >
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
                     <SelectContent>
@@ -124,11 +147,12 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                       <SelectItem value="owner">Owner</SelectItem>
                     </SelectContent>
                   </Select>
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>

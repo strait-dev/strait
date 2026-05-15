@@ -14,7 +14,7 @@ type MetricsCardProps = {
   title: string;
   value: string | number;
   change?: { value: number; label: string };
-  icon?: any;
+  icon?: typeof ArrowUpRightIcon;
   description?: string;
   className?: string;
   chartData?: number[];
@@ -45,11 +45,7 @@ const MetricsCard = ({
           {title}
         </CardTitle>
         {icon && (
-          <HugeiconsIcon
-            className="text-muted-foreground"
-            icon={icon}
-            size={16}
-          />
+          <HugeiconsIcon className="size-4 text-muted-foreground" icon={icon} />
         )}
       </CardHeader>
       <CardContent>
@@ -57,11 +53,13 @@ const MetricsCard = ({
         {change && (
           <div className="mt-1 flex items-center gap-1 text-xs">
             <HugeiconsIcon
-              className={isPositive ? "text-chart-1" : "text-chart-4"}
+              className={cn(
+                "size-3.5",
+                isPositive ? "text-success" : "text-destructive"
+              )}
               icon={isPositive ? ArrowUpRightIcon : ArrowDownRightIcon}
-              size={14}
             />
-            <span className={isPositive ? "text-chart-1" : "text-chart-4"}>
+            <span className={isPositive ? "text-success" : "text-destructive"}>
               {isPositive ? "+" : ""}
               {change.value}%
             </span>
@@ -71,7 +69,7 @@ const MetricsCard = ({
         {description && (
           <p className="mt-1 text-muted-foreground text-xs">{description}</p>
         )}
-        {barData && (
+        {barData && barData.length > 0 && (
           <div className="relative z-10 mt-3 h-[32px]">
             <ResponsiveContainer
               height="100%"

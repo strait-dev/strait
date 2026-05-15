@@ -10,26 +10,24 @@ import {
 import { cn } from "@strait/ui/utils/index";
 import { flexRender, type Table as TanstackTable } from "@tanstack/react-table";
 import type * as React from "react";
-import FiltersEmptyState from "@/components/common/filters-empty-state";
 import TableEmptyState from "@/components/common/table-empty-state";
-import { UsersIcon } from "@/lib/icons";
-import { DataTablePagination } from "./data-table-pagination";
+import { SearchIcon } from "@/lib/icons";
+import {
+  type CursorPaginationProps,
+  DataTablePagination,
+} from "./data-table-pagination";
 
 const DEFAULT_EMPTY_FILTER_STATE = (
-  <FiltersEmptyState
-    description="No results found for the applied filters. Try adjusting the filters."
-    icon="search"
-    title="No results found"
-  />
-);
-
-const DEFAULT_EMPTY_STATE = (
   <TableEmptyState
-    buttonText="Create"
-    description="There is no data available for display."
-    href="/app/customers/add"
-    icon={<HugeiconsIcon className="size-6 text-foreground" icon={UsersIcon} />}
-    title="No data found"
+    description="No results found for the applied filters. Try adjusting the filters."
+    hideButton
+    icon={
+      <HugeiconsIcon
+        className="size-6 text-muted-foreground"
+        icon={SearchIcon}
+      />
+    }
+    title="No results found"
   />
 );
 
@@ -38,6 +36,8 @@ type DataTableProps<TData> = {
   floatingBar?: React.ReactNode | null;
   emptyFilterState?: React.ReactNode | null;
   emptyState: React.ReactNode | null;
+  ariaLabel?: string;
+  cursorPagination?: CursorPaginationProps;
 };
 
 export const DataTable = <TData,>({
@@ -45,6 +45,8 @@ export const DataTable = <TData,>({
   floatingBar = null,
   emptyFilterState,
   emptyState,
+  ariaLabel,
+  cursorPagination,
 }: DataTableProps<TData>) => {
   const rows = table.getRowModel().rows;
   const hasFilters =
@@ -53,13 +55,13 @@ export const DataTable = <TData,>({
 
   const resolvedEmptyFilterState =
     emptyFilterState || DEFAULT_EMPTY_FILTER_STATE;
-  const resolvedEmptyState = emptyState || DEFAULT_EMPTY_STATE;
+  const resolvedEmptyState = emptyState;
 
   return (
     <div className="flex w-full flex-col gap-2.5 overflow-auto">
       <div className="overflow-x-auto rounded-lg border border-border/70">
         <div className="relative">
-          <Table className="min-w-[1200px]">
+          <Table aria-label={ariaLabel} className="min-w-[1200px]">
             <TableHeader className="border-0">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow
@@ -146,7 +148,7 @@ export const DataTable = <TData,>({
         </div>
       </div>
 
-      <DataTablePagination table={table} />
+      <DataTablePagination cursorPagination={cursorPagination} table={table} />
 
       {table.getFilteredSelectedRowModel().rows.length > 0 && floatingBar ? (
         <div className="fixed inset-x-0 bottom-4 z-50 mx-auto w-fit">

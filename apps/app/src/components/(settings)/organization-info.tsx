@@ -237,6 +237,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Name</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -244,11 +254,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="text"
                       value={field.state.value}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -258,6 +269,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Slug</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -265,11 +286,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="text"
                       value={field.state.value ?? ""}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -282,6 +304,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -289,11 +321,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="email"
                       value={field.state.value ?? ""}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -303,6 +336,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Website</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -310,11 +353,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="url"
                       value={field.state.value ?? ""}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -326,17 +370,28 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                 <Field className="w-full">
                   <FieldLabel htmlFor={field.name}>Description</FieldLabel>
                   <Textarea
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="A brief description of your organization"
                     value={field.state.value ?? ""}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>

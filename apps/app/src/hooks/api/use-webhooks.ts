@@ -144,10 +144,32 @@ export const useDeleteWebhook = () => {
   return useMutation({
     mutationKey: ["webhooks", "delete"],
     mutationFn: (id: string) => deleteWebhookFn({ data: { id } }),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.webhooks.list._def,
+      });
+
+      const previousLists = queryClient.getQueriesData<
+        PaginatedResponse<WebhookSubscription>
+      >({ queryKey: queryKeys.webhooks.list._def });
+
+      queryClient.setQueriesData<PaginatedResponse<WebhookSubscription>>(
+        { queryKey: queryKeys.webhooks.list._def },
+        (old) =>
+          old ? { ...old, data: old.data.filter((w) => w.id !== id) } : old
+      );
+
+      return { previousLists };
+    },
     onSuccess: (_data, id) => {
       getPostHog()?.capture("webhook_deleted", { webhook_id: id });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousLists) {
+        for (const [key, data] of context.previousLists) {
+          queryClient.setQueryData(key, data);
+        }
+      }
       getPostHog()?.capture("mutation_error", {
         action: "webhook_deleted",
         error_message: err instanceof Error ? err.message : "Unknown error",

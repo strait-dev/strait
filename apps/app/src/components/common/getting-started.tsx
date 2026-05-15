@@ -37,7 +37,7 @@ const SDK_TABS = [
   {
     value: "cli",
     label: "CLI",
-    install: "cd apps/strait && go install ./cmd/strait",
+    install: "brew install strait-dev/tap/strait",
   },
 ] as const;
 

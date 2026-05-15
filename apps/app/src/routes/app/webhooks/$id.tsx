@@ -60,6 +60,7 @@ import {
 } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/webhooks/$id")({
+  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(webhookQueryOptions(params.id)),
