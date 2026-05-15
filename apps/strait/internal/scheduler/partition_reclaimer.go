@@ -28,9 +28,8 @@ type PartitionReclaimer struct {
 type PartitionReclaimerStore interface {
 	ListJobRunsPartitions(ctx context.Context) ([]string, error)
 	ListOutboxHistoryPartitions(ctx context.Context) ([]string, error)
-	PartitionRowCount(ctx context.Context, partition string) (int64, error)
 	PartitionEstimatedRowCount(ctx context.Context, partition string) (int64, error)
-	DropPartitionWithTimeout(ctx context.Context, partition string, timeout time.Duration) error
+	DropPartitionIfEmptyWithTimeout(ctx context.Context, partition string, timeout time.Duration) (bool, error)
 }
 
 type PartitionReclaimerConfig struct {
@@ -156,20 +155,14 @@ func (p *PartitionReclaimer) reclaimPartitions(ctx context.Context, partitions [
 			continue
 		}
 
-		count, err := p.store.PartitionRowCount(ctx, name)
+		dropped, err := p.store.DropPartitionIfEmptyWithTimeout(ctx, name, 5*time.Second)
 		if err != nil {
-			p.logger.Warn("partition reclaimer: row count failed", "partition", name, "error", err)
-			p.errors.Add(1)
-			continue
-		}
-		if count > 0 {
-			p.logger.Debug("partition reclaimer: skipping non-empty partition", "partition", name, "rows", count)
-			continue
-		}
-
-		if err := p.store.DropPartitionWithTimeout(ctx, name, 5*time.Second); err != nil {
 			p.logger.Warn("partition reclaimer: drop failed", "partition", name, "error", err)
 			p.errors.Add(1)
+			continue
+		}
+		if !dropped {
+			p.logger.Debug("partition reclaimer: skipping non-empty partition", "partition", name)
 			continue
 		}
 		p.dropped.Add(1)

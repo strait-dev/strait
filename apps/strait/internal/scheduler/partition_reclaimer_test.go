@@ -16,7 +16,7 @@ type fakeReclaimerStore struct {
 	estimatedCounts  map[string]int64
 	dropped          []string
 	ddlErr           error
-	rowCountCalled   map[string]bool
+	atomicDropCalled map[string]bool
 }
 
 func (f *fakeReclaimerStore) ListJobRunsPartitions(_ context.Context) ([]string, error) {
@@ -25,14 +25,6 @@ func (f *fakeReclaimerStore) ListJobRunsPartitions(_ context.Context) ([]string,
 
 func (f *fakeReclaimerStore) ListOutboxHistoryPartitions(_ context.Context) ([]string, error) {
 	return f.outboxPartitions, nil
-}
-
-func (f *fakeReclaimerStore) PartitionRowCount(_ context.Context, name string) (int64, error) {
-	if f.rowCountCalled == nil {
-		f.rowCountCalled = make(map[string]bool)
-	}
-	f.rowCountCalled[name] = true
-	return f.rowCounts[name], nil
 }
 
 func (f *fakeReclaimerStore) PartitionEstimatedRowCount(_ context.Context, name string) (int64, error) {
@@ -44,12 +36,19 @@ func (f *fakeReclaimerStore) PartitionEstimatedRowCount(_ context.Context, name 
 	return 0, nil
 }
 
-func (f *fakeReclaimerStore) DropPartitionWithTimeout(_ context.Context, partition string, _ time.Duration) error {
+func (f *fakeReclaimerStore) DropPartitionIfEmptyWithTimeout(_ context.Context, partition string, _ time.Duration) (bool, error) {
+	if f.atomicDropCalled == nil {
+		f.atomicDropCalled = make(map[string]bool)
+	}
+	f.atomicDropCalled[partition] = true
 	if f.ddlErr != nil {
-		return f.ddlErr
+		return false, f.ddlErr
+	}
+	if f.rowCounts[partition] > 0 {
+		return false, nil
 	}
 	f.dropped = append(f.dropped, partition)
-	return nil
+	return true, nil
 }
 
 func TestPartitionReclaimer_SkipsRecentPartitions(t *testing.T) {
@@ -217,8 +216,8 @@ func TestPartitionReclaimer_SkipsOnEstimateNonEmpty(t *testing.T) {
 	if err := r.RunOnceForTest(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if s.rowCountCalled[name] {
-		t.Error("PartitionRowCount should not be called when estimate is non-empty")
+	if s.atomicDropCalled[name] {
+		t.Error("DropPartitionIfEmptyWithTimeout should not be called when estimate is non-empty")
 	}
 	if len(s.dropped) != 0 {
 		t.Errorf("expected no drops when estimate says non-empty, got %v", s.dropped)
@@ -238,10 +237,31 @@ func TestPartitionReclaimer_FallsThroughOnEstimateZero(t *testing.T) {
 	if err := r.RunOnceForTest(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !s.rowCountCalled[name] {
-		t.Error("PartitionRowCount should be called when estimate is zero")
+	if !s.atomicDropCalled[name] {
+		t.Error("DropPartitionIfEmptyWithTimeout should be called when estimate is zero")
 	}
 	if len(s.dropped) != 1 {
-		t.Errorf("expected 1 drop after estimate=0 and exact count=0, got %d", len(s.dropped))
+		t.Errorf("expected 1 drop after estimate=0 and atomic empty check, got %d", len(s.dropped))
+	}
+}
+
+func TestPartitionReclaimer_UsesAtomicDropAfterEstimateZero(t *testing.T) {
+	old := time.Now().UTC().AddDate(0, -6, 0).Format("2006_01")
+	name := "job_runs_p" + old
+
+	s := &fakeReclaimerStore{
+		jobPartitions:   []string{name},
+		rowCounts:       map[string]int64{name: 17},
+		estimatedCounts: map[string]int64{name: 0},
+	}
+	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
+	if err := r.RunOnceForTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.atomicDropCalled[name] {
+		t.Fatal("expected atomic drop path after estimate=0")
+	}
+	if len(s.dropped) != 0 {
+		t.Fatalf("expected atomic drop path to preserve non-empty partition, got drops %v", s.dropped)
 	}
 }
