@@ -457,10 +457,7 @@ export const PlanSelection = ({
 const FeatureCellValue = ({ value }: { value: string }) => {
   if (value === "Yes") {
     return (
-      <HugeiconsIcon
-        className="mx-auto size-4 text-green-500"
-        icon={CheckIcon}
-      />
+      <HugeiconsIcon className="mx-auto size-4 text-success" icon={CheckIcon} />
     );
   }
   if (value === "-") {

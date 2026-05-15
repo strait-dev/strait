@@ -179,7 +179,7 @@ const MigrationCalculator = () => {
 
       {/* Results */}
       {result && (
-        <Card className="border-green-200 dark:border-green-800">
+        <Card className="border-success/30">
           <CardContent className="space-y-4 p-6">
             <div className="text-center">
               {selectedProvider && (
@@ -208,7 +208,7 @@ const MigrationCalculator = () => {
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">You save</p>
-                  <p className="font-medium text-green-600 text-lg dark:text-green-400">
+                  <p className="font-medium text-lg text-success">
                     {formatCurrency(Math.max(result.savings, 0))}
                     <span className="text-muted-foreground text-xs">/mo</span>
                   </p>

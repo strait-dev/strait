@@ -452,10 +452,10 @@ const UsageDashboard = () => {
 
       {/* Overage Warning */}
       {usage.overage_microusd > 0 && usage.plan !== "free" && (
-        <Card className="border-yellow-200 dark:border-yellow-800">
+        <Card className="border-warning/30">
           <CardContent className="flex items-center justify-between py-3">
             <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-sm text-yellow-800 dark:text-yellow-200">
+              <span className="font-medium text-sm text-warning">
                 You are in overage
               </span>
               <span className="text-muted-foreground text-xs">
@@ -477,7 +477,7 @@ const UsageDashboard = () => {
 
       {/* Alerts */}
       {usage.alerts.length > 0 && (
-        <Card className="border-yellow-200 dark:border-yellow-800">
+        <Card className="border-warning/30">
           <CardHeader>
             <CardTitle className="text-sm">Alerts</CardTitle>
           </CardHeader>
@@ -485,12 +485,10 @@ const UsageDashboard = () => {
             <div className="space-y-2">
               {usage.alerts.map((alert) => (
                 <div
-                  className="flex items-center justify-between rounded bg-yellow-50 p-2 dark:bg-yellow-950"
+                  className="flex items-center justify-between rounded bg-warning/5 p-2"
                   key={alert.dimension}
                 >
-                  <span className="text-sm text-yellow-800 dark:text-yellow-200">
-                    {alert.message}
-                  </span>
+                  <span className="text-sm text-warning">{alert.message}</span>
                   <Button
                     onClick={() => navigate({ to: "/app/upgrade" })}
                     variant="outline"

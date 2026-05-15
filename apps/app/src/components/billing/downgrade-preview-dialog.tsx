@@ -100,8 +100,8 @@ const DowngradePreviewContent = ({
       ) : null}
 
       {hasIssues ? (
-        <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
-          <p className="text-sm text-yellow-800">
+        <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+          <p className="text-sm text-warning">
             Some resources exceed the limits of the{" "}
             {capitalize(preview.target_plan)} plan. You may need to reduce usage
             before downgrading.

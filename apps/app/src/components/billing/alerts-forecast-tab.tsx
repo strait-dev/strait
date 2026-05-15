@@ -130,7 +130,7 @@ const AlertsForecastTab = () => {
               </div>
 
               {forecast.recommended_plan && (
-                <Card className="border-blue-200 dark:border-blue-800">
+                <Card className="border-info/30">
                   <CardContent className="flex items-center justify-between p-4">
                     <p className="text-sm">
                       Based on your projected usage, we recommend the{" "}
@@ -251,7 +251,7 @@ const ThresholdForm = ({
         </div>
       )}
       {mutation.isSuccess && (
-        <p className="mt-2 text-right text-green-600 text-xs">
+        <p className="mt-2 text-right text-success text-xs">
           Thresholds updated successfully.
         </p>
       )}

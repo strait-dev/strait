@@ -82,17 +82,17 @@ const environments: { value: Environment; label: string; dotClass: string }[] =
     {
       value: "production",
       label: "Production",
-      dotClass: "bg-green-500",
+      dotClass: "bg-success",
     },
     {
       value: "staging",
       label: "Staging",
-      dotClass: "bg-blue-500",
+      dotClass: "bg-info",
     },
     {
       value: "development",
       label: "Development",
-      dotClass: "bg-yellow-500",
+      dotClass: "bg-warning",
     },
   ];
 

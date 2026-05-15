@@ -111,8 +111,8 @@ const UpgradeNudgeBanner = () => {
       forecast.projected_overage_microusd / MICRO_USD
     ).toFixed(2);
     return (
-      <div className="flex items-center justify-between rounded border border-yellow-200 bg-yellow-50 px-4 py-2 dark:border-yellow-800 dark:bg-yellow-950">
-        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+      <div className="flex items-center justify-between rounded border border-warning/30 bg-warning/5 px-4 py-2">
+        <p className="text-sm text-warning">
           Your projected overage this month is{" "}
           <strong>${projectedOverage}</strong>. Consider upgrading for more
           included credit.
@@ -137,10 +137,8 @@ const UpgradeNudgeBanner = () => {
   const firstAlert = approaching[0];
 
   return (
-    <div className="flex items-center justify-between rounded border border-yellow-200 bg-yellow-50 px-4 py-2 dark:border-yellow-800 dark:bg-yellow-950">
-      <p className="text-sm text-yellow-800 dark:text-yellow-200">
-        {firstAlert.message}
-      </p>
+    <div className="flex items-center justify-between rounded border border-warning/30 bg-warning/5 px-4 py-2">
+      <p className="text-sm text-warning">{firstAlert.message}</p>
       <div className="flex items-center gap-2">
         <Button onClick={handleUpgrade} variant="default">
           Upgrade

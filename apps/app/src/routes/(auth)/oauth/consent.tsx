@@ -18,9 +18,9 @@ import { authMiddleware } from "@/middlewares/auth";
 type ScopeLevel = "read" | "write" | "admin";
 
 const LEVEL_STYLES: Record<ScopeLevel, { bg: string; text: string }> = {
-  read: { bg: "bg-blue-500/10", text: "text-blue-500" },
-  write: { bg: "bg-amber-500/10", text: "text-amber-500" },
-  admin: { bg: "bg-red-500/10", text: "text-red-500" },
+  read: { bg: "bg-info/10", text: "text-info" },
+  write: { bg: "bg-warning/10", text: "text-warning" },
+  admin: { bg: "bg-destructive/10", text: "text-destructive" },
 };
 
 const HIDDEN_SCOPES = new Set<string>(OIDC_STANDARD_SCOPES);
@@ -289,7 +289,7 @@ function OAuthConsentPage() {
         {/* Client warning for unrecognized clients */}
         {clientError || !clientInfo ? (
           <div
-            className="rounded-md bg-amber-500/10 p-3 text-amber-600 text-sm dark:text-amber-400"
+            className="rounded-md bg-warning/10 p-3 text-sm text-warning"
             role="alert"
           >
             Unable to verify this application. Proceed with caution.

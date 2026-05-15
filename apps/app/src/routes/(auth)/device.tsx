@@ -99,9 +99,9 @@ function DeviceAuthPage() {
         title="Device Authorized"
       >
         <div className="flex flex-col items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+          <div className="flex size-12 items-center justify-center rounded-full bg-success/10">
             <svg
-              className="size-6 text-green-600 dark:text-green-400"
+              className="size-6 text-success"
               fill="none"
               stroke="currentColor"
               strokeWidth={2}

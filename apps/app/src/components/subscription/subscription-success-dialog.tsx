@@ -70,9 +70,9 @@ const SubscriptionSuccessDialog = ({
       <CredenzaContent className="sm:max-w-[500px]">
         <CredenzaHeader className="text-center">
           <div className="mb-6 flex justify-center">
-            <div className="rounded-lg bg-green-100 p-4 dark:bg-green-900/20">
+            <div className="rounded-lg bg-success/10 p-4">
               <HugeiconsIcon
-                className="size-12 text-green-600 dark:text-green-400"
+                className="size-12 text-success"
                 icon={CheckCircle2Icon}
               />
             </div>
