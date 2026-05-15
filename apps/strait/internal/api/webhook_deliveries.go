@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -34,13 +35,56 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, input *ListWeb
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	deliveries, err := s.store.ListWebhookDeliveries(ctx, projectID, status, limit+1, cursor)
+	var deliveries []domain.WebhookDelivery
+	if environmentIDFromContext(ctx) != "" {
+		deliveries, err = s.listWebhookDeliveriesForEnvironment(ctx, projectID, status, limit+1, cursor)
+	} else {
+		deliveries, err = s.store.ListWebhookDeliveries(ctx, projectID, status, limit+1, cursor)
+	}
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list webhook deliveries")
 	}
 	return &ListWebhookDeliveriesOutput{Body: paginatedResult(deliveries, limit, func(d domain.WebhookDelivery) string {
 		return d.CreatedAt.Format(time.RFC3339Nano)
 	})}, nil
+}
+
+func (s *Server) listWebhookDeliveriesForEnvironment(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	deliveries := make([]domain.WebhookDelivery, 0, limit)
+	fetchLimit := max(limit, 25)
+	nextCursor := cursor
+	for len(deliveries) < limit {
+		batch, err := s.store.ListWebhookDeliveries(ctx, projectID, status, fetchLimit, nextCursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for i := range batch {
+			delivery := batch[i]
+			if accessErr := s.verifyDeliveryProjectAccess(ctx, &delivery); accessErr != nil {
+				if errors.Is(accessErr, errProjectMismatch) || errors.Is(accessErr, errEnvironmentMismatch) {
+					continue
+				}
+				return nil, accessErr
+			}
+			deliveries = append(deliveries, delivery)
+			if len(deliveries) >= limit {
+				break
+			}
+		}
+		last := batch[len(batch)-1].CreatedAt
+		nextCursor = &last
+		if len(batch) < fetchLimit {
+			break
+		}
+	}
+	return deliveries, nil
 }
 
 type GetWebhookDeliveryInput struct {

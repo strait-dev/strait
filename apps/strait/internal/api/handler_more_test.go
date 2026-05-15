@@ -1601,6 +1601,53 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	}
 }
 
+func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	ms := &APIStoreMock{
+		ListWebhookDeliveriesFunc: func(_ context.Context, projectID, status string, _ int, _ *time.Time) ([]domain.WebhookDelivery, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("projectID = %q, want proj-1", projectID)
+			}
+			if status != domain.WebhookStatusFailed {
+				t.Fatalf("status = %q, want %q", status, domain.WebhookStatusFailed)
+			}
+			return []domain.WebhookDelivery{
+				{ID: "del-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.WebhookStatusFailed, CreatedAt: now.Add(-2 * time.Second)},
+				{ID: "del-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.WebhookStatusFailed, CreatedAt: now.Add(-1 * time.Second)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			switch id {
+			case "job-prod":
+				return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				t.Fatalf("unexpected job lookup %q", id)
+				return nil, nil
+			}
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	out, err := srv.handleListWebhookDeliveries(ctx, &ListWebhookDeliveriesInput{
+		Status: domain.WebhookStatusFailed,
+	})
+	if err != nil {
+		t.Fatalf("handleListWebhookDeliveries returned error: %v", err)
+	}
+	deliveries, ok := out.Body.Data.([]domain.WebhookDelivery)
+	if !ok {
+		t.Fatalf("response data type = %T, want []domain.WebhookDelivery", out.Body.Data)
+	}
+	if len(deliveries) != 1 || deliveries[0].ID != "del-prod" {
+		t.Fatalf("deliveries = %#v, want only del-prod", deliveries)
+	}
+}
+
 func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	t.Parallel()
 	var gotLimit int
