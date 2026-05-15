@@ -75,6 +75,21 @@ func TestQueueNotifier_DegradedResetNoOpWhenNotDegraded(t *testing.T) {
 	}
 }
 
+func TestDisconnectStartForFailedListenResetsAfterReconnect(t *testing.T) {
+	oldOutage := time.Now().Add(-time.Hour)
+	newOutage := time.Now()
+
+	got := disconnectStartForFailedListen(oldOutage, true, newOutage)
+	if !got.Equal(newOutage) {
+		t.Fatalf("disconnect start after connected listen = %v, want %v", got, newOutage)
+	}
+
+	stillDown := disconnectStartForFailedListen(oldOutage, false, newOutage)
+	if !stillDown.Equal(oldOutage) {
+		t.Fatalf("ongoing outage start = %v, want original %v", stillDown, oldOutage)
+	}
+}
+
 func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
 
