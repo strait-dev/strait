@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -161,5 +162,58 @@ func TestCreateAPIKey_RotationWebhookURL_RequiresEncryptor(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 when encryptor missing, got %d; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRotateAPIKey_PreservesRotationWebhookSecret(t *testing.T) {
+	t.Parallel()
+
+	rotationInterval := 30
+	expiresAt := time.Now().Add(24 * time.Hour)
+	oldSecret := []byte{0x55, 0x01, 0x02, 0x03}
+	var created domain.APIKey
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			if id != "key-old" {
+				t.Fatalf("GetAPIKeyByID id = %q, want key-old", id)
+			}
+			return &domain.APIKey{
+				ID:                    "key-old",
+				ProjectID:             "proj-1",
+				Name:                  "production key",
+				Scopes:                []string{domain.ScopeJobsRead},
+				ExpiresAt:             &expiresAt,
+				RotationIntervalDays:  &rotationInterval,
+				RotationWebhookURL:    "https://example.com/rotate",
+				RotationWebhookSecret: oldSecret,
+			}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			created = *key
+			key.ID = "key-new"
+			return nil
+		},
+		MarkAPIKeyRotatedFunc: func(_ context.Context, oldID, newID string, _ time.Time) error {
+			if oldID != "key-old" || newID != "key-new" {
+				t.Fatalf("MarkAPIKeyRotated ids = %q/%q, want key-old/key-new", oldID, newID)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
+	if err != nil {
+		t.Fatalf("handleRotateAPIKey returned error: %v", err)
+	}
+	if !bytes.Equal(created.RotationWebhookSecret, oldSecret) {
+		t.Fatalf("created rotation webhook secret = %x, want %x", created.RotationWebhookSecret, oldSecret)
+	}
+	if created.RotationWebhookURL != "https://example.com/rotate" {
+		t.Fatalf("created RotationWebhookURL = %q, want existing URL", created.RotationWebhookURL)
+	}
+	if created.RotationIntervalDays == nil || *created.RotationIntervalDays != rotationInterval {
+		t.Fatalf("created RotationIntervalDays = %v, want %d", created.RotationIntervalDays, rotationInterval)
 	}
 }
