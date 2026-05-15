@@ -1468,13 +1468,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 	}
 	requestClient := *client
 	requestClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 3 {
-			return fmt.Errorf("too many redirects")
-		}
-		if err := validateRotationWebhookURL(req.URL.String(), r.allowPrivateEndpoints); err != nil {
-			return fmt.Errorf("redirect blocked: %w", err)
-		}
-		return nil
+		return http.ErrUseLastResponse
 	}
 	resp, err := requestClient.Do(req)
 	if err != nil {

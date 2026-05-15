@@ -93,6 +93,50 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	}
 }
 
+func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu             sync.Mutex
+		redirectCalled bool
+		targetCalled   bool
+	)
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		targetCalled = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	redirector := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		redirectCalled = true
+		mu.Unlock()
+		w.Header().Set("Location", target.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer redirector.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = redirector.Client()
+
+	err := r.notifyRotationWebhook(context.Background(), redirector.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
+	if err == nil {
+		t.Fatal("expected redirect response to fail the rotation webhook")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !redirectCalled {
+		t.Fatal("expected initial webhook endpoint to be called")
+	}
+	if targetCalled {
+		t.Fatal("rotation webhook followed redirect target")
+	}
+}
+
 func TestNotifyRotationWebhook_LegacyKeyDeliversUnsigned(t *testing.T) {
 	t.Parallel()
 
