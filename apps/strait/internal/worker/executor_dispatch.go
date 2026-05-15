@@ -698,10 +698,21 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	recordDispatchAttempt(ctx, "http", "success")
 
 	if len(respBody) > 0 {
-		return json.RawMessage(respBody), nil
+		return normalizeDispatchResult(respBody), nil
 	}
 
 	return nil, nil
+}
+
+func normalizeDispatchResult(body []byte) json.RawMessage {
+	if json.Valid(body) {
+		return json.RawMessage(body)
+	}
+	encoded, err := json.Marshal(string(body))
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(encoded)
 }
 
 func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
