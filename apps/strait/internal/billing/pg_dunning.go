@@ -45,11 +45,13 @@ func (s *PgStore) StartDunning(ctx context.Context, orgID string, now time.Time)
 
 // ResolveDunning clears the active dunning cycle. Sets dunning_resolved_at to
 // NOW(), and resets dunning_step / dunning_entered_at / dunning_last_tick_at
-// so the next failed payment starts a fresh cycle at step 1.
+// so the next failed payment starts a fresh cycle at step 1. dunning_step is
+// reset to NULL (the "not in dunning" sentinel) to mirror the column's
+// nullable schema.
 func (s *PgStore) ResolveDunning(ctx context.Context, orgID string, now time.Time) error {
 	if _, err := s.pool.Exec(ctx, `
 		UPDATE organization_subscriptions
-		SET dunning_step = 0,
+		SET dunning_step = NULL,
 		    dunning_entered_at = NULL,
 		    dunning_last_tick_at = NULL,
 		    dunning_resolved_at = $2,
