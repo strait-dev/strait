@@ -20,10 +20,10 @@ func (f fakeUptimeSource) MonthlyUptimePct(_ context.Context, _ string, _, _ tim
 
 // fakeIssuer captures issuance attempts and can be forced to fail.
 type fakeIssuer struct {
-	mu       sync.Mutex
-	calls    []issuerCall
-	noteID   string
-	err      error
+	mu     sync.Mutex
+	calls  []issuerCall
+	noteID string
+	err    error
 }
 
 type issuerCall struct {
@@ -300,10 +300,10 @@ func TestPreviousCalendarMonth(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name           string
-		ref            time.Time
-		wantStart      time.Time
-		wantEnd        time.Time
+		name      string
+		ref       time.Time
+		wantStart time.Time
+		wantEnd   time.Time
 	}{
 		{
 			name:      "mid_month",

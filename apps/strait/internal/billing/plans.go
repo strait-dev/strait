@@ -118,13 +118,13 @@ const (
 	ConcurrentEnterprise = -1 // unlimited
 
 	// Overage cost per 1K runs in micro-USD (Notion canonical).
-	DefaultOveragePerKMicrousd int64 = 500_000 // $0.50/1K
-	FreeOveragePerKMicrousd        int64 = 500_000 // $0.50/1K
-	StarterOveragePerKMicrousd     int64 = 400_000 // $0.40/1K
-	ProOveragePerKMicrousd         int64 = 200_000 // $0.20/1K
-	ScaleOveragePerKMicrousd       int64 = 60_000  // $0.06/1K
-	BusinessOveragePerKMicrousd    int64 = 30_000  // $0.03/1K
-	EnterpriseOveragePerKMicrousd  int64 = 30_000  // $0.03/1K (custom per contract)
+	DefaultOveragePerKMicrousd    int64 = 500_000 // $0.50/1K
+	FreeOveragePerKMicrousd       int64 = 500_000 // $0.50/1K
+	StarterOveragePerKMicrousd    int64 = 400_000 // $0.40/1K
+	ProOveragePerKMicrousd        int64 = 200_000 // $0.20/1K
+	ScaleOveragePerKMicrousd      int64 = 60_000  // $0.06/1K
+	BusinessOveragePerKMicrousd   int64 = 30_000  // $0.03/1K
+	EnterpriseOveragePerKMicrousd int64 = 30_000  // $0.03/1K (custom per contract)
 
 	// Data retention in days (Notion canonical).
 	RetentionFree       = 7
