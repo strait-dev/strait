@@ -222,7 +222,7 @@ function WorkflowDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="font-semibold text-2xl tabular-nums">
+                <p className="font-normal text-2xl tabular-nums">
                   {successRate}%
                 </p>
               </CardContent>
@@ -236,9 +236,7 @@ function WorkflowDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="font-semibold text-2xl tabular-nums">
-                  {totalRuns}
-                </p>
+                <p className="font-normal text-2xl tabular-nums">{totalRuns}</p>
               </CardContent>
             </Card>
 
@@ -250,7 +248,9 @@ function WorkflowDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="font-semibold text-2xl tabular-nums">--</p>
+                <p className="font-normal text-2xl text-muted-foreground tabular-nums">
+                  --
+                </p>
               </CardContent>
             </Card>
           </div>

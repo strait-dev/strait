@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckIcon as RadixCheckIcon } from "@radix-ui/react-icons";
 import {
   Accordion,
   AccordionContent,
@@ -151,7 +150,7 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
     {plan.features.slice(0, 8).map((feature: PricingFeature) => (
       <div className="flex items-start gap-2" key={feature.name}>
         <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded text-foreground">
-          <RadixCheckIcon className="size-3" />
+          <HugeiconsIcon className="size-3" icon={CheckIcon} />
         </div>
         <span className="text-muted-foreground/80 text-xs">
           {feature.description ? feature.description : feature.name}
@@ -267,7 +266,9 @@ const PricingCard = ({
                     : "border-muted-foreground/30"
                 )}
               >
-                {isSelected ? <RadixCheckIcon className="h-2.5 w-2.5" /> : null}
+                {isSelected ? (
+                  <HugeiconsIcon className="size-2.5" icon={CheckIcon} />
+                ) : null}
               </div>
             )}
           </div>

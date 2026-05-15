@@ -180,7 +180,7 @@ const MigrationCalculator = () => {
       {/* Results */}
       {result && (
         <Card className="border-success/30">
-          <CardContent className="space-y-4 p-6">
+          <CardContent className="space-y-4 p-4">
             <div className="text-center">
               {selectedProvider && (
                 <p className="text-muted-foreground text-sm">

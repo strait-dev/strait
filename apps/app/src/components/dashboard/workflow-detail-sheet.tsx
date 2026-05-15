@@ -125,7 +125,7 @@ const WorkflowDetailSheet = ({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <HugeiconsIcon icon={ClockIcon} size={12} />
+                  <HugeiconsIcon className="size-3" icon={ClockIcon} />
                   Timeout
                 </span>
                 <span className="font-mono text-sm">
@@ -159,7 +159,7 @@ const WorkflowDetailSheet = ({
           {workflow.tags && Object.keys(workflow.tags).length > 0 && (
             <div>
               <h4 className="mb-2 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase">
-                <HugeiconsIcon icon={TagIcon} size={12} />
+                <HugeiconsIcon className="size-3" icon={TagIcon} />
                 Tags
               </h4>
               <div className="flex flex-wrap gap-1.5">
@@ -211,7 +211,7 @@ const WorkflowDetailSheet = ({
             View details
           </Button>
           <Button className="w-full">
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
             Trigger
           </Button>
         </SheetFooter>

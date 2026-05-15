@@ -57,9 +57,8 @@ const CollapsibleSection = ({
       >
         {title}
         <HugeiconsIcon
-          className={cn("transition-transform", open && "rotate-180")}
+          className={cn("size-3.5 transition-transform", open && "rotate-180")}
           icon={ChevronDownIcon}
-          size={14}
         />
       </button>
       {open && <div className="border-t px-3 py-2">{children}</div>}
@@ -122,9 +121,8 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
           {/* Job Link */}
           <div className="flex items-center gap-2 text-sm">
             <HugeiconsIcon
-              className="text-muted-foreground"
+              className="size-3.5 text-muted-foreground"
               icon={BriefcaseIcon}
-              size={14}
             />
             <span className="text-muted-foreground">Job</span>
             <span className="ml-auto font-mono text-sm">{run.job_id}</span>
@@ -132,14 +130,13 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
 
           {/* Error Alert */}
           {isFailed && run.error && (
-            <div className="flex gap-2 rounded-md border border-chart-4/30 bg-chart-4/5 p-3">
+            <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
               <HugeiconsIcon
-                className="mt-0.5 shrink-0 text-chart-4"
+                className="mt-0.5 size-4 shrink-0 text-destructive"
                 icon={AlertIcon}
-                size={16}
               />
               <div>
-                <p className="font-medium text-chart-4 text-sm">Error</p>
+                <p className="font-medium text-destructive text-sm">Error</p>
                 <p className="mt-0.5 text-muted-foreground text-sm">
                   {String(run.error)}
                 </p>
@@ -163,7 +160,7 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <HugeiconsIcon icon={ClockIcon} size={12} />
+                  <HugeiconsIcon className="size-3" icon={ClockIcon} />
                   Duration
                 </span>
                 <span className="font-mono text-sm">
@@ -268,7 +265,7 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
               onClick={() => retryRun.mutate({ run_id: run.id })}
               variant="outline"
             >
-              <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
+              <HugeiconsIcon className="mr-1.5 size-3.5" icon={RefreshIcon} />
               Retry
             </Button>
           )}
@@ -279,7 +276,7 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
               onClick={() => cancelRun.mutate({ run_id: run.id })}
               variant="outline"
             >
-              <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
+              <HugeiconsIcon className="mr-1.5 size-3.5" icon={XCircleIcon} />
               Cancel
             </Button>
           )}

@@ -124,7 +124,10 @@ function LogsPage() {
       description="No log entries yet. Logs will appear as your jobs execute."
       hideButton
       icon={
-        <HugeiconsIcon className="size-6 text-primary" icon={FileTextIcon} />
+        <HugeiconsIcon
+          className="size-6 text-muted-foreground"
+          icon={FileTextIcon}
+        />
       }
       title="No events found"
     />
