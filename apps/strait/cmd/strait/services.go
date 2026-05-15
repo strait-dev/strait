@@ -434,6 +434,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithStarterPrices(cfg.StripeStarterMonthlyPriceID, cfg.StripeStarterYearlyPriceID),
 			billing.WithProPrices(cfg.StripeProMonthlyPriceID, cfg.StripeProYearlyPriceID),
 			billing.WithScalePrices(cfg.StripeScaleMonthlyPriceID, cfg.StripeScaleYearlyPriceID),
+			billing.WithBusinessPrices(cfg.StripeBusinessMonthlyPriceID, cfg.StripeBusinessYearlyPriceID),
 			billing.WithEnterpriseStarterPrice(cfg.StripeEnterpriseStarterYearlyPriceID),
 			billing.WithEnterpriseGrowthPrice(cfg.StripeEnterpriseGrowthYearlyPriceID),
 			billing.WithEnterpriseLargePrice(cfg.StripeEnterpriseLargeYearlyPriceID),
