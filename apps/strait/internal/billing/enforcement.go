@@ -74,6 +74,11 @@ type Enforcer struct {
 	// catalog + addons pipeline. Operator escape hatch via
 	// BILLING_ENTITLEMENTS_AUTHORITATIVE.
 	entitlementsAuthoritative bool
+
+	// billingDispatcher fans billing-state events out to the outbound
+	// webhook_subscriptions pipeline. nil means dispatch is disabled
+	// (community edition, tests, or unwired cloud).
+	billingDispatcher BillingEventDispatcher
 }
 
 const (
@@ -219,6 +224,15 @@ func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
 func WithEntitlementsAuthoritative(b bool) EnforcerOption {
 	return func(e *Enforcer) {
 		e.entitlementsAuthoritative = b
+	}
+}
+
+// WithBillingDispatcher attaches an outbound billing-event dispatcher
+// to the Enforcer. When set, spending-cap and overage-state transitions
+// dispatch the corresponding billing.* webhook events.
+func WithBillingDispatcher(d BillingEventDispatcher) EnforcerOption {
+	return func(e *Enforcer) {
+		e.billingDispatcher = d
 	}
 }
 

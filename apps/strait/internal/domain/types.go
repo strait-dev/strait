@@ -55,6 +55,19 @@ const (
 	WebhookEventQuotaExceeded     = "quota.exceeded"
 	WebhookEventCronPausedQuota   = "cron.paused_quota"
 	WebhookEventCronResumed       = "cron.resumed"
+
+	// Outbound billing-state events. Dispatched via the same
+	// webhook_subscriptions pipeline as run/workflow events, with HMAC
+	// signing, retries, and the circuit breaker.
+	WebhookEventBillingCapWarning            = "billing.cap_warning"
+	WebhookEventBillingCapReached            = "billing.cap_reached"
+	WebhookEventBillingCapDisabled           = "billing.cap_disabled"
+	WebhookEventBillingOverageDisabled       = "billing.overage_disabled"
+	WebhookEventBillingSuspended             = "billing.suspended"
+	WebhookEventBillingDelinquent            = "billing.delinquent"
+	WebhookEventScheduleSuspended            = "schedule.suspended"
+	WebhookEventWorkflowRegistrationRejected = "workflow.registration_rejected"
+	WebhookEventSLACreditIssued              = "sla.credit_issued"
 )
 
 const (
