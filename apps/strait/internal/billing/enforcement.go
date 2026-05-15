@@ -1245,9 +1245,9 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 				BillingCapEventWarning,
 				domain.WebhookEventBillingCapWarning,
 				map[string]any{
-					"spend_pct":          spendPct,
-					"period_spend":       periodSpend,
-					"spending_limit":     sub.SpendingLimitMicrousd,
+					"spend_pct":            spendPct,
+					"period_spend":         periodSpend,
+					"spending_limit":       sub.SpendingLimitMicrousd,
 					"current_period_start": sub.CurrentPeriodStart,
 				})
 		}

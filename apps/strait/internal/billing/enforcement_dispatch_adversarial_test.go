@@ -77,7 +77,8 @@ func TestCheckSpendingLimit_DispatchFailureDoesNotBlockReturn(t *testing.T) {
 	e := NewEnforcer(store, nil, nil, WithBillingDispatcher(d))
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
-	if _, ok := err.(*LimitError); !ok {
+	var limitErr *LimitError
+	if !errors.As(err, &limitErr) {
 		t.Fatalf("CheckSpendingLimit err = %v, want *LimitError despite dispatcher error", err)
 	}
 }

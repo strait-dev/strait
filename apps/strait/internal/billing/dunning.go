@@ -12,13 +12,13 @@ import (
 
 // Dunning steps. The plan locks these values; do not renumber.
 const (
-	DunningStepNone   = 0 // not in dunning
-	DunningStepEntry  = 1 // Day 0 — grace begins, billing.delinquent already dispatched
-	DunningStepDay3   = 2 // Day 3 reminder
-	DunningStepDay7   = 3 // Day 7 reminder
-	DunningStepDay14  = 4 // Day 14 — restrict access
-	DunningStepDay44  = 5 // Day 44 — final warning
-	DunningStepDay74  = 6 // Day 74 — suspend
+	DunningStepNone  = 0 // not in dunning
+	DunningStepEntry = 1 // Day 0 — grace begins, billing.delinquent already dispatched
+	DunningStepDay3  = 2 // Day 3 reminder
+	DunningStepDay7  = 3 // Day 7 reminder
+	DunningStepDay14 = 4 // Day 14 — restrict access
+	DunningStepDay44 = 5 // Day 44 — final warning
+	DunningStepDay74 = 6 // Day 74 — suspend
 )
 
 // dunningSchedule maps each transition target step to the minimum elapsed

@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestCheckSpendingLimit_DispatchesCapWarningAt80Pct(t *testing.T) {
 	t.Parallel()
 
 	sub := newPaidSubscription("org_warn", string(domain.PlanPro), 1_000_000, "block") // $1.00 cap
-	e, _, d := newFakeDispatcherEnforcer(t, sub, 850_000)                                // 85% of cap
+	e, _, d := newFakeDispatcherEnforcer(t, sub, 850_000)                              // 85% of cap
 
 	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
 		t.Fatalf("CheckSpendingLimit err = %v", err)
@@ -64,10 +65,11 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 	t.Parallel()
 
 	sub := newPaidSubscription("org_block", string(domain.PlanPro), 1_000_000, "block") // action=block
-	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)                              // 150% of cap
+	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)                             // 150% of cap
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
-	if _, ok := err.(*LimitError); !ok {
+	var limitErr *LimitError
+	if !errors.As(err, &limitErr) {
 		t.Fatalf("CheckSpendingLimit err = %v, want *LimitError", err)
 	}
 	got := dispatchedEventTypes(d)
@@ -88,7 +90,8 @@ func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
 	sub := newPaidSubscription("org_disable", string(domain.PlanScale), 5_000_000, "disable")
 	e, _, d := newFakeDispatcherEnforcer(t, sub, 7_000_000) // 140% of cap
 
-	if _, ok := e.CheckSpendingLimit(context.Background(), sub.OrgID).(*LimitError); !ok {
+	var capErr *LimitError
+	if !errors.As(e.CheckSpendingLimit(context.Background(), sub.OrgID), &capErr) {
 		t.Fatal("expected LimitError when cap reached")
 	}
 	got := dispatchedEventTypes(d)
@@ -152,7 +155,8 @@ func TestCheckSpendingLimit_NoDispatcherIsNoOp(t *testing.T) {
 		periodSpendByOrg: map[string]int64{sub.OrgID: 1_500_000},
 	}
 	e := NewEnforcer(store, nil, nil) // no dispatcher
-	if _, ok := e.CheckSpendingLimit(context.Background(), sub.OrgID).(*LimitError); !ok {
+	var noDispErr *LimitError
+	if !errors.As(e.CheckSpendingLimit(context.Background(), sub.OrgID), &noDispErr) {
 		t.Fatal("expected LimitError")
 	}
 	// No panic, no dispatch — already implied by reaching here.

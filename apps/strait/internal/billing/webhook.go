@@ -1225,10 +1225,10 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 	if h.enforcer != nil {
 		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(existing.PlanTier),
 			domain.WebhookEventBillingDelinquent, map[string]any{
-				"stripe_invoice_id":      invoice.ID,
-				"grace_period_end":       graceEnd.UTC().Format(time.RFC3339Nano),
-				"amount_due_microusd":    invoice.AmountDue,
-				"attempt_count":          invoice.AttemptCount,
+				"stripe_invoice_id":   invoice.ID,
+				"grace_period_end":    graceEnd.UTC().Format(time.RFC3339Nano),
+				"amount_due_microusd": invoice.AmountDue,
+				"attempt_count":       invoice.AttemptCount,
 			})
 	}
 

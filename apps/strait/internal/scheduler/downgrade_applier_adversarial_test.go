@@ -30,14 +30,14 @@ import (
 //     boolean feature flags evaluated per request).
 var downgradeStrategyMap = map[string]string{
 	// Identity / pricing / metadata.
-	"PlanTier":                "n/a_static",
-	"DisplayName":             "n/a_static",
-	"PriceMonthlyUsd":         "n/a_static",
-	"PriceAnnualUsd":          "n/a_static",
-	"OveragePerKMicrousd":     "n/a_static",
-	"AllowedRegions":          "n/a_static",
-	"RequiresCreditCard":      "n/a_static",
-	"SupportLevel":            "n/a_static",
+	"PlanTier":            "n/a_static",
+	"DisplayName":         "n/a_static",
+	"PriceMonthlyUsd":     "n/a_static",
+	"PriceAnnualUsd":      "n/a_static",
+	"OveragePerKMicrousd": "n/a_static",
+	"AllowedRegions":      "n/a_static",
+	"RequiresCreditCard":  "n/a_static",
+	"SupportLevel":        "n/a_static",
 
 	// Per-tenant resource caps the applier already cleans up.
 	"MaxProjectsPerOrg":       "deactivate",
