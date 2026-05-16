@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -152,6 +153,27 @@ func (m *mockReportStore) RecordSentUsageReport(_ context.Context, orgID string,
 	return nil
 }
 
+func (m *mockReportStore) ClaimUsageReportSend(_ context.Context, orgID string, periodEnd time.Time) (bool, error) {
+	if m.sentReports == nil {
+		m.sentReports = make(map[string]bool)
+	}
+	key := orgID + "|" + periodEnd.Format("2006-01-02")
+	if m.sentReports[key] {
+		return false, nil
+	}
+	m.recordSentCalls = append(m.recordSentCalls, orgID)
+	m.sentReports[key] = true
+	return true, nil
+}
+
+func (m *mockReportStore) ReleaseUsageReportSendClaim(_ context.Context, orgID string, periodEnd time.Time) error {
+	if m.sentReports != nil {
+		key := orgID + "|" + periodEnd.Format("2006-01-02")
+		delete(m.sentReports, key)
+	}
+	return nil
+}
+
 func (m *mockReportStore) UpdateMonthlyUsageEmail(context.Context, string, bool) error {
 	return nil
 }
@@ -210,10 +232,14 @@ func (m *mockReportStore) CountHTTPJobsByOrg(context.Context, string) (int, erro
 
 type mockResendAPI struct {
 	sent []*resend.SendEmailRequest
+	err  error
 }
 
 func (m *mockResendAPI) SendWithContext(_ context.Context, params *resend.SendEmailRequest) (*resend.SendEmailResponse, error) {
 	m.sent = append(m.sent, params)
+	if m.err != nil {
+		return nil, m.err
+	}
 	return &resend.SendEmailResponse{Id: "msg-123"}, nil
 }
 
@@ -437,5 +463,67 @@ func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
 	}
 	if store.recordSentCalls[0] != "org-noadmin" {
 		t.Errorf("RecordSentUsageReport called for %q, want org-noadmin", store.recordSentCalls[0])
+	}
+}
+
+func TestUsageReportEmailer_RetriesSameDayAfterSendFailure(t *testing.T) {
+	t.Parallel()
+
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := yesterday.AddDate(0, -1, 0)
+	store := &mockReportStore{
+		orgIDs: []string{"org-1"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-1": {
+				OrgID:              "org-1",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &yesterday,
+			},
+		},
+		adminEmails: map[string][]string{"org-1": {"admin@example.com"}},
+	}
+
+	emailAPI := &mockResendAPI{err: errors.New("resend unavailable")}
+	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer.checkAndSend(context.Background())
+	emailAPI.err = nil
+	emailer.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 2 {
+		t.Fatalf("send attempts = %d, want retry on same day after failure", len(emailAPI.sent))
+	}
+}
+
+func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) {
+	t.Parallel()
+
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := yesterday.AddDate(0, -1, 0)
+	store := &mockReportStore{
+		orgIDs: []string{"org-1"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-1": {
+				OrgID:              "org-1",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &yesterday,
+			},
+		},
+		adminEmails: map[string][]string{"org-1": {"admin@example.com"}},
+	}
+
+	emailAPI := &mockResendAPI{}
+	emailer1 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer2 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer1.checkAndSend(context.Background())
+	emailer2.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 1 {
+		t.Fatalf("emails sent = %d, want pre-send claim to allow only one side effect", len(emailAPI.sent))
 	}
 }

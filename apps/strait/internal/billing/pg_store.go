@@ -1019,6 +1019,33 @@ func (s *PgStore) RecordSentUsageReport(ctx context.Context, orgID string, perio
 	return nil
 }
 
+// ClaimUsageReportSend atomically claims an org/period report before the email
+// side effect. A false return means another scheduler already claimed or sent it.
+func (s *PgStore) ClaimUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO sent_usage_reports (org_id, period_end)
+		VALUES ($1, $2)
+		ON CONFLICT (org_id, period_end) DO NOTHING
+	`, orgID, periodEnd.Truncate(24*time.Hour))
+	if err != nil {
+		return false, fmt.Errorf("claiming usage report send: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ReleaseUsageReportSendClaim releases a pre-send claim after a definite send
+// failure so a later scheduler tick can retry the report.
+func (s *PgStore) ReleaseUsageReportSendClaim(ctx context.Context, orgID string, periodEnd time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM sent_usage_reports
+		WHERE org_id = $1 AND period_end = $2
+	`, orgID, periodEnd.Truncate(24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("releasing usage report send claim: %w", err)
+	}
+	return nil
+}
+
 // UpdateMonthlyUsageEmail updates the email preference for an org.
 func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, enabled bool) error {
 	_, err := s.pool.Exec(ctx, `
