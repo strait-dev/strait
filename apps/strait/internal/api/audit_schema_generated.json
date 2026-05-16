@@ -596,60 +596,6 @@
         "bearer"
       ]
     },
-    "cron.paused_quota": {
-      "type": "object",
-      "description": "Cron jobs paused automatically because the org's quota was exceeded.",
-      "properties": {
-        "jobs_paused": {
-          "type": "string",
-          "description": "required"
-        },
-        "org_id": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["org_id", "jobs_paused"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
-    "cron.resumed_quota": {
-      "type": "object",
-      "description": "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
-      "properties": {
-        "jobs_resumed": {
-          "type": "string",
-          "description": "required"
-        },
-        "org_id": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["org_id", "jobs_resumed"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
     "deployment_version.created": {
       "type": "object",
       "description": "Artifact deployment version created.",
@@ -1869,33 +1815,6 @@
         }
       },
       "required": ["changes"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
-    "quota.exceeded": {
-      "type": "object",
-      "description": "Org exceeded its quota; cron jobs paused until the next billing period.",
-      "properties": {
-        "org_id": {
-          "type": "string",
-          "description": "required"
-        },
-        "plan_tier": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["org_id", "plan_tier"],
       "x-forbidden-keys": [
         "secret",
         "value",

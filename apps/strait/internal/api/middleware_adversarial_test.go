@@ -860,19 +860,22 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp ErrorResponse
+	var resp QuotaExceededBody
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp.Error == nil {
-		t.Fatal("expected non-nil error in response")
+	if resp.Code != "quota_exceeded" {
+		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
 	}
-	if resp.Error.Message != "project limit reached" {
-		t.Fatalf("expected 'project limit reached', got %q", resp.Error.Message)
+	if resp.Kind != "project_limit_exceeded" {
+		t.Fatalf("expected kind 'project_limit_exceeded', got %q", resp.Kind)
+	}
+	if resp.Message != "project limit reached" {
+		t.Fatalf("expected message 'project limit reached', got %q", resp.Message)
 	}
 }
 

@@ -941,8 +941,19 @@ func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1&plan_tier=free", ""))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for limit exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402 for limit exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp QuotaExceededBody
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Code != "quota_exceeded" {
+		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
+	}
+	if resp.Kind != "org_limit_exceeded" {
+		t.Fatalf("expected kind 'org_limit_exceeded', got %q", resp.Kind)
 	}
 }
 
