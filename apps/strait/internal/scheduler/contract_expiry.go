@@ -28,6 +28,10 @@ type ContractExpiryEmailSender interface {
 	SendEnterpriseContractReminder(ctx context.Context, to []string, contractEndDate string, autoRenew bool, daysRemaining int)
 }
 
+type contractReminderClaimStore interface {
+	ClaimContractReminderSend(ctx context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error)
+}
+
 // ContractExpiryChecker periodically checks for enterprise contracts
 // approaching expiry and sends renewal or expiry reminder emails.
 type ContractExpiryChecker struct {
@@ -127,6 +131,16 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 			continue
 		}
 
+		claimed, claimErr := c.claimReminderSend(ctx, contract, withinDays)
+		if claimErr != nil {
+			slog.Warn("contract expiry checker: failed to claim reminder send",
+				"org_id", contract.OrgID, "within_days", withinDays, "error", claimErr)
+			continue
+		}
+		if !claimed {
+			continue
+		}
+
 		endDateStr := contract.ContractEndDate.Format("January 2, 2006")
 
 		if c.emails != nil {
@@ -155,6 +169,16 @@ func (c *ContractExpiryChecker) reminderAlreadySent(contract billing.EnterpriseC
 	defer c.reminderMu.Unlock()
 	_, ok := c.reminders[contractReminderKey(contract, withinDays)]
 	return ok
+}
+
+func (c *ContractExpiryChecker) claimReminderSend(ctx context.Context, contract billing.EnterpriseContract, withinDays int) (bool, error) {
+	if claimStore, ok := c.store.(contractReminderClaimStore); ok {
+		return claimStore.ClaimContractReminderSend(ctx, contract.OrgID, contract.ContractEndDate, withinDays)
+	}
+	if c.reminderAlreadySent(contract, withinDays) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (c *ContractExpiryChecker) markReminderSent(contract billing.EnterpriseContract, withinDays int) {

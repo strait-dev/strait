@@ -1072,6 +1072,18 @@ func (s *PgStore) ReleaseUsageReportSendClaim(ctx context.Context, orgID string,
 	return nil
 }
 
+func (s *PgStore) ClaimContractReminderSend(ctx context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO contract_reminder_sends (org_id, contract_end_date, reminder_window_days)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (org_id, contract_end_date, reminder_window_days) DO NOTHING
+	`, orgID, contractEndDate.UTC().Truncate(24*time.Hour), reminderWindowDays)
+	if err != nil {
+		return false, fmt.Errorf("claiming contract reminder send: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // UpdateMonthlyUsageEmail updates the email preference for an org.
 func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, enabled bool) error {
 	_, err := s.pool.Exec(ctx, `

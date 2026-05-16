@@ -1821,6 +1821,37 @@ func TestPgStore_UsageReportDedup(t *testing.T) {
 	}
 }
 
+func TestPgStore_ClaimContractReminderSend_DeduplicatesByOrgDateWindow(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-contract-claim-" + newID()
+	contractEnd := time.Date(2026, 6, 30, 18, 30, 0, 0, time.UTC)
+
+	claimed, err := pgStore.ClaimContractReminderSend(ctx, orgID, contractEnd, 30)
+	if err != nil {
+		t.Fatalf("ClaimContractReminderSend first: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected first contract reminder claim to succeed")
+	}
+	claimed, err = pgStore.ClaimContractReminderSend(ctx, orgID, contractEnd.Add(5*time.Hour), 30)
+	if err != nil {
+		t.Fatalf("ClaimContractReminderSend duplicate: %v", err)
+	}
+	if claimed {
+		t.Fatal("expected duplicate same-day reminder claim to be skipped")
+	}
+	claimed, err = pgStore.ClaimContractReminderSend(ctx, orgID, contractEnd, 7)
+	if err != nil {
+		t.Fatalf("ClaimContractReminderSend different window: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected different reminder window to claim separately")
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 42: UpdateMonthlyUsageEmail
 // --------------------------------------------------------------------------.

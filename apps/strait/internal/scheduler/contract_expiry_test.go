@@ -15,6 +15,7 @@ type mockContractExpiryStore struct {
 	adminEmails map[string][]string
 	restricted  []string
 	listErr     error
+	claims      map[string]bool
 }
 
 func (m *mockContractExpiryStore) ListExpiringContracts(_ context.Context, withinDays int) ([]billing.EnterpriseContract, error) {
@@ -40,6 +41,18 @@ func (m *mockContractExpiryStore) UpdatePaymentStatus(_ context.Context, orgID s
 		m.restricted = append(m.restricted, orgID)
 	}
 	return nil
+}
+
+func (m *mockContractExpiryStore) ClaimContractReminderSend(_ context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error) {
+	if m.claims == nil {
+		m.claims = make(map[string]bool)
+	}
+	key := contractReminderKey(billing.EnterpriseContract{OrgID: orgID, ContractEndDate: contractEndDate}, reminderWindowDays)
+	if m.claims[key] {
+		return false, nil
+	}
+	m.claims[key] = true
+	return true, nil
 }
 
 type mockContractEmailSender struct {
@@ -129,6 +142,31 @@ func TestContractExpiryChecker_DoesNotSend30And7DayReminderSameTick(t *testing.T
 
 	if len(emails.sent) != 1 {
 		t.Fatalf("expected one reminder for same 5-day contract, got %d", len(emails.sent))
+	}
+}
+
+func TestContractExpiryChecker_DurableClaimPreventsDuplicateReminder(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(25 * 24 * time.Hour)
+	contract := billing.EnterpriseContract{OrgID: "org-claimed", EnterpriseTier: "enterprise_starter", ContractEndDate: endDate, AutoRenew: true}
+	store := &mockContractExpiryStore{
+		contracts30: []billing.EnterpriseContract{contract},
+		adminEmails: map[string][]string{"org-claimed": {"admin@example.com"}},
+	}
+	emailsA := &mockContractEmailSender{}
+	checkerA := NewContractExpiryChecker(store, emailsA, time.Hour)
+	checkerA.check(context.Background())
+
+	emailsB := &mockContractEmailSender{}
+	checkerB := NewContractExpiryChecker(store, emailsB, time.Hour)
+	checkerB.check(context.Background())
+
+	if len(emailsA.sent) != 1 {
+		t.Fatalf("first checker sent %d reminders, want 1", len(emailsA.sent))
+	}
+	if len(emailsB.sent) != 0 {
+		t.Fatalf("second checker sent %d reminders after durable claim, want 0", len(emailsB.sent))
 	}
 }
 
