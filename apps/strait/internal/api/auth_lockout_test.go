@@ -185,6 +185,42 @@ func TestAuthLockout_DifferentIP_NotBlocked(t *testing.T) {
 	}
 }
 
+func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWithRedis(t, &APIStoreMock{})
+	remoteAddr := "10.0.0.77:1234"
+
+	for range 10 {
+		req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+		req.Header.Set("Authorization", "Bearer strait_bad_key")
+		req.RemoteAddr = remoteAddr
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("bad API key status = %d, want 401", w.Code)
+		}
+	}
+
+	internalReq := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	internalReq.Header.Set("X-Internal-Secret", "test-secret-value")
+	internalReq.RemoteAddr = remoteAddr
+	internalW := httptest.NewRecorder()
+	srv.ServeHTTP(internalW, internalReq)
+	if internalW.Code == http.StatusUnauthorized || internalW.Code == http.StatusTooManyRequests {
+		t.Fatalf("internal-secret auth status = %d, want authenticated handler response", internalW.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	req.Header.Set("Authorization", "Bearer strait_bad_key")
+	req.RemoteAddr = remoteAddr
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("API-key failures were cleared by internal-secret success: status = %d, want 429", w.Code)
+	}
+}
+
 func TestAuthLockout_NoRedis_FailsOpen(t *testing.T) {
 	t.Parallel()
 

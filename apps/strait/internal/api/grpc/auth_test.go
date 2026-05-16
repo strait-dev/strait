@@ -201,20 +201,22 @@ type fakeGRPCAuthLimiter struct {
 	blocked     bool
 	retryAfter  time.Duration
 	blockChecks []string
+	scopes      []string
 	failures    []string
 	resets      []string
 }
 
-func (f *fakeGRPCAuthLimiter) IsBlocked(_ context.Context, ip string) (bool, time.Duration) {
+func (f *fakeGRPCAuthLimiter) IsBlockedScoped(_ context.Context, ip, scope string) (bool, time.Duration) {
 	f.blockChecks = append(f.blockChecks, ip)
+	f.scopes = append(f.scopes, scope)
 	return f.blocked, f.retryAfter
 }
 
-func (f *fakeGRPCAuthLimiter) RecordFailure(_ context.Context, ip string) {
+func (f *fakeGRPCAuthLimiter) RecordFailureScoped(_ context.Context, ip, _ string) {
 	f.failures = append(f.failures, ip)
 }
 
-func (f *fakeGRPCAuthLimiter) Reset(_ context.Context, ip string) {
+func (f *fakeGRPCAuthLimiter) ResetScoped(_ context.Context, ip, _ string) {
 	f.resets = append(f.resets, ip)
 }
 

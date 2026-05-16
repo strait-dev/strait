@@ -130,6 +130,16 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 			t.Fatalf("expected no error with extra components, got %v", err)
 		}
 	})
+
+	t.Run("accepts any matching v1 signature", func(t *testing.T) {
+		t.Parallel()
+		sig := signStripe(ts, body)
+		header := fmt.Sprintf("t=%s,v1=%s,v1=deadbeef", ts, sig)
+		err := ValidateSignature("stripe-v1", secret, body, header)
+		if err != nil {
+			t.Fatalf("expected valid first v1 signature to be accepted, got %v", err)
+		}
+	})
 }
 
 func TestValidateSignature_GitHubSHA256(t *testing.T) {

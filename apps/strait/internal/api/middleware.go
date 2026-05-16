@@ -435,7 +435,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
-		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey); blocked {
 			recordAuthDecision(r.Context(), "api_key", "throttled")
 			recordAuthRateLimitThrottled(r.Context(), "api_key")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -445,7 +445,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer strait_") {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing api key")
 			return
@@ -456,14 +456,14 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
 		if err != nil || apiKey == nil {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
 			return
 		}
 
 		if apiKey.RevokedAt != nil {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key has been revoked")
 			return
@@ -471,13 +471,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		now := time.Now()
 		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key has expired")
 			return
 		}
 		if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key rotation grace period has ended")
 			return
@@ -486,7 +486,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		// Successful auth — clear the brute-force counter for this IP so
 		// a legitimate user who fat-fingered their key a few times before
 		// finding the right one isn't held up by the lockout window.
-		s.authLimiter.Reset(r.Context(), clientIP)
+		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 		recordAuthDecision(r.Context(), "api_key", "success")
 		recordAuthTokenAge(r.Context(), "api_key", apiKey.CreatedAt)
 
@@ -553,12 +553,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientIP := realIP(r, s.trustedProxies)
 
-		// Check if this IP is locked out from too many failed attempts.
-		// Mirrors apiKeyAuth/internalSecretAuth so all three auth paths
-		// share the same brute-force budget — without this, an attacker
-		// could pivot from API-key brute force to OIDC token brute force
-		// once locked out on one path.
-		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC); blocked {
 			recordAuthDecision(r.Context(), "oidc", "throttled")
 			recordAuthRateLimitThrottled(r.Context(), "oidc")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -569,7 +564,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC)
 			recordAuthDecision(r.Context(), "oidc", "failure")
 			respondError(w, r, http.StatusUnauthorized, "missing bearer token")
 			return
@@ -577,14 +572,13 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 		claims, err := s.oidcVerifier.verify(token)
 		if err != nil {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC)
 			recordAuthDecision(r.Context(), "oidc", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid bearer token")
 			return
 		}
 
-		// Successful OIDC verification — clear the brute-force counter.
-		s.authLimiter.Reset(r.Context(), clientIP)
+		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC)
 		recordAuthDecision(r.Context(), "oidc", "success")
 		if claims.IssuedAt != nil {
 			recordAuthTokenAge(r.Context(), "oidc", claims.IssuedAt.Time)
@@ -642,7 +636,7 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
-		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret); blocked {
 			recordAuthDecision(r.Context(), "internal_secret", "throttled")
 			recordAuthRateLimitThrottled(r.Context(), "internal_secret")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -652,14 +646,13 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 
 		secret := r.Header.Get("X-Internal-Secret")
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret)
 			recordAuthDecision(r.Context(), "internal_secret", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
 
-		// Successful internal-secret auth — clear the brute-force counter.
-		s.authLimiter.Reset(r.Context(), clientIP)
+		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret)
 		recordAuthDecision(r.Context(), "internal_secret", "success")
 
 		ctx := r.Context()

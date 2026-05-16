@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -126,7 +127,7 @@ func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url str
 
 	_ = cb.client.ZAdd(ctx, failureKey, redis.Z{
 		Score:  float64(now.UnixMilli()),
-		Member: strconv.FormatInt(now.UnixNano(), 10),
+		Member: strconv.FormatInt(now.UnixNano(), 10) + ":" + uuid.Must(uuid.NewV7()).String(),
 	}).Err()
 	_ = cb.client.Expire(ctx, failureKey, cb.failureWindow).Err()
 

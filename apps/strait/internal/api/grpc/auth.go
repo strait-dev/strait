@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/ratelimit"
 	"strait/internal/store"
 
 	"google.golang.org/grpc/codes"
@@ -34,9 +35,9 @@ const (
 var grpcAPIKeyPattern = regexp.MustCompile(`^strait_[A-Za-z0-9]+$`)
 
 type grpcAuthLimiter interface {
-	IsBlocked(ctx context.Context, ip string) (bool, time.Duration)
-	RecordFailure(ctx context.Context, ip string)
-	Reset(ctx context.Context, ip string)
+	IsBlockedScoped(ctx context.Context, ip, scope string) (bool, time.Duration)
+	RecordFailureScoped(ctx context.Context, ip, scope string)
+	ResetScoped(ctx context.Context, ip, scope string)
 }
 
 func resolveAPIKeyFromContextWithLimit(ctx context.Context, q *store.Queries, limiter grpcAuthLimiter) (*domain.APIKey, error) {
@@ -45,16 +46,16 @@ func resolveAPIKeyFromContextWithLimit(ctx context.Context, q *store.Queries, li
 	}
 
 	ip := grpcPeerIP(ctx)
-	if blocked, retryAfter := limiter.IsBlocked(ctx, ip); blocked {
+	if blocked, retryAfter := limiter.IsBlockedScoped(ctx, ip, ratelimit.AuthScopeGRPCWorker); blocked {
 		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts; retry after %s", retryAfter.Truncate(time.Second))
 	}
 
 	apiKey, err := resolveAPIKeyFromContext(ctx, q)
 	if err != nil {
-		limiter.RecordFailure(ctx, ip)
+		limiter.RecordFailureScoped(ctx, ip, ratelimit.AuthScopeGRPCWorker)
 		return nil, err
 	}
-	limiter.Reset(ctx, ip)
+	limiter.ResetScoped(ctx, ip, ratelimit.AuthScopeGRPCWorker)
 	return apiKey, nil
 }
 

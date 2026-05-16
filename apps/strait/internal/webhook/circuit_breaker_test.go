@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -716,6 +717,43 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T
 	state.mu.Unlock()
 	if !isOpen {
 		t.Fatal("expected open key set after exactly threshold failures")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_RecordFailureCountsSameTimestampFailures(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	now := time.Now()
+	breaker := NewRedisWebhookCircuitBreaker(
+		client,
+		true,
+		WithWebhookCircuitBreakerThreshold(2),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+	breaker.now = func() time.Time { return now }
+
+	url := "https://example.com/same-timestamp"
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+
+	failures, err := client.ZCard(t.Context(), breaker.failureKey(url)).Result()
+	if err != nil {
+		t.Fatalf("ZCard error = %v", err)
+	}
+	if failures != 2 {
+		t.Fatalf("failures = %d, want 2 distinct entries with the same timestamp", failures)
+	}
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if canDeliver {
+		t.Fatal("expected delivery blocked after two same-timestamp failures")
 	}
 }
 
