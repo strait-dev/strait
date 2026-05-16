@@ -90,3 +90,25 @@ func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
 		t.Fatalf("decrypted signing secret = %q, stored = %q", plaintext, storedSecret)
 	}
 }
+
+func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) {
+	t.Parallel()
+
+	store := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+			t.Fatal("UpdateJobEndpoint must not be called when signing secret encryption is unavailable")
+			return nil
+		},
+	}
+	srv := newTestServer(t, store, &mockQueue{}, nil)
+	body := `{"endpoint_url":"https://example.com/hook","rotate_signing_secret":true}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when encryption is unavailable, got %d: %s", w.Code, w.Body.String())
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 )
 
@@ -29,7 +30,7 @@ func newJobEndpointTestServer(t *testing.T, job *domain.Job, capture *atomic.Poi
 			return nil
 		},
 	}
-	return newTestServer(t, ms, &mockQueue{}, nil)
+	return newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 }
 
 type capturedEndpointUpdate struct {
@@ -90,8 +91,11 @@ func TestSetJobEndpoint_URLOnlyUpdatePreservesSecret(t *testing.T) {
 	if cap == nil {
 		t.Fatal("expected UpdateJobEndpoint to be invoked")
 	}
-	if cap.SigningSecret != "esec_preexisting_secret" {
-		t.Fatalf("signing secret rotated unexpectedly: got %q, want %q", cap.SigningSecret, "esec_preexisting_secret")
+	if cap.SigningSecret == "esec_preexisting_secret" {
+		t.Fatalf("signing secret persisted in plaintext")
+	}
+	if !straitcrypto.IsEncryptedField(cap.SigningSecret) {
+		t.Fatalf("signing secret = %q, want encrypted field", cap.SigningSecret)
 	}
 	if out.Body.SigningSecret != "" {
 		t.Fatalf("response signing_secret should be empty when not rotating, got %q", out.Body.SigningSecret)
@@ -128,14 +132,17 @@ func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
 	if cap.SigningSecret == "esec_preexisting_secret" {
 		t.Fatal("rotation requested but signing secret was not rotated")
 	}
-	if !strings.HasPrefix(cap.SigningSecret, "esec_") {
-		t.Fatalf("rotated signing secret missing esec_ prefix: %q", cap.SigningSecret)
+	if !straitcrypto.IsEncryptedField(cap.SigningSecret) {
+		t.Fatalf("stored signing secret = %q, want encrypted field", cap.SigningSecret)
 	}
 	if out.Body.SigningSecret == "" {
 		t.Fatal("response signing_secret must be populated when rotating")
 	}
-	if out.Body.SigningSecret != cap.SigningSecret {
-		t.Fatalf("response signing_secret %q does not match stored %q", out.Body.SigningSecret, cap.SigningSecret)
+	if !strings.HasPrefix(out.Body.SigningSecret, "esec_") {
+		t.Fatalf("response signing secret missing esec_ prefix: %q", out.Body.SigningSecret)
+	}
+	if out.Body.SigningSecret == cap.SigningSecret {
+		t.Fatalf("response signing_secret must be plaintext once, not stored ciphertext")
 	}
 }
 

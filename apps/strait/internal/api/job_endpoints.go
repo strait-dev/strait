@@ -56,19 +56,13 @@ func (s *Server) encryptEndpointSigningSecret(secret string) (string, error) {
 		return secret, nil
 	}
 	if s.encryptor == nil {
-		if s.config != nil && s.config.EncryptionKey != "" {
-			return "", fmt.Errorf("endpoint signing secret encryption is not configured")
-		}
-		return secret, nil
+		return "", fmt.Errorf("endpoint signing secret encryption is not configured")
 	}
 	return straitcrypto.EncryptField(s.encryptor, secret)
 }
 
 func (s *Server) preserveOrEncryptEndpointSigningSecret(secret string) (string, error) {
 	if secret == "" || straitcrypto.IsEncryptedField(secret) {
-		return secret, nil
-	}
-	if s.encryptor == nil && (s.config == nil || s.config.EncryptionKey == "") {
 		return secret, nil
 	}
 	return straitcrypto.PreserveOrEncryptField(s.encryptor, secret)
