@@ -11,6 +11,7 @@ const verifyEmailSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/(auth)/verify-email")({
+  head: () => ({ meta: [{ title: "Verify email · Strait" }] }),
   validateSearch: verifyEmailSearchSchema,
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) {

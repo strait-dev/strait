@@ -9,9 +9,9 @@ export const EVENT_STATUS_STYLES: Record<
   { dot: string; label: string; badge: string }
 > = {
   pending: {
-    dot: "bg-chart-3",
+    dot: "bg-info",
     label: "Pending",
-    badge: "bg-chart-3/10 text-chart-3 border-chart-3/20",
+    badge: "bg-info/10 text-info border-info/20",
   },
   received: {
     dot: "bg-info",

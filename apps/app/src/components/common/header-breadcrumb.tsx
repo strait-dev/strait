@@ -16,13 +16,19 @@ const ROUTE_LABELS: Record<string, string> = {
   workflows: "Workflows",
   runs: "Runs",
   schedules: "Schedules",
-  dlq: "Dead Letter",
+  dlq: "Dead letter queue",
   logs: "Logs",
   events: "Events",
   webhooks: "Webhooks",
-  settings: "Account Settings",
+  settings: "Settings",
   org: "Organization",
   upgrade: "Upgrade",
+  billing: "Billing",
+  analytics: "Analytics",
+  pricing: "Plans",
+  compare: "Compare plans",
+  new: "New",
+  "enterprise-contact": "Contact sales",
 };
 
 const HeaderBreadcrumb = () => {

@@ -55,7 +55,7 @@ export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
             <Button aria-label="Row actions" size="icon" variant="ghost" />
           }
         >
-          <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
+          <HugeiconsIcon className="size-4" icon={MoreVerticalIcon} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {actions.map((action) => (
@@ -64,7 +64,7 @@ export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
               onClick={() => action.onClick(row)}
             >
               {action.icon && (
-                <HugeiconsIcon className="mr-2" icon={action.icon} size={14} />
+                <HugeiconsIcon className="mr-2 size-3.5" icon={action.icon} />
               )}
               {action.label}
             </DropdownMenuItem>

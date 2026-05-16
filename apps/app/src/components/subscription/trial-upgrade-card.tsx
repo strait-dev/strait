@@ -127,20 +127,17 @@ const TrialUpgradeCard = () => {
         icon: SparklesIcon,
       },
       orange: {
-        container:
-          "bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:border-orange-800",
-        title: "text-orange-800 dark:text-orange-200",
-        message: "text-orange-700 dark:text-orange-300",
-        buttonVariant: "secondary" as const,
-        buttonClass:
-          "bg-orange-500 text-white hover:bg-orange-600 dark:bg-orange-600 dark:hover:bg-orange-700",
+        container: "bg-warning/5 border-warning/30",
+        title: "text-warning",
+        message: "text-warning/80",
+        buttonVariant: "default" as const,
+        buttonClass: "",
         icon: AlarmClockIcon,
       },
       red: {
-        container:
-          "bg-destructive/15 border-destructive/30 dark:bg-red-950/30 dark:border-red-800",
-        title: "text-destructive dark:text-red-300 font-normal",
-        message: "text-destructive/80 dark:text-red-400",
+        container: "bg-destructive/10 border-destructive/30",
+        title: "text-destructive font-normal",
+        message: "text-destructive/80",
         buttonVariant: "destructive" as const,
         buttonClass: "",
         icon: AlarmClockIcon,
