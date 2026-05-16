@@ -94,7 +94,6 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 		AddOns: SubscriptionAddOns{
 			RetentionPack:     999,
 			PrioritySlotPack:  999,
-			LogDrainVolumeGB:  999,
 			WorkerConnections: 999,
 		},
 		// Override fields that ComputeEntitlements MUST ignore — those
