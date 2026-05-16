@@ -60,6 +60,7 @@ type Scheduler struct {
 	planDriftMonitor         *PlanDriftMonitor
 	backpressureSampler      *BackpressureSampler
 	idempotencyGC            *IdempotencyGC
+	heartbeatGC              *HeartbeatGC
 	wg                       conc.WaitGroup
 	tracker                  componentTracker
 	componentShutdownTimeout time.Duration
@@ -245,6 +246,13 @@ func WithIdempotencyGC(g *IdempotencyGC) SchedulerOption {
 	}
 }
 
+// WithHeartbeatGC enables periodic deletion of orphaned heartbeat rows.
+func WithHeartbeatGC(g *HeartbeatGC) SchedulerOption {
+	return func(s *Scheduler) {
+		s.heartbeatGC = g
+	}
+}
+
 // WithBackpressureSampler enables the periodic sampler that populates
 // the strait.queue.backpressure_tokens_available gauge from the
 // project_rate_limits table. Pass nil (or a nil sampler built by
@@ -421,6 +429,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.idempotencyGC != nil {
 		s.tracker.track(ctx, &s.wg, "idempotency_gc", func(componentCtx context.Context) { s.idempotencyGC.Run(componentCtx) })
+	}
+	if s.heartbeatGC != nil {
+		s.tracker.track(ctx, &s.wg, "heartbeat_gc", func(componentCtx context.Context) { s.heartbeatGC.Run(componentCtx) })
 	}
 
 	slog.Info("scheduler started")

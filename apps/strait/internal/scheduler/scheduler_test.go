@@ -318,6 +318,19 @@ func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
 	}
 }
 
+func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
+	t.Parallel()
+
+	gc := &HeartbeatGC{}
+	s := &Scheduler{}
+
+	WithHeartbeatGC(gc)(s)
+
+	if s.heartbeatGC != gc {
+		t.Fatal("expected heartbeat GC to be wired into scheduler")
+	}
+}
+
 func TestScheduler_Start_Success(t *testing.T) {
 	t.Parallel()
 	store := &mockSchedulerStore{

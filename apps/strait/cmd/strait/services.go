@@ -905,6 +905,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:     slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithHeartbeatGC(
+				scheduler.NewHeartbeatGC(queries, scheduler.HeartbeatGCConfig{
+					Interval:   time.Hour,
+					BatchLimit: 10000,
+					Logger:     slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
 			scheduler.WithSLOEvaluator(
 				scheduler.NewSLOEvaluator(queries, slog.Default(),
 					scheduler.WithSLOWebhookNotifier(scheduler.NewSLOWebhookAdapter(queries)),
