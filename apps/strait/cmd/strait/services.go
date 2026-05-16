@@ -976,6 +976,10 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			if billingDispatcher != nil {
 				slaCalculator.WithDispatcher(billingDispatcher)
 			}
+			if issuer := newSLAIssuer(cfg, billingStore, slog.Default()); issuer != nil {
+				slaCalculator.WithIssuer(issuer)
+				slog.Info("sla credit stripe issuer enabled")
+			}
 			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
 			slog.Info("sla credit calculator enabled")
 		}

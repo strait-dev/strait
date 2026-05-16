@@ -15,12 +15,6 @@ import (
 	"github.com/stripe/stripe-go/v82/invoice"
 )
 
-// CustomerLookupStore is the narrow data-access surface the SLA issuer
-// needs to resolve an org to its Stripe customer.
-type CustomerLookupStore interface {
-	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
-}
-
 // StripeSLAIssuer creates a Stripe credit note for the org's most recent
 // invoice in the SLA period, or — when no invoice exists — falls back to
 // a negative customer-balance transaction. Either path is idempotent via

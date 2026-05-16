@@ -46,6 +46,14 @@ type SLACreditIssuer interface {
 	IssueCredit(ctx context.Context, orgID string, creditMicrousd int64, periodEnd time.Time) (creditNoteID string, err error)
 }
 
+// CustomerLookupStore is the narrow data-access surface a Stripe-backed
+// SLACreditIssuer needs to resolve an org to its Stripe customer. Lives
+// here (not in stripe_sla_issuer_cloud.go) so both editions can share
+// the type without dragging stripe-go into community builds.
+type CustomerLookupStore interface {
+	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
+}
+
 // SLACalculatorStore is the data-access surface the calculator needs.
 // Kept as a single interface so tests can stub the contract listing and
 // credit persistence with one mock.
