@@ -160,7 +160,8 @@ type Executor struct {
 	done                    chan struct{}
 	stopOnce                sync.Once
 	pollWG                  sync.WaitGroup
-	callbackWG              sync.WaitGroup
+	bgWG                    conc.WaitGroup
+	callbackWG              conc.WaitGroup
 	pollInFlight            atomic.Int64
 	runStarted              atomic.Bool
 	degradedPollInterval    time.Duration
@@ -541,12 +542,11 @@ func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRu
 		return
 	}
 
-	e.callbackWG.Add(1)
-	defer e.callbackWG.Done()
-
-	if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
-		e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
-	}
+	e.callbackWG.Go(func() {
+		if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
+			e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
+		}
+	})
 }
 
 func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data map[string]any) {
@@ -606,10 +606,10 @@ func (e *Executor) Run(ctx context.Context) {
 
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 
-	e.pollWG.Go(func() {
+	e.bgWG.Go(func() {
 		e.heartbeat.Run(runCtx)
 	})
-	go e.runEventLoop()
+	e.bgWG.Go(e.runEventLoop)
 
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
@@ -674,10 +674,11 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	e.pollWG.Wait()
 
 	callbackDone := make(chan struct{})
-	go func() {
+	var callbackWaitWG conc.WaitGroup
+	callbackWaitWG.Go(func() {
 		e.callbackWG.Wait()
 		close(callbackDone)
-	}()
+	})
 
 	callbackTimeout := time.NewTimer(10 * time.Second)
 	defer callbackTimeout.Stop()
@@ -691,10 +692,11 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 
 	// Wait for any in-flight Stripe usage event goroutines.
 	stripeDone := make(chan struct{})
-	go func() {
+	var stripeWaitWG conc.WaitGroup
+	stripeWaitWG.Go(func() {
 		e.stripeUsageWG.Wait()
 		close(stripeDone)
-	}()
+	})
 
 	stripeTimeout := time.NewTimer(10 * time.Second)
 	defer stripeTimeout.Stop()
@@ -702,6 +704,23 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	case <-stripeDone:
 	case <-stripeTimeout.C:
 		e.logger.Warn("timed out waiting for in-flight stripe usage events")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	bgDone := make(chan struct{})
+	var bgWaitWG conc.WaitGroup
+	bgWaitWG.Go(func() {
+		e.bgWG.Wait()
+		close(bgDone)
+	})
+
+	bgTimeout := time.NewTimer(10 * time.Second)
+	defer bgTimeout.Stop()
+	select {
+	case <-bgDone:
+	case <-bgTimeout.C:
+		e.logger.Warn("timed out waiting for executor background goroutines")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

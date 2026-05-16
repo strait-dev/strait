@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"sync"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // EventLister fetches run events from the store. Implemented by *store.Queries.
@@ -33,7 +34,7 @@ type ClickHouseSubscriberDeps struct {
 // ClickHouseSubscriberHandle wraps a ClickHouse subscriber and tracks its
 // background goroutines so callers can wait for graceful drain on shutdown.
 type ClickHouseSubscriberHandle struct {
-	wg  sync.WaitGroup
+	wg  conc.WaitGroup
 	sub RunEventSubscriber
 }
 
