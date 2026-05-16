@@ -1350,7 +1350,11 @@ func (n *DeliveryWorker) EnqueueSubscriptionWebhooks(ctx context.Context, subs [
 			continue
 		}
 
-		now := time.Now()
+		// Back-date NextRetryAt by a second so the row is reliably "due" by
+		// the time the worker's `next_retry_at <= NOW()` filter runs, even
+		// when Go and Postgres see slightly different wall clocks (e.g. host
+		// vs. container in integration tests).
+		now := time.Now().Add(-1 * time.Second)
 		delivery := &domain.WebhookDelivery{
 			SubscriptionID: sub.ID,
 			ProjectID:      sub.ProjectID,
