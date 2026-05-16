@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -230,6 +231,44 @@ func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
 	}
 	if !channelTypes["ch-webhook"] || !channelTypes["ch-email"] {
 		t.Error("expected both webhook and email channel deliveries")
+	}
+}
+
+func TestBudgetMonitor_SpendingAlertRetriesAfterDeliveryFailure(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	ss := &mockSpendingLimitStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(context.Context, string) (*billing.OrgSubscription, error) {
+			return newSpendingLimitSub("org-1", 100_000_000, "starter"), nil
+		},
+		sumOrgPeriodSpendFn: func(context.Context, string, time.Time) (int64, error) {
+			return 119_990_000, nil
+		},
+		listProjectsByOrgFn: func(context.Context, string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(context.Context, string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-webhook", ProjectID: "proj-1", ChannelType: domain.ChannelTypeWebhook}}, nil
+		},
+		createNotificationDeliveryFn: func(context.Context, *domain.NotificationDelivery) error {
+			attempts++
+			if attempts == 1 {
+				return errors.New("transient delivery insert failure")
+			}
+			return nil
+		},
+	}
+
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm.check(context.Background())
+	bm.check(context.Background())
+
+	if attempts != 2 {
+		t.Fatalf("delivery attempts = %d, want retry after first failure", attempts)
 	}
 }
 

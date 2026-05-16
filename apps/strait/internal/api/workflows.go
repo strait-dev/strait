@@ -1203,6 +1203,9 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 	if err := s.checkWorkflowStepLimit(ctx, projectID, len(sourceSteps)); err != nil {
 		return nil, err
 	}
+	if err := s.checkScheduleLimit(ctx, projectID, newWf.Cron); err != nil {
+		return nil, err
+	}
 	for _, step := range sourceSteps {
 		switch step.StepType {
 		case domain.WorkflowStepTypeApproval:

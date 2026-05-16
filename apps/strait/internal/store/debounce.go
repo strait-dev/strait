@@ -115,6 +115,7 @@ type DebounceStore interface {
 	ListDueDebouncePending(ctx context.Context) ([]domain.DebouncePending, error)
 	DeleteDebouncePending(ctx context.Context, id string) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) error

@@ -3,11 +3,13 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 type mockDebounceStore struct {
@@ -15,6 +17,7 @@ type mockDebounceStore struct {
 	duePending        []domain.DebouncePending
 	deleted           []string
 	jobs              map[string]*domain.Job
+	runs              map[string]*domain.JobRun
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
 }
 
@@ -38,6 +41,15 @@ func (m *mockDebounceStore) GetJob(_ context.Context, id string) (*domain.Job, e
 		}
 	}
 	return nil, nil
+}
+
+func (m *mockDebounceStore) GetRun(_ context.Context, id string) (*domain.JobRun, error) {
+	if m.runs != nil {
+		if run, ok := m.runs[id]; ok {
+			return run, nil
+		}
+	}
+	return nil, store.ErrRunNotFound
 }
 
 func (m *mockDebounceStore) CreateRun(_ context.Context, _ *domain.JobRun) error {
@@ -103,6 +115,9 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	run := enqueued[0]
 	if run.JobID != "job-1" {
 		t.Fatalf("expected job_id=job-1, got %s", run.JobID)
+	}
+	if run.ID != "dp-1" {
+		t.Fatalf("expected durable debounce run ID dp-1, got %s", run.ID)
 	}
 	if run.TriggeredBy != domain.TriggerDebounce {
 		t.Fatalf("expected triggered_by=debounce, got %s", run.TriggeredBy)
@@ -212,6 +227,34 @@ func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
 
 	if key != "debounce:dp-1" {
 		t.Fatalf("idempotency key = %q, want debounce:dp-1", key)
+	}
+}
+
+func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60},
+		},
+		runs: map[string]*domain.JobRun{
+			"dp-1": {ID: "dp-1", JobID: "job-1", ProjectID: "proj-1"},
+		},
+	}
+
+	q := &mockQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			return errors.New("duplicate key")
+		},
+	}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if len(ds.deleted) != 1 || ds.deleted[0] != "dp-1" {
+		t.Fatalf("expected existing durable debounce run to allow pending delete, got %v", ds.deleted)
 	}
 }
 

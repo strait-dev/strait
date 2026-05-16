@@ -327,6 +327,42 @@ func TestHandleCreateWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.
 	}
 }
 
+func TestHandleCloneWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.T) {
+	t.Parallel()
+	createCalled := false
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "wf", Slug: "wf", Enabled: true, Cron: "*/5 * * * *"}, nil
+		},
+		ListStepsByWorkflowFunc: func(context.Context, string) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "s1", StepRef: "s1", JobID: "job-1"}}, nil
+		},
+		CountCronJobsByOrgFunc: func(_ context.Context, orgID string) (int, error) {
+			if orgID != "org-1" {
+				t.Fatalf("orgID = %q, want org-1", orgID)
+			}
+			return 5, nil
+		},
+		CreateWorkflowFunc: func(context.Context, *domain.Workflow) error {
+			createCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	srv.edition = domain.EditionCloud
+	srv.billingEnforcer = &mockBillingEnforcer{projectOrgMap: map[string]string{"proj-1": "org-1"}}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", `{}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if createCalled {
+		t.Fatal("expected CreateWorkflow not to be called after schedule limit failure")
+	}
+}
+
 func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 	t.Parallel()
 	deleteCalled := false

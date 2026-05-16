@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -103,7 +104,7 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 	}
 
 	run := &domain.JobRun{
-		ID:             uuid.Must(uuid.NewV7()).String(),
+		ID:             debounceRunID(d.ID),
 		JobID:          d.JobID,
 		ProjectID:      d.ProjectID,
 		Tags:           tags,
@@ -122,5 +123,22 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 		IdempotencyKey: "debounce:" + d.ID,
 	}
 
-	return queue.EnqueueWithRetry(ctx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig())
+	if err := queue.EnqueueWithRetry(ctx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
+		existing, getErr := p.store.GetRun(ctx, run.ID)
+		if getErr == nil && existing != nil {
+			return nil
+		}
+		if getErr != nil && !errors.Is(getErr, store.ErrRunNotFound) {
+			slog.Warn("debounce poller: failed to verify existing debounce run", "id", d.ID, "run_id", run.ID, "error", getErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func debounceRunID(pendingID string) string {
+	if pendingID != "" {
+		return pendingID
+	}
+	return uuid.Must(uuid.NewV7()).String()
 }

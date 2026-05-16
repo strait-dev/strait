@@ -175,36 +175,32 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 		// Check 100% first, then 80%.
 		if overagePct >= 100 {
 			alertKey := fmt.Sprintf("spending:%s:100:%s", orgID, today)
-			bm.alertedMu.Lock()
-			if bm.alerted[alertKey] {
-				bm.alertedMu.Unlock()
+			if bm.isAlerted(alertKey) {
 				continue
 			}
-			bm.alerted[alertKey] = true
-			bm.alertedMu.Unlock()
 
-			bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitReached)
+			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitReached) {
+				bm.markAlerted(alertKey)
+			}
 		} else if overagePct >= 80 {
 			alertKey := fmt.Sprintf("spending:%s:80:%s", orgID, today)
-			bm.alertedMu.Lock()
-			if bm.alerted[alertKey] {
-				bm.alertedMu.Unlock()
+			if bm.isAlerted(alertKey) {
 				continue
 			}
-			bm.alerted[alertKey] = true
-			bm.alertedMu.Unlock()
 
-			bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitWarning)
+			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitWarning) {
+				bm.markAlerted(alertKey)
+			}
 		}
 	}
 }
 
-func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID string, sub *billing.OrgSubscription, overageSpend int64, overagePct float64, eventType string) {
+func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID string, sub *billing.OrgSubscription, overageSpend int64, overagePct float64, eventType string) bool {
 	projectIDs, err := bm.spendingStore.ListProjectsByOrg(ctx, orgID)
 	if err != nil {
 		bm.logger.Warn("budget monitor: failed to list org projects",
 			"org_id", orgID, "error", err)
-		return
+		return false
 	}
 
 	payload, _ := json.Marshal(map[string]any{
@@ -223,9 +219,10 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 	if chBulkErr != nil {
 		bm.logger.Warn("budget monitor: failed to bulk-list notification channels",
 			"org_id", orgID, "error", chBulkErr)
-		return
+		return false
 	}
 
+	delivered := false
 	for _, projectID := range projectIDs {
 		for _, ch := range channelsByProject[projectID] {
 			// At 80%: only webhook channels. At 100%: webhook + email channels.
@@ -244,9 +241,12 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 			if err := bm.spendingStore.CreateNotificationDelivery(ctx, d); err != nil {
 				bm.logger.Warn("budget monitor: failed to create spending notification delivery",
 					"channel_id", ch.ID, "project_id", projectID, "error", err)
+				continue
 			}
+			delivered = true
 		}
 	}
+	return delivered
 }
 
 // checkRunLimitWarnings checks if any org has hit 80% of its daily run limit
@@ -261,12 +261,9 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 	for _, orgID := range orgIDs {
 		alertKey := fmt.Sprintf("runlimit:%s:80:%s", orgID, today)
 
-		bm.alertedMu.Lock()
-		if bm.alerted[alertKey] {
-			bm.alertedMu.Unlock()
+		if bm.isAlerted(alertKey) {
 			continue
 		}
-		bm.alertedMu.Unlock()
 
 		warning, warnErr := bm.enforcer.Check80PercentDailyRunWarning(ctx, orgID)
 		if warnErr != nil {
@@ -275,10 +272,6 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 		if !warning {
 			continue
 		}
-
-		bm.alertedMu.Lock()
-		bm.alerted[alertKey] = true
-		bm.alertedMu.Unlock()
 
 		// Send notifications via org's project channels.
 		projectIDs, projErr := bm.runLimitStore.ListProjectsByOrg(ctx, orgID)
@@ -301,6 +294,7 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 			continue
 		}
 
+		delivered := false
 		for _, projectID := range projectIDs {
 			for _, ch := range channelsByProject[projectID] {
 				d := &domain.NotificationDelivery{
@@ -314,10 +308,27 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 				if err := bm.runLimitStore.CreateNotificationDelivery(ctx, d); err != nil {
 					bm.logger.Warn("budget monitor: failed to create run limit notification",
 						"channel_id", ch.ID, "project_id", projectID, "error", err)
+					continue
 				}
+				delivered = true
 			}
 		}
+		if delivered {
+			bm.markAlerted(alertKey)
+		}
 	}
+}
+
+func (bm *BudgetMonitor) isAlerted(alertKey string) bool {
+	bm.alertedMu.Lock()
+	defer bm.alertedMu.Unlock()
+	return bm.alerted[alertKey]
+}
+
+func (bm *BudgetMonitor) markAlerted(alertKey string) {
+	bm.alertedMu.Lock()
+	defer bm.alertedMu.Unlock()
+	bm.alerted[alertKey] = true
 }
 
 // FormatBudgetAlertKey returns the dedup key for a project on a given date.
