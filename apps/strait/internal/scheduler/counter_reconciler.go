@@ -123,6 +123,43 @@ func (r *CounterReconciler) runOnce(ctx context.Context) error {
 }
 
 func (r *CounterReconciler) reconcileLocked(ctx context.Context) error {
+	if beginner, ok := r.db.(store.TxBeginner); ok {
+		tx, err := beginner.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("counter reconciler begin tx: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback(ctx)
+			}
+		}()
+		for _, stmt := range []string{
+			`LOCK TABLE job_runs IN SHARE ROW EXCLUSIVE MODE`,
+			`LOCK TABLE job_active_counts IN SHARE ROW EXCLUSIVE MODE`,
+			`LOCK TABLE dlq_counts IN SHARE ROW EXCLUSIVE MODE`,
+		} {
+			if _, err := tx.Exec(ctx, stmt); err != nil {
+				return fmt.Errorf("counter reconciler lock tables: %w", err)
+			}
+		}
+		txReconciler := *r
+		txReconciler.db = tx
+		driftBefore := txReconciler.TotalDrift()
+		if err := txReconciler.reconcileLockedNoTx(ctx); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("counter reconciler commit: %w", err)
+		}
+		committed = true
+		r.totalDrift.Add(txReconciler.TotalDrift() - driftBefore)
+		return nil
+	}
+	return r.reconcileLockedNoTx(ctx)
+}
+
+func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) error {
 	activeDrift, err := r.reconcileActiveCounts(ctx)
 	if err != nil {
 		r.logger.Warn("active counts reconcile failed", "error", err)
