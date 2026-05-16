@@ -60,6 +60,30 @@ func (m *mockBatchStore) ReleaseAdvisoryLock(_ context.Context, _ int64) error {
 	return nil
 }
 
+type mockTransactionalBatchStore struct {
+	*mockBatchStore
+	withTxCalled  bool
+	drainTxCalled bool
+	committed     bool
+	rolledBack    bool
+}
+
+func (m *mockTransactionalBatchStore) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	m.withTxCalled = true
+	err := fn(ctx, nil)
+	if err != nil {
+		m.rolledBack = true
+		return err
+	}
+	m.committed = true
+	return nil
+}
+
+func (m *mockTransactionalBatchStore) DrainBatchBufferInTx(ctx context.Context, _ store.DBTX, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
+	m.drainTxCalled = true
+	return m.DrainBatchBuffer(ctx, jobID, batchKey, limit)
+}
+
 func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	t.Parallel()
 
@@ -142,6 +166,102 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	}
 	if len(items) != 3 {
 		t.Fatalf("expected 3 items in batch, got %d", len(items))
+	}
+}
+
+func TestBatchFlusher_TransactionalFlushDrainsAndEnqueuesInOneCommit(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockTransactionalBatchStore{mockBatchStore: &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", ItemCount: 2},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "item-1", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":1}`)},
+			{ID: "item-2", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":2}`)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, BatchMaxSize: 2},
+		},
+	}}
+	var enqueued []*domain.JobRun
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = append(enqueued, run)
+			return nil
+		},
+	}
+
+	NewBatchFlusher(bs, q, time.Second).poll(context.Background())
+
+	if !bs.withTxCalled || !bs.drainTxCalled || !bs.committed || bs.rolledBack {
+		t.Fatalf("transaction state: withTx=%t drainTx=%t committed=%t rolledBack=%t", bs.withTxCalled, bs.drainTxCalled, bs.committed, bs.rolledBack)
+	}
+	if len(enqueued) != 1 {
+		t.Fatalf("enqueued runs = %d, want 1", len(enqueued))
+	}
+	if enqueued[0].IdempotencyKey != "batch:job-1:key:item-1:item-2" {
+		t.Fatalf("idempotency key = %q", enqueued[0].IdempotencyKey)
+	}
+	if len(bs.deletedItems) != 0 {
+		t.Fatalf("transactional flush should not issue a second delete, got %v", bs.deletedItems)
+	}
+}
+
+func TestBatchFlusher_TransactionalEnqueueFailureRollsBackDrain(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockTransactionalBatchStore{mockBatchStore: &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", ItemCount: 1},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "item-1", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":1}`)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, BatchMaxSize: 1},
+		},
+	}}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return errors.New("enqueue failed")
+		},
+	}
+
+	NewBatchFlusher(bs, q, time.Second).poll(context.Background())
+
+	if !bs.rolledBack || bs.committed {
+		t.Fatalf("transaction state: committed=%t rolledBack=%t", bs.committed, bs.rolledBack)
+	}
+	if len(bs.deletedItems) != 0 {
+		t.Fatalf("failed transactional flush should not issue out-of-tx deletes, got %v", bs.deletedItems)
+	}
+}
+
+func TestBatchFlusher_TransactionalIdempotencyConflictCommitsDrain(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockTransactionalBatchStore{mockBatchStore: &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", ItemCount: 1},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "item-1", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":1}`)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, BatchMaxSize: 1},
+		},
+	}}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return domain.ErrIdempotencyConflict
+		},
+	}
+
+	NewBatchFlusher(bs, q, time.Second).poll(context.Background())
+
+	if !bs.committed || bs.rolledBack {
+		t.Fatalf("idempotency conflict should commit the drain: committed=%t rolledBack=%t", bs.committed, bs.rolledBack)
 	}
 }
 

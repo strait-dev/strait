@@ -23,6 +23,11 @@ type BatchFlusher struct {
 	interval time.Duration
 }
 
+type transactionalBatchStore interface {
+	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
+	DrainBatchBufferInTx(ctx context.Context, tx store.DBTX, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
+}
+
 func NewBatchFlusher(s store.BatchStore, q queue.Queue, interval time.Duration) *BatchFlusher {
 	if interval <= 0 {
 		interval = time.Second
@@ -86,6 +91,10 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		limit = batch.ItemCount
 	}
 
+	if txStore, ok := f.store.(transactionalBatchStore); ok {
+		return f.flushInTx(ctx, txStore, batch, job, limit)
+	}
+
 	items, err := f.store.ListBatchBufferItems(ctx, batch.JobID, batch.BatchKey, limit)
 	if err != nil {
 		return err
@@ -133,6 +142,69 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		return err
 	}
 	return f.store.DeleteBatchBufferItems(ctx, batchItemIDs(items))
+}
+
+func (f *BatchFlusher) flushInTx(
+	ctx context.Context,
+	txStore transactionalBatchStore,
+	batch store.FlushableBatch,
+	job *domain.Job,
+	limit int,
+) error {
+	return txStore.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+		items, err := txStore.DrainBatchBufferInTx(txCtx, tx, batch.JobID, batch.BatchKey, limit)
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		run, err := buildBatchRun(batch, job, items)
+		if err != nil {
+			return err
+		}
+		err = f.queue.EnqueueInTx(txCtx, tx, run)
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			return nil
+		}
+		return err
+	})
+}
+
+func buildBatchRun(batch store.FlushableBatch, job *domain.Job, items []domain.BatchBufferItem) (*domain.JobRun, error) {
+	payloads := make([]json.RawMessage, len(items))
+	for i, item := range items {
+		payloads[i] = item.Payload
+	}
+	batchPayload, err := json.Marshal(map[string]any{"items": payloads})
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	expiresAt := now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+	if job.RunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	}
+
+	return &domain.JobRun{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		JobID:          batch.JobID,
+		ProjectID:      batch.ProjectID,
+		Tags:           job.Tags,
+		Status:         domain.StatusQueued,
+		Attempt:        1,
+		Payload:        batchPayload,
+		TriggeredBy:    "batch",
+		Priority:       items[0].Priority,
+		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		ExpiresAt:      &expiresAt,
+		CreatedBy:      items[0].CreatedBy,
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
+		IdempotencyKey: batchIdempotencyKey(batch, items),
+	}, nil
 }
 
 func batchItemIDs(items []domain.BatchBufferItem) []string {

@@ -564,6 +564,75 @@ func TestBatch_DrainBatchBuffer_LimitRespected(t *testing.T) {
 	}
 }
 
+func TestBatch_DrainBatchBuffer_SkipsRowsLockedByConcurrentDrain(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-drain-locked")
+	for i := range 4 {
+		item := &domain.BatchBufferItem{
+			ID:          "locked-batch-item-" + newID(),
+			JobID:       job.ID,
+			ProjectID:   job.ProjectID,
+			BatchKey:    "locked-key",
+			Payload:     json.RawMessage(`{"i":` + string(rune('0'+i)) + `}`),
+			Tags:        json.RawMessage(`{}`),
+			TriggeredBy: "manual",
+		}
+		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
+			t.Fatalf("InsertBatchBufferItem() error = %v", err)
+		}
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	firstDrain, err := q.DrainBatchBufferInTx(ctx, tx, job.ID, "locked-key", 2)
+	if err != nil {
+		t.Fatalf("DrainBatchBufferInTx() error = %v", err)
+	}
+	if len(firstDrain) != 2 {
+		t.Fatalf("first drain len = %d, want 2", len(firstDrain))
+	}
+
+	secondDrain, err := q.DrainBatchBuffer(ctx, job.ID, "locked-key", 4)
+	if err != nil {
+		t.Fatalf("concurrent DrainBatchBuffer() error = %v", err)
+	}
+	if len(secondDrain) != 2 {
+		t.Fatalf("second drain len = %d, want 2", len(secondDrain))
+	}
+
+	seen := make(map[string]bool, 4)
+	for _, item := range firstDrain {
+		seen[item.ID] = true
+	}
+	for _, item := range secondDrain {
+		if seen[item.ID] {
+			t.Fatalf("item %s drained twice while first transaction held locks", item.ID)
+		}
+		seen[item.ID] = true
+	}
+	if len(seen) != 4 {
+		t.Fatalf("unique drained items = %d, want 4", len(seen))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit first drain: %v", err)
+	}
+	remaining, err := q.CountBatchBufferItems(ctx, job.ID, "locked-key")
+	if err != nil {
+		t.Fatalf("CountBatchBufferItems() error = %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining = %d, want 0", remaining)
+	}
+}
+
 func TestBatch_DrainBatchBuffer_EmptyBuffer(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

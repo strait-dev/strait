@@ -60,6 +60,7 @@ func (q *Queries) DrainBatchBuffer(ctx context.Context, jobID, batchKey string, 
 				WHERE job_id = $1 AND batch_key = $2
 				ORDER BY created_at ASC
 				LIMIT $3
+				FOR UPDATE SKIP LOCKED
 			)
 			RETURNING id, job_id, project_id, batch_key, payload, tags, priority, triggered_by, created_by, created_at
 		)
@@ -88,6 +89,10 @@ func (q *Queries) DrainBatchBuffer(ctx context.Context, jobID, batchKey string, 
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (q *Queries) DrainBatchBufferInTx(ctx context.Context, tx DBTX, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
+	return q.withDB(tx).DrainBatchBuffer(ctx, jobID, batchKey, limit)
 }
 
 func (q *Queries) ListBatchBufferItems(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
