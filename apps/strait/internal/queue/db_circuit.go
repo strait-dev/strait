@@ -84,6 +84,8 @@ type DBCircuit struct {
 	openAt  time.Time
 	fails   []time.Time
 	attempt int // number of consecutive opens, drives exponential backoff
+
+	probeInFlight bool // true while the single half-open probe is running
 }
 
 // NewDBCircuit builds a circuit with the given config. Zero-valued fields
@@ -158,6 +160,11 @@ func (c *DBCircuit) Do(ctx context.Context, fn func(context.Context) error) erro
 		c.mu.Unlock()
 		return ErrCircuitOpen
 	case CircuitHalfOpen:
+		if c.probeInFlight {
+			c.mu.Unlock()
+			return ErrCircuitOpen
+		}
+		c.probeInFlight = true
 		c.mu.Unlock()
 		if err := fn(ctx); err != nil {
 			c.recordFailure(err, true)
@@ -186,6 +193,7 @@ func (c *DBCircuit) recordSuccess() {
 		c.recordTransitionLocked(prev, CircuitClosed)
 		c.fails = c.fails[:0]
 		c.attempt = 0
+		c.probeInFlight = false
 	}
 }
 
@@ -201,12 +209,19 @@ func (c *DBCircuit) recordFailure(err error, halfOpen bool) {
 
 	now := c.cfg.Clock()
 	if halfOpen {
+		if c.state != CircuitHalfOpen || !c.probeInFlight {
+			return
+		}
+		c.probeInFlight = false
 		c.attempt++
 		c.recordTransitionLocked(CircuitHalfOpen, CircuitOpen)
 		c.openAt = now
 		c.cfg.Logger.Warn("db circuit: re-opened after half-open probe failure",
 			"attempt", c.attempt, "open_for", c.currentOpenDuration(),
 		)
+		return
+	}
+	if c.state != CircuitClosed {
 		return
 	}
 	// Prune failures outside the window.
