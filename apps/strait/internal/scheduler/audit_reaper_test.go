@@ -52,6 +52,24 @@ func (f *fakeAuditReclaimerStore) MarkAuditDeadletterReclaimed(_ context.Context
 	return nil
 }
 
+func (f *fakeAuditReclaimerStore) ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
+	ev := &domain.AuditEvent{ID: newEventID, ProjectID: projectID}
+	f.createCalls.Add(1)
+	if f.createFn != nil {
+		if err := f.createFn(ctx, ev); err != nil {
+			return nil, false, err
+		}
+	}
+	f.markCalls.Add(1)
+	if f.deleteFn != nil {
+		if err := f.deleteFn(ctx, id, projectID); err != nil {
+			return nil, false, err
+		}
+	}
+	f.deleteCalls.Add(1)
+	return ev, true, nil
+}
+
 func (f *fakeAuditReclaimerStore) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error) {
 	f.deleteAgedHits.Add(1)
 	if f.deleteAgedFn != nil {

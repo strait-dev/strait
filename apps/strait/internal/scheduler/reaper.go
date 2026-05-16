@@ -65,6 +65,7 @@ type ReaperStore interface {
 	ListAuditEventsDeadletterWithAttempts(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error)
 	IncrementAuditDeadletterAttempt(ctx context.Context, id string) error
 	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
+	ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error)
 	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error

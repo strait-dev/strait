@@ -37,6 +37,9 @@ func (q *Queries) CreateAuditEventDeadletter(ctx context.Context, ev *domain.Aud
 	if ev.SchemaVersion == 0 {
 		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
 	}
+	if ev.CreatedAt.IsZero() {
+		ev.CreatedAt = time.Now().UTC()
+	}
 
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO audit_events_deadletter (
@@ -426,7 +429,8 @@ func (q *Queries) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff tim
 	rows, err := q.db.Query(ctx, `
 		WITH to_delete AS (
 			SELECT id FROM audit_events_deadletter
-			WHERE created_at < $1
+			WHERE created_at >= TIMESTAMPTZ '2000-01-01'
+			  AND created_at < $1
 			LIMIT $2
 		),
 		deleted AS (

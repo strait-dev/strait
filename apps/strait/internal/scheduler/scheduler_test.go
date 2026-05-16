@@ -222,6 +222,9 @@ func (m *mockSchedulerStore) IncrementAuditDeadletterAttempt(_ context.Context, 
 func (m *mockSchedulerStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
 	return nil
 }
+func (m *mockSchedulerStore) ReplayAuditEventDeadletter(_ context.Context, _, _, _ string) (*domain.AuditEvent, bool, error) {
+	return nil, false, nil
+}
 func (m *mockSchedulerStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
 	return nil, nil
 }

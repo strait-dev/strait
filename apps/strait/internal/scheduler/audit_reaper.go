@@ -328,17 +328,16 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 			continue
 		}
 
-		// (3) Fresh attempt: assign a chain id, insert, mark, delete.
-		// Each chain insert gets its own deadline so a single wedged row
-		// (connection hang, contended advisory lock) cannot stall the
-		// tick and starve the rest of the DLQ backlog.
-		evCopy := ev
-		evCopy.ID = uuid.Must(uuid.NewV7()).String()
+		// (3) Fresh attempt: atomically lock the DLQ row, insert into the
+		// signed chain, mark it reclaimed, and delete the DLQ row in one
+		// transaction. The store method is the single replay primitive used
+		// by both admin and scheduler paths.
+		newEventID := uuid.Must(uuid.NewV7()).String()
 		insertCtx, insertCancel := context.WithTimeout(ctx, auditDLQPerEventReclaimTimeout)
-		writeErr := r.store.CreateAuditEvent(insertCtx, &evCopy)
+		_, replayed, writeErr := r.store.ReplayAuditEventDeadletter(insertCtx, dlqID, ev.ProjectID, newEventID)
 		insertCancel()
 		if writeErr != nil {
-			r.logger.Warn("audit deadletter reclaim chain insert failed",
+			r.logger.Warn("audit deadletter replay failed",
 				"deadletter_id", dlqID, "action", ev.Action, "error", writeErr)
 			insertFailed++
 			if incErr := r.store.IncrementAuditDeadletterAttempt(ctx, dlqID); incErr != nil {
@@ -347,20 +346,7 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 			}
 			continue
 		}
-		if markErr := r.store.MarkAuditDeadletterReclaimed(ctx, dlqID, evCopy.ID); markErr != nil {
-			// Idempotency anchor failed to write. The chain insert
-			// already happened — log and continue to delete. Worst
-			// case a crash here leaves the DLQ row without the
-			// idempotency marker; the next tick would re-insert into
-			// the chain. We accept that small at-least-once window
-			// because losing the chain row is far worse.
-			r.logger.Warn("failed to mark dlq row reclaimed",
-				"deadletter_id", dlqID, "new_event_id", evCopy.ID, "error", markErr)
-		}
-		if delErr := r.store.DeleteAuditEventDeadletter(ctx, dlqID, ev.ProjectID); delErr != nil {
-			r.logger.Error("audit deadletter delete failed after reclaim",
-				"deadletter_id", dlqID, "new_event_id", evCopy.ID, "error", delErr)
-			deleteFailed++
+		if !replayed {
 			continue
 		}
 		reclaimed++

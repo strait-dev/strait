@@ -334,6 +334,9 @@ func (m *mockReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ s
 func (m *mockReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
 	return nil
 }
+func (m *mockReaperStore) ReplayAuditEventDeadletter(_ context.Context, _, _, _ string) (*domain.AuditEvent, bool, error) {
+	return nil, false, nil
+}
 func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
 	return nil, nil
 }

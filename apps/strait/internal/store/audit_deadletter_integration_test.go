@@ -356,3 +356,38 @@ func TestAuditDeadletter_DeleteOlderThan_PerProjectCounts(t *testing.T) {
 		t.Errorf("remaining = %d, want 1 (young row should survive)", count)
 	}
 }
+
+func TestAuditDeadletter_DeleteOlderThan_SkipsZeroCreatedAtRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+
+	ev := &domain.AuditEvent{
+		ID: "zero-created-at-dlq", ProjectID: "proj-zero-created", ActorID: "a", ActorType: "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job", ResourceID: "j",
+		Details: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events_deadletter SET created_at = TIMESTAMPTZ '0001-01-01 00:00:00+00' WHERE id = $1`, ev.ID); err != nil {
+		t.Fatalf("force zero created_at: %v", err)
+	}
+
+	dropped, err := q.DeleteAuditDeadletterOlderThan(ctx, time.Now().UTC().Add(-30*24*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteAuditDeadletterOlderThan: %v", err)
+	}
+	if len(dropped) != 0 {
+		t.Fatalf("zero created_at row should not be aged out, dropped=%v", dropped)
+	}
+	count, err := q.CountAuditEventsDeadletter(ctx)
+	if err != nil {
+		t.Fatalf("CountAuditEventsDeadletter: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("remaining = %d, want 1", count)
+	}
+}
