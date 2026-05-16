@@ -23,6 +23,12 @@ type DowngradeApplierStore interface {
 	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
 }
 
+type conditionalDowngradeStore interface {
+	ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error)
+}
+
+var errPendingDowngradeChanged = errors.New("pending downgrade changed before apply")
+
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
 const downgradeApplierLockID int64 = 900_100_004
 
@@ -97,7 +103,7 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 			}
 		}
 
-		if err := d.store.ApplyPendingDowngrade(ctx, sub.OrgID); err != nil {
+		if err := d.applyPendingDowngrade(ctx, sub); err != nil {
 			slog.Warn("failed to apply pending downgrade",
 				"org_id", sub.OrgID,
 				"pending_tier", sub.PendingPlanTier,
@@ -116,6 +122,22 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 		)
 	}
 	return nil
+}
+
+func (d *DowngradeApplier) applyPendingDowngrade(ctx context.Context, sub billing.OrgSubscription) error {
+	if sub.PendingPlanTier != nil {
+		if conditional, ok := d.store.(conditionalDowngradeStore); ok {
+			applied, err := conditional.ApplyPendingDowngradeIfTier(ctx, sub.OrgID, *sub.PendingPlanTier)
+			if err != nil {
+				return err
+			}
+			if !applied {
+				return errPendingDowngradeChanged
+			}
+			return nil
+		}
+	}
+	return d.store.ApplyPendingDowngrade(ctx, sub.OrgID)
 }
 
 // enforceDowngradeLimits deactivates excess resources that exceed the new plan's limits.

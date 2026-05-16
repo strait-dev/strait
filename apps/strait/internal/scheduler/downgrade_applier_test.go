@@ -17,6 +17,7 @@ type mockDowngradeStore struct {
 	pendingOrgs   []billing.OrgSubscription
 	appliedOrgIDs []string
 	applyErrors   map[string]error
+	applyIfTierFn func(ctx context.Context, orgID, pendingTier string) (bool, error)
 	listErr       error
 
 	// HTTP pause tracking.
@@ -46,6 +47,16 @@ func (m *mockDowngradeStore) ApplyPendingDowngrade(_ context.Context, orgID stri
 	}
 	m.appliedOrgIDs = append(m.appliedOrgIDs, orgID)
 	return nil
+}
+
+func (m *mockDowngradeStore) ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	if m.applyIfTierFn != nil {
+		return m.applyIfTierFn(ctx, orgID, pendingTier)
+	}
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
@@ -329,6 +340,31 @@ func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
 	}
 	if store.appliedOrgIDs[0] != "org-ok" {
 		t.Errorf("expected org-ok to succeed, got %q", store.appliedOrgIDs[0])
+	}
+}
+
+func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-raced", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		applyIfTierFn: func(_ context.Context, orgID, pendingTier string) (bool, error) {
+			if orgID != "org-raced" || pendingTier != "free" {
+				t.Fatalf("conditional apply got org=%q tier=%q", orgID, pendingTier)
+			}
+			return false, nil
+		},
+	}
+
+	applier := NewDowngradeApplier(store, nil, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 0 {
+		t.Fatalf("expected stale pending tier to skip apply, got %v", store.appliedOrgIDs)
 	}
 }
 

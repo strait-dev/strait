@@ -842,6 +842,51 @@ func TestPgStore_ApplyPendingDowngrade(t *testing.T) {
 	}
 }
 
+func TestPgStore_ApplyPendingDowngradeIfTier_RequiresSamePendingTier(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-applydown-if-tier-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan error = %v", err)
+	}
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, "starter"); err != nil {
+		t.Fatalf("SetPendingPlanTier error = %v", err)
+	}
+
+	applied, err := pgStore.ApplyPendingDowngradeIfTier(ctx, orgID, "free")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeIfTier wrong tier error = %v", err)
+	}
+	if applied {
+		t.Fatal("expected wrong pending tier to skip conditional apply")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription error = %v", err)
+	}
+	if sub.PlanTier != "pro" || sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
+		t.Fatalf("subscription changed after wrong-tier apply: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+
+	applied, err = pgStore.ApplyPendingDowngradeIfTier(ctx, orgID, "starter")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeIfTier correct tier error = %v", err)
+	}
+	if !applied {
+		t.Fatal("expected matching pending tier to apply")
+	}
+	sub, err = pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after apply error = %v", err)
+	}
+	if sub.PlanTier != "starter" || sub.PendingPlanTier != nil {
+		t.Fatalf("subscription not conditionally applied: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 15: ApplyPendingDowngrade no pending
 // --------------------------------------------------------------------------.

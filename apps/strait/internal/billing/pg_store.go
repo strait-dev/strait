@@ -256,6 +256,21 @@ func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	return nil
 }
 
+func (s *PgStore) ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET plan_tier = pending_plan_tier,
+			pending_plan_tier = NULL,
+			updated_at = NOW()
+		WHERE org_id = $1
+		  AND pending_plan_tier = $2
+	`, orgID, pendingTier)
+	if err != nil {
+		return false, fmt.Errorf("applying pending downgrade conditionally: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
