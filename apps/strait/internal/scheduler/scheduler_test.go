@@ -155,6 +155,21 @@ func (m *mockSchedulerStore) DeleteDebouncePending(_ context.Context, _ string) 
 func (m *mockSchedulerStore) GetJob(_ context.Context, _ string) (*domain.Job, error) {
 	return nil, nil
 }
+func (m *mockSchedulerStore) GetProjectQuota(context.Context, string) (*store.ProjectQuota, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) CountProjectQueuedRuns(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockSchedulerStore) CountProjectActiveRuns(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockSchedulerStore) CountRunsForJobSince(context.Context, string, time.Time) (int, error) {
+	return 0, nil
+}
+func (m *mockSchedulerStore) SumProjectDailyCostMicrousd(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
 func (m *mockSchedulerStore) CreateRun(_ context.Context, _ *domain.JobRun) error { return nil }
 func (m *mockSchedulerStore) TryAdvisoryLock(_ context.Context, _ int64) (bool, error) {
 	return false, nil

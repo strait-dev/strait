@@ -116,6 +116,11 @@ type DebounceStore interface {
 	DeleteDebouncePending(ctx context.Context, id string) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID, timezone string) (int64, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) error

@@ -18,6 +18,11 @@ type mockDebounceStore struct {
 	deleted           []string
 	jobs              map[string]*domain.Job
 	runs              map[string]*domain.JobRun
+	quota             *store.ProjectQuota
+	queuedRuns        int
+	activeRuns        int
+	runsSince         int
+	dailyCost         int64
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
 }
 
@@ -50,6 +55,26 @@ func (m *mockDebounceStore) GetRun(_ context.Context, id string) (*domain.JobRun
 		}
 	}
 	return nil, store.ErrRunNotFound
+}
+
+func (m *mockDebounceStore) GetProjectQuota(context.Context, string) (*store.ProjectQuota, error) {
+	return m.quota, nil
+}
+
+func (m *mockDebounceStore) CountProjectQueuedRuns(context.Context, string) (int, error) {
+	return m.queuedRuns, nil
+}
+
+func (m *mockDebounceStore) CountProjectActiveRuns(context.Context, string) (int, error) {
+	return m.activeRuns, nil
+}
+
+func (m *mockDebounceStore) CountRunsForJobSince(context.Context, string, time.Time) (int, error) {
+	return m.runsSince, nil
+}
+
+func (m *mockDebounceStore) SumProjectDailyCostMicrousd(context.Context, string, string) (int64, error) {
+	return m.dailyCost, nil
 }
 
 func (m *mockDebounceStore) CreateRun(_ context.Context, _ *domain.JobRun) error {
@@ -255,6 +280,72 @@ func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
 
 	if len(ds.deleted) != 1 || ds.deleted[0] != "dp-1" {
 		t.Fatalf("expected existing durable debounce run to allow pending delete, got %v", ds.deleted)
+	}
+}
+
+func TestDebouncePoller_LeavesPendingWhenFireTimeProjectQuotaExceeded(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+		quota:      &store.ProjectQuota{MaxQueuedRuns: 1},
+		queuedRuns: 1,
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 while quota exceeded", enqueued)
+	}
+	if len(ds.deleted) != 0 {
+		t.Fatalf("pending was deleted despite fire-time quota failure: %v", ds.deleted)
+	}
+}
+
+func TestDebouncePoller_LeavesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {
+				ID:                  "job-1",
+				ProjectID:           "proj-1",
+				Enabled:             true,
+				TimeoutSecs:         60,
+				RateLimitMax:        1,
+				RateLimitWindowSecs: 60,
+			},
+		},
+		runsSince: 1,
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 while job rate limit exceeded", enqueued)
+	}
+	if len(ds.deleted) != 0 {
+		t.Fatalf("pending was deleted despite fire-time rate limit failure: %v", ds.deleted)
 	}
 }
 

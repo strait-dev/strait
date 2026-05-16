@@ -87,6 +87,9 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 	if job.Paused {
 		return nil
 	}
+	if err := p.checkFireLimits(ctx, job); err != nil {
+		return err
+	}
 
 	var tags map[string]string
 	if len(d.Tags) > 0 {
@@ -132,6 +135,57 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 			slog.Warn("debounce poller: failed to verify existing debounce run", "id", d.ID, "run_id", run.ID, "error", getErr)
 		}
 		return err
+	}
+	return nil
+}
+
+func (p *DebouncePoller) checkFireLimits(ctx context.Context, job *domain.Job) error {
+	quota, err := p.store.GetProjectQuota(ctx, job.ProjectID)
+	if err != nil {
+		return err
+	}
+	if quota != nil {
+		if quota.MaxQueuedRuns > 0 {
+			queued, countErr := p.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return countErr
+			}
+			if queued >= quota.MaxQueuedRuns {
+				return queue.ErrEnqueueThrottled
+			}
+		}
+		if quota.MaxExecutingRuns > 0 {
+			active, countErr := p.store.CountProjectActiveRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return countErr
+			}
+			if active >= quota.MaxExecutingRuns {
+				return queue.ErrEnqueueThrottled
+			}
+		}
+		if quota.MaxDailyCostMicrousd > 0 {
+			tz := quota.Timezone
+			if tz == "" {
+				tz = "UTC"
+			}
+			cost, costErr := p.store.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
+			if costErr != nil {
+				return costErr
+			}
+			if cost >= quota.MaxDailyCostMicrousd {
+				return queue.ErrEnqueueThrottled
+			}
+		}
+	}
+	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+		count, countErr := p.store.CountRunsForJobSince(ctx, job.ID, since)
+		if countErr != nil {
+			return countErr
+		}
+		if count >= job.RateLimitMax {
+			return queue.ErrEnqueueThrottled
+		}
 	}
 	return nil
 }
