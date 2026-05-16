@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -159,6 +160,42 @@ func TestRunSchedulerCycleCheckIn_CapturesConfiguredCycle(t *testing.T) {
 	}
 	if got[1].checkIn.Status != sentry.CheckInStatusOK {
 		t.Fatalf("finish status = %q, want ok", got[1].checkIn.Status)
+	}
+}
+
+func TestRunSchedulerCycleCheckInWithError_CapturesFailedCycle(t *testing.T) {
+	// Not parallel: mutates package-level captureSchedulerCheckIn.
+	origCapture := captureSchedulerCheckIn
+	defer func() { captureSchedulerCheckIn = origCapture }()
+
+	var got []sentry.CheckIn
+	id := sentry.EventID("cycle-check-in-id")
+	captureSchedulerCheckIn = func(checkIn *sentry.CheckIn, _ *sentry.MonitorConfig) *sentry.EventID {
+		got = append(got, *checkIn)
+		return &id
+	}
+
+	ctx := context.WithValue(context.Background(), schedulerCheckInContextKey{}, schedulerCheckInContext{
+		meta: sentrySchedulerMetadata{
+			checkInsEnabled:      true,
+			checkInMonitorPrefix: "strait",
+		},
+		component: "outbox_flusher",
+	})
+	err := runSchedulerCycleCheckInWithError(ctx, time.Minute, func() error {
+		return errors.New("flush failed")
+	})
+	if err == nil {
+		t.Fatal("expected cycle error")
+	}
+	if len(got) != 2 {
+		t.Fatalf("check-ins = %d, want 2", len(got))
+	}
+	if got[1].Status != sentry.CheckInStatusError {
+		t.Fatalf("finish status = %q, want error", got[1].Status)
+	}
+	if got[1].MonitorSlug != "strait-outbox-flusher-cycle" {
+		t.Fatalf("monitor slug = %q, want strait-outbox-flusher-cycle", got[1].MonitorSlug)
 	}
 }
 

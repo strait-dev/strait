@@ -81,17 +81,21 @@ func (f *OutboxFlusher) Errors() int64     { return f.errors.Load() }
 func (f *OutboxFlusher) Run(ctx context.Context) {
 	ticker := time.NewTicker(f.interval)
 	defer ticker.Stop()
-	runSchedulerCycleCheckIn(ctx, f.interval, func() {
-		_ = f.flushOnce(ctx)
-	})
+	if err := runSchedulerCycleCheckInWithError(ctx, f.interval, func() error {
+		return f.flushOnce(ctx)
+	}); err != nil {
+		f.logger.Warn("outbox flusher cycle failed", "error", err)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runSchedulerCycleCheckIn(ctx, f.interval, func() {
-				_ = f.flushOnce(ctx)
-			})
+			if err := runSchedulerCycleCheckInWithError(ctx, f.interval, func() error {
+				return f.flushOnce(ctx)
+			}); err != nil {
+				f.logger.Warn("outbox flusher cycle failed", "error", err)
+			}
 		}
 	}
 }
