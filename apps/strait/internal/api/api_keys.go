@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -86,6 +88,12 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if req.ExpiresIn != nil && *req.ExpiresIn <= 0 {
 		return nil, huma.Error400BadRequest("expires_in_days must be greater than 0")
 	}
+	if req.RotationWebhookURL != "" {
+		if err := validateAPIKeyRotationWebhookURL(req.RotationWebhookURL, s.config != nil && s.config.AllowPrivateEndpoints); err != nil {
+			slog.Warn("rotation webhook URL rejected", "url", httputil.RedactURLForLog(req.RotationWebhookURL), "error", err)
+			return nil, huma.Error400BadRequest("invalid rotation_webhook_url")
+		}
+	}
 
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil {
@@ -160,6 +168,20 @@ func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID st
 		return nil, huma.Error400BadRequest("expires_in_days is required when project max_key_lifetime_days is not configured")
 	}
 	return expiresAt, nil
+}
+
+func validateAPIKeyRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse rotation webhook url: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("rotation webhook must use https")
+	}
+	if err := httputil.ValidateExternalURL(rawURL); err != nil && !allowPrivateEndpoints {
+		return fmt.Errorf("ssrf guard rejected rotation webhook url: %w", err)
+	}
+	return nil
 }
 
 type ListAPIKeysInput struct {

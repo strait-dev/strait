@@ -165,6 +165,61 @@ func TestCreateAPIKey_RotationWebhookURL_RequiresEncryptor(t *testing.T) {
 	}
 }
 
+func TestCreateAPIKey_RotationWebhookURL_RejectsDeliveryInvalidURLs(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{name: "plaintext", url: "http://example.com/hook"},
+		{name: "loopback", url: "https://127.0.0.1/hook"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var createCalled bool
+			ms := &APIStoreMock{
+				GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+					return &store.ProjectQuota{ProjectID: "proj-1", MaxKeyLifetimeDays: 365}, nil
+				},
+				CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+					createCalled = true
+					return nil
+				},
+			}
+			srv := NewServer(ServerDeps{
+				Config: &config.Config{
+					InternalSecret:      "test-secret-value",
+					MaxBulkTriggerItems: 500,
+					JWTSigningKey:       testJWTSigningKey,
+				},
+				Store:     ms,
+				Queue:     &mockQueue{},
+				PubSub:    &mockPublisher{},
+				Encryptor: roundTripEncryptor{},
+				Edition:   domain.EditionCloud,
+			})
+			t.Cleanup(srv.Close)
+
+			body := `{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":30,"rotation_webhook_url":"` + tc.url + `"}`
+			req := httptest.NewRequest(http.MethodPost, "/v1/api-keys", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Internal-Secret", "test-secret-value")
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+			}
+			if createCalled {
+				t.Fatal("CreateAPIKey must not run for rotation webhook URL rejected by delivery-time validation")
+			}
+		})
+	}
+}
+
 func TestRotateAPIKey_PreservesRotationWebhookSecret(t *testing.T) {
 	t.Parallel()
 
