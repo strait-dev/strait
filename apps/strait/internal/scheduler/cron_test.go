@@ -748,6 +748,48 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelErrorDoesNotPreventEn
 	}
 }
 
+func TestCronScheduler_TriggerJob_DailyCostQuotaPreventsEnqueue(t *testing.T) {
+	t.Parallel()
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+	s := &mockCronStore{
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("quota projectID = %q, want proj-1", projectID)
+			}
+			return &store.ProjectQuota{
+				MaxDailyCostMicrousd: 500,
+				Timezone:            "America/New_York",
+			}, nil
+		},
+		sumProjectDailyCostFn: func(_ context.Context, projectID string, timezone string) (int64, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("cost projectID = %q, want proj-1", projectID)
+			}
+			if timezone != "America/New_York" {
+				t.Fatalf("timezone = %q, want America/New_York", timezone)
+			}
+			return 500, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil)
+	cs.triggerJob(context.Background(), domain.Job{
+		ID:        "job-1",
+		ProjectID: "proj-1",
+		Enabled:   true,
+	})
+
+	if enqueued {
+		t.Fatal("cron trigger should not enqueue after daily cost quota is exhausted")
+	}
+}
+
 func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallbackErrorDoesNotPreventEnqueue(t *testing.T) {
 	t.Parallel()
 	// Workflow callback fails, but the run should still be enqueued.

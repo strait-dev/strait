@@ -35,6 +35,7 @@ type CronAdmissionStore interface {
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
 	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
 type cronAdmissionTransactioner interface {
@@ -44,6 +45,7 @@ type cronAdmissionTransactioner interface {
 var (
 	errCronProjectQueuedQuotaExceeded    = errors.New("cron project queued quota exceeded")
 	errCronProjectExecutingQuotaExceeded = errors.New("cron project executing quota exceeded")
+	errCronProjectDailyCostQuotaExceeded = errors.New("cron project daily cost quota exceeded")
 	errCronJobRateLimitExceeded          = errors.New("cron job rate limit exceeded")
 )
 
@@ -304,6 +306,19 @@ func checkCronAdmissionLimits(ctx context.Context, limits CronAdmissionStore, jo
 				return errCronProjectExecutingQuotaExceeded
 			}
 		}
+		if quota.MaxDailyCostMicrousd > 0 {
+			tz := quota.Timezone
+			if tz == "" {
+				tz = "UTC"
+			}
+			dailyCost, costErr := limits.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
+			if costErr != nil {
+				return fmt.Errorf("evaluate cron project daily cost quota: %w", costErr)
+			}
+			if dailyCost >= quota.MaxDailyCostMicrousd {
+				return errCronProjectDailyCostQuotaExceeded
+			}
+		}
 	}
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
@@ -321,6 +336,7 @@ func checkCronAdmissionLimits(ctx context.Context, limits CronAdmissionStore, jo
 func isCronAdmissionLimitError(err error) bool {
 	return errors.Is(err, errCronProjectQueuedQuotaExceeded) ||
 		errors.Is(err, errCronProjectExecutingQuotaExceeded) ||
+		errors.Is(err, errCronProjectDailyCostQuotaExceeded) ||
 		errors.Is(err, errCronJobRateLimitExceeded)
 }
 

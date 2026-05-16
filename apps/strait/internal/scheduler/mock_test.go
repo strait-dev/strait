@@ -60,6 +60,7 @@ type mockCronStore struct {
 	countProjectQueuedRunsFn    func(ctx context.Context, projectID string) (int, error)
 	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
 	countRunsForJobSinceFn      func(ctx context.Context, jobID string, since time.Time) (int, error)
+	sumProjectDailyCostFn       func(ctx context.Context, projectID string, timezone string) (int64, error)
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -128,6 +129,13 @@ func (m *mockCronStore) CountProjectActiveRuns(ctx context.Context, projectID st
 func (m *mockCronStore) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
 	if m.countRunsForJobSinceFn != nil {
 		return m.countRunsForJobSinceFn(ctx, jobID, since)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error) {
+	if m.sumProjectDailyCostFn != nil {
+		return m.sumProjectDailyCostFn(ctx, projectID, timezone)
 	}
 	return 0, nil
 }
