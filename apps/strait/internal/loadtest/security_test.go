@@ -3,6 +3,7 @@
 package loadtest
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -86,6 +87,33 @@ func TestTestServer_BindsLoopbackAndRequiresSignature(t *testing.T) {
 	_ = signedResp.Body.Close()
 	if signedResp.StatusCode != http.StatusOK {
 		t.Fatalf("signed status = %d, want 200", signedResp.StatusCode)
+	}
+}
+
+func TestGenerateLoadTestSecretPanicsWhenCryptoRandomFails(t *testing.T) {
+	orig := loadtestRandRead
+	loadtestRandRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy unavailable")
+	}
+	t.Cleanup(func() {
+		loadtestRandRead = orig
+	})
+
+	defer func() {
+		if rec := recover(); rec == nil {
+			t.Fatal("expected generateLoadTestSecret to panic on crypto random failure")
+		}
+	}()
+	_ = generateLoadTestSecret()
+}
+
+func TestGenerateLoadTestSecretUsesCryptoRandomLength(t *testing.T) {
+	secret := generateLoadTestSecret()
+	if !strings.HasPrefix(secret, "loadtest_") {
+		t.Fatalf("secret prefix = %q, want loadtest_", secret)
+	}
+	if len(secret) != len("loadtest_")+64 {
+		t.Fatalf("secret len = %d, want %d", len(secret), len("loadtest_")+64)
 	}
 }
 

@@ -3,10 +3,12 @@
 package loadtest
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChaosHarness_DoesNotUseHostWideProcessKills(t *testing.T) {
@@ -133,6 +135,66 @@ func TestChaosCascadingFailure_FailsClosedWhenRedisMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "finding redis container") {
 		t.Fatalf("error = %q, want redis discovery failure", err.Error())
+	}
+}
+
+func TestTrafficSpikeFailsClosedWhenAllTriggersFail(t *testing.T) {
+	t.Parallel()
+
+	ce := &ChaosEngine{
+		loadRate: 10,
+		trigger: func(context.Context, string, string, map[string]any) error {
+			return errors.New("trigger rejected")
+		},
+	}
+
+	attempts, successes, err := ce.runTrafficSpike(t.Context(), 20*time.Millisecond, time.Millisecond)
+	if err == nil {
+		t.Fatal("expected traffic spike to fail when every trigger fails")
+	}
+	if attempts == 0 {
+		t.Fatal("expected traffic spike attempts")
+	}
+	if successes != 0 {
+		t.Fatalf("successes = %d, want 0", successes)
+	}
+	if ce.errorCount.Load() == 0 {
+		t.Fatal("expected failed spike attempts to increment errorCount")
+	}
+}
+
+func TestTrafficSpikeRequiresAtLeastOneAttempt(t *testing.T) {
+	t.Parallel()
+
+	ce := &ChaosEngine{loadRate: 1}
+	attempts, successes, err := ce.runTrafficSpike(t.Context(), time.Nanosecond, time.Hour)
+	if err == nil {
+		t.Fatal("expected traffic spike with no ticks to fail")
+	}
+	if attempts != 0 || successes != 0 {
+		t.Fatalf("attempts=%d successes=%d, want zero values", attempts, successes)
+	}
+}
+
+func TestTrafficSpikeCountsSuccessfulTriggers(t *testing.T) {
+	t.Parallel()
+
+	ce := &ChaosEngine{
+		loadRate: 10,
+		trigger: func(context.Context, string, string, map[string]any) error {
+			return nil
+		},
+	}
+
+	attempts, successes, err := ce.runTrafficSpike(t.Context(), 20*time.Millisecond, time.Millisecond)
+	if err != nil {
+		t.Fatalf("runTrafficSpike() error = %v", err)
+	}
+	if attempts == 0 || successes == 0 {
+		t.Fatalf("attempts=%d successes=%d, want non-zero", attempts, successes)
+	}
+	if ce.triggerCount.Load() != successes {
+		t.Fatalf("triggerCount = %d, want successes %d", ce.triggerCount.Load(), successes)
 	}
 }
 

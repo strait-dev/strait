@@ -5,6 +5,7 @@ package loadtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,7 @@ type ChaosEngine struct {
 	loadRate  int
 	projectID string
 	jobSlug   string
+	trigger   func(ctx context.Context, projectID, jobSlug string, payload map[string]any) error
 
 	// Tracking
 	triggerCount atomic.Int64
@@ -228,14 +230,24 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 	ticker := time.NewTicker(time.Second / time.Duration(max(ce.loadRate, 1)))
 	defer ticker.Stop()
+	inFlight := make(chan struct{}, max(ce.loadRate, 1))
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			select {
+			case inFlight <- struct{}{}:
+			default:
+				ce.errorCount.Add(1)
+				continue
+			}
 			go func() {
-				if err := ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, map[string]any{
+				defer func() { <-inFlight }()
+				reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				if err := ce.triggerJob(reqCtx, map[string]any{
 					"chaos":     true,
 					"timestamp": time.Now().UnixMilli(),
 				}); err != nil {
@@ -246,6 +258,16 @@ func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 			}()
 		}
 	}
+}
+
+func (ce *ChaosEngine) triggerJob(ctx context.Context, payload map[string]any) error {
+	if ce.trigger != nil {
+		return ce.trigger(ctx, ce.projectID, ce.jobSlug, payload)
+	}
+	if ce.harness == nil {
+		return errors.New("loadtest harness is required")
+	}
+	return ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, payload)
 }
 
 func (ce *ChaosEngine) waitForQueueDrain(ctx context.Context, timeout time.Duration) {
@@ -512,22 +534,13 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 
 	// 10x traffic spike
 	wg.Go(func() {
-		spikeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-
-		ticker := time.NewTicker(time.Millisecond) // Very high rate
-		defer ticker.Stop()
-		for {
-			select {
-			case <-spikeCtx.Done():
-				return
-			case <-ticker.C:
-				go func() {
-					_ = ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, map[string]any{
-						"chaos": "cascading_spike",
-					})
-				}()
-			}
+		attempts, successes, err := ce.runTrafficSpike(ctx, 30*time.Second, time.Millisecond)
+		if err != nil {
+			cascadeErr.CompareAndSwap(nil, err)
+			return
+		}
+		if attempts == 0 || successes == 0 {
+			cascadeErr.CompareAndSwap(nil, fmt.Errorf("cascading traffic spike false-pass guard: attempts=%d successes=%d", attempts, successes))
 		}
 	})
 
@@ -560,6 +573,66 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 		return v.(error)
 	}
 	return nil
+}
+
+func (ce *ChaosEngine) runTrafficSpike(ctx context.Context, duration, interval time.Duration) (int64, int64, error) {
+	if duration <= 0 {
+		return 0, 0, errors.New("traffic spike duration must be positive")
+	}
+	if interval <= 0 {
+		return 0, 0, errors.New("traffic spike interval must be positive")
+	}
+
+	spikeCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var attempts atomic.Int64
+	var successes atomic.Int64
+	var failures atomic.Int64
+	limit := max(ce.loadRate*10, 1)
+	if limit > 1000 {
+		limit = 1000
+	}
+	inFlight := make(chan struct{}, limit)
+	var wg conc.WaitGroup
+
+	for {
+		select {
+		case <-spikeCtx.Done():
+			wg.Wait()
+			if attempts.Load() == 0 {
+				return 0, 0, errors.New("traffic spike sent no trigger attempts")
+			}
+			if successes.Load() == 0 {
+				return attempts.Load(), 0, fmt.Errorf("traffic spike had no successful triggers (%d failures)", failures.Load())
+			}
+			return attempts.Load(), successes.Load(), nil
+		case <-ticker.C:
+			select {
+			case inFlight <- struct{}{}:
+			default:
+				failures.Add(1)
+				ce.errorCount.Add(1)
+				continue
+			}
+			attempts.Add(1)
+			wg.Go(func() {
+				defer func() { <-inFlight }()
+				reqCtx, cancel := context.WithTimeout(spikeCtx, 10*time.Second)
+				defer cancel()
+				if err := ce.triggerJob(reqCtx, map[string]any{"chaos": "cascading_spike"}); err != nil {
+					failures.Add(1)
+					ce.errorCount.Add(1)
+					return
+				}
+				successes.Add(1)
+				ce.triggerCount.Add(1)
+			})
+		}
+	}
 }
 
 // WriteResults writes chaos results to a JSON file.

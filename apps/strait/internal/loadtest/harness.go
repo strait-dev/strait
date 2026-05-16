@@ -117,10 +117,12 @@ func NewHarness(cfg HarnessConfig) *Harness {
 	}
 }
 
+var loadtestRandRead = rand.Read
+
 func generateLoadTestSecret() string {
 	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("loadtest-secret-%d", time.Now().UnixNano())
+	if _, err := loadtestRandRead(b[:]); err != nil {
+		panic("generate loadtest endpoint signing secret: " + err.Error())
 	}
 	return "loadtest_" + hex.EncodeToString(b[:])
 }
