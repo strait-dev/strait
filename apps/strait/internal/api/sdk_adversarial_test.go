@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -395,7 +394,7 @@ func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
 	}
 }
 
-func TestRunTokenAuth_BadIssuerEmitsAudit(t *testing.T) {
+func TestRunTokenAuth_BadIssuerDoesNotWriteAudit(t *testing.T) {
 	t.Parallel()
 
 	var captured *domain.AuditEvent
@@ -441,24 +440,8 @@ func TestRunTokenAuth_BadIssuerEmitsAudit(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for bad issuer token, got %d", w.Code)
 	}
-	if captured == nil {
-		t.Fatal("expected audit event for bad run-token issuer")
-	}
-	if captured.Action != domain.AuditActionAuthRunTokenRejected {
-		t.Fatalf("audit action = %q, want %q", captured.Action, domain.AuditActionAuthRunTokenRejected)
-	}
-	if captured.ResourceType != "run" || captured.ResourceID != "run-issuer-audit" {
-		t.Fatalf("audit resource = %s/%s, want run/run-issuer-audit", captured.ResourceType, captured.ResourceID)
-	}
-	var details map[string]any
-	if err := json.Unmarshal(captured.Details, &details); err != nil {
-		t.Fatalf("unmarshal audit details: %v", err)
-	}
-	if details["reason"] != "bad_issuer" {
-		t.Fatalf("audit reason = %v, want bad_issuer", details["reason"])
-	}
-	if details["run_id"] != "run-issuer-audit" {
-		t.Fatalf("audit run_id = %v, want run-issuer-audit", details["run_id"])
+	if captured != nil {
+		t.Fatalf("rejected JWT wrote unauthenticated audit event: %+v", captured)
 	}
 }
 
