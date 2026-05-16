@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/google/uuid"
 )
 
 // QuotaWebhookNotifier sends webhook notifications for quota-related events.
@@ -100,11 +99,17 @@ func (a *QuotaWebhookAdapter) notifyOrgEvent(ctx context.Context, orgID, eventTy
 				continue
 			}
 
+			now := time.Now().UTC()
 			delivery := &domain.WebhookDelivery{
-				ID:          uuid.Must(uuid.NewV7()).String(),
-				WebhookURL:  sub.WebhookURL,
-				Status:      domain.WebhookStatusPending,
-				MaxAttempts: 3,
+				SubscriptionID: sub.ID,
+				ProjectID:      sub.ProjectID,
+				WebhookURL:     sub.WebhookURL,
+				RetryPolicy:    domain.WebhookRetryPolicyExponential,
+				Status:         domain.WebhookStatusPending,
+				Attempts:       0,
+				MaxAttempts:    3,
+				NextRetryAt:    &now,
+				Payload:        payload,
 			}
 
 			if err := a.deliveryStore.CreateWebhookDelivery(ctx, delivery); err != nil {
@@ -125,8 +130,6 @@ func (a *QuotaWebhookAdapter) notifyOrgEvent(ctx context.Context, orgID, eventTy
 			)
 		}
 	}
-
-	_ = payload
 
 	return nil
 }
