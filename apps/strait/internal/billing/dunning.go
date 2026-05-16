@@ -220,7 +220,7 @@ func (d *Dunner) decide(ctx context.Context, now time.Time, row DunningRow) (Dun
 	// and the next Tick retries. Emails and dispatches are best-effort:
 	// they log on failure but do not abort the transition.
 	d.sendStepEmail(ctx, row, target)
-	d.dispatchTransition(ctx, row, target)
+	d.dispatchTransition(ctx, row, row.DunningStep, target)
 
 	return DunningTransition{
 		OrgID:         row.OrgID,
@@ -245,17 +245,26 @@ func (d *Dunner) sendStepEmail(ctx context.Context, row DunningRow, step int) {
 	d.emails.SendDunningStep(ctx, recipients, row.PlanTier, step)
 }
 
-func (d *Dunner) dispatchTransition(ctx context.Context, row DunningRow, step int) {
+func (d *Dunner) dispatchTransition(ctx context.Context, row DunningRow, previousStep, step int) {
 	if d.dispatcher == nil {
 		return
 	}
 	tier := domain.PlanTier(row.PlanTier)
-	delinquentDetail := map[string]any{
-		"dunning_step":       step,
-		"dunning_entered_at": row.DunningEnteredAt.UTC().Format(time.RFC3339Nano),
-	}
-	if err := DispatchBillingWebhook(ctx, d.dispatcher, row.OrgID, tier, domain.WebhookEventBillingDelinquent, delinquentDetail); err != nil {
-		d.logger.Warn("billing.delinquent dispatch failed", "org_id", row.OrgID, "err", err)
+	// Skip billing.delinquent on the entry transition. handlePaymentFailed in
+	// the Stripe webhook handler already announced the delinquent state when
+	// invoice.payment_failed fired; the first Dunner tick advancing 0→Entry
+	// represents the same event, so re-dispatching would deliver duplicate
+	// billing.delinquent webhooks to subscribers within the first day.
+	// Escalation transitions (Entry→Day14, Day14→Day74) still dispatch
+	// because they're genuine state changes a subscriber needs to react to.
+	if previousStep != DunningStepNone {
+		delinquentDetail := map[string]any{
+			"dunning_step":       step,
+			"dunning_entered_at": row.DunningEnteredAt.UTC().Format(time.RFC3339Nano),
+		}
+		if err := DispatchBillingWebhook(ctx, d.dispatcher, row.OrgID, tier, domain.WebhookEventBillingDelinquent, delinquentDetail); err != nil {
+			d.logger.Warn("billing.delinquent dispatch failed", "org_id", row.OrgID, "err", err)
+		}
 	}
 	if step == DunningStepDay74 {
 		suspendDetail := map[string]any{
