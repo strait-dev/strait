@@ -101,11 +101,13 @@ func (f *OutboxFlusher) FlushOnceForTest(ctx context.Context) error {
 	return f.flushOnce(ctx)
 }
 
-func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
+func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 	defer func() {
 		f.iterations.Add(1)
 		if r := recover(); r != nil {
+			f.errors.Add(1)
 			f.logger.Warn("outbox flusher panic recovered", "panic", r)
+			err = fmt.Errorf("outbox flusher panic: %v", r)
 		}
 	}()
 

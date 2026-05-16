@@ -237,6 +237,43 @@ func TestOutboxFlusher_BackpressureThrottleLeavesRowUnconsumed(t *testing.T) {
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
+func TestOutboxFlusher_PanicReturnsErrorAndLeavesRowUnconsumed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+
+	job := intCreateJob(t, ctx, st, "proj-outbox-panic")
+	entry := queue.OutboxEntry{
+		ID:             intNewID(),
+		ProjectID:      job.ProjectID,
+		JobID:          job.ID,
+		IdempotencyKey: "panic-" + intNewID(),
+		Payload:        json.RawMessage(`{"panic":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			panic("enqueue panic")
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+
+	err := flusher.FlushOnceForTest(ctx)
+	if err == nil {
+		t.Fatal("FlushOnceForTest() error = nil, want recovered panic error")
+	}
+	if flusher.Errors() != 1 {
+		t.Fatalf("Errors() = %d, want 1", flusher.Errors())
+	}
+	if flusher.Iterations() != 1 {
+		t.Fatalf("Iterations() = %d, want 1", flusher.Iterations())
+	}
+	assertOutboxState(t, ctx, entry.ID, false, false)
+	assertRunCount(t, ctx, job.ID, entry.IdempotencyKey, 0)
+}
+
 func TestOutboxFlusher_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
