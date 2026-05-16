@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type mockDebounceStore struct {
@@ -26,6 +29,8 @@ type mockDebounceStore struct {
 	runsSince         int
 	dailyCost         int64
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
+	txCalls           int
+	txLockIDs         []int64
 }
 
 func (m *mockDebounceStore) ListDueDebouncePending(_ context.Context) ([]domain.DebouncePending, error) {
@@ -124,6 +129,36 @@ func (m *mockDebounceStore) ReleaseAdvisoryLock(_ context.Context, _ int64) erro
 	return nil
 }
 
+func (m *mockDebounceStore) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	m.mu.Lock()
+	m.txCalls++
+	m.mu.Unlock()
+	return fn(ctx, &mockDebounceTx{store: m})
+}
+
+type mockDebounceTx struct {
+	store *mockDebounceStore
+}
+
+func (m *mockDebounceTx) Exec(_ context.Context, _ string, arguments ...any) (pgconn.CommandTag, error) {
+	if len(arguments) > 0 {
+		if lockID, ok := arguments[0].(int64); ok {
+			m.store.mu.Lock()
+			m.store.txLockIDs = append(m.store.txLockIDs, lockID)
+			m.store.mu.Unlock()
+		}
+	}
+	return pgconn.NewCommandTag("SELECT 1"), nil
+}
+
+func (m *mockDebounceTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("unexpected query")
+}
+
+func (m *mockDebounceTx) QueryRow(context.Context, string, ...any) pgx.Row {
+	return nil
+}
+
 func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	t.Parallel()
 
@@ -200,6 +235,12 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	}
 	if len(ds.restored) != 0 {
 		t.Fatalf("expected successful fire to avoid restore, got %v", ds.restored)
+	}
+	if ds.txCalls != 1 {
+		t.Fatalf("expected debounce fire to use transactional admission guard, got %d tx calls", ds.txCalls)
+	}
+	if len(ds.txLockIDs) != 1 || ds.txLockIDs[0] != cronAdmissionLockID("proj-1") {
+		t.Fatalf("expected project trigger-limit lock %d, got %v", cronAdmissionLockID("proj-1"), ds.txLockIDs)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -21,6 +22,10 @@ type DebouncePoller struct {
 	store    store.DebounceStore
 	queue    queue.Queue
 	interval time.Duration
+}
+
+type debounceAdmissionTransactioner interface {
+	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
 }
 
 func NewDebouncePoller(s store.DebounceStore, q queue.Queue, interval time.Duration) *DebouncePoller {
@@ -95,10 +100,6 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 	if job.Paused {
 		return nil
 	}
-	if err := p.checkFireLimits(ctx, job); err != nil {
-		return err
-	}
-
 	var tags map[string]string
 	if len(d.Tags) > 0 {
 		_ = json.Unmarshal(d.Tags, &tags)
@@ -134,7 +135,12 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 		IdempotencyKey: "debounce:" + d.ID,
 	}
 
-	if err := queue.EnqueueWithRetry(ctx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
+	if err := p.withDebounceAdmissionGuard(ctx, job, func(enqueueCtx context.Context, tx store.DBTX) error {
+		if tx != nil {
+			return p.queue.EnqueueInTx(enqueueCtx, tx, run)
+		}
+		return queue.EnqueueWithRetry(enqueueCtx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig())
+	}); err != nil {
 		existing, getErr := p.store.GetRun(ctx, run.ID)
 		if getErr == nil && existing != nil {
 			return nil
@@ -145,6 +151,24 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 		return err
 	}
 	return nil
+}
+
+func (p *DebouncePoller) withDebounceAdmissionGuard(ctx context.Context, job *domain.Job, fn func(context.Context, store.DBTX) error) error {
+	if txer, ok := p.store.(debounceAdmissionTransactioner); ok {
+		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", cronAdmissionLockID(job.ProjectID)); err != nil {
+				return fmt.Errorf("acquire debounce admission lock: %w", err)
+			}
+			if err := p.checkFireLimits(txCtx, job); err != nil {
+				return err
+			}
+			return fn(txCtx, tx)
+		})
+	}
+	if err := p.checkFireLimits(ctx, job); err != nil {
+		return err
+	}
+	return fn(ctx, nil)
 }
 
 func (p *DebouncePoller) checkFireLimits(ctx context.Context, job *domain.Job) error {
