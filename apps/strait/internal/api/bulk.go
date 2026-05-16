@@ -211,6 +211,10 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 			// passed.
 			if s.billingEnforcer != nil && item.Priority > 0 {
 				if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, job.ProjectID, item.Priority); err != nil {
+					var rse *rawStatusError
+					if converted := limitErrorTo402(err, fmt.Sprintf("item %d", itemIdx)); converted != nil && errors.As(converted, &rse) {
+						return converted
+					}
 					return huma.Error402PaymentRequired(fmt.Sprintf("item %d: %v", itemIdx, err))
 				}
 			}
