@@ -116,6 +116,9 @@ func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now t
 	if stats == nil {
 		return nil
 	}
+	if !hasSLOData(slo.Metric, stats) {
+		return nil
+	}
 
 	currentValue := metricValue(slo.Metric, stats)
 	budget := CalculateErrorBudget(currentValue, slo.Target, slo.Metric)
@@ -164,6 +167,18 @@ func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now t
 	}
 
 	return nil
+}
+
+func hasSLOData(metric string, stats *store.JobHealthStats) bool {
+	if stats == nil || stats.TotalRuns == 0 {
+		return false
+	}
+	switch metric {
+	case domain.SLOMetricSuccessRate, domain.SLOMetricP95LatencySecs, domain.SLOMetricP99LatencySecs:
+		return true
+	default:
+		return false
+	}
 }
 
 func metricValue(metric string, stats *store.JobHealthStats) float64 {

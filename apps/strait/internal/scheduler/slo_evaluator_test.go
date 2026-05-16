@@ -267,3 +267,16 @@ func TestMetricValue(t *testing.T) {
 		})
 	}
 }
+
+func TestHasSLOData_SkipsIdleWindows(t *testing.T) {
+	t.Parallel()
+	if hasSLOData(domain.SLOMetricSuccessRate, &store.JobHealthStats{}) {
+		t.Fatal("idle success-rate SLO windows must be treated as no-data")
+	}
+	if !hasSLOData(domain.SLOMetricSuccessRate, &store.JobHealthStats{TotalRuns: 1}) {
+		t.Fatal("non-empty success-rate SLO window should be evaluated")
+	}
+	if hasSLOData("unknown", &store.JobHealthStats{TotalRuns: 1}) {
+		t.Fatal("unknown SLO metric should not be evaluated")
+	}
+}
