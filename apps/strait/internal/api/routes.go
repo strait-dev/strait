@@ -170,7 +170,7 @@ func (s *Server) routes() chi.Router {
 
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
-		r.Use(rateLimit(10, time.Minute))
+		r.Use(rateLimit(cliAuthRateLimitRequests, cliAuthRateLimitWindow))
 		r.Post("/device-code", TypedHandler(s, http.StatusOK, s.handleDeviceCode))
 		r.Post("/token", TypedHandler(s, http.StatusOK, s.handleDeviceToken))
 	})

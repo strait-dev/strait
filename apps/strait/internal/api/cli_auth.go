@@ -19,7 +19,9 @@ import (
 
 const (
 	deviceCodeExpiresIn           = 900
-	deviceCodePollInterval        = 5
+	cliAuthRateLimitRequests      = 10
+	cliAuthRateLimitWindow        = time.Minute
+	deviceCodePollInterval        = 6
 	defaultCLIKeyLifetimeDays int = 90
 )
 const userCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

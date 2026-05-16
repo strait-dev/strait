@@ -58,6 +58,21 @@ func TestHandleDeviceCode_Success(t *testing.T) {
 	}
 }
 
+func TestDeviceCodePollIntervalFitsPublicRouteRateLimit(t *testing.T) {
+	t.Parallel()
+
+	if deviceCodePollInterval <= 0 {
+		t.Fatal("deviceCodePollInterval must be positive")
+	}
+	pollsPerWindow := int(cliAuthRateLimitWindow / (time.Duration(deviceCodePollInterval) * time.Second))
+	if cliAuthRateLimitWindow%(time.Duration(deviceCodePollInterval)*time.Second) != 0 {
+		pollsPerWindow++
+	}
+	if pollsPerWindow > cliAuthRateLimitRequests {
+		t.Fatalf("advertised polling interval allows %d polls per window, route limit is %d", pollsPerWindow, cliAuthRateLimitRequests)
+	}
+}
+
 func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 	t.Parallel()
 
