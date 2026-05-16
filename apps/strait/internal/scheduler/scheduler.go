@@ -56,6 +56,7 @@ type Scheduler struct {
 	partitionReclaimer       *PartitionReclaimer
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
+	sloEvaluator             *SLOEvaluator
 	planDriftMonitor         *PlanDriftMonitor
 	backpressureSampler      *BackpressureSampler
 	idempotencyGC            *IdempotencyGC
@@ -275,6 +276,13 @@ func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	}
 }
 
+// WithSLOEvaluator enables periodic SLO evaluation and alert delivery.
+func WithSLOEvaluator(evaluator *SLOEvaluator) SchedulerOption {
+	return func(s *Scheduler) {
+		s.sloEvaluator = evaluator
+	}
+}
+
 // WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
 func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	return func(s *Scheduler) {
@@ -353,6 +361,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.tracker.track(ctx, &s.wg, "memory_cleanup", func(componentCtx context.Context) { s.memoryCleanup.Run(componentCtx) })
 	if s.usageFlusher != nil {
 		s.tracker.track(ctx, &s.wg, "usage_flusher", func(componentCtx context.Context) { s.usageFlusher.Run(componentCtx) })
+	}
+	if s.sloEvaluator != nil {
+		s.tracker.track(ctx, &s.wg, "slo_evaluator", func(componentCtx context.Context) { s.sloEvaluator.Run(componentCtx, 5*time.Minute) })
 	}
 	if s.concurrentReconciler != nil {
 		s.tracker.track(ctx, &s.wg, "concurrent_reconciler", func(componentCtx context.Context) { s.concurrentReconciler.Run(componentCtx) })

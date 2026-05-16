@@ -290,6 +290,19 @@ func TestWithBudgetMonitoringStores_WiresSpendingStore(t *testing.T) {
 	}
 }
 
+func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
+	t.Parallel()
+
+	evaluator := &SLOEvaluator{}
+	s := &Scheduler{}
+
+	WithSLOEvaluator(evaluator)(s)
+
+	if s.sloEvaluator != evaluator {
+		t.Fatal("expected SLO evaluator to be wired into scheduler")
+	}
+}
+
 func TestScheduler_Start_Success(t *testing.T) {
 	t.Parallel()
 	store := &mockSchedulerStore{

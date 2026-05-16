@@ -82,6 +82,28 @@ func (e *SLOEvaluator) Evaluate(ctx context.Context) error {
 	return nil
 }
 
+// Run starts periodic SLO evaluation until ctx is canceled.
+func (e *SLOEvaluator) Run(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runSchedulerCycleCheckIn(ctx, interval, func() {
+				if err := e.Evaluate(ctx); err != nil {
+					e.logger.Warn("slo evaluation cycle failed", "error", err)
+				}
+			})
+		}
+	}
+}
+
 // evaluateSLO queries the hot job_runs table only. WindowHours exceeding
 // hot retention is rejected at the store write boundary (CreateJobSLO).
 func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now time.Time) error {

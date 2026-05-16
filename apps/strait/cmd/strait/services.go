@@ -905,6 +905,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:     slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithSLOEvaluator(
+				scheduler.NewSLOEvaluator(queries, slog.Default(),
+					scheduler.WithSLOWebhookNotifier(scheduler.NewSLOWebhookAdapter(queries)),
+				),
+			),
 		}
 		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
 			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
