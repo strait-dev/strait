@@ -81,12 +81,9 @@ func (am *AnomalyMonitor) Run(ctx context.Context) {
 }
 
 func (am *AnomalyMonitor) check(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, am.advisoryLocker, anomalyMonitorLockID, am.checkLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, am.advisoryLocker, anomalyMonitorLockID, am.checkLocked)
 	if err != nil {
 		am.logger.Warn("anomaly monitor: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }

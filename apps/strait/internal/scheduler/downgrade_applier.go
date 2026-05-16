@@ -69,12 +69,9 @@ func (d *DowngradeApplier) Run(ctx context.Context) {
 }
 
 func (d *DowngradeApplier) apply(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, d.advisoryLocker, downgradeApplierLockID, d.applyLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, d.advisoryLocker, downgradeApplierLockID, d.applyLocked)
 	if err != nil {
 		slog.Warn("downgrade applier: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }

@@ -798,7 +798,7 @@ type DryRunJobInfo struct {
 	VersionID     string               `json:"version_id,omitempty"`
 }
 
-//nolint:nestif
+//nolint:cyclop,gocyclo,nestif
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
 	if err := validateRunCreationJobID(jobID); err != nil {
 		return nil, err

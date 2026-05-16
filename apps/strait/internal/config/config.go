@@ -389,7 +389,7 @@ func Load() (*Config, error) {
 // well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocognit,gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}

@@ -149,7 +149,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	handler(ctx, ec)
 }
 
-//nolint:gocyclo,cyclop,funlen,gocognit
+//nolint:gocyclo,cyclop,funlen,gocognit,nestif
 func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	run := ec.Run
 	executeStart := ec.Start

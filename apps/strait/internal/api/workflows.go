@@ -293,7 +293,7 @@ type UpdateWorkflowOutput struct {
 	Body updateWorkflowResponseBody
 }
 
-//nolint:gocognit,gocyclo,cyclop
+//nolint:funlen,gocognit,gocyclo,cyclop
 func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflowInput) (*UpdateWorkflowOutput, error) {
 	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
 	if err != nil {

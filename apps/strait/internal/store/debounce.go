@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -91,7 +92,7 @@ func (q *Queries) ClaimDueDebouncePending(ctx context.Context, id string) (*doma
 	`, id)
 	d, err := scanDebouncePending(row)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("claim due debounce pending: %w", err)

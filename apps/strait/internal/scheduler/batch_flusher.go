@@ -52,12 +52,9 @@ func (f *BatchFlusher) Run(ctx context.Context) {
 }
 
 func (f *BatchFlusher) poll(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, f.store, batchAdvisoryLockID, f.pollLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, f.store, batchAdvisoryLockID, f.pollLocked)
 	if err != nil {
 		slog.Warn("batch flusher: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }

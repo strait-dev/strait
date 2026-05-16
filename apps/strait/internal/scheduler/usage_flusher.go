@@ -65,12 +65,9 @@ func (uf *UsageFlusher) Run(ctx context.Context) {
 }
 
 func (uf *UsageFlusher) flush(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, uf.advisoryLocker, usageFlusherLockID, uf.flushLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, uf.advisoryLocker, usageFlusherLockID, uf.flushLocked)
 	if err != nil {
 		uf.logger.Warn("usage flusher: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }

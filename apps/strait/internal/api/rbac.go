@@ -174,10 +174,7 @@ func (s *Server) createRequiredAuditEvent(ctx context.Context, action, resourceT
 	}
 	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.store.CreateAuditEvent(auditCtx, ev); err != nil {
-		return err
-	}
-	return nil
+	return s.store.CreateAuditEvent(auditCtx, ev)
 }
 
 type CreateRoleInput struct{ Body createRoleRequest }

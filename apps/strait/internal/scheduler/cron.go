@@ -290,6 +290,7 @@ func checkCronAdmissionLimits(ctx context.Context, limits CronAdmissionStore, jo
 	if err != nil {
 		return fmt.Errorf("get cron project quota: %w", err)
 	}
+	//nolint:nestif
 	if quota != nil {
 		if quota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := limits.CountProjectQueuedRuns(ctx, job.ProjectID)
@@ -472,14 +473,14 @@ func cronFireKey(kind, id string, now time.Time) string {
 func cronFireLockID(key string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(key))
-	return int64(h.Sum64())
+	return int64(h.Sum64() >> 1)
 }
 
 func cronAdmissionLockID(projectID string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte("trigger-limit:"))
 	_, _ = h.Write([]byte(projectID))
-	return int64(h.Sum64())
+	return int64(h.Sum64() >> 1)
 }
 
 func (cs *CronScheduler) Start() {

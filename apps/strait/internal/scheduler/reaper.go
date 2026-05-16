@@ -1468,7 +1468,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 		}
 	}
 	requestClient := *client
-	requestClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+	requestClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
 	resp, err := requestClient.Do(req)

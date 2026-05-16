@@ -52,12 +52,9 @@ func (p *DebouncePoller) Run(ctx context.Context) {
 }
 
 func (p *DebouncePoller) poll(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, p.store, debounceAdvisoryLockID, p.pollLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, p.store, debounceAdvisoryLockID, p.pollLocked)
 	if err != nil {
 		slog.Warn("debounce poller: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }
@@ -176,6 +173,7 @@ func (p *DebouncePoller) checkFireLimits(ctx context.Context, job *domain.Job) e
 	if err != nil {
 		return err
 	}
+	//nolint:nestif
 	if quota != nil {
 		if quota.MaxQueuedRuns > 0 {
 			queued, countErr := p.store.CountProjectQueuedRuns(ctx, job.ProjectID)

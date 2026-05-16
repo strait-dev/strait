@@ -994,7 +994,7 @@ func workerClaimDeleteSQL() string {
 // uses DequeueNForWorkerQueues.
 //
 // On any input it returns nil immediately — no claim is attempted.
-func (q *PostgresQueue) DequeueNForWorker(ctx context.Context, n int, queues []string) ([]domain.JobRun, error) {
+func (q *PostgresQueue) DequeueNForWorker(_ context.Context, _ int, _ []string) ([]domain.JobRun, error) {
 	return nil, nil
 }
 

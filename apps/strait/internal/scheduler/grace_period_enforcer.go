@@ -60,12 +60,9 @@ func (g *GracePeriodEnforcer) Run(ctx context.Context) {
 }
 
 func (g *GracePeriodEnforcer) enforce(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, g.advisoryLocker, gracePeriodEnforcerLockID, g.enforceLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, g.advisoryLocker, gracePeriodEnforcerLockID, g.enforceLocked)
 	if err != nil {
 		slog.Warn("grace period enforcer: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }

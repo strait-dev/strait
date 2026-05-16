@@ -143,23 +143,24 @@ func (r *CounterReconciler) reconcileLocked(ctx context.Context) error {
 				return fmt.Errorf("counter reconciler lock tables: %w", err)
 			}
 		}
-		txReconciler := *r
-		txReconciler.db = tx
-		driftBefore := txReconciler.TotalDrift()
-		if err := txReconciler.reconcileLockedNoTx(ctx); err != nil {
-			return err
+		txReconciler := &CounterReconciler{
+			db:      tx,
+			metrics: r.metrics,
+			logger:  r.logger,
 		}
+		txDrift := txReconciler.reconcileLockedNoTx(ctx)
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("counter reconciler commit: %w", err)
 		}
 		committed = true
-		r.totalDrift.Add(txReconciler.TotalDrift() - driftBefore)
+		r.totalDrift.Add(txDrift)
 		return nil
 	}
-	return r.reconcileLockedNoTx(ctx)
+	r.reconcileLockedNoTx(ctx)
+	return nil
 }
 
-func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) error {
+func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) int64 {
 	activeDrift, err := r.reconcileActiveCounts(ctx)
 	if err != nil {
 		r.logger.Warn("active counts reconcile failed", "error", err)
@@ -180,7 +181,7 @@ func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) error {
 			"dlq_drift", dlqDrift,
 		)
 	}
-	return nil
+	return drift
 }
 
 // reconcileActiveCounts replaces the job_active_counts table with the

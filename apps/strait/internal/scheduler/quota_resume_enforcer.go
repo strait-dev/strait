@@ -71,12 +71,9 @@ func (q *QuotaResumeEnforcer) Run(ctx context.Context) {
 }
 
 func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, q.advisoryLocker, quotaResumeEnforcerLockID, q.enforceLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, q.advisoryLocker, quotaResumeEnforcerLockID, q.enforceLocked)
 	if err != nil {
 		slog.Warn("quota resume enforcer: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }
@@ -132,15 +129,6 @@ func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 		)
 	}
 	return nil
-}
-
-// isNewBillingPeriod returns true when the current time is at or past the
-// subscription's billing period boundary. For free-tier orgs (no period end
-// set) it resets on the first day of each calendar month; for paid plans it
-// uses the current_period_end anchor from Stripe.
-func (q *QuotaResumeEnforcer) isNewBillingPeriod(now time.Time, sub *billing.OrgSubscription) bool {
-	_, _, ok := q.resumePeriodKey(now, sub)
-	return ok
 }
 
 func (q *QuotaResumeEnforcer) resumePeriodKey(now time.Time, sub *billing.OrgSubscription) (string, time.Time, bool) {

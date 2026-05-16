@@ -59,12 +59,9 @@ func (c *StaleSubscriptionChecker) Run(ctx context.Context) {
 }
 
 func (c *StaleSubscriptionChecker) check(ctx context.Context) {
-	acquired, err := runWithOptionalAdvisoryLock(ctx, c.advisoryLocker, staleSubscriptionCheckerLockID, c.checkLocked)
+	_, err := runWithOptionalAdvisoryLock(ctx, c.advisoryLocker, staleSubscriptionCheckerLockID, c.checkLocked)
 	if err != nil {
 		slog.Warn("stale subscription checker: advisory lock cycle failed", "error", err)
-		return
-	}
-	if !acquired {
 		return
 	}
 }
