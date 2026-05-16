@@ -1458,6 +1458,27 @@ func (s *PgStore) UnpauseJobsByPauseReason(ctx context.Context, orgID, reason st
 	return tag.RowsAffected(), nil
 }
 
+// UnpauseJobsByPauseReasonBefore unpauses only jobs paused before a billing
+// period boundary so jobs paused again during the new period stay paused.
+func (s *PgStore) UnpauseJobsByPauseReasonBefore(ctx context.Context, orgID, reason string, pausedBefore time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			paused = false,
+			paused_at = NULL,
+			pause_reason = NULL,
+			updated_at = NOW()
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND pause_reason = $2
+		  AND paused = true
+		  AND paused_at IS NOT NULL
+		  AND paused_at < $3
+	`, orgID, reason, pausedBefore.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("unpausing jobs by reason before boundary: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // CountHTTPJobsByOrg returns the number of HTTP-mode jobs (not deleted) for an org.
 func (s *PgStore) CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, error) {
 	var count int
