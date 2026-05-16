@@ -186,17 +186,52 @@ func (ts *TenantSimulator) pickJobType(tenant TenantProfile) string {
 // timeOfDayMultiplier returns a multiplier (0.2 - 1.0) based on a sinusoidal
 // time-of-day curve peaking at PeakHourUTC and troughing at TroughHourUTC.
 func (ts *TenantSimulator) timeOfDayMultiplier() float64 {
-	hour := time.Now().UTC().Hour()
-	peak := ts.config.PeakHourUTC
+	return ts.timeOfDayMultiplierAt(time.Now().UTC())
+}
 
-	// Distance from peak in hours (wrapping around 24h)
-	dist := math.Abs(float64(hour - peak))
-	if dist > 12 {
-		dist = 24 - dist
+func (ts *TenantSimulator) timeOfDayMultiplierAt(now time.Time) float64 {
+	hour := float64(now.UTC().Hour()) +
+		float64(now.UTC().Minute())/60 +
+		float64(now.UTC().Second())/3600
+	peak := normalizeHour(ts.config.PeakHourUTC)
+	trough := normalizeHour(ts.config.TroughHourUTC)
+	riseHours := positiveHourDelta(trough, peak)
+	if riseHours == 0 {
+		return 1
 	}
 
-	// Cosine curve: 1.0 at peak, 0.2 at trough (12h away)
-	return 0.6 + 0.4*math.Cos(dist*math.Pi/12)
+	progressFromTrough := positiveHourDeltaFloat(trough, hour)
+	if progressFromTrough <= riseHours {
+		phase := progressFromTrough / riseHours
+		return 0.2 + 0.8*((1-math.Cos(math.Pi*phase))/2)
+	}
+
+	fallHours := 24 - riseHours
+	if fallHours == 0 {
+		return 0.2
+	}
+	phase := (progressFromTrough - riseHours) / fallHours
+	return 1 - 0.8*((1-math.Cos(math.Pi*phase))/2)
+}
+
+func normalizeHour(hour int) float64 {
+	hour %= 24
+	if hour < 0 {
+		hour += 24
+	}
+	return float64(hour)
+}
+
+func positiveHourDelta(start, end float64) float64 {
+	delta := math.Mod(end-start+24, 24)
+	if delta < 0 {
+		delta += 24
+	}
+	return delta
+}
+
+func positiveHourDeltaFloat(start, end float64) float64 {
+	return positiveHourDelta(start, math.Mod(end+24, 24))
 }
 
 func (ts *TenantSimulator) buildResult() *TenantSimulatorResult {
