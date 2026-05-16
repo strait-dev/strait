@@ -17,6 +17,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/config"
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -32,6 +33,8 @@ var (
 	testServer *api.Server
 )
 
+const testEncryptionKey = "0123456789abcdef0123456789abcdef"
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -42,13 +45,18 @@ func TestMain(m *testing.M) {
 	}
 
 	testStore = store.NewWithContextRouting(testEnv.DB.Pool)
-	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	testStore.SetSecretEncryptionKey(testEncryptionKey)
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
+	testEncryptor, err := crypto.NewKeyRotatorFromStrings(testEncryptionKey)
+	if err != nil {
+		log.Fatalf("setup test encryptor: %v", err)
+	}
 	testServer = api.NewServer(api.ServerDeps{
 		Config: &config.Config{
 			InternalSecret:           "test-secret-value",
 			JWTSigningKey:            testJWTSigningKey,
-			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
+			SecretEncryptionKey:      testEncryptionKey,
+			EncryptionKey:            testEncryptionKey,
 			RateLimitRequests:        0,
 			RateLimitWindow:          time.Minute,
 			TriggerRateLimitRequests: 0,
@@ -57,8 +65,9 @@ func TestMain(m *testing.M) {
 			CORSAllowCredentials:     false,
 			MaxBulkTriggerItems:      500,
 		},
-		Store: testStore,
-		Queue: testQueue,
+		Store:     testStore,
+		Queue:     testQueue,
+		Encryptor: testEncryptor,
 	})
 
 	code := m.Run()
