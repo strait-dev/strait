@@ -19,6 +19,7 @@ type mockDowngradeStore struct {
 	applyErrors   map[string]error
 	applyIfTierFn func(ctx context.Context, orgID, pendingTier string) (bool, error)
 	listErr       error
+	operations    []string
 
 	// HTTP pause tracking.
 	pauseHTTPCalls []pauseHTTPCall
@@ -46,6 +47,7 @@ func (m *mockDowngradeStore) ApplyPendingDowngrade(_ context.Context, orgID stri
 		}
 	}
 	m.appliedOrgIDs = append(m.appliedOrgIDs, orgID)
+	m.operations = append(m.operations, "apply:"+orgID)
 	return nil
 }
 
@@ -60,10 +62,12 @@ func (m *mockDowngradeStore) ApplyPendingDowngradeIfTier(ctx context.Context, or
 }
 
 func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	m.operations = append(m.operations, "suspend")
 	return 0, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
+	m.operations = append(m.operations, "cron")
 	if m.cronErr != nil {
 		return 0, m.cronErr
 	}
@@ -71,10 +75,12 @@ func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ strin
 }
 
 func (m *mockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
+	m.operations = append(m.operations, "webhook")
 	return 0, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, _ string, _ int) (int64, error) {
+	m.operations = append(m.operations, "environment")
 	return 0, nil
 }
 
@@ -83,6 +89,7 @@ func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]s
 }
 
 func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) (int64, error) {
+	m.operations = append(m.operations, "pause_http")
 	m.pauseHTTPCalls = append(m.pauseHTTPCalls, pauseHTTPCall{orgID: orgID, reason: reason})
 	if m.pauseHTTPErr != nil {
 		return 0, m.pauseHTTPErr
@@ -368,7 +375,7 @@ func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
 	}
 }
 
-func TestDowngradeApplier_DoesNotClearPendingWhenLimitEnforcementFails(t *testing.T) {
+func TestDowngradeApplier_AppliesTierBeforeLimitEnforcement(t *testing.T) {
 	t.Parallel()
 
 	free := "free"
@@ -383,8 +390,14 @@ func TestDowngradeApplier_DoesNotClearPendingWhenLimitEnforcementFails(t *testin
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
 
-	if len(store.appliedOrgIDs) != 0 {
-		t.Fatalf("pending downgrade was cleared before enforcement succeeded: %v", store.appliedOrgIDs)
+	if len(store.appliedOrgIDs) != 1 || store.appliedOrgIDs[0] != "org-fail-enforce" {
+		t.Fatalf("pending downgrade should apply before enforcement, got %v", store.appliedOrgIDs)
+	}
+	if len(store.operations) < 2 {
+		t.Fatalf("expected apply and enforcement operations, got %v", store.operations)
+	}
+	if store.operations[0] != "apply:org-fail-enforce" {
+		t.Fatalf("first operation = %q, want apply before enforcement; operations=%v", store.operations[0], store.operations)
 	}
 }
 

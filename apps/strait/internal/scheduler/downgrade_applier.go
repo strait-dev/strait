@@ -92,17 +92,6 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 	}
 
 	for _, sub := range subs {
-		if sub.PendingPlanTier != nil {
-			if err := d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier); err != nil {
-				slog.Warn("failed to enforce pending downgrade limits",
-					"org_id", sub.OrgID,
-					"pending_tier", sub.PendingPlanTier,
-					"error", err,
-				)
-				continue
-			}
-		}
-
 		if err := d.applyPendingDowngrade(ctx, sub); err != nil {
 			slog.Warn("failed to apply pending downgrade",
 				"org_id", sub.OrgID,
@@ -110,6 +99,16 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 				"error", err,
 			)
 			continue
+		}
+
+		if sub.PendingPlanTier != nil {
+			if err := d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier); err != nil {
+				slog.Warn("failed to enforce pending downgrade limits after tier transition",
+					"org_id", sub.OrgID,
+					"pending_tier", sub.PendingPlanTier,
+					"error", err,
+				)
+			}
 		}
 
 		if d.enforcer != nil {
