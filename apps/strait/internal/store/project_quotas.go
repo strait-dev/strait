@@ -12,9 +12,11 @@ import (
 // AuditRetentionOverride is a per-project override of the server-wide
 // audit retention window. Populated from project_quotas.audit_retention_days.
 //
-// Days > 0 means "retain for N days, overriding the default". Days == 0 is
-// interpreted at the scheduler layer (see scheduler.reapAuditEvents) as
-// "disable retention trimming for this project entirely".
+// Days > 0 means "retain for N days, overriding the default". Days == 0 with
+// audit_retention_override_set=true is interpreted at the scheduler layer
+// (see scheduler.reapAuditEvents) as "disable retention trimming for this
+// project entirely". Default quota rows have override_set=false and inherit
+// the server-wide default.
 type AuditRetentionOverride struct {
 	ProjectID string
 	Days      int
@@ -31,7 +33,7 @@ func (q *Queries) ListAuditRetentionOverrides(ctx context.Context) ([]AuditReten
 	rows, err := q.db.Query(ctx, `
 		SELECT project_id, audit_retention_days
 		FROM project_quotas
-		WHERE audit_retention_days IS NOT NULL
+		WHERE audit_retention_override_set = TRUE
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list audit retention overrides: %w", err)
@@ -68,24 +70,25 @@ func (q *Queries) GetAuditRetentionDays(ctx context.Context, projectID string) (
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditRetentionDays")
 	defer span.End()
 
-	var days *int
+	var days int
+	var overrideSet bool
 	err := q.db.QueryRow(ctx, `
-		SELECT audit_retention_days
+		SELECT audit_retention_days, audit_retention_override_set
 		FROM project_quotas
 		WHERE project_id = $1
-	`, projectID).Scan(&days)
+	`, projectID).Scan(&days, &overrideSet)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, false, nil
 		}
 		return 0, false, fmt.Errorf("get audit retention days: %w", err)
 	}
-	if days == nil {
-		// Row exists but audit_retention_days is NULL — equivalent to
-		// "no override" for reaper purposes.
+	if !overrideSet {
+		// Row exists for unrelated quota settings, but no retention override
+		// was explicitly configured.
 		return 0, false, nil
 	}
-	return *days, true, nil
+	return days, true, nil
 }
 
 // SetAuditRetentionDays persists a per-project audit retention override.
@@ -101,9 +104,11 @@ func (q *Queries) SetAuditRetentionDays(ctx context.Context, projectID string, d
 	defer span.End()
 
 	_, err := q.db.Exec(ctx, `
-		INSERT INTO project_quotas (project_id, audit_retention_days)
-		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET audit_retention_days = EXCLUDED.audit_retention_days
+		INSERT INTO project_quotas (project_id, audit_retention_days, audit_retention_override_set)
+		VALUES ($1, $2, TRUE)
+		ON CONFLICT (project_id) DO UPDATE SET
+			audit_retention_days = EXCLUDED.audit_retention_days,
+			audit_retention_override_set = TRUE
 	`, projectID, days)
 	if err != nil {
 		return fmt.Errorf("set audit retention days: %w", err)
