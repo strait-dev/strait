@@ -148,21 +148,14 @@ func (a *DLQAgeOut) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if a.advisoryLocker != nil {
-		acquired, err := a.advisoryLocker.TryAdvisoryLock(ctx, dlqAgeOutAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := a.advisoryLocker.ReleaseAdvisoryLock(ctx, dlqAgeOutAdvisoryLockID); err != nil {
-				a.logger.Debug("dlq age-out lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, a.advisoryLocker, dlqAgeOutAdvisoryLockID, a.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (a *DLQAgeOut) runLocked(ctx context.Context) error {
 	a.scanPartitionsParallel(ctx)
 
 	n, err := a.store.MaskOldDLQRows(ctx, a.retention, a.batchLimit)

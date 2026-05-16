@@ -46,20 +46,21 @@ func (p *DebouncePoller) Run(ctx context.Context) {
 }
 
 func (p *DebouncePoller) poll(ctx context.Context) {
-	acquired, err := p.store.TryAdvisoryLock(ctx, debounceAdvisoryLockID)
-	if err != nil || !acquired {
+	acquired, err := runWithOptionalAdvisoryLock(ctx, p.store, debounceAdvisoryLockID, p.pollLocked)
+	if err != nil {
+		slog.Warn("debounce poller: advisory lock cycle failed", "error", err)
 		return
 	}
-	defer func() {
-		if err := p.store.ReleaseAdvisoryLock(ctx, debounceAdvisoryLockID); err != nil {
-			slog.Warn("failed to release debounce advisory lock", "error", err)
-		}
-	}()
+	if !acquired {
+		return
+	}
+}
 
+func (p *DebouncePoller) pollLocked(ctx context.Context) error {
 	items, err := p.store.ListDueDebouncePending(ctx)
 	if err != nil {
 		slog.Error("debounce poller: list due", "error", err)
-		return
+		return nil
 	}
 
 	for _, item := range items {
@@ -71,6 +72,7 @@ func (p *DebouncePoller) poll(ctx context.Context) {
 			slog.Error("debounce poller: delete", "id", item.ID, "error", err)
 		}
 	}
+	return nil
 }
 
 func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePending) error {

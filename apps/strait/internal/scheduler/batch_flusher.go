@@ -46,20 +46,21 @@ func (f *BatchFlusher) Run(ctx context.Context) {
 }
 
 func (f *BatchFlusher) poll(ctx context.Context) {
-	acquired, err := f.store.TryAdvisoryLock(ctx, batchAdvisoryLockID)
-	if err != nil || !acquired {
+	acquired, err := runWithOptionalAdvisoryLock(ctx, f.store, batchAdvisoryLockID, f.pollLocked)
+	if err != nil {
+		slog.Warn("batch flusher: advisory lock cycle failed", "error", err)
 		return
 	}
-	defer func() {
-		if err := f.store.ReleaseAdvisoryLock(ctx, batchAdvisoryLockID); err != nil {
-			slog.Warn("failed to release batch advisory lock", "error", err)
-		}
-	}()
+	if !acquired {
+		return
+	}
+}
 
+func (f *BatchFlusher) pollLocked(ctx context.Context) error {
 	batches, err := f.store.ListFlushableBatches(ctx)
 	if err != nil {
 		slog.Error("batch flusher: list flushable", "error", err)
-		return
+		return nil
 	}
 
 	for _, batch := range batches {
@@ -67,6 +68,7 @@ func (f *BatchFlusher) poll(ctx context.Context) {
 			slog.Error("batch flusher: flush", "job_id", batch.JobID, "batch_key", batch.BatchKey, "error", err)
 		}
 	}
+	return nil
 }
 
 func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) error {

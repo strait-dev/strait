@@ -39,36 +39,30 @@ func (a *StatsAggregator) WithAdvisoryLocker(locker AdvisoryLocker) *StatsAggreg
 // Run starts the aggregation loop, running every hour.
 func (a *StatsAggregator) Run(ctx context.Context) {
 	loop := NewMaintenanceLoop("stats_aggregator", time.Hour, a.logger, func(loopCtx context.Context) {
-		if a.advisoryLocker != nil {
-			acquired, err := a.advisoryLocker.TryAdvisoryLock(loopCtx, statsAggregatorLockID)
-			if err != nil {
-				a.logger.Error("stats aggregator advisory lock check failed", "error", err)
-				return
-			}
-			if !acquired {
-				a.logger.Debug("stats aggregator lock held by another instance, skipping")
-				return
-			}
-			defer func() {
-				if err := a.advisoryLocker.ReleaseAdvisoryLock(loopCtx, statsAggregatorLockID); err != nil {
-					a.logger.Warn("stats aggregator: failed to release advisory lock", "error", err)
-				}
-			}()
-		}
-
-		// Aggregate the previous completed hour.
-		previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
-		if err := a.store.AggregateHourlyStats(loopCtx, previousHour); err != nil {
-			a.logger.Error("failed to aggregate hourly stats", "hour", previousHour, "error", err)
+		acquired, err := runWithOptionalAdvisoryLock(loopCtx, a.advisoryLocker, statsAggregatorLockID, a.runLocked)
+		if err != nil {
+			a.logger.Error("stats aggregator advisory lock cycle failed", "error", err)
 			return
 		}
-		a.logger.Info("aggregated hourly stats", "hour", previousHour)
-
-		if err := a.store.AggregateCostStatsHourly(loopCtx, previousHour); err != nil {
-			a.logger.Error("failed to aggregate cost stats hourly", "hour", previousHour, "error", err)
-			return
+		if !acquired {
+			a.logger.Debug("stats aggregator lock held by another instance, skipping")
 		}
-		a.logger.Info("aggregated cost stats hourly", "hour", previousHour)
 	})
 	loop.Run(ctx)
+}
+
+func (a *StatsAggregator) runLocked(ctx context.Context) error {
+	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
+	if err := a.store.AggregateHourlyStats(ctx, previousHour); err != nil {
+		a.logger.Error("failed to aggregate hourly stats", "hour", previousHour, "error", err)
+		return nil
+	}
+	a.logger.Info("aggregated hourly stats", "hour", previousHour)
+
+	if err := a.store.AggregateCostStatsHourly(ctx, previousHour); err != nil {
+		a.logger.Error("failed to aggregate cost stats hourly", "hour", previousHour, "error", err)
+		return nil
+	}
+	a.logger.Info("aggregated cost stats hourly", "hour", previousHour)
+	return nil
 }

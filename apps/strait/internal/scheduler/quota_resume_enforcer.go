@@ -66,26 +66,21 @@ func (q *QuotaResumeEnforcer) Run(ctx context.Context) {
 }
 
 func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
-	if q.advisoryLocker != nil {
-		acquired, err := q.advisoryLocker.TryAdvisoryLock(ctx, quotaResumeEnforcerLockID)
-		if err != nil {
-			slog.Warn("quota resume enforcer: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := q.advisoryLocker.ReleaseAdvisoryLock(ctx, quotaResumeEnforcerLockID); relErr != nil {
-				slog.Warn("quota resume enforcer: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, q.advisoryLocker, quotaResumeEnforcerLockID, q.enforceLocked)
+	if err != nil {
+		slog.Warn("quota resume enforcer: advisory lock cycle failed", "error", err)
+		return
 	}
+	if !acquired {
+		return
+	}
+}
 
+func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 	orgIDs, err := q.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		slog.Warn("quota resume enforcer: failed to list subscribed orgs", "error", err)
-		return
+		return nil
 	}
 
 	now := time.Now().UTC()
@@ -126,6 +121,7 @@ func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
 			"jobs_resumed", resumed,
 		)
 	}
+	return nil
 }
 
 // isNewBillingPeriod returns true when the current time is at or past the

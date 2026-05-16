@@ -108,21 +108,14 @@ func (h *HeartbeatGC) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if h.advisoryLocker != nil {
-		acquired, err := h.advisoryLocker.TryAdvisoryLock(ctx, heartbeatGCAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := h.advisoryLocker.ReleaseAdvisoryLock(ctx, heartbeatGCAdvisoryLockID); err != nil {
-				h.logger.Debug("heartbeat GC lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, h.advisoryLocker, heartbeatGCAdvisoryLockID, h.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 	deleted, err := h.store.DeleteOrphanedHeartbeats(ctx, h.batchLimit)
 	if err != nil {
 		h.logger.Warn("heartbeat GC delete failed", "error", err)

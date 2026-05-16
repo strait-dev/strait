@@ -63,31 +63,25 @@ func (uf *UsageFlusher) Run(ctx context.Context) {
 }
 
 func (uf *UsageFlusher) flush(ctx context.Context) {
-	// Acquire advisory lock to prevent concurrent flushes across replicas.
-	if uf.advisoryLocker != nil {
-		acquired, err := uf.advisoryLocker.TryAdvisoryLock(ctx, usageFlusherLockID)
-		if err != nil {
-			uf.logger.Warn("usage flusher: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := uf.advisoryLocker.ReleaseAdvisoryLock(ctx, usageFlusherLockID); relErr != nil {
-				uf.logger.Warn("usage flusher: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, uf.advisoryLocker, usageFlusherLockID, uf.flushLocked)
+	if err != nil {
+		uf.logger.Warn("usage flusher: advisory lock cycle failed", "error", err)
+		return
 	}
+	if !acquired {
+		return
+	}
+}
 
+func (uf *UsageFlusher) flushLocked(ctx context.Context) error {
 	orgIDs, err := uf.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		uf.logger.Warn("usage flusher: failed to list subscribed orgs", "error", err)
-		return
+		return nil
 	}
 
 	if len(orgIDs) == 0 {
-		return
+		return nil
 	}
 
 	now := time.Now().UTC()
@@ -110,4 +104,5 @@ func (uf *UsageFlusher) flush(ctx context.Context) {
 			}
 		}
 	}
+	return nil
 }

@@ -66,26 +66,21 @@ func (d *DowngradeApplier) Run(ctx context.Context) {
 }
 
 func (d *DowngradeApplier) apply(ctx context.Context) {
-	if d.advisoryLocker != nil {
-		acquired, err := d.advisoryLocker.TryAdvisoryLock(ctx, downgradeApplierLockID)
-		if err != nil {
-			slog.Warn("downgrade applier: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := d.advisoryLocker.ReleaseAdvisoryLock(ctx, downgradeApplierLockID); relErr != nil {
-				slog.Warn("downgrade applier: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, d.advisoryLocker, downgradeApplierLockID, d.applyLocked)
+	if err != nil {
+		slog.Warn("downgrade applier: advisory lock cycle failed", "error", err)
+		return
 	}
+	if !acquired {
+		return
+	}
+}
 
+func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 	subs, err := d.store.ListOrgsWithPendingDowngrade(ctx)
 	if err != nil {
 		slog.Warn("failed to list orgs with pending downgrade", "error", err)
-		return
+		return nil
 	}
 
 	for _, sub := range subs {
@@ -112,6 +107,7 @@ func (d *DowngradeApplier) apply(ctx context.Context) {
 			"pending_tier", sub.PendingPlanTier,
 		)
 	}
+	return nil
 }
 
 // enforceDowngradeLimits deactivates excess resources that exceed the new plan's limits.

@@ -97,22 +97,17 @@ func (p *PartitionReclaimer) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if p.advisoryLocker != nil {
-		acquired, err := p.advisoryLocker.TryAdvisoryLock(ctx, partitionReclaimerAdvisoryLockID)
-		if err != nil {
-			p.errors.Add(1)
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := p.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionReclaimerAdvisoryLockID); err != nil {
-				p.logger.Debug("partition reclaimer lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, p.advisoryLocker, partitionReclaimerAdvisoryLockID, p.runLocked)
+	if err != nil {
+		return err
 	}
+	if !acquired {
+		return nil
+	}
+	return nil
+}
 
+func (p *PartitionReclaimer) runLocked(ctx context.Context) error {
 	jobPartitions, err := p.store.ListJobRunsPartitions(ctx)
 	if err != nil {
 		p.logger.Warn("partition reclaimer: list job_runs partitions failed", "error", err)

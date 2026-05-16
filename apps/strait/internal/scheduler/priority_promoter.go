@@ -115,22 +115,18 @@ func (p *PriorityPromoter) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if p.advisoryLocker != nil {
-		acquired, err := p.advisoryLocker.TryAdvisoryLock(ctx, promoterAdvisoryLockID)
-		if err != nil {
-			p.logger.Debug("priority promoter lock acquire failed", "error", err)
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := p.advisoryLocker.ReleaseAdvisoryLock(ctx, promoterAdvisoryLockID); err != nil {
-				p.logger.Debug("priority promoter lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, p.advisoryLocker, promoterAdvisoryLockID, p.runLocked)
+	if err != nil {
+		p.logger.Debug("priority promoter lock cycle failed", "error", err)
+		return err
 	}
+	if !acquired {
+		return nil
+	}
+	return nil
+}
 
+func (p *PriorityPromoter) runLocked(ctx context.Context) error {
 	const q = `
 WITH candidates AS (
     SELECT id FROM job_runs

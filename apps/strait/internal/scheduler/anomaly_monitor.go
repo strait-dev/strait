@@ -81,30 +81,25 @@ func (am *AnomalyMonitor) Run(ctx context.Context) {
 }
 
 func (am *AnomalyMonitor) check(ctx context.Context) {
-	if am.advisoryLocker != nil {
-		acquired, err := am.advisoryLocker.TryAdvisoryLock(ctx, anomalyMonitorLockID)
-		if err != nil {
-			am.logger.Warn("anomaly monitor: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := am.advisoryLocker.ReleaseAdvisoryLock(ctx, anomalyMonitorLockID); relErr != nil {
-				am.logger.Warn("anomaly monitor: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, am.advisoryLocker, anomalyMonitorLockID, am.checkLocked)
+	if err != nil {
+		am.logger.Warn("anomaly monitor: advisory lock cycle failed", "error", err)
+		return
 	}
+	if !acquired {
+		return
+	}
+}
 
+func (am *AnomalyMonitor) checkLocked(ctx context.Context) error {
 	orgIDs, err := am.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		am.logger.Warn("anomaly monitor: failed to list subscribed orgs", "error", err)
-		return
+		return nil
 	}
 
 	if len(orgIDs) == 0 {
-		return
+		return nil
 	}
 
 	for _, orgID := range orgIDs {
@@ -164,6 +159,7 @@ func (am *AnomalyMonitor) check(ctx context.Context) {
 			"severity", alerts[0].Severity,
 		)
 	}
+	return nil
 }
 
 func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID string, alert billing.AnomalyAlert) {

@@ -111,22 +111,18 @@ func (r *CounterReconciler) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if r.advisoryLocker != nil {
-		acquired, err := r.advisoryLocker.TryAdvisoryLock(ctx, reconcilerAdvisoryLockID)
-		if err != nil {
-			r.logger.Debug("reconciler lock acquire failed", "error", err)
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := r.advisoryLocker.ReleaseAdvisoryLock(ctx, reconcilerAdvisoryLockID); err != nil {
-				r.logger.Debug("reconciler lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, r.advisoryLocker, reconcilerAdvisoryLockID, r.reconcileLocked)
+	if err != nil {
+		r.logger.Debug("reconciler lock cycle failed", "error", err)
+		return err
 	}
+	if !acquired {
+		return nil
+	}
+	return nil
+}
 
+func (r *CounterReconciler) reconcileLocked(ctx context.Context) error {
 	activeDrift, err := r.reconcileActiveCounts(ctx)
 	if err != nil {
 		r.logger.Warn("active counts reconcile failed", "error", err)

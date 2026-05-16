@@ -146,21 +146,14 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if t.advisoryLocker != nil {
-		acquired, err := t.advisoryLocker.TryAdvisoryLock(ctx, partitionTunerAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := t.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionTunerAdvisoryLockID); err != nil {
-				t.logger.Debug("tuner lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, t.advisoryLocker, partitionTunerAdvisoryLockID, t.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (t *PartitionTuner) runLocked(ctx context.Context) error {
 	partitions, err := t.store.ListJobRunsPartitions(ctx)
 	if err != nil {
 		return fmt.Errorf("list partitions: %w", err)

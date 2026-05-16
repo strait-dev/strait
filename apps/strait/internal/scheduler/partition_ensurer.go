@@ -107,22 +107,17 @@ func (p *PartitionEnsurer) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if p.advisoryLocker != nil {
-		acquired, err := p.advisoryLocker.TryAdvisoryLock(ctx, partitionEnsurerAdvisoryLockID)
-		if err != nil {
-			p.errors.Add(1)
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := p.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionEnsurerAdvisoryLockID); err != nil {
-				p.logger.Debug("partition ensurer lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, p.advisoryLocker, partitionEnsurerAdvisoryLockID, p.runLocked)
+	if err != nil {
+		return err
 	}
+	if !acquired {
+		return nil
+	}
+	return nil
+}
 
+func (p *PartitionEnsurer) runLocked(ctx context.Context) error {
 	if err := p.store.EnsureJobRunsPartitions(ctx, p.monthsAhead); err != nil {
 		p.logger.Warn("ensure partitions failed", "error", err)
 		p.errors.Add(1)
