@@ -154,6 +154,7 @@ func TestNotifyWorkflowCallback_Success(t *testing.T) {
 	run := &domain.JobRun{ID: "run-99", JobID: "job-1"}
 
 	e.notifyWorkflowCallback(context.Background(), run)
+	e.callbackWG.Wait()
 
 	if cb.calls.Load() != 1 {
 		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
@@ -175,6 +176,7 @@ func TestNotifyWorkflowCallback_Error(t *testing.T) {
 
 	// Should not panic, should log error.
 	e.notifyWorkflowCallback(context.Background(), run)
+	e.callbackWG.Wait()
 
 	if cb.calls.Load() != 1 {
 		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())

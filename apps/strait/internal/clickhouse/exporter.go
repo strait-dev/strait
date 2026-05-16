@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -250,7 +251,8 @@ func (e *Exporter) Start(ctx context.Context) {
 	// Replace the pre-closed done channel with a fresh one so Stop() can
 	// wait for the goroutine to finish.
 	e.done = make(chan struct{})
-	go func() { //nolint:gosec // ctx is intentionally captured for the flush loop lifetime.
+	var wg conc.WaitGroup
+	wg.Go(func() {
 		defer close(e.done)
 		defer func() {
 			if r := recover(); r != nil {
@@ -272,7 +274,7 @@ func (e *Exporter) Start(ctx context.Context) {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Stop signals the exporter to flush remaining records and shut down.

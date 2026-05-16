@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sourcegraph/conc"
 )
 
 // handleProjectActivityStream serves a real-time SSE stream of all CDC events
@@ -74,6 +75,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
 	defer cancel()
 
+	var fanoutWG conc.WaitGroup
 	for _, ch := range channels {
 		sub, err := s.pubsub.Subscribe(ctx, ch)
 		if err != nil {
@@ -81,7 +83,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 		defer sub.Close()
-		go func() {
+		fanoutWG.Go(func() {
 			for {
 				select {
 				case msg, ok := <-sub.Ch:
@@ -97,7 +99,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	// SSE event loop with keepalive.
