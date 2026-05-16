@@ -256,27 +256,35 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			// Only cache 2xx responses. Error responses delete the pending
 			// row so the client can retry with the same key.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
-				// Detach from r.Context() because chi's timeout middleware
-				// and client disconnects cancel it the moment the handler
-				// returns; a canceled context here would race the cache
-				// write and force the next retry to re-execute the
-				// already-successful operation.
-				completeCtx, completeCancel := context.WithTimeout(
-					store.ContextWithoutTx(context.WithoutCancel(r.Context())),
-					s.idempotencyCleanupTimeout(),
-				)
-				if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.headers, cw.body.Bytes()); completeErr != nil {
-					slog.Error("idempotency key complete failed",
-						"idempotency_key_hash", keyHash,
-						"project_id", projectID,
-						"error", completeErr)
-					// Drop the pending row so retries are not blocked by
-					// 409 until TTL expires; replay cache is sacrificed.
-					completeCancel()
-					cleanup()
-				} else {
-					completeCancel()
+				complete := func() {
+					// Detach from r.Context() because chi's timeout middleware
+					// and client disconnects cancel it the moment the handler
+					// returns; a canceled context here would race the cache
+					// write and force the next retry to re-execute the
+					// already-successful operation.
+					completeCtx, completeCancel := context.WithTimeout(
+						store.ContextWithoutTx(context.WithoutCancel(r.Context())),
+						s.idempotencyCleanupTimeout(),
+					)
+					defer completeCancel()
+					if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.headers, cw.body.Bytes()); completeErr != nil {
+						slog.Error("idempotency key complete failed",
+							"idempotency_key_hash", keyHash,
+							"project_id", projectID,
+							"error", completeErr)
+						// Drop the pending row so retries are not blocked by
+						// 409 until TTL expires; replay cache is sacrificed.
+						cleanup()
+					}
 				}
+				if registerTxCompletionHooks(r.Context(), func(context.Context) {
+					complete()
+				}, func(context.Context) {
+					cleanup()
+				}) {
+					return
+				}
+				complete()
 			} else {
 				cleanup()
 			}

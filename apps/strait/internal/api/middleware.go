@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -36,6 +37,7 @@ const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
 const ctxOIDCScopeClaimPresentKey contextKey = "oidc_scope_claim_present"
+const ctxTxCompletionHooksKey contextKey = "tx_completion_hooks"
 
 // ctxInternalCallerKey is set to true by internalSecretAuth after the
 // X-Internal-Secret header passes constant-time comparison. It is the
@@ -1046,7 +1048,8 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx = store.ContextWithTx(ctx, tx)
+		hooks := &txCompletionHooks{}
+		ctx = context.WithValue(store.ContextWithTx(ctx, tx), ctxTxCompletionHooksKey, hooks)
 
 		// Track whether a panic occurred so we can rollback instead of
 		// committing. Without this, a recovered panic could leave the
@@ -1057,6 +1060,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 				if rbErr := tx.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 					slog.Warn("failed to rollback RLS tx after panic", "error", rbErr)
 				}
+				hooks.runRollback(context.Background())
 			}
 		}()
 
@@ -1068,16 +1072,65 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 				slog.Warn("failed to rollback RLS tx after oversized response", "error", rbErr)
 			}
+			hooks.runRollback(context.Background())
 			respondError(w, r, http.StatusRequestEntityTooLarge, err.Error())
 			return
 		}
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+			hooks.runRollback(context.Background())
 			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
 			return
 		}
+		hooks.runCommit(context.Background())
 		bw.FlushTo(w)
 	})
+}
+
+type txCompletionHooks struct {
+	mu            sync.Mutex
+	afterCommit   []func(context.Context)
+	afterRollback []func(context.Context)
+}
+
+func registerTxCompletionHooks(ctx context.Context, afterCommit, afterRollback func(context.Context)) bool {
+	hooks, ok := ctx.Value(ctxTxCompletionHooksKey).(*txCompletionHooks)
+	if !ok || hooks == nil {
+		return false
+	}
+	hooks.mu.Lock()
+	defer hooks.mu.Unlock()
+	if afterCommit != nil {
+		hooks.afterCommit = append(hooks.afterCommit, afterCommit)
+	}
+	if afterRollback != nil {
+		hooks.afterRollback = append(hooks.afterRollback, afterRollback)
+	}
+	return true
+}
+
+func (h *txCompletionHooks) runCommit(ctx context.Context) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	hooks := append([]func(context.Context){}, h.afterCommit...)
+	h.mu.Unlock()
+	for _, hook := range hooks {
+		hook(ctx)
+	}
+}
+
+func (h *txCompletionHooks) runRollback(ctx context.Context) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	hooks := append([]func(context.Context){}, h.afterRollback...)
+	h.mu.Unlock()
+	for _, hook := range hooks {
+		hook(ctx)
+	}
 }
 
 const maxRLSBufferedResponseBytes = 16 << 20
