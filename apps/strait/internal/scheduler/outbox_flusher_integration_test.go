@@ -196,6 +196,47 @@ func TestOutboxFlusher_RetryableFailureLeavesRowUnconsumed(t *testing.T) {
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
+func TestOutboxFlusher_BackpressureThrottleLeavesRowUnconsumed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-backpressure")
+	entries := []queue.OutboxEntry{{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"throttled":true}`),
+	}}
+	intWriteOutboxEntries(t, ctx, entries)
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			return queue.ErrEnqueueThrottled
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entries[0].ID, false, false)
+	count, err := st.CountUnconsumedOutbox(ctx)
+	if err != nil {
+		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 after throttle", count)
+	}
+
+	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1})
+	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("retry FlushOnceForTest() error = %v", err)
+	}
+	assertOutboxState(t, ctx, entries[0].ID, false, true)
+	assertRunsForJob(t, ctx, job.ID, 1)
+}
+
 func TestOutboxFlusher_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

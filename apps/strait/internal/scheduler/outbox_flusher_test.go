@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -23,6 +24,15 @@ func TestClassifyOutboxEnqueueError_IdempotencyConflictIsTerminal(t *testing.T) 
 
 	if classifyOutboxEnqueueError(domain.ErrIdempotencyConflict) != outboxEnqueueTerminal {
 		t.Fatal("idempotency conflict should be terminal")
+	}
+}
+
+func TestClassifyOutboxEnqueueError_BackpressureThrottleIsRetryable(t *testing.T) {
+	t.Parallel()
+
+	err := errors.Join(errors.New("wrapped"), queue.ErrEnqueueThrottled)
+	if classifyOutboxEnqueueError(err) != outboxEnqueueRetryable {
+		t.Fatal("backpressure throttle should be retryable")
 	}
 }
 

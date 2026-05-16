@@ -191,6 +191,9 @@ func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {
 	if errors.Is(err, domain.ErrIdempotencyConflict) {
 		return outboxEnqueueTerminal
 	}
+	if errors.Is(err, queue.ErrEnqueueThrottled) {
+		return outboxEnqueueRetryable
+	}
 	if _, ok := queue.AsTerminalEnqueue(err); ok {
 		return outboxEnqueueTerminal
 	}
