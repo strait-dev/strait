@@ -1594,6 +1594,17 @@ func (m *advMockDowngradeStore) ApplyPendingDowngrade(ctx context.Context, orgID
 	return nil
 }
 
+func (m *advMockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, _ string) (bool, error) {
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *advMockDowngradeStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
 func (m *advMockDowngradeStore) SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error) {
 	if m.suspendFn != nil {
 		return m.suspendFn(ctx, orgID, maxProjects)

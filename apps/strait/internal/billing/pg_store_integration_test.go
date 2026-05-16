@@ -887,6 +887,74 @@ func TestPgStore_ApplyPendingDowngradeIfTier_RequiresSamePendingTier(t *testing.
 	}
 }
 
+func TestPgStore_ApplyPendingDowngradeTierIfPending_RetainsPendingUntilConditionalClear(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-applydown-retain-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan error = %v", err)
+	}
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, "starter"); err != nil {
+		t.Fatalf("SetPendingPlanTier error = %v", err)
+	}
+
+	applied, err := pgStore.ApplyPendingDowngradeTierIfPending(ctx, orgID, "free")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeTierIfPending wrong tier error = %v", err)
+	}
+	if applied {
+		t.Fatal("expected wrong pending tier to skip retained apply")
+	}
+
+	applied, err = pgStore.ApplyPendingDowngradeTierIfPending(ctx, orgID, "starter")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeTierIfPending error = %v", err)
+	}
+	if !applied {
+		t.Fatal("expected matching pending tier to apply")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after retained apply error = %v", err)
+	}
+	if sub.PlanTier != "starter" || sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
+		t.Fatalf("retained apply should set plan and keep pending tier: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+
+	cleared, err := pgStore.ClearPendingPlanTierIfTier(ctx, orgID, "free")
+	if err != nil {
+		t.Fatalf("ClearPendingPlanTierIfTier wrong tier error = %v", err)
+	}
+	if cleared {
+		t.Fatal("expected wrong pending tier to skip conditional clear")
+	}
+	sub, err = pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after skipped clear error = %v", err)
+	}
+	if sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
+		t.Fatalf("wrong-tier clear should retain pending tier, got %v", sub.PendingPlanTier)
+	}
+
+	cleared, err = pgStore.ClearPendingPlanTierIfTier(ctx, orgID, "starter")
+	if err != nil {
+		t.Fatalf("ClearPendingPlanTierIfTier error = %v", err)
+	}
+	if !cleared {
+		t.Fatal("expected matching pending tier to clear")
+	}
+	sub, err = pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after clear error = %v", err)
+	}
+	if sub.PlanTier != "starter" || sub.PendingPlanTier != nil {
+		t.Fatalf("conditional clear should only remove pending tier: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 15: ApplyPendingDowngrade no pending
 // --------------------------------------------------------------------------.

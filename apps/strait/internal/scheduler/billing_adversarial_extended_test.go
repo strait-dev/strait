@@ -365,6 +365,17 @@ func (m *billingAdvMockDowngradeStore) ApplyPendingDowngrade(ctx context.Context
 	return nil
 }
 
+func (m *billingAdvMockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, _ string) (bool, error) {
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *billingAdvMockDowngradeStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
 func (m *billingAdvMockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
 	return 0, nil
 }

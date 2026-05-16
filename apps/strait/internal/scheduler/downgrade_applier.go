@@ -14,7 +14,8 @@ import (
 // DowngradeApplierStore defines the store operations needed by the downgrade applier.
 type DowngradeApplierStore interface {
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]billing.OrgSubscription, error)
-	ApplyPendingDowngrade(ctx context.Context, orgID string) error
+	ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, pendingTier string) (bool, error)
+	ClearPendingPlanTierIfTier(ctx context.Context, orgID, pendingTier string) (bool, error)
 	SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error)
 	DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error)
 	DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
@@ -22,12 +23,6 @@ type DowngradeApplierStore interface {
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
 	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
 }
-
-type conditionalDowngradeStore interface {
-	ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error)
-}
-
-var errPendingDowngradeChanged = errors.New("pending downgrade changed before apply")
 
 // Advisory lock ID for the downgrade applier (arbitrary unique constant).
 const downgradeApplierLockID int64 = 900_100_004
@@ -92,7 +87,13 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 	}
 
 	for _, sub := range subs {
-		if err := d.applyPendingDowngrade(ctx, sub); err != nil {
+		if sub.PendingPlanTier == nil {
+			slog.Warn("skipping pending downgrade without pending tier", "org_id", sub.OrgID)
+			continue
+		}
+
+		applied, err := d.store.ApplyPendingDowngradeTierIfPending(ctx, sub.OrgID, *sub.PendingPlanTier)
+		if err != nil {
 			slog.Warn("failed to apply pending downgrade",
 				"org_id", sub.OrgID,
 				"pending_tier", sub.PendingPlanTier,
@@ -100,15 +101,38 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 			)
 			continue
 		}
+		if !applied {
+			slog.Warn("pending downgrade changed before apply",
+				"org_id", sub.OrgID,
+				"pending_tier", sub.PendingPlanTier,
+			)
+			continue
+		}
 
-		if sub.PendingPlanTier != nil {
-			if err := d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier); err != nil {
-				slog.Warn("failed to enforce pending downgrade limits after tier transition",
-					"org_id", sub.OrgID,
-					"pending_tier", sub.PendingPlanTier,
-					"error", err,
-				)
-			}
+		if err := d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier); err != nil {
+			slog.Warn("failed to enforce pending downgrade limits after tier transition",
+				"org_id", sub.OrgID,
+				"pending_tier", sub.PendingPlanTier,
+				"error", err,
+			)
+			continue
+		}
+
+		cleared, err := d.store.ClearPendingPlanTierIfTier(ctx, sub.OrgID, *sub.PendingPlanTier)
+		if err != nil {
+			slog.Warn("failed to clear enforced pending downgrade",
+				"org_id", sub.OrgID,
+				"pending_tier", sub.PendingPlanTier,
+				"error", err,
+			)
+			continue
+		}
+		if !cleared {
+			slog.Warn("pending downgrade changed before clear",
+				"org_id", sub.OrgID,
+				"pending_tier", sub.PendingPlanTier,
+			)
+			continue
 		}
 
 		if d.enforcer != nil {
@@ -121,22 +145,6 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 		)
 	}
 	return nil
-}
-
-func (d *DowngradeApplier) applyPendingDowngrade(ctx context.Context, sub billing.OrgSubscription) error {
-	if sub.PendingPlanTier != nil {
-		if conditional, ok := d.store.(conditionalDowngradeStore); ok {
-			applied, err := conditional.ApplyPendingDowngradeIfTier(ctx, sub.OrgID, *sub.PendingPlanTier)
-			if err != nil {
-				return err
-			}
-			if !applied {
-				return errPendingDowngradeChanged
-			}
-			return nil
-		}
-	}
-	return d.store.ApplyPendingDowngrade(ctx, sub.OrgID)
 }
 
 // enforceDowngradeLimits deactivates excess resources that exceed the new plan's limits.

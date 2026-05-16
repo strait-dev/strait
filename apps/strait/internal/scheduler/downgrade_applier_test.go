@@ -16,8 +16,10 @@ import (
 type mockDowngradeStore struct {
 	pendingOrgs   []billing.OrgSubscription
 	appliedOrgIDs []string
+	clearedOrgIDs []string
 	applyErrors   map[string]error
 	applyIfTierFn func(ctx context.Context, orgID, pendingTier string) (bool, error)
+	clearIfTierFn func(ctx context.Context, orgID, pendingTier string) (bool, error)
 	listErr       error
 	operations    []string
 
@@ -58,6 +60,19 @@ func (m *mockDowngradeStore) ApplyPendingDowngradeIfTier(ctx context.Context, or
 	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
 		return false, err
 	}
+	return true, nil
+}
+
+func (m *mockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	return m.ApplyPendingDowngradeIfTier(ctx, orgID, pendingTier)
+}
+
+func (m *mockDowngradeStore) ClearPendingPlanTierIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	if m.clearIfTierFn != nil {
+		return m.clearIfTierFn(ctx, orgID, pendingTier)
+	}
+	m.clearedOrgIDs = append(m.clearedOrgIDs, orgID)
+	m.operations = append(m.operations, "clear:"+orgID)
 	return true, nil
 }
 
@@ -140,6 +155,12 @@ func (m *mockEnforcerStore) SetPendingDowngrade(_ context.Context, _, _ string, 
 }
 func (m *mockEnforcerStore) ClearPendingPlanTier(_ context.Context, _ string) error  { return nil }
 func (m *mockEnforcerStore) ApplyPendingDowngrade(_ context.Context, _ string) error { return nil }
+func (m *mockEnforcerStore) ApplyPendingDowngradeTierIfPending(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+func (m *mockEnforcerStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
+}
 func (m *mockEnforcerStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]billing.OrgSubscription, error) {
 	return nil, nil
 }
@@ -375,7 +396,7 @@ func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
 	}
 }
 
-func TestDowngradeApplier_AppliesTierBeforeLimitEnforcement(t *testing.T) {
+func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing.T) {
 	t.Parallel()
 
 	free := "free"
@@ -398,6 +419,9 @@ func TestDowngradeApplier_AppliesTierBeforeLimitEnforcement(t *testing.T) {
 	}
 	if store.operations[0] != "apply:org-fail-enforce" {
 		t.Fatalf("first operation = %q, want apply before enforcement; operations=%v", store.operations[0], store.operations)
+	}
+	if len(store.clearedOrgIDs) != 0 {
+		t.Fatalf("pending tier should stay set for retry after enforcement failure, cleared=%v operations=%v", store.clearedOrgIDs, store.operations)
 	}
 }
 
