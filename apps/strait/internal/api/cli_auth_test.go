@@ -64,7 +64,8 @@ func TestDeviceCodePollIntervalFitsPublicRouteRateLimit(t *testing.T) {
 	if deviceCodePollInterval <= 0 {
 		t.Fatal("deviceCodePollInterval must be positive")
 	}
-	pollsPerWindow := int(cliAuthRateLimitWindow / (time.Duration(deviceCodePollInterval) * time.Second))
+	pollsPerWindow := 1 // the initial /device-code request shares the same public route bucket.
+	pollsPerWindow += int(cliAuthRateLimitWindow / (time.Duration(deviceCodePollInterval) * time.Second))
 	if cliAuthRateLimitWindow%(time.Duration(deviceCodePollInterval)*time.Second) != 0 {
 		pollsPerWindow++
 	}
