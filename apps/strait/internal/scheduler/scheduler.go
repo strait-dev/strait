@@ -146,13 +146,6 @@ func WithRotationSecretDecryptor(d SecretDecryptor) SchedulerOption {
 	}
 }
 
-// WithBudgetWebhookEnqueuer sets the webhook enqueuer for the budget monitor.
-func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
-	return func(s *Scheduler) {
-		s.budgetMonitor.enqueuer = enqueuer
-	}
-}
-
 // WithConcurrentReconciler enables periodic reconciliation of concurrent run counters.
 func WithConcurrentReconciler(reconciler *ConcurrentReconciler) SchedulerOption {
 	return func(s *Scheduler) {
