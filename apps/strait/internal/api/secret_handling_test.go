@@ -86,7 +86,7 @@ func TestSecrets_APIKeyHashNeverInLog(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, mockStore, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, mockStore, &mockQueue{}, &mockEncryptor{})
 
 	// Create an API key to trigger logging paths.
 	body := `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":30}`
@@ -144,7 +144,7 @@ func TestSecrets_WebhookSecretIsServerGenerated(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, mockStore, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, mockStore, &mockQueue{}, &mockEncryptor{})
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"` + clientSuppliedSecret + `"}`
 	w := httptest.NewRecorder()

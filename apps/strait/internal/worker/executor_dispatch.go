@@ -708,7 +708,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	defer resp.Body.Close()
 	recordDispatchResponseStatus(ctx, "http", resp.StatusCode)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)-2))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

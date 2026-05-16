@@ -51,6 +51,21 @@ func newTestServerWithEncryptor(t *testing.T, s APIStore, q *mockQueue, enc Encr
 	return srv
 }
 
+func requireBase64EncryptedSecretPlaintext(t *testing.T, enc Encryptor, encrypted, want string) {
+	t.Helper()
+	ciphertext, err := base64.StdEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatalf("stored secret should be base64 ciphertext: %v", err)
+	}
+	plaintext, err := enc.Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("failed to decrypt stored secret: %v", err)
+	}
+	if string(plaintext) != want {
+		t.Fatalf("decrypted stored secret = %q, want %q", string(plaintext), want)
+	}
+}
+
 func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
 	t.Parallel()
 

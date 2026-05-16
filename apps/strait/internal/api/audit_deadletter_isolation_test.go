@@ -35,18 +35,21 @@ func TestReplayDeadletter_DeleteScopedByProject(t *testing.T) {
 func TestDropDeadletter_DeleteScopedByProject(t *testing.T) {
 	t.Parallel()
 	var deletedWithProject string
-	ms := &APIStoreMock{
+	base := &APIStoreMock{
 		GetAuditEventDeadletterFunc: func(_ context.Context, id, projectID string) (*domain.AuditEvent, error) {
 			return &domain.AuditEvent{
 				ID: id, ProjectID: projectID, Action: "test.action",
 			}, nil
 		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, id, projectID string) error {
-			deletedWithProject = projectID
-			return nil
-		},
 		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
 	}
+	ms := &atomicDropAPIStore{APIStoreMock: base, drop: func(_ context.Context, id, projectID string, _ *domain.AuditEvent) (bool, error) {
+		if id != "dlq-2" {
+			t.Fatalf("expected dlq-2, got %q", id)
+		}
+		deletedWithProject = projectID
+		return true, nil
+	}}
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleDropDeadletter(adminCtx("proj-xyz"), &DropDeadletterInput{ID: "dlq-2"})
 	if err != nil {

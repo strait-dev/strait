@@ -233,17 +233,20 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		}
 		if status.IsTerminal() {
 			recordAuthDecision(r.Context(), "jwt", "failure")
+			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "terminal_run", claims.Issuer != "")
 			respondError(w, r, http.StatusGone, "run has reached a terminal state")
 			return
 		}
 		if attempt > 0 && attempt != claims.Attempt {
 			recordAuthDecision(r.Context(), "jwt", "failure")
+			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "stale_attempt", claims.Issuer != "")
 			respondError(w, r, http.StatusUnauthorized, "run token attempt is stale")
 			return
 		}
 		if claims.AssignmentID != "" {
 			if err := s.verifyRunTokenAssignment(r.Context(), subject, projectID, claims.AssignmentID); err != nil {
 				recordAuthDecision(r.Context(), "jwt", "failure")
+				s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "assignment_mismatch", claims.Issuer != "")
 				respondError(w, r, http.StatusUnauthorized, err.Error())
 				return
 			}
@@ -262,6 +265,18 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "run_token")
 		ctx = context.WithValue(ctx, ctxActorIDKey, "run:"+subject)
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
+	})
+}
+
+func (s *Server) emitRunTokenRejectedAudit(ctx context.Context, runID, projectID, reason string, issuerPresent bool) {
+	if projectID == "" {
+		return
+	}
+	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+	s.emitAuditEventAsync(ctx, domain.AuditActionAuthRunTokenRejected, "run", runID, map[string]any{
+		"reason":         reason,
+		"run_id":         runID,
+		"issuer_present": issuerPresent,
 	})
 }
 

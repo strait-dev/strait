@@ -4,8 +4,23 @@ import (
 	"context"
 	"testing"
 
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 )
+
+func requireEncryptedSecretPlaintext(t *testing.T, enc Encryptor, encrypted, want string) {
+	t.Helper()
+	if !straitcrypto.IsEncryptedField(encrypted) {
+		t.Fatalf("secret = %q, want encrypted field", encrypted)
+	}
+	got, err := straitcrypto.DecryptField(enc, encrypted)
+	if err != nil {
+		t.Fatalf("decrypt secret: %v", err)
+	}
+	if got != want {
+		t.Fatalf("decrypted secret = %q, want %q", got, want)
+	}
+}
 
 func TestHandleCreateJob_WebhookSecretAliasPersisted(t *testing.T) {
 	t.Parallel()
@@ -20,7 +35,8 @@ func TestHandleCreateJob_WebhookSecretAliasPersisted(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -37,9 +53,7 @@ func TestHandleCreateJob_WebhookSecretAliasPersisted(t *testing.T) {
 	if captured == nil {
 		t.Fatal("expected CreateJob to be called")
 	}
-	if captured.EndpointSigningSecret != "sdk-supplied-secret-32b-long" {
-		t.Fatalf("captured.EndpointSigningSecret = %q, want webhook_secret value", captured.EndpointSigningSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "sdk-supplied-secret-32b-long")
 }
 
 func TestHandleCreateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T) {
@@ -55,7 +69,8 @@ func TestHandleCreateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -70,9 +85,7 @@ func TestHandleCreateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T
 	if err != nil {
 		t.Fatalf("handleCreateJob: %v", err)
 	}
-	if captured.EndpointSigningSecret != "sdk-supplied-secret-32b-long" {
-		t.Fatalf("captured.EndpointSigningSecret = %q, want webhook_secret to win", captured.EndpointSigningSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "sdk-supplied-secret-32b-long")
 }
 
 func TestHandleCreateJob_EndpointSigningSecretAloneStillPersisted(t *testing.T) {
@@ -88,7 +101,8 @@ func TestHandleCreateJob_EndpointSigningSecretAloneStillPersisted(t *testing.T) 
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -102,9 +116,7 @@ func TestHandleCreateJob_EndpointSigningSecretAloneStillPersisted(t *testing.T) 
 	if err != nil {
 		t.Fatalf("handleCreateJob: %v", err)
 	}
-	if captured.EndpointSigningSecret != "legacy-platform-secret-32b-long" {
-		t.Fatalf("captured.EndpointSigningSecret = %q", captured.EndpointSigningSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "legacy-platform-secret-32b-long")
 }
 
 func TestHandleUpdateJob_WebhookSecretAliasApplied(t *testing.T) {
@@ -130,7 +142,8 @@ func TestHandleUpdateJob_WebhookSecretAliasApplied(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-1")
 
@@ -145,9 +158,7 @@ func TestHandleUpdateJob_WebhookSecretAliasApplied(t *testing.T) {
 	if captured == nil {
 		t.Fatal("expected UpdateJob to be called")
 	}
-	if captured.EndpointSigningSecret != newSecret {
-		t.Fatalf("captured.EndpointSigningSecret = %q, want %q", captured.EndpointSigningSecret, newSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, newSecret)
 }
 
 func TestHandleUpdateJob_EndpointSigningSecretFieldApplied(t *testing.T) {
@@ -173,7 +184,8 @@ func TestHandleUpdateJob_EndpointSigningSecretFieldApplied(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-1")
 
@@ -185,9 +197,7 @@ func TestHandleUpdateJob_EndpointSigningSecretFieldApplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleUpdateJob: %v", err)
 	}
-	if captured.EndpointSigningSecret != newSecret {
-		t.Fatalf("captured.EndpointSigningSecret = %q, want %q", captured.EndpointSigningSecret, newSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, newSecret)
 }
 
 func TestHandleUpdateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T) {
@@ -212,7 +222,8 @@ func TestHandleUpdateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-1")
 
@@ -228,7 +239,5 @@ func TestHandleUpdateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T
 	if err != nil {
 		t.Fatalf("handleUpdateJob: %v", err)
 	}
-	if captured.EndpointSigningSecret != webhookSecret {
-		t.Fatalf("captured.EndpointSigningSecret = %q, want webhook_secret to win", captured.EndpointSigningSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, webhookSecret)
 }

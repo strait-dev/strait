@@ -604,6 +604,9 @@ func TestHandleUpdateRole_StoreError(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: "role_1", ProjectID: "proj-1", Name: "x", Permissions: []string{domain.ScopeJobsRead}}, nil
+	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return fmt.Errorf("db error")
 	}

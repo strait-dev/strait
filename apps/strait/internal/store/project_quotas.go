@@ -35,7 +35,7 @@ func (q *Queries) ListAuditRetentionOverrides(ctx context.Context) ([]AuditReten
 	rows, err := q.db.Query(ctx, `
 		SELECT project_id, audit_retention_days
 		FROM project_quotas
-		WHERE audit_retention_override_set = TRUE
+		WHERE COALESCE(audit_retention_override_set, FALSE) = TRUE
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list audit retention overrides: %w", err)
@@ -75,7 +75,7 @@ func (q *Queries) GetAuditRetentionDays(ctx context.Context, projectID string) (
 	var days int
 	var overrideSet bool
 	err := q.db.QueryRow(ctx, `
-		SELECT audit_retention_days, audit_retention_override_set
+		SELECT audit_retention_days, COALESCE(audit_retention_override_set, FALSE)
 		FROM project_quotas
 		WHERE project_id = $1
 	`, projectID).Scan(&days, &overrideSet)

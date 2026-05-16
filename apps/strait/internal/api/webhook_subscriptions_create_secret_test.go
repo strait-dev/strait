@@ -21,7 +21,8 @@ func TestCreateWebhookSubscription_ServerGeneratesSecret(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"]}`
 	w := httptest.NewRecorder()
@@ -44,11 +45,7 @@ func TestCreateWebhookSubscription_ServerGeneratesSecret(t *testing.T) {
 	if len(resp.SigningSecret) != len("whsec_")+64 || resp.SigningSecret[:6] != "whsec_" {
 		t.Fatalf("signing_secret %q does not match whsec_ + 64 hex chars", resp.SigningSecret)
 	}
-	// Without an encryptor in this server config, the stored Secret equals the
-	// plaintext returned to the caller.
-	if storedSecret != resp.SigningSecret {
-		t.Fatalf("stored secret %q != response signing_secret %q", storedSecret, resp.SigningSecret)
-	}
+	requireBase64EncryptedSecretPlaintext(t, enc, storedSecret, resp.SigningSecret)
 	if resp.Subscription == nil || resp.Subscription.ID != "sub-1" {
 		t.Fatalf("response subscription missing or wrong ID: %+v", resp.Subscription)
 	}
@@ -65,7 +62,8 @@ func TestCreateWebhookSubscription_ClientSecretIgnored(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 
 	attackerChosen := "x"
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"` + attackerChosen + `"}`
@@ -88,6 +86,7 @@ func TestCreateWebhookSubscription_ClientSecretIgnored(t *testing.T) {
 	if storedSecret == attackerChosen {
 		t.Fatalf("client-supplied secret was stored: %q", storedSecret)
 	}
+	requireBase64EncryptedSecretPlaintext(t, enc, storedSecret, resp.SigningSecret)
 	if len(resp.SigningSecret) != len("whsec_")+64 {
 		t.Fatalf("server-generated signing_secret has wrong length: %q", resp.SigningSecret)
 	}

@@ -22,7 +22,7 @@ func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
 	w := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
 	w := httptest.NewRecorder()
@@ -127,7 +127,7 @@ func webhookSubStore() *APIStoreMock {
 // subscriptions endpoint and returns the recorder.
 func postWebhookSub(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	srv := newTestServer(t, webhookSubStore(), &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, webhookSubStore(), &mockQueue{}, &mockEncryptor{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 	return w

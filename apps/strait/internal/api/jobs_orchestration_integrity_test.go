@@ -22,7 +22,8 @@ func TestHandleCreateJob_WorkerModeDefaultsQueueName(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -55,7 +56,8 @@ func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -72,9 +74,7 @@ func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
 	if captured == nil {
 		t.Fatal("expected CreateJob to be called")
 	}
-	if captured.EndpointSigningSecret != "loadtest-secret-32-bytes-long" {
-		t.Fatalf("captured.EndpointSigningSecret = %q", captured.EndpointSigningSecret)
-	}
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "loadtest-secret-32-bytes-long")
 }
 
 func TestHandleCreateJob_EncryptsEndpointSigningSecretAtRest(t *testing.T) {

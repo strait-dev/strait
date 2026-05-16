@@ -336,6 +336,9 @@ func TestListJobVersions_Empty(t *testing.T) {
 func TestListJobVersions_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-123", ProjectID: "proj-1"}, nil
+		},
 		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return nil, errors.New("boom")
 		},
