@@ -155,3 +155,36 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 		t.Errorf("expected missing-trigger error, got %v", err)
 	}
 }
+
+func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
+	tdb, _ := setupHeartbeatGC(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "job_runs_active_counts_trg") {
+		t.Errorf("expected disabled-trigger error, got %v", err)
+	}
+}
+
+func TestEnsureQueueTriggersPresent_DecoyTriggerDoesNotPass(t *testing.T) {
+	tdb, _ := setupHeartbeatGC(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `
+		DROP TRIGGER IF EXISTS trg_job_runs_queue_wake_notify ON job_runs;
+		CREATE TEMP TABLE job_runs_trigger_decoy (LIKE job_runs INCLUDING ALL);
+		CREATE TRIGGER trg_job_runs_queue_wake_notify
+		AFTER INSERT OR UPDATE OF status ON job_runs_trigger_decoy
+		FOR EACH ROW
+		EXECUTE FUNCTION notify_queue_wake();
+	`)
+	if err != nil {
+		t.Fatalf("create decoy trigger: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_queue_wake_notify") {
+		t.Errorf("expected decoy-trigger error, got %v", err)
+	}
+}

@@ -133,23 +133,36 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 // from pg_notify-driven workers to poll-only mode when an operator
 // inadvertently drops a trigger.
 func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
-	required := []string{
-		"trg_job_runs_queue_wake_notify",
-		"job_runs_active_counts_trg",
-		"job_runs_dlq_counts_trg",
-		"job_runs_seed_job_config_trg",
+	required := []struct {
+		name     string
+		function string
+	}{
+		{name: "trg_job_runs_queue_wake_notify", function: "notify_queue_wake"},
+		{name: "job_runs_active_counts_trg", function: "job_active_counts_apply"},
+		{name: "job_runs_dlq_counts_trg", function: "dlq_counts_apply"},
+		{name: "job_runs_seed_job_config_trg", function: "seed_job_config_on_insert"},
 	}
-	for _, name := range required {
+	for _, trigger := range required {
 		var present bool
 		err := db.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal)`,
-			name,
+			`SELECT EXISTS(
+				SELECT 1
+				FROM pg_trigger t
+				JOIN pg_proc p ON p.oid = t.tgfoid
+				WHERE t.tgname = $1
+				  AND t.tgrelid = 'job_runs'::regclass
+				  AND p.proname = $2
+				  AND NOT t.tgisinternal
+				  AND t.tgenabled IN ('O', 'A')
+			)`,
+			trigger.name,
+			trigger.function,
 		).Scan(&present)
 		if err != nil {
-			return fmt.Errorf("trigger presence check for %s: %w", name, err)
+			return fmt.Errorf("trigger presence check for %s: %w", trigger.name, err)
 		}
 		if !present {
-			return fmt.Errorf("required queue trigger %q is missing -- queue will silently degrade to poll-only; re-run migrations or investigate manual DDL", name)
+			return fmt.Errorf("required queue trigger %q is missing, disabled, or misconfigured -- queue will silently degrade to poll-only; re-run migrations or investigate manual DDL", trigger.name)
 		}
 	}
 	return nil
