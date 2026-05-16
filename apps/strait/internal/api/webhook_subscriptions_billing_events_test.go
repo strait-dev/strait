@@ -19,6 +19,7 @@ func TestValidWebhookEventTypes_BillingEventsRegistered(t *testing.T) {
 		domain.WebhookEventBillingOverageDisabled,
 		domain.WebhookEventBillingSuspended,
 		domain.WebhookEventBillingDelinquent,
+		domain.WebhookEventBillingPaymentSucceeded,
 		domain.WebhookEventScheduleSuspended,
 		domain.WebhookEventWorkflowRegistrationRejected,
 		domain.WebhookEventSLACreditIssued,

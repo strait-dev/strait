@@ -65,6 +65,7 @@ const (
 	WebhookEventBillingOverageDisabled       = "billing.overage_disabled"
 	WebhookEventBillingSuspended             = "billing.suspended"
 	WebhookEventBillingDelinquent            = "billing.delinquent"
+	WebhookEventBillingPaymentSucceeded      = "billing.payment_succeeded"
 	WebhookEventScheduleSuspended            = "schedule.suspended"
 	WebhookEventWorkflowRegistrationRejected = "workflow.registration_rejected"
 	WebhookEventSLACreditIssued              = "sla.credit_issued"

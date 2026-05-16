@@ -33,6 +33,7 @@ var validWebhookEventTypes = map[string]bool{
 	domain.WebhookEventBillingOverageDisabled:       true,
 	domain.WebhookEventBillingSuspended:             true,
 	domain.WebhookEventBillingDelinquent:            true,
+	domain.WebhookEventBillingPaymentSucceeded:      true,
 	domain.WebhookEventScheduleSuspended:            true,
 	domain.WebhookEventWorkflowRegistrationRejected: true,
 	domain.WebhookEventSLACreditIssued:              true,

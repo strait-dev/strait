@@ -1138,7 +1138,8 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 	}
 
 	// Only clear grace if the org is actually in grace or restricted state.
-	if existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted" {
+	recovered := existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted"
+	if recovered {
 		if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil {
 			return fmt.Errorf("clearing grace on payment success: %w", err)
 		}
@@ -1154,6 +1155,20 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		if err := h.dunningStore.ResolveDunning(ctx, orgID, time.Now().UTC()); err != nil {
 			h.logger.Warn("resolve dunning on payment success failed", "org_id", orgID, "err", err)
 		}
+	}
+
+	// Only dispatch billing.payment_succeeded on actual recovery from
+	// grace/restricted. Routine renewal payments don't fire — they aren't
+	// state changes a subscriber needs to react to.
+	if recovered && h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(existing.PlanTier),
+			domain.WebhookEventBillingPaymentSucceeded, map[string]any{
+				"stripe_invoice_id":      invoice.ID,
+				"stripe_subscription_id": sub.ID,
+				"plan_tier":              existing.PlanTier,
+				"amount_paid_microusd":   invoice.AmountPaid,
+				"paid_at":                time.Now().UTC().Format(time.RFC3339Nano),
+			})
 	}
 
 	h.posthog.CaptureRevenueEvent(orgID, "payment_received", map[string]any{
