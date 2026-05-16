@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -113,8 +114,10 @@ func (q *Queries) ListAuditEventsDeadletter(ctx context.Context, limit int) ([]d
 // project_id for admin inspection. Tenant isolation is enforced structurally:
 // the project_id is a required filter, not an optional one.
 //
-// Ordered by queued_at ASC (oldest first). Pagination uses a queued_at cursor
-// encoded as RFC3339Nano; an empty cursor starts from the oldest row.
+// Ordered by queued_at ASC (oldest first). Pagination uses a composite
+// queued_at|id cursor so rows sharing the same queued_at timestamp cannot be
+// skipped between pages. For compatibility with older clients, a bare
+// RFC3339Nano cursor is still accepted and behaves as queued_at-only.
 func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projectID string, limit int, cursor string) ([]domain.AuditEvent, []string, []string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAuditEventsDeadletterByProject")
 	defer span.End()
@@ -139,19 +142,32 @@ func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projec
 			LIMIT $2
 		`, projectID, limit)
 	} else {
-		cursorTime, parseErr := time.Parse(time.RFC3339Nano, cursor)
+		cursorTime, cursorID, parseErr := parseAuditDeadletterCursor(cursor)
 		if parseErr != nil {
 			return nil, nil, nil, fmt.Errorf("invalid cursor: %w", parseErr)
 		}
-		rows, err = q.db.Query(ctx, `
-			SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
-			       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
-			       queued_at
-			FROM audit_events_deadletter
-			WHERE project_id = $1 AND queued_at > $2
-			ORDER BY queued_at ASC, id ASC
-			LIMIT $3
-		`, projectID, cursorTime, limit)
+		if cursorID == "" {
+			rows, err = q.db.Query(ctx, `
+				SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+				       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+				       queued_at
+				FROM audit_events_deadletter
+				WHERE project_id = $1 AND queued_at > $2
+				ORDER BY queued_at ASC, id ASC
+				LIMIT $3
+			`, projectID, cursorTime, limit)
+		} else {
+			rows, err = q.db.Query(ctx, `
+				SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+				       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+				       queued_at
+				FROM audit_events_deadletter
+				WHERE project_id = $1
+				  AND (queued_at > $2 OR (queued_at = $2 AND id > $3))
+				ORDER BY queued_at ASC, id ASC
+				LIMIT $4
+			`, projectID, cursorTime, cursorID, limit)
+		}
 	}
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("list audit deadletter by project: %w", err)
@@ -174,9 +190,25 @@ func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projec
 		}
 		events = append(events, ev)
 		ids = append(ids, ev.ID)
-		cursors = append(cursors, queuedAt.Format(time.RFC3339Nano))
+		cursors = append(cursors, auditDeadletterCursor(queuedAt, ev.ID))
 	}
 	return events, ids, cursors, rows.Err()
+}
+
+func auditDeadletterCursor(queuedAt time.Time, id string) string {
+	return queuedAt.UTC().Format(time.RFC3339Nano) + "|" + id
+}
+
+func parseAuditDeadletterCursor(cursor string) (time.Time, string, error) {
+	if idx := strings.LastIndex(cursor, "|"); idx > 0 {
+		ts, err := time.Parse(time.RFC3339Nano, cursor[:idx])
+		if err != nil {
+			return time.Time{}, "", err
+		}
+		return ts, cursor[idx+1:], nil
+	}
+	ts, err := time.Parse(time.RFC3339Nano, cursor)
+	return ts, "", err
 }
 
 // GetAuditEventDeadletter fetches a single deadletter event by id,

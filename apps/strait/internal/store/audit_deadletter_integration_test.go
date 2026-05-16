@@ -308,6 +308,57 @@ func TestReplayAuditEventDeadletter_ContextRoutedStoreUsesAmbientTx(t *testing.T
 	}
 }
 
+func TestListAuditEventsDeadletterByProject_PaginatesSameQueuedAtRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+
+	projectID := "proj-dlq-page-tie"
+	queuedAt := time.Now().UTC().Truncate(time.Microsecond)
+	ids := []string{"dlq-page-tie-1", "dlq-page-tie-2", "dlq-page-tie-3"}
+	for _, id := range ids {
+		ev := &domain.AuditEvent{
+			ID:           id,
+			ProjectID:    projectID,
+			ActorID:      "actor",
+			ActorType:    "user",
+			Action:       domain.AuditActionJobTriggered,
+			ResourceType: "job",
+			ResourceID:   "job-1",
+			Details:      json.RawMessage(`{}`),
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 0); err != nil {
+			t.Fatalf("CreateAuditEventDeadletter(%s): %v", id, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events_deadletter SET queued_at = $2 WHERE id = $1`, id, queuedAt); err != nil {
+			t.Fatalf("pin queued_at(%s): %v", id, err)
+		}
+	}
+
+	page1, _, cursors, err := q.ListAuditEventsDeadletterByProject(ctx, projectID, 2, "")
+	if err != nil {
+		t.Fatalf("ListAuditEventsDeadletterByProject page1: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+	page2, _, _, err := q.ListAuditEventsDeadletterByProject(ctx, projectID, 2, cursors[len(cursors)-1])
+	if err != nil {
+		t.Fatalf("ListAuditEventsDeadletterByProject page2: %v", err)
+	}
+	if len(page2) != 1 {
+		t.Fatalf("page2 len = %d, want 1; queued_at-only cursor skipped tied rows", len(page2))
+	}
+
+	got := []string{page1[0].ID, page1[1].ID, page2[0].ID}
+	for i, want := range ids {
+		if got[i] != want {
+			t.Fatalf("paged ids = %v, want %v", got, ids)
+		}
+	}
+}
+
 // TestAuditDeadletter_DeleteOlderThan_PerProjectCounts asserts the
 // retention reaper removes only old rows and returns counts grouped by
 // project.
