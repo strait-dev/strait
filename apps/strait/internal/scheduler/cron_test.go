@@ -124,6 +124,46 @@ func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
 	}
 }
 
+func TestCronScheduler_LoadJobs_SkipsInvalidJobTimezone(t *testing.T) {
+	t.Parallel()
+	store := &mockCronStore{
+		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
+			return []domain.Job{
+				{ID: "job-invalid-tz", ProjectID: "proj-1", Cron: "* * * * *", Timezone: "Mars/Olympus"},
+				{ID: "job-valid-tz", ProjectID: "proj-1", Cron: "* * * * *", Timezone: "UTC"},
+			}, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
+	if err := cs.LoadJobs(context.Background()); err != nil {
+		t.Fatalf("LoadJobs() error = %v", err)
+	}
+	if got := len(cs.cron.Entries()); got != 1 {
+		t.Fatalf("loaded cron entries = %d, want only valid timezone entry", got)
+	}
+}
+
+func TestCronScheduler_LoadJobs_SkipsInvalidWorkflowTimezone(t *testing.T) {
+	t.Parallel()
+	store := &mockCronStore{
+		listCronWorkflowsFn: func(context.Context) ([]domain.Workflow, error) {
+			return []domain.Workflow{
+				{ID: "wf-invalid-tz", ProjectID: "proj-1", Cron: "* * * * *", CronTimezone: "Mars/Olympus"},
+				{ID: "wf-valid-tz", ProjectID: "proj-1", Cron: "* * * * *", CronTimezone: "UTC"},
+			}, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, &mockWorkflowTrigger{})
+	if err := cs.LoadJobs(context.Background()); err != nil {
+		t.Fatalf("LoadJobs() error = %v", err)
+	}
+	if got := len(cs.cron.Entries()); got != 1 {
+		t.Fatalf("loaded cron entries = %d, want only valid timezone entry", got)
+	}
+}
+
 func TestCronScheduler_StartStop(t *testing.T) {
 	t.Parallel()
 	store := &mockCronStore{

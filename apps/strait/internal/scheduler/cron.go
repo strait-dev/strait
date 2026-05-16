@@ -103,7 +103,16 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 
 	for _, j := range jobs {
 		job := j
-		expr := cronExpressionWithTimezone(job.Cron, job.Timezone)
+		expr, tzErr := cronExpressionWithValidatedTimezone(job.Cron, job.Timezone)
+		if tzErr != nil {
+			slog.Warn("skipping cron job with invalid timezone",
+				"job_id", job.ID,
+				"project_id", job.ProjectID,
+				"timezone", job.Timezone,
+				"error", tzErr,
+			)
+			continue
+		}
 		_, err := cs.cron.AddFunc(expr, func() {
 			cs.triggerJob(cs.ctx, job)
 		})
@@ -115,9 +124,15 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 	if cs.workflowTrigger != nil {
 		for _, wf := range workflows {
 			workflow := wf
-			expr := workflow.Cron
-			if workflow.CronTimezone != "" {
-				expr = fmt.Sprintf("CRON_TZ=%s %s", workflow.CronTimezone, workflow.Cron)
+			expr, tzErr := cronExpressionWithValidatedTimezone(workflow.Cron, workflow.CronTimezone)
+			if tzErr != nil {
+				slog.Warn("skipping cron workflow with invalid timezone",
+					"workflow_id", workflow.ID,
+					"project_id", workflow.ProjectID,
+					"timezone", workflow.CronTimezone,
+					"error", tzErr,
+				)
+				continue
 			}
 			_, err := cs.cron.AddFunc(expr, func() {
 				cs.triggerWorkflow(cs.ctx, workflow)
@@ -388,6 +403,16 @@ func cronExpressionWithTimezone(expr, timezone string) string {
 		return expr
 	}
 	return fmt.Sprintf("CRON_TZ=%s %s", timezone, expr)
+}
+
+func cronExpressionWithValidatedTimezone(expr, timezone string) (string, error) {
+	if timezone == "" {
+		return expr, nil
+	}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		return "", fmt.Errorf("invalid cron timezone %q: %w", timezone, err)
+	}
+	return cronExpressionWithTimezone(expr, timezone), nil
 }
 
 func (cs *CronScheduler) withCronFireLock(ctx context.Context, kind, id string, fn func(context.Context, string)) {

@@ -74,3 +74,54 @@ func TestCronScheduler_TriggerJob_ProjectQueuedQuotaPreventsInsert(t *testing.T)
 		t.Fatalf("queued run count = %d, want unchanged count 1", count)
 	}
 }
+
+func TestCronScheduler_LoadJobs_SkipsInvalidStoredJobTimezone(t *testing.T) {
+	ctx := context.Background()
+	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup db: %v", err)
+	}
+	t.Cleanup(func() { tdb.Cleanup(ctx) })
+
+	st := store.New(tdb.Pool)
+	project := &domain.Project{
+		ID:    "cron-tz-" + uuid.Must(uuid.NewV7()).String(),
+		OrgID: "org-" + uuid.Must(uuid.NewV7()).String(),
+		Name:  "cron timezone",
+	}
+	if err := st.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		timezone string
+	}{
+		{name: "valid", timezone: "UTC"},
+		{name: "invalid", timezone: "Mars/Olympus"},
+	} {
+		job := &domain.Job{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			ProjectID:   project.ID,
+			Name:        "cron tz " + tt.name,
+			Slug:        "cron-tz-" + tt.name + "-" + uuid.Must(uuid.NewV7()).String()[:8],
+			Cron:        "* * * * *",
+			Timezone:    tt.timezone,
+			EndpointURL: "https://example.com/cron",
+			MaxAttempts: 3,
+			TimeoutSecs: 60,
+			Enabled:     true,
+		}
+		if err := st.CreateJob(ctx, job); err != nil {
+			t.Fatalf("CreateJob(%s) error = %v", tt.name, err)
+		}
+	}
+
+	cs := NewCronScheduler(ctx, st, &mockQueue{}, nil)
+	if err := cs.LoadJobs(ctx); err != nil {
+		t.Fatalf("LoadJobs() error = %v", err)
+	}
+	if got := len(cs.cron.Entries()); got != 1 {
+		t.Fatalf("loaded cron entries = %d, want only the valid timezone job", got)
+	}
+}
