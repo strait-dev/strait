@@ -89,6 +89,8 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	// Track operations
 	var ops, errs atomic.Int64
 	var spikeActive atomic.Bool
+	fastEchoJobID := h.ResolveJobID("loadtest-fast-echo")
+	slowProcessJobID := h.ResolveJobID("loadtest-slow-process")
 
 	// Baseline load goroutine
 	var wg conc.WaitGroup
@@ -109,7 +111,7 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 			time.Sleep(interval)
 
 			go func() {
-				if err := h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
+				if err := h.TriggerJob(ctx, "loadtest-project", fastEchoJobID, map[string]any{
 					"timestamp": time.Now().UnixMilli(),
 				}); err != nil {
 					errs.Add(1)
@@ -145,7 +147,7 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	var longRunCompleted, longRunFailed atomic.Int32
 	for range er.config.LongRunJobs {
 		wg.Go(func() {
-			err := h.TriggerJob(ctx, "loadtest-project", "loadtest-slow-cpu", map[string]any{
+			err := h.TriggerJob(ctx, "loadtest-project", slowProcessJobID, map[string]any{
 				"work_duration": er.config.LongRunMinutes * 60,
 				"timestamp":     time.Now().UnixMilli(),
 			})
@@ -300,6 +302,7 @@ func (ei *ErrorInjector) Run(ctx context.Context) {
 	interval := time.Minute / time.Duration(max(ei.perMinute, 1))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	errorJobID := ei.harness.ResolveJobID("loadtest-errors")
 
 	for {
 		select {
@@ -308,10 +311,11 @@ func (ei *ErrorInjector) Run(ctx context.Context) {
 		case <-ticker.C:
 			scenario := scenarios[rand.IntN(len(scenarios))] //nolint:gosec // non-cryptographic use for load test randomization
 			go func() {
-				_ = ei.harness.TriggerJob(ctx, ei.projectID, "loadtest-errors", map[string]any{
+				if err := ei.harness.TriggerJob(ctx, ei.projectID, errorJobID, map[string]any{
 					"scenario": scenario,
-				})
-				ei.injected.Add(1)
+				}); err == nil {
+					ei.injected.Add(1)
+				}
 			}()
 		}
 	}

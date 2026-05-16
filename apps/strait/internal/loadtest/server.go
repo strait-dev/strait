@@ -74,6 +74,7 @@ func NewTestServer(port int, opts ...TestServerOption) *TestServer {
 	mux.Handle("POST /slow-process", ts.requireDispatchSignature(http.HandlerFunc(ts.handleSlowProcess)))
 	mux.Handle("POST /variable-load", ts.requireDispatchSignature(http.HandlerFunc(ts.handleVariableLoad)))
 	mux.Handle("POST /flaky", ts.requireDispatchSignature(http.HandlerFunc(ts.handleFlaky)))
+	mux.Handle("POST /error-scenario", ts.requireDispatchSignature(http.HandlerFunc(ts.handleErrorScenario)))
 	mux.Handle("POST /memory-heavy", ts.requireDispatchSignature(http.HandlerFunc(ts.handleMemoryHeavy)))
 	mux.Handle("POST /cost-reporter", ts.requireDispatchSignature(http.HandlerFunc(ts.handleCostReporter)))
 	mux.HandleFunc("GET /health", ts.handleHealth)
@@ -236,6 +237,27 @@ func (ts *TestServer) handleFlaky(w http.ResponseWriter, _ *http.Request) {
 		"success":   true,
 		"timestamp": time.Now().UnixMilli(),
 	})
+}
+
+func (ts *TestServer) handleErrorScenario(w http.ResponseWriter, r *http.Request) {
+	ts.stats.Flaky.Add(1)
+	ts.stats.Total.Add(1)
+
+	var body struct {
+		Payload struct {
+			Scenario string `json:"scenario"`
+		} `json:"payload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Payload.Scenario == "clean_exit" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		return
+	}
+	http.Error(w, "simulated "+body.Payload.Scenario, http.StatusInternalServerError)
 }
 
 // handleMemoryHeavy allocates memory to simulate heavy responses.

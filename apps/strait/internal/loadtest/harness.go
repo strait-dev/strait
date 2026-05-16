@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,6 +50,8 @@ type Harness struct {
 	Metrics    *MetricsCollector
 	ResultsDir string
 	httpClient *http.Client
+	jobIDsMu   sync.RWMutex
+	jobIDs     map[string]string
 }
 
 // HarnessConfig configures the test harness.
@@ -251,6 +254,24 @@ func (h *Harness) TriggerJob(ctx context.Context, projectID, jobID string, paylo
 	return nil
 }
 
+// ResolveJobID returns the setup-created job ID for a standard load-test slug.
+// It falls back to the input so ad hoc tests that create jobs independently keep
+// working, but standard scenarios should call SetupLoadTestJobs first.
+func (h *Harness) ResolveJobID(slug string) string {
+	if h == nil {
+		return slug
+	}
+	h.jobIDsMu.RLock()
+	defer h.jobIDsMu.RUnlock()
+	if h.jobIDs == nil {
+		return slug
+	}
+	if id, ok := h.jobIDs[slug]; ok {
+		return id
+	}
+	return slug
+}
+
 // CreateJob creates a job via the Strait API for load testing.
 func (h *Harness) CreateJob(ctx context.Context, projectID string, job JobConfig) (string, error) {
 	if err := validateLoadTestEndpointURL(job.EndpointURL); err != nil {
@@ -385,7 +406,23 @@ func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[
 	jobs := map[string]string{}
 	signingSecret := h.Config.EndpointSigningSecret
 
-	httpConfigs := []JobConfig{
+	httpConfigs := standardLoadTestJobConfigs(projectID, testServerURL, signingSecret)
+	if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
+		return nil, err
+	}
+
+	h.jobIDsMu.Lock()
+	h.jobIDs = make(map[string]string, len(jobs))
+	for slug, id := range jobs {
+		h.jobIDs[slug] = id
+	}
+	h.jobIDsMu.Unlock()
+
+	return jobs, nil
+}
+
+func standardLoadTestJobConfigs(projectID, testServerURL, signingSecret string) []JobConfig {
+	return []JobConfig{
 		{
 			ProjectID:             projectID,
 			Name:                  "Load Test Fast Echo",
@@ -426,13 +463,17 @@ func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[
 			MaxAttempts:           3,
 			TimeoutSecs:           30,
 		},
+		{
+			ProjectID:             projectID,
+			Name:                  "Load Test Error Scenarios",
+			Slug:                  "loadtest-errors",
+			EndpointURL:           testServerURL + "/error-scenario",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           30,
+		},
 	}
-
-	if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
-		return nil, err
-	}
-
-	return jobs, nil
 }
 
 // createJobs creates the given job configs, falling back to slug lookup on conflict.
