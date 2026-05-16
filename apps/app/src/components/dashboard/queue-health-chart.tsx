@@ -84,7 +84,7 @@ const QueueHealthChart = ({ hasProject = true }: { hasProject?: boolean }) => {
                 <XAxis
                   className="text-muted-foreground"
                   dataKey="metric"
-                  tick={{ fontSize: 12 }}
+                  tick={{ fontSize: 14 }}
                 />
                 <YAxis
                   className="text-muted-foreground"

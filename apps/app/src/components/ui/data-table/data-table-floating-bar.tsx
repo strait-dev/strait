@@ -44,7 +44,7 @@ export const DataTableFloatingBar = ({
               />
             }
           >
-            <HugeiconsIcon icon={action.icon} size={16} />
+            <HugeiconsIcon className="size-4" icon={action.icon} />
           </TooltipTrigger>
           <TooltipContent>{action.label}</TooltipContent>
         </Tooltip>
@@ -61,7 +61,7 @@ export const DataTableFloatingBar = ({
             />
           }
         >
-          <HugeiconsIcon icon={XCircleIcon} size={16} />
+          <HugeiconsIcon className="size-4" icon={XCircleIcon} />
         </TooltipTrigger>
         <TooltipContent>Clear selection</TooltipContent>
       </Tooltip>

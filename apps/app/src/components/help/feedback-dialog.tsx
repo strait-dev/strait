@@ -248,7 +248,7 @@ const FeedbackDialog = ({ user }: Props) => {
               </div>
 
               <Button
-                className="inline-flex w-full justify-center rounded-custom px-3 py-2 font-normal"
+                className="inline-flex w-full justify-center rounded px-3 py-2 font-normal"
                 disabled={
                   form.formState.isSubmitting || isPending || cooldownTime > 0
                 }

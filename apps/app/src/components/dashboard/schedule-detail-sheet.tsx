@@ -33,7 +33,7 @@ const DetailRow = ({
   value: string;
 }) => (
   <div className="flex items-center gap-2 text-sm">
-    <HugeiconsIcon className="text-muted-foreground" icon={icon} size={14} />
+    <HugeiconsIcon className="size-3.5 text-muted-foreground" icon={icon} />
     <span className="text-muted-foreground">{label}</span>
     <span className="ml-auto font-mono text-sm">{value}</span>
   </div>

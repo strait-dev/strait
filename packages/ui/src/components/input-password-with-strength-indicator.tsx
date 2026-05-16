@@ -43,15 +43,15 @@ const getStrengthColor = (score: number) => {
     return "bg-border";
   }
   if (score <= SCORE_THRESHOLDS.WEAK) {
-    return "bg-red-500";
+    return "bg-destructive";
   }
   if (score <= SCORE_THRESHOLDS.MEDIUM) {
-    return "bg-orange-500";
+    return "bg-warning";
   }
   if (score === SCORE_THRESHOLDS.STRONG) {
-    return "bg-amber-500";
+    return "bg-warning/70";
   }
-  return "bg-emerald-500";
+  return "bg-success";
 };
 
 const getStrengthText = (score: number) => {
@@ -276,7 +276,7 @@ function InputPasswordWithStrengthIndicator({
                   {req.met ? (
                     <HugeiconsIcon
                       aria-hidden="true"
-                      className="size-4 text-emerald-500"
+                      className="size-4 text-success"
                       icon={Tick02Icon}
                     />
                   ) : (
@@ -289,7 +289,7 @@ function InputPasswordWithStrengthIndicator({
                   <span
                     className={cn(
                       "text-sm",
-                      req.met ? "text-emerald-600" : "text-muted-foreground"
+                      req.met ? "text-success" : "text-muted-foreground"
                     )}
                     data-slot="strength-requirement-text"
                   >

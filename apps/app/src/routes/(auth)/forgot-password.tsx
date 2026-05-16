@@ -6,6 +6,7 @@ import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
 
 export const Route = createFileRoute("/(auth)/forgot-password")({
+  head: () => ({ meta: [{ title: "Forgot password · Strait" }] }),
   validateSearch: authSearchSchema,
   beforeLoad: ({ context, search }) => {
     if (context.isAuthenticated) {
