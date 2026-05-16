@@ -179,7 +179,7 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 				continue
 			}
 
-			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitReached, alertKey) {
+			if bm.sendSpendingNotification(ctx, orgID, overagePct, domain.NotificationEventSpendingLimitReached, alertKey) {
 				bm.markAlerted(alertKey)
 			}
 		} else if overagePct >= 80 {
@@ -188,14 +188,14 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 				continue
 			}
 
-			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitWarning, alertKey) {
+			if bm.sendSpendingNotification(ctx, orgID, overagePct, domain.NotificationEventSpendingLimitWarning, alertKey) {
 				bm.markAlerted(alertKey)
 			}
 		}
 	}
 }
 
-func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID string, sub *billing.OrgSubscription, overageSpend int64, overagePct float64, eventType string, alertKey string) bool {
+func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID string, overagePct float64, eventType string, alertKey string) bool {
 	projectIDs, err := bm.spendingStore.ListProjectsByOrg(ctx, orgID)
 	if err != nil {
 		bm.logger.Warn("budget monitor: failed to list org projects",
@@ -203,14 +203,7 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 		return false
 	}
 
-	payload, _ := json.Marshal(map[string]any{
-		"event":              eventType,
-		"org_id":             orgID,
-		"overage_pct":        overagePct,
-		"spending_limit_usd": float64(sub.SpendingLimitMicrousd) / 1_000_000,
-		"current_spend_usd":  float64(overageSpend) / 1_000_000,
-		"timestamp":          time.Now().UTC(),
-	})
+	payload := spendingNotificationPayload(eventType, overagePct)
 
 	isLimitReached := eventType == domain.NotificationEventSpendingLimitReached
 
@@ -280,12 +273,7 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 			continue
 		}
 
-		payload, _ := json.Marshal(map[string]any{
-			"event":     domain.NotificationEventRunLimitApproaching,
-			"org_id":    orgID,
-			"threshold": 80,
-			"timestamp": time.Now().UTC(),
-		})
+		payload := runLimitNotificationPayload()
 
 		// Bulk-fetch all channels for all projects in one query (eliminates N+1).
 		channelsByProject, chBulkErr := bm.runLimitStore.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
@@ -331,6 +319,28 @@ func (bm *BudgetMonitor) markAlerted(alertKey string) {
 	bm.alertedMu.Lock()
 	defer bm.alertedMu.Unlock()
 	bm.alerted[alertKey] = true
+}
+
+func spendingNotificationPayload(eventType string, overagePct float64) json.RawMessage {
+	threshold := 80
+	if overagePct >= 100 {
+		threshold = 100
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"event":         eventType,
+		"threshold_pct": threshold,
+		"timestamp":     time.Now().UTC(),
+	})
+	return payload
+}
+
+func runLimitNotificationPayload() json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"event":         domain.NotificationEventRunLimitApproaching,
+		"threshold_pct": 80,
+		"timestamp":     time.Now().UTC(),
+	})
+	return payload
 }
 
 // FormatBudgetAlertKey returns the dedup key for a project on a given date.

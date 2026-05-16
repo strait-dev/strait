@@ -186,6 +186,7 @@ func TestBudgetMonitor_80Percent_TriggersWebhook(t *testing.T) {
 	if deliveries[0].DedupeKey == "" {
 		t.Fatal("expected budget notification delivery to carry a durable dedupe key")
 	}
+	assertProjectScopedBudgetPayload(t, deliveries[0].Payload)
 }
 
 func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
@@ -234,6 +235,34 @@ func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
 	}
 	if !channelTypes["ch-webhook"] || !channelTypes["ch-email"] {
 		t.Error("expected both webhook and email channel deliveries")
+	}
+	for _, d := range deliveries {
+		assertProjectScopedBudgetPayload(t, d.Payload)
+	}
+}
+
+func TestBudgetMonitor_RunLimitPayloadOmitsOrgScopeValues(t *testing.T) {
+	t.Parallel()
+
+	assertProjectScopedBudgetPayload(t, runLimitNotificationPayload())
+}
+
+func assertProjectScopedBudgetPayload(t *testing.T, payload json.RawMessage) {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	for _, key := range []string{"org_id", "overage_pct", "spending_limit_usd", "current_spend_usd"} {
+		if _, ok := decoded[key]; ok {
+			t.Fatalf("project-scoped budget payload leaked %q: %s", key, string(payload))
+		}
+	}
+	if decoded["event"] == "" {
+		t.Fatalf("payload missing event: %s", string(payload))
+	}
+	if decoded["threshold_pct"] == nil {
+		t.Fatalf("payload missing threshold_pct: %s", string(payload))
 	}
 }
 
