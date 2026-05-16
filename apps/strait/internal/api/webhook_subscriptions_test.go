@@ -183,4 +183,3 @@ func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
 		t.Fatalf("expected 400 for invalid event type, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
