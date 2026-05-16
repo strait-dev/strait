@@ -1481,6 +1481,20 @@ func TestPgStore_ListAllSubscribedOrgIDs(t *testing.T) {
 	}
 }
 
+func TestPlanRetentionResolver_MissingSubscriptionDoesNotFallbackToFreeRetention(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	resolver := billing.NewPlanRetentionResolver(billing.NewPgStore(testDB.Pool))
+
+	days, err := resolver.GetOrgRetentionDays(ctx, "org-retention-missing-"+newID())
+	if !errors.Is(err, billing.ErrSubscriptionNotFound) {
+		t.Fatalf("GetOrgRetentionDays error = %v, want ErrSubscriptionNotFound", err)
+	}
+	if days != 0 {
+		t.Fatalf("days = %d, want 0 so retention reaper skips uncertain orgs", days)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 35: UpdatePaymentStatus
 // --------------------------------------------------------------------------.

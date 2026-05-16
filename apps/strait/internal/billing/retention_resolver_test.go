@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"strait/internal/domain"
@@ -13,12 +14,11 @@ func TestGetOrgRetentionDays_EmptyOrgID(t *testing.T) {
 	resolver := NewPlanRetentionResolver(store)
 
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for empty org ID")
 	}
-	want := GetPlanLimits(domain.PlanFree).RetentionDays
-	if days != want {
-		t.Errorf("days = %d, want %d (free tier)", days, want)
+	if days != 0 {
+		t.Errorf("days = %d, want 0 on resolver error", days)
 	}
 }
 
@@ -28,12 +28,29 @@ func TestGetOrgRetentionDays_SubscriptionNotFound(t *testing.T) {
 	resolver := NewPlanRetentionResolver(store)
 
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-no-sub")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, ErrSubscriptionNotFound) {
+		t.Fatalf("error = %v, want ErrSubscriptionNotFound", err)
 	}
-	want := GetPlanLimits(domain.PlanFree).RetentionDays
-	if days != want {
-		t.Errorf("days = %d, want %d (free tier fallback)", days, want)
+	if days != 0 {
+		t.Errorf("days = %d, want 0 on missing subscription", days)
+	}
+}
+
+func TestGetOrgRetentionDays_StoreErrorDoesNotFallbackToShorterRetention(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("database unavailable")
+		},
+	}
+	resolver := NewPlanRetentionResolver(store)
+
+	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-pro")
+	if err == nil {
+		t.Fatal("expected resolver error")
+	}
+	if days != 0 {
+		t.Errorf("days = %d, want 0 so scheduler skips retention on uncertainty", days)
 	}
 }
 
