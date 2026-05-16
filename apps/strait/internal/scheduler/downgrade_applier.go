@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -84,6 +86,17 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 	}
 
 	for _, sub := range subs {
+		if sub.PendingPlanTier != nil {
+			if err := d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier); err != nil {
+				slog.Warn("failed to enforce pending downgrade limits",
+					"org_id", sub.OrgID,
+					"pending_tier", sub.PendingPlanTier,
+					"error", err,
+				)
+				continue
+			}
+		}
+
 		if err := d.store.ApplyPendingDowngrade(ctx, sub.OrgID); err != nil {
 			slog.Warn("failed to apply pending downgrade",
 				"org_id", sub.OrgID,
@@ -97,11 +110,6 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 			d.enforcer.InvalidateOrgCache(sub.OrgID)
 		}
 
-		// Enforce resource limits for the new plan tier.
-		if sub.PendingPlanTier != nil {
-			d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier)
-		}
-
 		slog.Info("applied pending downgrade",
 			"org_id", sub.OrgID,
 			"pending_tier", sub.PendingPlanTier,
@@ -111,12 +119,14 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 }
 
 // enforceDowngradeLimits deactivates excess resources that exceed the new plan's limits.
-func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pendingTier string) {
+func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pendingTier string) error {
 	newLimits := billing.GetPlanLimits(domain.PlanTier(pendingTier))
+	var errs []error
 
 	if newLimits.MaxProjectsPerOrg != -1 {
 		if n, err := d.store.SuspendExcessProjects(ctx, orgID, newLimits.MaxProjectsPerOrg); err != nil {
 			slog.Warn("failed to suspend excess projects", "org_id", orgID, "error", err)
+			errs = append(errs, fmt.Errorf("suspend excess projects: %w", err))
 		} else if n > 0 {
 			slog.Info("suspended excess projects after downgrade", "org_id", orgID, "count", n)
 		}
@@ -131,6 +141,7 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 	if newLimits.MaxScheduledJobs != -1 {
 		if n, err := d.store.DeactivateExcessCronJobs(ctx, orgID, newLimits.MaxScheduledJobs); err != nil {
 			slog.Warn("failed to deactivate excess cron jobs", "org_id", orgID, "error", err)
+			errs = append(errs, fmt.Errorf("deactivate excess cron jobs: %w", err))
 		} else if n > 0 {
 			slog.Info("deactivated excess cron jobs after downgrade", "org_id", orgID, "count", n)
 		}
@@ -139,6 +150,7 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 	if newLimits.MaxWebhookEndpoints != -1 {
 		if n, err := d.store.DeactivateExcessWebhookSubscriptions(ctx, orgID, newLimits.MaxWebhookEndpoints); err != nil {
 			slog.Warn("failed to deactivate excess webhooks", "org_id", orgID, "error", err)
+			errs = append(errs, fmt.Errorf("deactivate excess webhooks: %w", err))
 		} else if n > 0 {
 			slog.Info("deactivated excess webhooks after downgrade", "org_id", orgID, "count", n)
 		}
@@ -147,6 +159,7 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 	if newLimits.MaxEnvironments > 0 {
 		if n, err := d.store.DeactivateExcessEnvironments(ctx, orgID, newLimits.MaxEnvironments); err != nil {
 			slog.Warn("failed to deactivate excess environments", "org_id", orgID, "error", err)
+			errs = append(errs, fmt.Errorf("deactivate excess environments: %w", err))
 		} else if n > 0 {
 			slog.Info("deactivated excess environments after downgrade", "org_id", orgID, "count", n)
 		}
@@ -156,8 +169,10 @@ func (d *DowngradeApplier) enforceDowngradeLimits(ctx context.Context, orgID, pe
 	if !newLimits.AllowsHTTPMode {
 		if n, err := d.store.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade"); err != nil {
 			slog.Error("failed to pause HTTP jobs on downgrade", "org_id", orgID, "error", err)
+			errs = append(errs, fmt.Errorf("pause http jobs: %w", err))
 		} else if n > 0 {
 			slog.Info("paused HTTP jobs on downgrade", "org_id", orgID, "count", n)
 		}
 	}
+	return errors.Join(errs...)
 }

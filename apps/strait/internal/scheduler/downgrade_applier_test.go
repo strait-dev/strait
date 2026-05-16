@@ -23,6 +23,7 @@ type mockDowngradeStore struct {
 	pauseHTTPCalls []pauseHTTPCall
 	pauseHTTPCount int64
 	pauseHTTPErr   error
+	cronErr        error
 }
 
 type pauseHTTPCall struct {
@@ -52,6 +53,9 @@ func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, 
 }
 
 func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
+	if m.cronErr != nil {
+		return 0, m.cronErr
+	}
 	return 0, nil
 }
 
@@ -325,6 +329,26 @@ func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
 	}
 	if store.appliedOrgIDs[0] != "org-ok" {
 		t.Errorf("expected org-ok to succeed, got %q", store.appliedOrgIDs[0])
+	}
+}
+
+func TestDowngradeApplier_DoesNotClearPendingWhenLimitEnforcementFails(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-fail-enforce", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		cronErr: fmt.Errorf("cron deactivate failed"),
+	}
+
+	applier := NewDowngradeApplier(store, nil, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 0 {
+		t.Fatalf("pending downgrade was cleared before enforcement succeeded: %v", store.appliedOrgIDs)
 	}
 }
 
