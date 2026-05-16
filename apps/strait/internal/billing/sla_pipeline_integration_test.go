@@ -68,7 +68,7 @@ func (f *slaStripeFake) handle(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/invoices":
 		if r.URL.Query().Get("status") == "open" && f.invoiceOpenID != "" {
-			_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"invoice","status":"open"}],"has_more":false,"url":"/v1/invoices"}`, f.invoiceOpenID)
+			_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"invoice","status":"open","amount_remaining":50000}],"has_more":false,"url":"/v1/invoices"}`, f.invoiceOpenID)
 			return
 		}
 		_, _ = fmt.Fprintf(w, `{"object":"list","data":[],"has_more":false,"url":"/v1/invoices"}`)
@@ -312,7 +312,7 @@ func newSLAStripeFakeWithFailure(t *testing.T, invoiceOpenID string) *slaStripeF
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoices":
-			_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"invoice","status":"open"}],"has_more":false,"url":"/v1/invoices"}`, invoiceOpenID)
+			_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"invoice","status":"open","amount_remaining":50000}],"has_more":false,"url":"/v1/invoices"}`, invoiceOpenID)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/credit_notes":
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"error":{"message":"forced failure","type":"api_error"}}`))

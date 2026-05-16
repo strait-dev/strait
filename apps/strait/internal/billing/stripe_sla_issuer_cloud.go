@@ -66,10 +66,10 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 	}
 	idemKey := fmt.Sprintf("sla-credit-%s-%s", orgID, periodEnd.UTC().Format("2006-01"))
 
-	if invoiceID, ok := i.findInvoiceForPeriod(ctx, customerID); ok {
+	if inv, ok := i.findInvoiceForPeriod(ctx, customerID); ok {
 		amount := amountCents
 		params := &stripe.CreditNoteParams{
-			Invoice: stripe.String(invoiceID),
+			Invoice: stripe.String(inv.ID),
 			Amount:  &amount,
 			Reason:  stripe.String(string(stripe.CreditNoteReasonOrderChange)),
 			Memo:    stripe.String(fmt.Sprintf("SLA credit for %s", periodEnd.UTC().Format("January 2006"))),
@@ -83,7 +83,7 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 		i.logger.Info("stripe sla credit note issued",
 			"org_id", orgID,
 			"customer_id", customerID,
-			"invoice_id", invoiceID,
+			"invoice_id", inv.ID,
 			"amount_cents", amountCents,
 			"credit_note_id", cn.ID,
 		)
@@ -112,20 +112,21 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 	return cbt.ID, nil
 }
 
-// findInvoiceForPeriod returns the most relevant invoice ID for the SLA
-// period: an open invoice if one exists, else the most recently paid
-// invoice. An empty result is normal for trial / metered customers and
-// triggers the customer-balance-transaction fallback.
-func (i *StripeSLAIssuer) findInvoiceForPeriod(ctx context.Context, customerID string) (string, bool) {
-	for _, status := range []string{"open", "paid"} {
-		if id, ok := i.lookupInvoice(ctx, customerID, status); ok {
-			return id, true
-		}
+// findInvoiceForPeriod returns the most relevant invoice for the SLA
+// period: an open invoice with a non-zero remaining balance. Stripe
+// rejects credit notes against fully-paid invoices ("amount must be
+// less than invoice amount ($0.00)"), so paid invoices are not
+// candidates and the caller falls back to a customer-balance
+// transaction — which ends up in the same place for the customer
+// (negative balance applied to the next invoice).
+func (i *StripeSLAIssuer) findInvoiceForPeriod(ctx context.Context, customerID string) (*stripe.Invoice, bool) {
+	if inv, ok := i.lookupInvoice(ctx, customerID, "open"); ok && inv.AmountRemaining > 0 {
+		return inv, true
 	}
-	return "", false
+	return nil, false
 }
 
-func (i *StripeSLAIssuer) lookupInvoice(ctx context.Context, customerID, status string) (string, bool) {
+func (i *StripeSLAIssuer) lookupInvoice(ctx context.Context, customerID, status string) (*stripe.Invoice, bool) {
 	params := &stripe.InvoiceListParams{
 		Customer: stripe.String(customerID),
 		Status:   stripe.String(status),
@@ -135,7 +136,7 @@ func (i *StripeSLAIssuer) lookupInvoice(ctx context.Context, customerID, status 
 	iter := invoice.List(params)
 	if iter.Next() {
 		if inv := iter.Invoice(); inv != nil && inv.ID != "" {
-			return inv.ID, true
+			return inv, true
 		}
 	}
 	if err := iter.Err(); err != nil {
@@ -145,7 +146,7 @@ func (i *StripeSLAIssuer) lookupInvoice(ctx context.Context, customerID, status 
 			"error", err,
 		)
 	}
-	return "", false
+	return nil, false
 }
 
 // microusdToCents converts micro-USD (1 unit = $0.000001) to cents

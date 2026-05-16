@@ -43,19 +43,21 @@ type stripeFake struct {
 	mu       sync.Mutex
 	requests []recordedRequest
 
-	invoiceIDByStatus map[string]string // "open" / "paid" → invoice ID; missing = empty list
-	creditNoteID      string
-	balanceTxnID      string
-	failNext          int // when > 0, return 500 for next N writes
-	server            *httptest.Server
+	invoiceIDByStatus              map[string]string // "open" / "paid" → invoice ID; missing = empty list
+	invoiceAmountRemainingByStatus map[string]int64  // "open" / "paid" → amount_remaining cents
+	creditNoteID                   string
+	balanceTxnID                   string
+	failNext                       int // when > 0, return 500 for next N writes
+	server                         *httptest.Server
 }
 
 func newStripeFake(t *testing.T) *stripeFake {
 	t.Helper()
 	f := &stripeFake{
-		invoiceIDByStatus: map[string]string{},
-		creditNoteID:      "cn_test_123",
-		balanceTxnID:      "cbtxn_test_123",
+		invoiceIDByStatus:              map[string]string{},
+		invoiceAmountRemainingByStatus: map[string]int64{},
+		creditNoteID:                   "cn_test_123",
+		balanceTxnID:                   "cbtxn_test_123",
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.server.Close)
@@ -102,7 +104,8 @@ func (f *stripeFake) handle(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprintf(w, `{"object":"list","data":[],"has_more":false,"url":"/v1/invoices"}`)
 			return
 		}
-		_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"invoice","status":%q}],"has_more":false,"url":"/v1/invoices"}`, id, status)
+		amountRemaining := f.invoiceAmountRemainingByStatus[status]
+		_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"invoice","status":%q,"amount_remaining":%d}],"has_more":false,"url":"/v1/invoices"}`, id, status, amountRemaining)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/credit_notes":
 		_, _ = fmt.Fprintf(w, `{"id":%q,"object":"credit_note"}`, f.creditNoteID)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/customers/") && strings.HasSuffix(r.URL.Path, "/balance_transactions"):
@@ -135,6 +138,7 @@ func newTestIssuer(store CustomerLookupStore) *StripeSLAIssuer {
 func TestStripeSLAIssuer_OpenInvoice_IssuesCreditNote(t *testing.T) {
 	fake := newStripeFake(t)
 	fake.invoiceIDByStatus["open"] = "in_test_open"
+	fake.invoiceAmountRemainingByStatus["open"] = 10_000 // $100 still owed
 
 	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_test_123")})
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -165,6 +169,51 @@ func TestStripeSLAIssuer_OpenInvoice_IssuesCreditNote(t *testing.T) {
 	}
 	if !sawCreditNote {
 		t.Fatalf("no /v1/credit_notes POST observed; requests=%+v", reqs)
+	}
+}
+
+// TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn guards the
+// post-payment branch: when the only matching invoice is fully paid
+// (amount_remaining == 0) Stripe rejects credit-note `amount` with a
+// 400 ("must be less than invoice amount $0.00"), so the issuer must
+// skip it and fall through to the customer-balance-transaction path.
+// Net effect for the customer is identical — credit lands on their
+// next invoice — but it gets there via the path Stripe actually
+// accepts on a settled invoice.
+func TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn(t *testing.T) {
+	fake := newStripeFake(t)
+	// Only a paid invoice with no remaining balance — no open invoice.
+	fake.invoiceIDByStatus["paid"] = "in_test_paid"
+	fake.invoiceAmountRemainingByStatus["paid"] = 0
+
+	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_paid")})
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	id, err := issuer.IssueCredit(context.Background(), "org-1", 50_000_000, periodEnd)
+	if err != nil {
+		t.Fatalf("IssueCredit: %v", err)
+	}
+	if id != "cbtxn_test_123" {
+		t.Fatalf("id = %q, want cbtxn_test_123 (balance txn fallback)", id)
+	}
+
+	reqs := fake.snapshot()
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
+			t.Fatalf("paid-invoice path must NOT POST /v1/credit_notes (would 400 on $0 remaining); got body=%s", r.Body)
+		}
+	}
+	var sawCBT bool
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/balance_transactions") {
+			sawCBT = true
+			if r.IdempotencyKey != "sla-credit-org-1-2026-05" {
+				t.Fatalf("idempotency key = %q, want sla-credit-org-1-2026-05", r.IdempotencyKey)
+			}
+		}
+	}
+	if !sawCBT {
+		t.Fatalf("expected balance transaction POST after skipping paid invoice; requests=%+v", reqs)
 	}
 }
 
@@ -231,6 +280,7 @@ func TestStripeSLAIssuer_MissingCustomerID_NoStripeCall(t *testing.T) {
 func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 	fake := newStripeFake(t)
 	fake.invoiceIDByStatus["open"] = "in_test_open"
+	fake.invoiceAmountRemainingByStatus["open"] = 10_000
 
 	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_idem")})
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -263,6 +313,7 @@ func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 func TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError(t *testing.T) {
 	fake := newStripeFake(t)
 	fake.invoiceIDByStatus["open"] = "in_test_open"
+	fake.invoiceAmountRemainingByStatus["open"] = 10_000
 	fake.failNext = 1 // fail the credit-note POST
 
 	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_fail")})
