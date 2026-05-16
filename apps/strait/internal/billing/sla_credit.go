@@ -197,7 +197,7 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 	}
 
 	row := SLACreditRow{
-		ID:                 uuid.NewString(),
+		ID:                 uuid.Must(uuid.NewV7()).String(),
 		OrgID:              contract.OrgID,
 		PeriodStart:        periodStart,
 		PeriodEnd:          periodEnd,

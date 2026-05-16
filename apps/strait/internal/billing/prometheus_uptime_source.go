@@ -60,6 +60,13 @@ func NewPrometheusUptimeSource(promURL, query string, logger *slog.Logger) (*Pro
 // periodEnd. Out-of-range readings clamp to [0, 100]; a negative reading
 // (almost always a clock-skew or broken-source signal) maps to 100% so
 // we never auto-issue a credit on bad telemetry.
+//
+// The orgID parameter is intentionally ignored: Strait's `up{job="strait"}`
+// metric is service-level, so every org observes the same uptime. The
+// UptimeSource interface still carries orgID so a future per-tenant
+// implementation (Loki / ClickHouse aggregation) can swap in without
+// changing the calculator. TODO(per-tenant uptime): wire orgID into the
+// query when a real-customer ask lands.
 func (p *PrometheusUptimeSource) MonthlyUptimePct(ctx context.Context, _ string, _, periodEnd time.Time) (float64, error) {
 	val, warnings, err := p.api.Query(ctx, p.query, periodEnd)
 	if err != nil {

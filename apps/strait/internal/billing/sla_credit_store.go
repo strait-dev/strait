@@ -53,6 +53,22 @@ func NewPgSLACreditStore(pool *pgxpool.Pool) *PgSLACreditStore {
 // (org_id, period_start, period_end) is the idempotency guard:
 // concurrent ticks lose the race cleanly and surface
 // ErrSLACreditAlreadyIssued so the calculator can short-circuit.
+//
+// Concurrency note (TOCTOU between Stripe call and Insert): the
+// SLACalculator already calls IssueCredit upstream before reaching this
+// method. If two ticks race for the same (org_id, period) and both pass
+// the pre-check GetSLACredit at sla_credit.go, both will issue a Stripe
+// credit note. The Stripe SDK's idempotency key
+// (sla-credit-{orgID}-{YYYY-MM}) guarantees Stripe itself dedups, so no
+// double-charge can occur — the loser just wastes one API call. The
+// INSERT ... ON CONFLICT DO NOTHING + second-read GetSLACredit pattern
+// below is what makes the loser observable: when the row in the DB has a
+// different ID than the one we tried to insert, we return
+// ErrSLACreditAlreadyIssued and the caller silently moves on. Acceptable
+// trade-off; documented here so the next person who reads this code
+// doesn't try to "fix" the wasted call by holding a row lock across the
+// Stripe call (which would block other ticks for the duration of an
+// external network round-trip).
 func (s *PgSLACreditStore) InsertSLACredit(ctx context.Context, row SLACreditRow) error {
 	_, err := s.pool.Exec(ctx, `
         INSERT INTO sla_credits
