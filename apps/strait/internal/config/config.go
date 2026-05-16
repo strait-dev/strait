@@ -470,6 +470,12 @@ func validateLoaded(cfg *Config) error {
 	if cfg.AuditRetentionDefaultDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
 	}
+	if cfg.AuditRetentionDefaultDays > domain.MaxAuditRetentionDays {
+		return &domain.ConfigError{
+			Field:   "AUDIT_RETENTION_DEFAULT_DAYS",
+			Message: fmt.Sprintf("must be <= %d", domain.MaxAuditRetentionDays),
+		}
+	}
 	if cfg.AuditAsyncBufferSize < 256 {
 		return &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
 	}
@@ -478,6 +484,12 @@ func validateLoaded(cfg *Config) error {
 	}
 	if cfg.AuditDLQMaxAgeDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_AGE_DAYS", Message: "must be >= 0 (0 disables retention sweep)"}
+	}
+	if cfg.AuditDLQMaxAgeDays > domain.MaxAuditRetentionDays {
+		return &domain.ConfigError{
+			Field:   "AUDIT_DLQ_MAX_AGE_DAYS",
+			Message: fmt.Sprintf("must be <= %d", domain.MaxAuditRetentionDays),
+		}
 	}
 	if cfg.AuditDLQMaxReclaimAttempts < 0 {
 		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", Message: "must be >= 0 (0 disables the cap)"}

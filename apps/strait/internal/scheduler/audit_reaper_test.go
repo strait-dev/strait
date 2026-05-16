@@ -431,6 +431,37 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 	}
 }
 
+func TestReapAuditEvents_RejectsOverflowRetentionDays(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeAuditRetentionStore([]store.AuditRetentionOverride{
+		{ProjectID: "proj-overflow", Days: domain.MaxAuditRetentionDays + 1},
+	})
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(365)
+	r.reapAuditEvents(ctx)
+
+	if got := fake.perProjectCalls["proj-overflow"]; got != 0 {
+		t.Errorf("overflow override delete calls = %d, want 0", got)
+	}
+	if len(fake.excludingCalls) != 1 {
+		t.Fatalf("default sweep calls = %d, want 1", len(fake.excludingCalls))
+	}
+}
+
+func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeAuditRetentionStore(nil)
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(domain.MaxAuditRetentionDays + 1)
+	r.reapAuditEvents(ctx)
+
+	if len(fake.excludingCalls) != 0 {
+		t.Fatalf("default sweep calls = %d, want 0 for overflow default", len(fake.excludingCalls))
+	}
+}
+
 // TestReclaimAuditDeadletter_PerEventTimeout asserts that a single wedged
 // CreateAuditEvent that ignores its parent context does not stall the
 // remaining rows in the batch. Each per-row insert ctx is derived from

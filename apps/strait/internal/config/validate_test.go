@@ -236,6 +236,19 @@ func TestValidate_AuditRetentionNegative(t *testing.T) {
 	}
 }
 
+func TestValidate_AuditRetentionTooLarge(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "36501")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for oversized audit retention")
+	}
+	if !strings.Contains(err.Error(), "AUDIT_RETENTION_DEFAULT_DAYS") {
+		t.Fatalf("error = %v, want AUDIT_RETENTION_DEFAULT_DAYS", err)
+	}
+}
+
 func TestValidate_AuditBufferTooSmall(t *testing.T) {
 	setRequiredAuditEnv(t)
 	t.Setenv("AUDIT_ASYNC_BUFFER_SIZE", "100")
@@ -352,6 +365,16 @@ func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
 	_, err := Load()
 	if err != nil {
 		t.Fatalf("DLQ max age=0 should be valid (disables sweep): %v", err)
+	}
+}
+
+func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_DLQ_MAX_AGE_DAYS", "36501")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for oversized DLQ max age")
 	}
 }
 

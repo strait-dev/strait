@@ -200,6 +200,27 @@ func TestPutAuditRetention_RejectsNegative(t *testing.T) {
 	}
 }
 
+func TestPutAuditRetention_RejectsOverflowDays(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		SetAuditRetentionDaysFunc: func(_ context.Context, _ string, _ int) error {
+			t.Error("Set must not be called when input exceeds max retention")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	in := &UpdateAuditRetentionInput{ID: "proj-a"}
+	in.Body.Days = domain.MaxAuditRetentionDays + 1
+	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
+	if err == nil {
+		t.Fatal("expected 400 for overflow days, got nil")
+	}
+	if !strings.Contains(err.Error(), "maximum") {
+		t.Errorf("expected maximum error message, got %v", err)
+	}
+}
+
 func TestPutAuditRetention_ZeroDisablesTrim(t *testing.T) {
 	t.Parallel()
 

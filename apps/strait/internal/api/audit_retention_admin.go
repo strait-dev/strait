@@ -125,6 +125,9 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 	if input.Body.Days < 0 {
 		return nil, huma.Error400BadRequest("days must be >= 0 (0 disables retention trimming for this project)")
 	}
+	if input.Body.Days > domain.MaxAuditRetentionDays {
+		return nil, huma.Error400BadRequest("days exceeds maximum audit retention")
+	}
 
 	// Capture the previous value for the self-audit payload. If no
 	// override is present, record the server default as old_days so

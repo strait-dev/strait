@@ -101,7 +101,13 @@ func (r *Reaper) reapAuditEvents(ctx context.Context) {
 			// Disabled — skip trimming for this project.
 			continue
 		}
-		cutoff := now.Add(-time.Duration(ov.Days) * 24 * time.Hour)
+		cutoff, ok := auditRetentionCutoff(now, ov.Days)
+		if !ok {
+			r.logger.Error("invalid audit retention override days",
+				"project_id", ov.ProjectID, "days", ov.Days, "max_days", domain.MaxAuditRetentionDays)
+			r.recordOperation(ctx, "audit_retention", "error")
+			continue
+		}
 		deleted, err := r.store.DeleteAuditEventsBefore(ctx, ov.ProjectID, cutoff)
 		if err != nil {
 			r.logger.Error("failed to reap audit events for project",
@@ -118,7 +124,13 @@ func (r *Reaper) reapAuditEvents(ctx context.Context) {
 	}
 
 	// Default sweep across every project without an override.
-	defaultCutoff := now.Add(-time.Duration(r.auditRetentionDefaultDays) * 24 * time.Hour)
+	defaultCutoff, ok := auditRetentionCutoff(now, r.auditRetentionDefaultDays)
+	if !ok {
+		r.logger.Error("invalid audit retention default days",
+			"days", r.auditRetentionDefaultDays, "max_days", domain.MaxAuditRetentionDays)
+		r.recordOperation(ctx, "audit_retention", "error")
+		return
+	}
 	deleted, err := r.store.DeleteAuditEventsBeforeExcluding(ctx, defaultCutoff, excluded)
 	if err != nil {
 		r.logger.Error("failed to reap audit events (default)", "error", err)
@@ -198,7 +210,13 @@ func (r *Reaper) reapDeadletter(ctx context.Context) {
 	if r.auditDLQMaxAgeDays <= 0 {
 		return
 	}
-	cutoff := time.Now().UTC().Add(-time.Duration(r.auditDLQMaxAgeDays) * 24 * time.Hour)
+	cutoff, ok := auditRetentionCutoff(time.Now().UTC(), r.auditDLQMaxAgeDays)
+	if !ok {
+		r.logger.Error("invalid audit deadletter max age days",
+			"days", r.auditDLQMaxAgeDays, "max_days", domain.MaxAuditRetentionDays)
+		r.recordOperation(ctx, "audit_dlq_retention", "error")
+		return
+	}
 	dropped, err := r.store.DeleteAuditDeadletterOlderThan(ctx, cutoff)
 	if err != nil {
 		r.logger.Error("failed to drop aged audit deadletter rows", "error", err)
@@ -217,6 +235,13 @@ func (r *Reaper) reapDeadletter(ctx context.Context) {
 		r.emitDeadletterAgedAudit(ctx, projectID, n, cutoff)
 	}
 	r.recordOperation(ctx, "audit_dlq_retention", "ok")
+}
+
+func auditRetentionCutoff(now time.Time, days int) (time.Time, bool) {
+	if days <= 0 || days > domain.MaxAuditRetentionDays {
+		return time.Time{}, false
+	}
+	return now.AddDate(0, 0, -days), true
 }
 
 // emitDeadletterAgedAudit writes an audit.deadletter_aged event for a

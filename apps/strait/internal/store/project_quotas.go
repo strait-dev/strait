@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"strait/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
@@ -102,6 +104,10 @@ func (q *Queries) GetAuditRetentionDays(ctx context.Context, projectID string) (
 func (q *Queries) SetAuditRetentionDays(ctx context.Context, projectID string, days int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetAuditRetentionDays")
 	defer span.End()
+
+	if days < 0 || days > domain.MaxAuditRetentionDays {
+		return fmt.Errorf("set audit retention days: days must be between 0 and %d", domain.MaxAuditRetentionDays)
+	}
 
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO project_quotas (project_id, audit_retention_days, audit_retention_override_set)
