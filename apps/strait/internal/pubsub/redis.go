@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 // RedisPoolOptions bounds the go-redis connection pool and per-op timeouts.
@@ -130,7 +131,8 @@ func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscr
 	ctx, cancel := context.WithCancel(ctx)
 	ch := make(chan []byte, 64)
 
-	go func() {
+	var relayWG conc.WaitGroup
+	relayWG.Go(func() {
 		defer close(ch)
 		defer sub.Close()
 		msgCh := sub.Channel()
@@ -149,7 +151,7 @@ func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscr
 				}
 			}
 		}
-	}()
+	})
 
 	return &Subscription{Ch: ch, cancel: cancel}, nil
 }
