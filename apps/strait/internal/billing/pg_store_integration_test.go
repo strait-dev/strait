@@ -2405,6 +2405,32 @@ func TestPgStore_ListExpiringContracts(t *testing.T) {
 	}
 }
 
+func TestPgStore_ListExpiredContracts(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgExpired := "org-expired-contract-" + newID()
+	expired := makeContract(orgExpired, billing.EnterpriseTierStarter, time.Now().Add(-time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, expired); err != nil {
+		t.Fatal(err)
+	}
+
+	orgFuture := "org-future-contract-" + newID()
+	future := makeContract(orgFuture, billing.EnterpriseTierGrowth, time.Now().Add(24*time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, future); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := pgStore.ListExpiredContracts(ctx)
+	if err != nil {
+		t.Fatalf("ListExpiredContracts() error = %v", err)
+	}
+	if len(got) != 1 || got[0].OrgID != orgExpired {
+		t.Fatalf("expired contracts = %+v, want only %s", got, orgExpired)
+	}
+}
+
 func TestPgStore_EnterpriseContract_CrossOrgIsolation(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

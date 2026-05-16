@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"strconv"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -11,6 +13,7 @@ import (
 // ContractExpiryStore defines the store operations needed by the contract expiry checker.
 type ContractExpiryStore interface {
 	ListExpiringContracts(ctx context.Context, withinDays int) ([]billing.EnterpriseContract, error)
+	ListExpiredContracts(ctx context.Context) ([]billing.EnterpriseContract, error)
 	ListOrgAdminEmails(ctx context.Context, orgID string) ([]string, error)
 	UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error
 }
@@ -28,17 +31,20 @@ type ContractExpiryEmailSender interface {
 // ContractExpiryChecker periodically checks for enterprise contracts
 // approaching expiry and sends renewal or expiry reminder emails.
 type ContractExpiryChecker struct {
-	store    ContractExpiryStore
-	emails   ContractExpiryEmailSender
-	interval time.Duration
+	store      ContractExpiryStore
+	emails     ContractExpiryEmailSender
+	interval   time.Duration
+	reminderMu sync.Mutex
+	reminders  map[string]struct{}
 }
 
 // NewContractExpiryChecker creates a new contract expiry checker.
 func NewContractExpiryChecker(store ContractExpiryStore, emails ContractExpiryEmailSender, interval time.Duration) *ContractExpiryChecker {
 	return &ContractExpiryChecker{
-		store:    store,
-		emails:   emails,
-		interval: interval,
+		store:     store,
+		emails:    emails,
+		interval:  interval,
+		reminders: make(map[string]struct{}),
 	}
 }
 
@@ -71,16 +77,13 @@ func (c *ContractExpiryChecker) check(ctx context.Context) {
 // restrictExpiredContracts finds contracts that have already expired (end_date in the past)
 // with AutoRenew=false and sets the org's payment_status to "restricted".
 func (c *ContractExpiryChecker) restrictExpiredContracts(ctx context.Context) {
-	// ListExpiringContracts with withinDays=0 returns nothing (filters end_date > NOW()).
-	// Use withinDays=1 and filter locally for contracts already past their end date.
-	contracts, err := c.store.ListExpiringContracts(ctx, 1)
+	contracts, err := c.store.ListExpiredContracts(ctx)
 	if err != nil {
 		return
 	}
 
-	now := time.Now()
 	for _, contract := range contracts {
-		if contract.AutoRenew || contract.ContractEndDate.After(now) {
+		if contract.AutoRenew {
 			continue
 		}
 
@@ -107,6 +110,12 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 
 	for _, contract := range contracts {
 		daysRemaining := max(int(time.Until(contract.ContractEndDate).Hours()/24), 0)
+		if withinDays == 30 && daysRemaining <= 7 {
+			continue
+		}
+		if c.reminderAlreadySent(contract, withinDays) {
+			continue
+		}
 
 		emails, emailErr := c.store.ListOrgAdminEmails(ctx, contract.OrgID)
 		if emailErr != nil {
@@ -123,6 +132,7 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 		if c.emails != nil {
 			c.emails.SendEnterpriseContractReminder(ctx, emails, endDateStr, contract.AutoRenew, daysRemaining)
 		}
+		c.markReminderSent(contract, withinDays)
 
 		if contract.AutoRenew {
 			slog.Info("contract expiry checker: sent renewal reminder",
@@ -138,4 +148,21 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 			)
 		}
 	}
+}
+
+func (c *ContractExpiryChecker) reminderAlreadySent(contract billing.EnterpriseContract, withinDays int) bool {
+	c.reminderMu.Lock()
+	defer c.reminderMu.Unlock()
+	_, ok := c.reminders[contractReminderKey(contract, withinDays)]
+	return ok
+}
+
+func (c *ContractExpiryChecker) markReminderSent(contract billing.EnterpriseContract, withinDays int) {
+	c.reminderMu.Lock()
+	defer c.reminderMu.Unlock()
+	c.reminders[contractReminderKey(contract, withinDays)] = struct{}{}
+}
+
+func contractReminderKey(contract billing.EnterpriseContract, withinDays int) string {
+	return contract.OrgID + ":" + contract.ContractEndDate.UTC().Format(time.RFC3339) + ":" + strconv.Itoa(withinDays)
 }

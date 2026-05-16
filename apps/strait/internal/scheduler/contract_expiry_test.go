@@ -11,7 +11,9 @@ import (
 type mockContractExpiryStore struct {
 	contracts30 []billing.EnterpriseContract
 	contracts7  []billing.EnterpriseContract
+	expired     []billing.EnterpriseContract
 	adminEmails map[string][]string
+	restricted  []string
 	listErr     error
 }
 
@@ -25,11 +27,18 @@ func (m *mockContractExpiryStore) ListExpiringContracts(_ context.Context, withi
 	return m.contracts30, nil
 }
 
+func (m *mockContractExpiryStore) ListExpiredContracts(context.Context) ([]billing.EnterpriseContract, error) {
+	return m.expired, nil
+}
+
 func (m *mockContractExpiryStore) ListOrgAdminEmails(_ context.Context, orgID string) ([]string, error) {
 	return m.adminEmails[orgID], nil
 }
 
-func (m *mockContractExpiryStore) UpdatePaymentStatus(_ context.Context, _ string, _ string, _ *time.Time) error {
+func (m *mockContractExpiryStore) UpdatePaymentStatus(_ context.Context, orgID string, status string, _ *time.Time) error {
+	if status == "restricted" {
+		m.restricted = append(m.restricted, orgID)
+	}
 	return nil
 }
 
@@ -101,6 +110,42 @@ func TestContractExpiryChecker_Sends7DayReminder(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected 7-day expiry warning to be sent")
+	}
+}
+
+func TestContractExpiryChecker_DoesNotSend30And7DayReminderSameTick(t *testing.T) {
+	t.Parallel()
+
+	endDate := time.Now().Add(5 * 24 * time.Hour)
+	contract := billing.EnterpriseContract{OrgID: "org-1", EnterpriseTier: "enterprise_growth", ContractEndDate: endDate, AutoRenew: false}
+	store := &mockContractExpiryStore{
+		contracts30: []billing.EnterpriseContract{contract},
+		contracts7:  []billing.EnterpriseContract{contract},
+		adminEmails: map[string][]string{"org-1": {"admin@example.com"}},
+	}
+	emails := &mockContractEmailSender{}
+	checker := NewContractExpiryChecker(store, emails, time.Hour)
+	checker.check(context.Background())
+
+	if len(emails.sent) != 1 {
+		t.Fatalf("expected one reminder for same 5-day contract, got %d", len(emails.sent))
+	}
+}
+
+func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T) {
+	t.Parallel()
+
+	store := &mockContractExpiryStore{
+		expired: []billing.EnterpriseContract{
+			{OrgID: "org-expired", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: false},
+			{OrgID: "org-renewing", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: true},
+		},
+	}
+	checker := NewContractExpiryChecker(store, nil, time.Hour)
+	checker.check(context.Background())
+
+	if len(store.restricted) != 1 || store.restricted[0] != "org-expired" {
+		t.Fatalf("restricted orgs = %v, want [org-expired]", store.restricted)
 	}
 }
 
