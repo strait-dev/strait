@@ -394,6 +394,50 @@ func TestCreateNotificationDelivery(t *testing.T) {
 	}
 }
 
+func TestCreateNotificationDelivery_DedupeKeySkipsDuplicate(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-create-nd-dedupe-" + newID()
+	ch := &domain.NotificationChannel{
+		ProjectID:   projectID,
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ch",
+		Config:      []byte(`{}`),
+		Enabled:     true,
+	}
+	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		d := &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   projectID,
+			EventType:   domain.NotificationEventSpendingLimitWarning,
+			Payload:     json.RawMessage(`{"threshold":80}`),
+			Status:      "pending",
+			MaxAttempts: 3,
+			DedupeKey:   "budget:org-1:80:2026-05-16:" + projectID + ":" + ch.ID,
+		}
+		if err := q.CreateNotificationDelivery(ctx, d); err != nil {
+			t.Fatalf("CreateNotificationDelivery(%d) error = %v", i, err)
+		}
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM notification_deliveries WHERE dedupe_key = $1`,
+		"budget:org-1:80:2026-05-16:"+projectID+":"+ch.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count deduped deliveries: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("deduped delivery count = %d, want 1", count)
+	}
+}
+
 func TestClaimPendingNotificationDeliveries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

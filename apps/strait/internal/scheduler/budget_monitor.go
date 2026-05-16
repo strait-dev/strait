@@ -179,7 +179,7 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 				continue
 			}
 
-			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitReached) {
+			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitReached, alertKey) {
 				bm.markAlerted(alertKey)
 			}
 		} else if overagePct >= 80 {
@@ -188,14 +188,14 @@ func (bm *BudgetMonitor) checkSpendingLimits(ctx context.Context, today string) 
 				continue
 			}
 
-			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitWarning) {
+			if bm.sendSpendingNotification(ctx, orgID, sub, overageSpend, overagePct, domain.NotificationEventSpendingLimitWarning, alertKey) {
 				bm.markAlerted(alertKey)
 			}
 		}
 	}
 }
 
-func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID string, sub *billing.OrgSubscription, overageSpend int64, overagePct float64, eventType string) bool {
+func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID string, sub *billing.OrgSubscription, overageSpend int64, overagePct float64, eventType string, alertKey string) bool {
 	projectIDs, err := bm.spendingStore.ListProjectsByOrg(ctx, orgID)
 	if err != nil {
 		bm.logger.Warn("budget monitor: failed to list org projects",
@@ -237,6 +237,7 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 				Payload:     payload,
 				Status:      "pending",
 				MaxAttempts: 3,
+				DedupeKey:   fmt.Sprintf("budget:%s:%s:%s", alertKey, projectID, ch.ID),
 			}
 			if err := bm.spendingStore.CreateNotificationDelivery(ctx, d); err != nil {
 				bm.logger.Warn("budget monitor: failed to create spending notification delivery",
@@ -304,6 +305,7 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 					Payload:     payload,
 					Status:      "pending",
 					MaxAttempts: 3,
+					DedupeKey:   fmt.Sprintf("budget:%s:%s:%s", alertKey, projectID, ch.ID),
 				}
 				if err := bm.runLimitStore.CreateNotificationDelivery(ctx, d); err != nil {
 					bm.logger.Warn("budget monitor: failed to create run limit notification",

@@ -101,6 +101,7 @@ type NotificationDelivery struct {
 	LastError   string          `json:"last_error,omitempty"`
 	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
 	DeliveredAt *time.Time      `json:"delivered_at,omitempty"`
+	DedupeKey   string          `json:"-"`
 	ClaimToken  string          `json:"-"`
 	LeaseExpiry *time.Time      `json:"-"`
 	CreatedAt   time.Time       `json:"created_at"`

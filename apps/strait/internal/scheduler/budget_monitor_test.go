@@ -183,6 +183,9 @@ func TestBudgetMonitor_80Percent_TriggersWebhook(t *testing.T) {
 	if deliveries[0].EventType != domain.NotificationEventSpendingLimitWarning {
 		t.Errorf("expected event %s, got %s", domain.NotificationEventSpendingLimitWarning, deliveries[0].EventType)
 	}
+	if deliveries[0].DedupeKey == "" {
+		t.Fatal("expected budget notification delivery to carry a durable dedupe key")
+	}
 }
 
 func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
