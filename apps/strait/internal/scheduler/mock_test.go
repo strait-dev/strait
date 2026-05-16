@@ -56,6 +56,10 @@ type mockCronStore struct {
 	countActiveRunsForJobFn     func(ctx context.Context, jobID string) (int, error)
 	cancelActiveRunsForJobFn    func(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
 	cancelChildRunsByParentIDFn func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	getProjectQuotaFn           func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	countProjectQueuedRunsFn    func(ctx context.Context, projectID string) (int, error)
+	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
+	countRunsForJobSinceFn      func(ctx context.Context, jobID string, since time.Time) (int, error)
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -96,6 +100,34 @@ func (m *mockCronStore) CancelActiveRunsForJob(ctx context.Context, jobID string
 func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
 	if m.cancelChildRunsByParentIDFn != nil {
 		return m.cancelChildRunsByParentIDFn(ctx, parentIDs, finishedAt, reason)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
+	if m.getProjectQuotaFn != nil {
+		return m.getProjectQuotaFn(ctx, projectID)
+	}
+	return nil, nil
+}
+
+func (m *mockCronStore) CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error) {
+	if m.countProjectQueuedRunsFn != nil {
+		return m.countProjectQueuedRunsFn(ctx, projectID)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) CountProjectActiveRuns(ctx context.Context, projectID string) (int, error) {
+	if m.countProjectActiveRunsFn != nil {
+		return m.countProjectActiveRunsFn(ctx, projectID)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
+	if m.countRunsForJobSinceFn != nil {
+		return m.countRunsForJobSinceFn(ctx, jobID, since)
 	}
 	return 0, nil
 }

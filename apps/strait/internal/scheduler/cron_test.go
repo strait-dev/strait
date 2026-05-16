@@ -505,6 +505,68 @@ func TestCronScheduler_TriggerJob_DuplicateFireIsSkipped(t *testing.T) {
 	cs.triggerJob(context.Background(), domain.Job{ID: "job-1", ProjectID: "proj-1"})
 }
 
+func TestCronScheduler_TriggerJob_ProjectQueuedQuotaSkipsEnqueue(t *testing.T) {
+	t.Parallel()
+
+	enqueued := false
+	s := &mockCronStore{
+		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 1}, nil
+		},
+		countProjectQueuedRunsFn: func(_ context.Context, _ string) (int, error) {
+			return 1, nil
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil)
+	cs.triggerJob(context.Background(), domain.Job{ID: "job-quota", ProjectID: "proj-quota"})
+
+	if enqueued {
+		t.Fatal("expected cron enqueue to be skipped when project queued quota is exhausted")
+	}
+}
+
+func TestCronScheduler_TriggerJob_JobRateLimitSkipsEnqueue(t *testing.T) {
+	t.Parallel()
+
+	enqueued := false
+	s := &mockCronStore{
+		countRunsForJobSinceFn: func(_ context.Context, jobID string, since time.Time) (int, error) {
+			if jobID != "job-rate" {
+				t.Fatalf("jobID = %q, want job-rate", jobID)
+			}
+			if time.Since(since) > 2*time.Minute {
+				t.Fatalf("rate limit window since = %v, want within recent minute", since)
+			}
+			return 1, nil
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil)
+	cs.triggerJob(context.Background(), domain.Job{
+		ID:                  "job-rate",
+		ProjectID:           "proj-rate",
+		RateLimitMax:        1,
+		RateLimitWindowSecs: 60,
+	})
+
+	if enqueued {
+		t.Fatal("expected cron enqueue to be skipped when job rate limit is exhausted")
+	}
+}
+
 func TestCronScheduler_ProcessCanceledRuns_PassesWorkflowStepRunID(t *testing.T) {
 	t.Parallel()
 

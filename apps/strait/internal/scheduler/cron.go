@@ -30,6 +30,23 @@ type CronStore interface {
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 }
 
+type CronAdmissionStore interface {
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+}
+
+type cronAdmissionTransactioner interface {
+	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
+}
+
+var (
+	errCronProjectQueuedQuotaExceeded    = errors.New("cron project queued quota exceeded")
+	errCronProjectExecutingQuotaExceeded = errors.New("cron project executing quota exceeded")
+	errCronJobRateLimitExceeded          = errors.New("cron job rate limit exceeded")
+)
+
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
 }
@@ -190,12 +207,25 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 		// Treat unknown/empty as allow for forward compatibility.
 	}
 
-	if err := queue.EnqueueWithRetry(ctx, cs.queue, &run, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
+	err := cs.withCronAdmissionGuard(ctx, &job, func(enqueueCtx context.Context, tx store.DBTX) error {
+		if tx != nil && cs.queue != nil {
+			return cs.queue.EnqueueInTx(enqueueCtx, tx, &run)
+		}
+		return queue.EnqueueWithRetry(enqueueCtx, cs.queue, &run, queue.DefaultInternalEnqueueRetryConfig())
+	})
+	if err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
 			if cs.metrics != nil {
 				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
 			}
 			slog.Info("skipping duplicate cron fire", "job_id", job.ID, "project_id", job.ProjectID, "fire_key", fireKey)
+			return
+		}
+		if isCronAdmissionLimitError(err) {
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+			}
+			slog.Info("skipping cron trigger: admission limit exceeded", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
 			return
 		}
 		slog.Error("failed to enqueue cron run", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
@@ -209,6 +239,74 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	}
 
 	slog.Info("cron run enqueued", "job_id", job.ID, "project_id", job.ProjectID, "run_id", run.ID)
+}
+
+func (cs *CronScheduler) withCronAdmissionGuard(ctx context.Context, job *domain.Job, fn func(context.Context, store.DBTX) error) error {
+	limits, ok := cs.store.(CronAdmissionStore)
+	if !ok {
+		return fn(ctx, nil)
+	}
+
+	if txer, ok := cs.store.(cronAdmissionTransactioner); ok {
+		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", cronAdmissionLockID(job.ProjectID)); err != nil {
+				return fmt.Errorf("acquire cron admission lock: %w", err)
+			}
+			if err := checkCronAdmissionLimits(txCtx, limits, job); err != nil {
+				return err
+			}
+			return fn(txCtx, tx)
+		})
+	}
+
+	if err := checkCronAdmissionLimits(ctx, limits, job); err != nil {
+		return err
+	}
+	return fn(ctx, nil)
+}
+
+func checkCronAdmissionLimits(ctx context.Context, limits CronAdmissionStore, job *domain.Job) error {
+	quota, err := limits.GetProjectQuota(ctx, job.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get cron project quota: %w", err)
+	}
+	if quota != nil {
+		if quota.MaxQueuedRuns > 0 {
+			queuedRuns, countErr := limits.CountProjectQueuedRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return fmt.Errorf("evaluate cron project queued quota: %w", countErr)
+			}
+			if queuedRuns >= quota.MaxQueuedRuns {
+				return errCronProjectQueuedQuotaExceeded
+			}
+		}
+		if quota.MaxExecutingRuns > 0 {
+			activeRuns, countErr := limits.CountProjectActiveRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return fmt.Errorf("evaluate cron project active quota: %w", countErr)
+			}
+			if activeRuns >= quota.MaxExecutingRuns {
+				return errCronProjectExecutingQuotaExceeded
+			}
+		}
+	}
+	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+		runCount, countErr := limits.CountRunsForJobSince(ctx, job.ID, since)
+		if countErr != nil {
+			return fmt.Errorf("evaluate cron job rate limit: %w", countErr)
+		}
+		if runCount >= job.RateLimitMax {
+			return errCronJobRateLimitExceeded
+		}
+	}
+	return nil
+}
+
+func isCronAdmissionLimitError(err error) bool {
+	return errors.Is(err, errCronProjectQueuedQuotaExceeded) ||
+		errors.Is(err, errCronProjectExecutingQuotaExceeded) ||
+		errors.Is(err, errCronJobRateLimitExceeded)
 }
 
 func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Workflow) {
@@ -320,6 +418,13 @@ func cronFireKey(kind, id string, now time.Time) string {
 func cronFireLockID(key string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(key))
+	return int64(h.Sum64())
+}
+
+func cronAdmissionLockID(projectID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("trigger-limit:"))
+	_, _ = h.Write([]byte(projectID))
 	return int64(h.Sum64())
 }
 
