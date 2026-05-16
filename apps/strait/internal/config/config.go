@@ -285,6 +285,15 @@ type Config struct {
 	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
 	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
 
+	// Prometheus uptime source for the SLA credit calculator. When
+	// PrometheusQueryURL is unset the SLACalculator falls back to a
+	// 100% StaticUptimeSource (no breaches), which keeps community /
+	// dev deployments quiet. The default query is service-level
+	// (Strait's `up` metric) — swap it in operators' env when a
+	// per-tenant aggregation is plumbed in.
+	PrometheusQueryURL    string `env:"PROMETHEUS_QUERY_URL"`
+	PrometheusUptimeQuery string `env:"PROMETHEUS_UPTIME_QUERY" default:"avg_over_time(up{job=\"strait\"}[30d]) * 100"`
+
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
 	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`

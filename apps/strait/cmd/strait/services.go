@@ -969,7 +969,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			slaCreditStore := billing.NewPgSLACreditStore(dbPool)
 			slaCalculator := billing.NewSLACalculator(
 				&slaCalculatorStore{PgStore: billingStore, slaCreditStore: slaCreditStore},
-				billing.NewStaticUptimeSource(100.0),
+				newUptimeSource(cfg, slog.Default()),
 				24*time.Hour,
 				slog.Default(),
 			)
