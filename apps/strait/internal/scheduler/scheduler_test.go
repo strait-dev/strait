@@ -152,6 +152,12 @@ func (m *mockSchedulerStore) ListDueDebouncePending(_ context.Context) ([]domain
 	return nil, nil
 }
 func (m *mockSchedulerStore) DeleteDebouncePending(_ context.Context, _ string) error { return nil }
+func (m *mockSchedulerStore) ClaimDueDebouncePending(_ context.Context, _ string) (*domain.DebouncePending, bool, error) {
+	return nil, false, nil
+}
+func (m *mockSchedulerStore) InsertDebouncePendingIfAbsent(_ context.Context, _ *domain.DebouncePending) (bool, error) {
+	return false, nil
+}
 func (m *mockSchedulerStore) GetJob(_ context.Context, _ string) (*domain.Job, error) {
 	return nil, nil
 }

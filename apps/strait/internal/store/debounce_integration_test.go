@@ -119,6 +119,95 @@ func TestListDueDebouncePending(t *testing.T) {
 	}
 }
 
+func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-debounce-claim")
+	due := &domain.DebouncePending{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "claim-due",
+		Payload:     json.RawMessage(`{"due":true}`),
+		TriggeredBy: "api",
+		FireAt:      time.Now().UTC().Add(-1 * time.Minute),
+	}
+	if err := q.UpsertDebouncePending(ctx, due); err != nil {
+		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
+	}
+	future := &domain.DebouncePending{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "claim-future",
+		Payload:     json.RawMessage(`{"future":true}`),
+		TriggeredBy: "api",
+		FireAt:      time.Now().UTC().Add(10 * time.Minute),
+	}
+	if err := q.UpsertDebouncePending(ctx, future); err != nil {
+		t.Fatalf("UpsertDebouncePending(future) error = %v", err)
+	}
+
+	claimed, ok, err := q.ClaimDueDebouncePending(ctx, due.ID)
+	if err != nil {
+		t.Fatalf("ClaimDueDebouncePending(due) error = %v", err)
+	}
+	if !ok || claimed == nil || claimed.ID != due.ID || claimed.DebounceKey != "claim-due" {
+		t.Fatalf("claimed due row = %+v ok=%v", claimed, ok)
+	}
+
+	claimed, ok, err = q.ClaimDueDebouncePending(ctx, future.ID)
+	if err != nil {
+		t.Fatalf("ClaimDueDebouncePending(future) error = %v", err)
+	}
+	if ok || claimed != nil {
+		t.Fatalf("future row was claimed: %+v ok=%v", claimed, ok)
+	}
+}
+
+func TestInsertDebouncePendingIfAbsent_PreservesNewerPending(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-debounce-restore")
+	newer := &domain.DebouncePending{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "restore-key",
+		Payload:     json.RawMessage(`{"v":2}`),
+		TriggeredBy: "api",
+		FireAt:      time.Now().UTC().Add(10 * time.Minute),
+	}
+	if err := q.UpsertDebouncePending(ctx, newer); err != nil {
+		t.Fatalf("UpsertDebouncePending(newer) error = %v", err)
+	}
+	oldClaim := &domain.DebouncePending{
+		ID:          "old-claim",
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "restore-key",
+		Payload:     json.RawMessage(`{"v":1}`),
+		TriggeredBy: "api",
+		FireAt:      time.Now().UTC().Add(-1 * time.Minute),
+	}
+	inserted, err := q.InsertDebouncePendingIfAbsent(ctx, oldClaim)
+	if err != nil {
+		t.Fatalf("InsertDebouncePendingIfAbsent() error = %v", err)
+	}
+	if inserted {
+		t.Fatal("expected old pending restore to be skipped while newer pending exists")
+	}
+
+	items, err := q.ListDueDebouncePending(ctx)
+	if err != nil {
+		t.Fatalf("ListDueDebouncePending() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("old due pending was restored over newer future row: %+v", items)
+	}
+}
+
 func TestDeleteDebouncePending(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

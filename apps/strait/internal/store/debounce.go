@@ -79,6 +79,46 @@ func (q *Queries) DeleteDebouncePending(ctx context.Context, id string) error {
 	return nil
 }
 
+func (q *Queries) ClaimDueDebouncePending(ctx context.Context, id string) (*domain.DebouncePending, bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimDueDebouncePending")
+	defer span.End()
+
+	row := q.db.QueryRow(ctx, `
+		DELETE FROM debounce_pending
+		WHERE id = $1
+		  AND fire_at <= NOW()
+		RETURNING id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at, created_at
+	`, id)
+	d, err := scanDebouncePending(row)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("claim due debounce pending: %w", err)
+	}
+	return d, true, nil
+}
+
+func (q *Queries) InsertDebouncePendingIfAbsent(ctx context.Context, d *domain.DebouncePending) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.InsertDebouncePendingIfAbsent")
+	defer span.End()
+
+	if d.ID == "" {
+		d.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	tag, err := q.db.Exec(ctx, `
+		INSERT INTO debounce_pending (id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (job_id, debounce_key) DO NOTHING
+	`, d.ID, d.JobID, d.ProjectID, d.DebounceKey, d.Payload, d.Tags,
+		d.Priority, nilIfEmpty(d.ConcurrencyKey), d.TTLSecs, d.TriggeredBy, nilIfEmpty(d.CreatedBy), d.FireAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("insert debounce pending if absent: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func scanDebouncePending(row pgx.Row) (*domain.DebouncePending, error) {
 	var d domain.DebouncePending
 	var concurrencyKey *string
@@ -114,6 +154,8 @@ func nilIfEmpty(s string) *string {
 type DebounceStore interface {
 	ListDueDebouncePending(ctx context.Context) ([]domain.DebouncePending, error)
 	DeleteDebouncePending(ctx context.Context, id string) error
+	ClaimDueDebouncePending(ctx context.Context, id string) (*domain.DebouncePending, bool, error)
+	InsertDebouncePendingIfAbsent(ctx context.Context, d *domain.DebouncePending) (bool, error)
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*ProjectQuota, error)

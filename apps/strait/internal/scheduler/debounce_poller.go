@@ -65,12 +65,20 @@ func (p *DebouncePoller) pollLocked(ctx context.Context) error {
 	}
 
 	for _, item := range items {
-		if err := p.fireDebounce(ctx, item); err != nil {
-			slog.Error("debounce poller: fire", "id", item.ID, "job_id", item.JobID, "error", err)
+		claimed, ok, err := p.store.ClaimDueDebouncePending(ctx, item.ID)
+		if err != nil {
+			slog.Error("debounce poller: claim", "id", item.ID, "job_id", item.JobID, "error", err)
 			continue
 		}
-		if err := p.store.DeleteDebouncePending(ctx, item.ID); err != nil {
-			slog.Error("debounce poller: delete", "id", item.ID, "error", err)
+		if !ok {
+			continue
+		}
+		if err := p.fireDebounce(ctx, *claimed); err != nil {
+			slog.Error("debounce poller: fire", "id", item.ID, "job_id", item.JobID, "error", err)
+			if _, restoreErr := p.store.InsertDebouncePendingIfAbsent(ctx, claimed); restoreErr != nil {
+				slog.Error("debounce poller: restore claimed pending", "id", claimed.ID, "job_id", claimed.JobID, "error", restoreErr)
+			}
+			continue
 		}
 	}
 	return nil
