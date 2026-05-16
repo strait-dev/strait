@@ -97,14 +97,17 @@ func (ts *TenantSimulator) Run(ctx context.Context) (*TenantSimulatorResult, err
 	defer cancel()
 
 	var wg conc.WaitGroup
+	var triggerWG conc.WaitGroup
+	triggerSlots := make(chan struct{}, max(len(ts.config.Tenants)*100, 1))
 
 	for _, tenant := range ts.config.Tenants {
 		wg.Go(func() {
-			ts.simulateTenant(ctx, tenant)
+			ts.simulateTenant(ctx, tenant, &triggerWG, triggerSlots)
 		})
 	}
 
 	wg.Wait()
+	triggerWG.Wait()
 
 	return ts.buildResult(), nil
 }
@@ -120,7 +123,12 @@ func (ts *TenantSimulator) TotalRuns() int64 {
 	return ts.totalRuns.Load()
 }
 
-func (ts *TenantSimulator) simulateTenant(ctx context.Context, tenant TenantProfile) {
+func (ts *TenantSimulator) simulateTenant(
+	ctx context.Context,
+	tenant TenantProfile,
+	triggerWG *conc.WaitGroup,
+	triggerSlots chan struct{},
+) {
 	stats := &tenantStats{}
 	ts.perTenant.Store(tenant.ID, stats)
 
@@ -159,8 +167,16 @@ func (ts *TenantSimulator) simulateTenant(ctx context.Context, tenant TenantProf
 		// Pick job type based on tenant profile
 		jobType := ts.pickJobType(tenant)
 
-		// Trigger in background to not block the timing loop
-		go func() {
+		select {
+		case triggerSlots <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+
+		// Trigger in background to preserve the timing loop while still
+		// tracking in-flight work for an accurate final result.
+		triggerWG.Go(func() {
+			defer func() { <-triggerSlots }()
 			if err := ts.triggerFn(ctx, tenant, jobType); err != nil {
 				ts.totalErrs.Add(1)
 				stats.errors.Add(1)
@@ -168,7 +184,7 @@ func (ts *TenantSimulator) simulateTenant(ctx context.Context, tenant TenantProf
 			}
 			ts.totalRuns.Add(1)
 			stats.runs.Add(1)
-		}()
+		})
 	}
 }
 
