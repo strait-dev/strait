@@ -171,17 +171,6 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 		return
 	}
 
-	payload, _ := json.Marshal(map[string]any{
-		"event":           domain.NotificationEventCostAnomaly,
-		"org_id":          orgID,
-		"spike_ratio":     alert.SpikeRatio,
-		"severity":        alert.Severity,
-		"today_spend":     alert.TodaySpend,
-		"avg_7d_spend":    alert.Avg7dSpend,
-		"top_contributor": alert.TopContributor,
-		"timestamp":       time.Now().UTC(),
-	})
-
 	// Send email for high (5x+) and critical (10x+) spikes in addition to all channels.
 	isHighOrCritical := alert.Severity == billing.AnomalySeverityHigh || alert.Severity == billing.AnomalySeverityCritical
 
@@ -208,6 +197,7 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 				continue
 			}
 
+			payload := projectScopedAnomalyPayload(projectID, alert)
 			d := &domain.NotificationDelivery{
 				ChannelID:   ch.ID,
 				ProjectID:   projectID,
@@ -222,6 +212,17 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 			}
 		}
 	}
+}
+
+func projectScopedAnomalyPayload(projectID string, alert billing.AnomalyAlert) json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"event":              domain.NotificationEventCostAnomaly,
+		"project_id":         projectID,
+		"severity":           alert.Severity,
+		"is_top_contributor": projectID != "" && projectID == alert.TopContributor,
+		"timestamp":          time.Now().UTC(),
+	})
+	return payload
 }
 
 // RedisCooldown implements AnomalyCooldown using Redis SET with TTL.
