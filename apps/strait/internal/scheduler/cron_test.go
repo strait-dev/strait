@@ -764,7 +764,7 @@ func TestCronScheduler_TriggerJob_DailyCostQuotaPreventsEnqueue(t *testing.T) {
 			}
 			return &store.ProjectQuota{
 				MaxDailyCostMicrousd: 500,
-				Timezone:            "America/New_York",
+				Timezone:             "America/New_York",
 			}, nil
 		},
 		sumProjectDailyCostFn: func(_ context.Context, projectID string, timezone string) (int64, error) {
